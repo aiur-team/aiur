@@ -27,6 +27,7 @@ defmodule Aiur.RepoBase do
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+  @state_entries ["builds", "analytics", "meta"]
   @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
@@ -579,7 +580,7 @@ defmodule Aiur.RepoBase do
 
   # The old layout made the repository node itself the clone. Moving a directory
   # beneath itself is impossible, so temporarily rename it beside the node,
-  # recreate the node, lift sidecars out, and finally move the clone to latest.
+  # recreate the node, lift state out, and finally move the clone to latest.
   # The legacy marker is intentionally discarded: no record means one correct
   # rebuild after migration.
   defp migrate_legacy_layout(base_path) do
@@ -637,6 +638,7 @@ defmodule Aiur.RepoBase do
   defp finish_migration(temporary, node, base_path) do
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
+         :ok <- move_state_entries(temporary, node),
          :ok <- remove_legacy_marker(temporary) do
       File.rename(temporary, base_path)
     end
@@ -698,6 +700,77 @@ defmodule Aiur.RepoBase do
         {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
+  end
+
+  # State directories can already exist in the destination after an interrupted
+  # migration or a concurrent initializer. Merge their contents rather than
+  # leaving the legacy copy beneath `latest`; findings retain both append-only
+  # ledgers, while any other file collision is preserved under a unique name.
+  defp move_state_entries(from, to) do
+    Enum.reduce_while(@state_entries, :ok, fn entry, :ok ->
+      case move_state_entry(Path.join(from, entry), Path.join(to, entry)) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp move_state_entry(source, destination) do
+    cond do
+      not File.exists?(source) ->
+        :ok
+
+      not File.exists?(destination) ->
+        File.rename(source, destination)
+
+      File.dir?(source) and File.dir?(destination) ->
+        merge_state_directory(source, destination)
+
+      Path.basename(source) == "findings.ndjson" and Path.basename(destination) == "findings.ndjson" ->
+        merge_findings(source, destination)
+
+      true ->
+        File.rename(source, destination <> ".migrated-" <> unique_suffix())
+    end
+  end
+
+  defp merge_state_directory(source, destination) do
+    with {:ok, entries} <- File.ls(source),
+         :ok <-
+           Enum.reduce_while(entries, :ok, fn entry, :ok ->
+             case move_state_entry(Path.join(source, entry), Path.join(destination, entry)) do
+               :ok -> {:cont, :ok}
+               {:error, reason} -> {:halt, {:error, reason}}
+             end
+           end) do
+      File.rmdir(source)
+    end
+  end
+
+  defp merge_findings(source, destination) do
+    with {:ok, contents} <- File.read(source),
+         :ok <- append_file(destination, contents) do
+      File.rm(source)
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp append_file(path, contents) do
+    case File.open(path, [:append, :binary]) do
+      {:ok, device} ->
+        write_result = IO.binwrite(device, contents)
+        close_result = File.close(device)
+
+        case {write_result, close_result} do
+          {:ok, :ok} -> :ok
+          {{:error, reason}, _} -> {:error, reason}
+          {_, {:error, reason}} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp move_sidecar(from, to, sidecar) do

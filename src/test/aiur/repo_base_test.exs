@@ -76,6 +76,13 @@ defmodule Aiur.RepoBaseTest do
 
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, node])
+      File.mkdir_p!(Path.join([node, "builds", "legacy-pack"]))
+      File.mkdir_p!(Path.join([node, "analytics", "runs", "legacy-boot"]))
+      File.mkdir_p!(Path.join([node, "meta", "retros"]))
+      File.write!(Path.join([node, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
+      File.write!(Path.join([node, "analytics", "runs", "legacy-boot", "run-summary.json"]), "legacy analytics\n")
+      File.write!(Path.join([node, "meta", "findings.ndjson"]), "{\"slug\":\"legacy-finding\"}\n")
+      File.write!(Path.join([node, "meta", "retros", "preexisting.md"]), "legacy retrospective\n")
       File.mkdir_p!(Path.join([source_root, "docs", "executor"]))
       File.write!(Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"]), "legacy notes\n")
       Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
@@ -93,10 +100,47 @@ defmodule Aiur.RepoBaseTest do
       assert File.dir?(base)
       assert [imported] = Path.wildcard(Path.join(RepoBase.retros_path(repo), "legacy-*.md"))
       assert File.read!(imported) == "legacy notes\n"
+      assert File.read!(Path.join(RepoBase.builds_path(repo), "legacy-pack/pack.json")) == "legacy build\n"
+      assert File.read!(Path.join(RepoBase.analytics_path(repo), "runs/legacy-boot/run-summary.json")) == "legacy analytics\n"
+      assert File.read!(RepoBase.findings_path(repo)) == "{\"slug\":\"legacy-finding\"}\n"
+      assert File.read!(Path.join(RepoBase.retros_path(repo), "preexisting.md")) == "legacy retrospective\n"
 
       for path <- ["builds", "analytics", "meta"] do
         refute File.exists?(Path.join(base, path)), "#{path} was stranded inside latest"
       end
+    end
+
+    test "merges state left by an interrupted legacy migration", %{origin: origin, node: node, base: base} do
+      parked = node <> ".migrating-interrupted"
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.join([parked, "builds", "legacy-pack"]))
+      File.mkdir_p!(Path.join([parked, "analytics", "runs", "legacy"]))
+      File.mkdir_p!(Path.join([parked, "meta", "retros"]))
+      File.write!(Path.join([parked, "builds", "legacy-pack", "pack.json"]), "legacy build\n")
+      File.write!(Path.join([parked, "analytics", "runs", "legacy", "summary.json"]), "legacy analytics\n")
+      File.write!(Path.join([parked, "meta", "findings.ndjson"]), "{\"slug\":\"legacy\"}\n")
+      File.write!(Path.join([parked, "meta", "retros", "legacy.md"]), "legacy retrospective\n")
+
+      File.mkdir_p!(Path.join([node, "builds", "current-pack"]))
+      File.mkdir_p!(Path.join([node, "analytics", "runs", "current"]))
+      File.mkdir_p!(Path.join([node, "meta", "retros"]))
+      File.write!(Path.join([node, "builds", "current-pack", "pack.json"]), "current build\n")
+      File.write!(Path.join([node, "analytics", "runs", "current", "summary.json"]), "current analytics\n")
+      File.write!(Path.join([node, "meta", "findings.ndjson"]), "{\"slug\":\"current\"}\n")
+      File.write!(Path.join([node, "meta", "retros", "current.md"]), "current retrospective\n")
+
+      assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(Path.join([node, "builds", "legacy-pack", "pack.json"])) == "legacy build\n"
+      assert File.read!(Path.join([node, "builds", "current-pack", "pack.json"])) == "current build\n"
+      assert File.read!(Path.join([node, "analytics", "runs", "legacy", "summary.json"])) == "legacy analytics\n"
+      assert File.read!(Path.join([node, "analytics", "runs", "current", "summary.json"])) == "current analytics\n"
+      assert File.read!(Path.join([node, "meta", "retros", "legacy.md"])) == "legacy retrospective\n"
+      assert File.read!(Path.join([node, "meta", "retros", "current.md"])) == "current retrospective\n"
+
+      assert File.read!(Path.join([node, "meta", "findings.ndjson"])) ==
+               "{\"slug\":\"current\"}\n{\"slug\":\"legacy\"}\n"
     end
 
     test "recovers a clone parked by an interrupted migration", %{origin: origin, node: node, base: base} do
