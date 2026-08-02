@@ -2,7 +2,7 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
   @moduledoc false
 
   alias Aiur.{CodingAgent, ProviderMeterSnapshot}
-  alias Aiur.OpenAICompat.{Concurrency, MeterWindows}
+  alias Aiur.OpenAICompat.{BalanceBaseline, Concurrency, MeterWindows}
   alias Aiur.ProviderMeters.Events
 
   @backend :openai_compat
@@ -119,7 +119,13 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
 
       {:ok,
        [
-         credit_window("prepaid-balance-usd", balance, :deepseek_api, observed_at),
+         credit_window(
+           "prepaid-balance-usd",
+           balance,
+           :deepseek_api,
+           observed_at,
+           balance_used_percent(:deepseek, balance, opts)
+         ),
          MeterWindows.deepseek_concurrency(in_flight, observed_at)
        ]}
     else
@@ -138,7 +144,8 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
            "credits-remaining",
            max(credits - usage, 0),
            :openrouter_api,
-           observed_at
+           observed_at,
+           nil
          )
        ]}
     else
@@ -148,8 +155,25 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
 
   defp balance_windows(_provider, _body, _opts), do: {:error, :malformed}
 
-  defp credit_window(id, amount, source, observed_at) do
-    %{
+  # A prepaid balance renders an honest spend percentage only against a durable
+  # baseline. The observation that seeds the baseline has no consumption
+  # evidence yet (remaining == baseline), so it stays dollar-only; subsequent
+  # observations attach `used% = (baseline - remaining) / baseline`, clamped to
+  # 0..100 so a top-up above the baseline never renders a negative percentage.
+  defp balance_used_percent(:deepseek, balance, opts) do
+    case BalanceBaseline.resolve(:deepseek, balance, opts) do
+      {baseline, false} when baseline > 0 ->
+        ((baseline - balance) / baseline * 100) |> max(0) |> min(100)
+
+      _other ->
+        nil
+    end
+  end
+
+  defp balance_used_percent(_provider, _balance, _opts), do: nil
+
+  defp credit_window(id, amount, source, observed_at, used_percent) do
+    window = %{
       limit_id: id,
       kind: :credit,
       name: :credits,
@@ -160,6 +184,8 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
       expires_at: DateTime.add(observed_at, 300, :second),
       coverage: :supported
     }
+
+    if is_nil(used_percent), do: window, else: Map.put(window, :used_percent, used_percent)
   end
 
   defp non_negative_number(value) when is_number(value) and value >= 0,
