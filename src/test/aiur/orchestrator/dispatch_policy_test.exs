@@ -1,8 +1,7 @@
 defmodule Aiur.Orchestrator.DispatchPolicyTest do
   use Aiur.TestSupport
 
-  alias Aiur.Orchestrator.DispatchPolicy
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{DispatchPolicy, Slots, State}
 
   describe "load_gate/3" do
     test "matches the load gate truth table" do
@@ -188,6 +187,29 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       ramped = DispatchPolicy.update_load_envelope(seeded, 0.0, 1.0, 16, 2_000, current, true)
       assert ramped.effective_concurrent_agents == 10
       assert ramped.load_envelope_state.last_decrease_ms == nil
+    end
+
+    test "cold seed adds idle slots to used and reserved capacity" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 20, target_load_average: 1.0)
+
+      previous = %{total: 1_000, idle: 800, runnable: 1}
+      current = %{total: 1_200, idle: 950, runnable: 1}
+
+      state = %State{
+        max_concurrent_agents: 20,
+        effective_concurrent_agents: 8,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous},
+        running: %{
+          "active" => %{control: %{status: :working}},
+          "operator-paused" => %{control: %{status: :paused}, paused_reason: :operator_pause},
+          "ci-wait" => %{control: %{status: :paused}, paused_reason: :ci_wait}
+        }
+      }
+
+      seeded = DispatchPolicy.update_load_envelope(state, 0.0, 1.0, 16, 2_000, current, true)
+
+      assert seeded.effective_concurrent_agents == 14
+      assert Slots.available_slots(seeded) == 12
     end
 
     test "an unavailable sample clears the baseline before recovery can fast-ramp" do

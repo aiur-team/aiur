@@ -111,7 +111,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           cooldown_ms: non_neg_integer(),
           now_ms: integer(),
           cpu_headroom: SystemCpu.headroom() | :unavailable,
-          queued_work?: boolean()
+          queued_work?: boolean(),
+          used_slots: non_neg_integer()
         }
 
   @spec load_envelope(
@@ -171,7 +172,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           cooldown_ms: Config.load_cooldown_seconds() * 1_000,
           now_ms: now_ms,
           cpu_headroom: cpu_headroom,
-          queued_work?: queued_work?
+          queued_work?: queued_work?,
+          used_slots: Slots.used_slots(state)
         }
       )
 
@@ -198,7 +200,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     cond do
       cold_start? and below_target? and options.queued_work? and
           clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
-        seed_cold_start(effective, options.cpu_headroom, schedulers, options.static_limit)
+        seed_cold_start(options.cpu_headroom, schedulers, options.used_slots, options.static_limit)
 
       recovering? and options.queued_work? and
           clear_cpu_headroom?(options.cpu_headroom, schedulers) ->
@@ -246,9 +248,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp clear_cpu_headroom?(_headroom, _schedulers), do: false
 
-  defp seed_cold_start(effective, %{idle_percent: idle_percent}, schedulers, static_limit) do
+  defp seed_cold_start(%{idle_percent: idle_percent}, schedulers, used_slots, static_limit) do
     idle_slots = max(floor(idle_percent * schedulers / 100), 1)
-    {min(effective + idle_slots, static_limit), nil}
+    {min(used_slots + idle_slots, static_limit), nil}
   end
 
   defp fast_ramp(effective, last_decrease_ms, static_limit) do

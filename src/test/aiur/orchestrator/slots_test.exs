@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
         }
       }
 
+      assert Slots.used_slots(state) == 3
       assert Slots.available_slots(state) == 0
     end
 
@@ -44,6 +45,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
         }
       }
 
+      assert Slots.used_slots(state) == 2
       assert Slots.available_slots(state) == 1
     end
 

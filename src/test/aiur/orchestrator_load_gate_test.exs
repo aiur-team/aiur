@@ -242,7 +242,8 @@ defmodule Aiur.OrchestratorLoadGateTest do
         cooldown_ms: 60_000,
         now_ms: 0,
         cpu_headroom: :unavailable,
-        queued_work?: false
+        queued_work?: false,
+        used_slots: 0
       },
       Map.new(overrides)
     )
