@@ -417,13 +417,15 @@ defmodule Aiur.RepoBaseTest do
                ["foo", "bar", "builds"]
     end
 
-    test "exposes sibling meta and analytics state paths" do
+    test "exposes sibling meta, analytics, and Executor state paths" do
       repo = "https://github.com/foo/bar.git"
 
       assert RepoBase.meta_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "meta"]
       assert RepoBase.findings_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "findings.ndjson"]
       assert RepoBase.retros_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "retros"]
       assert RepoBase.analytics_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "analytics"]
+      assert RepoBase.executor_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "executor"]
+      assert RepoBase.handoff_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "executor", "handoff.md"]
       assert RepoBase.repo_relative_path(repo) == ".aiur/repo/foo/bar"
     end
   end
@@ -452,6 +454,7 @@ defmodule Aiur.RepoBaseTest do
       assert File.dir?(RepoBase.builds_path(repo))
       assert File.dir?(RepoBase.analytics_path(repo))
       assert File.dir?(RepoBase.retros_path(repo))
+      assert File.dir?(RepoBase.executor_path(repo))
 
       for sidecar <- [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"] do
         assert File.dir?(Path.join(RepoBase.repo_path(repo), sidecar))
