@@ -395,6 +395,53 @@ defmodule Aiur.AgentControlCLITest do
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
   end
 
+  test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 2,
+          effective_concurrent_agents: 2,
+          running: %{
+            "issue-paused" =>
+              running_entry("issue-paused", "repo#paused", :paused)
+              |> Map.put(:paused_reason, :operator_pause),
+            "issue-paused-two" =>
+              running_entry("issue-paused-two", "repo#paused-two", :paused)
+              |> Map.put(:paused_reason, :operator_pause)
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 2/2 (binding: paused reservations=2)"
+    refute output =~ "binding: ticket supply"
+  end
+
+  test "status uses a source-neutral session cap label", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | max_concurrent_agents: 3,
+          session_max_concurrent_agents: 1,
+          effective_concurrent_agents: 1,
+          running: %{
+            "issue-44" => running_entry("issue-44", "repo#44", :working)
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 1/1 (binding: AIMD envelope, effective cap=1)"
+
+    :sys.replace_state(pid, fn state -> %{state | effective_concurrent_agents: nil} end)
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 1/1 (binding: session max_concurrent_agents)"
+    refute output =~ "requested CLI cap"
+  end
+
   test "status prints the resolved CODEOWNERS trust snapshot", %{orchestrator: pid} do
     path = Path.join(File.cwd!(), ".github/CODEOWNERS")
 

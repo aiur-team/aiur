@@ -199,16 +199,20 @@ defmodule Aiur.Orchestrator.Slots do
   @spec max_concurrent_agent_status(State.t()) :: map()
   def max_concurrent_agent_status(%State{} = state) do
     active = State.active_running_count(state.running)
+    reserved_paused = State.reserved_paused_running_count(state.running)
     max = max_concurrent_agent_limit(state)
 
     %{
       active: active,
       paused: State.paused_running_count(state.running),
+      reserved_paused: reserved_paused,
+      occupied: active + reserved_paused,
       configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
       max: max,
       effective: effective_concurrent_agent_limit(state),
+      available: available_slots(state),
       session_override?: is_integer(state.session_max_concurrent_agents),
-      draining?: active > max
+      draining?: active + reserved_paused > max
     }
   end
 
