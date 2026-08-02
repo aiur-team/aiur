@@ -102,6 +102,10 @@ defmodule Aiur.Config do
     |> Map.get(backend, %{})
   end
 
+  @doc "Raw settings for all registry-named backends."
+  @spec agent_backend_configs() :: map()
+  def agent_backend_configs, do: settings!().agent.backend_configs || %{}
+
   @spec agent_routing() :: %{pos_integer() => String.t()}
   def agent_routing do
     settings!().agent.routing || %{}
@@ -162,16 +166,17 @@ defmodule Aiur.Config do
 
   @doc """
   Whether a recycled re-dispatch that could not resume its thread gets
-  continuation guidance instead of the cold-start prompt. Defaults to false, so
-  the dispatch path is unchanged until an operator opts in.
+  continuation guidance instead of the cold-start prompt. Defaults to true so
+  a non-resumable backend switch picks up the shared workspace without claiming
+  cross-backend conversation continuity.
   """
   @spec agent_prior_work_continuation?() :: boolean()
   def agent_prior_work_continuation? do
     case settings() do
       # Map.get, not dot access, so a config cached before this field existed
-      # returns false rather than raising after a schema upgrade.
-      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation) || false
-      _ -> false
+      # uses the current default rather than raising after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation, true)
+      _ -> true
     end
   end
 
@@ -752,7 +757,7 @@ defmodule Aiur.Config do
       settings.tracker.kind not in ["linear", "github", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
-      settings.agent.kind not in Aiur.CodingAgent.known_backends() ->
+      settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(settings.agent.backend_configs) ->
         {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->

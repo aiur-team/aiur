@@ -16,7 +16,7 @@ defmodule Aiur.CodingAgentTest do
   describe "provider presentation descriptors (registry-driven rendering)" do
     test "provider_families/0 lists families in card order, deduped across a shared family" do
       # claude and claude-repl share family :claude, so it appears once.
-      assert CodingAgent.provider_families() == [:codex, :claude, :fake]
+      assert CodingAgent.provider_families() == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
     end
 
     test "default fallback is owned by the default backend registry entry" do
@@ -25,7 +25,14 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "provider_family_map/0 keys usage attribution by registered backend" do
-      assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude, "fake" => :fake}
+      assert CodingAgent.provider_family_map() == %{
+               "codex" => :codex,
+               "claude" => :claude,
+               "kimi" => :kimi,
+               "deepseek" => :deepseek,
+               "openrouter" => :openrouter,
+               "fake" => :fake
+             }
     end
 
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
@@ -38,6 +45,10 @@ defmodule Aiur.CodingAgentTest do
       claude = CodingAgent.provider_descriptor(:claude)
       assert claude.label == "Claude"
       assert claude.css_class == "is-claude"
+
+      assert CodingAgent.provider_descriptor(:kimi).label == "Kimi"
+      assert CodingAgent.provider_descriptor(:deepseek).label == "DeepSeek"
+      assert CodingAgent.provider_descriptor(:openrouter).label == "OpenRouter"
     end
 
     test "provider_descriptor/1 is nil for an unknown provider (surfaces fall back generically)" do
@@ -45,7 +56,14 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "provider_descriptors/0 carries the resolved provider family atom and is card-ordered" do
-      assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}, %{provider: :fake, order: 2}] =
+      assert [
+               %{provider: :codex, order: 0},
+               %{provider: :claude, order: 1},
+               %{provider: :kimi, order: 2},
+               %{provider: :deepseek, order: 3},
+               %{provider: :openrouter, order: 4},
+               %{provider: :fake, order: 99}
+             ] =
                CodingAgent.provider_descriptors()
     end
 
@@ -62,6 +80,9 @@ defmodule Aiur.CodingAgentTest do
       assert Catalog.adapters_for(:codex) == [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]
       assert Catalog.adapters_for(:claude) == [Aiur.Usage.Headless.Claude.RequestUsage]
       assert Catalog.adapters_for(:fake) == [Aiur.Usage.Headless.Fake.RequestUsage]
+      assert Catalog.adapters_for(:kimi) == [Aiur.Usage.Headless.Kimi.RequestUsage]
+      assert Catalog.adapters_for(:deepseek) == [Aiur.Usage.Headless.DeepSeek.RequestUsage]
+      assert Catalog.adapters_for(:openrouter) == [Aiur.Usage.Headless.OpenRouter.RequestUsage]
       assert Dimensions.validate(:fake, Dimensions.from_options(:fake, [])) == :ok
     end
   end
@@ -344,7 +365,23 @@ defmodule Aiur.CodingAgentTest do
 
   describe "registry dispatch" do
     test "known_backends comes from the registry" do
-      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex", "fake"]
+      assert Enum.sort(CodingAgent.known_backends()) == [
+               "claude",
+               "claude-repl",
+               "codex",
+               "deepseek",
+               "fake",
+               "kimi",
+               "openrouter"
+             ]
+    end
+
+    test "DeepSeek stays registered for meters but requires an explicit dispatch opt-in" do
+      assert "deepseek" in CodingAgent.known_backends()
+      refute "deepseek" in CodingAgent.dispatchable_backends()
+      assert "deepseek" in CodingAgent.dispatchable_backends(%{"deepseek" => %{"enabled" => true}})
+      refute "deepseek" in CodingAgent.configurable_backends()
+      refute CodingAgent.override_backend(issue(["model:deepseek"]))
     end
 
     test "adapter and transcript_module resolve per backend" do
@@ -354,12 +391,19 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.transcript_module("claude") == Aiur.Claude.Transcript
       assert CodingAgent.transcript_module("codex") == Aiur.Codex.Transcript
       assert CodingAgent.transcript_module("claude-repl") == Aiur.Claude.Transcript
+      assert CodingAgent.adapter("kimi") == Aiur.OpenAICompat.CodingAgent
+      assert CodingAgent.adapter("deepseek") == Aiur.OpenAICompat.CodingAgent
+      assert CodingAgent.adapter("openrouter") == Aiur.OpenAICompat.CodingAgent
+      assert CodingAgent.transcript_module("kimi") == Aiur.OpenAICompat.Transcript
     end
 
     test "family_for keeps transport names separate from agent family" do
       assert CodingAgent.family_for("codex") == "codex"
       assert CodingAgent.family_for("claude") == "claude"
       assert CodingAgent.family_for("claude-repl") == "claude"
+      assert CodingAgent.family_for("kimi") == "kimi"
+      assert CodingAgent.family_for("deepseek") == "deepseek"
+      assert CodingAgent.family_for("openrouter") == "openrouter"
       assert CodingAgent.family_for("unknown") == nil
     end
 
@@ -367,6 +411,8 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]
       assert CodingAgent.safe_checkpoints("claude") == [:notification]
+      refute CodingAgent.can_interrupt?("kimi")
+      assert CodingAgent.safe_checkpoints("kimi") == [:notification, :tool_result]
       # The REPL holds nothing at a checkpoint, but Ctrl+C to its pane is
       # an out-of-band interrupt, so it advertises the capability.
       assert CodingAgent.can_interrupt?("claude-repl")
@@ -377,6 +423,9 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.control_application_confirmation("codex") == :confirmed
       assert CodingAgent.control_application_confirmation("claude") == :confirmed
       assert CodingAgent.control_application_confirmation("claude-repl") == :confirmed
+      assert CodingAgent.control_application_confirmation("kimi") == :request_only
+      assert CodingAgent.control_application_confirmation("deepseek") == :request_only
+      assert CodingAgent.control_application_confirmation("openrouter") == :request_only
       assert CodingAgent.control_application_confirmation("unknown") == :unsupported
     end
 

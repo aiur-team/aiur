@@ -112,8 +112,101 @@ defmodule Aiur.ProviderMeterProbeTest do
   test "probing :all covers every registry provider", ctx do
     outcomes = ProviderMeterProbe.observe(:all, opts(ctx))
 
-    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude, :fake]
+    assert Enum.map(outcomes, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
     assert List.last(outcomes) == %{provider: :fake, observed?: false, reason: :unsupported}
+  end
+
+  test "disabled providers are not probed even when their credentials exist" do
+    parent = self()
+
+    assert [%{provider: :deepseek, observed?: false, reason: :disabled}] =
+             ProviderMeterProbe.observe(:deepseek,
+               api_key_fetcher: fn env ->
+                 send(parent, {:credential_requested, env})
+                 "secret"
+               end
+             )
+
+    refute_receive {:credential_requested, _env}
+  end
+
+  test "DeepSeek probe publishes USD prepaid balance and local concurrency" do
+    :ok = Aiur.ProviderMeters.Events.subscribe_observed()
+    parent = self()
+
+    request_fun = fn request ->
+      send(parent, {:request, request})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "is_available" => true,
+           "balance_infos" => [
+             %{"currency" => "CNY", "total_balance" => "10.00"},
+             %{"currency" => "USD", "total_balance" => "7.25"}
+           ]
+         }
+       }}
+    end
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{"deepseek" => %{"enabled" => true}},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 5,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: request_fun
+             )
+
+    assert_receive {:request, request}
+    assert request.url == "https://api.deepseek.com/user/balance"
+    assert request.headers["authorization"] == "Bearer secret"
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.provider == :deepseek
+    assert snapshot.backend == :openai_compat
+    assert snapshot.provider_account_generation == nil
+    assert snapshot.windows["prepaid-balance-usd"].credits.amount == 7.25
+    assert snapshot.windows["local-concurrency"].remaining == 2_495
+  end
+
+  test "OpenRouter probe uses the management key and subtracts usage from credits" do
+    :ok = Aiur.ProviderMeters.Events.subscribe_observed()
+    parent = self()
+
+    assert %{observed?: true} =
+             ProviderMeterProbe.probe_openai_compat(:openrouter, "openrouter",
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               api_key_fetcher: fn env ->
+                 send(parent, {:key_env, env})
+                 "management-secret"
+               end,
+               openai_compat_request_fun: fn request ->
+                 send(parent, {:request, request})
+                 {:ok, %{status: 200, body: %{"data" => %{"total_credits" => 100, "total_usage" => 22.5}}}}
+               end
+             )
+
+    assert_receive {:key_env, "OPENROUTER_MANAGEMENT_KEY"}
+    assert_receive {:request, %{url: "https://openrouter.ai/api/v1/credits"}}
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.windows["credits-remaining"].credits.amount == 77.5
+  end
+
+  test "absent or malformed balance values never fabricate zero credits" do
+    :ok = Aiur.ProviderMeters.Events.subscribe_observed()
+
+    assert %{observed?: false, reason: :missing_api_key} =
+             ProviderMeterProbe.probe_openai_compat(:deepseek, "deepseek", api_key_fetcher: fn _ -> nil end)
+
+    assert %{observed?: false, reason: :malformed} =
+             ProviderMeterProbe.probe_openai_compat(:openrouter, "openrouter",
+               api_key_fetcher: fn _ -> "secret" end,
+               openai_compat_request_fun: fn _ -> {:ok, %{status: 200, body: %{"data" => %{}}}} end
+             )
+
+    refute_receive {:provider_meter_changed, _snapshot}
   end
 
   # A close that blows up must not turn the probe into a crash — the session is

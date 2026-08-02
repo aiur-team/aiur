@@ -3,16 +3,19 @@ defmodule Aiur.ProviderMeters.Input do
 
   # Registry-derived at compile time so a new metered backend needs no edit here.
   @providers Aiur.CodingAgent.provider_families()
-  @backends [:app_server]
+  @backends Enum.uniq(Enum.flat_map(@providers, &(get_in(Aiur.CodingAgent.provider_account_generation(&1) || %{}, [:backends]) || [])))
   @auth_modes [:subscription, :api_key, :unknown]
   # Per-provider app-server source atoms (`:codex_app_server`, …) derived from
   # the same registry providers, plus the provider-independent sources.
-  @sources [:provider, :adapter, :synthetic, :usage_api] ++
-             Enum.map(Aiur.CodingAgent.provider_families(), &:"#{&1}_app_server")
+  @sources Enum.uniq(
+             [:provider, :adapter, :synthetic, :usage_api] ++
+               Enum.flat_map(@providers, &(get_in(Aiur.CodingAgent.provider_account_generation(&1) || %{}, [:trusted_sources]) || []))
+           )
   @window_kinds [:rate_limit, :credit, :spend_control]
   @window_names %{
     primary: "Primary",
     secondary: "Secondary",
+    concurrency: "Local concurrency",
     credits: "Credits",
     spend_control: "Spend control",
     custom: "Provider limit"

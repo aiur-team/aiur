@@ -256,9 +256,163 @@ defmodule Aiur.CodingAgent do
         models: ["opus", "sonnet", "haiku", "opus-4-8", "sonnet-4-6", "haiku-4-5"],
         model_aliases: :native,
         efforts: ["low", "medium", "high", "xhigh", "max"]
+      },
+      "kimi" => %{
+        adapter: Aiur.OpenAICompat.CodingAgent,
+        transcript: Aiur.OpenAICompat.Transcript,
+        family: "kimi",
+        rate_limit_fallback_target: true,
+        configurable: true,
+        init_order: 2,
+        can_interrupt: false,
+        safe_checkpoints: [:notification, :tool_result],
+        control_application_confirmation: :request_only,
+        remote_control: false,
+        resumable: false,
+        models: ["kimi-k2.7-code", "kimi-k2.7-code-highspeed"],
+        model_aliases: :native,
+        efforts: [],
+        openai_compat: %{
+          base_url: "https://api.moonshot.ai/v1",
+          api_key_env: "MOONSHOT_API_KEY",
+          default_model: "kimi-k2.7-code",
+          transport: :chat_completions,
+          quirks: %{reasoning_content_replay: true}
+        },
+        presentation: %{
+          order: 2,
+          label: "Kimi",
+          logo: "/provider-assets/kimi.svg",
+          token_icon: "/provider-assets/kimi-token.svg",
+          css_class: "is-kimi",
+          command_color: "#74d9e8",
+          command_border: "rgba(116, 217, 232, 0.4)",
+          unit_color: "#74d9e8",
+          unit_border: "rgba(116, 217, 232, 0.4)",
+          unit_background: "rgba(116, 217, 232, 0.12)"
+        },
+        pricing: openai_compat_pricing(),
+        usage: %{adapters: [Aiur.Usage.Headless.Kimi.RequestUsage]},
+        meter_probe: &ProviderMeterProbe.probe_openai_compat/3,
+        usage_backend: :openai_compat,
+        usage_transport: :openai_compat,
+        account_generation: %{
+          backends: [:openai_compat],
+          trusted_sources: [:kimi_api_key, :kimi_api],
+          auth_modes: ["api_key"]
+        }
+      },
+      "deepseek" => %{
+        adapter: Aiur.OpenAICompat.CodingAgent,
+        transcript: Aiur.OpenAICompat.Transcript,
+        family: "deepseek",
+        rate_limit_fallback_target: false,
+        configurable: false,
+        dispatch_enabled_by_default: false,
+        init_order: 3,
+        can_interrupt: false,
+        safe_checkpoints: [:notification, :tool_result],
+        control_application_confirmation: :request_only,
+        remote_control: false,
+        resumable: false,
+        models: ["deepseek-v4-flash"],
+        model_aliases: :native,
+        efforts: [],
+        openai_compat: %{
+          base_url: "https://api.deepseek.com",
+          api_key_env: "DEEPSEEK_API_KEY",
+          default_model: "deepseek-v4-flash",
+          transport: :responses,
+          quirks: %{reasoning_content_replay: true, text_tool_fallback: true, local_concurrency_limit: true}
+        },
+        presentation: %{
+          order: 3,
+          label: "DeepSeek",
+          logo: "/provider-assets/deepseek.svg",
+          token_icon: "/provider-assets/deepseek-token.svg",
+          css_class: "is-deepseek",
+          command_color: "#6f9cff",
+          command_border: "rgba(111, 156, 255, 0.4)",
+          unit_color: "#6f9cff",
+          unit_border: "rgba(111, 156, 255, 0.4)",
+          unit_background: "rgba(111, 156, 255, 0.12)"
+        },
+        pricing: openai_compat_pricing(),
+        usage: %{adapters: [Aiur.Usage.Headless.DeepSeek.RequestUsage]},
+        meter_probe: &ProviderMeterProbe.probe_openai_compat/3,
+        usage_backend: :openai_compat,
+        usage_transport: :openai_compat,
+        account_generation: %{
+          backends: [:openai_compat],
+          trusted_sources: [:deepseek_api_key, :deepseek_api],
+          auth_modes: ["api_key"]
+        }
+      },
+      "openrouter" => %{
+        adapter: Aiur.OpenAICompat.CodingAgent,
+        transcript: Aiur.OpenAICompat.Transcript,
+        family: "openrouter",
+        rate_limit_fallback_target: true,
+        configurable: true,
+        init_order: 4,
+        can_interrupt: false,
+        safe_checkpoints: [:notification, :tool_result],
+        control_application_confirmation: :request_only,
+        remote_control: false,
+        resumable: false,
+        models: [
+          "deepseek/deepseek-v4-flash",
+          "moonshotai/kimi-k2.7-code",
+          "anthropic/claude-sonnet-5",
+          "anthropic/claude-opus-5"
+        ],
+        model_aliases: :native,
+        efforts: [],
+        openai_compat: %{
+          base_url: "https://openrouter.ai/api/v1",
+          api_key_env: "OPENROUTER_API_KEY",
+          management_api_key_env: "OPENROUTER_MANAGEMENT_KEY",
+          default_model: "deepseek/deepseek-v4-flash",
+          transport: :chat_completions,
+          quirks: %{openrouter_metadata: true}
+        },
+        presentation: %{
+          order: 4,
+          label: "OpenRouter",
+          logo: "/provider-assets/openrouter.svg",
+          token_icon: "/provider-assets/openrouter-token.svg",
+          css_class: "is-openrouter",
+          command_color: "#b59cff",
+          command_border: "rgba(181, 156, 255, 0.4)",
+          unit_color: "#b59cff",
+          unit_border: "rgba(181, 156, 255, 0.4)",
+          unit_background: "rgba(181, 156, 255, 0.12)"
+        },
+        pricing: openai_compat_pricing(),
+        usage: %{adapters: [Aiur.Usage.Headless.OpenRouter.RequestUsage]},
+        meter_probe: &ProviderMeterProbe.probe_openai_compat/3,
+        usage_backend: :openai_compat,
+        usage_transport: :openai_compat,
+        account_generation: %{
+          backends: [:openai_compat],
+          trusted_sources: [:openrouter_api_key, :openrouter_api],
+          auth_modes: ["api_key"]
+        }
       }
     }
     |> maybe_add_test_backend()
+  end
+
+  defp openai_compat_pricing do
+    %{
+      dimensions: %{
+        context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
+        cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
+      },
+      component_dimensions: %{
+        default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}
+      }
+    }
   end
 
   # Acceptance fixture for registry consumers. It intentionally lives only in
@@ -273,7 +427,7 @@ defmodule Aiur.CodingAgent do
         skill_install: %{path: ".fake/skills"},
         rate_limit_fallback_target: true,
         configurable: true,
-        init_order: 2,
+        init_order: 99,
         default_command: "fake-agent --serve",
         models: ["fake-1"],
         model_aliases: :native,
@@ -284,7 +438,7 @@ defmodule Aiur.CodingAgent do
         remote_control: false,
         resumable: false,
         presentation: %{
-          order: 2,
+          order: 99,
           label: "Fake",
           logo: "/provider-assets/codex-color.svg",
           token_icon: "/provider-assets/codex-token.svg",
@@ -313,6 +467,18 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Backends currently eligible for dispatch, including explicit config opt-ins."
+  @spec dispatchable_backends(map()) :: [backend()]
+  def dispatchable_backends(backend_configs \\ %{}) when is_map(backend_configs) do
+    backends()
+    |> Enum.filter(fn {backend, entry} ->
+      config = Map.get(backend_configs, backend, %{})
+      configured = Map.get(config, "enabled", Map.get(config, :enabled))
+      if is_boolean(configured), do: configured, else: Map.get(entry, :dispatch_enabled_by_default, true)
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   @doc "Backends approved by their registry entry as rate-limit fallback targets."
   @spec rate_limit_fallback_targets() :: [backend()]
@@ -359,8 +525,10 @@ defmodule Aiur.CodingAgent do
   @doc "Backends selectable during init, ordered by registry preference."
   @spec configurable_backends() :: [backend()]
   def configurable_backends do
+    dispatchable = dispatchable_backends()
+
     backends()
-    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :configurable, false) end)
+    |> Enum.filter(fn {backend, entry} -> backend in dispatchable and Map.get(entry, :configurable, false) end)
     |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
     |> Enum.map(&elem(&1, 0))
   end
@@ -446,6 +614,45 @@ defmodule Aiur.CodingAgent do
         do: {backend, String.to_atom(family)}
   end
 
+  @doc "Registry-owned usage backend and transport for a headless backend."
+  @spec usage_context(backend()) :: %{backend: atom(), transport: atom()} | nil
+  def usage_context(backend) when is_binary(backend) do
+    case Map.get(backends(), backend) do
+      %{usage: %{adapters: adapters}} = entry when is_list(adapters) and adapters != [] ->
+        %{
+          backend: Map.get(entry, :usage_backend, :app_server),
+          transport: Map.get(entry, :usage_transport, :app_server)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  def usage_context(_backend), do: nil
+
+  @doc "All registry-declared headless usage backend identities."
+  @spec usage_backends() :: [atom()]
+  def usage_backends do
+    backends()
+    |> Map.keys()
+    |> Enum.map(&usage_context/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.backend)
+    |> Enum.uniq()
+  end
+
+  @doc "All registry-declared headless usage transport identities."
+  @spec usage_transports() :: [atom()]
+  def usage_transports do
+    backends()
+    |> Map.keys()
+    |> Enum.map(&usage_context/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.transport)
+    |> Enum.uniq()
+  end
+
   @doc "Presentation descriptor for one provider family atom, or `nil` if none."
   @spec provider_descriptor(atom() | String.t() | nil) :: provider_descriptor() | nil
   def provider_descriptor(provider) when is_atom(provider) do
@@ -473,6 +680,18 @@ defmodule Aiur.CodingAgent do
     case provider_descriptor(provider) do
       %{account_generation: policy} when is_map(policy) -> policy
       _ -> nil
+    end
+  end
+
+  @doc "Primary registry-declared meter backend for a provider family."
+  @spec provider_meter_backend(atom()) :: atom()
+  def provider_meter_backend(provider) when is_atom(provider) do
+    provider
+    |> provider_account_generation()
+    |> then(&get_in(&1 || %{}, [:backends]))
+    |> case do
+      [backend | _] when is_atom(backend) -> backend
+      _ -> :app_server
     end
   end
 
@@ -510,7 +729,8 @@ defmodule Aiur.CodingAgent do
   Derived from the registry so new backends/models seed automatically.
   """
   @spec override_labels() :: [String.t()]
-  def override_labels, do: override_labels(known_backends()) ++ alias_labels() ++ override_effort_labels()
+  def override_labels,
+    do: override_labels(dispatchable_backends(Config.agent_backend_configs())) ++ alias_labels() ++ override_effort_labels()
 
   @doc "Label-only alias override labels (e.g. `model:remote`)."
   @spec alias_labels() :: [String.t()]
@@ -716,7 +936,7 @@ defmodule Aiur.CodingAgent do
   # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
   @spec override(Issue.t()) :: {backend(), String.t() | nil} | nil
   defp override(%Issue{} = issue) do
-    known = known_backends()
+    known = dispatchable_backends(Config.agent_backend_configs())
 
     issue
     |> Issue.label_names()

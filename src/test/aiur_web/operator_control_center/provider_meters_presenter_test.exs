@@ -41,12 +41,19 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "authorized composition" do
-    test "renders one card per provider in Codex-then-Claude order" do
+    test "renders one card per registry provider in registry order" do
       view = Presenter.present(authorized(), %{codex: healthy(:codex), claude: healthy(:claude)})
 
       assert view.state == :authorized
-      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :fake]
-      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Fake"]
+      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
+      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Fake"]
+    end
+
+    test "names the generic transport backend" do
+      snapshot = %{healthy(:deepseek) | backend: :openai_compat}
+      view = Presenter.present(authorized(), %{deepseek: snapshot})
+
+      assert Enum.find(view.cards, &(&1.provider == :deepseek)).backend_label == "OpenAI-compatible API"
     end
 
     test "a provider with no loaded snapshot renders loading without affecting the other card" do
