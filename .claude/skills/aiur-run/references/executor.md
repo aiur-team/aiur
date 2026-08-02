@@ -19,6 +19,7 @@ alerts, and events; planning documents preserve approved intent.
 - Recovery ladder
 - Pull-request review loop
 - Merge mechanics
+- Ticket close-out
 - Hourly meta-analysis
 - Aiur bug-report policy
 - Decisions and handoff
@@ -308,6 +309,35 @@ and `require_last_push_approval`, the only in-gate path is a bot approval, which
 defeats the gate; `--admin` does not bypass it. The current workaround is a
 documented ruleset window: back up the ruleset, disable it, merge, restore it,
 and re-read the ruleset to confirm restoration rather than trusting the write.
+
+## Ticket close-out
+
+Before closing a ticket, grep the codebase for deferred-work markers naming it:
+
+```bash
+git grep -n "Follow-up (#<N>)"
+```
+
+`Follow-up (#<N>)` is the house convention because `credo --strict` in
+`make lint` forbids `TODO` tags — the codebase has zero of them, so these
+markers are the only greppable record of work a ticket knowingly deferred. When
+one still names the ticket being closed, resolve it first: either the deferred
+work lands, or the marker is re-pointed at a successor ticket that is open.
+**Never close a ticket while live markers still name it.**
+
+The 2026-07/08 analytics-streamdeck run shows the cost. `streamdeck_live.ex`
+carried `Follow-up (#1350)` on a hardcoded fixture, `preview_key_descriptors/0`,
+which #1350's key-content model was meant to replace. #1350 closed; nobody wired
+it. Two days later the build order's capstone proof (#1358) failed: it required
+the emulator be "driven by live fleet state", and that was structurally
+impossible because the page still rendered invented data with no PubSub
+subscribe and no `handle_info/2`. The marker was correct, greppable, and named
+the exact ticket — there was simply no check that read it.
+
+The reviewer's tell arrived before the proof did: the capstone PR title had
+drifted from "driven by live fleet state" to "runbook and evidence framework".
+When a proof ticket's title slides from proving behavior to documenting it, the
+behavior is usually still missing.
 
 ## Hourly meta-analysis
 
