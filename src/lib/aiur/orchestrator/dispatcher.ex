@@ -26,6 +26,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   }
 
   alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.GitHub.AuthPreflight
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
@@ -47,9 +48,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec maybe_dispatch(State.t(), (State.t() -> State.t())) :: State.t()
   def maybe_dispatch(%State{} = state, dispatch_fun) when is_function(dispatch_fun, 1) do
+    maybe_dispatch(state, dispatch_fun, &TrackerHealth.ensure_tracker_preflight/1)
+  end
+
+  @doc false
+  @spec maybe_dispatch(
+          State.t(),
+          (State.t() -> State.t()),
+          (State.t() -> {:ok, State.t()} | {:error, term(), State.t()})
+        ) :: State.t()
+  def maybe_dispatch(%State{} = state, dispatch_fun, preflight_fun)
+      when is_function(dispatch_fun, 1) and is_function(preflight_fun, 1) do
     state = Reconciler.reconcile_running_lifecycle(state)
 
-    case TrackerHealth.ensure_tracker_preflight(state) do
+    case preflight_fun.(state) do
       {:ok, state} ->
         state
         |> clear_tracker_preflight_alert()
@@ -183,7 +195,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
        when is_map(diagnostic) do
-    formatted_reason = Aiur.GitHub.Client.format_auth_preflight_error(reason)
+    formatted_reason = AuthPreflight.format_auth_preflight_error(reason)
     classification = Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
     repo = Map.get(diagnostic, :repo) || Map.get(diagnostic, "repo") || "unknown"
 

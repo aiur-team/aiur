@@ -29,17 +29,6 @@ defmodule Aiur.GitHubAuthPreflightTest do
     end
   end
 
-  defmodule ScriptedPreflightClient do
-    def preflight_auth do
-      Agent.get_and_update(
-        Application.fetch_env!(:aiur, :github_auth_preflight_results),
-        fn [result | rest] -> {result, rest} end
-      )
-    end
-
-    def fetch_candidate_issues, do: {:ok, []}
-  end
-
   setup do
     prev_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
@@ -123,26 +112,23 @@ defmodule Aiur.GitHubAuthPreflightTest do
         ]
       end)
 
-    Application.put_env(:aiur, :github_client_module, ScriptedPreflightClient)
-    Application.put_env(:aiur, :github_auth_preflight_results, results)
+    preflight_fun = scripted_preflight(results)
 
-    on_exit(fn -> Application.delete_env(:aiur, :github_auth_preflight_results) end)
-
-    first = Dispatcher.maybe_dispatch(%State{}, & &1)
+    first = Dispatcher.maybe_dispatch(%State{}, & &1, preflight_fun)
     assert first.tracker_preflight_alert_signature == "github-auth:invalid_or_expired_token:owner/repo"
 
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = first_event}, 500
     assert first_event["reason"] =~ "fleet dispatch is paused"
     assert first_event["reason"] =~ "expected to clear automatically"
 
-    same_outage = Dispatcher.maybe_dispatch(first, & &1)
+    same_outage = Dispatcher.maybe_dispatch(first, & &1, preflight_fun)
     assert same_outage.tracker_preflight_alert_signature == first.tracker_preflight_alert_signature
     refute_receive {:event, %{topic: "system.tracker.auth_preflight_failed"}}, 100
 
-    recovered = Dispatcher.maybe_dispatch(same_outage, & &1)
+    recovered = Dispatcher.maybe_dispatch(same_outage, & &1, preflight_fun)
     assert recovered.tracker_preflight_alert_signature == nil
 
-    rearmed = Dispatcher.maybe_dispatch(recovered, & &1)
+    rearmed = Dispatcher.maybe_dispatch(recovered, & &1, preflight_fun)
     assert rearmed.tracker_preflight_alert_signature == first.tracker_preflight_alert_signature
 
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = second_event}, 500
@@ -153,17 +139,15 @@ defmodule Aiur.GitHubAuthPreflightTest do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.tracker.auth_preflight_failed")
 
-    {:ok, results} = Agent.start_link(fn -> [:missing_github_token] end)
-    Application.put_env(:aiur, :github_client_module, ScriptedPreflightClient)
-    Application.put_env(:aiur, :github_auth_preflight_results, results)
+    {:ok, results} = Agent.start_link(fn -> [{:error, :missing_github_token}] end)
+    preflight_fun = scripted_preflight(results)
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
-      Application.delete_env(:aiur, :github_auth_preflight_results)
       for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
     end)
 
-    state = Dispatcher.maybe_dispatch(%State{}, & &1)
+    state = Dispatcher.maybe_dispatch(%State{}, & &1, preflight_fun)
     assert state.tracker_preflight_alert_signature == "github-auth:missing_github_token"
 
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed"} = event}, 500
@@ -172,5 +156,16 @@ defmodule Aiur.GitHubAuthPreflightTest do
 
   test "preflight formatter handles plain reasons for logging fallback" do
     assert Client.format_auth_preflight_error(:missing_github_token) == ":missing_github_token"
+  end
+
+  defp scripted_preflight(results) do
+    fn state ->
+      Agent.get_and_update(results, fn [result | rest] ->
+        case result do
+          :ok -> {{:ok, state}, rest}
+          {:error, reason} -> {{:error, reason, state}, rest}
+        end
+      end)
+    end
   end
 end
