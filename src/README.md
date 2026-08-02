@@ -154,6 +154,12 @@ Build Order planning reads use finite `github.planning_root_limit`,
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
 
+For local planning packs, the supervised PackStatus poller writes tracker
+lifecycle facts to the sibling `status.json` projection in batches of 50
+tickets. The projection survives run boundaries; failed or incomplete tracker
+reads retain the last-known-good file and mark Build Order health stale or
+unavailable until a later refresh succeeds.
+
 The optional root-level `build_order` section configures three supervised,
 in-memory configured-repository stores. Ticket detail defaults to a 30-second
 freshness window, 32 retained identities, and 16,384 sanitized description
