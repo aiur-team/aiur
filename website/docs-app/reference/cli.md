@@ -1,6 +1,6 @@
 # CLI and control commands
 
-`aiur` is the installed command. `scripts/aiurdev` is its development wrapper: both dispatch to the same launcher engine and have the same command surface. `aiurdev` selects the local release and rebuilds it when necessary. Its only product-surface exception is `aiurdev build [--deps]`, which force-rebuilds the local release and does not exist in an installed `aiur`.
+`aiur` is the installed command. `scripts/aiurdev` is its development wrapper: both dispatch to the same launcher engine and have the same command surface. `aiurdev` selects the local release and rebuilds it when necessary. Its only command exception is `aiurdev build [--deps]`, which force-rebuilds the local release and does not exist in an installed `aiur`. The development-only harness flags are listed in [Maintenance](#maintenance).
 
 Run commands from the repository root, or from a subdirectory beneath a repository-local `.aiur/config`. A run keyed only by a home-level config is keyed by its launch directory, so control commands must be run from that same directory.
 
@@ -63,7 +63,7 @@ Run commands from the repository root, or from a subdirectory beneath a reposito
 | --- | --- | --- |
 | `aiur init` | Interactive setup. It asks for tracker and bot identity, agents, routing and fallback, permissions, workspace, concurrency and turn limits, polling, prompt path, prewarm, and alerts. | `aiur init` |
 | `aiur init --force` | Re-runs setup while preserving sibling scaffold files. | `aiur init --force` |
-| `aiur --todo ID...` | Marks one or more numeric GitHub issue IDs as queued. IDs can be space or comma separated. This is a one-shot operation and does not start the daemon. | `aiur --todo 142 143` |
+| `aiur --todo ID...` | Marks one or more numeric GitHub issue IDs as queued. IDs can be space or comma separated. This is a one-shot control operation and does not start a daemon, so it requires the keyed daemon to already be running. | `aiur --todo 142 143` |
 | `aiur --todo ID... --only` | Queues the requested issues and dequeues other pending tickets. It does not interrupt tickets already in another active lifecycle state. Treat it as a deliberate queue replacement. | `aiur --todo 142,143 --only` |
 
 On a fresh repository setup, `init` writes the config, prompt, hooks, alerts, and prewarm files; it can set up GitHub `.env`, offer a `.gitignore` entry, configure CODEOWNERS, detect agent CLIs, and create tracker labels. It runs the first base build and creates state-node build data only when prewarm is enabled and the tracker has a repository.
@@ -154,7 +154,7 @@ Executor event bindings are persistent topic-pattern subscriptions. Topic patter
 | --- | --- | --- |
 | `aiur cleanup-stale` | Reports and reaps stale manual-smoke resources for this launcher identity. | `aiur cleanup-stale` |
 | `aiur cleanup-stale --dry-run` | Reports stale manual-smoke resources without reaping them. | `aiur cleanup-stale --dry-run` |
-| `aiur stop` | Stops the matching daemon, its tmux lifetime session, and tracked agents. It is idempotent when no matching daemon is running. | `aiur stop` |
+| `aiur stop` | Stops the matching daemon, its tmux lifetime session, and tracked agents. It exits nonzero with `nothing stopped` when no matching daemon is running. | `aiur stop` |
 | `scripts/aiurdev build` | Development-only: force-rebuilds the local application and release while keeping dependency artifacts. | `scripts/aiurdev build` |
 | `scripts/aiurdev build --deps` | Development-only: additionally removes the development build artifacts before rebuilding. | `scripts/aiurdev build --deps` |
 

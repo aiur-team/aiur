@@ -57,6 +57,12 @@ documented_dev_commands="$(rg -o '<!-- cli-dev-command: [a-z-]+ -->' "$page" | s
 documented_planned_flags="$(rg -o '<!-- cli-planned-flag: --[a-z0-9-]+ -->' "$page" | sed 's/.*cli-planned-flag: //; s/ -->//' | sort -u)"
 documented_planned_commands="$(rg -o '<!-- cli-planned-command: [a-z-]+ -->' "$page" | sed 's/.*cli-planned-command: //; s/ -->//' | sort -u)"
 
+# These are deliberately unavailable, documented future interfaces. Keeping the
+# exception here prevents a prose marker from silently authorizing any other
+# stale command or flag.
+known_planned_commands="findings"
+known_planned_flags="--unfiled"
+
 has_complete_table_row() {
   local token="$1"
 
@@ -75,10 +81,11 @@ rendered_flags="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | rg -o -- '--[a-z][
 source_word_commands="$(printf '%s\n' "$source_commands" | rg '^[a-z][a-z-]*$')"
 rendered_commands="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | rg -o -- 'aiur[[:space:]]+[a-z][a-z-]*' | sed 's/^aiur[[:space:]]*//' | sort -u)"
 rendered_dev_commands="$(awk -F '|' 'NF >= 5 { print $2 }' "$page" | rg -o -- 'scripts/aiurdev[[:space:]]+[a-z][a-z-]*' | sed 's|^scripts/aiurdev[[:space:]]*||' | sort -u)"
-source_flag_tokens="$(printf '%s\n%s\n%s\n' "$source_flags" "$source_commands" "$documented_planned_flags" | rg '^--' | sort -u)"
-source_prose_commands="$(printf '%s\n%s\n' "$source_word_commands" "$documented_planned_commands" | sort -u)"
+source_flag_tokens="$(printf '%s\n%s\n%s\n' "$source_flags" "$source_commands" "$known_planned_flags" | rg '^--' | sort -u)"
+source_prose_commands="$(printf '%s\n%s\n' "$source_word_commands" "$known_planned_commands" | sort -u)"
 prose_flags="$(rg -o --no-filename -- '--[a-z][a-z0-9-]*' "$page" | sort -u)"
 prose_commands="$(rg -o --no-filename -- 'aiur[[:space:]]+[a-z][a-z-]*' "$page" | sed 's/^aiur[[:space:]]*//' | sort -u)"
+prose_dev_commands="$(rg -o --no-filename -- 'scripts/aiurdev[[:space:]]+[a-z][a-z-]*' "$page" | sed 's|^scripts/aiurdev[[:space:]]*||' | sort -u)"
 
 compare_source_to_docs() {
   local kind="$1" source="$2" documented="$3" token
@@ -112,6 +119,9 @@ compare_source_to_docs dev-command "$source_dev_commands" "$documented_dev_comma
 compare_source_to_docs rendered-dev-command "$source_dev_commands" "$rendered_dev_commands"
 compare_source_to_docs prose-flag "$source_flag_tokens" "$prose_flags"
 compare_source_to_docs prose-command "$source_prose_commands" "$prose_commands"
+compare_source_to_docs prose-dev-command "$source_dev_commands" "$prose_dev_commands"
+compare_source_to_docs planned-command "$known_planned_commands" "$documented_planned_commands"
+compare_source_to_docs planned-flag "$known_planned_flags" "$documented_planned_flags"
 
 while IFS= read -r command; do
   [ -n "$command" ] || continue
