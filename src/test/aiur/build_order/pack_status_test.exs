@@ -2,6 +2,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   use ExUnit.Case, async: false
 
   alias Aiur.BuildOrder.{PackPaths, PackStatus, ProviderHealth}
+  alias Aiur.GitHub.Config
+  alias Aiur.RepoBase
   alias AiurWeb.BuildOrder.PlanningSource
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
@@ -482,6 +484,99 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
     assert_receive {:variables, %{"owner" => "other", "name" => "project"}}
+  end
+
+  test "default polling ignores foreign override packs", _context do
+    suffix = System.unique_integer([:positive])
+    state_root = Path.join(System.tmp_dir!(), "pack-status-tracked-state-#{suffix}")
+    override_directory = Path.join(System.tmp_dir!(), "pack-status-tracked-override-#{suffix}")
+    repository = Config.repo()
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
+    previous_packs = Application.get_env(:aiur, :build_order_planning_packs)
+    previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+    System.put_env("AIUR_BUILD_ORDER_DIRS", override_directory)
+
+    state_path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "tracked", "build-order.json"])
+    foreign_path = Path.join(override_directory, "foreign.json")
+
+    File.mkdir_p!(Path.dirname(state_path))
+    File.mkdir_p!(override_directory)
+    File.write!(state_path, String.replace(@pack, "acme/widgets", repository))
+    File.write!(foreign_path, String.replace(@pack, "acme/widgets", "other/project"))
+
+    on_exit(fn ->
+      if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+      if previous_pack, do: Application.put_env(:aiur, :build_order_planning_pack, previous_pack), else: Application.delete_env(:aiur, :build_order_planning_pack)
+      if previous_packs, do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs), else: Application.delete_env(:aiur, :build_order_planning_packs)
+      if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
+      File.rm_rf(state_root)
+      File.rm_rf(override_directory)
+    end)
+
+    test = self()
+
+    poller =
+      start_supervised!(
+        {PackStatus,
+         name: nil,
+         poll_on_start: false,
+         planning_call_budget: 1,
+         token_fun: fn -> {:ok, "token"} end,
+         request_fun: fn %{body: %{"variables" => variables}} ->
+           send(test, {:repository_query, variables})
+           issues = Map.new(4101..4103, &{"i#{&1}", %{"number" => &1, "state" => "OPEN", "stateReason" => nil}})
+           {:ok, %{status: 200, body: %{"data" => %{"repository" => issues}}}}
+         end}
+      )
+
+    assert {:ok, [^state_path]} = PackStatus.refresh_sync(poller)
+    assert_receive {:repository_query, %{"owner" => owner, "name" => name}}
+    assert String.downcase("#{owner}/#{name}") == String.downcase(repository)
+    refute_receive {:repository_query, _variables}
+    refute File.exists?(PackPaths.status_path(foreign_path))
+  end
+
+  test "default polling surfaces malformed tracked manifests", _context do
+    suffix = System.unique_integer([:positive])
+    state_root = Path.join(System.tmp_dir!(), "pack-status-malformed-state-#{suffix}")
+    repository = Config.repo()
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    previous_pack = Application.get_env(:aiur, :build_order_planning_pack)
+    previous_packs = Application.get_env(:aiur, :build_order_planning_packs)
+    previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+    System.delete_env("AIUR_BUILD_ORDER_DIRS")
+
+    state_path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "malformed", "build-order.json"])
+    File.mkdir_p!(Path.dirname(state_path))
+    File.write!(state_path, "{")
+
+    on_exit(fn ->
+      if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+      if previous_pack, do: Application.put_env(:aiur, :build_order_planning_pack, previous_pack), else: Application.delete_env(:aiur, :build_order_planning_pack)
+      if previous_packs, do: Application.put_env(:aiur, :build_order_planning_packs, previous_packs), else: Application.delete_env(:aiur, :build_order_planning_packs)
+      if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
+      File.rm_rf(state_root)
+    end)
+
+    poller =
+      start_supervised!(
+        {PackStatus,
+         name: nil,
+         poll_on_start: false,
+         token_fun: fn -> {:ok, "token"} end,
+         request_fun: fn _request -> flunk("must not query a malformed manifest") end}
+      )
+
+    assert {:error, {:pack_refresh_failed, [{^state_path, {:error, :invalid_pack}}]}} = PackStatus.refresh_sync(poller)
   end
 
   test "a failed tracker read leaves the previous projection intact", context do

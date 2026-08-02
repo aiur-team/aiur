@@ -32,6 +32,15 @@ defmodule Aiur.BuildOrder.PackPaths do
     |> Enum.map(&absolute/1)
   end
 
+  @doc "Default status-poller paths, scoped to the daemon's tracked repository."
+  @spec tracked_planning() :: [Path.t()]
+  def tracked_planning do
+    case Application.get_env(:aiur, :build_order_planning_pack) do
+      path when is_binary(path) -> [absolute(path)]
+      _missing -> planning() |> Enum.reject(&foreign_repository?/1)
+    end
+  end
+
   @doc "The daemon-owned status projection path beside a pack manifest."
   @spec status_path(Path.t()) :: Path.t()
   def status_path(pack_path) when is_binary(pack_path),
@@ -72,6 +81,18 @@ defmodule Aiur.BuildOrder.PackPaths do
     Config.repo()
   rescue
     _error -> nil
+  end
+
+  defp foreign_repository?(path) do
+    with repository when is_binary(repository) and repository != "" <- configured_repository(),
+         {:ok, body} <- File.read(path),
+         {:ok, %{"repository" => pack_repository}} <- Jason.decode(body),
+         [owner, repo] when owner != "" and repo != "" <- String.split(repository, "/", parts: 2),
+         [pack_owner, pack_repo] when pack_owner != "" and pack_repo != "" <- String.split(pack_repository, "/", parts: 2) do
+      String.downcase(owner) != String.downcase(pack_owner) or String.downcase(repo) != String.downcase(pack_repo)
+    else
+      _invalid -> false
+    end
   end
 
   defp absolute(path) do
