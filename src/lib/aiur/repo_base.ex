@@ -29,11 +29,14 @@ defmodule Aiur.RepoBase do
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
   @state_entries ["builds", "analytics", "meta", "executor"]
-  @migration_lock_suffix ".migration-lock"
-  @migration_lock_owner "owner"
-  @migration_lock_stale_after_s 1
-  @migration_lock_wait_ms 10
+  @migration_lease_suffix ".migration.lease"
   @migration_lock_timeout_ms 30_000
+  @migration_lease_script ~S"""
+  exec 9>>"$1" || exit 74
+  "$2" -x 9 || exit 75
+  printf 'locked\n'
+  IFS= read -r _
+  """
   @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
@@ -612,7 +615,7 @@ defmodule Aiur.RepoBase do
 
   defp migrate_legacy_node(node, base_path) do
     if migration_required?(node) do
-      with_migration_lock(node, base_path, fn ->
+      with_migration_lock(node, fn ->
         with :ok <- recover_interrupted_migration(base_path) do
           if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
         end
@@ -622,124 +625,60 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  # `File.mkdir/1` is atomic across BEAM instances on the same host. It makes
-  # the irreversible rename of a legacy clone a single-owner operation, so a
-  # concurrent first finding append waits for the completed layout instead of
-  # racing to rename a path that no longer exists.
-  defp with_migration_lock(node, base_path, migration) do
-    lock = migration_lock_path(node)
-
-    case File.mkdir(lock) do
-      :ok ->
-        case write_migration_lock_owner(lock, node) do
-          :ok ->
-            try do
-              migration.()
-            after
-              File.rm_rf(lock)
-            end
-
-          {:error, reason} ->
-            File.rm_rf(lock)
-            {:error, {:repo_base_migration_lock_owner_failed, lock, reason}}
-        end
-
-      {:error, :eexist} ->
-        stale? = stale_migration_lock?(lock)
-
-        if stale? do
-          reclaim_stale_migration_lock(lock, node, base_path, migration)
-        else
-          with :ok <- wait_for_migration_lock(lock, @migration_lock_timeout_ms) do
-            migrate_legacy_layout(base_path)
-          end
-        end
-
-      {:error, reason} ->
-        {:error, {:repo_base_migration_lock_failed, lock, reason}}
-    end
-  end
-
-  defp wait_for_migration_lock(lock, remaining_ms) when remaining_ms <= 0,
-    do: {:error, {:repo_base_migration_lock_timeout, lock}}
-
-  defp wait_for_migration_lock(lock, remaining_ms) do
-    if File.exists?(lock) do
-      Process.sleep(@migration_lock_wait_ms)
-      wait_for_migration_lock(lock, remaining_ms - @migration_lock_wait_ms)
-    else
-      :ok
+  # The migration renames an existing clone, so an advisory OS lease is held
+  # across the whole operation. Unlike a hand-rolled directory lease, it is
+  # released when its holder dies and cannot suffer a stale-check ABA race.
+  defp with_migration_lock(node, migration) do
+    with {:ok, lease} <- acquire_migration_lease(migration_lease_path(node)) do
+      try do
+        migration.()
+      after
+        release_migration_lease(lease)
+      end
     end
   end
 
   defp migration_required?(node) do
-    File.dir?(Path.join(node, ".git")) or File.exists?(migration_lock_path(node)) or parked_migrations(node) != []
+    File.dir?(Path.join(node, ".git")) or parked_migrations(node) != []
   end
 
-  defp migration_lock_path(node), do: node <> @migration_lock_suffix
+  defp migration_lease_path(node), do: node <> @migration_lease_suffix
 
-  # Renaming is the ownership transfer: only the caller that moved the exact
-  # stale directory may remove it. Removing `lock` directly would let another
-  # reclaimer delete a fresh lock created between its stale check and removal.
-  defp reclaim_stale_migration_lock(lock, node, base_path, migration) do
-    quarantined = lock <> ".reclaiming-" <> unique_suffix()
+  defp acquire_migration_lease(path) do
+    with flock when is_binary(flock) <- System.find_executable("flock"),
+         shell when is_binary(shell) <- System.find_executable("sh") do
+      port =
+        Port.open({:spawn_executable, shell}, [
+          :binary,
+          :exit_status,
+          :hide,
+          args: ["-c", @migration_lease_script, "aiur-repo-base-lease", path, flock]
+        ])
 
-    case File.rename(lock, quarantined) do
-      :ok ->
-        with {:ok, _removed} <- File.rm_rf(quarantined) do
-          with_migration_lock(node, base_path, migration)
-        else
-          {:error, reason, _path} -> {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
-        end
-
-      # The original owner released the lock or another reclaimer claimed it.
-      # Either way, start acquisition again without touching the current lock.
-      {:error, :enoent} ->
-        with_migration_lock(node, base_path, migration)
-
-      {:error, reason} ->
-        {:error, {:repo_base_migration_lock_reclaim_failed, lock, reason}}
-    end
-  end
-
-  defp write_migration_lock_owner(lock, _node) do
-    owner = Jason.encode!(%{"node" => Atom.to_string(node()), "pid" => System.pid()})
-    File.write(Path.join(lock, @migration_lock_owner), owner)
-  end
-
-  defp stale_migration_lock?(lock) do
-    lock_old?(lock) and
-      case File.read(Path.join(lock, @migration_lock_owner)) do
-        {:ok, owner} -> not migration_lock_owner_alive?(owner)
-        {:error, _reason} -> true
+      receive do
+        {^port, {:data, "locked\n"}} -> {:ok, port}
+        {^port, {:exit_status, status}} -> {:error, {:repo_base_migration_lock_failed, path, status}}
+      after
+        @migration_lock_timeout_ms ->
+          Port.close(port)
+          {:error, {:repo_base_migration_lock_timeout, path}}
       end
-  end
-
-  defp lock_old?(lock) do
-    case File.stat(lock, time: :posix) do
-      {:ok, %{mtime: modified_at}} -> System.os_time(:second) - modified_at >= @migration_lock_stale_after_s
-      {:error, _reason} -> false
-    end
-  end
-
-  defp migration_lock_owner_alive?(owner) do
-    with {:ok, %{"pid" => owner_pid}} <- Jason.decode(owner) do
-      os_process_alive?(owner_pid)
     else
-      _ -> false
+      nil -> {:error, {:repo_base_migration_lock_unavailable, path}}
     end
   end
 
-  defp os_process_alive?(owner_pid) do
-    case Integer.parse(owner_pid) do
-      {pid, ""} when pid > 0 ->
-        case System.cmd("sh", ["-c", "kill -0 \"$1\"", "--", owner_pid], stderr_to_stdout: true) do
-          {_output, 0} -> true
-          _ -> false
-        end
+  defp release_migration_lease(port) do
+    try do
+      Port.command(port, "release\n")
 
-      _ ->
-        false
+      receive do
+        {^port, {:exit_status, _status}} -> :ok
+      after
+        1_000 -> Port.close(port)
+      end
+    rescue
+      ArgumentError -> :ok
     end
   end
 
