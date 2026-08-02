@@ -1580,6 +1580,25 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Process.sleep(:infinity)
   end
 
+  def streamdeck_snapshot do
+    %{
+      running: [streamdeck_agent("1352", "Fixture running", "codex")],
+      retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+      idle: [
+        streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
+        streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
+        streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1)
+      ]
+    }
+  end
+
+  def streamdeck_provider_meters do
+    %{
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used" => 3}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used" => 5}}}
+    }
+  end
+
   defp configure_forwarded_dashboard do
     config =
       :aiur
@@ -1588,10 +1607,29 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         server: false,
         dashboard_writable: false,
         control_center_cache: false,
-        snapshot_timeout_ms: 100
+        snapshot_timeout_ms: 100,
+        streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
+        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0
       )
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  defp streamdeck_agent(identifier, title, backend, attrs \\ []) do
+    Map.merge(
+      %{
+        identifier: identifier,
+        title: title,
+        backend: backend,
+        work_state: :working,
+        open_decision_count: 0,
+        waiting_reason: :active,
+        tracker_paused: false,
+        progress_percent: 50,
+        priority: nil
+      },
+      Map.new(attrs)
+    )
   end
 end
 

@@ -303,6 +303,11 @@
           if (self._mode === "grid") {
             self._setMode("cmd");
           }
+
+          var identifier = key.getAttribute("data-streamdeck-identifier");
+          if (identifier) {
+            self.pushEvent("key-press", { identifier: identifier });
+          }
         };
         key.addEventListener("click", handler);
         self._keyHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
