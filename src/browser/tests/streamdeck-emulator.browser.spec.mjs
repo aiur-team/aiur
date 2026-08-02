@@ -278,6 +278,16 @@ test('an active dial drag commits its final value after a LiveView patch', async
 
   const dialD = page.locator('.sd-knob').nth(3)
   const keys = page.locator('#sd-keys')
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+  const eventCountBeforeDrag = await page.evaluate(() => window.__streamdeckGridEvents.length)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -297,6 +307,9 @@ test('an active dial drag commits its final value after a LiveView patch', async
 
   const finalValue = await dialD.getAttribute('aria-valuenow')
   await expect(keys).toHaveAttribute('data-grid-dial-value', finalValue, { timeout: 1000 })
+  const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
+  expect(releaseEvents).toHaveLength(eventCountBeforeDrag + 1)
+  expect(releaseEvents.at(-1)).toMatchObject({ name: 'grid-page', payload: { value: Number(finalValue) } })
 })
 
 test('dial D pages live fleet keys and pager dots', async ({ page }) => {
@@ -341,6 +354,38 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await expect(dialD).toHaveAttribute('aria-valuenow', '100')
   expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angleBeforeCycle)
 
+  await dialD.hover()
+  await page.mouse.wheel(0, 100)
+  await expect(dialD).toHaveAttribute('aria-valuenow', '96')
+  const angleAfterWheel = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
+  expect(angleAfterWheel).toBeLessThan(parseFloat(angleBeforeCycle))
+
+  await dialD.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '92')
+  const angleAfterKey = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
+  expect(angleAfterKey).toBeLessThan(angleAfterWheel)
+
+  const dragBox = await dialD.boundingBox()
+  const dragCx = dragBox.x + dragBox.width / 2
+  const dragCy = dragBox.y + dragBox.height / 2
+  const dragRadius = Math.min(dragBox.width, dragBox.height) / 3
+  const dragPoint = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: dragCx + Math.cos(radians) * dragRadius, y: dragCy + Math.sin(radians) * dragRadius }
+  }
+  await page.mouse.move(...Object.values(dragPoint(0)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(dragPoint(-30)))
+  await page.mouse.up()
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeLessThan(92)
+  const angleAfterDrag = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
+  expect(angleAfterDrag).toBeLessThan(angleAfterKey)
+
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '2')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
   await dialD.click()
   await expect(keys).toHaveAttribute('data-grid-page', '0')
   await expect(keys).toHaveAttribute('data-grid-dial-value', '0')

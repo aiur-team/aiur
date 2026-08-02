@@ -170,11 +170,14 @@
   };
 
   Knob.prototype._step = function (delta, notify) {
+    var previousPreciseValue = this.preciseValue;
     this.preciseValue = clamp(this.preciseValue + delta, 0, 100);
+    var appliedDelta = this.preciseValue - previousPreciseValue;
     this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
-    // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
-    this.visualAngle = (this.value / 100) * 270 - 135;
+    // Apply relative input to the retained physical marker. Programmatic
+    // logical sync may intentionally leave the marker at a different angle.
+    this.visualAngle = clamp(this.visualAngle + (appliedDelta * 270) / 100, -135, 135);
     this.knobEl.style.setProperty("--a", this.visualAngle + "deg");
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
     if (notify !== false) this.hook._handleDialStep(this.index, delta);
