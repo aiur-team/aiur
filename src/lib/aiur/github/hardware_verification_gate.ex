@@ -15,11 +15,10 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
          HardwareVerification.signoff_required?(issue_body, context.prefix) do
       with :ok <- HardwareVerification.verify_terminal_transition(issue_body, state_name, context.prefix),
            {:ok, events} <- fetch_timeline_events(context),
-           {:ok, verified_actor} <- latest_signoff_actor(events, HardwareVerification.verified_label(context.prefix)),
-           true <- operator_authorized?(verified_actor, context),
            outcome_label when is_binary(outcome_label) <- HardwareVerification.outcome_label(issue_body, context.prefix),
-           {:ok, actor} <- latest_signoff_actor(events, outcome_label),
-           true <- operator_authorized?(actor, context) do
+           {:ok, identity} <- signoff_identity(events, outcome_label, context),
+           true <- operator_authorized?(identity.verified.actor, context),
+           true <- operator_authorized?(identity.outcome.actor, context) do
         :ok
       else
         false -> {:error, {:operator_signoff_event_required, :untrusted_actor}}
@@ -34,18 +33,25 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
   @doc false
   @spec passing_operator_signoff?(map(), map()) :: boolean()
   def passing_operator_signoff?(context, issue_body) do
+    match?({:ok, _identity}, passing_operator_signoff_identity(context, issue_body))
+  end
+
+  @doc false
+  @spec passing_operator_signoff_identity(map(), map()) :: {:ok, map()} | {:error, term()}
+  def passing_operator_signoff_identity(context, issue_body) do
     passed = HardwareVerification.passed_label(context.prefix)
 
-    HardwareVerification.outcome_label(issue_body, context.prefix) == passed and
-      with {:ok, events} <- fetch_timeline_events(context),
-           {:ok, verified_actor} <- latest_signoff_actor(events, HardwareVerification.verified_label(context.prefix)),
-           true <- operator_authorized?(verified_actor, context),
-           {:ok, passed_actor} <- latest_signoff_actor(events, passed),
-           true <- operator_authorized?(passed_actor, context) do
-        true
-      else
-        _ -> false
-      end
+    with ^passed <- HardwareVerification.outcome_label(issue_body, context.prefix),
+         {:ok, events} <- fetch_timeline_events(context),
+         {:ok, identity} <- signoff_identity(events, passed, context),
+         true <- operator_authorized?(identity.verified.actor, context),
+         true <- operator_authorized?(identity.outcome.actor, context) do
+      {:ok, identity}
+    else
+      false -> {:error, :untrusted_actor}
+      {:error, _reason} = error -> error
+      _ -> {:error, :missing_passing_operator_signoff}
+    end
   end
 
   @spec flag_ci_blind_spot(map(), map(), String.t()) :: :ok | {:error, term()}
@@ -81,7 +87,13 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     #{@notice_marker}
     ## Hardware verification required
 
-    CI cannot exercise this PR's hardware-dependent acceptance criteria. A configured human operator must perform the physical verification, apply `#{HardwareVerification.verified_label(prefix)}`, and then record exactly one outcome: `#{HardwareVerification.passed_label(prefix)}` for a passing go decision or `#{HardwareVerification.no_go_label(prefix)}` for a failed no-go decision. Aiur records authenticated label events for both steps; only a passing outcome can release dependent work.
+    CI cannot exercise this PR's hardware-dependent acceptance criteria.
+    A configured human operator must perform the physical verification and apply
+    `#{HardwareVerification.verified_label(prefix)}`, then record exactly one outcome:
+    `#{HardwareVerification.passed_label(prefix)}` for a passing go decision or
+    `#{HardwareVerification.no_go_label(prefix)}` for a failed no-go decision.
+    Aiur records authenticated label events for both steps; only a passing outcome can
+    release dependent work.
     """
   end
 
@@ -115,18 +127,34 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     end
   end
 
-  defp latest_signoff_actor(events, label) when is_list(events) do
+  defp signoff_identity(events, outcome_label, context) do
+    with {:ok, verified} <- latest_signoff_event(events, HardwareVerification.verified_label(context.prefix)),
+         {:ok, outcome} <- latest_signoff_event(events, outcome_label) do
+      {:ok, %{verified: verified, outcome: outcome}}
+    end
+  end
+
+  defp latest_signoff_event(events, label) when is_list(events) do
     events
     |> Enum.filter(&signoff_event?(&1, label))
-    |> Enum.map(&{event_sort_key(&1), actor_login(&1)})
-    |> Enum.filter(fn {sort_key, actor} -> not is_nil(sort_key) and is_binary(actor) end)
+    |> Enum.map(&{event_sort_key(&1), signoff_identity_event(&1)})
+    |> Enum.filter(fn {sort_key, identity} -> not is_nil(sort_key) and is_map(identity) end)
     |> case do
       [] -> {:error, {:operator_signoff_event_required, :missing_verified_label_event}}
       signed_events -> {:ok, signed_events |> Enum.max_by(&elem(&1, 0)) |> elem(1)}
     end
   end
 
-  defp latest_signoff_actor(_events, _label), do: {:error, {:operator_signoff_event_required, :invalid_timeline_response}}
+  defp latest_signoff_event(_events, _label), do: {:error, {:operator_signoff_event_required, :invalid_timeline_response}}
+
+  defp signoff_identity_event(event) do
+    with {timestamp, event_id} when is_integer(timestamp) and is_integer(event_id) <- event_sort_key(event),
+         %{"login" => login} = actor when is_binary(login) <- Map.get(event, "actor") do
+      %{event_id: event_id, occurred_at: Map.get(event, "created_at"), actor: actor}
+    else
+      _ -> nil
+    end
+  end
 
   defp signoff_event?(event, label) when is_map(event) do
     (Map.get(event, "event") || Map.get(event, "type")) == "labeled" and
@@ -157,15 +185,15 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
 
   defp normalize_event_id(_id), do: nil
 
-  defp actor_login(event), do: get_in(event, ["actor", "login"])
-
   defp case_insensitive_equal?(left, right) when is_binary(left) and is_binary(right),
     do: String.downcase(String.trim(left)) == String.downcase(String.trim(right))
 
   defp case_insensitive_equal?(_left, _right), do: false
 
-  defp operator_authorized?(actor, context) do
+  defp operator_authorized?(%{"login" => login}, context) do
     authorizer = Keyword.get(context.opts, :operator_authorized?, &Config.human_merger_allowed?/1)
-    authorizer.(actor)
+    authorizer.(login)
   end
+
+  defp operator_authorized?(_actor, _context), do: false
 end

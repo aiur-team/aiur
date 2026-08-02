@@ -50,6 +50,45 @@ defmodule Aiur.HardwareVerificationTest do
     refute HardwareVerification.required?(issue)
   end
 
+  test "routes real spike sequence criteria while ignoring only their negated clauses" do
+    issue = %Issue{
+      description: """
+      ## Spike sequence
+      1. **udev + enumeration.** Install udev rules, physically unplug/replug, and confirm /dev/hidraw0 enumerates.
+      2. Do not use sudo, but press the dial on the physical device and record the event.
+      3. Test mock systemctl behavior without touching a device.
+      """
+    }
+
+    signals = HardwareVerification.detected_signals(issue)
+
+    assert :udev in signals
+    assert :device_path in signals
+    assert :physical_action in signals
+    refute :privileged_operation in signals
+    refute :system_service in signals
+  end
+
+  test "detects the hardware go/no-go in the #1342 spike format" do
+    issue = %Issue{
+      description: """
+      ## Spike sequence
+      1. **udev + enumeration.** Reload, physically unplug/replug, and run the HID example.
+      2. **Input + output round-trip — the go/no-go.** Log rotate / down / up events and write a full-width LCD image.
+      3. **Suspend/resume.** `systemctl suspend`, resume, and verify the heartbeat recovers.
+
+      ## Sub-check
+
+      Can the hidraw backend send feature reports on the current kernel?
+      """
+    }
+
+    assert HardwareVerification.required?(issue)
+    assert :udev in HardwareVerification.detected_signals(issue)
+    assert :physical_action in HardwareVerification.detected_signals(issue)
+    assert :system_service in HardwareVerification.detected_signals(issue)
+  end
+
   test "requires explicit operator sign-off before a detected ticket can finish" do
     issue = %{
       "body" => "## Acceptance\n- Run sudo udevadm trigger and verify the physical device.",
@@ -113,5 +152,19 @@ defmodule Aiur.HardwareVerificationTest do
 
     refute HardwareVerification.dependency_resolved?(issue, "agent")
     assert HardwareVerification.dependency_resolved?(Map.put(issue, :operator_signoff_valid?, true), "agent")
+  end
+
+  test "invalidates every stale operator outcome before recording a new untestable report" do
+    test_pid = self()
+
+    assert :ok =
+             HardwareVerification.invalidate_operator_signoff("1483", "agent", fn issue_id, label ->
+               send(test_pid, {:removed, issue_id, label})
+               :ok
+             end)
+
+    assert_received {:removed, "1483", "agent:operator-verified"}
+    assert_received {:removed, "1483", "agent:operator-verification-passed"}
+    assert_received {:removed, "1483", "agent:operator-verification-no-go"}
   end
 end

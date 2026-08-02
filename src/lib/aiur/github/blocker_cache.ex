@@ -38,6 +38,32 @@ defmodule Aiur.GitHub.BlockerCache do
     :ok
   end
 
+  @doc false
+  @spec scheduled_refreshes([String.t()], non_neg_integer()) :: MapSet.t(String.t())
+  def scheduled_refreshes(issue_ids, limit) when is_list(issue_ids) and is_integer(limit) and limit >= 0 do
+    candidates = Enum.uniq(issue_ids)
+
+    case candidates do
+      [] ->
+        MapSet.new()
+
+      _ ->
+        table = ensure_table()
+        cursor = cursor(table, length(candidates))
+        rotated = Enum.drop(candidates, cursor) ++ Enum.take(candidates, cursor)
+        selected = Enum.take(rotated, limit)
+        :ets.insert(table, {:refresh_cursor, rem(cursor + length(selected), length(candidates))})
+        MapSet.new(selected)
+    end
+  end
+
+  @doc false
+  @spec put(String.t(), [map()], keyword()) :: :ok
+  def put(issue_id, blockers, opts \\ []) when is_binary(issue_id) and is_list(blockers) do
+    :ets.insert(ensure_table(), {{:blockers, issue_id}, now_ms(opts), blockers})
+    :ok
+  end
+
   defp refresh(issue_id, stale, fetcher, now_ms) do
     case fetcher.() do
       {:ok, blockers} when is_list(blockers) ->
@@ -61,6 +87,13 @@ defmodule Aiur.GitHub.BlockerCache do
   end
 
   defp now_ms(opts), do: Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
+
+  defp cursor(table, count) do
+    case :ets.lookup(table, :refresh_cursor) do
+      [{:refresh_cursor, cursor}] when is_integer(cursor) and cursor >= 0 -> rem(cursor, count)
+      _ -> 0
+    end
+  end
 
   defp ensure_table do
     case :ets.whereis(@table) do

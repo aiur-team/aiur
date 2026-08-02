@@ -370,39 +370,39 @@ defmodule Aiur.AgentRunner.ToolExecutor do
   end
 
   defp report_untestable(%{issue: issue} = event_context, criterion, reason) do
-    required_label = HardwareVerification.required_label(Config.label_prefix())
+    prefix = Config.label_prefix()
+    required_label = HardwareVerification.required_label(prefix)
     identifier = issue_identifier(issue)
+    issue_id = to_string(Map.get(issue, :id) || identifier)
     message = "Unverifiable criterion: #{criterion}"
 
-    alert_result =
-      Alerts.emit_custom("ticket.#{identifier}.agent.hardware.untestable", message,
-        issue: issue,
-        workspace: event_context.workspace,
-        worker_host: event_context.worker_host,
-        reason: reason,
-        needs_attention: true,
-        severity: "warning",
-        observation_identity: Issue.tracker_identity(issue),
-        observation_source: %{kind: :agent_hardware_untestable},
-        observation_provenance: observation_provenance(event_context.app_session, event_context.attempt_id),
-        occurred_at: DateTime.utc_now()
-      )
+    with :ok <- HardwareVerification.invalidate_operator_signoff(issue_id, prefix),
+         :ok <- Tracker.add_label(issue_id, required_label),
+         :ok <-
+           Alerts.emit_custom("ticket.#{identifier}.agent.hardware.untestable", message,
+             issue: issue,
+             workspace: event_context.workspace,
+             worker_host: event_context.worker_host,
+             reason: reason,
+             needs_attention: true,
+             severity: "warning",
+             observation_identity: Issue.tracker_identity(issue),
+             observation_source: %{kind: :agent_hardware_untestable},
+             observation_provenance: observation_provenance(event_context.app_session, event_context.attempt_id),
+             occurred_at: DateTime.utc_now()
+           ) do
+      _ =
+        emit_agent_event(
+          event_context,
+          "custom.hardware-untestable",
+          message,
+          %{"criterion" => criterion, "reason" => reason, "required_label" => required_label}
+        )
 
-    label_result = Tracker.add_label(to_string(Map.get(issue, :id) || identifier), required_label)
-
-    _ =
-      emit_agent_event(
-        event_context,
-        "custom.hardware-untestable",
-        message,
-        %{"criterion" => criterion, "reason" => reason, "required_label" => required_label}
-      )
-
-    case {alert_result, label_result} do
-      {:ok, :ok} -> :ok
-      {{:error, reason}, _label_result} -> {:error, {:untestable_alert_failed, reason}}
-      {_alert_result, {:error, reason}} -> {:error, {:operator_verification_mark_failed, reason}}
-      {_alert_result, other} -> {:error, {:operator_verification_mark_failed, other}}
+      :ok
+    else
+      {:error, reason} -> {:error, {:operator_verification_mark_failed, reason}}
+      other -> {:error, {:operator_verification_mark_failed, other}}
     end
   end
 

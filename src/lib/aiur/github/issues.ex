@@ -8,7 +8,11 @@ defmodule Aiur.GitHub.Issues do
   alias Aiur.GitHub.{BlockerCache, DependenciesApi, DispatchAuthorization, Errors, HardwareVerificationGate, Labels, StatePolicy, Transport}
 
   @max_issue_response_bytes 65_536
-  @max_blocker_refreshes_per_poll 20
+  # A dependency lookup can require up to four timeline pages to authenticate
+  # a passing hardware blocker. Reserve that worst case from one total poll
+  # budget rather than multiplying it by the number of candidate issues.
+  @max_blocker_hydration_requests_per_poll 20
+  @max_timeline_requests_per_blocker 4
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -288,70 +292,132 @@ defmodule Aiur.GitHub.Issues do
 
   defp attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
     cache? = Keyword.get(opts, :cache_blockers, not Keyword.has_key?(opts, :request_fun))
+    cache_opts = Keyword.take(opts, [:now_ms, :ttl_ms])
 
-    {enriched, _remaining_refreshes} =
-      Enum.map_reduce(issues, @max_blocker_refreshes_per_poll, fn issue, remaining_refreshes ->
-        {blockers, remaining_refreshes} =
-          hydrate_blockers(issue, request_fun, cache?, Keyword.put_new(opts, :token, token), remaining_refreshes, owner, repo, prefix)
+    refreshable_ids =
+      if cache? do
+        Enum.flat_map(issues, fn issue ->
+          case BlockerCache.cached(issue.id, cache_opts) do
+            {:fresh, _blockers} -> []
+            _ -> [issue.id]
+          end
+        end)
+      else
+        Enum.map(issues, & &1.id)
+      end
+
+    scheduled_refreshes =
+      BlockerCache.scheduled_refreshes(refreshable_ids, @max_blocker_hydration_requests_per_poll)
+
+    {enriched, _remaining_requests} =
+      Enum.map_reduce(issues, @max_blocker_hydration_requests_per_poll, fn issue, remaining_requests ->
+        {blockers, remaining_requests} =
+          hydrate_blockers(
+            issue,
+            request_fun,
+            cache?,
+            Keyword.put_new(opts, :token, token),
+            remaining_requests,
+            MapSet.member?(scheduled_refreshes, issue.id),
+            owner,
+            repo,
+            prefix
+          )
 
         normalized = Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))
-        {%{issue | blocked_by: normalized}, remaining_refreshes}
+        {%{issue | blocked_by: normalized}, remaining_requests}
       end)
 
     {:ok, enriched}
   end
 
-  defp hydrate_blockers(issue, request_fun, true, opts, remaining_refreshes, owner, repo, prefix) do
-    fetcher = fn ->
-      with {:ok, blockers} <- DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
-        {:ok, Enum.map(blockers, &annotate_blocker_signoff(&1, request_fun, token_for(opts), owner, repo, prefix, opts))}
-      end
-    end
-
+  defp hydrate_blockers(issue, request_fun, true, opts, remaining_requests, scheduled?, owner, repo, prefix) do
     cache_opts = Keyword.take(opts, [:now_ms, :ttl_ms])
 
     case BlockerCache.cached(issue.id, cache_opts) do
       {:fresh, blockers} ->
-        {blockers, remaining_refreshes}
+        {blockers, remaining_requests}
 
-      {:stale, blockers} when remaining_refreshes == 0 ->
-        {[unknown_blocker() | blockers], remaining_refreshes}
-
-      :missing when remaining_refreshes == 0 ->
-        {[unknown_blocker()], remaining_refreshes}
+      stale_or_missing when not scheduled? or remaining_requests == 0 ->
+        blocker_hydration_deferred(issue, stale_or_missing)
+        {deferred_blockers(stale_or_missing), remaining_requests}
 
       _refreshable ->
-        hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_refreshes)
+        fetcher = fn -> DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) end
+        hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, request_fun, token_for(opts), owner, repo, prefix, opts)
     end
   end
 
-  defp hydrate_blockers(issue, request_fun, false, _opts, remaining_refreshes, _owner, _repo, _prefix) do
+  defp hydrate_blockers(issue, request_fun, false, opts, remaining_requests, scheduled?, owner, repo, prefix) do
+    if scheduled? and remaining_requests > 0 do
+      hydrate_uncached_blockers(issue, request_fun, opts, remaining_requests, owner, repo, prefix)
+    else
+      blocker_hydration_deferred(issue, :missing)
+      {[unknown_blocker()], remaining_requests}
+    end
+  end
+
+  defp hydrate_uncached_blockers(issue, request_fun, opts, remaining_requests, owner, repo, prefix) do
     case DependenciesApi.fetch_blocked_by(issue.id, request_fun: request_fun) do
       {:ok, blockers} when is_list(blockers) ->
-        {blockers, remaining_refreshes}
+        annotate_blocker_signoffs(blockers, issue, request_fun, token_for(opts), owner, repo, prefix, opts, remaining_requests - 1)
 
       {:error, reason} ->
         blocker_hydration_warning(issue, reason)
-        {[unknown_blocker()], remaining_refreshes}
+        {[unknown_blocker()], remaining_requests - 1}
     end
   end
 
-  defp hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_refreshes) do
+  defp hydrate_refreshable_blockers(issue, fetcher, cache_opts, remaining_requests, request_fun, token, owner, repo, prefix, opts) do
     case BlockerCache.fetch(issue.id, fetcher, cache_opts) do
       {:ok, blockers} ->
-        {blockers, remaining_refreshes - 1}
+        {annotated, remaining_requests} =
+          annotate_blocker_signoffs(blockers, issue, request_fun, token, owner, repo, prefix, opts, remaining_requests - 1)
+
+        :ok = BlockerCache.put(issue.id, annotated, cache_opts)
+        {annotated, remaining_requests}
 
       {:stale, blockers, reason} ->
         blocker_hydration_warning(issue, reason)
-        {[unknown_blocker() | blockers], remaining_refreshes - 1}
+        {[unknown_blocker() | blockers], remaining_requests - 1}
 
       {:error, reason} ->
         blocker_hydration_warning(issue, reason)
-        {[unknown_blocker()], remaining_refreshes - 1}
+        {[unknown_blocker()], remaining_requests - 1}
     end
   end
 
+  defp annotate_blocker_signoffs(blockers, issue, request_fun, token, owner, repo, prefix, opts, remaining_requests) do
+    {annotated, remaining_requests} =
+      Enum.map_reduce(blockers, remaining_requests, fn blocker, remaining_requests ->
+        annotate_blocker_signoff(blocker, request_fun, token, owner, repo, prefix, opts, remaining_requests)
+      end)
+
+    if Enum.any?(annotated, &Map.get(&1, :operator_signoff_deferred?, false)) do
+      blocker_hydration_deferred(issue, :timeline_budget_exhausted)
+    end
+
+    {annotated, remaining_requests}
+  end
+
   defp unknown_blocker, do: %{"state" => nil, "labels" => []}
+
+  defp deferred_blockers({:stale, blockers}), do: [unknown_blocker() | blockers]
+  defp deferred_blockers(_missing), do: [unknown_blocker()]
+
+  defp blocker_hydration_deferred(issue, cache_state) do
+    Logger.info("Deferring GitHub dependency hydration issue=#{issue.identifier} state=#{inspect(cache_state)}")
+
+    case Alerts.emit_system("ticket.#{issue.identifier}.operator.blocker_hydration_deferred",
+           issue: issue.identifier,
+           reason: "GitHub dependency verification was deferred by the shared request budget; dispatch is failing closed.",
+           needs_attention: false,
+           severity: "info"
+         ) do
+      :ok -> :ok
+      {:error, alert_reason} -> Logger.error("Could not publish blocker hydration deferral issue=#{issue.identifier} reason=#{inspect(alert_reason)}")
+    end
+  end
 
   defp blocker_hydration_warning(issue, reason) do
     Logger.warning("Failing closed after GitHub dependency hydration failure issue=#{issue.identifier} reason=#{inspect(reason)}")
@@ -377,28 +443,37 @@ defmodule Aiur.GitHub.Issues do
       description: normalized.description,
       state: normalized.state,
       labels: normalized.labels,
-      operator_signoff_valid?: Map.get(blocker, :operator_signoff_valid?, false)
+      operator_signoff_valid?: Map.get(blocker, :operator_signoff_valid?, false),
+      operator_signoff_identity: Map.get(blocker, :operator_signoff_identity),
+      operator_signoff_deferred?: Map.get(blocker, :operator_signoff_deferred?, false)
     }
   end
 
   defp normalize_blocker(_blocker, _owner, _repo, _prefix), do: %{}
 
-  defp annotate_blocker_signoff(blocker, request_fun, token, owner, repo, prefix, opts) when is_map(blocker) do
-    Map.put(blocker, :operator_signoff_valid?, passing_operator_signoff?(blocker, request_fun, token, owner, repo, prefix, opts))
-  end
-
-  defp annotate_blocker_signoff(blocker, _request_fun, _token, _owner, _repo, _prefix, _opts), do: blocker
-
-  defp passing_operator_signoff?(blocker, request_fun, token, owner, repo, prefix, opts) do
+  defp annotate_blocker_signoff(blocker, request_fun, token, owner, repo, prefix, opts, remaining_requests)
+       when is_map(blocker) do
     if HardwareVerification.outcome_label(blocker, prefix) == HardwareVerification.passed_label(prefix) do
-      HardwareVerificationGate.passing_operator_signoff?(
-        %{request_fun: request_fun, token: token, owner: owner, repo: repo, issue_number: blocker["number"], prefix: prefix, opts: opts},
-        blocker
-      )
+      if remaining_requests < @max_timeline_requests_per_blocker do
+        {blocker |> Map.put(:operator_signoff_valid?, false) |> Map.put(:operator_signoff_deferred?, true), remaining_requests}
+      else
+        context = %{request_fun: request_fun, token: token, owner: owner, repo: repo, issue_number: blocker["number"], prefix: prefix, opts: opts}
+
+        case HardwareVerificationGate.passing_operator_signoff_identity(context, blocker) do
+          {:ok, identity} ->
+            {blocker |> Map.put(:operator_signoff_valid?, true) |> Map.put(:operator_signoff_identity, identity), remaining_requests - @max_timeline_requests_per_blocker}
+
+          {:error, _reason} ->
+            {Map.put(blocker, :operator_signoff_valid?, false), remaining_requests - @max_timeline_requests_per_blocker}
+        end
+      end
     else
-      false
+      {Map.put(blocker, :operator_signoff_valid?, false), remaining_requests}
     end
   end
+
+  defp annotate_blocker_signoff(blocker, _request_fun, _token, _owner, _repo, _prefix, _opts, remaining_requests),
+    do: {blocker, remaining_requests}
 
   defp token_for(opts), do: Keyword.get(opts, :token, "")
 

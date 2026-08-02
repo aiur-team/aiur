@@ -5,7 +5,7 @@ defmodule Aiur.HardwareVerification do
   state transitions.
   """
 
-  alias Aiur.Issue
+  alias Aiur.{Issue, Tracker}
 
   @required_suffix "operator-verification-required"
   @verified_suffix "operator-verified"
@@ -24,7 +24,8 @@ defmodule Aiur.HardwareVerification do
 
   @non_execution_action ~r/^(?:add|build|create|document|remove|update)\b/i
   @simulated_context ~r/\b(?:mock|emulat(?:e|or|ion)|simulat(?:e|ion))\b/i
-  @negated_operation ~r/\b(?:do\s+not|don't|not)\s+(?:run|use|access)\b/i
+  @negated_operation ~r/\b(?:do\s+not|don't|never|without)\b/i
+  @physical_execution ~r/\b(?:access|connect|enumerat|press|read|replug|resume|run|suspend|touch|turn|unplug|use|verify|write)\b/i
 
   @spec required_label(String.t()) :: String.t()
   def required_label(prefix) when is_binary(prefix), do: "#{prefix}:#{@required_suffix}"
@@ -37,6 +38,21 @@ defmodule Aiur.HardwareVerification do
 
   @spec no_go_label(String.t()) :: String.t()
   def no_go_label(prefix) when is_binary(prefix), do: "#{prefix}:#{@no_go_suffix}"
+
+  @doc "Revokes a prior operator outcome when new verification evidence is required."
+  @spec invalidate_operator_signoff(String.t(), String.t(), (String.t(), String.t() -> :ok | {:error, term()})) ::
+          :ok | {:error, term()}
+  def invalidate_operator_signoff(issue_id, prefix, remove_label \\ &Tracker.remove_label/2)
+      when is_binary(issue_id) and is_binary(prefix) and is_function(remove_label, 2) do
+    [verified_label(prefix), passed_label(prefix), no_go_label(prefix)]
+    |> Enum.reduce_while(:ok, fn label, :ok ->
+      case remove_label.(issue_id, label) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+        other -> {:halt, {:error, {:invalid_label_removal_result, other}}}
+      end
+    end)
+  end
 
   @spec alerted_label(String.t()) :: String.t()
   def alerted_label(prefix) when is_binary(prefix), do: "#{prefix}:#{@alerted_suffix}"
@@ -162,21 +178,21 @@ defmodule Aiur.HardwareVerification do
     {_, criteria} =
       text
       |> String.split("\n")
-      |> Enum.reduce({false, []}, fn line, {in_acceptance, criteria} ->
+      |> Enum.reduce({false, []}, fn line, {in_verification, criteria} ->
         trimmed = String.trim(line)
 
         cond do
-          Regex.match?(~r/^[#]{1,6}\s*acceptance(?:\s+criteria)?\s*:?[[:space:]]*$/i, trimmed) ->
+          verification_heading?(trimmed) ->
             {true, criteria}
 
           Regex.match?(~r/^[#]{1,6}\s+/, trimmed) ->
             {false, criteria}
 
-          in_acceptance and Regex.match?(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, trimmed) ->
+          in_verification and criterion_line?(trimmed) ->
             {true, [trimmed | criteria]}
 
           true ->
-            {in_acceptance, criteria}
+            {in_verification, criteria}
         end
       end)
 
@@ -184,22 +200,49 @@ defmodule Aiur.HardwareVerification do
   end
 
   defp match_criterion(line) do
-    if non_execution_criterion?(line) do
-      []
-    else
+    line
+    |> criterion_clauses()
+    |> Enum.flat_map(fn clause ->
       @signals
       |> Enum.flat_map(fn {signal, pattern} ->
-        if Regex.match?(pattern, line), do: [%{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}], else: []
+        if Regex.match?(pattern, clause) and physical_execution?(clause) do
+          [%{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}]
+        else
+          []
+        end
       end)
-    end
+    end)
   end
 
-  defp non_execution_criterion?(line) do
+  defp verification_heading?(line) do
+    Regex.match?(~r/^[#]{1,6}\s+(?:acceptance(?:\s+criteria)?|(?:hardware\s+)?verification|spike(?:\s+sequence)?|(?:sub-)?check)\b/i, line)
+  end
+
+  defp criterion_line?(line), do: Regex.match?(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line)
+
+  defp criterion_clauses(line) do
     criterion = Regex.replace(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line, "")
 
-    Regex.match?(@negated_operation, criterion) or
-      Regex.match?(@simulated_context, criterion) or
-      Regex.match?(@non_execution_action, criterion)
+    Regex.split(~r/(?:[;.!?]+|\b(?:but|however|then)\b)/i, criterion, trim: true)
+  end
+
+  defp physical_execution?(clause) do
+    not documentation_only?(clause) and
+      not Regex.match?(@simulated_context, clause) and
+      not negated_execution?(clause)
+  end
+
+  defp documentation_only?(clause) do
+    trimmed = String.trim(clause)
+
+    Regex.match?(~r/^document\s+how\s+to\b/i, trimmed) or
+      (Regex.match?(@non_execution_action, trimmed) and
+         not Regex.match?(@physical_execution, clause))
+  end
+
+  defp negated_execution?(clause) do
+    Regex.match?(@negated_operation, clause) and
+      not Regex.match?(~r/\b(?:not|never)\s+(?:available|working|responding)\b/i, clause)
   end
 
   defp label_names(issue_body) do
