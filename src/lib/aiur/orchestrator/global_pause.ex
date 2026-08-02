@@ -86,32 +86,11 @@ defmodule Aiur.Orchestrator.GlobalPause do
   def set_global_pause_call(%State{globally_paused: current} = state, on?, source)
       when is_boolean(on?) do
     source = normalize_source(source)
-
-    next_state =
-      cond do
-        on? and not current ->
-          state
-          |> Map.put(:globally_paused, true)
-          |> Map.put(:global_pause, %{paused_at: DateTime.utc_now(), source: source})
-
-        not on? and current ->
-          state
-          |> Map.put(:globally_paused, false)
-          |> Map.put(:global_pause, %{paused_at: nil, source: nil})
-
-        true ->
-          state
-      end
+    next_state = next_global_pause_state(state, current, on?, source)
 
     case GlobalPauseStore.save(global_pause_status_for_state(next_state)) do
       :ok ->
-        state =
-          cond do
-            on? and not current -> PauseResume.pause_running_for_global(next_state)
-            not on? and current -> PauseResume.resume_running_from_global(next_state)
-            true -> next_state
-          end
-
+        state = apply_global_pause_transition(next_state, current, on?)
         StatusReport.notify_dashboard(state)
         {:reply, {:ok, global_pause_status_for_state(state)}, state}
 
@@ -119,6 +98,28 @@ defmodule Aiur.Orchestrator.GlobalPause do
         {:reply, {:error, {:global_pause_persistence_failed, reason}}, state}
     end
   end
+
+  defp next_global_pause_state(state, false, true, source) do
+    state
+    |> Map.put(:globally_paused, true)
+    |> Map.put(:global_pause, %{paused_at: DateTime.utc_now(), source: source})
+  end
+
+  defp next_global_pause_state(state, true, false, _source) do
+    state
+    |> Map.put(:globally_paused, false)
+    |> Map.put(:global_pause, %{paused_at: nil, source: nil})
+  end
+
+  defp next_global_pause_state(state, _current, _on?, _source), do: state
+
+  defp apply_global_pause_transition(state, false, true),
+    do: PauseResume.pause_running_for_global(state)
+
+  defp apply_global_pause_transition(state, true, false),
+    do: PauseResume.resume_running_from_global(state)
+
+  defp apply_global_pause_transition(state, _current, _on?), do: state
 
   @doc false
   @spec global_pause_status_for_state(State.t()) :: map()

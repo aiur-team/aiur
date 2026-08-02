@@ -40,6 +40,39 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       File.write!(path, Jason.encode!(%{"globally_paused" => "yes"}))
       assert {:error, {:read_failed, {:invalid_field, "globally_paused"}}} = GlobalPauseStore.load()
     end
+
+    test "keeps the store stable when the run log root changes" do
+      state_dir = Path.join(System.tmp_dir!(), "global-pause-state-#{System.unique_integer([:positive])}")
+      run_one_root = Path.join(System.tmp_dir!(), "global-pause-run-one-#{System.unique_integer([:positive])}")
+      run_two_root = Path.join(System.tmp_dir!(), "global-pause-run-two-#{System.unique_integer([:positive])}")
+      run_one_log = Path.join(run_one_root, "log/aiur.log")
+      run_two_log = Path.join(run_two_root, "log/aiur.log")
+      previous_store = Application.get_env(:aiur, :global_pause_store_path)
+      previous_decision_dir = Application.get_env(:aiur, :decision_state_dir)
+      previous_log_file = Application.get_env(:aiur, :log_file)
+
+      Application.delete_env(:aiur, :global_pause_store_path)
+      Application.put_env(:aiur, :decision_state_dir, state_dir)
+      Application.put_env(:aiur, :log_file, run_one_log)
+
+      on_exit(fn ->
+        File.rm_rf(state_dir)
+        File.rm_rf(run_one_root)
+        File.rm_rf(run_two_root)
+        restore_application_env(:global_pause_store_path, previous_store)
+        restore_application_env(:decision_state_dir, previous_decision_dir)
+        restore_application_env(:log_file, previous_log_file)
+      end)
+
+      first_path = GlobalPauseStore.path_for()
+      assert first_path == Path.join(state_dir, "global-pause.json")
+      assert :ok = GlobalPauseStore.save(%{globally_paused: true, paused_at: nil, source: "dashboard"})
+
+      Application.put_env(:aiur, :log_file, run_two_log)
+
+      assert GlobalPauseStore.path_for() == first_path
+      assert {:ok, %{globally_paused: true, source: "dashboard"}} = GlobalPauseStore.load()
+    end
   end
 
   describe "set_global_pause_call/2 pause" do
@@ -356,4 +389,7 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       reason: nil
     }
   end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 end

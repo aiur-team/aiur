@@ -12,28 +12,36 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
   alias Aiur.JsonStore
 
   @default %{globally_paused: false, paused_at: nil, source: nil}
+  @filename "global-pause.json"
 
   @spec load() ::
           {:ok, %{globally_paused: boolean(), paused_at: DateTime.t() | nil, source: String.t() | nil}}
           | {:error, term()}
   def load do
-    case JsonStore.read(path_for(), :missing) do
+    case resolve_path() do
+      {:ok, path} -> load_path(path)
+      {:error, reason} -> read_failed("stable state path unavailable", reason)
+    end
+  end
+
+  defp load_path(path) do
+    case JsonStore.read(path, :missing) do
       {:ok, :missing} ->
         {:ok, @default}
 
       {:ok, persisted} ->
         case normalize(persisted) do
           {:ok, state} -> {:ok, state}
-          {:error, reason} -> read_failed(reason)
+          {:error, reason} -> read_failed(path, reason)
         end
 
       {:error, reason} ->
-        read_failed(reason)
+        read_failed(path, reason)
     end
   end
 
-  defp read_failed(reason) do
-    Logger.error("Global pause state could not be recovered at #{path_for()}: #{inspect(reason)}; holding the daemon globally paused")
+  defp read_failed(path, reason) do
+    Logger.error("Global pause state could not be recovered at #{path}: #{inspect(reason)}; holding the daemon globally paused")
     {:error, {:read_failed, reason}}
   end
 
@@ -46,19 +54,45 @@ defmodule Aiur.Orchestrator.GlobalPauseStore do
       "source" => Map.get(state, :source)
     }
 
-    JsonStore.write!(path_for(), payload)
-    :ok
-  rescue
-    error ->
-      reason = {:write_failed, error.__struct__, Exception.message(error)}
-      Logger.warning("Global pause state could not be persisted at #{path_for()}: #{Exception.message(error)}")
-      {:error, reason}
+    case resolve_path() do
+      {:ok, path} ->
+        persist(path, payload)
+
+      {:error, reason} ->
+        Logger.warning("Global pause state path could not be resolved: #{inspect(reason)}")
+        {:error, {:path_unavailable, reason}}
+    end
   end
 
   @spec path_for() :: Path.t()
   def path_for do
-    Application.get_env(:aiur, :global_pause_store_path) ||
-      Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.global-pause.json")
+    case resolve_path() do
+      {:ok, path} -> path
+      {:error, reason} -> raise ArgumentError, "global pause state path unavailable: #{inspect(reason)}"
+    end
+  end
+
+  defp persist(path, payload) do
+    JsonStore.write!(path, payload)
+    :ok
+  rescue
+    error ->
+      reason = {:write_failed, error.__struct__, Exception.message(error)}
+      Logger.warning("Global pause state could not be persisted at #{path}: #{Exception.message(error)}")
+      {:error, reason}
+  end
+
+  defp resolve_path do
+    case Application.get_env(:aiur, :global_pause_store_path) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        case Paths.decision_state_dir() do
+          {:ok, state_dir} -> {:ok, Path.join(state_dir, @filename)}
+          {:error, reason} -> {:error, {:decision_state_dir_unavailable, reason}}
+        end
+    end
   end
 
   defp normalize(%{} = persisted) do
