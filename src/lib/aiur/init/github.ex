@@ -7,8 +7,8 @@ defmodule Aiur.Init.GitHub do
 
   alias Aiur.Codeowners.Edit
   alias Aiur.GitHub.BotIdentity
-  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.CiReadiness
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Labels
   alias Aiur.GitHub.Transport
 
@@ -66,14 +66,25 @@ defmodule Aiur.Init.GitHub do
       if File.exists?(path) do
         io.puts.("CI scaffold skipped: #{path} already exists.")
       else
-        File.mkdir_p!(Path.dirname(path))
-        File.write!(path, CiReadiness.scaffold())
-        io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+        case write_scaffold(path) do
+          :ok ->
+            io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+
+          {:error, reason} ->
+            io.puts.("CI scaffold could not be written: #{inspect(reason)}")
+        end
       end
     end
   end
 
   defp maybe_scaffold_ci(_io, _deps, _readiness), do: :ok
+
+  defp write_scaffold(path) do
+    with :ok <- File.mkdir_p(Path.dirname(path)),
+         :ok <- File.write(path, CiReadiness.scaffold()) do
+      :ok
+    end
+  end
 
   @spec list_repo_labels(map()) :: {:ok, [String.t()]} | {:error, term()}
   def list_repo_labels(%{kind: "github", repo: repo}) do

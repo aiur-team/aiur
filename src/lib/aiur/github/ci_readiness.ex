@@ -55,7 +55,7 @@ defmodule Aiur.GitHub.CiReadiness do
 
     with :ok <- branch_exists?(request_fun, token, "#{base_url}/branches/#{URI.encode(base_branch)}"),
          {:ok, entries} <- fetch_list(request_fun, token, "#{base_url}/contents/.github/workflows?ref=#{URI.encode(base_branch)}"),
-         {:ok, workflows} <- fetch_workflows(request_fun, token, entries),
+         {:ok, workflows} <- fetch_workflows(request_fun, token, entries, base_branch),
          {:ok, required_checks} <- fetch_required_checks(request_fun, token, base_url, base_branch) do
       {:ok, evaluate(base_branch, workflows, required_checks)}
     else
@@ -130,25 +130,13 @@ defmodule Aiur.GitHub.CiReadiness do
     end
   end
 
-  defp fetch_workflows(request_fun, token, entries) do
+  defp fetch_workflows(request_fun, token, entries, base_branch) do
     entries
     |> Enum.filter(&(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", ""))))
     |> Enum.reduce_while({:ok, []}, fn entry, {:ok, acc} ->
-      case request_fun.(%{method: :get, url: Map.fetch!(entry, "url"), token: token}) do
-        {:ok, %{status: 200, body: %{"content" => content}}} when is_binary(content) ->
-          case Base.decode64(String.replace(content, ~r/\s/, "")) do
-            {:ok, source} -> {:cont, {:ok, [{Map.get(entry, "path", "workflow"), source} | acc]}}
-            :error -> {:halt, {:error, :invalid_workflow_content}}
-          end
-
-        {:ok, %{status: _} = response} ->
-          {:halt, {:error, Errors.github_status_error(response)}}
-
-        {:error, reason} ->
-          {:halt, {:error, Errors.classify_error({:error, reason})}}
-
-        _ ->
-          {:halt, {:error, :invalid_workflow_response}}
+      case fetch_workflow(request_fun, token, entry, base_branch) do
+        {:ok, workflow} -> {:cont, {:ok, [workflow | acc]}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> then(fn
@@ -157,20 +145,57 @@ defmodule Aiur.GitHub.CiReadiness do
     end)
   end
 
+  defp fetch_workflow(request_fun, token, entry, base_branch) do
+    case request_fun.(%{method: :get, url: workflow_url(entry, base_branch), token: token}) do
+      {:ok, %{status: 200, body: %{"content" => content}}} when is_binary(content) ->
+        decode_workflow(entry, content)
+
+      {:ok, %{status: _} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+
+      _ ->
+        {:error, :invalid_workflow_response}
+    end
+  end
+
+  defp decode_workflow(entry, content) do
+    case Base.decode64(String.replace(content, ~r/\s/, "")) do
+      {:ok, source} -> {:ok, {Map.get(entry, "path", "workflow"), source}}
+      :error -> {:error, :invalid_workflow_content}
+    end
+  end
+
+  defp workflow_url(entry, base_branch) do
+    url = Map.fetch!(entry, "url")
+    separator = if String.contains?(url, "?"), do: "&", else: "?"
+    url <> separator <> "ref=#{URI.encode(base_branch)}"
+  end
+
   defp fetch_required_checks(request_fun, token, base_url, base_branch) do
     protection_url = "#{base_url}/branches/#{URI.encode(base_branch)}/protection"
 
+    with {:ok, protection_checks} <- fetch_protection_checks(request_fun, token, protection_url),
+         {:ok, ruleset_checks} <- fetch_ruleset_checks(request_fun, token, base_url, base_branch) do
+      {:ok, Enum.uniq(protection_checks ++ ruleset_checks)}
+    end
+  end
+
+  defp fetch_protection_checks(request_fun, token, protection_url) do
     case request_fun.(%{method: :get, url: protection_url, token: token}) do
       {:ok, %{status: 200, body: protection}} -> {:ok, required_checks_from(protection)}
-      {:ok, %{status: 404}} -> fetch_ruleset_checks(request_fun, token, base_url)
+      {:ok, %{status: 404}} -> {:ok, []}
       {:ok, %{status: _} = response} -> {:error, Errors.github_status_error(response)}
       {:error, reason} -> {:error, Errors.classify_error({:error, reason})}
     end
   end
 
-  defp fetch_ruleset_checks(request_fun, token, base_url) do
+  defp fetch_ruleset_checks(request_fun, token, base_url, base_branch) do
     case request_fun.(%{method: :get, url: base_url <> "/rulesets?includes_parents=true", token: token}) do
       {:ok, %{status: 200, body: rulesets}} when is_list(rulesets) ->
+        rulesets = Enum.filter(rulesets, &ruleset_applies?(&1, base_branch))
         {:ok, rulesets |> Enum.flat_map(&required_checks_from/1) |> Enum.uniq()}
 
       {:ok, %{status: _} = response} ->
@@ -182,13 +207,10 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp required_checks_from(value) when is_map(value) do
-    direct = get_in(value, ["required_status_checks", "contexts"]) || get_in(value, ["parameters", "required_status_checks"])
-
     names =
-      case direct do
-        contexts when is_list(contexts) -> Enum.map(contexts, fn item -> if is_map(item), do: Map.get(item, "context"), else: item end)
-        _ -> []
-      end
+      value
+      |> direct_required_checks()
+      |> Enum.map(&required_check_name/1)
 
     nested =
       value
@@ -202,20 +224,39 @@ defmodule Aiur.GitHub.CiReadiness do
 
   defp required_checks_from(_), do: []
 
+  defp direct_required_checks(value) do
+    [
+      get_in(value, ["required_status_checks", "contexts"]),
+      get_in(value, ["required_status_checks", "checks"]),
+      get_in(value, ["parameters", "required_status_checks"])
+    ]
+    |> Enum.flat_map(&List.wrap/1)
+  end
+
+  defp required_check_name(item) when is_map(item), do: Map.get(item, "context")
+  defp required_check_name(item), do: item
+
   defp pull_request_workflow?(source, base_branch) do
-    with {:ok, workflow} <- YamlElixir.read_from_string(source) do
-      trigger = Map.get(workflow, "on") || Map.get(workflow, true)
-      pull_request_trigger?(trigger, base_branch)
-    else
-      _ -> false
+    case YamlElixir.read_from_string(source) do
+      {:ok, workflow} ->
+        trigger = Map.get(workflow, "on") || Map.get(workflow, true)
+        pull_request_trigger?(trigger, base_branch)
+
+      _ ->
+        false
     end
   end
 
   defp pull_request_trigger?(trigger, base_branch) when is_map(trigger) do
     case Map.get(trigger, "pull_request") do
-      nil -> false
-      branches when is_map(branches) -> branch_matches?(Map.get(branches, "branches"), base_branch)
-      _ -> true
+      nil ->
+        false
+
+      filters when is_map(filters) ->
+        universal_pull_request_filter?(filters, base_branch)
+
+      _ ->
+        true
     end
   end
 
@@ -223,20 +264,70 @@ defmodule Aiur.GitHub.CiReadiness do
   defp pull_request_trigger?("pull_request", _base_branch), do: true
   defp pull_request_trigger?(_, _base_branch), do: false
 
+  defp universal_pull_request_filter?(filters, base_branch) do
+    branch_matches?(Map.get(filters, "branches"), base_branch) and
+      not ignored_branch?(Map.get(filters, "branches-ignore"), base_branch) and
+      normal_pull_request_types?(Map.get(filters, "types")) and
+      no_path_filters?(filters)
+  end
+
+  defp normal_pull_request_types?(nil), do: true
+  defp normal_pull_request_types?(types) when is_list(types), do: "opened" in types and "synchronize" in types
+  defp normal_pull_request_types?(_types), do: false
+
+  defp no_path_filters?(filters), do: Map.get(filters, "paths") in [nil, []] and Map.get(filters, "paths-ignore") in [nil, []]
+
   defp branch_matches?(nil, _base_branch), do: true
   defp branch_matches?(branches, base_branch) when is_list(branches), do: Enum.any?(branches, &glob_matches?(&1, base_branch))
   defp branch_matches?(branch, base_branch), do: glob_matches?(branch, base_branch)
 
-  defp glob_matches?(pattern, branch) when is_binary(pattern), do: pattern == branch or pattern == "**"
+  defp ignored_branch?(nil, _base_branch), do: false
+  defp ignored_branch?(branches, base_branch) when is_list(branches), do: Enum.any?(branches, &glob_matches?(&1, base_branch))
+  defp ignored_branch?(branch, base_branch), do: glob_matches?(branch, base_branch)
+
+  defp glob_matches?(pattern, branch) when is_binary(pattern) do
+    regex =
+      pattern
+      |> Regex.escape()
+      |> String.replace("\\*\\*", ".*")
+      |> String.replace("\\*", "[^/]*")
+      |> String.replace("\\?", "[^/]")
+
+    Regex.match?(Regex.compile!("^#{regex}$"), branch)
+  end
+
   defp glob_matches?(_, _), do: false
+
+  defp ruleset_applies?(ruleset, base_branch) do
+    ref_name = get_in(ruleset, ["conditions", "ref_name"]) || %{}
+    includes = Map.get(ref_name, "include")
+    excludes = Map.get(ref_name, "exclude")
+    branch_ref = "refs/heads/#{base_branch}"
+
+    Map.get(ruleset, "enforcement", "active") == "active" and
+      branch_matches?(includes, branch_ref) and not ignored_branch?(excludes, branch_ref)
+  end
 
   defp workflow_check_names({_path, source}) do
     with {:ok, workflow} <- YamlElixir.read_from_string(source), jobs when is_map(jobs) <- Map.get(workflow, "jobs") do
-      Enum.flat_map(jobs, fn {id, job} -> [if(is_map(job) && valid_name?(Map.get(job, "name")), do: Map.get(job, "name"), else: to_string(id))] end)
+      jobs
+      |> Enum.filter(fn {_id, job} -> job_runs_on_pull_request?(job) end)
+      |> Enum.map(fn {id, job} -> if(valid_name?(Map.get(job, "name")), do: Map.get(job, "name"), else: to_string(id)) end)
     else
       _ -> []
     end
   end
+
+  defp job_runs_on_pull_request?(job) when is_map(job) do
+    case Map.get(job, "if") do
+      nil -> true
+      "always()" -> true
+      condition when is_binary(condition) -> Regex.match?(~r/github\.event_name\s*==\s*['\"]pull_request['\"]/, condition)
+      _ -> false
+    end
+  end
+
+  defp job_runs_on_pull_request?(_job), do: false
 
   defp workflow_path?(path), do: String.ends_with?(path, ".yml") or String.ends_with?(path, ".yaml")
   defp valid_name?(value), do: is_binary(value) and String.trim(value) != ""

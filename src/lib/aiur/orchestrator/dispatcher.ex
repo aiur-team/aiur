@@ -55,7 +55,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp do_maybe_dispatch(%State{} = state) do
-    maybe_warn_ci_readiness(state)
+    state = maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
     state = CommentPolling.poll_github_firehose(state)
     state = CommentPolling.poll_github_comments(state)
@@ -87,7 +87,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # Readiness is advisory at dispatch: the operator may be deliberately
   # setting up a repository mid-run, so this must never hold otherwise-valid
   # tickets. It only runs for the first poll, avoiding a GitHub call per tick.
-  defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true}) do
+  defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true, ci_readiness_checked: true} = state), do: state
+
+  defp maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
     if Config.tracker_kind() == "github" do
       case CiReadiness.check(base_branch: Config.base_branch()) do
         {:ok, %{ready?: true}} ->
@@ -109,10 +111,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
       end
     end
 
-    :ok
+    %{state | ci_readiness_checked: true}
   end
 
-  defp maybe_warn_ci_readiness(_state), do: :ok
+  defp maybe_warn_ci_readiness(state), do: state
 
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,

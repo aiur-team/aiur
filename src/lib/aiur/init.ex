@@ -148,18 +148,7 @@ defmodule Aiur.Init do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
-        :ok ->
-          case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
-            :ok -> final_screen(io)
-            :error -> :ok
-          end
-
-          :ok
-
-        {:error, _message} = error ->
-          error
-      end
+      provision_github_with_token(io, deps, tracker, agents, pair)
     else
       token_setup_instructions(io)
       :ok
@@ -176,6 +165,25 @@ defmodule Aiur.Init do
   defp provision(io, deps, _tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
+    :ok
+  end
+
+  defp provision_github_with_token(io, deps, tracker, agents, pair) do
+    case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
+      :ok ->
+        finish_github_provision(io, deps, tracker, agents, pair)
+
+      {:error, _message} = error ->
+        error
+    end
+  end
+
+  defp finish_github_provision(io, deps, tracker, agents, pair) do
+    case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
+      :ok -> final_screen(io)
+      :error -> :ok
+    end
+
     :ok
   end
 
