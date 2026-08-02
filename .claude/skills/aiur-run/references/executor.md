@@ -42,6 +42,15 @@ product changes, architecture changes, scope cuts, destructive actions, and
 anything outside the recorded authority. Never infer merge or issue-creation
 authority.
 
+Then act on that default. When a fix is reversible and its rollback is one line,
+execute and report; asking is the more expensive option here, not the safer one.
+Two instances in the 2026-07/08 run held a correct diagnosis while waiting for
+permission that was never required — one accumulated 229 minutes of zero-commit
+time, the other spent roughly eight hours issuing ~8 futile `resume` calls.
+Escalation is for the decisions that are genuinely the operator's: irreversible
+actions, spend, external publication, and product direction. It is not for the
+Executor's own reversible operational choices.
+
 ## Protect convergence
 
 Before launch, pin the feature acceptance criteria, critical path, required
@@ -264,15 +273,27 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
 
 1. reserve or rebalance capacity for multiple independent background reviewers;
 2. diff the pull request body's claims against the diff **first**. Any claim the
-   diff does not support is a P1; this is the most common defect class by a wide
-   margin — a transport described as feature-complete whose `sendFeatureReport`
-   unconditionally throws, a design document whose stated colour derivation is
-   arithmetically impossible, a "fix" that never reads the config it claims to;
-3. ask of every new test whether it would pass against a trivially wrong
-   implementation. Real examples: `f(x) === f(x)` assertions, a test hand-poking
-   the same `:persistent_term` the broken wiring should have set, and tests
-   asserting against an inlined *copy* of the code under test that stayed green
-   after the real code was deleted;
+   diff does not support is a P1, never a nitpick; this is the most common
+   defect class by a wide margin — a transport described as feature-complete
+   whose `sendFeatureReport` unconditionally throws, a design document whose
+   stated colour derivation is arithmetically impossible, a "fix" that never
+   reads the config it claims to. Six of the nine pull requests rejected in the
+   2026-07/08 run failed on exactly this, and every one of them would have
+   merged on a skim. A body edited *down* toward a thinner diff is the same
+   defect wearing a disguise: the capstone pull request was quietly retitled
+   from "driven by live fleet state" to "runbook and evidence framework" and
+   marked done while the page still rendered invented data;
+3. answer two questions about every new test, in this order — **does this test
+   execute at all**, and **would it still pass against a trivially wrong
+   implementation?** The first is the one reviewers skip, and it is not cheap to
+   skip: twenty tests sat outside the `vitest` include glob for 5.8 hours while
+   their pull request read as fully tested, because a test the runner never
+   collects reports no failure. Require the runner's own output naming the test
+   file, not the file's existence in the tree. For the second, the real examples
+   are `f(x) === f(x)` assertions, a test hand-poking the same
+   `:persistent_term` the broken wiring should have set, and tests asserting
+   against an inlined *copy* of the code under test that stayed green after the
+   real code was deleted;
 4. use `ce-code-review` when Compound Engineering is available, adding the
    relevant security, data, frontend, backend, or design lens for the change;
 5. reconcile duplicates and contradictions, classifying each finding under the
@@ -280,7 +301,12 @@ instead of issuing the same directive indefinitely. Once all conditions hold:
 6. return contained findings to the existing ticket as rework; create a new
    ticket only for an independent P0/P1 feature blocker;
 7. confirm the event bus or tracker transition wakes the owning agent and that
-   it acknowledges the rework;
+   it acknowledges the rework. Submitting is not landing: re-read the observable
+   state after every mutation — `reviewDecision` for the review itself, the
+   label set for a transition, the thread's latest comment for a reply — because
+   a verdict issued as a turn ends can be lost with the request still in flight
+   and nothing reports the loss. Six review verdicts vanished this way in one
+   run;
 8. require the worker to restore the same branch-freshness and CI gate after
    fixes, rerun targeted review, then apply the recorded merge policy.
 
@@ -370,12 +396,45 @@ where it repeatedly paid for itself):
    tickets per pattern, and never expand the active feature boundary with
    them — process/infra tickets ride alongside the build order; feature
    tickets need operator sign-off.
-4. **Write the entry down** in a durable retrospective log, e.g.
+4. **File the findings; writing them down is not filing them.** A finding
+   recorded without a ticket number is not a completed retrospective. Prose on a
+   handoff branch is a record, not a repair, and the only thing converting it
+   into a ticket is the Executor remembering to — which is why the 2026-07/08
+   run produced 71 findings and 23 of them reached no ticket at all. The
+   retrospective is a filing step: append every finding to the ledger below,
+   and before ending the retrospective confirm each one carries either a ticket
+   number or an explicit deliberate-skip note.
+
+   The ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`; create the
+   directory if it is absent. Write one JSON object per line, each line hard
+   capped at 4 KiB so `O_APPEND` stays atomic when two Executor instances share
+   a host. Cite evidence by reference — an issue number, a log path plus line —
+   never a pasted log dump, which is also how a record stays inside the cap.
+
+   ```json
+   {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":"#1442; ~/.aiur/logs/agent-1442.log:8812","cost":"5.8h","ticket":1451,"status":"filed"}
+   ```
+
+   `slug` is a reusable kebab join key, so the same finding observed twice
+   groups into a recurrence count instead of a second entry to triage — that is
+   what makes the "3+ reproductions" threshold in step 3 a number to read
+   rather than one to remember. `scope` is `aiur` when the finding reproduces
+   on any repository and `repo` when it names this repository's tests, CI, or
+   code. `status` moves `open` -> `filed` -> `resolved`. A record left at
+   `ticket: null` with no deliberate-skip note is a bug in the retrospective,
+   not an accepted state.
+
+   Issue #1464 is landing this as product: schema validation, an
+   `aiurdev findings --unfiled` query, and `aiur init` creating the tree. Until
+   it ships the Executor writes the file directly. Keep the path and the record
+   shape identical so no migration is needed.
+5. **Write the narrative entry down** in a durable retrospective log, e.g.
    `docs/executor/hourly-retrospectives.md` on the run's research/handoff
    branch: the bottleneck, the number, the proposed reduction, what was filed
    vs deferred. The log is what makes the daily skill-review pass possible and
-   what a replacement Executor resumes from.
-5. **Daily**, review the accumulated hourly notes and ask whether any Aiur
+   what a replacement Executor resumes from; the ledger above is what proves
+   nothing fell through.
+6. **Daily**, review the accumulated hourly notes and ask whether any Aiur
    skill should change so the next run never rediscovers the lesson. Capture
    that as a concrete skill-doc edit and land it as a small PR.
 
@@ -432,7 +491,9 @@ A resumable handoff contains:
 - unresolved decisions, incidents, and sanitized bug links;
 - integration/acceptance owner and remaining evidence;
 - the last deliberate capacity setting and why.
-- the deferred findings ledger and ticket-creation circuit-breaker state.
+- the deferred findings ledger and ticket-creation circuit-breaker state,
+  including the path to `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson` and
+  any record still sitting at `ticket: null`.
 - the stable monitoring run ID, hourly retrospective log location, last
   completed review, current adaptive cadence/trigger settings, and any repeated
   notification gap reserved for terminal synthesis. Preserve the ID only
