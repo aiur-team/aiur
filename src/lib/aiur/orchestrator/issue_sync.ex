@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Slots, State}
 
@@ -440,6 +440,9 @@ defmodule Aiur.Orchestrator.IssueSync do
       current_state == "error" ->
         emit_observed_error_transition_alert(state, issue)
 
+      previous_state == "error" ->
+        resolve_observed_error_transition_alert(state, issue)
+
       true ->
         # Ticket B: label-flip alerts route through the new topic shape so
         # the alerts file can glob-match per state without one entry per state.
@@ -479,6 +482,23 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
+  defp resolve_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
+    if MapSet.member?(state.observed_error_alerts, issue.id) do
+      case Alerts.emit_system("ticket.#{issue.identifier}.agent.attention.error.resolved",
+             issue: issue,
+             worker_host: Orchestrator.running_worker_host(state, issue.id),
+             reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok -> %{state | observed_error_alerts: MapSet.delete(state.observed_error_alerts, issue.id)}
+        {:error, _reason} -> state
+      end
+    else
+      state
+    end
+  end
+
   defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{}), do: state
 
   defp emit_tracker_pause_transition_alert(
@@ -503,6 +523,14 @@ defmodule Aiur.Orchestrator.IssueSync do
           issue: issue,
           worker_host: Orchestrator.running_worker_host(state, issue.id),
           reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
+          needs_attention: false,
+          severity: "info"
+        )
+
+        Alerts.emit_system("ticket.#{issue.identifier}.agent.paused.resolved",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
           needs_attention: false,
           severity: "info"
         )
@@ -749,7 +777,9 @@ defmodule Aiur.Orchestrator.IssueSync do
            severity: "warning"
          ) do
       :ok ->
-        put_capacity_starvation(context.state, since_by_identity, next_alerted_identities, context.signature)
+        context.state
+        |> put_capacity_starvation(since_by_identity, next_alerted_identities, context.signature)
+        |> Map.put(:capacity_starvation_resolution_emitted, false)
 
       {:error, _reason} ->
         put_capacity_starvation(context.state, since_by_identity, alerted_identities, context.signature)
@@ -762,7 +792,29 @@ defmodule Aiur.Orchestrator.IssueSync do
       "dispatch constraints=#{Enum.join(context.constraints, "; ")}."
   end
 
-  defp clear_capacity_starvation(state),
+  defp clear_capacity_starvation(%State{capacity_starvation_resolution_emitted: true} = state),
+    do: put_cleared_capacity_starvation(state)
+
+  defp clear_capacity_starvation(%State{} = state) do
+    active? =
+      Map.get(state.capacity_starvation, :alert_active, false) or
+        AlertFeed.active_system_attention?("system.dispatch.capacity_starved")
+
+    if active? do
+      case Alerts.emit_system("system.dispatch.capacity_starved.resolved",
+             reason: "Ready-work dispatch capacity recovered; fleet dispatch may resume.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok -> put_cleared_capacity_starvation(%{state | capacity_starvation_resolution_emitted: true})
+        {:error, _reason} -> state
+      end
+    else
+      put_cleared_capacity_starvation(%{state | capacity_starvation_resolution_emitted: true})
+    end
+  end
+
+  defp put_cleared_capacity_starvation(state),
     do: %{state | capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []}}
 
   defp put_capacity_starvation(state, since_by_identity, alerted_identities, signature) do

@@ -39,6 +39,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     test "emits once while prewarm keeps the fleet on hold and rearms after recovery" do
       Publisher.set_tracked_fn(fn _ -> true end)
       :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
 
       on_exit(fn ->
         Publisher.set_tracked_fn(fn _ -> true end)
@@ -52,6 +53,15 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       assert Dispatcher.emit_prewarm_blocked_alert(held, :building) == held
       refute_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 100
+
+      recovered = Dispatcher.clear_prewarm_blocked_alert(held)
+      refute recovered.prewarm_blocked_alert_active
+      assert recovered.prewarm_blocked_alert_resolution_emitted
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked.resolved"}}, 500
+
+      rearmed = Dispatcher.emit_prewarm_blocked_alert(recovered, :building)
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 500
+      refute rearmed.prewarm_blocked_alert_resolution_emitted
     end
   end
 

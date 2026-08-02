@@ -145,13 +145,37 @@ defmodule Aiur.Orchestrator.Dispatcher do
            needs_attention: true,
            severity: "warning"
          ) do
-      :ok -> %{state | prewarm_blocked_alert_active: true}
-      {:error, _reason} -> state
+      :ok ->
+        %{state | prewarm_blocked_alert_active: true, prewarm_blocked_alert_resolution_emitted: false}
+
+      {:error, _reason} ->
+        state
     end
   end
 
-  defp clear_prewarm_blocked_alert(%State{} = state),
+  @doc false
+  @spec clear_prewarm_blocked_alert(State.t()) :: State.t()
+  def clear_prewarm_blocked_alert(%State{prewarm_blocked_alert_resolution_emitted: true} = state),
     do: %{state | prewarm_blocked_alert_active: false}
+
+  def clear_prewarm_blocked_alert(%State{} = state) do
+    active? =
+      state.prewarm_blocked_alert_active or
+        AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
+
+    if active? do
+      case Alerts.emit_system("system.dispatch.prewarm_blocked.resolved",
+             reason: "Shared prewarm is ready; fleet dispatch may resume.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok -> %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+        {:error, _reason} -> state
+      end
+    else
+      %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+    end
+  end
 
   @doc false
   @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()

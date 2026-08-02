@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   test "alerts once with observed dispatch constraints while ready work is held" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+    :ok = Exchange.subscribe("system.dispatch.capacity_starved.resolved")
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -76,12 +77,21 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert IssueSync.sync_capacity_starvation_alert(alerted, [ready], 122_000) == alerted
     refute_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 100
+
+    recovered = IssueSync.sync_capacity_starvation_alert(alerted, [], 122_000)
+    assert recovered.capacity_starvation == %{since_ms: %{}, alert_active: false, signature: [], alerted: []}
+    assert_receive {:event, %{topic: "system.dispatch.capacity_starved.resolved"}}, 500
+
+    rearmed = IssueSync.sync_capacity_starvation_alert(recovered, [ready], 200_000)
+    _ = IssueSync.sync_capacity_starvation_alert(rearmed, [ready], 260_000)
+    assert_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 500
   end
 
   test "alerts when the tracker adds or removes agent:paused" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("ticket.its-everdred/aiur#pause-transition.agent.paused")
     :ok = Exchange.subscribe("ticket.its-everdred/aiur#pause-transition.agent.unpaused")
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#pause-transition.agent.paused.resolved")
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -125,11 +135,13 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert event["reason"] =~ "No operator action is needed"
     assert event["needs_attention"] == false
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#pause-transition.agent.paused.resolved"}}, 500
   end
 
   test "persists a reason-carrying fallback when polling observes an ordinary error transition" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error")
+    :ok = Exchange.subscribe("ticket.its-everdred/aiur#observed-error.agent.attention.error.resolved")
 
     on_exit(fn ->
       Publisher.set_tracked_fn(fn _ -> true end)
@@ -156,6 +168,35 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "without a specialized local cause"
     assert event["reason"] =~ "will not clear on its own"
     assert event["needs_attention"] == true
+
+    recovered = %{errored | state: "rework"}
+
+    recovered_state =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [recovered],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute MapSet.member?(recovered_state.observed_error_alerts, previous.id)
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error.resolved"}}, 500
+
+    _ =
+      IssueSync.sync_polled_issue_state(
+        recovered_state,
+        [errored],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:event, %{topic: "ticket.its-everdred/aiur#observed-error.agent.attention.error"}}, 500
   end
 
   test "does not duplicate an error alert already emitted by a specialized producer" do

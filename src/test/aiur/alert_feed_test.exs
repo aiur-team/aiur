@@ -81,6 +81,31 @@ defmodule Aiur.AlertFeedTest do
            end)
   end
 
+  test "system attention probes never scan workspace transcript roots", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    central_root = Path.join(root, "central")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    File.mkdir_p!(central_root)
+
+    File.write!(workspace_log, """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"system.test.workspace_only","message":"workspace only","needs_attention":true}
+    """)
+
+    refute AlertFeed.active_system_attention?("system.test.workspace_only", roots: [Path.join(root, "workspace")], log_roots: [central_root])
+  end
+
+  test "a resolved tracker pause leaves the Executor feed", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"ticket.42.agent.paused","message":"Paused","needs_attention":true}
+    {"event":"alert","timestamp":"2026-08-02T01:01:00Z","topic":"ticket.42.agent.paused.resolved","message":"Resumed","needs_attention":false}
+    """)
+
+    refute Enum.any?(AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true), &(&1["topic"] == "ticket.42.agent.paused"))
+  end
+
   test "projects only active legacy decision attentions", %{root: root} do
     project_root = Path.join(root, "its-everdred/aiur")
     log = Path.join(project_root, "42/logs/agent.ndjson")
