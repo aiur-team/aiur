@@ -242,21 +242,18 @@ defmodule Aiur.Orchestrator.Reconciler do
 
     [needs_attention: true]
     |> AlertFeed.list()
-    |> Enum.reduce(state, fn alert, state_acc ->
-      topic = Map.get(alert, "topic", "")
+    |> Enum.reduce(state, &resolve_orphaned_divergence_attention(&2, &1, running_identifiers))
+  end
 
-      case divergence_identifier(topic) do
-        identifier when is_binary(identifier) ->
-          if MapSet.member?(running_identifiers, identifier) do
-            state_acc
-          else
-            emit_divergence_resolution(state_acc, identifier, nil, identifier, topic)
-          end
+  defp resolve_orphaned_divergence_attention(state, alert, running_identifiers) do
+    topic = Map.get(alert, "topic", "")
+    identifier = divergence_identifier(topic)
 
-        _ ->
-          state_acc
-      end
-    end)
+    cond do
+      not is_binary(identifier) -> state
+      MapSet.member?(running_identifiers, identifier) -> state
+      true -> emit_divergence_resolution(state, identifier, nil, identifier, topic)
+    end
   end
 
   defp divergence_identifier("ticket." <> rest) do

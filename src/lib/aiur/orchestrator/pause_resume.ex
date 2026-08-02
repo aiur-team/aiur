@@ -259,17 +259,8 @@ defmodule Aiur.Orchestrator.PauseResume do
       %{control: %{status: :deactivated}} = running_entry ->
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
-      %{control: %{status: :paused}, paused_reason: pause_reason} = running_entry
-      when not is_nil(pause_reason) and pause_reason != :label_override ->
-        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
-
       %{control: %{status: :paused}} = running_entry ->
-        running_entry =
-          running_entry
-          |> Map.put(:issue, issue)
-          |> Map.put(:paused_reason, :label_override)
-
-        transition_control_status(state, running_entry, :paused, "label_override")
+        apply_label_override_to_paused_issue(state, running_entry, issue)
 
       running_entry when is_map(running_entry) ->
         Logger.info("Issue pause override detected: #{State.issue_context(issue)}; pausing active agent")
@@ -278,6 +269,21 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       _ ->
         state
+    end
+  end
+
+  defp apply_label_override_to_paused_issue(state, running_entry, issue) do
+    pause_reason = Map.get(running_entry, :paused_reason)
+
+    if not is_nil(pause_reason) and pause_reason != :label_override do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      running_entry =
+        running_entry
+        |> Map.put(:issue, issue)
+        |> Map.put(:paused_reason, :label_override)
+
+      transition_control_status(state, running_entry, :paused, "label_override")
     end
   end
 
