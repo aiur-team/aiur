@@ -1,6 +1,6 @@
 # Executor Control Center
 
-The Executor Control Center is Aiur’s browser dashboard for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, and telemetry entry point without turning the browser into a second source of truth.
+The Executor Control Center is Aiur’s browser dashboard for supervising a run. It combines the live fleet, durable decisions, recorded outcomes, provider meters, Build Orders, and analytics entry point without turning the browser into a second source of truth.
 
 ::: info Example data
 Every screenshot on this page was captured from the shipped LiveView dashboard against an isolated fixture. Tickets (`EX-142` and similar), agents, decisions, repositories, and links are synthetic.
@@ -8,12 +8,9 @@ Every screenshot on this page was captured from the shipped LiveView dashboard a
 
 ## Open the dashboard
 
-Foreground runs always start the dashboard and bind it to loopback on a free port unless you choose a fixed port. Headless runs start it only when `server.port` or `--port` is a positive number. The launch output prints its URL when it is running:
+Foreground and headless runs start the dashboard unless `--no-dashboard` is present. The launcher binds to loopback by default unless it can safely use configured, authenticated Tailscale exposure. The launch output prints its URL when it is running:
 
 ```yaml
-observability:
-  dashboard_writable: false
-
 server:
   host: 127.0.0.1
   port: 4000
@@ -110,9 +107,9 @@ Recent outcomes come from the durable merge store, not a fresh GitHub poll on ev
 
 <img class="occ-mobile-shot" src="/images/executor-control-center/recent-outcomes-mobile.png" alt="Recent outcomes at a mobile viewport">
 
-## Analytics link
+## Analytics
 
-When a durable telemetry file exists, **Open analytics report** links to the separate `/analytics` surface. The Control Center summarizes live operational state; analytics remains a distinct offline report rather than being merged into that state model.
+`/analytics` renders the durable telemetry stream for the current live session. It shows ticket lifecycle timing, per-unit CPU and memory, concurrency against the cap, CPU-second cost per ticket, and dispatch-time complexity breakdown. It is not a provider-billing report, and a missing telemetry stream renders an explicit empty state rather than invented zeros. Completion KPIs and burn-up remain flat because `pr_opened` and `pr_merged` facts are not yet recorded, and the selected Build Order pane is current-boot only, not cross-session. [#1458](https://github.com/aiur-team/aiur/issues/1458) and [#1459](https://github.com/aiur-team/aiur/issues/1459) track those gaps.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="/images/executor-control-center/analytics-link-dark.png">
@@ -121,15 +118,13 @@ When a durable telemetry file exists, **Open analytics report** links to the sep
 
 <img class="occ-mobile-shot" src="/images/executor-control-center/analytics-link-mobile.png" alt="Analytics report link at a mobile viewport">
 
-## Read-only and writable modes
+## Writable controls
 
-Read-only is the safe default. It keeps every projection and stable deep link visible while hiding decision, message, and pause controls.
-
-Enable browser mutations explicitly:
+Dashboard mutations are enabled by default. Disable them when the dashboard is an observation-only surface:
 
 ```yaml
 observability:
-  dashboard_writable: true
+  dashboard_writable: false
 ```
 
 Writable requests must also have the expected same-origin `Origin` or `Referer` and `X-Aiur-Request: 1`. These checks supplement authentication; they are not a reason to expose the dashboard publicly.
@@ -144,7 +139,7 @@ export AIUR_DASHBOARD_PASSWORD='replace-with-a-strong-secret'
 aiur
 ```
 
-Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A loopback read-only dashboard may run without them. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
+Aiur refuses to start a writable dashboard, or a dashboard bound beyond loopback, without both credentials. A loopback dashboard may run without them only when it is not writable. Put remote access behind a private network or trusted reverse proxy and use TLS there; Basic Auth does not encrypt transport.
 
 The supervisor Decision API has a separate bearer credential, `AIUR_SUPERVISOR_TOKEN`. Dashboard credentials never grant machine-API authority, and the bearer token never signs a human browser action.
 

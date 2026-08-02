@@ -10,12 +10,12 @@ npm install -g aiur-cli
 
 ## Initialize
 
-Run `aiur init` in the repository you want Aiur to work on. It scaffolds `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN`; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
+Run `aiur init` in the repository you want Aiur to work on. It detects the available agent toolchains, scaffolds `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`, prepares the repository state node, and offers a pre-warmed base build. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN`; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
 
 The wizard asks for:
 
 - tracker and repository settings;
-- agent backends, routing, and limits;
+- agent backends, routing, limits, and toolchain readiness;
 - the GitHub token setup instructions and lifecycle labels.
 
 Add `agent:todo` to the issues you want worked.
@@ -24,7 +24,7 @@ Add `agent:todo` to the issues you want worked.
 
 The bare `aiur` command discovers `.aiur/config` and starts a foreground run. `aiur run` is the explicit-verb equivalent.
 
-The launch output prints the private dashboard URL. Open it to see the fleet and decision inbox; the default loopback, read-only mode needs no credentials. Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before enabling writes or binding beyond loopback. Continue with the [Executor Control Center](/guide/executor-control-center) guide.
+The launch output prints the dashboard URL. Open it to see the fleet and decision inbox. Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before binding beyond loopback or using writable dashboard controls. Continue with the [Executor Control Center](/guide/executor-control-center) guide.
 
 ## Core subcommands
 
