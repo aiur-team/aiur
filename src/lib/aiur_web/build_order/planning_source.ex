@@ -19,6 +19,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
+  require Logger
+
   alias Aiur.BuildOrder.{Catalog, Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
@@ -32,6 +34,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @generation 1
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
+  @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
 
   # --- catalog ---------------------------------------------------------------
 
@@ -411,6 +414,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       :error -> []
     end)
     |> filter_for_tracked_repository()
+    |> reconcile_duplicate_packs()
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
@@ -432,17 +436,25 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp pack_paths do
     case Application.get_env(:aiur, :build_order_planning_pack) do
-      nil -> Application.get_env(:aiur, :build_order_planning_packs, discovered_packs())
-      path -> [path]
+      nil ->
+        case Application.get_env(:aiur, :build_order_planning_packs) do
+          paths when is_list(paths) -> Enum.map(paths, &{:configured, &1})
+          _missing -> discovered_packs()
+        end
+
+      path ->
+        [{:explicit, path}]
     end
   end
 
   # Runtime packs are re-discovered from the configured repository's state node.
   # Environment directories remain an explicit test/development override.
   defp discovered_packs do
-    (workspace_pack_paths() ++ state_pack_paths() ++ override_pack_paths())
+    (tag_paths(workspace_pack_paths(), :workspace) ++ tag_paths(state_pack_paths(), :state) ++ tag_paths(override_pack_paths(), :override))
     |> Enum.uniq()
   end
+
+  defp tag_paths(paths, source), do: Enum.map(paths, &{source, &1})
 
   defp workspace_pack_paths do
     workspace_pack_directory()
@@ -523,7 +535,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
-  defp load_pack(path, include_drafts?) do
+  defp load_pack({source, path}, include_drafts?) do
     absolute = absolute_path(path)
 
     with {:ok, body} <- File.read(absolute),
@@ -536,6 +548,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
       {:ok,
        %{
+         source: source,
+         path: absolute,
          repository: repository,
          build_order_id: build_order_id,
          title: Map.get(json, "title", "Planning build order"),
@@ -554,6 +568,37 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     else
       _error -> :error
     end
+  end
+
+  # The publisher writes a workspace mirror while the repository state node
+  # retains its canonical copy. Reconcile those copies before sorting the
+  # catalog so the URL router receives one root identity. Source precedence is
+  # intentional and auditable in the warning: workspace, state, environment,
+  # configured list, then the singular explicit test/demo pack.
+  defp reconcile_duplicate_packs(packs) do
+    packs
+    |> Enum.sort_by(&pack_precedence/1)
+    |> Enum.reduce([], fn pack, selected ->
+      case Enum.find(selected, &same_catalog_pack?(&1, pack)) do
+        nil ->
+          [pack | selected]
+
+        chosen ->
+          Logger.warning(
+            "build order catalog discarded duplicate #{inspect(pack.build_order_id)} from #{pack.source} (#{pack.path}); " <>
+              "using #{chosen.source} (#{chosen.path})"
+          )
+
+          selected
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp pack_precedence(pack), do: {Map.get(@pack_source_precedence, pack.source, 99), pack.path}
+
+  defp same_catalog_pack?(left, right) do
+    left.repository == right.repository and (left.build_order_id == right.build_order_id or left.root_number == right.root_number)
   end
 
   defp ticket_numbers(tickets) do

@@ -5,7 +5,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
-  alias AiurWeb.BuildOrder.PlanningSource
+  alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
@@ -461,6 +461,51 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     root = Enum.find(roots, &(&1.identity.identifier == "9900"))
     assert root.identity.provider_id == "BO_#{repository}:analytics-streamdeck"
     assert Enum.map(roots, & &1.identity.identifier) |> Enum.sort() == ["9900", "9901"]
+  end
+
+  test "reconciles duplicate discovery packs with workspace precedence and a selectable deep link" do
+    suffix = System.unique_integer([:positive])
+    workspace_directory = Path.join([File.cwd!(), ".aiur", "build_orders"])
+    workspace_existed? = File.dir?(workspace_directory)
+    workspace_path = Path.join(workspace_directory, "planning-source-duplicate-#{suffix}.json")
+    state_root = Path.join(System.tmp_dir!(), "planning-source-duplicate-state-#{suffix}")
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    previous_dirs = System.get_env("AIUR_BUILD_ORDER_DIRS")
+    repository = Config.repo()
+
+    workspace_pack = @canonical_pack |> String.replace("acme/widgets", repository) |> String.replace("Analytics Stream Deck", "Workspace copy")
+    state_pack = @canonical_pack |> String.replace("acme/widgets", repository) |> String.replace("Analytics Stream Deck", "State copy")
+
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+    System.delete_env("AIUR_BUILD_ORDER_DIRS")
+
+    state_path = Path.join([RepoBase.builds_path("https://github.com/#{repository}.git"), "duplicate", "build-order.json"])
+
+    File.mkdir_p!(Path.dirname(workspace_path))
+    File.mkdir_p!(Path.dirname(state_path))
+    File.write!(workspace_path, workspace_pack)
+    File.write!(state_path, state_pack)
+
+    on_exit(fn ->
+      if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+      if previous_dirs, do: System.put_env("AIUR_BUILD_ORDER_DIRS", previous_dirs), else: System.delete_env("AIUR_BUILD_ORDER_DIRS")
+      File.rm(workspace_path)
+      File.rm_rf(state_root)
+      if not workspace_existed?, do: File.rmdir(workspace_directory)
+    end)
+
+    snapshot = PlanningSource.catalog()
+
+    assert %Snapshot{data: %Catalog{entries: [root]}} = snapshot
+    assert root.title == "Workspace copy"
+
+    {route, []} = RouteState.new("duplicate-discovery") |> RouteState.navigate("9900")
+    {route, [{:activate, identity}]} = RouteState.put_catalog(route, snapshot)
+
+    assert identity == root.identity
+    assert RouteState.status(route) == :selected_loading
   end
 
   test "assigns distinct deterministic catalog icons when packs omit one" do
