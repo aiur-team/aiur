@@ -1,52 +1,176 @@
 # CLI and control commands
 
-`aiur` starts and controls one instance-keyed run. The repository’s `scripts/aiurdev` shim exposes the same runtime command surface against a local development release.
+`aiur` is the installed command. `scripts/aiurdev` is its development wrapper: both dispatch to the same launcher engine and have the same command surface. `aiurdev` selects the local release and rebuilds it when necessary. Its only product-surface exception is `aiurdev build [--deps]`, which force-rebuilds the local release and does not exist in an installed `aiur`.
+
+Run commands from the repository root, or from a subdirectory beneath a repository-local `.aiur/config`. A run keyed only by a home-level config is keyed by its launch directory, so control commands must be run from that same directory.
 
 ## Start a run
 
-| Command | Purpose |
-| --- | --- |
-| `aiur` or `aiur run` | Start the interactive foreground run. |
-| `aiur --bg` | Start a detached headless run with the web dashboard enabled. |
-| `aiur --bg --no-dashboard` | Start a lean detached run without the dashboard listener. |
-| `aiur --no-dashboard` | Start the foreground terminal UI without the dashboard listener. |
-| `aiur --max-agents N` | Override the configured concurrency cap for this launch. |
-| `aiur --todo 142 143` | Queue the listed ticket IDs. |
-| `aiur --todo 142 143 --only` | Queue those IDs and dequeue other pending tickets. |
-| `aiur --host 127.0.0.1 --port 4000` | Override the dashboard bind for this launch. |
-| `aiur --debug` | Enable durable debug logging and chat-pane recording. |
+<!-- cli-command: help -->
+<!-- cli-command: -h -->
+<!-- cli-command: -help -->
+<!-- cli-command: --h -->
+<!-- cli-command: --help -->
+<!-- cli-command: run -->
+<!-- cli-command: --bg -->
+<!-- cli-command: --version -->
+<!-- cli-command: init -->
+<!-- cli-command: --todo -->
+<!-- cli-flag: --bg -->
+<!-- cli-flag: --interactive -->
+<!-- cli-flag: --headless -->
+<!-- cli-flag: --no-dashboard -->
+<!-- cli-flag: --host -->
+<!-- cli-flag: --port -->
+<!-- cli-flag: --logs-root -->
+<!-- cli-flag: --max-agents -->
+<!-- cli-flag: --pause -->
+<!-- cli-flag: --debug -->
+<!-- cli-flag: --i-understand-that-this-will-be-running-without-the-usual-guardrails -->
+<!-- cli-flag: --version -->
 
-Foreground mode provides the terminal board and live chat panes. Background mode omits that terminal UI but continues serving the web dashboard. Detachment and dashboard availability are independent; add `--no-dashboard` in either mode to suppress the HTTP listener. Because Claude Remote Control lifecycle hooks post to that listener, Aiur rejects `--no-dashboard` when `agent.remote_control` is enabled or an `agent.routing` value uses `+remote`, and refuses later `model:remote` or live Remote Control activation while no listener is bound. A background launch prints the confirmed bound URL or an explicit listener-unavailable warning. Non-loopback dashboard binds still require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`.
+`aiur`, `aiur run`, and `aiur <config-path>` start a foreground run. The launcher loads `./.env` before starting, without replacing already-exported variables.
 
-## Inspect a run
+| Command or flag | Default and effect | Runnable example |
+| --- | --- | --- |
+| `aiur` | Foreground, interactive terminal board and dashboard. | `aiur` |
+| `aiur run` | Explicit foreground spelling of the bare command. | `aiur run` |
+| `aiur <path>` | Uses that `.aiur/config` or legacy `.aiurconfig` path. | `aiur .aiur/config` |
+| `--bg` | Starts a detached, headless run. It has no terminal board or chat panes, but keeps the dashboard unless suppressed. Repeating a live background start is idempotent. | `aiur --bg` |
+| `--interactive` | Keeps the full terminal stack even with `--bg`; foreground runs receive it automatically. | `aiur run --bg --interactive` |
+| `--headless` | Omits terminal-only work. The launcher supplies it for `--bg` unless `--interactive` was given. | `aiur run --headless` |
+| `--no-dashboard` | Disables the HTTP listener in foreground or background mode. It is rejected when Remote Control is configured or activated, because Remote Control needs the lifecycle-hook listener. | `aiur --bg --no-dashboard` |
+| `--host HOST` | Dashboard bind host. Without it, the launcher uses a Tailscale IPv4 address only when credentials are set, otherwise `127.0.0.1`. | `aiur --host 127.0.0.1` |
+| `--port N` | Dashboard port. `0`, the default, asks the OS for a free port. | `aiur --port 4000` |
+| `--logs-root PATH` | Stores this run's logs below an absolute expansion of `PATH`. Without it, Aiur mints `~/.aiur/logs/<session-id>/` for the daemon log root. | `aiur --logs-root ./logs` |
+| `--max-agents N` | Positive launch-time concurrency override. It is an upper request, not a guarantee: configuration state caps can still lower effective capacity. | `aiur --max-agents 4` |
+| `--pause` | Starts globally paused, so no agents are provisioned until `aiur resume`. | `aiur --pause` |
+| `--debug` | Launcher convenience flag that enables durable debug logging and chat-pane recording. It is consumed by the launcher, not the release parser. | `aiur run --debug` |
+| `--i-understand-that-this-will-be-running-without-the-usual-guardrails` | Required by the release parser, but injected by the launcher when absent. You normally do not need to type it. | `aiur run` |
+| `--version` | Prints the release version and exits without claiming the running node. | `aiur --version` |
+| `aiur help` | Prints launcher usage. `-h`, `-help`, `--h`, and `--help` are equivalent aliases. | `aiur help` |
 
-| Command | Purpose |
-| --- | --- |
-| `aiur status` | Report whether the instance and control plane are running. |
-| `aiur agents` | Print one line per agent with state, runtime, and activity. |
-| `aiur watch` | Render a one-shot fleet board. |
-| `aiur watch --interval 5` | Refresh the board every five seconds. |
-| `aiur alerts --needs-attention` | Show unresolved alerts that need Executor attention. |
+`--no-dashboard` is independent of foreground/background mode. A dashboard bound beyond loopback needs `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`; writable dashboards need those credentials too. See [Configuration](/reference/configuration).
 
-## Control a run
+## Initialize and queue
 
-| Command | Purpose |
-| --- | --- |
-| `aiur set max-agents N` | Change the live concurrency cap without editing config. |
-| `aiur pause 142 143` | Cooperatively pause specific tickets. |
-| `aiur pause --all` | Pause all active tickets. |
-| `aiur resume 142 143` | Resume specific paused tickets. |
-| `aiur resume --all` | Resume all paused tickets. |
-| `aiur message 142 "Check the latest review"` | Deliver an Executor message through the agent’s native queue. |
-| `aiur stop` | Stop the BEAM and its tmux lifetime session. |
+<!-- cli-command: --only -->
+<!-- cli-flag: --force -->
+<!-- cli-flag: --todo -->
+<!-- cli-flag: --only -->
 
-A pause takes effect at a safe turn boundary. It preserves the ticket’s lifecycle state; resuming removes only the pause override.
+| Command | Arguments and behavior | Runnable example |
+| --- | --- | --- |
+| `aiur init` | Interactive setup. It discovers toolchains, writes `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`, can prepare prewarm state, and creates the repository state-node layout. | `aiur init` |
+| `aiur init --force` | Re-runs setup while preserving sibling scaffold files. | `aiur init --force` |
+| `aiur --todo ID...` | Marks one or more numeric GitHub issue IDs as queued. IDs can be space or comma separated. This is a one-shot operation and does not start the daemon. | `aiur --todo 142 143` |
+| `aiur --todo ID... --only` | Queues the requested issues and dequeues other pending tickets. It does not interrupt tickets already in another active lifecycle state. Treat it as a deliberate queue replacement. | `aiur --todo 142,143 --only` |
 
-## Initialize configuration
+## Inspect a running daemon
 
-| Command | Purpose |
-| --- | --- |
-| `aiur init` | Scaffold `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`. |
-| `aiur init --force` | Recreate configuration while preserving sibling scaffold files. |
+<!-- cli-command: status -->
+<!-- cli-command: usage -->
+<!-- cli-command: agents -->
+<!-- cli-command: alerts -->
+<!-- cli-command: watch -->
+<!-- cli-flag: --needs-attention -->
+<!-- cli-flag: --full -->
+<!-- cli-flag: --changes -->
+<!-- cli-flag: --once -->
+<!-- cli-flag: --interval -->
 
-The CLI discovers `./.aiur/config`, then legacy `./.aiurconfig`, then the corresponding files under the user’s home directory. See [Configuration reference](/reference/configuration).
+These commands contact the instance keyed for the current project. Through `aiurdev`, `status`, `agents`, `alerts`, and the other pure-control commands use the existing release; `usage` and `watch` are not on that fast path and can rebuild a stale local release before they run.
+
+| Command | Default and interaction | Runnable example |
+| --- | --- | --- |
+| `aiur status` | Prints visible ticket state, global-pause status, comment-trust state, and build-gate health. Takes no arguments. | `aiur status` |
+| `aiur agents` | One line per active agent with state, runtime, and current activity. It is the terminal-friendly headless equivalent of the board. | `aiur agents` |
+| `aiur usage` | Prints observed provider-limit headroom and observation age. An unobserved provider is `unknown`, not zero. | `aiur usage` |
+| `aiur alerts` | Emits newline-delimited JSON alert history. | `aiur alerts` |
+| `aiur alerts --needs-attention` | Filters alerts to conditions requiring Executor attention. | `aiur alerts --needs-attention` |
+| `aiur watch` | One-shot server-side fleet board. `--changes` is the default and prints only state-level changes since the prior invocation. | `aiur watch` |
+| `aiur watch --full` | Prints every active row. | `aiur watch --full` |
+| `aiur watch --changes` | Explicit default delta-only view. | `aiur watch --changes` |
+| `aiur watch --once` | Accepted no-op spelling for a one-shot view. | `aiur watch --once` |
+| `aiur watch --interval SECONDS` | Re-renders the selected watch view until interrupted; seconds must be positive. | `aiur watch --full --interval 5` |
+
+## Control agents and capacity
+
+<!-- cli-command: set -->
+<!-- cli-command: pause -->
+<!-- cli-command: resume -->
+<!-- cli-command: message -->
+<!-- cli-flag: --all -->
+
+| Command | Arguments and interaction | Runnable example |
+| --- | --- | --- |
+| `aiur set max-agents N` | Sets a positive runtime concurrency cap without changing configuration. Existing work drains down when the cap is lowered. Configured per-state limits can still be lower. | `aiur set max-agents 6` |
+| `aiur pause` | Enables the global pause switch for the current daemon. It holds the whole daemon and prevents new provisioning. A bare pause is not durable across restart; use `--pause` on the next launch when that behavior is needed. [#1479](https://github.com/aiur-team/aiur/issues/1479) tracks durable global-pause state. | `aiur pause` |
+| `aiur resume` | Disables the global pause switch. | `aiur resume` |
+| `aiur pause ID...` | Cooperatively pauses selected issue IDs at a safe boundary. IDs may be comma or space separated. | `aiur pause 142 143,144` |
+| `aiur resume ID...` | Resumes selected individually paused issues. It cannot override an active global pause. | `aiur resume 142` |
+| `aiur pause --all` / `aiur resume --all` | Applies the individual pause/resume action to all applicable active tickets. These forms are distinct from bare global pause/resume. | `aiur pause --all` |
+| `aiur message ID TEXT...` | Queues Executor text for a running agent using its native delivery queue. Quote multi-word text. | `aiur message 142 "Please address the latest review"` |
+
+In the foreground board, `j`/`k` or arrows select rows, `Enter` opens the selected chat, `Shift+Enter` or `O` opens another pane, space toggles the selected ticket pause, left/right adjust the runtime max-agent cap, `r` toggles Remote Control, `v` changes pane orientation, `?` shows help, and `q` exits the board. The dashboard sidebar has its own hide/show navigation toggle; it persists across dashboard navigation.
+
+## Executor events
+
+<!-- cli-command: executor-listen -->
+<!-- cli-command: executor-emit -->
+<!-- cli-command: executor-subscribe -->
+<!-- cli-command: executor-unsubscribe -->
+<!-- cli-command: executor-subscriptions -->
+<!-- cli-flag: --topic -->
+<!-- cli-flag: --payload -->
+
+Executor event bindings are persistent topic-pattern subscriptions. Topic patterns use `*` for one segment and `#` for zero or more segments.
+
+| Command | Default and interaction | Runnable example |
+| --- | --- | --- |
+| `aiur executor-listen --topic PATTERN` | Streams matching Executor events as JSON lines. The default pattern is `executor.#`. | `aiur executor-listen --topic 'ticket.*.agent.#'` |
+| `aiur executor-emit TOPIC --payload JSON` | Publishes a JSON-object Executor event. `--payload` is required. | `aiur executor-emit executor.note --payload '{"text":"triage complete"}'` |
+| `aiur executor-subscribe PATTERN` | Persists an Executor event subscription. | `aiur executor-subscribe 'ticket.142.#'` |
+| `aiur executor-unsubscribe PATTERN` | Removes that exact persistent subscription. | `aiur executor-unsubscribe 'ticket.142.#'` |
+| `aiur executor-subscriptions` | Lists persistent Executor subscriptions. | `aiur executor-subscriptions` |
+
+## Maintenance
+
+<!-- cli-command: cleanup-stale -->
+<!-- cli-command: stop -->
+<!-- cli-flag: --dry-run -->
+<!-- cli-flag: --deps -->
+<!-- cli-flag: --test -->
+<!-- cli-flag: --test3 -->
+<!-- cli-flag: --allow-remote -->
+<!-- cli-flag: --clear -->
+
+| Command | Default and interaction | Runnable example |
+| --- | --- | --- |
+| `aiur cleanup-stale` | Reports and reaps stale manual-smoke resources for this launcher identity. | `aiur cleanup-stale` |
+| `aiur cleanup-stale --dry-run` | Reports stale manual-smoke resources without reaping them. | `aiur cleanup-stale --dry-run` |
+| `aiur stop` | Stops the matching daemon, its tmux lifetime session, and tracked agents. It is idempotent when no matching daemon is running. | `aiur stop` |
+| `scripts/aiurdev build` | Development-only: force-rebuilds the local application and release while keeping dependency artifacts. | `scripts/aiurdev build` |
+| `scripts/aiurdev build --deps` | Development-only: additionally removes the development build artifacts before rebuilding. | `scripts/aiurdev build --deps` |
+
+The following `aiurdev` harness flags are development-only. They are not part of installed `aiur`, and agent workspaces reject the reset paths.
+
+| Command or flag | Default and interaction | Runnable example |
+| --- | --- | --- |
+| `scripts/aiurdev --test` | Executor-root manual harness. Resets one pinned GitHub sandbox ticket, enables `--debug` and `--clear`, then starts a foreground run. | `scripts/aiurdev --test` |
+| `scripts/aiurdev --test3` | Executor-root manual harness. Resets the three-ticket blocker chain, enables `--debug`, `--clear`, and `--allow-remote`, then starts its completion timer and a foreground run. | `scripts/aiurdev --test3` |
+| `scripts/aiurdev --allow-remote` | Allows the reset harness to include its remote-agent path. It matters only with `--test` or `--test3`; alone it has no effect. `--test3` supplies it automatically. | `scripts/aiurdev --test --allow-remote` |
+| `scripts/aiurdev --clear` | Deletes prior debug logs before launch. It requires `--debug`; either test harness enables both automatically. | `scripts/aiurdev --debug --clear` |
+
+Aiur has no `findings` command yet. Until [#1464](https://github.com/aiur-team/aiur/issues/1464) ships its planned `aiur findings --unfiled` query, the Executor writes deferred findings directly to `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`.
+
+## Mechanical coverage audit
+
+Run this after changing this page or the launcher:
+
+```bash
+cd website/docs-app
+npm run check:cli-reference
+```
+
+The check derives commands from shared launcher dispatch and flags from the release parser, shared control parsers, and bounded dev-harness blocks. Its exact command and flag markers reject both missing and stale entries, and every derived item must have a complete table row with syntax, behavior, and a runnable example. The release's `--help` is also an input, but not the sole authority: `usage` and `cleanup-stale` are dispatched by the current launcher even though the help banner has not yet listed them.
