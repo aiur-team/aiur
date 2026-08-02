@@ -300,15 +300,18 @@ token-bearing URL from the first push, and open agent pull requests with the
 agent's own token: GitHub counts the PR **opener**, not the commit author, when
 deciding self-approval.
 
-The repository ruleset has no `required_status_checks` rule, so nothing prevents
-merging with failing CI. Verify checks by hand before every merge.
+The repository ruleset requires the full blocking status-check set, including
+`build`, `test`, and `workflow security`, with strict status checks enabled. The
+Executor must wait for those checks and the review conditions before merging;
+never merge a pending, failing, or stale head.
 
 A solo operator cannot merge `develop` into `main` through the gate
 (issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
 and `require_last_push_approval`, the only in-gate path is a bot approval, which
-defeats the gate; `--admin` does not bypass it. The current workaround is a
-documented ruleset window: back up the ruleset, disable it, merge, restore it,
-and re-read the ruleset to confirm restoration rather than trusting the write.
+defeats the gate; `--admin` does not bypass it. Any approved maintenance window
+must change only the review-side rules while leaving the required-status-check
+rule active. Back up and re-read the ruleset to confirm the review-side change
+rather than trusting the write.
 
 ## Ticket close-out
 

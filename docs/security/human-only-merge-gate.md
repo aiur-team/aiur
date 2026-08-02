@@ -32,10 +32,12 @@ to be present and exactly `[]`. Missing or `null` properties fail the audit:
 an omitted `bypass_actors` property means the credential cannot prove that
 the live ruleset has no bypass.
 
-Aiur's landing automation follows this same gate: it waits for the required
-GitHub status checks and review conditions before issuing a squash merge. It
-does not use auto-merge or a bypass actor, and it cannot merge a stale, pending,
-or failing head. GitHub remains authoritative about whether a merge occurred.
+Aiur does not merge worker pull requests as part of the worker lifecycle. The
+Executor's documented landing path, whether driven by a human or by an agent
+acting as Executor, follows this same gate: it waits for the required GitHub
+status checks and review conditions before issuing a squash merge. It does not
+use auto-merge or a bypass actor, and it cannot merge a stale, pending, or
+failing head. GitHub remains authoritative about whether a merge occurred.
 The daemon's merge attribution is defense in depth, not permission to bypass
 this gate.
 `tracker.github.human_mergers` is a distinct, explicit allowlist for human
