@@ -1560,6 +1560,7 @@ end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
   alias Aiur.BrowserHarness.FixtureEndpoint
+  alias Aiur.IssueLog
 
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
@@ -1615,6 +1616,11 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_snapshot(identifiers)
 
       _ ->
+        # The canonical bucket order puts the alert agent first, so the LiveView
+        # initially focuses 1331; seed its durable feed so the production
+        # AgentEventFeed path has real content to project in logs mode.
+        write_feed_if_missing("1331")
+
         %{
           running: [streamdeck_agent("1352", "Fixture running", "codex")],
           retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
@@ -1647,6 +1653,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         streamdeck_agent(identifier, "Unit #{identifier}", "codex")
       end)
 
+    if agents != [], do: write_feed_if_missing(hd(identifiers))
+
     %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
   end
 
@@ -1657,11 +1665,28 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     }
   end
 
-  def streamdeck_logs do
-    %{
-      events: Enum.map(1..10, &%{role: :system, body: "event-#{&1}"}),
-      transcript: Enum.map(1..10, &%{role: :assistant, body: "transcript-#{&1}"})
-    }
+  defp write_feed_if_missing(identifier) when is_binary(identifier) do
+    path = IssueLog.transcript_path(identifier)
+    if File.exists?(path), do: :ok, else: write_feed(path)
+  end
+
+  defp write_feed(path) do
+    File.mkdir_p!(Path.dirname(path))
+
+    events =
+      Enum.map(10..1, fn index ->
+        %{
+          "role" => "assistant",
+          "body" => "event-#{index}",
+          "timestamp" => "2026-08-02T00:00:00Z",
+          "msg_id" => nil,
+          "sequence" => index,
+          "turn_id" => "fixture-#{index}",
+          "payload" => nil
+        }
+      end)
+
+    File.write!(path, Enum.map_join(events, "\n", &Jason.encode!/1) <> "\n")
   end
 
   defp configure_forwarded_dashboard do
@@ -1675,9 +1700,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
-        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
-        streamdeck_logs_fun: &__MODULE__.streamdeck_logs/0
+        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0
       )
+      |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
   end

@@ -1,6 +1,6 @@
 defmodule AiurWeb.OperatorControlCenter.ProviderMeterSource do
   @moduledoc """
-  Loads protected Codex and Claude provider-meter snapshots for the Units page
+  Loads protected registry provider-meter snapshots for the Units page
   strictly through the DASH-021 `AiurWeb.FinancialData` facade.
 
   Every read is a loader closure passed to the facade, so authorization is

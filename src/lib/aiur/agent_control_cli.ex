@@ -717,7 +717,7 @@ defmodule Aiur.AgentControlCLI do
   defp paused_reservation_binding?(_capacity), do: false
 
   @doc """
-  Print Codex and Claude limit headroom from the daemon-owned meter projection.
+  Print registry provider headroom from the daemon-owned meter projection.
 
   Every value carries the age of the observation, because meters are observed
   from live agent sessions: a number with no age cannot be told apart from a
@@ -751,7 +751,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp usage_windows(%{windows: windows}) when is_map(windows) do
     windows
-    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) == :rate_limit end)
+    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) in [:rate_limit, :credit] end)
     |> Enum.sort_by(fn {id, _window} -> id end)
   end
 
@@ -761,9 +761,26 @@ defmodule Aiur.AgentControlCLI do
   # bar is not available for it. Name what is known rather than drawing an empty
   # bar, which would read as "0% consumed".
   defp usage_window_line({id, window}) do
-    case Map.get(window, :used_percent) do
-      percent when is_number(percent) -> "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
-      _unknown -> "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
+    case {
+      Map.get(window, :name),
+      Map.get(window, :kind),
+      Map.get(window, :used),
+      Map.get(window, :limit),
+      Map.get(window, :used_percent),
+      Map.get(window, :credits)
+    } do
+      {name, :rate_limit, used, limit, _percent, _credits}
+      when name in [:concurrency, "Local concurrency"] and is_number(used) and is_number(limit) ->
+        "#{String.pad_trailing(id, 10)} #{used}/#{limit} in flight"
+
+      {_name, :credit, _used, _limit, _percent, %{amount: amount}} when is_number(amount) ->
+        "#{String.pad_trailing(id, 10)} $#{:erlang.float_to_binary(amount / 1, decimals: 2)} remaining"
+
+      {_name, _kind, _used, _limit, percent, _credits} when is_number(percent) ->
+        "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
+
+      _unknown ->
+        "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
     end
   end
 
