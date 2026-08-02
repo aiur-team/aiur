@@ -39,9 +39,10 @@ defmodule Aiur.AgentControlCLITest do
     fetch_active_result = Keyword.get(opts, :fetch_active_result, {:ok, active})
     add_result = Keyword.get(opts, :add_result, fn _id, _label -> :ok end)
     remove_result = Keyword.get(opts, :remove_result, fn _id, _label -> :ok end)
+    ensure_started_result = Keyword.get(opts, :ensure_started_result, :ok)
 
     %{
-      ensure_started: fn -> :ok end,
+      ensure_started: fn -> ensure_started_result end,
       load_config: fn -> {:ok, Keyword.get(opts, :config, todo_config())} end,
       fetch_issue: fn id ->
         send(parent, {:todo_fetch_issue, id})
@@ -117,6 +118,45 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "todo/2" do
+    test "mutates the tracker and emits the control exit marker" do
+      issue = %Issue{id: "issue-11", identifier: "11", state: "todo", title: "Queued"}
+
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(%{"11" => issue}),
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 0
+      assert stderr == ""
+      assert stdout =~ "queued 1 ticket(s); cleared 0 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:0"
+      assert_received {:todo_add_label, "11", "sym:todo"}
+    end
+
+    test "emits a failure marker when tracker mutation fails" do
+      {stdout, stderr, exit_code} =
+        capture_todo(["11"],
+          deps: todo_deps(%{"11" => {:error, :unavailable}}),
+          emit_exit_marker: true
+        )
+
+      assert exit_code == 1
+      assert stderr =~ "orchestrator unavailable"
+      assert stdout =~ "queued 0 ticket(s); cleared 0 other(s)"
+      assert stdout =~ "__AIUR_CONTROL_EXIT__:1"
+    end
+
+    test "reports a stopped application without a summary or stacktrace" do
+      {stdout, stderr, exit_code} =
+        capture_todo(["123"], deps: todo_deps(%{}, ensure_started_result: {:error, :application_not_started}))
+
+      assert exit_code == 1
+      assert stdout == ""
+      assert stderr == "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
+      refute stderr =~ "GenServer"
+    end
+
     test "queues requested tickets with config-derived labels and streaming feedback" do
       issues =
         Map.new(~w(11 12 13), fn id ->
