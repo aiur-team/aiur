@@ -98,7 +98,9 @@ defmodule Aiur.TestSupport do
         # suite-wide test path hazardous: a case that pauses the daemon can
         # make a later named Orchestrator boot paused. Give every TestSupport
         # case its own store so persisted control state cannot cross test
-        # boundaries or depend on ExUnit's randomized file order.
+        # boundaries or depend on ExUnit's randomized file order. Keeping the
+        # path explicit also prevents cwd-changing tests from selecting a
+        # different implicit production store during teardown.
         Application.put_env(
           :aiur,
           :global_pause_store_path,
