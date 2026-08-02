@@ -110,9 +110,9 @@ These commands contact the instance keyed for the current project. Through `aiur
 | `aiur pause` | Enables the global pause switch for the current daemon. It holds the whole daemon and prevents new provisioning. A bare pause is not durable across restart; use `--pause` on the next launch when that behavior is needed. [#1479](https://github.com/aiur-team/aiur/issues/1479) tracks durable global-pause state. | `aiur pause` |
 | `aiur resume` | Disables the global pause switch. | `aiur resume` |
 | `aiur pause ID...` | Cooperatively pauses selected issue IDs at a safe boundary. IDs may be comma or space separated. | `aiur pause 142 143,144` |
-| `aiur resume ID...` | Resumes selected individually paused issues. It cannot override an active global pause. | `aiur resume 142` |
+| `aiur resume ID...` | Resumes selected paused issues, or starts an active ticket whose agent is idle. It cannot override an active global pause; terminal or non-active targets are rejected. | `aiur resume 142` |
 | `aiur pause --all` / `aiur resume --all` | Applies the individual pause/resume action to all applicable active tickets. These forms are distinct from bare global pause/resume. | `aiur pause --all` |
-| `aiur message ID TEXT...` | Queues Executor text for a running agent using its native delivery queue. Quote multi-word text. | `aiur message 142 "Please address the latest review"` |
+| `aiur message ID TEXT...` | Requires a numeric issue ID and nonempty text. It base64-encodes text for the RPC, preserving quotes, backslashes, interpolation-looking text, and newlines. It exits nonzero for no running agent, unavailable control plane, whitespace-only text, or a message over the daemon limit. A mid-turn agent queues it for its native delivery boundary. | `aiur message 142 "Please address the latest review"` |
 
 In the foreground board, `j`/`k` or arrows select rows, `Enter` opens the selected chat, `Shift+Enter` or `O` opens another pane, space toggles the selected ticket pause, left/right adjust the runtime max-agent cap, `r` toggles Remote Control, `v` changes pane orientation, `?` shows help, and `q` exits the board. The dashboard sidebar has its own hide/show navigation toggle; it persists across dashboard navigation.
 
@@ -140,12 +140,15 @@ Executor event bindings are persistent topic-pattern subscriptions. Topic patter
 
 <!-- cli-command: cleanup-stale -->
 <!-- cli-command: stop -->
+<!-- cli-dev-command: build -->
 <!-- cli-flag: --dry-run -->
 <!-- cli-flag: --deps -->
 <!-- cli-flag: --test -->
 <!-- cli-flag: --test3 -->
 <!-- cli-flag: --allow-remote -->
 <!-- cli-flag: --clear -->
+<!-- cli-planned-command: findings -->
+<!-- cli-planned-flag: --unfiled -->
 
 | Command | Default and interaction | Runnable example |
 | --- | --- | --- |
@@ -159,10 +162,10 @@ The following `aiurdev` harness flags are development-only. They are not part of
 
 | Command or flag | Default and interaction | Runnable example |
 | --- | --- | --- |
-| `scripts/aiurdev --test` | Executor-root manual harness. Resets one pinned GitHub sandbox ticket, enables `--debug` and `--clear`, then starts a foreground run. | `scripts/aiurdev --test` |
-| `scripts/aiurdev --test3` | Executor-root manual harness. Resets the three-ticket blocker chain, enables `--debug`, `--clear`, and `--allow-remote`, then starts its completion timer and a foreground run. | `scripts/aiurdev --test3` |
+| `scripts/aiurdev --test` | Destructive Executor-root manual harness. It enables `--debug` and `--clear`, clears prior debug logs, stops the matching daemon, then force-resets one pinned GitHub sandbox ticket before a foreground run. | `scripts/aiurdev --test` |
+| `scripts/aiurdev --test3` | Destructive Executor-root manual harness. It enables `--debug`, `--clear`, and `--allow-remote`, clears prior debug logs, stops the matching daemon, force-resets the three-ticket blocker chain, then starts its timer and foreground run. | `scripts/aiurdev --test3` |
 | `scripts/aiurdev --allow-remote` | Allows the reset harness to include its remote-agent path. It matters only with `--test` or `--test3`; alone it has no effect. `--test3` supplies it automatically. | `scripts/aiurdev --test --allow-remote` |
-| `scripts/aiurdev --clear` | Deletes prior debug logs before launch. It requires `--debug`; either test harness enables both automatically. | `scripts/aiurdev --debug --clear` |
+| `scripts/aiurdev --clear` | Deletes prior debug logs before launch. It requires `--debug`; either test harness enables both automatically. Outside the agent IR sandbox it clears `~/.aiur/logs/*`, so do not combine it with a session whose logs must be retained. | `scripts/aiurdev --debug --clear` |
 
 Aiur has no `findings` command yet. Until [#1464](https://github.com/aiur-team/aiur/issues/1464) ships its planned `aiur findings --unfiled` query, the Executor writes deferred findings directly to `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`.
 
