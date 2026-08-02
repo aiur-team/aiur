@@ -747,11 +747,13 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp reduce_tickets(records, opts) do
+    # Caller timestamps describe when an event occurred, but lifecycle pairing
+    # must follow append order when a segment boundary is interleaved.
     events =
       records
       |> Enum.filter(&(&1.kind == "lifecycle"))
       |> Enum.flat_map(&lifecycle_event/1)
-      |> Enum.sort_by(&{&1.timestamp_ms, &1.boot_id, &1.sequence})
+      |> Enum.sort_by(&lifecycle_sort_key/1)
 
     events_by_ticket = Enum.group_by(events, & &1.ticket)
     findings = review_findings(events_by_ticket, opts)
@@ -795,6 +797,7 @@ defmodule Aiur.RunTelemetry.Dataset do
           timestamp: record.timestamp_iso,
           timestamp_dt: record.timestamp,
           timestamp_ms: record.timestamp_ms,
+          recorded_at_ms: recorded_at_ms(record),
           boot_id: record.boot_id,
           sequence: record.sequence,
           record_id: record.record_id
@@ -803,6 +806,17 @@ defmodule Aiur.RunTelemetry.Dataset do
     else
       _other -> []
     end
+  end
+
+  defp recorded_at_ms(%{recorded_at: recorded_at}) do
+    case parse_timestamp(recorded_at) do
+      {:ok, parsed} -> DateTime.to_unix(parsed, :millisecond)
+      :error -> nil
+    end
+  end
+
+  defp lifecycle_sort_key(event) do
+    {event.recorded_at_ms || event.timestamp_ms, event.boot_id, event.sequence}
   end
 
   defp normalize_complexity(value) when is_integer(value) and value in 1..5, do: value

@@ -177,9 +177,7 @@ defmodule Aiur.RunTelemetry.Writer do
           write_warning_emitted: false
       }
 
-      # Boundary records must share the timestamp of the record or batch that
-      # caused the roll so Dataset's timestamp-first ordering preserves causality.
-      maybe_prune(state, List.last(records) |> elem(2))
+      maybe_prune(state)
     else
       {:error, reason} -> warn_write_failure(state, reason)
     end
@@ -265,15 +263,12 @@ defmodule Aiur.RunTelemetry.Writer do
 
   defp release_admission(counter), do: :atomics.sub(counter, @pending_index, 1)
 
-  defp maybe_prune(%{prune_interval_bytes: nil} = state, _trigger_timestamp), do: state
+  defp maybe_prune(%{prune_interval_bytes: nil} = state), do: state
+  defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state) when n < threshold, do: state
 
-  defp maybe_prune(%{bytes_since_prune: n, prune_interval_bytes: threshold} = state, _trigger_timestamp)
-       when n < threshold,
-       do: state
-
-  defp maybe_prune(state, trigger_timestamp) do
+  defp maybe_prune(state) do
     if segment_roll_required?(state) do
-      roll_and_prune(state, trigger_timestamp)
+      roll_and_prune(state)
     else
       prune_historical_boots(state)
     end
@@ -283,14 +278,14 @@ defmodule Aiur.RunTelemetry.Writer do
       %{state | bytes_since_prune: 0}
   end
 
-  defp roll_and_prune(state, trigger_timestamp) do
+  defp roll_and_prune(state) do
     # Roll the current segment: append a restart marker to close the current
     # segment so any data before this point is pruneable as a completed group.
     # The fresh restart marker re-anchors the current boot in the file, so the
     # subsequent prune (which does not protect any boot) leaves it parseable.
     # If the boundary write fails (sequence unchanged), skip pruning to avoid
     # cutting mid-segment without a clean group boundary.
-    rolled = write_segment_boundary(state, trigger_timestamp)
+    rolled = write_segment_boundary(state)
 
     if rolled.sequence != state.sequence do
       opts = rolled.retention |> Keyword.put(:now, rolled.clock.())
@@ -326,7 +321,10 @@ defmodule Aiur.RunTelemetry.Writer do
     end
   end
 
-  defp write_segment_boundary(state, timestamp) do
+  defp write_segment_boundary(state) do
+    # Structural markers use the writer clock so retention can always parse and
+    # age segment boundaries independently of caller-supplied timestamps.
+    timestamp = clock_timestamp(state.clock)
     {closing, reopening, open_lifecycles} = segment_lifecycle_records(state.open_lifecycles, timestamp)
 
     records =
@@ -413,6 +411,26 @@ defmodule Aiur.RunTelemetry.Writer do
   defp normalize_timestamp(timestamp) when is_binary(timestamp), do: timestamp
   defp normalize_timestamp(_timestamp), do: DateTime.utc_now() |> DateTime.to_iso8601()
 
+  defp clock_timestamp(clock) do
+    clock.() |> validate_clock_timestamp()
+  end
+
+  defp validate_clock_timestamp(timestamp) do
+    case timestamp do
+      %DateTime{} = timestamp ->
+        timestamp
+
+      timestamp when is_binary(timestamp) ->
+        case DateTime.from_iso8601(timestamp) do
+          {:ok, parsed, _offset} -> parsed
+          _other -> DateTime.utc_now()
+        end
+
+      _other ->
+        DateTime.utc_now()
+    end
+  end
+
   defp encode_records(state, records) do
     {state, lines} =
       Enum.reduce(records, {state, []}, fn {kind, attributes, timestamp}, {state, lines} ->
@@ -423,7 +441,7 @@ defmodule Aiur.RunTelemetry.Writer do
           schema_version: RunTelemetry.schema_version(),
           kind: normalize_kind(kind),
           timestamp: normalize_timestamp(timestamp),
-          recorded_at: normalize_timestamp(state.clock.()),
+          recorded_at: state.clock |> clock_timestamp() |> normalize_timestamp(),
           boot_id: state.boot_id,
           sequence: sequence,
           record_id: "#{state.boot_id}:#{sequence}",

@@ -540,17 +540,44 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
-  test "segment rolls keep queued lifecycle finishes ahead of future-clock boundaries", %{path: path} do
+  test "invalid caller timestamps do not make segment boundaries unprunable", %{path: path} do
     retention = [max_bytes: 1, prune_interval_bytes: 1]
     future_clock = fn -> ~U[2026-07-11 12:00:10Z] end
-    start_timestamp = ~U[2026-07-11 12:00:00Z]
-    finish_timestamp = ~U[2026-07-11 12:00:01Z]
 
     {:ok, writer} =
       Writer.start_link(
         name: nil,
         path: path,
-        boot_id: "lifecycle-roll-future-clock",
+        boot_id: "invalid-timestamp-roll",
+        clock: future_clock,
+        retention: retention
+      )
+
+    for sample <- 1..40 do
+      assert :ok = Writer.record(writer, :resource, %{sample: sample}, timestamp: "not-a-timestamp")
+    end
+
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    boundaries = Enum.filter(records, &(&1["kind"] == "restart" and &1["attributes"]["event"] == "segment_boundary"))
+
+    assert boundaries != []
+    assert Enum.all?(boundaries, &match?({:ok, _timestamp, 0}, DateTime.from_iso8601(&1["timestamp"])))
+    assert File.stat!(path).size < 10_000
+  end
+
+  test "old caller timestamps do not reorder lifecycle intervals or age boundaries", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    future_clock = fn -> ~U[2026-07-11 12:00:10Z] end
+    start_timestamp = ~U[2020-01-01 00:00:00Z]
+    finish_timestamp = ~U[2020-01-01 00:00:01Z]
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "old-timestamp-roll",
         clock: future_clock,
         retention: retention
       )
@@ -565,6 +592,10 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert {:ok, dataset} = Dataset.build(path)
     assert [%{status: "closed"}] = dataset.tickets["1340"].intervals
     refute Enum.any?(dataset.tickets["1340"].intervals, &(&1.status in ["orphan_end", "open"]))
+
+    records = read_records(path)
+    boundaries = Enum.filter(records, &(&1["kind"] == "restart" and &1["attributes"]["event"] == "segment_boundary"))
+    assert Enum.all?(boundaries, &(&1["timestamp"] == "2026-07-11T12:00:10Z"))
   end
 
   test "periodic retention failure does not crash or stall the writer", %{path: path, root: root} do
