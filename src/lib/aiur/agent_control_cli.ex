@@ -633,10 +633,15 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:none, _detail}), do: "none"
 
   defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
-    cond do
-      capacity_binding_ticket_supply?(capacity) ->
-        {:ticket_supply, 0}
+    if capacity_binding_ticket_supply?(capacity) do
+      {:ticket_supply, 0}
+    else
+      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
+    end
+  end
 
+  defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
+    cond do
       paused_reservation_binding?(capacity) ->
         {:paused_reservations, capacity.reserved_paused}
 
