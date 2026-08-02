@@ -13,8 +13,9 @@ builds/<slug>/
   tickets/<ID>.md             # draft issue body until promoted
 ```
 
-The state node is the only path Aiur reads. A developer may keep a copied plan
-in repository version control, but that copy is inert to Aiur.
+The state node and a materialized repository discovery mirror are the paths
+Aiur reads. A copied plan under `docs/` remains inert, while successful
+publication writes `.aiur/build_orders/<slug>.json` for the dashboard to load.
 
 ## Canonical pack
 

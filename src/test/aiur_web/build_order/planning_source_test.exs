@@ -144,6 +144,49 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert directory in search_paths
   end
 
+  test "loads a materialized canonical pack from the repository discovery directory" do
+    directory = Path.join(System.tmp_dir!(), "planning-source-published-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "published.json")
+    repository = Config.repo()
+
+    File.mkdir_p!(directory)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "build_order_id" => "#{repository}:published",
+        "title" => "Published",
+        "repository" => repository,
+        "github_root" => %{"number" => 9900, "node_id" => "ROOT"},
+        "tickets" => [
+          %{
+            "id" => "P-1",
+            "title" => "Published member",
+            "document" => "tickets/P-1.md",
+            "workstream" => "runtime",
+            "phase_hint" => 1,
+            "complexity_points" => 3,
+            "depends_on" => [],
+            "github" => %{"number" => 9901, "node_id" => "MEMBER"}
+          }
+        ]
+      })
+    )
+
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.put_env(:aiur, :build_order_planning_packs, [path])
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm_rf(directory)
+    end)
+
+    assert %Snapshot{data: %Catalog{entries: [root]}} = PlanningSource.catalog()
+    assert root.identity.identifier == "9900"
+    {:ok, selected} = PlanningSource.demand(root.identity)
+    assert [%{identity: %{identifier: "9901"}}] = selected.data.members
+  end
+
   test "hydrates canonical ticket fields from membership without tracker reads" do
     path = Path.join(System.tmp_dir!(), "planning-source-canonical-#{System.unique_integer([:positive])}.json")
     File.write!(path, @canonical_pack)

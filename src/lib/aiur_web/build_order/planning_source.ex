@@ -531,7 +531,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
          {:ok, repository} <- repository(json),
          {:ok, tickets} <- tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?) do
       build_order_id = Map.get(json, "build_order_id", "planning")
-      root_number = Map.get(json, "root_number")
+      root_number = Map.get(json, "root_number") || get_in(json, ["github_root", "number"])
       status = status(absolute)
 
       {:ok,
@@ -560,7 +560,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
   end
 
-  defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || "BO_#{build_order_id}"
+  defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || get_in(json, ["github_root", "node_id"]) || "BO_#{build_order_id}"
 
   defp assign_default_root_numbers(packs) do
     {packs, _used_numbers} =
@@ -614,17 +614,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket(%{"id" => id} = attributes, pack_dir, include_drafts?) when is_binary(id) and id != "" do
     with {:ok, number} <- ticket_number(attributes),
-         document_path <- Map.get(attributes, "doc"),
+         document_path <- Map.get(attributes, "doc") || Map.get(attributes, "document"),
          true <- safe_document_path?(document_path) do
       {:ok,
        %{
          id: id,
          title: Map.get(attributes, "title", id),
-         lane: to_string(Map.get(attributes, "lane", "unassigned")),
-         phase: Map.get(attributes, "phase", 0),
-         complexity: Map.get(attributes, "complexity"),
+         lane: to_string(Map.get(attributes, "lane") || Map.get(attributes, "workstream") || "unassigned"),
+         phase: Map.get(attributes, "phase") || Map.get(attributes, "phase_hint") || 0,
+         complexity: Map.get(attributes, "complexity") || Map.get(attributes, "complexity_points"),
          number: number,
-         node_id: nil,
+         node_id: get_in(attributes, ["github", "node_id"]),
          depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
          document_url: nil,
          document_path: document_path,
@@ -710,6 +710,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
+  defp ticket_number(%{"github" => %{"number" => ticket}}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(_attributes), do: :error
 
   @default_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]

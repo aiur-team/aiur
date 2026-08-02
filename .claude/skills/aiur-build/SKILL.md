@@ -176,8 +176,10 @@ receive a deterministic generic default, distinct from other build orders in
 the same repository list. Member icons remain presentation hints.
 
 Do not ship converter code. Existing packs are one-time Executor hand-conversion
-work after the reader lands. Developers may copy planning artifacts into their
-repository for version control, but Aiur never reads those copies.
+work after the reader lands. Canonical planning artifacts under `docs/` remain
+version-control evidence, not discovery inputs. After materialization, the
+publisher writes the matching live discovery mirror to
+`.aiur/build_orders/<slug>.json`; Aiur reads that materialized mirror.
 
 Verify before declaring planning complete: with the daemon running, open the
 Build Order page and confirm the pack title and members render. This is a
