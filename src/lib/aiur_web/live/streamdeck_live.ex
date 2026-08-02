@@ -22,6 +22,8 @@ defmodule AiurWeb.StreamdeckLive do
       |> NavState.assign_nav()
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, knob_descriptors())
+      |> assign(:grid_page, 0)
+      |> assign(:logs, load_logs())
       |> assign(:control_feedback, nil)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
@@ -31,6 +33,7 @@ defmodule AiurWeb.StreamdeckLive do
       :ok = AgentPubSub.subscribe_running()
       :ok = AgentPubSub.subscribe_status()
       :ok = ProviderMeterEvents.subscribe_observed()
+      maybe_subscribe_agent(socket.assigns.selected_identifier)
     end
 
     {:ok, socket}
@@ -41,6 +44,19 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
     do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event("grid-page", %{"page" => page}, socket) do
+    page = parse_integer(page, socket.assigns.grid_page)
+    previous_identifier = socket.assigns.selected_identifier
+    socket = assign_grid(socket, socket.assigns.grid, page)
+    maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    {:noreply, socket}
+  end
+
+  def handle_event("logs-scroll", %{"axis" => axis, "delta" => delta}, socket)
+      when axis in ["events", "transcript"] do
+    {:noreply, update_logs(socket, axis, parse_integer(delta, 0))}
+  end
 
   def handle_event("key-press", params, socket) do
     if dashboard_writable?() do
@@ -57,12 +73,24 @@ defmodule AiurWeb.StreamdeckLive do
     do: {:noreply, socket}
 
   @impl true
-  def handle_info({:running_changed, _summaries}, socket), do: {:noreply, refresh_grid(socket)}
+  def handle_info({:running_changed, _summaries}, socket) do
+    socket = refresh_grid(socket)
+    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Fleet running state updated"))}
+  end
 
-  def handle_info({:status_changed, %{identifier: _identifier}}, socket),
-    do: {:noreply, refresh_grid(socket)}
+  def handle_info({:status_changed, %{identifier: identifier}}, socket) do
+    socket = refresh_grid(socket)
+    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Agent ##{identifier} status updated"))}
+  end
 
-  def handle_info({:provider_meter_changed, _snapshot}, socket), do: {:noreply, refresh_grid(socket)}
+  def handle_info({:provider_meter_changed, _snapshot}, socket) do
+    socket = refresh_grid(socket)
+    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Provider usage updated"))}
+  end
+
+  def handle_info({:transcript_event, event}, socket) when is_map(event) do
+    {:noreply, assign(socket, :logs, append_transcript(socket.assigns.logs, event))}
+  end
 
   @impl true
   def render(assigns) do
@@ -81,7 +109,7 @@ defmodule AiurWeb.StreamdeckLive do
             <span>STREAM DECK</span>
           </header>
 
-          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows}>
+          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows}>
             <li
               :for={key <- @keys}
               class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
@@ -110,6 +138,15 @@ defmodule AiurWeb.StreamdeckLive do
             </li>
           </ul>
 
+          <div id="sd-pager-dots" class="sd-pager-dots" aria-label="Agent pages">
+            <span
+              :for={page <- pager_pages(@grid.windows)}
+              class={if page == @grid_page, do: "is-active", else: nil}
+              data-page={page}
+              aria-current={if page == @grid_page, do: "page", else: nil}
+            >•</span>
+          </div>
+
           <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands" aria-hidden="true">
             <p class="sd-mode-label">Commands</p>
             <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
@@ -123,8 +160,17 @@ defmodule AiurWeb.StreamdeckLive do
 
           <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" role="log" aria-label="Agent logs" aria-hidden="true">
             <p class="sd-mode-label">Logs</p>
-            <div class="sd-log-body">
-              <p class="sd-log-line">No recent log output.</p>
+            <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
+              <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
+              <p :for={line <- @logs.events_visible} class="sd-log-line">{line}</p>
+              <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
+              <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
+            </div>
+            <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
+              <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
+              <p :for={line <- @logs.transcript_visible} class="sd-log-line">{line}</p>
+              <p :if={@logs.transcript_visible == []} class="sd-log-line">No recent transcript.</p>
+              <span id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             </div>
           </div>
 
@@ -167,16 +213,37 @@ defmodule AiurWeb.StreamdeckLive do
   defp refresh_grid(socket) do
     grid = load_grid()
     usage = StreamdeckProjection.provider_meters()
+    previous_identifier = socket.assigns[:selected_identifier]
+    socket = assign_grid(socket, grid, socket.assigns[:grid_page] || 0, usage)
+
+    if connected?(socket) do
+      maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    end
+
+    socket
+  end
+
+  defp assign_grid(socket, grid, page, usage \\ nil) do
+    page = clamp_page(page, grid.windows)
+    usage = usage || StreamdeckProjection.provider_meters()
+    visible_agents = Enum.slice(grid.agents, page * grid.agents_per_page, grid.agents_per_page)
 
     socket
     |> assign(:grid, grid)
-    |> assign(:keys, key_descriptors(grid))
+    |> assign(:grid_page, page)
+    |> assign(:selected_identifier, selected_identifier(socket, grid, visible_agents))
+    |> assign(:keys, key_descriptors(visible_agents))
     |> assign(:screen, screen_descriptors(grid, usage))
+    |> assign(:knobs, knob_descriptors(page, grid.windows))
   end
 
-  defp key_descriptors(%{agents: agents}) do
+  defp key_descriptors(agents) do
     visible_agents = Enum.take(agents, 8)
-    empty_slots = if length(visible_agents) < 8, do: Enum.map((length(visible_agents) + 1)..8, &empty_key/1), else: []
+
+    empty_slots =
+      if length(visible_agents) < 8,
+        do: Enum.map((length(visible_agents) + 1)..8, &empty_key/1),
+        else: []
 
     visible_agents
     |> Enum.with_index(1)
@@ -220,7 +287,8 @@ defmodule AiurWeb.StreamdeckLive do
     }
   end
 
-  defp empty_key(slot), do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
+  defp empty_key(slot),
+    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
 
   defp screen_descriptors(grid, usage) do
     [
@@ -237,9 +305,24 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp provider_value(%{} = meter) do
-    case Map.get(meter, "windows") do
-      windows when is_map(windows) -> "#{map_size(windows)} windows"
-      _ -> Map.get(meter, "state", "observed") |> to_string()
+    percentages =
+      case get_value(meter, "windows") do
+        windows when is_map(windows) ->
+          windows
+          |> Enum.map(fn {name, window} -> {name, window_percentage(window)} end)
+          |> Enum.filter(fn {_name, percentage} -> is_integer(percentage) end)
+          |> Enum.sort_by(fn {name, _percentage} -> to_string(name) end)
+
+        _ ->
+          []
+      end
+
+    case percentages do
+      [_ | _] ->
+        Enum.map_join(percentages, " · ", fn {name, percentage} -> "#{name} #{percentage}%" end)
+
+      [] ->
+        get_value(meter, "state", "observed") |> to_string()
     end
   end
 
@@ -257,8 +340,11 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do
-      {:ok, _request_id} -> assign(socket, :control_feedback, "Pause requested for ##{identifier}")
-      {:error, reason} -> assign(socket, :control_feedback, "Pause failed: #{inspect(reason)}")
+      {:ok, _request_id} ->
+        assign(socket, :control_feedback, "Pause requested for ##{identifier}")
+
+      {:error, reason} ->
+        assign(socket, :control_feedback, "Pause failed: #{inspect(reason)}")
     end
   end
 
@@ -281,6 +367,129 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp handle_key_press(_params, socket), do: {:noreply, socket}
+
+  defp update_logs(socket, axis, delta) do
+    logs = socket.assigns.logs
+    offset_key = String.to_existing_atom("#{axis}_offset")
+    max_key = String.to_existing_atom("#{axis}_max_offset")
+    offset = clamp(Map.fetch!(logs, offset_key) + delta, 0, Map.fetch!(logs, max_key))
+    assign(socket, :logs, logs |> Map.put(offset_key, offset) |> visible_logs())
+  rescue
+    _ -> socket
+  end
+
+  defp append_transcript(logs, event) do
+    logs
+    |> Map.update!(:transcript, &(&1 ++ [log_line(event)]))
+    |> Map.put(:transcript_max_offset, max(length(logs.transcript) + 1 - 4, 0))
+    |> visible_logs()
+  end
+
+  defp append_log_event(logs, line) do
+    logs
+    |> Map.update!(:events, &(&1 ++ [line]))
+    |> Map.put(:events_max_offset, max(length(logs.events) + 1 - 4, 0))
+    |> visible_logs()
+  end
+
+  defp visible_logs(logs) do
+    logs
+    |> Map.put(:events_visible, Enum.slice(logs.events, logs.events_offset, 4))
+    |> Map.put(:transcript_visible, Enum.slice(logs.transcript, logs.transcript_offset, 4))
+  end
+
+  defp load_logs do
+    raw =
+      case endpoint_config(:streamdeck_logs_fun) do
+        fun when is_function(fun, 0) -> safe_call(fun, %{})
+        _ -> %{}
+      end
+
+    events = raw |> get_value("events", []) |> Enum.map(&log_line/1)
+    transcript = raw |> get_value("transcript", []) |> Enum.map(&log_line/1)
+
+    %{
+      events: events,
+      transcript: transcript,
+      events_offset: 0,
+      events_max_offset: max(length(events) - 4, 0),
+      transcript_offset: 0,
+      transcript_max_offset: max(length(transcript) - 4, 0)
+    }
+    |> visible_logs()
+  end
+
+  defp log_line(%{} = event) do
+    role = get_value(event, "role")
+    body = get_value(event, "body", get_value(event, "message", ""))
+    "[#{role || "event"}] #{body}"
+  end
+
+  defp log_line(line), do: to_string(line)
+
+  defp maybe_subscribe_agent(identifier) when is_binary(identifier) do
+    _ = AgentPubSub.subscribe_agent(identifier)
+    :ok
+  end
+
+  defp maybe_subscribe_agent(_identifier), do: :ok
+
+  defp maybe_resubscribe_agent(previous, current) when previous == current, do: :ok
+
+  defp maybe_resubscribe_agent(previous, current) do
+    if is_binary(previous), do: AgentPubSub.unsubscribe_agent(previous)
+    maybe_subscribe_agent(current)
+  end
+
+  defp selected_identifier(socket, grid, visible_agents) do
+    current = socket.assigns[:selected_identifier]
+    identifiers = Enum.map(grid.agents, &to_string(&1.identifier))
+
+    cond do
+      is_binary(current) and current in identifiers -> current
+      visible_agents != [] -> to_string(hd(visible_agents).identifier)
+      true -> nil
+    end
+  end
+
+  defp clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))
+  defp clamp_page(_page, windows), do: clamp_page(0, windows)
+
+  defp pager_pages(0), do: []
+  defp pager_pages(windows), do: 0..(windows - 1)
+
+  defp parse_integer(value, _fallback) when is_integer(value), do: value
+
+  defp parse_integer(value, fallback) when is_binary(value) do
+    case Integer.parse(value) do
+      {integer, ""} -> integer
+      _ -> fallback
+    end
+  end
+
+  defp parse_integer(_value, fallback), do: fallback
+
+  defp clamp(value, min, max), do: value |> max(min) |> min(max)
+
+  defp get_value(map, key, default \\ nil) do
+    Map.get(map, key, Map.get(map, String.to_existing_atom(key), default))
+  rescue
+    _ -> Map.get(map, key, default)
+  end
+
+  defp window_percentage(window) when is_map(window) do
+    used_percent = get_value(window, "used_percent")
+    used = get_value(window, "used")
+    limit = get_value(window, "limit")
+
+    cond do
+      is_number(used_percent) -> round(used_percent)
+      is_number(used) and is_number(limit) and limit > 0 -> round(used / limit * 100)
+      true -> nil
+    end
+  end
+
+  defp window_percentage(_window), do: nil
 
   defp pause_agent(identifier) do
     case endpoint_config(:agent_chat_pause_fun) do
@@ -312,8 +521,11 @@ defmodule AiurWeb.StreamdeckLive do
 
     snapshot =
       case snapshot_fun do
-        fun when is_function(fun, 0) -> safe_call(fun, %{})
-        _ -> safe_call(fn -> Orchestrator.snapshot(orchestrator(), snapshot_timeout_ms()) end, %{})
+        fun when is_function(fun, 0) ->
+          safe_call(fun, %{})
+
+        _ ->
+          safe_call(fn -> Orchestrator.snapshot(orchestrator(), snapshot_timeout_ms()) end, %{})
       end
 
     case snapshot do
@@ -323,7 +535,15 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp empty_grid do
-    %{agents: [], total: 0, columns_per_page: 4, rows_per_column: 2, agents_per_page: 8, windows: 0, max_column_offset: 0}
+    %{
+      agents: [],
+      total: 0,
+      columns_per_page: 4,
+      rows_per_column: 2,
+      agents_per_page: 8,
+      windows: 0,
+      max_column_offset: 0
+    }
   end
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
@@ -349,12 +569,16 @@ defmodule AiurWeb.StreamdeckLive do
     _ -> false
   end
 
-  defp knob_descriptors do
+  defp knob_descriptors(page \\ 0, windows \\ 0) do
     [
       %{label: "Focus", value: "62", angle: 138},
       %{label: "Volume", value: "74", angle: 174},
       %{label: "Speed", value: "48", angle: 78},
-      %{label: "Page", value: "01", angle: 36}
+      %{
+        label: "Page",
+        value: String.pad_leading(to_string(page + 1), 2, "0"),
+        angle: if(windows > 0, do: page / max(windows - 1, 1) * 270 - 135, else: -135)
+      }
     ]
   end
 
