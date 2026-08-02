@@ -53,7 +53,7 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
              TicketDetailCache.current(cache, identity)
   end
 
-  test "constant repository fixture ignores unrelated workflow configuration broadcasts" do
+  test "constant repository fixture does not subscribe to workflow configuration" do
     parent = self()
     identity = identity(42, "I42")
 
@@ -72,13 +72,11 @@ defmodule Aiur.BuildOrder.TicketDetailCacheTest do
     assert {:ok, %State{generation: 1}} = TicketDetailCache.request(cache, identity)
     assert_receive {:reader_started, reader_pid}, 2_000
 
-    Phoenix.PubSub.broadcast(
-      Aiur.PubSub,
-      @workflow_configuration_topic,
-      {:workflow_config_updated, 2}
-    )
+    refute Enum.any?(
+             Registry.lookup(Aiur.PubSub, @workflow_configuration_topic),
+             fn {subscriber, _metadata} -> subscriber == cache end
+           )
 
-    cache_barrier(cache)
     send(reader_pid, :finish)
 
     assert_receive {
