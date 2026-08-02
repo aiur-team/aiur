@@ -172,6 +172,59 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     refute Enum.any?(dataset.tickets["932"].events, &(&1.event == "comment_received"))
   end
 
+  test "keeps injected GitHub findings chronological with persisted lifecycle events" do
+    path = temporary_stream!()
+
+    persisted = [
+      lifecycle_record(1, "review_pause", "point", ~U[2026-07-11 01:00:00Z]),
+      lifecycle_record(2, "rework_start", "point", ~U[2026-07-11 01:00:02Z]),
+      lifecycle_record(3, "agent_resume", "point", ~U[2026-07-11 01:00:03Z])
+    ]
+
+    File.write!(path, Enum.map_join(persisted, "\n", &Jason.encode!/1) <> "\n")
+
+    github_events = [
+      %{
+        id: 702,
+        topic: "ticket.940.issue.commented",
+        source: :github,
+        author_trusted?: true,
+        comment: %{"id" => 91, "updated_at" => "2026-07-11T01:00:01Z", "body" => "review"}
+      }
+    ]
+
+    assert {:ok, dataset} =
+             Dataset.build(path,
+               github_events: github_events,
+               now: ~U[2026-07-11 01:10:00Z]
+             )
+
+    assert [%{status: "resolved", missing: []}] = dataset.findings
+  end
+
+  test "keeps public records chronological across persisted telemetry files" do
+    future_path = temporary_stream!()
+    past_path = Path.join(Path.dirname(future_path), "past/telemetry.ndjson")
+    File.mkdir_p!(Path.dirname(past_path))
+
+    future =
+      lifecycle_record(1, "future_event", "point", ~U[2030-01-01 00:00:00Z])
+      |> Map.put(:boot_id, "future-boot")
+      |> Map.put(:record_id, "future-boot:1")
+
+    past =
+      lifecycle_record(1, "past_event", "point", ~U[2020-01-01 00:00:00Z])
+      |> Map.put(:boot_id, "past-boot")
+      |> Map.put(:record_id, "past-boot:1")
+
+    File.write!(future_path, Jason.encode!(future) <> "\n")
+    File.write!(past_path, Jason.encode!(past) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build([future_path, past_path])
+    assert Enum.map(dataset.records, & &1.timestamp_iso) == ["2020-01-01T00:00:00Z", "2030-01-01T00:00:00Z"]
+    assert dataset.provenance.time_range == %{start: "2020-01-01T00:00:00Z", end: "2030-01-01T00:00:00Z"}
+  end
+
   test "merge closes the review window and an early resume cannot resolve later rework" do
     path = temporary_stream!()
 

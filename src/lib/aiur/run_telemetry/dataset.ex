@@ -818,7 +818,16 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp lifecycle_sort_key(event) do
-    {event.source_path, event.source_line, event.record_id}
+    chronological_sort_key(event)
+  end
+
+  defp chronological_sort_key(event) do
+    {
+      event.timestamp_ms,
+      event.source_path || "",
+      event.source_line || 0,
+      event.record_id
+    }
   end
 
   defp normalize_complexity(value) when is_integer(value) and value in 1..5, do: value
@@ -840,8 +849,17 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp lifecycle_intervals(events) do
+    events
+    |> Enum.group_by(&lifecycle_pair_key/1)
+    |> Enum.flat_map(fn {_key, pair_events} -> lifecycle_pair_intervals(pair_events) end)
+    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  end
+
+  defp lifecycle_pair_intervals(events) do
     {intervals, open} =
-      Enum.reduce(events, {[], %{}}, fn event, {intervals, open} ->
+      events
+      |> causal_pair_order()
+      |> Enum.reduce({[], %{}}, fn event, {intervals, open} ->
         key = lifecycle_pair_key(event)
 
         case event.boundary do
@@ -856,10 +874,24 @@ defmodule Aiur.RunTelemetry.Dataset do
         end
       end)
 
-    open_intervals = Enum.map(open, fn {_key, event} -> open_interval(event) end)
+    intervals ++ Enum.map(open, fn {_key, event} -> open_interval(event) end)
+  end
 
-    (intervals ++ open_intervals)
-    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  defp causal_pair_order(events) do
+    same_persisted_stream? =
+      events
+      |> Enum.map(& &1.source_path)
+      |> Enum.uniq()
+      |> then(fn paths ->
+        length(paths) == 1 and is_binary(hd(paths)) and
+          Enum.all?(events, &is_integer(&1.source_line))
+      end)
+
+    if same_persisted_stream? do
+      Enum.sort_by(events, &{&1.source_line, &1.record_id})
+    else
+      Enum.sort_by(events, &chronological_sort_key/1)
+    end
   end
 
   defp close_lifecycle_interval(event, intervals, open, key) do
@@ -1053,10 +1085,12 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp record_sort_key(record) do
     {
-      record.source_path,
-      record.source_line,
+      record.timestamp_ms,
+      record.boot_id,
+      record.sequence,
       record.record_id,
-      record.timestamp_ms
+      record.source_path,
+      record.source_line
     }
   end
 
