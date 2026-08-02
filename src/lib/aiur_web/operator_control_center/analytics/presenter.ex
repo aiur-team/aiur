@@ -16,7 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   """
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, Timeline}
+  alias Aiur.RunTelemetry.{Dataset, GitHubEnricher, Timeline}
 
   @default_buckets 180
   @max_series_actors 8
@@ -92,7 +92,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   defp enrich(dataset, file, dataset_opts, opts) do
     case Keyword.get(opts, :github_repo) do
       repo when is_binary(repo) and repo != "" ->
-        enricher = Keyword.get(opts, :github_enricher, &Aiur.RunTelemetry.GitHubEnricher.enrich/3)
+        enricher = Keyword.get(opts, :github_enricher, &GitHubEnricher.enrich/3)
         enrichment = safe_enrichment(enricher, repo, Map.keys(dataset.tickets), opts)
         github_events = Keyword.get(dataset_opts, :github_events, []) ++ Map.get(enrichment, :events, [])
 
