@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{LifecycleFence, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, LifecycleFence, State}
 
   test "a newer observed rework epoch supersedes a lesser active-state fence" do
     issue_id = "issue-fence-rework"
@@ -73,9 +73,9 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     # Simulate the Executor closing the issue out-of-band (normal post-merge flow).
     # The fence is still active waiting for a queued item, but the tracker says closed.
     observed = %Issue{id: issue_id, identifier: identifier, state: "closed"}
-    terminal_states = MapSet.new(["closed", "done", "cancelled", "canceled"])
 
-    assert {:fenced, ^state} = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
+    assert {:fenced, ^state} =
+             LifecycleFence.reconcile_observed_state(state, observed, DispatchPolicy.terminal_state_set())
   end
 
   test "a terminal tracker state admits after the grace window" do
@@ -99,9 +99,9 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
     }
 
     observed = %Issue{id: issue_id, identifier: identifier, state: "closed"}
-    terminal_states = MapSet.new(["closed", "done", "cancelled", "canceled"])
 
-    assert :admit = LifecycleFence.reconcile_observed_state(state, observed, terminal_states)
+    assert :admit =
+             LifecycleFence.reconcile_observed_state(state, observed, DispatchPolicy.terminal_state_set())
   end
 
   test "a non-terminal diverging observed state remains fenced (restore_nonterminal path)" do
