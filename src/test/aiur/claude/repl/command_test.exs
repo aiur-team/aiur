@@ -7,9 +7,15 @@ defmodule Aiur.Claude.Repl.CommandTest do
   describe "build_command/7" do
     test "composes cd, token scrub, environment export, and exec in one success chain" do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
-<<<<<<< HEAD
-      assert String.starts_with?(cmd, "cd '/ws/foo' && unset AIUR_CI_READINESS_TOKEN && export ")
+      assert String.starts_with?(cmd, "cd '/ws/foo' && { unset ")
+      assert cmd =~ "AIUR_CI_READINESS_TOKEN"
+      assert cmd =~ "*_API_KEY) unset "
+      assert cmd =~ "export HEX_HOME="
       assert cmd =~ " && exec claude"
+
+      {scrub_pos, _len} = :binary.match(cmd, "unset ")
+      {export_pos, _len} = :binary.match(cmd, "export HEX_HOME=")
+      assert scrub_pos < export_pos
     end
 
     test "a failed workspace cd cannot launch Claude or retain the operator token" do
@@ -42,14 +48,8 @@ defmodule Aiur.Claude.Repl.CommandTest do
       assert status != 0
       refute output =~ "CLAUDE_RAN"
       refute output =~ "operator-only"
-=======
-      assert String.starts_with?(cmd, "cd '/ws/foo' && unset ")
-      assert cmd =~ "; export HEX_HOME="
-      assert cmd =~ " && exec claude"
     end
 
-    # Provider API keys live in the daemon's own environment; the tmux-backed
-    # REPL must not inherit them, so the scrub runs before anything is exported.
     test "scrubs inherited provider credentials before exporting the workspace env" do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
 
@@ -59,7 +59,6 @@ defmodule Aiur.Claude.Repl.CommandTest do
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
       {export_pos, _len} = :binary.match(cmd, "export HEX_HOME=")
       assert scrub_pos < export_pos
->>>>>>> origin/develop
     end
 
     test "exports the authoritative base branch into the tmux-backed process" do

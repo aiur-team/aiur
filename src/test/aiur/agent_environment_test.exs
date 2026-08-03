@@ -197,11 +197,8 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
-<<<<<<< HEAD
-      assert prefix =~ "unset AIUR_CI_READINESS_TOKEN && export"
-=======
+      assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
->>>>>>> origin/develop
       refute prefix =~ "elixir/mise.toml"
 
       {output, status} =
