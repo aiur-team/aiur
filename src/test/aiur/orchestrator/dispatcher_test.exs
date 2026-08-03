@@ -433,6 +433,102 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
   end
 
+  describe "prewarm hold observability" do
+    # Mirrors Dispatcher's @prewarm_hold_log_interval_ticks; kept literal so a
+    # change to the production interval is a deliberate, visible edit here too.
+    @hold_log_interval 30
+
+    test "logs the hold reason at most once per hold-log interval" do
+      with_prewarm_enabled_config()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      hold = fn acc -> Dispatcher.dispatch_or_hold(acc, [], fn -> :building end) end
+
+      # 30 consecutive holds (ticks 1..30) log only on the first tick.
+      first_window =
+        capture_log(fn ->
+          state =
+            Enum.reduce(1..@hold_log_interval, %State{}, fn _i, acc ->
+              hold.(acc)
+            end)
+
+          assert state.prewarm_hold_ticks == @hold_log_interval
+        end)
+
+      assert count_substring(first_window, "aiur_perf prewarm_hold") == 1
+      assert first_window =~ "aiur_perf prewarm_hold surface=dispatch phase=:building"
+
+      # A second window (ticks 31..60) adds exactly one more line.
+      second_window =
+        capture_log(fn ->
+          state =
+            Enum.reduce(1..(@hold_log_interval * 2), %State{}, fn _i, acc ->
+              hold.(acc)
+            end)
+
+          assert state.prewarm_hold_ticks == @hold_log_interval * 2
+        end)
+
+      assert count_substring(second_window, "aiur_perf prewarm_hold") == 2
+    end
+
+    test "fails open to a cold clone on a base-build error and resets the hold counter" do
+      with_prewarm_enabled_config()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        prewarm_hold_ticks: 25
+      }
+
+      log =
+        capture_log(fn ->
+          next = Dispatcher.dispatch_or_hold(state, [], fn -> {:error, :base_build_failed} end)
+          assert next.prewarm_hold_ticks == 0
+        end)
+
+      assert log =~ "prewarm base unavailable"
+      assert log =~ "dispatching via cold clone"
+    end
+
+    test "resets the hold counter once the base is ready" do
+      with_prewarm_enabled_config()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        prewarm_hold_ticks: 10
+      }
+
+      next = Dispatcher.dispatch_or_hold(state, [], fn -> :ready end)
+      assert next.prewarm_hold_ticks == 0
+    end
+
+    test "does not hold or log when prewarm is disabled" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        prewarm_hold_ticks: 7
+      }
+
+      log =
+        capture_log(fn ->
+          next = Dispatcher.dispatch_or_hold(state, [], fn -> :building end)
+          assert next.prewarm_hold_ticks == 0
+        end)
+
+      refute log =~ "aiur_perf prewarm_hold"
+    end
+  end
+
   describe "check_thrash_budget/3" do
     test "counts dispatches within window and trips over the threshold" do
       state = %State{}
@@ -771,6 +867,31 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp count_substring(haystack, needle) when is_binary(haystack) and is_binary(needle) do
+    haystack |> String.split(needle) |> length() |> Kernel.-(1)
+  end
+
+  # Points the workflow config at a prewarm-enabled file for the duration of a
+  # test. No `base_build` and a memory tracker keep RepoBase's own resolve/poll
+  # inert while `Config.prewarm_enabled?/0` reads true.
+  defp with_prewarm_enabled_config do
+    tmp = Path.join(System.tmp_dir!(), "dispatcher_prewarm_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(tmp)
+    cfg = Path.join(tmp, "config")
+    File.write!(cfg, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  poll_seconds: 0\n")
+    previous = Application.get_env(:aiur, :workflow_file_path)
+    Aiur.Workflow.set_workflow_file_path(cfg)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Aiur.Workflow.clear_workflow_file_path()
+        path -> Aiur.Workflow.set_workflow_file_path(path)
+      end
+    end)
+
+    :ok
+  end
 
   defp consume_available_slots(state, issues) do
     Enum.reduce(issues, state, fn issue, acc ->

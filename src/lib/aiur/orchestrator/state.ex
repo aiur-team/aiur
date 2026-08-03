@@ -77,7 +77,12 @@ defmodule Aiur.Orchestrator.State do
           ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
           ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
-          control_lifecycle: ControlLifecycle.t()
+          control_lifecycle: ControlLifecycle.t(),
+          # Consecutive poll ticks the prewarm gate has held dispatch for a
+          # warming base. Drives the at-most-once-per-N-ticks hold log so a
+          # slow/stuck base build stays visible in the daemon log without
+          # spamming it (see Dispatcher.log_prewarm_hold/2).
+          prewarm_hold_ticks: non_neg_integer()
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -134,7 +139,8 @@ defmodule Aiur.Orchestrator.State do
     globally_paused: false,
     global_pause: %{paused_at: nil, source: nil},
     snapshot_ready?: false,
-    control_lifecycle: %ControlLifecycle{}
+    control_lifecycle: %ControlLifecycle{},
+    prewarm_hold_ticks: 0
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}
