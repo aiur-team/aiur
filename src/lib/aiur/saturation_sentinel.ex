@@ -109,29 +109,24 @@ defmodule Aiur.SaturationSentinel do
   """
   @spec should_record?(float() | :unavailable, pos_integer(), map()) ::
           :enter | :record | :disarm | :skip
-  def should_record?(load, schedulers, state) when is_integer(schedulers) and schedulers > 0 do
-    %{
-      threshold_per_scheduler: threshold,
-      armed: armed,
-      last_record_ms: last,
-      cooldown_ms: cooldown,
-      now_ms: now
-    } = state
+  def should_record?(:unavailable, _schedulers, _state), do: :skip
 
-    case load do
-      :unavailable ->
-        :skip
+  def should_record?(load, schedulers, state) when is_number(load) do
+    threshold = state.threshold_per_scheduler * schedulers
 
-      load when is_number(load) ->
-        cond do
-          load >= threshold * schedulers and not armed -> :enter
-          load >= threshold * schedulers and armed and now - last >= cooldown -> :record
-          load >= threshold * schedulers -> :skip
-          armed -> :disarm
-          true -> :skip
-        end
+    cond do
+      load < threshold -> disarm_or_skip(state)
+      not state.armed -> :enter
+      record_due?(state) -> :record
+      true -> :skip
     end
   end
+
+  defp disarm_or_skip(%{armed: true}), do: :disarm
+  defp disarm_or_skip(_state), do: :skip
+
+  defp record_due?(%{now_ms: now, last_record_ms: last, cooldown_ms: cooldown}),
+    do: now - last >= cooldown
 
   @doc "Append one JSON diagnostics line to the saturation file (fail-open)."
   @spec record(Path.t(), map()) :: :ok
@@ -150,10 +145,7 @@ defmodule Aiur.SaturationSentinel do
 
   @impl true
   def init(opts) do
-    unless enabled?() do
-      Logger.info("saturation_sentinel disabled by config")
-      {:ignore, %State{}}
-    else
+    if enabled?() do
       state = %State{
         interval_ms: Keyword.get(opts, :interval_ms, @default_interval_ms),
         cooldown_ms: Keyword.get(opts, :cooldown_ms, @default_cooldown_ms),
@@ -166,6 +158,9 @@ defmodule Aiur.SaturationSentinel do
       Logger.info("saturation_sentinel armed threshold_per_scheduler=#{state.threshold_per_scheduler}")
       schedule_tick(state.interval_ms)
       {:ok, state}
+    else
+      Logger.info("saturation_sentinel disabled by config")
+      {:ignore, %State{}}
     end
   end
 
