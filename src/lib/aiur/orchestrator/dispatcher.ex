@@ -27,8 +27,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   }
 
   alias Aiur.Orchestrator.RetryEngine
-  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
   alias Aiur.RunTelemetry, as: RunTelemetry
+  alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
