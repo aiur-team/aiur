@@ -224,7 +224,7 @@ defmodule Aiur.Workspace.Ownership.Store do
          {:ok, name, rest} <- read_atom_name(rest),
          true <- name == @format_name,
          {:ok, version, _rest} <- read_integer(rest),
-         true <- is_integer(version) and version != @version do
+         true <- version != @version do
       version
     else
       _ -> nil
