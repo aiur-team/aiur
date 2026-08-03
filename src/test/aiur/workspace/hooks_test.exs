@@ -197,10 +197,10 @@ defmodule Aiur.Workspace.HooksTest do
     # Mirrors the scaffolded `.aiur/examples/hooks.example` guard: when the
     # state path is unset, `${VAR:?}` aborts the whole script before mkdir.
     command =
-      "cache_root=\"${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}\"; " <>
-        "mkdir -p \"$cache_root/.aiur-hex\" \"$cache_root/.aiur-mix\" \"$cache_root/.aiur-npm-cache\" \"$cache_root/meta/retros\"; " <>
-        "touch \"$cache_root/meta/findings.ndjson\"; " <>
-        "test -f \"$cache_root/meta/findings.ndjson\""
+      ~s(cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"; ) <>
+        ~s(mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"; ) <>
+        ~s(touch "$cache_root/meta/findings.ndjson"; ) <>
+        ~s(test -f "$cache_root/meta/findings.ndjson")
 
     assert :ok = Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
   end
