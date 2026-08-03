@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLI do
 
   alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.GitHub.{CodeOwners, StatePolicy}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
@@ -31,6 +31,7 @@ defmodule Aiur.AgentControlCLI do
 
             print_capacity_status(Orchestrator.max_concurrent_agents())
 
+            print_ci_readiness()
             print_build_gate_status()
             exit_marker(0)
 
@@ -907,6 +908,15 @@ defmodule Aiur.AgentControlCLI do
 
       _ ->
         :ok
+    end
+  end
+
+  defp print_ci_readiness do
+    if Config.tracker_kind() == "github" do
+      case CiReadiness.cached_result() do
+        :unavailable -> IO.puts("CI readiness: unavailable (no completed dispatcher assessment)")
+        readiness -> IO.puts(CiReadiness.format(readiness))
+      end
     end
   end
 

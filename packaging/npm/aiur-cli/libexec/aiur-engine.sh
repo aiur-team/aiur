@@ -439,6 +439,13 @@ load_dotenv_file() {
   done <"$file"
 }
 
+# The readiness token grants the one-shot `aiur init` assessment access that a
+# normal daemon and its child agents must never inherit. Keep dotenv loading
+# generic, then remove this run-only secret before any session process starts.
+scrub_run_only_env() {
+  unset AIUR_CI_READINESS_TOKEN
+}
+
 run_argv=()
 # Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
 # dashboard is reachable across the tailnet by default (no per-project config);
@@ -509,6 +516,7 @@ run_session() {
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
+  scrub_run_only_env
 
   init_argv_file
 
@@ -605,6 +613,7 @@ run_session() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
+    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \

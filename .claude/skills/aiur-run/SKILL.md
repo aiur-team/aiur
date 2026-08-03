@@ -453,14 +453,19 @@ push already carries the wrong identity. Push agent work with an explicit
 token-bearing URL from the start, and open agent PRs with the agent token —
 GitHub counts the PR **opener** for self-approval, not the commit author.
 
-The ruleset has no `required_status_checks` rule, so nothing blocks merging with
-failing CI; verify checks by hand before every merge. A solo operator also
-cannot merge `develop` -> `main` through the gate (issue #1437): with a
+The declaration requires every blocking CI job as required status checks,
+including `build`, `test`, and `workflow security`, with strict status checks
+enabled, and the gate is enforced once that declaration is applied to the live
+ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
+that declaration on every PR and merge, so a regressed gate fails CI visibly.
+The Executor must wait for the required checks and the review conditions before
+merging; never merge a pending, failing, or stale head. A solo operator also
+cannot merge `develop` -> `main` through the review gate (issue #1437): with a
 two-owner CODEOWNERS plus `require_code_owner_review` and
-`require_last_push_approval`, `--admin` does not bypass it. The documented
-workaround is a ruleset window — back up the ruleset, disable, merge, restore,
-then **re-read the ruleset to verify restoration** instead of trusting the
-write.
+`require_last_push_approval`, `--admin` does not bypass it. Any maintenance
+procedure for that issue must preserve the required-status-check rule; never
+disable the whole ruleset as a merge workaround. Re-read the live ruleset after
+any approved review-side maintenance change instead of trusting the write.
 
 ### Ticket close-out
 
