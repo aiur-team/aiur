@@ -73,6 +73,16 @@ The daemon materializes summaries automatically on telemetry segment boundary
 and on shutdown (best-effort, fail-open). Manual `reduce` runs are always safe
 and regenerate any summary.
 
+## Tests
+
+The Python suite is stdlib `unittest`. Run it from the repository root with the
+package on the path:
+
+```sh
+PYTHONPATH=analytics/lib python3 -m unittest discover -s analytics/tests -t analytics
+```
+
+
 ## Design notes
 
 - **Cost means CPU-seconds** unless the report explicitly says otherwise

@@ -2,6 +2,7 @@ defmodule Mix.Tasks.Aiur.CostReport do
   use Mix.Task
 
   alias Aiur.{Config, TrackerIdentity}
+  alias Aiur.RunTelemetry.Summaries
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate.{Checkpoint, Projection}
@@ -98,8 +99,9 @@ defmodule Mix.Tasks.Aiur.CostReport do
   end
 
   defp load_projection(parsed) do
-    with {:ok, root} <- state_dir(parsed),
-         checkpoint_path = Path.join(root, "checkpoint.json") do
+    with {:ok, root} <- state_dir(parsed) do
+      checkpoint_path = Path.join(root, "checkpoint.json")
+
       case Checkpoint.load(checkpoint_path) do
         {:ok, %Projection{} = projection} ->
           {:ok, projection}
@@ -151,17 +153,11 @@ defmodule Mix.Tasks.Aiur.CostReport do
   end
 
   defp build_identities(slug) do
-    node = Aiur.RunTelemetry.Summaries.state_node()
+    node = Summaries.state_node()
 
-    case Aiur.RunTelemetry.Summaries.build_summary_path(slug) do
-      _path ->
-        # The build order pack itself (builds/<slug>/build-order.json) is
-        # Executor-placed; the materialized build-summary carries the member
-        # manifest when it exists.
-        case read_build_members(node, slug) do
-          {:ok, numbers} -> identities_from(numbers)
-          {:error, reason} -> {:error, reason}
-        end
+    case read_build_members(node, slug) do
+      {:ok, numbers} -> identities_from(numbers)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -171,34 +167,44 @@ defmodule Mix.Tasks.Aiur.CostReport do
       Path.join([node, "builds", slug, "build-summary.json"])
     ]
 
-    case Enum.find(candidates, &File.regular?/1) do
-      nil ->
-        {:error, "no build order or summary found for slug #{inspect(slug)} in state node #{node}"}
+    read_member_file(node, slug, Enum.find(candidates, &File.regular?/1))
+  end
 
-      path ->
-        with {:ok, body} <- File.read(path),
-             {:ok, decoded} <- Jason.decode(body) do
-          members =
-            Map.get(decoded, "tickets") || Map.get(decoded, "build_order", %{}) |> Map.get("members", [])
+  defp read_member_file(node, slug, nil) do
+    {:error, "no build order or summary found for slug #{inspect(slug)} in state node #{node}"}
+  end
 
-          numbers =
-            Enum.flat_map(members, fn member ->
-              case Map.get(member, "ticket") do
-                n when is_integer(n) -> [to_string(n)]
-                n when is_binary(n) -> [n]
-                _other -> []
-              end
-            end)
+  defp read_member_file(_node, slug, path), do: read_members_for_slug(path, slug)
 
-          case numbers do
-            [] -> {:error, "build order #{slug} has no ticket members"}
-            numbers -> {:ok, numbers}
-          end
-        else
-          {:error, reason} -> {:error, "could not read #{path}: #{inspect(reason)}"}
-        end
+  defp read_members_for_slug(path, slug) do
+    case read_member_numbers(path) do
+      {:ok, []} -> {:error, "build order #{slug} has no ticket members"}
+      {:ok, numbers} -> {:ok, numbers}
+      {:error, reason} -> {:error, reason}
     end
   end
+
+  defp read_member_numbers(path) do
+    with {:ok, body} <- File.read(path),
+         {:ok, decoded} <- Jason.decode(body) do
+      members = Map.get(decoded, "tickets") || Map.get(decoded, "build_order", %{}) |> Map.get("members", [])
+      {:ok, member_ticket_numbers(members)}
+    else
+      {:error, reason} -> {:error, "could not read #{path}: #{inspect(reason)}"}
+    end
+  end
+
+  defp member_ticket_numbers(members) when is_list(members) do
+    Enum.flat_map(members, fn member ->
+      case Map.get(member, "ticket") do
+        n when is_integer(n) -> [to_string(n)]
+        n when is_binary(n) -> [n]
+        _other -> []
+      end
+    end)
+  end
+
+  defp member_ticket_numbers(_members), do: []
 
   defp identities_from(numbers) do
     Enum.reduce_while(numbers, {:ok, []}, fn number, {:ok, acc} ->
@@ -217,33 +223,43 @@ defmodule Mix.Tasks.Aiur.CostReport do
   @spec ticket_identity(String.t()) :: {:ok, TrackerIdentity.t()} | {:error, String.t()}
   def ticket_identity(number) do
     case Aiur.GitHub.Config.repo() do
-      repo when is_binary(repo) and repo != "" ->
-        case String.split(repo, "/", parts: 2) do
-          [owner, name] when owner != "" and name != "" ->
-            identity = %TrackerIdentity{
-              status: :joinable,
-              kind: :github,
-              owner: owner,
-              repository: name,
-              provider_id: to_string(number),
-              identifier: to_string(number),
-              reason: nil
-            }
+      repo when is_binary(repo) and repo != "" -> build_ticket_identity(repo, number)
+      _other -> {:error, "no configured repository for ticket-qualified scope"}
+    end
+  end
 
-            if TrackerIdentity.github_key(identity), do: {:ok, identity}, else: {:error, "unjoinable identity for ticket #{number}"}
+  defp build_ticket_identity(repo, number) do
+    case String.split(repo, "/", parts: 2) do
+      [owner, name] when owner != "" and name != "" -> joinable_ticket_identity(owner, name, number)
+      _other -> {:error, "could not derive owner/name from repo #{inspect(repo)}"}
+    end
+  end
 
-          _other ->
-            {:error, "could not derive owner/name from repo #{inspect(repo)}"}
-        end
+  defp joinable_ticket_identity(owner, name, number) do
+    identity = %TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: owner,
+      repository: name,
+      provider_id: to_string(number),
+      identifier: to_string(number),
+      reason: nil
+    }
 
-      _other ->
-        {:error, "no configured repository for ticket-qualified scope"}
+    if TrackerIdentity.github_key(identity) do
+      {:ok, identity}
+    else
+      {:error, "unjoinable identity for ticket #{number}"}
     end
   end
 
   ## ---- rendering ----
 
-  defp render(snapshot, true), do: Jason.encode!(snapshot, pretty: true)
+  defp render(snapshot, true) do
+    snapshot
+    |> json_safe()
+    |> Jason.encode!(pretty: true)
+  end
 
   defp render(snapshot, false) do
     scope = Map.get(snapshot, :scope, %{})
@@ -264,10 +280,12 @@ defmodule Mix.Tasks.Aiur.CostReport do
     Enum.join(lines, "\n")
   end
 
-  defp format_scope(%{kind: kind, run_id: run_id}) when is_binary(run_id),
-    do: "#{kind} run #{run_id}"
+  defp format_scope(%{kind: :this_run, run_id: run_id}) when is_binary(run_id),
+    do: "run #{run_id}"
 
-  defp format_scope(%{kind: kind, ticket_count: count}), do: "#{kind} (#{count} ticket(s))"
+  defp format_scope(%{kind: :explicit_ticket_set, tickets: tickets}) when is_list(tickets),
+    do: "ticket set (#{length(tickets)} ticket(s))"
+
   defp format_scope(_scope), do: "current run"
 
   defp model_lines(snapshot), do: dimension_lines(get_in(snapshot, [:contributors, :by_model]))
@@ -286,10 +304,53 @@ defmodule Mix.Tasks.Aiur.CostReport do
   defp dimension_line(%{key: key, tokens: tokens, api_equivalent: api}) do
     amount = api |> Map.get(:amount, %{}) |> Map.get("USD")
     formatted = if amount, do: "$#{Decimal.round(amount, 2)}", else: "n/a"
-    token_count = tokens |> Map.get("total", 0) || 0
+    token_count = token_total(tokens)
     "  #{pad(key)} #{formatted}   (#{token_count} tokens)"
   end
 
+  # Sums the canonical token dimensions (never the provider-reported total,
+  # which would double count the other dimensions).
+  defp token_total(tokens) when is_map(tokens) do
+    Enum.reduce(Aiur.UsageEnvelope.token_dimensions(), 0, fn dimension, acc ->
+      acc + (Map.get(tokens, dimension, 0) || 0)
+    end)
+  end
+
+  defp token_total(_tokens), do: 0
+
   defp pad(key) when is_binary(key), do: String.pad_trailing(key, 24)
-  defp pad(key), do: String.pad_trailing(to_string(key), 24)
+  defp pad(key), do: String.pad_trailing(inspect(key), 24)
+
+  # The grouped snapshot carries raw ticket tuples (`{:github, owner, name,
+  # provider_id}`) that Jason cannot encode. Stringify every ticket key the
+  # JSON report exposes so `--json` stays machine-readable.
+  defp json_safe(snapshot) when is_map(snapshot) do
+    snapshot
+    |> Map.update(:scope, %{}, &stringify_scope_tickets/1)
+    |> Map.update(:contributors, %{}, &stringify_ticket_contributors/1)
+  end
+
+  defp stringify_scope_tickets(scope) when is_map(scope) do
+    Map.update(scope, :tickets, [], fn tickets -> Enum.map(tickets, &ticket_key_string/1) end)
+  end
+
+  defp stringify_scope_tickets(scope), do: scope
+
+  defp stringify_ticket_contributors(contributors) when is_map(contributors) do
+    Map.update(contributors, :by_ticket, [], &stringify_ticket_keys/1)
+  end
+
+  defp stringify_ticket_contributors(contributors), do: contributors
+
+  defp stringify_ticket_keys(entries) when is_list(entries) do
+    Enum.map(entries, fn entry -> Map.update(entry, :key, nil, &ticket_key_string/1) end)
+  end
+
+  defp stringify_ticket_keys(entries), do: entries
+
+  defp ticket_key_string({:github, owner, name, provider_id}),
+    do: "#{owner}/#{name}/#{provider_id}"
+
+  defp ticket_key_string(key) when is_binary(key), do: key
+  defp ticket_key_string(key), do: inspect(key)
 end

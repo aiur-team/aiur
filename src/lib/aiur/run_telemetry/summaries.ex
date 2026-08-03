@@ -26,6 +26,7 @@ defmodule Aiur.RunTelemetry.Summaries do
 
   require Logger
 
+  alias Aiur.GitHub.Config
   alias Aiur.RepoBase
   alias Aiur.RunTelemetry
 
@@ -42,7 +43,7 @@ defmodule Aiur.RunTelemetry.Summaries do
         repo
 
       _other ->
-        case Aiur.GitHub.Config.repo() do
+        case Config.repo() do
           repo when is_binary(repo) and repo != "" -> repo
           _other -> "local/repo"
         end
@@ -107,22 +108,21 @@ defmodule Aiur.RunTelemetry.Summaries do
   @spec materialize_async() :: :ok
   def materialize_async do
     case reduce_command() do
-      {:ok, {script, args}} ->
-        Task.start(fn ->
-          case System.cmd(script, args, stderr_to_stdout: true) do
-            {_output, 0} ->
-              :ok
-
-            {output, status} ->
-              Logger.warning("run_telemetry summary_materialize_failed exit=#{status} output=#{truncate(output)}")
-          end
-        end)
-
-      :unavailable ->
-        :ok
+      {:ok, {script, args}} -> Task.start(fn -> run_reduce_background(script, args) end)
+      :unavailable -> :ok
     end
 
     :ok
+  end
+
+  defp run_reduce_background(script, args) do
+    case System.cmd(script, args, stderr_to_stdout: true) do
+      {_output, 0} ->
+        :ok
+
+      {output, status} ->
+        Logger.warning("run_telemetry summary_materialize_failed exit=#{status} output=#{truncate(output)}")
+    end
   end
 
   @doc """
