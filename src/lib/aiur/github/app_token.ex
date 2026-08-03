@@ -163,21 +163,26 @@ defmodule Aiur.GitHub.AppToken do
          {:ok, app_id} <- require_credential(AppCredentials.app_id(), :missing_app_id),
          {:ok, installation_id} <-
            require_credential(AppCredentials.installation_id(), :missing_installation_id) do
-      jwt = app_jwt(jwk, app_id)
+      exchange_and_validate(request_fun, validate_fun, app_jwt(jwk, app_id), installation_id)
+    end
+  end
 
-      with {:ok, %{token: token} = result} <- exchange_token(request_fun, jwt, installation_id),
-           true <- validate_fun.(token, request_fun) do
-        violation =
-          case verify_permissions(result.permissions) do
-            :ok -> nil
-            {:error, violation} -> violation
-          end
+  # Exchanges the signed JWT for an installation token, verifies the granted
+  # permission set, and confirms the token is rate-limit-usable. Split out of
+  # `acquire/1` so no function body nests deeper than Credo's limit.
+  defp exchange_and_validate(request_fun, validate_fun, jwt, installation_id) do
+    with {:ok, %{token: token} = result} <- exchange_token(request_fun, jwt, installation_id),
+         true <- validate_fun.(token, request_fun) do
+      violation =
+        case verify_permissions(result.permissions) do
+          :ok -> nil
+          {:error, violation} -> violation
+        end
 
-        {:ok, Map.put(result, :permission_violation, violation)}
-      else
-        false -> {:error, :installation_token_rate_limited}
-        {:error, _} = error -> error
-      end
+      {:ok, Map.put(result, :permission_violation, violation)}
+    else
+      false -> {:error, :installation_token_rate_limited}
+      {:error, _} = error -> error
     end
   end
 

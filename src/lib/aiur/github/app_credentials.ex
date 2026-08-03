@@ -99,9 +99,8 @@ defmodule Aiur.GitHub.AppCredentials do
   """
   @spec parse_private_key() :: {:ok, JOSE.JWK.t()} | {:error, term()}
   def parse_private_key do
-    with {:ok, pem} <- private_key_pem(),
-         {:ok, jwk} <- jwk_from_pem(pem) do
-      {:ok, jwk}
+    with {:ok, pem} <- private_key_pem() do
+      jwk_from_pem(pem)
     end
   end
 
