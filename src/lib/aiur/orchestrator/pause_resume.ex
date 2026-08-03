@@ -60,25 +60,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         issue = Map.get(state.last_polled_issues, issue_id)
         was_latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue_id))
         {state, reset_result} = Dispatcher.reset_lifetime_budget(state, issue_id)
-
-        case reset_result do
-          :ok ->
-            case restore_latched_error_state(state, issue, was_latched?) do
-              {:ok, state} ->
-                Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue_id}")
-                {:reply, {:ok, :reset}, state}
-
-              {:error, reason} ->
-                Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
-
-                {:reply, {:error, {:state_restore_failed, reason}}, state}
-            end
-
-          {:error, reason} ->
-            Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
-
-            {:reply, {:error, {:budget_reset_failed, reason}}, state}
-        end
+        reply_for_reset(state, issue, was_latched?, reset_result, issue_identifier)
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -87,6 +69,25 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  defp reply_for_reset(state, issue, was_latched?, :ok, issue_identifier) do
+    case restore_latched_error_state(state, issue, was_latched?) do
+      {:ok, state} ->
+        Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
+        {:reply, {:ok, :reset}, state}
+
+      {:error, reason} ->
+        Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
+
+        {:reply, {:error, {:state_restore_failed, reason}}, state}
+    end
+  end
+
+  defp reply_for_reset(state, _issue, _was_latched?, {:error, reason}, issue_identifier) do
+    Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
+
+    {:reply, {:error, {:budget_reset_failed, reason}}, state}
   end
 
   # A lifetime-latched ticket is durably moved to `agent:error` when it trips
