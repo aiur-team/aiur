@@ -53,11 +53,5 @@ defmodule Aiur.CurrentRunMembership.Store.FileOps do
   end
 
   @spec quarantine(String.t()) :: :ok | {:error, term()}
-  def quarantine(path) do
-    case File.lstat(path) do
-      {:error, :enoent} -> :ok
-      {:ok, _stat} -> File.rename(path, path <> ".corrupt-" <> Integer.to_string(System.unique_integer([:positive])))
-      {:error, reason} -> {:error, reason}
-    end
-  end
+  def quarantine(path), do: Fs.quarantine(path)
 end

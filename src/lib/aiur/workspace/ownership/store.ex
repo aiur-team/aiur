@@ -3,6 +3,8 @@ defmodule Aiur.Workspace.Ownership.Store do
 
   use GenServer
 
+  require Logger
+
   alias Aiur.Config.Paths
   alias Aiur.Fs
 
@@ -90,14 +92,27 @@ defmodule Aiur.Workspace.Ownership.Store do
       )
 
     with {:ok, dir} <- state_dir(opts),
-         :ok <- File.mkdir_p(dir),
-         path = Path.join(dir, @filename),
-         {:ok, receipts, new?} <- load(path),
-         :ok <- maybe_initialize(path, receipts, new?, sync_fun) do
-      {:ok, %{path: path, receipts: receipts, sync_fun: sync_fun}}
+         :ok <- File.mkdir_p(dir) do
+      path = Path.join(dir, @filename)
+      open_store(load(path), path, sync_fun)
     else
       {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
     end
+  end
+
+  defp open_store({:ok, receipts, new?}, path, sync_fun) do
+    case maybe_initialize(path, receipts, new?, sync_fun) do
+      :ok -> {:ok, %{path: path, receipts: receipts, sync_fun: sync_fun}}
+      {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
+    end
+  end
+
+  defp open_store({:error, :invalid_receipt_store}, path, sync_fun) do
+    recover_corrupt_store(path, sync_fun)
+  end
+
+  defp open_store({:error, reason}, _path, _sync_fun) do
+    {:stop, {:workspace_ownership_store_unavailable, reason}}
   end
 
   @impl true
@@ -173,6 +188,25 @@ defmodule Aiur.Workspace.Ownership.Store do
 
   defp maybe_initialize(_path, _receipts, false, _sync_fun), do: :ok
   defp maybe_initialize(path, receipts, true, sync_fun), do: persist(path, receipts, sync_fun)
+
+  # A corrupt receipts file must not block daemon startup: the leases it held
+  # are transient runtime state that is re-created on dispatch, so quarantine
+  # the unreadable bytes for forensics and re-initialize empty instead of
+  # failing the whole application.
+  defp recover_corrupt_store(path, sync_fun) do
+    case Fs.quarantine(path) do
+      :ok ->
+        Logger.warning("Quarantined corrupt workspace-ownership receipts store #{path}")
+
+        case maybe_initialize(path, %{}, true, sync_fun) do
+          :ok -> {:ok, %{path: path, receipts: %{}, sync_fun: sync_fun}}
+          {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
+        end
+
+      {:error, reason} ->
+        {:stop, {:workspace_ownership_store_unavailable, {:quarantine_failed, reason}}}
+    end
+  end
 
   defp persist(path, receipts, sync_fun) do
     contents = :erlang.term_to_binary({@format, @version, receipts})
