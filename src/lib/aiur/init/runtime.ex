@@ -31,6 +31,7 @@ defmodule Aiur.Init.Runtime do
           migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
+          setup_repo_state: (map() -> :ok | {:error, term()}),
           detect_toolchain: (-> Detect.result()),
           prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           global_alerts_path: (-> Path.t()),
@@ -86,6 +87,7 @@ defmodule Aiur.Init.Runtime do
       migrate_layout: &Migration.migrate_layout/1,
       read_example: fn -> Templates.config_example() end,
       detect_repo: &Aiur.Init.GitHub.detect_repo/0,
+      setup_repo_state: &setup_repo_state/1,
       detect_toolchain: &detect_toolchain/0,
       prewarm_build: &run_first_prewarm/2,
       global_alerts_path: &Scaffold.global_alerts_path/0,
@@ -136,4 +138,11 @@ defmodule Aiur.Init.Runtime do
   def run_first_prewarm(url, command) do
     RepoBase.refresh(RepoBase.base_path(url), url, command)
   end
+
+  @spec setup_repo_state(map()) :: :ok | {:error, term()}
+  def setup_repo_state(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "" do
+    RepoBase.setup_state("https://github.com/#{repo}.git", Codeowners.repo_root(File.cwd!()))
+  end
+
+  def setup_repo_state(_tracker), do: :ok
 end

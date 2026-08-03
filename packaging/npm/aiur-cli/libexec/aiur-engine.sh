@@ -327,6 +327,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
+       aiur findings --record <json> --repo <owner/repo>  append one validated finding
+       aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -404,6 +407,12 @@ run_todo() {
   local only_arg="false"
   [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
   run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
+}
+
+# --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
+
+run_findings() {
+  run_init "$@"
 }
 
 # --- interactive / background run -------------------------------------------
@@ -2392,6 +2401,9 @@ aiur_engine_main() {
       ;;
     init)
       run_init "$@"
+      ;;
+    findings)
+      run_findings "$@"
       ;;
     --bg)
       dispatch_run "$@"
