@@ -17,7 +17,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
-  alias Aiur.Orchestrator.SnapshotStore
+  alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.WaitingReason
   alias Aiur.TicketActivity
@@ -89,10 +89,13 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec publish_snapshot(State.t()) :: :ok
   def publish_snapshot(%State{} = state) do
-    # Projection may call other stores, so run it in SnapshotStore rather than
-    # extending the Orchestrator's dispatch critical path. Project only the
-    # bounded dashboard input, not the entire orchestration state.
-    SnapshotStore.publish_state(
+    # The snapshot publish cadence is owned by SnapshotPublisher, a separate
+    # process reading the shared write-model, so dispatch load in this mailbox
+    # cannot starve the dashboard. Projection may call other stores, so it still
+    # runs inside SnapshotStore rather than on the Orchestrator's dispatch
+    # critical path. Project only the bounded dashboard input, not the entire
+    # orchestration state.
+    SnapshotPublisher.write(
       state.snapshot_key || self(),
       state.snapshot_generation,
       snapshot_input(state)
