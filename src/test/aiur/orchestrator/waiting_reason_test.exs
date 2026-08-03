@@ -207,5 +207,20 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle("todo", false, 0) == :active
       assert WaitingReason.for_idle(nil, false, 0) == :active
     end
+
+    test "an active capacity hold makes a dispatchable row back off instead of reading active" do
+      assert WaitingReason.for_idle("todo", false, 0, true) == :backing_off
+      assert WaitingReason.for_idle(nil, false, 0, true) == :backing_off
+    end
+
+    test "capacity backoff never masks an open decision or a dependency" do
+      assert WaitingReason.for_idle("todo", true, 0, true) == :waiting_for_dependency
+      assert WaitingReason.for_idle("todo", false, 1, true) == :waiting_for_human
+    end
+
+    test "a capacity hold does not reclassify non-dispatchable tracker states" do
+      assert WaitingReason.for_idle("ci-wait", false, 0, true) == :waiting_for_ci
+      assert WaitingReason.for_idle("human-review", false, 0, true) == :waiting_for_review
+    end
   end
 end

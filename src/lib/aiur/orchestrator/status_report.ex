@@ -109,6 +109,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.take([
       :agent_rate_limits,
       :agent_totals,
+      :capacity_hold,
       :effective_concurrent_agents,
       :global_pause,
       :globally_paused,
@@ -257,6 +258,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       idle: idle,
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
+      capacity_hold: capacity_hold_payload(state, now_ms),
       globally_paused: state.globally_paused == true,
       global_pause: %{
         globally_paused: state.globally_paused == true,
@@ -270,6 +272,26 @@ defmodule Aiur.Orchestrator.StatusReport do
         poll_interval_ms: state.poll_interval_ms
       }
     }
+  end
+
+  defp capacity_hold_active?(%State{} = state) do
+    match?(%{signal: _signal}, state.capacity_hold)
+  end
+
+  defp capacity_hold_payload(%State{} = state, now_ms) do
+    case state.capacity_hold do
+      %{signal: signal, measured: measured, threshold: threshold, held_since_ms: held_since_ms} ->
+        %{
+          held?: true,
+          signal: signal,
+          measured: measured,
+          threshold: threshold,
+          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+        }
+
+      _other ->
+        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+    end
   end
 
   defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds, activity_by_identity) do
@@ -389,7 +411,13 @@ defmodule Aiur.Orchestrator.StatusReport do
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
-      waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?, open_decision_count),
+      waiting_reason:
+        WaitingReason.for_idle(
+          issue.state,
+          blocked_by_open?,
+          open_decision_count,
+          capacity_hold_active?(state)
+        ),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),

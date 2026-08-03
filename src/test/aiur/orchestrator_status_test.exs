@@ -486,6 +486,36 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [%{identifier: "MT-RETRY-CI", ci_result: %{decision: :pending, pr_number: 1501}}] = snapshot.retrying
   end
 
+  test "capacity hold is projected with the measured limiting signal and threshold" do
+    held_at = System.monotonic_time(:millisecond) - 5_000
+
+    state = %State{
+      capacity_hold: %{
+        signal: :build,
+        measured: %{active: 2, queued: 1},
+        threshold: 2,
+        held_since_ms: held_at,
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert %{
+             held?: true,
+             signal: :build,
+             measured: %{active: 2, queued: 1},
+             threshold: 2,
+             held_for_seconds: 5
+           } = snapshot.capacity_hold
+  end
+
+  test "an absent capacity hold projects a not-held block" do
+    snapshot = %State{} |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert %{held?: false, signal: nil, threshold: nil} = snapshot.capacity_hold
+  end
+
   test "an old projector cannot replace a same-name orchestrator snapshot" do
     orchestrator_name = Module.concat(__MODULE__, :GenerationFencedSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
