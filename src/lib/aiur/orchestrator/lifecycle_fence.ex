@@ -11,13 +11,13 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   require Logger
 
   alias Aiur.AgentQueueItem
+  alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
   alias Aiur.Tracker
 
   @pr_anchored_state "pr-watch"
-  @terminal_fence_grace_seconds 30
 
   @type t :: %{
           generation: pos_integer(),
@@ -338,7 +338,8 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   end
 
   defp terminal_fence_expired?(%{opened_at: %DateTime{} = opened_at}) do
-    DateTime.diff(DateTime.utc_now(), opened_at, :second) >= @terminal_fence_grace_seconds
+    DateTime.diff(DateTime.utc_now(), opened_at, :second) >=
+      Config.terminal_fence_grace_seconds()
   end
 
   defp terminal_fence_expired?(_fence), do: false

@@ -232,6 +232,18 @@ defmodule Aiur.Config do
     settings!().tracker.terminal_states
   end
 
+  @doc """
+  How long a terminal tracker observation stays lifecycle-fenced while a queued
+  authoritative item is undelivered before the daemon finalizes the running
+  entry. Defaults to 30 seconds; raise it when provider turn-delivery latency is
+  longer (a queued authoritative input that lands after the grace expires is
+  dropped at teardown).
+  """
+  @spec terminal_fence_grace_seconds() :: pos_integer()
+  def terminal_fence_grace_seconds do
+    settings!().tracker.terminal_fence_grace_seconds
+  end
+
   @spec poll_interval_seconds() :: pos_integer()
   def poll_interval_seconds do
     settings!().polling.interval_seconds
