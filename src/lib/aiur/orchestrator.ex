@@ -48,7 +48,13 @@ defmodule Aiur.Orchestrator do
 
   def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
 
-  def handle_info(:run_poll_cycle, state), do: Dispatcher.run_poll_cycle(state)
+  # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
+  # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
+  # token-fenced) cannot fire a live poll that would ramp the load envelope
+  # mid-test.
+  def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}
+
+  def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
 
   def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
     state = Dispatcher.handle_ci_readiness_result(state, token, result)
