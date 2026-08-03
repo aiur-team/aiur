@@ -434,13 +434,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # alongside the dollar amount; without a baseline the bar stays empty and the
   # meta carries the balance, so a prepaid provider never reads as a fabricated
   # "0% consumed" (issue #1436).
-  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}} = _window, _now)
+  #
+  # A credit window whose freshness horizon is near or past is no longer a
+  # current reading: the meta names its observation time and marks it stale
+  # instead of presenting the balance as live (issue #1550).
+  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}} = window, now)
        when is_number(amount) and is_number(used_percent) do
-    "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
+    base = "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
+    if credit_stale?(window, now), do: base <> credit_stale_suffix(window), else: base
   end
 
   defp window_meta(%{kind: :credit, credits: %{amount: amount}} = window, now) when is_number(amount) do
-    "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
+    if credit_stale?(window, now) do
+      "#{currency_amount("USD", amount)}" <> credit_stale_suffix(window)
+    else
+      "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
+    end
   end
 
   defp window_meta(%{kind: :credit, credits: %{status: status}} = _window, _now) do
@@ -449,6 +458,26 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
   defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
+
+  # The probe stamps a credit window with a 300s freshness horizon
+  # (`observed_at + 300s`, the provider endpoint's rate limit). A balance is
+  # only a current reading while it sits comfortably inside that horizon; once
+  # the final minute has begun — or the horizon has passed — the value must not
+  # present as live. The 60s lead keeps a balance observed >4 minutes ago from
+  # reading as fresh (the regression this ticket pins).
+  @credit_stale_before_expiry_s 60
+
+  defp credit_stale?(%{expires_at: %DateTime{} = expires_at}, %DateTime{} = now) do
+    DateTime.compare(expires_at, DateTime.add(now, @credit_stale_before_expiry_s, :second)) != :gt
+  end
+
+  defp credit_stale?(_window, _now), do: false
+
+  defp credit_stale_suffix(%{observed_at: %DateTime{} = observed_at}) do
+    " · as of #{clock_label(observed_at)} (stale)"
+  end
+
+  defp credit_stale_suffix(_window), do: " (stale)"
 
   defp format_used_percent(percent) when is_number(percent) do
     percent = percent |> max(0) |> min(100)
