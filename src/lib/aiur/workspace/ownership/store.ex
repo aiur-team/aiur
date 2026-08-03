@@ -10,6 +10,7 @@ defmodule Aiur.Workspace.Ownership.Store do
 
   @filename "workspace-ownership.receipts"
   @format :aiur_workspace_ownership_receipts
+  @format_name :erlang.atom_to_binary(@format)
   @version 1
 
   # Safe external-term decoding refuses to create atoms. Keep the finite v1
@@ -111,6 +112,14 @@ defmodule Aiur.Workspace.Ownership.Store do
     recover_corrupt_store(path, sync_fun)
   end
 
+  defp open_store({:error, {:unsupported_receipt_version, version}}, _path, _sync_fun) do
+    # A receipts file with our format tag but a version this store cannot decode
+    # (e.g. written by a newer store) is intact live data, not corruption.
+    # Quarantining it would silently wipe the ownership records it still holds on
+    # a downgrade, so fail closed and let an operator restore/migrate it.
+    {:stop, {:workspace_ownership_store_unavailable, {:unsupported_receipt_version, version}}}
+  end
+
   defp open_store({:error, reason}, _path, _sync_fun) do
     {:stop, {:workspace_ownership_store_unavailable, reason}}
   end
@@ -175,12 +184,72 @@ defmodule Aiur.Workspace.Ownership.Store do
     preload_v1_receipt_atoms()
 
     case :erlang.binary_to_term(binary, [:safe]) do
-      {@format, @version, receipts} when is_map(receipts) -> {:ok, receipts, false}
-      _other -> {:error, :invalid_receipt_store}
+      {@format, @version, receipts} when is_map(receipts) ->
+        {:ok, receipts, false}
+
+      # A valid term carrying our format tag but a different integer version was
+      # written by a store we cannot decode (typically a newer one). The bytes
+      # are intact — this is not corruption — so report the version separately
+      # so the boot path can fail closed instead of quarantining the file away.
+      {@format, version, receipts} when is_integer(version) and is_map(receipts) ->
+        {:error, {:unsupported_receipt_version, version}}
+
+      _other ->
+        {:error, :invalid_receipt_store}
     end
   rescue
-    _ -> {:error, :invalid_receipt_store}
+    # A `:safe` decode raises on any atom outside the v1 preload vocabulary —
+    # which is exactly what a newer store's receipts do when they add a phase,
+    # provider, or key atom this build does not know. That is intact live data,
+    # not corruption. A realistic v2 with one new atom must fail closed, not be
+    # folded into the quarantine path and silently wiped, so read just the outer
+    # {format, version} header (never creating atoms) to tell the two apart.
+    _ ->
+      case newer_version_from_header(binary) do
+        nil -> {:error, :invalid_receipt_store}
+        version -> {:error, {:unsupported_receipt_version, version}}
+      end
   end
+
+  # Reads only the `{format, version}` head of an external-term binary without
+  # decoding the receipts body, so a newer-version file whose body carries atoms
+  # this build does not know can still be identified without creating those
+  # atoms. Returns the version when the header is ours but names a version we
+  # cannot read, otherwise nil. This runs only after a `:safe` decode has
+  # already failed, and garbage never matches our format head, so it cannot mask
+  # genuine corruption.
+  defp newer_version_from_header(<<131, rest::binary>>) do
+    with {:ok, arity, rest} <- read_tuple_header(rest),
+         true <- arity >= 2,
+         {:ok, name, rest} <- read_atom_name(rest),
+         true <- name == @format_name,
+         {:ok, version, _rest} <- read_integer(rest),
+         true <- version != @version do
+      version
+    else
+      _ -> nil
+    end
+  end
+
+  defp newer_version_from_header(_binary), do: nil
+
+  defp read_tuple_header(<<104, arity, rest::binary>>), do: {:ok, arity, rest}
+  defp read_tuple_header(<<105, arity::32, rest::binary>>), do: {:ok, arity, rest}
+  defp read_tuple_header(_), do: :error
+
+  # ATOM_EXT (100, 2-byte len, latin1) / SMALL_ATOM_EXT (115, 1-byte len, latin1)
+  # ATOM_UTF8_EXT (118, 2-byte len, utf8) / SMALL_ATOM_UTF8_EXT (119, 1-byte len,
+  # utf8). The raw name bytes are compared against @format_name without
+  # creating an atom.
+  defp read_atom_name(<<100, len::16, name::binary-size(len), rest::binary>>), do: {:ok, name, rest}
+  defp read_atom_name(<<115, len, name::binary-size(len), rest::binary>>), do: {:ok, name, rest}
+  defp read_atom_name(<<118, len::16, name::binary-size(len), rest::binary>>), do: {:ok, name, rest}
+  defp read_atom_name(<<119, len, name::binary-size(len), rest::binary>>), do: {:ok, name, rest}
+  defp read_atom_name(_), do: :error
+
+  defp read_integer(<<97, int, rest::binary>>), do: {:ok, int, rest}
+  defp read_integer(<<98, int::32-signed, rest::binary>>), do: {:ok, int, rest}
+  defp read_integer(_), do: :error
 
   defp preload_v1_receipt_atoms do
     Enum.each(@v1_receipt_atoms, &Atom.to_string/1)
@@ -189,10 +258,11 @@ defmodule Aiur.Workspace.Ownership.Store do
   defp maybe_initialize(_path, _receipts, false, _sync_fun), do: :ok
   defp maybe_initialize(path, receipts, true, sync_fun), do: persist(path, receipts, sync_fun)
 
-  # A corrupt receipts file must not block daemon startup: the leases it held
-  # are transient runtime state that is re-created on dispatch, so quarantine
-  # the unreadable bytes for forensics and re-initialize empty instead of
-  # failing the whole application.
+  # Genuinely undecodable receipts bytes must not block daemon startup: the
+  # leases they held are transient runtime state that is re-created on dispatch,
+  # so quarantine the unreadable bytes for forensics and re-initialize empty
+  # instead of failing the whole application. A version mismatch is handled
+  # separately in open_store/3 and is never quarantined away.
   defp recover_corrupt_store(path, sync_fun) do
     case Fs.quarantine(path) do
       :ok ->
