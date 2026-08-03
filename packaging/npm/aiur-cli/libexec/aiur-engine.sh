@@ -1900,6 +1900,27 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
+# `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
+# more tickets (the supported exit from the #1453 latch; no JSON hand-editing).
+cmd_reset_budget() {
+  if ! parse_issue_targets "$@"; then
+    echo "aiur: reset-budget expects issue IDs (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  # --all is rejected (exit 64 with guidance) rather than silently no-opping:
+  # clearing every ticket's latch at once is not a documented operation and
+  # would mask which tickets are structurally stuck (#1453 review P2d).
+  if [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: reset-budget does not accept --all; name ticket IDs explicitly (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  local expression
+  expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
+  run_control_rpc "$expression"
+}
+
 # `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
@@ -2422,6 +2443,10 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    reset-budget)
+      shift
+      cmd_reset_budget "$@"
       ;;
     message)
       shift

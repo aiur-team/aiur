@@ -11,7 +11,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
+  alias Aiur.Orchestrator.AutoResume
   alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
@@ -250,7 +252,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     running = Enum.map(state.running, &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity))
     retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
-    idle = idle_snapshot(state, activity_by_identity)
+    idle = idle_snapshot(state, now_ms, activity_by_identity)
 
     %{
       running: running,
@@ -380,7 +382,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.merge(issue_execution_facts(issue))
   end
 
-  defp idle_snapshot(%State{} = state, activity_by_identity) do
+  defp idle_snapshot(%State{} = state, now_ms, activity_by_identity) do
     running_issue_ids = MapSet.new(Map.keys(state.running))
 
     # Also exclude issues already shown in the retry-backoff bucket — they're
@@ -391,15 +393,24 @@ defmodule Aiur.Orchestrator.StatusReport do
     excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    state.last_polled_issues
-    |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_issue_snapshot(state, issue, terminal_states, activity_by_identity) end)
+    idle_issues =
+      state.last_polled_issues
+      |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
+
+    # One durable-store read for the whole board, not one per idle ticket.
+    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {id, _} -> id end))
+
+    Enum.map(idle_issues, fn {_issue_id, issue} ->
+      idle_issue_snapshot(state, issue, terminal_states, now_ms, latch_statuses, activity_by_identity)
+    end)
   end
 
-  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states, activity_by_identity) do
+  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states, now_ms, latch_statuses, activity_by_identity) do
     identifier = issue.identifier || issue.id
     blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+    latch = Map.get(latch_statuses, issue.id, :none)
+    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, issue.id, now_ms)
 
     %{
       issue_id: issue.id,
@@ -411,12 +422,18 @@ defmodule Aiur.Orchestrator.StatusReport do
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
+      # #1453 supplies the idle-reason evidence; #1457 renders it.
+      dispatch_latch: latch,
+      auto_resume_retry_in_ms: auto_resume_retry_in_ms,
       waiting_reason:
         WaitingReason.for_idle(
           issue.state,
           blocked_by_open?,
           open_decision_count,
-          capacity_hold_active?(state)
+          latched_lifetime: latch != :none,
+          tracker_paused: Issue.paused?(issue),
+          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+          capacity_hold_active?: capacity_hold_active?(state)
         ),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,

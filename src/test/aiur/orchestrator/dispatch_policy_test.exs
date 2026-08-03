@@ -246,6 +246,27 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.queued_dispatch_demand?([issue("queued", [])], state)
     end
 
+    test "a rework ticket with free capacity is dispatchable without a manual resume" do
+      # #1453 acceptance: a ticket flipped to agent:rework dispatches within one
+      # poll cycle — rework is an active state, so the dispatcher treats it as
+      # ready work at normal priority; the (fixed) lifetime latch was the only
+      # real blocker.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["Todo", "In Progress", "Rework"]
+      )
+
+      rework = issue("rework-ticket", state: "rework")
+      state = %State{max_concurrent_agents: 5}
+
+      assert DispatchPolicy.queued_dispatch_demand?([rework], state)
+      assert DispatchPolicy.dispatch_candidate?(rework, state)
+
+      # A rework ticket is also directly dispatchable through should_dispatch_issue?
+      # (dispatch candidate + free slot), the poll loop's per-issue gate.
+      assert DispatchPolicy.should_dispatch_issue?(rework, state)
+    end
+
     test "ignores running, claimed, paused, blocked, and unroutable issues" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
 
