@@ -32,12 +32,12 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-<<<<<<< HEAD
-    ("unset " <> Enum.join(@erlang_distribution_env_names ++ @parent_log_env_names, " ") <> "; ") <>
-=======
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
-      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT OPENROUTER_MANAGEMENT_KEY; " <>
->>>>>>> origin/develop
+    ("unset " <>
+       Enum.join(
+         @erlang_distribution_env_names ++ @parent_log_env_names ++ @provider_credential_env_names,
+         " "
+       ) <>
+       "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
