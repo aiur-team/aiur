@@ -629,4 +629,671 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:ok, %{ready?: false, issues: [:no_required_check]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
   end
+
+  test "formats a ready assessment for operator status output" do
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+
+    assert CiReadiness.format(readiness) =~ "CI readiness: ready for develop"
+    assert CiReadiness.format(readiness) =~ "ci / required"
+  end
+
+  test "formats an inspection that never produced an assessment" do
+    assert CiReadiness.format(:never_ran) =~ "CI readiness: unavailable"
+  end
+
+  test "rejects a repository string without an owner/repo separator" do
+    assert {:error, {:invalid_github_repo, "plain"}} = CiReadiness.check(repo: "plain", base_branch: "develop")
+  end
+
+  test "rejects a non-string, non-tuple repository" do
+    assert {:error, :missing_github_repo} = CiReadiness.check(repo: 42, base_branch: "develop")
+  end
+
+  test "reports a DNS transport failure fetching the repository metadata" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:error, :nxdomain}
+      end
+    end
+
+    assert {:error, {:github, :dns, _detail}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports an unexpected repository metadata response shape" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:ok, "not-a-response"}
+      end
+    end
+
+    assert {:error, :invalid_repository_response} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports a server error listing workflow contents" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") -> {:ok, %{status: 200, body: %{}}}
+        String.ends_with?(url, "/repos/owner/repo") -> {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+        url =~ "/contents/.github/workflows" -> {:ok, %{status: 500, body: %{}}}
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 500}}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "rejects a workflow whose contents are not valid base64" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => "!!!not-base64!!!"}}}
+      end
+    end
+
+    assert {:error, :invalid_workflow_content} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports a connectivity failure fetching a workflow file" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:error, :econnrefused}
+      end
+    end
+
+    assert {:error, {:github, :timeout, _detail}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports a server error fetching branch protection" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 500, body: %{}}}
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 500}}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports an invalid ruleset summary instead of guessing its rules" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 200, body: [%{"name" => "no-id"}]}}
+      end
+    end
+
+    assert {:error, :invalid_ruleset_summary} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "detects a cyclic workflow state pagination response" do
+    page_url = "https://api.github.com/repos/owner/repo/actions/workflows?page=2"
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok, %{status: 200, body: %{"workflows" => []}, headers: %{"link" => "<#{page_url}>; rel=\"next\""}}}
+
+        url =~ "/actions/workflows?page=2" ->
+          {:ok, %{status: 200, body: %{"workflows" => []}, headers: %{"link" => "<#{page_url}>; rel=\"next\""}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+      end
+    end
+
+    assert {:error, :workflow_pagination_cycle} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "detects a cyclic ruleset pagination response" do
+    encoded = Base.encode64(@workflow)
+    page_url = "https://api.github.com/repos/owner/repo/rulesets?page=2"
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        String.ends_with?(url, "/rulesets?includes_parents=true&per_page=100") ->
+          {:ok, %{status: 200, body: [%{"id" => 1}], headers: %{"link" => "<#{page_url}>; rel=\"next\""}}}
+
+        String.ends_with?(url, "/rulesets?page=2") ->
+          {:ok, %{status: 200, body: [%{"id" => 2}], headers: %{"link" => "<#{page_url}>; rel=\"next\""}}}
+
+        true ->
+          flunk("unexpected request: #{url}")
+      end
+    end
+
+    assert {:error, :ruleset_pagination_cycle} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "ignores a ruleset that excludes the configured base branch" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 16}]}}
+
+        url =~ "/rulesets/16" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "enforcement" => "active",
+               "conditions" => %{"ref_name" => %{"include" => ["~ALL"], "exclude" => ["~DEFAULT_BRANCH"]}},
+               "rules" => [%{"type" => "required_status_checks", "parameters" => %{"required_status_checks" => [%{"context" => "ci / required"}]}}]
+             }
+           }}
+      end
+    end
+
+    assert {:ok, %{ready?: false, issues: [:no_required_check]}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "accepts a workflow whose pull_request trigger is a bare value" do
+    workflow = """
+    on:
+      pull_request: true
+    jobs:
+      test:
+        name: ci / required
+        runs-on: ubuntu-latest
+    """
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "accepts a workflow whose on trigger is a list" do
+    workflow = """
+    on: [push, pull_request]
+    jobs:
+      test:
+        name: ci / required
+        runs-on: ubuntu-latest
+    """
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "accepts a workflow limited to opened and synchronize pull request types" do
+    workflow = String.replace(@workflow, "branches: [develop]", "types: [opened, synchronize]")
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "matches a scalar branch filter for the configured base branch" do
+    workflow = String.replace(@workflow, "branches: [develop]", "branches: develop")
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "counts a job explicitly gated to pull request events" do
+    workflow =
+      String.replace(
+        @workflow,
+        "runs-on: ubuntu-latest",
+        "if: github.event_name == 'pull_request'\n    runs-on: ubuntu-latest"
+      )
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "ignores a non-map job when collecting pull request check names" do
+    workflow = """
+    on:
+      pull_request:
+    jobs:
+      test: hello
+    """
+
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["ci / required"])
+
+    refute readiness.ready?
+    assert {:required_check_not_produced, ["ci / required"]} in readiness.issues
+  end
+
+  test "does not treat an unparseable workflow as a pull request gate" do
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", "::: not yaml :::"}], ["ci / required"])
+
+    refute readiness.ready?
+    assert :no_pr_workflow in readiness.issues
+  end
+
+  test "falls back to the job id when a pull request job has no name" do
+    workflow = """
+    on:
+      pull_request:
+    jobs:
+      test:
+        runs-on: ubuntu-latest
+    """
+
+    assert CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", workflow}], ["test"]).ready?
+  end
+
+  test "treats an integration-pinned required check as a different GitHub App" do
+    readiness =
+      CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], [
+        %{"context" => "ci / required", "integration_id" => 99}
+      ])
+
+    refute readiness.ready?
+    assert readiness.required_check_identities == [%{name: "ci / required", app_id: 99}]
+    assert {:required_check_integration_not_produced, ["ci / required (app_id: 99)"]} in readiness.issues
+  end
+
+  test "accepts an atom-keyed required check identity" do
+    readiness =
+      CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], [
+        %{context: "ci / required"}
+      ])
+
+    assert readiness.ready?
+  end
+
+  test "persists and reloads an assessment carrying every issue shape" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+
+    readiness = %{
+      ready?: false,
+      base_branch: "develop",
+      workflow_paths: [],
+      workflow_check_names: [],
+      required_checks: ["ci / required"],
+      required_check_identities: [%{name: "ci / required", app_id: 42}],
+      issues: [
+        :no_pr_workflow,
+        {:required_check_not_produced, ["ci / required"]},
+        {:required_check_integration_not_produced, ["ci / required (app_id: 42)"]}
+      ]
+    }
+
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert :ok = CiReadiness.clear_cached_result()
+    assert CiReadiness.cached_result(opts) == readiness
+  end
+
+  test "ignores a persisted assessment whose result cannot be decoded" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "version" => 1,
+        "assessed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "scope" => %{"repo" => "owner/repo", "base_branch" => "develop", "config_fingerprint" => "config-a"},
+        "result" => %{"ready" => "not-a-boolean", "base_branch" => 5}
+      })
+    )
+
+    assert CiReadiness.cached_result(opts) == :unavailable
+  end
+
+  test "reports a transport failure when the bounded request process dies" do
+    request_fun = fn _request -> exit(:boom) end
+
+    assert {:error, {:github, :transport, _detail}} =
+             CiReadiness.check(repo: "owner/repo", base_branch: "develop", request_fun: request_fun, timeout_ms: 500)
+  end
+
+  test "immediately times out when the inspection deadline has already passed" do
+    request_fun = fn _request -> flunk("request should not run") end
+
+    assert {:error, {:github, :timeout, _detail}} =
+             CiReadiness.check(
+               repo: "owner/repo",
+               base_branch: "develop",
+               request_fun: request_fun,
+               timeout_ms: 1,
+               deadline_at_ms: System.monotonic_time(:millisecond) - 100
+             )
+  end
+
+  test "reports a server error fetching workflow state" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 500, body: %{}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 500}}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "rejects a workflow state pagination URL outside the repository" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows?per_page=100" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{"workflows" => []},
+             headers: %{"link" => "<https://evil.example.com/actions/workflows?page=2>; rel=\"next\""}
+           }}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+      end
+    end
+
+    assert {:error, :invalid_workflow_pagination_url} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports a server error fetching rulesets" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets" ->
+          {:ok, %{status: 500, body: %{}}}
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 500}}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "round-trips an unavailable operator assessment through persistence" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert :ok = CiReadiness.clear_cached_result()
+
+    assert %{issues: [{:unavailable, reason}]} = CiReadiness.cached_result(opts)
+    assert reason =~ "ci_readiness_operator_token_required"
+  end
+
+  test "ignores non-workflow directory entries when collecting required checks" do
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{"type" => "dir", "path" => ".github/workflows/nested", "url" => "nested-url"}
+             ]
+           }}
+      end
+    end
+
+    assert {:ok, %{ready?: false, issues: [:no_pr_workflow, :no_required_check]}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports a server error fetching a ruleset detail" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 12}]}}
+
+        url =~ "/rulesets/12" ->
+          {:ok, %{status: 500, body: %{}}}
+      end
+    end
+
+    assert {:error, {:github, :http, %{status: 500}}} = CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "matches question-mark branch glob patterns" do
+    workflow = String.replace(@workflow, "branches: [develop]", "branches: [release-2-?]")
+
+    assert CiReadiness.evaluate("release-2-6", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+    refute CiReadiness.evaluate("release-2-16", [{".github/workflows/ci.yml", workflow}], ["ci / required"]).ready?
+  end
+
+  test "ignores a ruleset whose required-status rule is not a map" do
+    encoded = Base.encode64(@workflow)
+
+    request_fun = fn %{url: url} ->
+      cond do
+        String.ends_with?(url, "/branches/develop") ->
+          {:ok, %{status: 200, body: %{}}}
+
+        String.ends_with?(url, "/repos/owner/repo") ->
+          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
+
+        url =~ "/actions/workflows" ->
+          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
+
+        url =~ "/contents/.github/workflows" ->
+          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "wf-url"}]}}
+
+        url == "wf-url?ref=develop" ->
+          {:ok, %{status: 200, body: %{"content" => encoded}}}
+
+        url =~ "/protection" ->
+          {:ok, %{status: 404, body: %{}}}
+
+        url =~ "/rulesets?" ->
+          {:ok, %{status: 200, body: [%{"id" => 17}]}}
+
+        url =~ "/rulesets/17" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "enforcement" => "active",
+               "conditions" => %{"ref_name" => %{"include" => ["~ALL"]}},
+               "rules" => [%{"type" => "not_a_required_status_check", "parameters" => %{}}]
+             }
+           }}
+      end
+    end
+
+    assert {:ok, %{ready?: false, issues: [:no_required_check]}} =
+             CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reports an unknown persisted issue instead of silently dropping the assessment" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "version" => 1,
+        "assessed_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "scope" => %{"repo" => "owner/repo", "base_branch" => "develop", "config_fingerprint" => "config-a"},
+        "result" => %{
+          "ready" => false,
+          "base_branch" => "develop",
+          "workflow_paths" => [],
+          "workflow_check_names" => [],
+          "required_checks" => [],
+          "required_check_identities" => [],
+          "issues" => [%{"type" => "mystery_issue"}]
+        }
+      })
+    )
+
+    assert CiReadiness.cached_result(opts) == :unavailable
+  end
 end

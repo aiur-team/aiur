@@ -46,6 +46,167 @@ defmodule Aiur.Init.GitHubTest do
       assert message =~ "AIUR_CI_READINESS_TOKEN"
       assert message =~ "do not grant"
     end
+
+    test "persists a ready operator assessment for the daemon and reports it" do
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      config_path = Path.join([root, "aiur", "config.yml"])
+      parent = self()
+      io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> false end}
+
+      readiness = %{
+        ready?: true,
+        base_branch: "main",
+        workflow_paths: [".github/workflows/ci.yml"],
+        workflow_check_names: ["ci / required"],
+        required_checks: ["ci / required"],
+        required_check_identities: [],
+        issues: []
+      }
+
+      deps = %{check_ci_readiness: fn _ -> {:ok, readiness} end, detect_repo: fn -> "o/r" end}
+      tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
+
+      original_token = System.get_env("AIUR_CI_READINESS_TOKEN")
+      System.put_env("AIUR_CI_READINESS_TOKEN", "operator-token")
+
+      on_exit(fn ->
+        File.rm_rf!(root)
+
+        if original_token do
+          System.put_env("AIUR_CI_READINESS_TOKEN", original_token)
+        else
+          System.delete_env("AIUR_CI_READINESS_TOKEN")
+        end
+      end)
+
+      assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
+      assert_received {:io_puts, msg}
+      assert msg =~ "CI readiness: ready for main"
+      assert File.exists?(Path.join([root, "aiur", "ci-readiness.json"]))
+    end
+
+    test "offers to scaffold a CI workflow when the repository has none" do
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      config_path = Path.join([root, "aiur", "config.yml"])
+      parent = self()
+      io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
+
+      readiness = %{
+        ready?: false,
+        base_branch: "main",
+        workflow_paths: [],
+        workflow_check_names: [],
+        required_checks: [],
+        required_check_identities: [],
+        issues: [:no_pr_workflow, :no_required_check]
+      }
+
+      deps = %{
+        check_ci_readiness: fn _ -> {:ok, readiness} end,
+        detect_repo: fn -> "o/r" end,
+        repo_root: fn -> root end
+      }
+
+      tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
+
+      on_exit(fn -> File.rm_rf!(root) end)
+
+      assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, tracker)
+      assert message =~ "Repository CI readiness is incomplete"
+      assert File.exists?(Path.join([root, ".github", "workflows", "ci.yml"]))
+
+      assert_received {:io_puts, setup_msg}
+      assert setup_msg =~ "CI readiness setup error"
+
+      assert_received {:io_puts, created_msg}
+      assert created_msg =~ "Created"
+    end
+
+    test "explains the operator token gap when a PR workflow needs privileged inspection" do
+      io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
+      deps = %{check_ci_readiness: fn _ -> {:error, :ci_readiness_operator_token_required} end}
+
+      assert {:error, message} = GitHub.ensure_ci_readiness(io, deps, %{kind: "github", repo: "o/r"})
+      assert message =~ "operator-only AIUR_CI_READINESS_TOKEN"
+      assert message =~ "GITHUB_TOKEN"
+    end
+
+    test "skips the CI scaffold when a workflow already exists" do
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      config_path = Path.join([root, "aiur", "config.yml"])
+      parent = self()
+      io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
+      workflow_path = Path.join([root, ".github", "workflows", "ci.yml"])
+      File.mkdir_p!(Path.dirname(workflow_path))
+      File.write!(workflow_path, "name: existing\n")
+
+      readiness = %{
+        ready?: false,
+        base_branch: "main",
+        workflow_paths: [],
+        workflow_check_names: [],
+        required_checks: [],
+        required_check_identities: [],
+        issues: [:no_pr_workflow]
+      }
+
+      deps = %{
+        check_ci_readiness: fn _ -> {:ok, readiness} end,
+        detect_repo: fn -> "o/r" end,
+        repo_root: fn -> root end
+      }
+
+      tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
+
+      on_exit(fn -> File.rm_rf!(root) end)
+
+      assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
+
+      assert_received {:io_puts, setup_msg}
+      assert setup_msg =~ "CI readiness setup error"
+
+      assert_received {:io_puts, skipped_msg}
+      assert skipped_msg =~ "CI scaffold skipped"
+      assert File.read!(workflow_path) == "name: existing\n"
+    end
+
+    test "reports a CI scaffold write failure" do
+      root = Path.join(System.tmp_dir!(), "aiur-init-readiness-#{System.unique_integer([:positive])}")
+      config_path = Path.join([root, "aiur", "config.yml"])
+      parent = self()
+      io = %{puts: fn msg -> send(parent, {:io_puts, msg}) end, confirm: fn _, _ -> true end}
+      # Make the workflows directory an unwritable regular file so mkdir fails.
+      File.mkdir_p!(Path.join(root, ".github"))
+      File.write!(Path.join([root, ".github", "workflows"]), "not a directory")
+
+      readiness = %{
+        ready?: false,
+        base_branch: "main",
+        workflow_paths: [],
+        workflow_check_names: [],
+        required_checks: [],
+        required_check_identities: [],
+        issues: [:no_pr_workflow]
+      }
+
+      deps = %{
+        check_ci_readiness: fn _ -> {:ok, readiness} end,
+        detect_repo: fn -> "o/r" end,
+        repo_root: fn -> root end
+      }
+
+      tracker = %{kind: "github", repo: "o/r", base_branch: "main", config_path: config_path}
+
+      on_exit(fn -> File.rm_rf!(root) end)
+
+      assert {:error, _message} = GitHub.ensure_ci_readiness(io, deps, tracker)
+
+      assert_received {:io_puts, setup_msg}
+      assert setup_msg =~ "CI readiness setup error"
+
+      assert_received {:io_puts, error_msg}
+      assert error_msg =~ "CI scaffold could not be written"
+    end
   end
 
   describe "label_error_message/1" do
