@@ -99,6 +99,13 @@ defmodule Aiur.Config.Schema.Tracker do
 
     field(:terminal_states, {:array, :string}, default: ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"])
 
+    # How long a terminal tracker observation (e.g. GitHub `closed`) stays
+    # lifecycle-fenced while a queued authoritative item is still undelivered,
+    # before the daemon finalizes the running entry. Bounds the R4 protection
+    # window so an externally-closed ticket is released promptly after it
+    # expires. Operators with longer provider turn-delivery latency can raise it.
+    field(:terminal_fence_grace_seconds, :integer, default: 30)
+
     embeds_one(:github, Github, on_replace: :update, defaults_to_struct: true)
     embeds_one(:linear, Linear, on_replace: :update, defaults_to_struct: true)
   end
@@ -106,7 +113,11 @@ defmodule Aiur.Config.Schema.Tracker do
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(schema, attrs) do
     schema
-    |> cast(attrs, [:kind, :base_branch, :active_states, :terminal_states], empty_values: [])
+    |> cast(
+      attrs,
+      [:kind, :base_branch, :active_states, :terminal_states, :terminal_fence_grace_seconds],
+      empty_values: []
+    )
     |> cast_embed(:github, with: &Github.changeset/2)
     |> cast_embed(:linear, with: &Linear.changeset/2)
   end
