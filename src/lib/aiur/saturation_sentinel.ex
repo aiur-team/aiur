@@ -54,7 +54,9 @@ defmodule Aiur.SaturationSentinel do
 
   @doc "Whether the recorder is enabled (default true; config kill switch)."
   @spec enabled?() :: boolean()
-  def enabled?, do: Config.saturation_log_enabled?()
+  def enabled? do
+    safe_config(&Config.saturation_log_enabled?/0, true)
+  end
 
   @doc "Durable saturation diagnostics stream beside the daemon log."
   @spec file_path() :: Path.t()
@@ -182,7 +184,7 @@ defmodule Aiur.SaturationSentinel do
   defp threshold(opts) do
     case Keyword.get(opts, :threshold_per_scheduler) do
       value when is_number(value) and value > 0 -> value
-      _ -> Config.max_load_average() || @fallback_threshold_per_scheduler
+      _ -> safe_config(&Config.max_load_average/0) || @fallback_threshold_per_scheduler
     end
   end
 
@@ -222,6 +224,16 @@ defmodule Aiur.SaturationSentinel do
 
   defp schedule_tick(interval_ms) do
     Process.send_after(self(), :tick, interval_ms)
+  end
+
+  # Fail-open config reads: early boot or a broken workflow must never crash
+  # the recorder (its whole contract is "diagnostics can't take the tree down").
+  defp safe_config(fun, fallback \\ nil) do
+    fun.()
+  rescue
+    _error -> fallback
+  catch
+    _kind, _reason -> fallback
   end
 
   defp safe(fun) do
