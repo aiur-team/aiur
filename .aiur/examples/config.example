@@ -7,9 +7,12 @@ tracker:
   terminal_states: [done, cancelled, canceled]
 {{TRACKER_PROVIDER}}
   # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
-  # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur
-  # authenticates with; bot_account is the login Aiur recognizes as its own to suppress self-triggered
-  # comment/event loops. Prefer a dedicated bot account (e.g. its-applekid) when operators also comment
+  # bot_account is an IDENTITY, not a credential: the daemon authenticates with a
+  # GitHub App installation token when GITHUB_APP_ID/GITHUB_APP_INSTALLATION_ID and
+  # the App private key are set (preferred; see docs/security/daemon-token-posture.md),
+  # else the GITHUB_TOKEN PAT in .env. bot_account is the login Aiur recognizes as its
+  # own to suppress self-triggered comment/event loops. Prefer a dedicated bot account
+  # (e.g. its-applekid) when operators also comment
   # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
   # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
   # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.

@@ -3,8 +3,7 @@ defmodule Aiur.GitHub.AuthPreflight do
   Startup GitHub authentication preflight diagnostics.
   """
 
-  alias Aiur.GitHub.Errors
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{AppCredentials, Errors, Transport}
 
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []) do
@@ -90,7 +89,7 @@ defmodule Aiur.GitHub.AuthPreflight do
            detail: detail,
            endpoint: endpoint,
            repo: "#{owner}/#{repo}",
-           token_source: "GITHUB_TOKEN",
+           token_source: token_source(),
            request_error: inspect(reason)
          }}
     end
@@ -101,11 +100,15 @@ defmodule Aiur.GitHub.AuthPreflight do
       reason: reason,
       endpoint: endpoint,
       repo: "#{owner}/#{repo}",
-      token_source: "GITHUB_TOKEN",
+      token_source: token_source(),
       status: status,
       rate_limit_remaining: Errors.rate_limit_remaining(response),
       rate_limit_reset: Errors.rate_limit_reset(response)
     }
+  end
+
+  defp token_source do
+    if AppCredentials.configured?(), do: "GITHUB_APP", else: "GITHUB_TOKEN"
   end
 
   defp auth_failure_reason(401, _response), do: :invalid_or_expired_token
@@ -144,14 +147,26 @@ defmodule Aiur.GitHub.AuthPreflight do
     reason = human_auth_reason(diagnostic)
     keyring = human_gh_keyring_status(gh_status)
 
-    [
-      "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
-      "Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth.",
-      keyring,
-      "Recovery: refresh or unset GITHUB_TOKEN in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
-    ]
-    |> Enum.reject(&(&1 in [nil, ""]))
-    |> Enum.join(" ")
+    case source do
+      "GITHUB_APP" ->
+        [
+          "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
+          "Aiur authenticates with a GitHub App installation token when GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and the App private key are configured.",
+          "Recovery: verify the App is installed on #{repo} with only Contents: write, Issues: read/write, Pull requests: write, then restart aiur so the daemon re-acquires a fresh installation token."
+        ]
+        |> Enum.reject(&(&1 in [nil, ""]))
+        |> Enum.join(" ")
+
+      _ ->
+        [
+          "GitHub auth preflight failed for #{source} while validating #{repo} #{endpoint} access: #{reason}.",
+          "Aiur uses GITHUB_TOKEN for GitHub tracker/API calls, and that environment token takes precedence over `gh` keyring auth.",
+          keyring,
+          "Recovery: refresh or unset GITHUB_TOKEN in the shell or .env used to launch aiur, restart aiur so the daemon inherits the fixed environment, then verify `gh api rate_limit` and `gh api repos/#{repo}/issues?per_page=1` without printing token material."
+        ]
+        |> Enum.reject(&(&1 in [nil, ""]))
+        |> Enum.join(" ")
+    end
   end
 
   defp human_auth_reason(%{reason: :invalid_or_expired_token, status: status}),

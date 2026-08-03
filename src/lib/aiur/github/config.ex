@@ -5,7 +5,9 @@ defmodule Aiur.GitHub.Config do
 
   @behaviour Aiur.TrackerConfig
 
-  alias Aiur.GitHub.CodeOwners
+  require Logger
+
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
 
   @default_label_prefix "agent"
 
@@ -43,19 +45,58 @@ defmodule Aiur.GitHub.Config do
 
   @spec token() :: String.t() | nil
   def token do
-    case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
-      :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
-      resolved -> resolved
+    if AppCredentials.configured?() do
+      AppTokenRefresher.current_token()
+    else
+      case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
+        :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
+        resolved -> resolved
+      end
     end
   end
 
   @doc """
-  Resolve the GitHub token once at startup: prefer a VALID `GITHUB_TOKEN` env
-  var, but fall back to the gh keyring when the env token is absent or invalid
-  (e.g. a stale token sourced from .env). Caches the result; `token/0` returns it.
+  Resolve the GitHub token once at startup.
+
+  When GitHub App credentials are configured (`GITHUB_APP_ID`,
+  `GITHUB_APP_INSTALLATION_ID` and the App private key), acquires and caches a
+  short-lived installation token synchronously — the App-token analogue of the
+  PAT path's boot-time rate-limit probe — so the pollers never start without a
+  credential. On failure it logs a warning and returns nil without crashing
+  boot; the `Aiur.GitHub.AppTokenRefresher` keeps retrying and raising
+  needs-attention alerts.
+
+  Otherwise prefers a VALID `GITHUB_TOKEN` env var, but falls back to the gh
+  keyring when the env token is absent or invalid (e.g. a stale token sourced
+  from .env). Caches the result; `token/0` returns it.
   """
   @spec resolve_token(keyword()) :: String.t() | nil
   def resolve_token(opts \\ []) do
+    if AppCredentials.configured?() do
+      resolve_installation_token(opts)
+    else
+      resolve_pat_token(opts)
+    end
+  end
+
+  defp resolve_installation_token(opts) do
+    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    validate_fun = Keyword.get(opts, :validate_fun, &AppToken.rate_limit_usable?/2)
+    acquire_fun = Keyword.get(opts, :acquire_fun, &AppToken.acquire/1)
+
+    case acquire_fun.(request_fun: request_fun, validate_fun: validate_fun) do
+      {:ok, %{token: token, expires_at: expires_at, permissions: permissions}}
+      when is_binary(token) and token != "" ->
+        :ok = AppTokenRefresher.cache_token(token, expires_at, permissions)
+        token
+
+      {:error, reason} ->
+        Logger.warning("aiur_boot phase=github_app_token_resolve_failed reason=#{inspect(reason)}")
+        nil
+    end
+  end
+
+  defp resolve_pat_token(opts) do
     request_fun = Keyword.get(opts, :request_fun, &Req.get/2)
 
     validate =
@@ -220,7 +261,10 @@ defmodule Aiur.GitHub.Config do
   @impl Aiur.TrackerConfig
   def validate! do
     cond do
-      !is_binary(token()) ->
+      AppCredentials.configured?() and !is_binary(token()) ->
+        {:error, "GitHub App installation token unavailable — check GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and the App private key"}
+
+      !AppCredentials.configured?() and !is_binary(token()) ->
         {:error, "GitHub token missing — set GITHUB_TOKEN env var"}
 
       !is_binary(repo()) ->

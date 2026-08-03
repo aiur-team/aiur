@@ -34,6 +34,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "system.github_app_token.refresh_failed":
+    message: GitHub App token refresh failed
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.github_app_token.permission_violation":
+    message: GitHub App has excessive permissions
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
