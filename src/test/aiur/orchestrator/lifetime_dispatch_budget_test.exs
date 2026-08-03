@@ -55,16 +55,20 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   defp run(state, now_ms), do: Dispatcher.check_thrash_budget(state, @issue_id, now_ms)
 
+  defp commit(state), do: Dispatcher.record_dispatch_committed(state, @issue_id)
+
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
 
   defp with_thrash_budget(state, budget), do: put_in(state.dispatch_recovery.codex_thrash_budget, budget)
 
-  # Each dispatch sits in its own lapsed window, so the per-window breaker never
-  # trips — exactly the #1091 shape (85 cold dispatches, none circuit-broken).
+  # A committed dispatch = the gate passes (window) + the runner survives
+  # provisioning (lifetime commit). Each sits in its own lapsed window, so the
+  # per-window breaker never trips — exactly the #1091 shape (85 cold
+  # dispatches, none circuit-broken) that the lifetime latch exists to bound.
   defp dispatch_n(state, n) do
     Enum.reduce(1..n, state, fn i, acc ->
-      {:ok, next} = run(acc, i * (@window_ms + 1))
-      next
+      {:ok, gated} = run(acc, i * (@window_ms + 1))
+      commit(gated)
     end)
   end
 
@@ -88,6 +92,50 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
+  test "a latched ticket trips at exactly the cap (off-by-one reconciled)" do
+    # The pre-#1453 predicate tripped on lifetime > max (i.e. max+1), so a
+    # 10/10 ticket recomputed 11, refused, and rewrote 10 forever. Both
+    # predicates now agree on `>=`: a 10/10 ticket trips and the durable store
+    # is left untouched (no saturate-at-max rewrite loop).
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+    state = with_thrash_budget(%Orchestrator.State{}, %{@issue_id => %{lifetime: 10, count: 0}})
+
+    assert {:trip, tripped} = run(state, 0)
+    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(tripped)[@issue_id]
+    assert {:ok, 10} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
+  test "the gate does not bill a lifetime unit; only a committed dispatch does" do
+    # A preflight/prewarm/tracker-auth failure never reaches the runner's
+    # commit point, so it must leave the counter unchanged.
+    {:ok, state} = run(%Orchestrator.State{}, 1 * (@window_ms + 1))
+
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{count: 1, lifetime: 0} = thrash_budget(state)[@issue_id]
+
+    committed = commit(state)
+    assert {:ok, 1} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 1} = thrash_budget(committed)[@issue_id]
+  end
+
+  @tag config: @enabled
+  test "a preflight failure leaves the counter unchanged (acceptance class)" do
+    # Simulates a dispatch that dies in provisioning: the gate passed, the
+    # runner failed before `send_dispatch_committed`. No lifetime unit is
+    # billed, so a ticket hammered by environment faults cannot be walked to
+    # the latch without ever doing agent work.
+    {:ok, state} = run(%Orchestrator.State{}, 1 * (@window_ms + 1))
+
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+
+    # A fresh dispatch attempt after the preflight failure is still admitted
+    # and again bills nothing until it commits.
+    assert {:ok, _again} = run(state, 2 * (@window_ms + 1))
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
   test "stays healthy below the lifetime budget" do
     state = dispatch_n(%Orchestrator.State{}, 8)
 
@@ -95,7 +143,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
-  test "an operator reset does not refund the lifetime budget" do
+  test "an operator resume does not refund the lifetime budget" do
     state = dispatch_n(%Orchestrator.State{}, 10)
 
     # Operator resume clears the window so the ticket can move again, but the
@@ -110,11 +158,11 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     {:ok, state} = run(%Orchestrator.State{}, -576_460_751_248)
     state = Dispatcher.reset_thrash_budget(state, @issue_id)
 
-    assert %{lifetime: 1} = thrash_budget(state)[@issue_id]
-    refute Map.has_key?(thrash_budget(state)[@issue_id], :window_start_ms)
+    # No committed lifetime yet, so a window-only reset fully clears the entry.
+    refute Map.has_key?(thrash_budget(state), @issue_id)
 
     assert {:ok, state} = run(state, -576_460_751_000)
-    assert %{count: 1, lifetime: 2, window_start_ms: -576_460_751_000} = thrash_budget(state)[@issue_id]
+    assert %{count: 1, window_start_ms: -576_460_751_000} = thrash_budget(state)[@issue_id]
   end
 
   @tag config: @enabled
@@ -129,23 +177,97 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
-  test "a corrupt durable budget fails closed" do
+  test "a corrupt durable budget fails open instead of latching every ticket" do
     path = DispatchBudgetStore.path_for()
     File.mkdir_p!(Path.dirname(path))
     File.write!(path, "{not-json")
 
-    assert {:trip, state} = run(%Orchestrator.State{}, 0)
-    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(state)[@issue_id]
+    # Pre-#1453 a single corrupt file made persisted_lifetime return max and
+    # latched every ticket in the repo at once. It now fails open (0) so the
+    # gate admits and a commit still works.
+    assert {:ok, state} = run(%Orchestrator.State{}, 0)
+    assert commit(state) |> commit() |> thrash_budget() |> Map.get(@issue_id) |> Map.get(:lifetime) == 2
   end
 
   @tag config: @enabled
-  test "an unreadable durable budget fails closed" do
+  test "an unreadable durable budget fails open" do
     unreadable_path = Path.join(Path.dirname(DispatchBudgetStore.path_for()), "is-a-directory")
     File.mkdir_p!(unreadable_path)
     Application.put_env(:aiur, :dispatch_budget_store_path, unreadable_path)
 
-    assert {:trip, state} = run(%Orchestrator.State{}, 0)
-    assert %{lifetime: 10, tripped: :lifetime} = thrash_budget(state)[@issue_id]
+    assert {:ok, state} = run(%Orchestrator.State{}, 0)
+    assert commit(state) |> thrash_budget() |> Map.get(@issue_id) |> Map.get(:lifetime) == 1
+  end
+
+  @tag config: @enabled
+  test "reset_lifetime_budget returns a latched ticket to dispatchable" do
+    state = dispatch_n(%Orchestrator.State{}, 10)
+    assert {:lifetime, 10, 10} = Dispatcher.dispatch_latch_status(state, @issue_id)
+
+    state = Dispatcher.reset_lifetime_budget(state, @issue_id)
+
+    assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+
+    # A fresh dispatch commits cleanly — the ticket is no longer latched.
+    assert {:ok, state} = run(state, 99 * (@window_ms + 1))
+    assert %{lifetime: 1} = commit(state) |> thrash_budget() |> Map.get(@issue_id)
+  end
+
+  @tag config: @enabled
+  test "dispatch_latch_status reports the latch only at or above the cap" do
+    state = dispatch_n(%Orchestrator.State{}, 9)
+    assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
+
+    state = commit(state)
+    assert {:lifetime, 10, 10} = Dispatcher.dispatch_latch_status(state, @issue_id)
+  end
+
+  @tag config: @enabled
+  test "batch latch status reads the store once across the board" do
+    issue_a = %Issue{id: "issue-a", identifier: "repo#a"}
+    issue_b = %Issue{id: "issue-b", identifier: "repo#b"}
+    :ok = DispatchBudgetStore.put_lifetime("issue-a", 10)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{"issue-a" => issue_a, "issue-b" => issue_b}}
+      |> with_thrash_budget(%{"issue-a" => %{lifetime: 10, count: 0}})
+
+    statuses = Dispatcher.dispatch_latch_statuses(state, ["issue-a", "issue-b"])
+
+    assert statuses["issue-a"] == {:lifetime, 10, 10}
+    assert statuses["issue-b"] == :none
+  end
+
+  @tag config: @enabled
+  test "resume against a latched idle ticket reports the latch instead of no-opping" do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    # `resume_issue/2` routes a no-running-agent resume to the queued path,
+    # which must name the latch (not a generic `:dispatch_failed`).
+    assert {{:error, :lifetime_dispatch_latch}, _state} =
+             Aiur.Orchestrator.PauseResume.resume_issue(state, "repo#lifetime")
+  end
+
+  @tag config: @enabled
+  test "reset_dispatch_budget_call clears the in-memory and durable latch copies" do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    assert {:reply, {:ok, :reset}, reset_state} =
+             Aiur.Orchestrator.PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+
+    assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
   end
 
   @tag config: @enabled
@@ -217,5 +339,6 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     state = dispatch_n(%Orchestrator.State{}, 30)
 
     assert {:ok, _state} = run(state, 31 * (@window_ms + 1))
+    assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
   end
 end

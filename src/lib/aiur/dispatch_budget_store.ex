@@ -33,6 +33,39 @@ defmodule Aiur.DispatchBudgetStore do
       {:error, error}
   end
 
+  @doc "Reads the whole lifetime map (issue_id => count), or an empty map when unreadable."
+  @spec lifetimes() :: {:ok, %{String.t() => non_neg_integer()}} | {:error, term()}
+  def lifetimes do
+    with {:ok, lifetimes} <- read_lifetimes() do
+      {:ok, lifetimes}
+    end
+  end
+
+  @doc """
+  Removes the ticket's persisted lifetime entry (returns it to 0). The
+  supported exit from the lifetime dispatch latch — `aiurdev reset-budget`
+  routes here so an operator never has to hand-edit `dispatch-budgets.json`.
+  """
+  @spec reset(String.t()) :: :ok | {:error, term()}
+  def reset(issue_id) when is_binary(issue_id) do
+    case read_lifetimes() do
+      {:ok, lifetimes} ->
+        if Map.has_key?(lifetimes, issue_id) do
+          JsonStore.write!(path_for(), Map.delete(lifetimes, issue_id))
+        else
+          :ok
+        end
+
+      {:error, reason} = error ->
+        Logger.error("Dispatch budget store read before reset failed: #{inspect(reason)}")
+        error
+    end
+  rescue
+    error ->
+      Logger.error("Dispatch budget store reset failed: #{Exception.message(error)}")
+      {:error, error}
+  end
+
   @doc false
   @spec path_for() :: Path.t()
   def path_for do

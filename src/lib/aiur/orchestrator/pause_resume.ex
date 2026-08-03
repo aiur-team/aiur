@@ -45,6 +45,41 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_agent(server, issue_identifier),
     do: control_api_call(server, {:resume_agent, issue_identifier})
 
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
+  def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
+
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
+  def reset_dispatch_budget(server, issue_identifier),
+    do: control_api_call(server, {:reset_dispatch_budget, issue_identifier})
+
+  @doc false
+  @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
+  def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    case find_issue_id_by_identifier(state, issue_identifier) do
+      {:ok, issue_id} ->
+        state = Dispatcher.reset_lifetime_budget(state, issue_id)
+        Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue_id}")
+        {:reply, {:ok, :reset}, state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
+    case Enum.find(state.last_polled_issues, fn
+           {_id, %Issue{identifier: ^issue_identifier}} -> true
+           _ -> false
+         end) do
+      {issue_id, _issue} -> {:ok, issue_id}
+      nil -> {:error, :unknown_issue}
+    end
+  end
+
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
   def request_control(issue_identifier, action, request_id), do: request_control(Aiur.Orchestrator, issue_identifier, action, request_id)
 
@@ -1489,6 +1524,12 @@ defmodule Aiur.Orchestrator.PauseResume do
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
+      # A lifetime-latched ticket is not resume-clearable by design. Name the
+      # latch as the reason instead of letting the dispatch no-op silently and
+      # reporting `:dispatch_failed`, which reads as a transient hiccup (#1453).
+      match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id)) ->
+        {{:error, :lifetime_dispatch_latch}, state}
+
       not DispatchPolicy.dispatch_candidate?(
         issue,
         state,
@@ -1500,10 +1541,15 @@ defmodule Aiur.Orchestrator.PauseResume do
       true ->
         next_state = Dispatcher.dispatch_issue(state, issue)
 
-        if MapSet.member?(next_state.claimed, issue.id) do
-          {{:ok, :started}, next_state}
-        else
-          {{:error, :dispatch_failed}, next_state}
+        cond do
+          MapSet.member?(next_state.claimed, issue.id) ->
+            {{:ok, :started}, next_state}
+
+          match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
+            {{:error, :lifetime_dispatch_latch}, next_state}
+
+          true ->
+            {{:error, :dispatch_failed}, next_state}
         end
     end
   end

@@ -45,10 +45,14 @@ agent:
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
   max_turns: 12
-  # Lifetime dispatch latch (#1305). 0 disables it, which let #1091 burn 85 cold
-  # dispatches on a ticket that was functionally done in 53 minutes (~20% of them
-  # productive). Hitting this cap signals a structurally-stuck ticket that needs an
-  # operator, not more turns.
+  # Lifetime dispatch latch (#1305, hardened by #1453). 0 disables it, which let
+  # #1091 burn 85 cold dispatches on a ticket that was functionally done in 53
+  # minutes (~20% of them productive). Since #1453 the counter only bills
+  # dispatches that survived provisioning (preflight/prewarm/tracker-auth
+  # failures leave it unchanged) and `aiurdev reset-budget <id>` is the
+  # supported exit. Hitting the cap signals a structurally-stuck ticket that
+  # needs an operator, not more turns. Raise/remove (0) freely if a windowed
+  # thrash guard (`codex.thrash_max_per_window`) is the only backstop wanted.
   max_dispatches_per_ticket: 20
   # Per-complexity turn ceiling; a level set here replaces `max_turns` for that
   # ticket (it is an override, not a floor). Only the trivial levels are tightened —

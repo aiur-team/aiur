@@ -17,6 +17,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :paused
           | :run_paused
           | :awaiting_dispatch
+          | :paused_operator
+          | :paused_transient
+          | :latched_lifetime
           | :backing_off
           | :unresponsive
           | :active
@@ -64,6 +67,36 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def for_idle(_tracker_state, _blocked_by_open?, open_decision_count) when open_decision_count > 0, do: :waiting_for_human
   def for_idle(_tracker_state, true, 0), do: :waiting_for_dependency
   def for_idle(tracker_state, false, 0), do: by_tracker_state(tracker_state)
+
+  @doc """
+  Idle classification for a tracker-active row with no live running process,
+  extended with the #1453 idle-reason evidence so #1457 can render *why* the
+  ticket is idle rather than a bare "idle".
+
+  `opts`:
+    * `:latched_lifetime` — true when the ticket is held by the lifetime
+      dispatch latch (`Dispatcher.dispatch_latch_status/2` != `:none`)
+    * `:tracker_paused` — true when the operator's `agent:paused` label override
+      is present (`Issue.paused?/1`)
+    * `:auto_resume_retry_in_ms` — non-nil when a transient-caused pause/error
+      has a pending automatic resume (`Aiur.Orchestrator.AutoResume.retry_in_ms/3`)
+
+  A lifetime latch wins over a label pause (the latch is not resume-clearable
+  and `resume` cannot move it); an operator pause wins over a pending transient
+  resume (an operator's explicit pause supersedes an automatic one).
+  """
+  @spec for_idle(String.t() | nil, boolean(), non_neg_integer(), keyword()) :: t()
+  def for_idle(tracker_state, blocked_by_open?, open_decision_count, opts)
+      when is_list(opts) do
+    cond do
+      open_decision_count > 0 -> :waiting_for_human
+      blocked_by_open? -> :waiting_for_dependency
+      Keyword.get(opts, :latched_lifetime, false) -> :latched_lifetime
+      Keyword.get(opts, :tracker_paused, false) -> :paused_operator
+      Keyword.get(opts, :auto_resume_retry_in_ms) != nil -> :paused_transient
+      true -> by_tracker_state(tracker_state)
+    end
+  end
 
   # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
   # actual exemption set: only `:paused` and `:deactivated` entries are

@@ -447,6 +447,39 @@ defmodule Aiur.AgentControlCLI do
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
 
+  # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
+  # dispatch latch. Clears the in-memory + durable budget entries so a latched
+  # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
+  @spec reset_budget([String.t()]) :: :ok
+  def reset_budget(targets) when is_list(targets) do
+    targets
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.each(&reset_budget_one/1)
+
+    exit_marker(0)
+  end
+
+  defp reset_budget_one(target) do
+    # Resolve the display number to the canonical tracker identifier (e.g.
+    # `repo#49`) so the orchestrator can find the issue's budget entry.
+    status =
+      case Orchestrator.status() do
+        statuses when is_list(statuses) -> Enum.find(statuses, &target_matches?(&1, target))
+        _ -> nil
+      end
+
+    identifier = if status, do: canonical_identifier(status), else: target
+
+    case Orchestrator.reset_dispatch_budget(identifier) do
+      {:ok, :reset} ->
+        IO.puts("aiur: reset lifetime dispatch budget for ##{target}")
+
+      {:error, reason} ->
+        print_failure(:reset_budget, %{identifier: identifier, issue_id: target}, reason)
+    end
+  end
+
   # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
   # single daemon-wide halt distinct from per-agent pause: it stops all
   # provisioning and holds every running agent, and unpause resumes only the
@@ -1350,7 +1383,10 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
-        timeout: "orchestrator timed out"
+        timeout: "orchestrator timed out",
+        unknown_issue: "unknown issue",
+        lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",
+        dispatch_failed: "dispatch failed"
       },
       reason,
       inspect(reason)

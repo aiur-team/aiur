@@ -208,4 +208,38 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle(nil, false, 0) == :active
     end
   end
+
+  describe "for_idle/4" do
+    test "a lifetime-latched idle ticket classifies as latched (not resume-clearable)" do
+      assert WaitingReason.for_idle("error", false, 0, latched_lifetime: true) == :latched_lifetime
+    end
+
+    test "an operator label pause classifies as paused_operator" do
+      assert WaitingReason.for_idle("rework", false, 0, tracker_paused: true) == :paused_operator
+    end
+
+    test "a pending transient auto-resume classifies as paused_transient" do
+      assert WaitingReason.for_idle("error", false, 0, auto_resume_retry_in_ms: 120_000) == :paused_transient
+    end
+
+    test "the latch wins over an operator pause and a pending transient resume" do
+      assert WaitingReason.for_idle("error", false, 0,
+               latched_lifetime: true,
+               tracker_paused: true,
+               auto_resume_retry_in_ms: 120_000
+             ) == :latched_lifetime
+    end
+
+    test "an operator pause wins over a pending transient resume" do
+      assert WaitingReason.for_idle("error", false, 0,
+               tracker_paused: true,
+               auto_resume_retry_in_ms: 120_000
+             ) == :paused_operator
+    end
+
+    test "no #1453 evidence falls back to the base idle classification" do
+      assert WaitingReason.for_idle("rework", false, 0, []) == :waiting_for_human
+      assert WaitingReason.for_idle("todo", false, 0, latched_lifetime: false) == :active
+    end
+  end
 end

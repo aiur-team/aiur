@@ -730,6 +730,31 @@ defmodule Aiur.AgentControlCLITest do
     assert resume_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  describe "reset-budget" do
+    test "clears the lifetime dispatch latch and reports success", %{orchestrator: pid} do
+      issue = %Issue{id: "issue-49", identifier: "repo#49", state: "error", title: "Latched"}
+
+      :sys.replace_state(pid, fn state ->
+        %{state | running: %{}, last_polled_issues: %{"issue-49" => issue}}
+      end)
+
+      output = capture_io(fn -> AgentControlCLI.reset_budget(["49"]) end)
+
+      assert output =~ "aiur: reset lifetime dispatch budget for #49"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "reports an unknown issue without a crash", %{orchestrator: _pid} do
+      stderr =
+        capture_io(:stderr, fn ->
+          output = capture_io(fn -> AgentControlCLI.reset_budget(["9999"]) end)
+          assert output =~ "__AIUR_CONTROL_EXIT__:0"
+        end)
+
+      assert stderr =~ "failed to reset_budget #9999 (unknown issue)"
+    end
+  end
+
   describe "global pause switch" do
     test "pause_global halts the daemon and resume_global lifts it", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | globally_paused: false} end)
