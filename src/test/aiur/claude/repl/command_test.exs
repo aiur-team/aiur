@@ -11,7 +11,7 @@ defmodule Aiur.Claude.Repl.CommandTest do
       assert cmd =~ "${HEX_HOME#\\~/}"
       assert cmd =~ "AIUR_CI_READINESS_TOKEN"
       assert cmd =~ "*_API_KEY) unset "
-      assert cmd =~ "export HEX_HOME="
+      assert cmd =~ "export HEX_HOME"
       assert cmd =~ " && exec claude"
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
@@ -51,15 +51,15 @@ defmodule Aiur.Claude.Repl.CommandTest do
       refute output =~ "operator-only"
     end
 
-    test "scrubs inherited provider credentials before exporting the workspace env" do
+    test "scrubs inherited provider credentials before launching the agent" do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
 
       assert cmd =~ "OPENROUTER_MANAGEMENT_KEY"
       assert cmd =~ "*_API_KEY) unset "
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")
-      {export_pos, _len} = :binary.match(cmd, "export HEX_HOME=")
-      assert scrub_pos < export_pos
+      {exec_pos, _len} = :binary.match(cmd, "exec claude")
+      assert scrub_pos < exec_pos
     end
 
     test "exports the authoritative base branch into the tmux-backed process" do

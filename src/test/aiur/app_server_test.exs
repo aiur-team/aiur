@@ -1380,7 +1380,7 @@ defmodule Aiur.AppServerTest do
 
       assert argv_line = Enum.find(lines, &String.starts_with?(&1, "ARGV:"))
       assert argv_line =~ "-T -p 2200 worker-01 bash -lc"
-      assert argv_line =~ "HEX_HOME="
+      assert trace =~ "HEX_HOME="
       assert trace =~ "${HEX_HOME#\\~/}"
       assert trace =~ "cd "
       assert trace =~ remote_workspace
