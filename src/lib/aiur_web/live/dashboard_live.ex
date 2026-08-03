@@ -736,6 +736,12 @@ defmodule AiurWeb.DashboardLive do
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
+          <RunSummaryStrip.run_summary_compact
+            run={@run_summary}
+            usage={@usage_summary}
+            meters={@provider_meters_view}
+            now={@now}
+          />
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}

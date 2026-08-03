@@ -2245,7 +2245,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
     assert Enum.any?(bad.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
+             _ -> false
+           end)
+
+    # A registered-but-not-dispatch-enabled backend is rejected by the same path
+    # as an unknown one, so routing cannot reach an opt-in-only provider.
+    disabled =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "deepseek"}}, [:routing])
+      |> AgentValidation.validate_agent_routing(:routing)
+
+    assert Enum.any?(disabled.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(unknown or disabled backend "deepseek")
              _ -> false
            end)
 
@@ -2305,7 +2317,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
              _ -> false
            end)
 

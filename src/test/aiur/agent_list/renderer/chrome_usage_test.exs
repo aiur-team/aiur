@@ -115,6 +115,41 @@ defmodule Aiur.AgentList.Renderer.ChromeUsageTest do
     assert text(Chrome.usage_row(%{codex: view}, @width)) =~ "codex n/a"
   end
 
+  test "a provider credit balance renders as dollars rather than a fake percentage" do
+    view = %{
+      state: :observed,
+      age_seconds: 15,
+      windows: %{"credits" => %{kind: :credit, credits: %{status: :available, amount: 77.5}}}
+    }
+
+    row = text(Chrome.usage_row(%{openrouter: view}, @width))
+    assert row =~ "openrouter $77.50 left (15s)"
+    refute row =~ "%"
+    refute row =~ "░"
+  end
+
+  test "DeepSeek renders exact balance and local concurrency without a provider percentage" do
+    view = %{
+      state: :observed,
+      age_seconds: 15,
+      windows: %{
+        "balance" => %{kind: :credit, credits: %{status: :available, amount: 12.5}},
+        "local-concurrency" => %{
+          kind: :rate_limit,
+          name: "Local concurrency",
+          used: 2,
+          limit: 2_500,
+          used_percent: 0.08
+        }
+      }
+    }
+
+    row = text(Chrome.usage_row(%{deepseek: view}, @width))
+    assert row =~ "deepseek $12.50 left · 2/2500 concurrent (15s)"
+    refute row =~ "%"
+    refute row =~ "░"
+  end
+
   test "both providers render, ordered stably" do
     row = text(Chrome.usage_row(%{claude: observed(10, 10), codex: observed(20, 10)}, @width))
 

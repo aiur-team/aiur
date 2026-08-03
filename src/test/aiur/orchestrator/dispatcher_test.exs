@@ -4,15 +4,18 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.GitHub.CiReadiness
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
+    CiReadiness.clear_cached_result()
     previous_meminfo = Application.get_env(:aiur, :meminfo_source_override)
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
     previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
     previous_lifecycle_recorder = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
+    previous_ci_readiness_check_fun = Application.get_env(:aiur, :ci_readiness_check_fun)
 
     on_exit(fn ->
       restore_app_env(:meminfo_source_override, previous_meminfo)
@@ -20,6 +23,8 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
+      restore_app_env(:ci_readiness_check_fun, previous_ci_readiness_check_fun)
+      CiReadiness.clear_cached_result()
     end)
 
     :ok
@@ -30,6 +35,157 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       workspace_ownership: %{waits: %{}, ready: %{}},
       codex_thrash_budget: codex_thrash_budget
     }
+  end
+
+  test "first dispatch warns about an unmergeable GitHub repository without blocking dispatch" do
+    readiness = %{ready?: false, base_branch: "develop", issues: [:no_pr_workflow]}
+    emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:ok, readiness} end, emit)
+
+    assert state.ci_readiness_checked
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
+    assert opts[:needs_attention]
+    assert opts[:reason] =~ "no workflow triggers on pull_request"
+  end
+
+  test "initial readiness scan runs outside the dispatcher mailbox and caches its result" do
+    parent = self()
+    readiness = %{ready?: true, base_branch: "develop", issues: []}
+
+    state =
+      Dispatcher.start_initial_ci_readiness_check(%State{}, "github", "develop", fn _opts ->
+        send(parent, :readiness_scan_started)
+        {:ok, readiness}
+      end)
+
+    assert is_pid(state.ci_readiness_check_pid)
+    assert_receive :readiness_scan_started
+    assert_receive {:ci_readiness_result, token, {:ok, ^readiness}}
+
+    state = Dispatcher.handle_ci_readiness_result(state, token, {:ok, readiness})
+
+    assert state.ci_readiness_checked
+    assert CiReadiness.cached_result(base_branch: "develop") == readiness
+  end
+
+  test "first dispatch retries an unavailable readiness check without duplicate alerts" do
+    emit = fn name, _opts -> send(self(), {:ci_readiness_alert, name}) end
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, :timeout} end, emit)
+
+    refute state.ci_readiness_checked
+    assert state.ci_readiness_unavailable_alerted
+    assert is_integer(state.ci_readiness_retry_at_ms)
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+
+    state = Dispatcher.check_initial_ci_readiness(state, "github", "develop", fn _ -> {:error, :timeout} end, emit)
+
+    refute state.ci_readiness_checked
+    refute_receive {:ci_readiness_alert, _}
+  end
+
+  test "does not launch another readiness scan before the transient retry deadline" do
+    scope = CiReadiness.readiness_scope()
+    state = %State{ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + 60_000, ci_readiness_scope: scope}
+
+    assert Dispatcher.maybe_warn_ci_readiness(state) == state
+  end
+
+  test "paces retryable GitHub readiness errors without caching them as permanent" do
+    emit = fn name, _opts -> send(self(), {:ci_readiness_alert, name}) end
+    error = {:github, :rate_limited, %{status: 429}}
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, error} end, emit)
+
+    refute state.ci_readiness_checked
+    assert is_integer(state.ci_readiness_retry_at_ms)
+    assert CiReadiness.cached_result() == :unavailable
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+  end
+
+  test "retries transient GitHub server errors without caching them as permanent" do
+    emit = fn name, _opts -> send(self(), {:ci_readiness_alert, name}) end
+    error = {:github, :http, %{status: 503}}
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:error, error} end, emit)
+
+    refute state.ci_readiness_checked
+    assert is_integer(state.ci_readiness_retry_at_ms)
+    assert CiReadiness.cached_result() == :unavailable
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.unavailable"}
+  end
+
+  test "caches an operator-token readiness gap as a completed assessment" do
+    readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
+    emit = fn name, opts -> send(self(), {:ci_readiness_alert, name, opts}) end
+
+    state = Dispatcher.check_initial_ci_readiness(%State{}, "github", "develop", fn _ -> {:ok, readiness} end, emit)
+
+    assert state.ci_readiness_checked
+    assert CiReadiness.cached_result(base_branch: "develop") == readiness
+    assert_receive {:ci_readiness_alert, "system.ci_readiness.not_ready", opts}
+    assert opts[:needs_attention]
+  end
+
+  test "a completed readiness assessment is rescanned after its cache expires" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_base_branch: "develop"
+    )
+
+    parent = self()
+    old_readiness = %{ready?: true, base_branch: "develop", issues: []}
+    new_readiness = %{ready?: false, base_branch: "develop", issues: [:no_required_check]}
+    assessed_at = DateTime.add(DateTime.utc_now(), -3_601, :second)
+    opts = [base_branch: "develop", now: assessed_at]
+    scope = CiReadiness.readiness_scope(opts)
+
+    assert :ok = CiReadiness.persist_assessment(old_readiness, opts)
+
+    Application.put_env(:aiur, :ci_readiness_check_fun, fn check_opts ->
+      send(parent, {:readiness_rescan, check_opts})
+      {:ok, new_readiness}
+    end)
+
+    state = %State{
+      ci_readiness_checked: true,
+      ci_readiness_scope: scope,
+      ci_readiness_result: old_readiness
+    }
+
+    state = Dispatcher.maybe_warn_ci_readiness(state)
+
+    refute state.ci_readiness_checked
+    assert is_pid(state.ci_readiness_check_pid)
+    assert_receive {:readiness_rescan, check_opts}
+    assert check_opts[:base_branch] == "develop"
+  end
+
+  test "a newer operator assessment replaces the completed live result" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_base_branch: "develop"
+    )
+
+    now = DateTime.utc_now()
+    old_readiness = CiReadiness.unavailable("develop", :ci_readiness_operator_token_required)
+    new_readiness = %{ready?: true, base_branch: "develop", issues: []}
+    opts = [base_branch: "develop", now: DateTime.add(now, -2, :second)]
+    scope = CiReadiness.readiness_scope(opts)
+
+    assert :ok = CiReadiness.cache_result(old_readiness, opts)
+    assert :ok = CiReadiness.persist_assessment(new_readiness, Keyword.put(opts, :now, DateTime.add(now, -1, :second)))
+
+    state = %State{
+      ci_readiness_checked: true,
+      ci_readiness_scope: scope,
+      ci_readiness_result: old_readiness
+    }
+
+    assert %State{ci_readiness_checked: true, ci_readiness_result: ^new_readiness} =
+             Dispatcher.maybe_warn_ci_readiness(state)
   end
 
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
@@ -203,6 +359,36 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "keeps local-only provider transports off configured SSH workers" do
+      test_pid = self()
+      write_workflow_file!(Workflow.workflow_file_path(), worker_ssh_hosts: ["worker-a"])
+
+      issue = %Issue{
+        id: "local-provider",
+        identifier: "repo#local-provider",
+        state: "todo",
+        selected_backend: "kimi"
+      }
+
+      runner = fn dispatched_issue, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched_issue, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.do_dispatch_issue(
+          %State{max_concurrent_agents: 1, effective_concurrent_agents: 1},
+          issue,
+          nil,
+          nil,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, ^issue, _recipient, runner_opts}
+      assert Keyword.fetch!(runner_opts, :worker_host) == nil
+      assert get_in(next_state.running, [issue.id, :worker_host]) == nil
+    end
+
     test "records the dispatch-time complexity estimate" do
       test_pid = self()
 

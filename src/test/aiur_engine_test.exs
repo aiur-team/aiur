@@ -441,6 +441,52 @@ defmodule AiurEngineTest do
     assert out2 =~ "TOK=shell|"
   end
 
+  test "run-only environment scrub removes the operator readiness token" do
+    dir = Path.join(System.tmp_dir!(), "aiur-readiness-env-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, ".env"), "AIUR_CI_READINESS_TOKEN=operator-only\n")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    src =
+      "cd #{dir}; source #{@engine}; load_dotenv; " <>
+        "printf 'LOADED=%s|' \"$AIUR_CI_READINESS_TOKEN\"; " <>
+        "scrub_run_only_env; printf 'RUN=%s' \"${AIUR_CI_READINESS_TOKEN-unset}\""
+
+    {out, 0} =
+      System.cmd("bash", ["-c", src],
+        env: [{"AIUR_CI_READINESS_TOKEN", nil}],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ "LOADED=operator-only|RUN=unset"
+
+    engine = File.read!(@engine)
+    assert engine =~ ~r/load_dotenv\s+scrub_run_only_env/
+    assert engine =~ "printf 'unset AIUR_CI_READINESS_TOKEN\\n'"
+  end
+
+  test "init intentionally retains the operator readiness token" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-init-token-#{System.unique_integer([:positive])}")
+    elixir = Path.join([rel, "releases", "0.1.1", "elixir"])
+
+    File.write!(elixir, "#!/usr/bin/env bash\nprintf 'CI_TOKEN=%s\\n' \"${AIUR_CI_READINESS_TOKEN-unset}\"\n")
+
+    on_exit(fn ->
+      File.rm_rf!(rel)
+      File.rm_rf!(state)
+    end)
+
+    {out, 0} =
+      run_engine(["init"], [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_CI_READINESS_TOKEN", "operator-only"}
+      ])
+
+    assert out =~ "CI_TOKEN=operator-only"
+  end
+
   test "an unknown command exits 64 with usage" do
     {out, code} = run_engine(["bogus-not-a-path"], [])
     assert code == 64

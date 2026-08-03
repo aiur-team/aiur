@@ -154,10 +154,13 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run
-the engine loads `./.env` from the current directory so the release picks
-these up (a value already exported in your shell always wins). `aiur init`
-also reads `.env` for the token during setup.
+from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
+credential precedence is: an already-exported environment value, then
+`~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
+fills unset names. Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
+`OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
+Keep the global per-user file outside Git trees and never commit either dotenv
+file. `aiur init` also reads `.env` for the GitHub token during setup.
 
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that

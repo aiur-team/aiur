@@ -37,7 +37,7 @@ defmodule Aiur.Usage.Headless.Context do
 
   @type account_generation :: %{
           provider: atom(),
-          backend: :app_server,
+          backend: atom(),
           generation: String.t() | nil,
           freshness: :current | :unknown,
           health: :healthy | :unknown | :unavailable,
@@ -66,7 +66,8 @@ defmodule Aiur.Usage.Headless.Context do
   def build(_issue, _backend, _opts), do: :unsupported
 
   defp assemble(issue, agent_family, opts) do
-    generation = account_generation(agent_family, opts)
+    usage_context = usage_context(opts)
+    generation = account_generation(agent_family, usage_context.backend, opts)
 
     %__MODULE__{
       run_id: Keyword.get(opts, :run_id) || Boot.run_id(),
@@ -78,8 +79,8 @@ defmodule Aiur.Usage.Headless.Context do
       request_id: string_or_nil(Keyword.get(opts, :request_id)),
       worker_generation: Keyword.get(opts, :worker_generation),
       agent_family: agent_family,
-      backend: :app_server,
-      transport: :app_server,
+      backend: usage_context.backend,
+      transport: usage_context.transport,
       auth_mode: auth_mode(opts),
       requested_model: string_or_nil(Keyword.get(opts, :requested_model)),
       resolved_model: string_or_nil(Keyword.get(opts, :resolved_model)),
@@ -101,18 +102,21 @@ defmodule Aiur.Usage.Headless.Context do
   # A trusted DASH-018 snapshot may be supplied through opts; otherwise the
   # owner-resolved generation is unavailable at this seam and the envelope
   # records bounded coverage rather than borrowing another account's identity.
-  defp account_generation(agent_family, opts) do
+  defp account_generation(agent_family, backend, opts) do
     opts
-    |> Keyword.get(:account_generation, Snapshot.unavailable(agent_family, :app_server))
-    |> project_generation(agent_family)
+    |> Keyword.get(:account_generation, Snapshot.unavailable(agent_family, backend))
+    |> project_generation(agent_family, backend)
   end
 
   @doc "Projects a DASH-018 account-generation snapshot into the envelope's account context."
   @spec project_generation(map(), atom()) :: account_generation()
-  def project_generation(%{generation: generation, freshness: freshness, health: health, reason: reason}, agent_family) do
+  def project_generation(snapshot, agent_family), do: project_generation(snapshot, agent_family, :app_server)
+
+  @spec project_generation(map(), atom(), atom()) :: account_generation()
+  def project_generation(%{generation: generation, freshness: freshness, health: health, reason: reason}, agent_family, backend) do
     %{
       provider: agent_family,
-      backend: :app_server,
+      backend: backend,
       generation: string_or_nil(generation),
       freshness: freshness,
       health: health,
@@ -120,8 +124,13 @@ defmodule Aiur.Usage.Headless.Context do
     }
   end
 
-  def project_generation(_snapshot, agent_family) do
-    project_generation(Snapshot.unavailable(agent_family, :app_server), agent_family)
+  def project_generation(_snapshot, agent_family, backend) do
+    project_generation(Snapshot.unavailable(agent_family, backend), agent_family, backend)
+  end
+
+  defp usage_context(opts) do
+    backend = Keyword.get(opts, :backend)
+    CodingAgent.usage_context(backend) || %{backend: :app_server, transport: :app_server}
   end
 
   defp auth_mode(opts) do
