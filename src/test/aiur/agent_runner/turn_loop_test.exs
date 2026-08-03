@@ -94,9 +94,17 @@ defmodule Aiur.AgentRunner.TurnLoopTest do
   end
 
   describe "turn_done_reason/1" do
+    # #1024 / #1041: a turn that ends on an unresolved operator decision (or a
+    # dependency blocker / scope question) must NOT recurse into a work turn —
+    # `finalize_turn_completion` is only reached on `{:ok, _}`. A `:paused`
+    # outcome is `:input_required`, which parks the run in `wait_for_resume`;
+    # that is the code-enforced negative half of the planning-to-work contract
+    # (no false-positive start of work on an unfinished plan).
     test "maps coding-agent turn results to stream close reasons" do
       assert TurnLoop.turn_done_reason({:ok, %{}}) == :done
       assert TurnLoop.turn_done_reason({:paused, %{}}) == :input_required
+      assert TurnLoop.turn_done_reason({:paused, %{reason: :operator_decision}}) == :input_required
+      assert TurnLoop.turn_done_reason({:paused, %{reason: :dependency_blocker}}) == :input_required
       assert TurnLoop.turn_done_reason({:error, :boom}) == {:failed, :boom}
       assert TurnLoop.turn_done_reason(:other) == :done
     end

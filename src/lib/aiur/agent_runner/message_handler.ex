@@ -603,6 +603,21 @@ defmodule Aiur.AgentRunner.MessageHandler do
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
 
   @doc false
+  # Signals the orchestrator that this dispatch attempt has survived
+  # provisioning (workspace created, session about to start). The orchestrator
+  # bills exactly one lifetime dispatch unit here — the only point a dispatch
+  # is counted as real work — so a preflight/prewarm/tracker-auth failure
+  # (which never reaches this call) leaves the budget unchanged (#1453).
+  @spec send_dispatch_committed(pid() | nil, Issue.t()) :: :ok
+  def send_dispatch_committed(recipient, %Issue{id: issue_id})
+      when is_binary(issue_id) and is_pid(recipient) do
+    send(recipient, {:dispatch_committed, issue_id})
+    :ok
+  end
+
+  def send_dispatch_committed(_recipient, _issue), do: :ok
+
+  @doc false
   @spec send_control_state(pid() | nil, Issue.t(), :completed | :paused | :working | term()) :: :ok
   def send_control_state(recipient, %Issue{id: issue_id}, status)
       when is_pid(recipient) and is_binary(issue_id) and status in [:completed, :paused, :working] do

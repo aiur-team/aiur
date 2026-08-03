@@ -148,7 +148,7 @@ defmodule Aiur.Orchestrator.Reconciler do
       )
       when is_function(observe_membership_fun, 2) and is_function(mark_reconciled_fun, 1) do
     if DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) do
-      case LifecycleFence.reconcile_observed_state(state, issue) do
+      case LifecycleFence.reconcile_observed_state(state, issue, terminal_states) do
         :admit ->
           reconcile_terminal_issue_state(
             state,
@@ -161,7 +161,13 @@ defmodule Aiur.Orchestrator.Reconciler do
           next_state
       end
     else
-      reconcile_nonterminal_issue_state(state, issue, active_states, observe_membership_fun)
+      reconcile_nonterminal_issue_state(
+        state,
+        issue,
+        active_states,
+        terminal_states,
+        observe_membership_fun
+      )
     end
   end
 
@@ -205,7 +211,13 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
-  defp reconcile_nonterminal_issue_state(state, issue, active_states, observe_membership_fun) do
+  defp reconcile_nonterminal_issue_state(
+         state,
+         issue,
+         active_states,
+         terminal_states,
+         observe_membership_fun
+       ) do
     cond do
       !DispatchPolicy.issue_routable_to_worker?(issue) ->
         Logger.info([
@@ -237,6 +249,7 @@ defmodule Aiur.Orchestrator.Reconciler do
           state,
           issue,
           active_states,
+          terminal_states,
           observe_membership_fun
         )
     end
@@ -246,9 +259,10 @@ defmodule Aiur.Orchestrator.Reconciler do
          state,
          issue,
          active_states,
+         terminal_states,
          observe_membership_fun
        ) do
-    case LifecycleFence.reconcile_observed_state(state, issue) do
+    case LifecycleFence.reconcile_observed_state(state, issue, terminal_states) do
       {:fenced, next_state} ->
         next_state
 

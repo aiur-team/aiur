@@ -201,6 +201,13 @@ defmodule Aiur.AgentRunner do
         :ok = BootstrapDigest.maybe_attach_universal_subscriptions(issue)
         :ok = BootstrapDigest.maybe_enqueue_bootstrap_digest(issue)
 
+        # The runner has now survived provisioning, the before_run hook, and
+        # workspace activation — this is the point a dispatch counts as real
+        # work for the #1453 lifetime latch. A failure anywhere before here
+        # (preflight, prewarm, tracker-auth, before_run) leaves the counter
+        # unchanged.
+        MessageHandler.send_dispatch_committed(codex_update_recipient, issue)
+
         SessionLifecycle.run_session(
           workspace,
           issue,
