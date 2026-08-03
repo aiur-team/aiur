@@ -77,7 +77,13 @@ defmodule Aiur.Init.Resume do
       "github" ->
         repo = get_in(config, ["tracker", "github", "repo"]) || deps.detect_repo.()
         label_prefix = get_in(config, ["tracker", "github", "label_prefix"]) || "agent"
-        %{kind: "github", repo: repo, label_prefix: label_prefix}
+
+        %{
+          kind: "github",
+          repo: repo,
+          label_prefix: label_prefix,
+          base_branch: tracker["base_branch"] || "main"
+        }
 
       "linear" ->
         %{
