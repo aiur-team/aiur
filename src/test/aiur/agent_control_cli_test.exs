@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, BuildGate}
+  alias Aiur.{AgentControlCLI, BuildGate, RepoBase}
   alias Aiur.GitHub.CiReadiness
 
   defp capture_todo(ids, opts) do
@@ -664,6 +664,73 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "BUILD GATE DEGRADED 0/2 active, 0 queued"
     assert output =~ "reason=legacy_state path=#{legacy_path}"
     assert output =~ "recovery=repair the configured build-gate directory"
+  end
+
+  describe "prewarm status surface" do
+    # Prewarm-enabled config for the CLI surface tests. No `base_build` and a
+    # memory tracker keep RepoBase's own resolve/poll inert (no clone/build can
+    # start) while `Config.prewarm_enabled?/0` reads true.
+    defp with_prewarm_enabled do
+      tmp = Path.join(System.tmp_dir!(), "cli_prewarm_#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+      cfg = Path.join(tmp, "config")
+      File.write!(cfg, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  poll_seconds: 0\n")
+      previous = Application.get_env(:aiur, :workflow_file_path)
+      Aiur.Workflow.set_workflow_file_path(cfg)
+
+      on_exit(fn ->
+        case previous do
+          nil -> Aiur.Workflow.clear_workflow_file_path()
+          path -> Aiur.Workflow.set_workflow_file_path(path)
+        end
+      end)
+
+      :ok
+    end
+
+    # Drive the live RepoBase phase so `aiur status` renders the prewarm line
+    # exactly as it would against a warming/errored base.
+    defp with_repo_base_phase(phase) do
+      pid = Process.whereis(RepoBase) || flunk("RepoBase must be running for prewarm status tests")
+      original = :sys.get_state(pid)
+
+      :sys.replace_state(pid, fn state -> %{state | phase: phase, base_path: "/tmp/base"} end)
+
+      on_exit(fn ->
+        if Process.alive?(pid), do: :sys.replace_state(pid, fn _state -> original end)
+      end)
+
+      :ok
+    end
+
+    test "status surfaces prewarm: warming while the base build is in flight" do
+      with_prewarm_enabled()
+      with_repo_base_phase(:building)
+
+      output = capture_io(fn -> AgentControlCLI.status() end)
+      assert output =~ "PREWARM prewarm: warming phase=building"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "status surfaces a failed base build as a cold-clone fallback" do
+      with_prewarm_enabled()
+      with_repo_base_phase({:error, :base_build_failed})
+
+      output = capture_io(fn -> AgentControlCLI.status() end)
+      assert output =~ "PREWARM prewarm: unavailable"
+      assert output =~ "dispatching via cold clone"
+    end
+
+    test "status stays silent for a ready base and when prewarm is disabled" do
+      # Default fixture config has prewarm disabled.
+      disabled_output = capture_io(fn -> AgentControlCLI.status() end)
+      refute disabled_output =~ "PREWARM"
+
+      with_prewarm_enabled()
+      with_repo_base_phase(:ready)
+      ready_output = capture_io(fn -> AgentControlCLI.status() end)
+      refute ready_output =~ "PREWARM"
+    end
   end
 
   test "status hides closed cached issues and deactivated runtime entries", %{orchestrator: pid} do

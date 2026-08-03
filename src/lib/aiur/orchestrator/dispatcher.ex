@@ -303,21 +303,38 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
+  # The prewarm gate holds the whole fleet while the warm base builds/clones.
+  # That can persist across many poll cycles, so the hold is logged at most once
+  # per this many consecutive hold ticks instead of every tick (which would bury
+  # the signal in a wall of identical lines) — but still often enough that a
+  # slow or permanently-stuck base build stays visible in the daemon log.
+  @prewarm_hold_log_interval_ticks 30
+
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,
-  # while an in-progress build holds this tick.
+  # while an in-progress build holds this tick. The hold is made observable (see
+  # log_prewarm_hold/2) so a gated fleet is distinguishable from an idle one.
   @spec dispatch_or_hold(State.t(), [Issue.t()]) :: State.t()
   def dispatch_or_hold(%State{} = state, issues) when is_list(issues) do
+    dispatch_or_hold(state, issues, &trigger_and_status/0)
+  end
+
+  @doc false
+  # Testable variant with an injected phase reader; the production path passes
+  # `&RepoBase.refresh_for_dispatch/0` via `trigger_and_status/0`.
+  @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term())) :: State.t()
+  def dispatch_or_hold(%State{} = state, issues, trigger_fun)
+      when is_list(issues) and is_function(trigger_fun, 0) do
     enabled? = Config.prewarm_enabled?()
-    phase = if enabled?, do: trigger_and_status(), else: :ready
+    phase = if enabled?, do: trigger_fun.(), else: :ready
 
     case DispatchPolicy.prewarm_gate(enabled?, phase) do
       :dispatch ->
         maybe_log_base_error(phase)
-        maybe_choose_under_load(state, issues)
+        maybe_choose_under_load(%{state | prewarm_hold_ticks: 0}, issues)
 
       :hold ->
-        state
+        log_prewarm_hold(state, phase)
     end
   end
 
@@ -832,6 +849,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
 
   defp maybe_log_base_error(_phase), do: :ok
+
+  # A silent indefinite hold is the core defect behind #1404: with the warm base
+  # warming (or failing to rebuild), every poll tick held dispatch and nothing
+  # was logged, so an operator saw an idle fleet instead of a gated one. Count
+  # consecutive hold ticks and emit one `aiur_perf prewarm_hold` line at most
+  # once per `@prewarm_hold_log_interval_ticks`; the counter resets as soon as
+  # the gate lets a tick through, so the interval measures back-to-back holds.
+  defp log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase) do
+    next_ticks = ticks + 1
+    state = %{state | prewarm_hold_ticks: next_ticks}
+
+    if rem(next_ticks, @prewarm_hold_log_interval_ticks) == 1 do
+      Logger.info("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
+    end
+
+    state
+  end
 
   defp maybe_schedule_startup_todo_alert(
          previous_state,
