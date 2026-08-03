@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
   use Aiur.TestSupport
 
   alias Aiur.{DispatchBudgetStore, Issue, Workflow}
-  alias Aiur.Orchestrator.{AutoResume, State}
+  alias Aiur.Orchestrator.{AutoResume, Dispatcher, RetryEngine, State}
 
   @issue_id "issue-transient"
   @enabled """
@@ -214,8 +214,8 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       refute Map.has_key?(state.auto_resume, @issue_id)
 
       # Operator clears the latch through the supported exit (both copies).
-      state = Aiur.Orchestrator.Dispatcher.reset_lifetime_budget(state, @issue_id)
-      assert :none = Aiur.Orchestrator.Dispatcher.dispatch_latch_status(state, @issue_id)
+      state = Dispatcher.reset_lifetime_budget(state, @issue_id)
+      assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
 
       # A fresh transient failure schedules a new auto-resume, which now
       # dispatches normally — the retry path is not swallowed by the budget.
@@ -282,7 +282,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     @tag config: @enabled
     test "maybe_schedule_transient_auto_resume schedules a transient cause" do
       state =
-        Aiur.Orchestrator.RetryEngine.maybe_schedule_transient_auto_resume(%State{}, @issue_id, {:github, :rate_limited, %{status: 403}})
+        RetryEngine.maybe_schedule_transient_auto_resume(%State{}, @issue_id, {:github, :rate_limited, %{status: 403}})
 
       assert %{attempt: 1, cause: :rate_limit} = state.auto_resume[@issue_id]
     end
@@ -290,7 +290,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     @tag config: @enabled
     test "maybe_schedule_transient_auto_resume ignores terminal causes" do
       state =
-        Aiur.Orchestrator.RetryEngine.maybe_schedule_transient_auto_resume(%State{}, @issue_id, {:github, :auth, %{status: 401}})
+        RetryEngine.maybe_schedule_transient_auto_resume(%State{}, @issue_id, {:github, :auth, %{status: 401}})
 
       refute Map.has_key?(state.auto_resume, @issue_id)
     end

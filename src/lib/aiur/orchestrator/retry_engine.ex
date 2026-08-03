@@ -366,12 +366,19 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # When the exhaustion cause is a transient infrastructure fault (tracker
       # 403 / rate limit / provider timeout), also schedule a bounded automatic
       # re-dispatch so the ticket recovers once the cause clears instead of
-      # parking until an operator notices (#1453).
+      # parking until an operator notices (#1453). The structured transient
+      # reason wins when recorded; otherwise the formatted error string is the
+      # fallback (which `AutoResume.classify/1` treats as terminal).
       released = release_issue_claim(state, issue_id)
 
-      released
-      |> maybe_schedule_transient_auto_resume(issue_id, transient_reason || error)
-      |> then(&%{&1 | retry_attempts: Map.delete(&1.retry_attempts, issue_id)})
+      released =
+        maybe_schedule_transient_auto_resume(
+          released,
+          issue_id,
+          effective_exhaustion_reason(transient_reason, error)
+        )
+
+      %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
@@ -964,6 +971,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
       Map.get(previous_retry, :transient_reason)
     end
   end
+
+  # The cause passed to `AutoResume.classify/1` at retry exhaustion: the
+  # structured transient reason when one was recorded, else the formatted error
+  # string (which classifies as terminal, so an infra fault with no structured
+  # record still parks for operator recovery rather than auto-resuming on an
+  # unclassifiable cause).
+  defp effective_exhaustion_reason(nil, error), do: error
+  defp effective_exhaustion_reason(transient_reason, _error), do: transient_reason
 
   # The generic "retry budget exhausted" alert text alone forces the operator
   # to grep the daemon log to find the actual failure (e.g. a workspace

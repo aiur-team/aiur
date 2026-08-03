@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   alias Aiur.{DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.PauseResume
   alias Aiur.Workflow
 
   @issue_id "issue-lifetime"
@@ -275,7 +276,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     # `resume_issue/2` routes a no-running-agent resume to the queued path,
     # which must name the latch (not a generic `:dispatch_failed`).
     assert {{:error, :lifetime_dispatch_latch}, _state} =
-             Aiur.Orchestrator.PauseResume.resume_issue(state, "repo#lifetime")
+             PauseResume.resume_issue(state, "repo#lifetime")
   end
 
   @tag config: @enabled
@@ -288,7 +289,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
       |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
 
     assert {:reply, {:ok, :reset}, reset_state} =
-             Aiur.Orchestrator.PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+             PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)

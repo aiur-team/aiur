@@ -33,12 +33,10 @@ defmodule Aiur.DispatchBudgetStore do
       {:error, error}
   end
 
-  @doc "Reads the whole lifetime map (issue_id => count), or an empty map when unreadable."
+  @doc "Reads the whole lifetime map (issue_id => count)."
   @spec lifetimes() :: {:ok, %{String.t() => non_neg_integer()}} | {:error, term()}
   def lifetimes do
-    with {:ok, lifetimes} <- read_lifetimes() do
-      {:ok, lifetimes}
-    end
+    read_lifetimes()
   end
 
   @doc """

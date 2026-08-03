@@ -888,7 +888,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     max = Config.agent_max_dispatches_per_ticket()
 
     persisted =
-      if is_integer(max) and max > 0 do
+      if max > 0 do
         read_lifetimes_once()
       else
         %{}
@@ -898,7 +898,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), Map.get(persisted, issue_id, 0))
 
       status =
-        if is_integer(max) and max > 0 and lifetime >= max do
+        if max > 0 and lifetime >= max do
           {:lifetime, lifetime, max}
         else
           :none
