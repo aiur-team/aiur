@@ -161,31 +161,47 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert output =~ "receipt-loaded"
   end
 
-  test "malformed bytes and unsupported receipt versions are quarantined and re-initialized" do
+  test "malformed bytes are quarantined and re-initialized" do
     root = Path.join(System.tmp_dir!(), "ownership-invalid-#{System.unique_integer([:positive])}")
     path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
 
     File.mkdir_p!(root)
-
     File.write!(path, <<131, 104>>)
 
     {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
     assert {:ok, %{}} = Store.all(store)
     assert [malformed_quarantined] = Path.wildcard(path <> ".corrupt-*")
     assert File.read!(malformed_quarantined) == <<131, 104>>
+  end
 
-    unsupported = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, %{}})
-    File.write!(path, unsupported)
+  test "a newer-version receipts file fails closed instead of being wiped" do
+    root = Path.join(System.tmp_dir!(), "ownership-newer-version-#{System.unique_integer([:positive])}")
+    path = Path.join(root, "workspace-ownership.receipts")
 
-    {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
-    assert {:ok, %{}} = Store.all(store)
+    on_exit(fn -> File.rm_rf(root) end)
 
-    assert [unsupported_quarantined] =
-             Path.wildcard(path <> ".corrupt-*") -- [malformed_quarantined]
+    File.mkdir_p!(root)
 
-    assert File.read!(unsupported_quarantined) == unsupported
+    # A validly-encoded file written by a hypothetical v2 store: decodes
+    # cleanly, carries live receipts, but uses a version we cannot read.
+    newer_version =
+      :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, %{"live-ticket" => %{phase: :active}}})
+
+    File.write!(path, newer_version)
+
+    # The store refuses to boot against a file it cannot decode rather than
+    # silently re-initializing empty on a downgrade. Trap exits: the linked
+    # store process exits non-normally when init fails.
+    Process.flag(:trap_exit, true)
+
+    assert {:error, {:workspace_ownership_store_unavailable, {:unsupported_receipt_version, 2}}} =
+             Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+
+    # The file is untouched: not wiped, and no forensic archive was created.
+    assert File.read!(path) == newer_version
+    assert Path.wildcard(path <> ".corrupt-*") == []
   end
 
   test "receipt operations report store loss instead of crashing callers" do
