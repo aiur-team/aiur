@@ -212,6 +212,67 @@ defmodule Aiur.OrchestratorStatusTest do
     assert log =~ "orchestrator_mailbox_depth="
   end
 
+  test "keeps a busy-but-publishing orchestrator's fleet snapshot current within its load-aware window" do
+    orchestrator_name = Module.concat(__MODULE__, :LoadAwareWindowSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    snapshot = %{running: [], retrying: [], idle: []}
+
+    # A dispatching orchestrator only manages to refresh on a load-imposed
+    # cadence well past the configured 50ms staleness timeout: the second
+    # snapshot lands after a 200ms gap.
+    :ok = SnapshotStore.publish(orchestrator_name, snapshot)
+    Process.sleep(200)
+    :ok = SnapshotStore.publish(orchestrator_name, snapshot)
+
+    # Let the snapshot age past the fixed timeout while staying inside the
+    # load-aware window, then saturate the orchestrator mailbox to simulate a
+    # backlogged (but live) dispatcher.
+    Process.sleep(80)
+    :sys.suspend(pid)
+    send(pid, :dispatch_backlog)
+
+    assert {:current, %{running: [], retrying: [], idle: []}, %{status: :current, freshness_window_ms: window}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 50)
+
+    assert window >= 200 * 2
+
+    # A snapshot published at a fast cadence and then going quiet is still
+    # flagged stale: the load-aware window must not mask a genuine stall.
+    stalled_name = Module.concat(__MODULE__, :StalledFastCadenceSnapshotOrchestrator)
+    {:ok, stalled_pid} = Orchestrator.start_link(name: stalled_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(stalled_pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(stalled_pid), do: Process.exit(stalled_pid, :normal)
+    end)
+
+    :ok = SnapshotStore.publish(stalled_name, snapshot)
+    Process.sleep(30)
+    :ok = SnapshotStore.publish(stalled_name, snapshot)
+    Process.sleep(150)
+    :sys.suspend(stalled_pid)
+    send(stalled_pid, :dispatch_backlog)
+
+    assert {:stale, %{running: [], retrying: [], idle: []}, %{status: :stale, reason: :snapshot_timeout}} =
+             Orchestrator.dashboard_snapshot(stalled_name, 50)
+  end
+
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
     orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -301,6 +362,36 @@ defmodule Aiur.OrchestratorStatusTest do
     snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
 
     assert [%{identifier: "MT-RETRY-CI", ci_result: %{decision: :pending, pr_number: 1501}}] = snapshot.retrying
+  end
+
+  test "capacity hold is projected with the measured limiting signal and threshold" do
+    held_at = System.monotonic_time(:millisecond) - 5_000
+
+    state = %State{
+      capacity_hold: %{
+        signal: :build,
+        measured: %{active: 2, queued: 1},
+        threshold: 2,
+        held_since_ms: held_at,
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert %{
+             held?: true,
+             signal: :build,
+             measured: %{active: 2, queued: 1},
+             threshold: 2,
+             held_for_seconds: 5
+           } = snapshot.capacity_hold
+  end
+
+  test "an absent capacity hold projects a not-held block" do
+    snapshot = %State{} |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert %{held?: false, signal: nil, threshold: nil} = snapshot.capacity_hold
   end
 
   test "an old projector cannot replace a same-name orchestrator snapshot" do
