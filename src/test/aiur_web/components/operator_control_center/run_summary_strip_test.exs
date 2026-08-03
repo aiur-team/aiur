@@ -449,6 +449,92 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
+  # A credit window whose freshness horizon has passed is not a current reading:
+  # it names its observation time and marks itself stale instead of presenting
+  # the balance as live (issue #1550).
+  test "a credit window past its freshness horizon renders an explicit stale label" do
+    with_deepseek_key(fn ->
+      meters = %{
+        state: :authorized,
+        cards: [
+          %{
+            provider: :deepseek,
+            provider_label: "DeepSeek",
+            state: :ready,
+            status_label: "Healthy",
+            auth_mode: %{value: :api_key},
+            windows: [
+              %{
+                kind: :credit,
+                name: :credits,
+                coverage_label: "Supported",
+                credits: %{status: :available, label: "Available", amount: 7.25},
+                observed_at: DateTime.add(@now, -6, :minute),
+                expires_at: DateTime.add(@now, -1, :minute)
+              }
+            ]
+          }
+        ]
+      }
+
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: %{state: :loading},
+          usage: %{state: :ready, providers: %{}},
+          meters: meters,
+          now: @now
+        })
+
+      assert html =~ "$7.25 · as of 11:54 UTC (stale)"
+      refute html =~ "resets in"
+    end)
+  end
+
+  # The regression: a balance observed more than four minutes ago (within the
+  # final minute of its 300s freshness horizon, or past it) must not render as a
+  # fresh current value. The measured spend percentage keeps its row; the meta
+  # gains the explicit staleness label.
+  test "a credit balance observed more than four minutes ago renders stale, not current" do
+    with_deepseek_key(fn ->
+      meters = %{
+        state: :authorized,
+        cards: [
+          %{
+            provider: :deepseek,
+            provider_label: "DeepSeek",
+            state: :ready,
+            status_label: "Healthy",
+            auth_mode: %{value: :api_key},
+            windows: [
+              %{
+                kind: :credit,
+                name: :credits,
+                coverage_label: "Supported",
+                used_percent: 1.9,
+                credits: %{status: :available, label: "Available", amount: 49.05},
+                observed_at: DateTime.add(@now, -270, :second),
+                expires_at: DateTime.add(@now, 30, :second)
+              }
+            ]
+          }
+        ]
+      }
+
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: %{state: :loading},
+          usage: %{state: :ready, providers: %{}},
+          meters: meters,
+          now: @now
+        })
+
+      assert html =~ "$49.05 · 1.9% used · as of 11:55 UTC (stale)"
+      # The stale meta is not followed by the fresh "resets in" countdown; the
+      # balance is presented with its age, not as a current reading.
+      refute html =~ "· resets in"
+    end)
+  end
+
   # A provider that has never been observed this boot reads :unknown — a bare
   # N/A — even when the durable dispatch-limits ledger holds its last standing.
   # The strip must degrade to that durable record with an explicit staleness
