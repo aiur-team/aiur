@@ -578,10 +578,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp safe_cap do
-    case Aiur.Config.settings() do
-      {:ok, settings} -> Map.get(settings.agent, :max_concurrent_agents) || @default_cap
-      _ -> @default_cap
-    end
+    Aiur.Config.max_concurrent_agents()
   rescue
     _ -> @default_cap
   catch
