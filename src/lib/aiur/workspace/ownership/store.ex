@@ -94,23 +94,25 @@ defmodule Aiur.Workspace.Ownership.Store do
     with {:ok, dir} <- state_dir(opts),
          :ok <- File.mkdir_p(dir) do
       path = Path.join(dir, @filename)
-
-      case load(path) do
-        {:ok, receipts, new?} ->
-          case maybe_initialize(path, receipts, new?, sync_fun) do
-            :ok -> {:ok, %{path: path, receipts: receipts, sync_fun: sync_fun}}
-            {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
-          end
-
-        {:error, :invalid_receipt_store} ->
-          recover_corrupt_store(path, sync_fun)
-
-        {:error, reason} ->
-          {:stop, {:workspace_ownership_store_unavailable, reason}}
-      end
+      open_store(load(path), path, sync_fun)
     else
       {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
     end
+  end
+
+  defp open_store({:ok, receipts, new?}, path, sync_fun) do
+    case maybe_initialize(path, receipts, new?, sync_fun) do
+      :ok -> {:ok, %{path: path, receipts: receipts, sync_fun: sync_fun}}
+      {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
+    end
+  end
+
+  defp open_store({:error, :invalid_receipt_store}, path, sync_fun) do
+    recover_corrupt_store(path, sync_fun)
+  end
+
+  defp open_store({:error, reason}, _path, _sync_fun) do
+    {:stop, {:workspace_ownership_store_unavailable, reason}}
   end
 
   @impl true
@@ -192,14 +194,15 @@ defmodule Aiur.Workspace.Ownership.Store do
   # the unreadable bytes for forensics and re-initialize empty instead of
   # failing the whole application.
   defp recover_corrupt_store(path, sync_fun) do
-    with :ok <- Fs.quarantine(path) do
-      Logger.warning("Quarantined corrupt workspace-ownership receipts store #{path}")
+    case Fs.quarantine(path) do
+      :ok ->
+        Logger.warning("Quarantined corrupt workspace-ownership receipts store #{path}")
 
-      case maybe_initialize(path, %{}, true, sync_fun) do
-        :ok -> {:ok, %{path: path, receipts: %{}, sync_fun: sync_fun}}
-        {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
-      end
-    else
+        case maybe_initialize(path, %{}, true, sync_fun) do
+          :ok -> {:ok, %{path: path, receipts: %{}, sync_fun: sync_fun}}
+          {:error, reason} -> {:stop, {:workspace_ownership_store_unavailable, reason}}
+        end
+
       {:error, reason} ->
         {:stop, {:workspace_ownership_store_unavailable, {:quarantine_failed, reason}}}
     end
