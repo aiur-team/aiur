@@ -10,7 +10,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   use GenServer
   require Logger
 
-  alias Aiur.Orchestrator.StatusReport
+  alias Aiur.Orchestrator.{SnapshotPublisher, StatusReport}
   alias AiurWeb.ObservabilityPubSub
 
   @cache_key __MODULE__
@@ -45,6 +45,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     generation = make_ref()
     :persistent_term.put(generation_key(orchestrator), generation)
     :persistent_term.erase(global_pause_key(orchestrator))
+    # A restarted Orchestrator inherits the prior instance's generation token;
+    # drop its leftover write-model entry so the periodic publisher never casts
+    # the previous instance's fenced input under the new token.
+    SnapshotPublisher.clear(orchestrator)
     generation
   end
 
@@ -198,16 +202,20 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     previous = cached_snapshot(orchestrator)
     observed_at_ms = System.monotonic_time(:millisecond)
 
+    # Gap history is scoped to one producer generation: a restarted
+    # Orchestrator (same registered name) must not inherit the prior instance's
+    # publish cadence, or its load-aware staleness window would carry a
+    # widened margin (and mask a genuine stall) for up to the ceiling.
     recent_gaps_ms =
-      case Map.get(previous || %{}, :observed_at_ms) do
-        nil ->
-          []
-
-        previous_ms when is_integer(previous_ms) ->
+      case {Map.get(previous || %{}, :generation), Map.get(previous || %{}, :observed_at_ms)} do
+        {^generation, previous_ms} when is_integer(previous_ms) ->
           gap_ms = max(observed_at_ms - previous_ms, 0)
 
           (Map.get(previous || %{}, :recent_gaps_ms, []) ++ [gap_ms])
           |> Enum.take(-@publish_gap_history)
+
+        _new_or_changed_generation ->
+          []
       end
 
     :persistent_term.put(
