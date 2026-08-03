@@ -57,6 +57,10 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
+          # Transient-caused pause/error tickets waiting a bounded backoff before
+          # automatic re-dispatch (#1453). Keyed by issue_id; see
+          # `Aiur.Orchestrator.AutoResume`.
+          auto_resume: %{String.t() => map()},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -126,6 +130,7 @@ defmodule Aiur.Orchestrator.State do
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
+    auto_resume: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,

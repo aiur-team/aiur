@@ -698,6 +698,25 @@ defmodule AiurEngineTest do
     assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
   end
 
+  test "reset-budget --all exits 64 with guidance instead of silently no-opping" do
+    # #1453 review P2d: `parse_issue_targets` accepts `--all` (empty targets),
+    # and the original cmd_reset_budget proceeded to reset_budget([]) → exit 0
+    # no-op. The command must reject --all loudly so an operator never believes
+    # the whole board was reset.
+    rel = fake_release()
+    {out, code} = run_engine(["reset-budget", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert code == 64
+    assert out =~ "reset-budget does not accept --all"
+    assert out =~ "name ticket IDs explicitly"
+  end
+
+  test "reset-budget with non-numeric targets exits 64" do
+    rel = fake_release()
+    {out, code} = run_engine(["reset-budget", "not-an-id"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert code == 64
+    assert out =~ "reset-budget expects issue IDs"
+  end
+
   test "usage RPCs the usage expression" do
     rel = fake_release()
     {out, _} = run_engine_real(["usage"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])

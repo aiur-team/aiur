@@ -59,7 +59,7 @@ requires_pinned_opencode() {
   case "$cmd" in
     "" | run | --bg) return 0 ;;
     help | -h | -help | --h | --help | --version | --todo | --only | init | findings) return 1 ;;
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch) return 1 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget) return 1 ;;
     -*) return 0 ;;
     *) [ -e "$cmd" ] ;;
   esac
@@ -190,7 +190,7 @@ pure_control_command() {
   local cmd="${1:-}"
 
   case "$cmd" in
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale) return 0 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 0 ;;
     *) return 1 ;;
   esac
 }
