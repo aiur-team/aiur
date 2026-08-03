@@ -453,8 +453,11 @@ push already carries the wrong identity. Push agent work with an explicit
 token-bearing URL from the start, and open agent PRs with the agent token —
 GitHub counts the PR **opener** for self-approval, not the commit author.
 
-The ruleset has no `required_status_checks` rule, so nothing blocks merging with
-failing CI; verify checks by hand before every merge. A solo operator also
+The declaration requires every blocking CI job as required status checks, and
+the gate is enforced once that declaration is applied to the live ruleset. The
+CI `merge ruleset drift` check verifies the live ruleset against that
+declaration on every PR and merge, so a regressed gate fails CI visibly.
+Verify checks by hand before every merge. A solo operator also
 cannot merge `develop` -> `main` through the gate (issue #1437): with a
 two-owner CODEOWNERS plus `require_code_owner_review` and
 `require_last_push_approval`, `--admin` does not bypass it. The documented

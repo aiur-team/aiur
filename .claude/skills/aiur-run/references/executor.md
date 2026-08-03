@@ -326,8 +326,11 @@ token-bearing URL from the first push, and open agent pull requests with the
 agent's own token: GitHub counts the PR **opener**, not the commit author, when
 deciding self-approval.
 
-The repository ruleset has no `required_status_checks` rule, so nothing prevents
-merging with failing CI. Verify checks by hand before every merge.
+The declaration requires every blocking CI job as required status checks, and
+the gate is enforced once that declaration is applied to the live ruleset. The
+CI `merge ruleset drift` check verifies the live ruleset against that
+declaration on every PR and merge, so a regressed gate fails CI visibly.
+Verify checks by hand before every merge.
 
 A solo operator cannot merge `develop` into `main` through the gate
 (issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
