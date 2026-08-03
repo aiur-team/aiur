@@ -136,6 +136,30 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   end
 
   @tag config: @enabled
+  test "a prewarm-gate failure leaves the counter unchanged (acceptance class)" do
+    # A prewarm-gate hold (#1404) parks the ticket before the runner starts —
+    # the dispatch never reaches `send_dispatch_committed`, so it bills no
+    # lifetime unit even across repeated holds.
+    {:ok, state} = run(%Orchestrator.State{}, 1 * (@window_ms + 1))
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+
+    assert {:ok, _again} = run(state, 2 * (@window_ms + 1))
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
+  test "a tracker-auth failure leaves the counter unchanged (acceptance class)" do
+    # A tracker 401/403 auth failure parks the ticket before provisioning — no
+    # agent work, no lifetime unit. A ticket hammered by auth blips cannot be
+    # walked to the latch without ever doing work.
+    {:ok, state} = run(%Orchestrator.State{}, 1 * (@window_ms + 1))
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+
+    assert {:ok, _again} = run(state, 2 * (@window_ms + 1))
+    assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
   test "stays healthy below the lifetime budget" do
     state = dispatch_n(%Orchestrator.State{}, 8)
 

@@ -28,6 +28,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   }
 
   alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   @ci_readiness_timeout_ms 5_000
@@ -309,21 +310,38 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
+  # The prewarm gate holds the whole fleet while the warm base builds/clones.
+  # That can persist across many poll cycles, so the hold is logged at most once
+  # per this many consecutive hold ticks instead of every tick (which would bury
+  # the signal in a wall of identical lines) — but still often enough that a
+  # slow or permanently-stuck base build stays visible in the daemon log.
+  @prewarm_hold_log_interval_ticks 30
+
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,
-  # while an in-progress build holds this tick.
+  # while an in-progress build holds this tick. The hold is made observable (see
+  # log_prewarm_hold/2) so a gated fleet is distinguishable from an idle one.
   @spec dispatch_or_hold(State.t(), [Issue.t()]) :: State.t()
   def dispatch_or_hold(%State{} = state, issues) when is_list(issues) do
+    dispatch_or_hold(state, issues, &trigger_and_status/0)
+  end
+
+  @doc false
+  # Testable variant with an injected phase reader; the production path passes
+  # `&RepoBase.refresh_for_dispatch/0` via `trigger_and_status/0`.
+  @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term())) :: State.t()
+  def dispatch_or_hold(%State{} = state, issues, trigger_fun)
+      when is_list(issues) and is_function(trigger_fun, 0) do
     enabled? = Config.prewarm_enabled?()
-    phase = if enabled?, do: trigger_and_status(), else: :ready
+    phase = if enabled?, do: trigger_fun.(), else: :ready
 
     case DispatchPolicy.prewarm_gate(enabled?, phase) do
       :dispatch ->
         maybe_log_base_error(phase)
-        maybe_choose_under_load(state, issues)
+        maybe_choose_under_load(%{state | prewarm_hold_ticks: 0}, issues)
 
       :hold ->
-        state
+        log_prewarm_hold(state, phase)
     end
   end
 
@@ -331,21 +349,34 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # this function so a capacity wait never burns their retry budget.
   @spec maybe_choose_under_load(State.t(), [Issue.t()]) :: State.t()
   def maybe_choose_under_load(%State{} = state, issues) when is_list(issues) do
-    maybe_choose_under_load(state, issues, &maybe_choose/2)
+    maybe_choose_under_load(state, issues, &maybe_choose/2, [])
   end
 
   @doc false
   @spec maybe_choose_under_load(State.t(), [Issue.t()], (State.t(), [Issue.t()] -> State.t())) :: State.t()
   def maybe_choose_under_load(%State{} = state, issues, choose_fun)
       when is_list(issues) and is_function(choose_fun, 2) do
+    maybe_choose_under_load(state, issues, choose_fun, [])
+  end
+
+  @doc false
+  @spec maybe_choose_under_load(State.t(), [Issue.t()], (State.t(), [Issue.t()] -> State.t()), keyword()) :: State.t()
+  def maybe_choose_under_load(%State{} = state, issues, choose_fun, opts)
+      when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
     hard_threshold = Config.max_load_average()
     target = Config.target_load_average()
+    run_queue_threshold = Config.run_queue_threshold()
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
-    cpu_snapshot = DispatchPolicy.read_cpu(target)
+    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold)
     available_memory_mb = DispatchPolicy.read_memory(memory_threshold_mb)
     fd_sample = DispatchPolicy.read_file_descriptors()
+    build_status = DispatchPolicy.read_build_status()
+    provider_backends = DispatchPolicy.read_provider_backends()
+
+    queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
       DispatchPolicy.update_load_envelope(
@@ -353,18 +384,37 @@ defmodule Aiur.Orchestrator.Dispatcher do
         load,
         target,
         schedulers,
-        System.monotonic_time(:millisecond),
+        now_ms,
         cpu_snapshot,
-        DispatchPolicy.queued_dispatch_demand?(issues, state)
+        queued_demand?
       )
 
-    case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
-      :hold ->
-        log_memory_hold(available_memory_mb, memory_threshold_mb)
-        state
+    case DispatchPolicy.admission_gate(%{
+           memory_mb: available_memory_mb,
+           memory_threshold_mb: memory_threshold_mb,
+           fd_sample: fd_sample,
+           runnable: runnable_from(cpu_snapshot),
+           run_queue_threshold: run_queue_threshold,
+           schedulers: schedulers,
+           load: load,
+           load_threshold: hard_threshold,
+           build_status: build_status,
+           provider_backends: provider_backends,
+           queued_demand?: queued_demand?
+         }) do
+      {:hold, reason} ->
+        reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts)
 
       :dispatch ->
-        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
+        state =
+          reconcile_capacity_hold(
+            state,
+            envelope_hold(state, load, target, schedulers, queued_demand?),
+            now_ms,
+            opts
+          )
+
+        choose_fun.(state, issues)
     end
   end
 
@@ -889,18 +939,143 @@ defmodule Aiur.Orchestrator.Dispatcher do
       Slots.worker_slots_available?(state, worker_host)
   end
 
-  defp log_load_hold(load, threshold, schedulers) do
-    Logger.info(
-      "aiur_perf load_hold load=#{load} threshold=#{threshold} " <>
-        "schedulers=#{schedulers} limit=#{threshold * schedulers}"
+  # The active limiting reason for a poll that dispatches: the AIMD envelope
+  # counts as capacity backoff when load still exceeds the target (the envelope
+  # is holding effective capacity below the static ceiling) while dispatchable
+  # work remains. Hard gates above already hold outright; this only names the
+  # envelope as the binding constraint. Below-target recovery ramps are not a
+  # hold — dispatch is already resuming.
+  defp envelope_hold(state, load, target, schedulers, queued_demand?) do
+    if queued_demand? and is_number(target) and target > 0 and is_number(load) and
+         load > target * schedulers and envelope_backed_off?(state) do
+      {:hold,
+       %{
+         signal: :envelope,
+         measured: state.effective_concurrent_agents,
+         threshold: Slots.max_concurrent_agent_limit(state)
+       }}
+    else
+      :dispatch
+    end
+  end
+
+  defp envelope_backed_off?(state) do
+    case {state.effective_concurrent_agents, Slots.max_concurrent_agent_limit(state)} do
+      {effective, static} when is_integer(effective) and effective > 0 and is_integer(static) and static > 0 ->
+        effective < static
+
+      _ ->
+        false
+    end
+  end
+
+  defp runnable_from(%{runnable: runnable}) when is_integer(runnable) and runnable >= 0, do: runnable
+  defp runnable_from(_snapshot), do: :unavailable
+
+  @capacity_backoff_alert_ms 30_000
+
+  # Reconciles the persisted `capacity_hold` with this poll's decision so status
+  # always reflects the active binding constraint. A `:dispatch` clears any
+  # prior hold (emitting a recovery signal); a `{:hold, reason}` starts or
+  # extends the hold, emitting a backoff alert once the same signal has
+  # persisted past the debounce window.
+  defp reconcile_capacity_hold(state, :dispatch, _now_ms, opts) do
+    clear_capacity_hold(state, opts)
+  end
+
+  defp reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts) do
+    log_admission_hold(reason)
+    update_capacity_hold(state, reason, now_ms, opts)
+  end
+
+  defp clear_capacity_hold(state, opts) do
+    case state.capacity_hold do
+      nil ->
+        state
+
+      %{signal: signal} ->
+        emit_fun = Keyword.get(opts, :emit_fun, &default_capacity_alert/2)
+        telemetry_fun = Keyword.get(opts, :telemetry_fun, &RunTelemetry.record/2)
+        reason = %{signal: signal, measured: nil, threshold: nil}
+        emit_fun.("system.fleet.capacity.resumed", reason)
+        telemetry_fun.(:capacity_resumed, Aiur.JSONSafe.normalize(reason))
+        %{state | capacity_hold: nil}
+    end
+  end
+
+  defp update_capacity_hold(state, reason, now_ms, opts) do
+    emit_fun = Keyword.get(opts, :emit_fun, &default_capacity_alert/2)
+    telemetry_fun = Keyword.get(opts, :telemetry_fun, &RunTelemetry.record/2)
+    debounce_ms = Keyword.get(opts, :alert_debounce_ms, @capacity_backoff_alert_ms)
+    signal = Map.fetch!(reason, :signal)
+
+    case state.capacity_hold do
+      %{signal: ^signal, alerted?: true} = hold ->
+        %{state | capacity_hold: Map.merge(hold, Map.take(reason, [:measured, :threshold]))}
+
+      %{signal: ^signal, alerted?: false} = hold ->
+        hold = Map.merge(hold, Map.take(reason, [:measured, :threshold]))
+
+        if now_ms - hold.held_since_ms < debounce_ms do
+          %{state | capacity_hold: hold}
+        else
+          emit_fun.("system.fleet.capacity.backoff", reason)
+          %{state | capacity_hold: Map.put(hold, :alerted?, true)}
+        end
+
+      _other ->
+        telemetry_fun.(:capacity_hold, Aiur.JSONSafe.normalize(reason))
+        %{state | capacity_hold: Map.merge(reason, %{held_since_ms: now_ms, alerted?: false})}
+    end
+  end
+
+  defp default_capacity_alert(name, reason) do
+    Alerts.emit_system(name,
+      reason:
+        "Fleet admission is being limited by #{capacity_signal_label(reason)} " <>
+          "(measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}).",
+      needs_attention: false,
+      severity: "info"
     )
   end
 
-  defp log_memory_hold(available_mb, threshold_mb) do
+  defp capacity_signal_label(%{signal: signal}) when is_atom(signal),
+    do: String.replace(Atom.to_string(signal), "_", " ")
+
+  defp capacity_signal_label(_reason), do: "host pressure"
+
+  defp log_admission_hold(%{signal: :memory, measured: available_mb, threshold: threshold_mb}) do
     Logger.info(
       "aiur_perf memory_hold surface=dispatch available_mb=#{available_mb} " <>
         "threshold_mb=#{threshold_mb}"
     )
+  end
+
+  defp log_admission_hold(%{signal: :file_descriptors, measured: sample}) do
+    log_fd_hold(sample)
+  end
+
+  defp log_admission_hold(%{signal: :load, measured: load, threshold: limit}) do
+    Logger.info("aiur_perf load_hold load=#{load} limit=#{limit}")
+  end
+
+  defp log_admission_hold(%{signal: :run_queue, measured: runnable, threshold: limit}) do
+    Logger.info("aiur_perf run_queue_hold runnable=#{runnable} limit=#{limit}")
+  end
+
+  defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
+    Logger.info(
+      "aiur_perf build_hold surface=dispatch active=#{inspect(Map.get(measured, :active))} " <>
+        "queued=#{inspect(Map.get(measured, :queued))} capacity=#{inspect(capacity)}"
+    )
+  end
+
+  defp log_admission_hold(%{signal: :envelope, measured: effective, threshold: static}) do
+    Logger.info("aiur_perf envelope_hold effective=#{effective} static=#{static}")
+  end
+
+  defp log_admission_hold(%{signal: :provider, measured: backends, threshold: _}) do
+    Logger.info("aiur_perf provider_hold surface=dispatch backends=#{inspect(backends)} status=all_usage_limited")
   end
 
   defp log_fd_hold(:exhausted) do
@@ -918,28 +1093,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
-  defp maybe_choose_with_fd_headroom(state, issues, fd_sample, load, threshold, schedulers, choose_fun) do
-    case DispatchPolicy.fd_gate(fd_sample) do
-      :hold ->
-        log_fd_hold(fd_sample)
-        state
-
-      :dispatch ->
-        maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun)
-    end
-  end
-
-  defp maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun) do
-    case DispatchPolicy.load_gate(load, threshold, schedulers) do
-      :hold ->
-        log_load_hold(load, threshold, schedulers)
-        state
-
-      :dispatch ->
-        choose_fun.(state, issues)
-    end
-  end
-
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()
   end
@@ -952,6 +1105,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
 
   defp maybe_log_base_error(_phase), do: :ok
+
+  # A silent indefinite hold is the core defect behind #1404: with the warm base
+  # warming (or failing to rebuild), every poll tick held dispatch and nothing
+  # was logged, so an operator saw an idle fleet instead of a gated one. Count
+  # consecutive hold ticks and emit one `aiur_perf prewarm_hold` line at most
+  # once per `@prewarm_hold_log_interval_ticks`; the counter resets as soon as
+  # the gate lets a tick through, so the interval measures back-to-back holds.
+  defp log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase) do
+    next_ticks = ticks + 1
+    state = %{state | prewarm_hold_ticks: next_ticks}
+
+    if rem(next_ticks, @prewarm_hold_log_interval_ticks) == 1 do
+      Logger.info("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
+    end
+
+    state
+  end
 
   defp maybe_schedule_startup_todo_alert(
          previous_state,

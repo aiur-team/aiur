@@ -14,6 +14,27 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "host-pressure admission defaults" do
+    test "max_concurrent_agents defaults nil (derived from host capacity) and run_queue_threshold is opt-in" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.max_concurrent_agents == nil
+      assert defaults.agent.run_queue_threshold == nil
+    end
+
+    test "accepts explicit max_concurrent_agents and run_queue_threshold" do
+      assert {:ok, settings} =
+               Schema.parse(%{"agent" => %{"max_concurrent_agents" => 4, "run_queue_threshold" => 1.5}})
+
+      assert settings.agent.max_concurrent_agents == 4
+      assert settings.agent.run_queue_threshold == 1.5
+    end
+
+    test "rejects a non-positive run_queue_threshold" do
+      assert {:error, _} = Schema.parse(%{"agent" => %{"run_queue_threshold" => 0}})
+      assert {:error, _} = Schema.parse(%{"agent" => %{"run_queue_threshold" => -1.0}})
+    end
+  end
+
   describe "agent backend config sections" do
     test "retains an arbitrary registry-named backend section" do
       assert {:ok, settings} =

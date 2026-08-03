@@ -196,6 +196,48 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     end
 
     @tag config: @enabled
+    test "auto-resume recovers a ticket that previously latched once the latch is reset" do
+      # #1453 amendment acceptance: the auto-resume retry path must check the
+      # lifetime latch but not be swallowed by it. A ticket that tripped the
+      # latch, had it reset via the supported exit, and then failed on a fresh
+      # transient cause still auto-resumes — the retry path is not wedged by
+      # the old latch.
+      :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+      state = due_state(issue())
+      now_ms = System.monotonic_time(:millisecond)
+
+      # Latched: refused and the pending entry is dropped.
+      state =
+        AutoResume.maybe_resume(state, now_ms, dispatch_fun: fn _s, _i -> flunk("latched ticket must not dispatch") end)
+
+      refute MapSet.member?(state.claimed, @issue_id)
+      refute Map.has_key?(state.auto_resume, @issue_id)
+
+      # Operator clears the latch through the supported exit (both copies).
+      state = Aiur.Orchestrator.Dispatcher.reset_lifetime_budget(state, @issue_id)
+      assert :none = Aiur.Orchestrator.Dispatcher.dispatch_latch_status(state, @issue_id)
+
+      # A fresh transient failure schedules a new auto-resume, which now
+      # dispatches normally — the retry path is not swallowed by the budget.
+      due_entry = %{
+        attempt: 1,
+        cause: :transient_tracker,
+        scheduled_at_ms: System.monotonic_time(:millisecond) - AutoResume.backoff_ms(1) - 1_000
+      }
+
+      state = %{state | auto_resume: Map.put(state.auto_resume, @issue_id, due_entry)}
+
+      state =
+        AutoResume.maybe_resume(state, System.monotonic_time(:millisecond),
+          update_state_fun: fn _id, _target -> :ok end,
+          dispatch_fun: &claim_fun/2
+        )
+
+      assert MapSet.member?(state.claimed, @issue_id)
+      refute Map.has_key?(state.auto_resume, @issue_id)
+    end
+
+    @tag config: @enabled
     test "a terminal ticket never auto-resumes and drops the entry" do
       state = due_state(issue(%{state: "done"}))
       now_ms = System.monotonic_time(:millisecond)

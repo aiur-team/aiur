@@ -1633,7 +1633,13 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp without_occ_sections(payload) do
-    Map.drop(payload, ["decision_history", "recent_merges", "analytics", "capacity"])
+    Map.drop(payload, [
+      "decision_history",
+      "recent_merges",
+      "analytics",
+      "capacity",
+      "capacity_hold"
+    ])
   end
 
   defp wait_for_bound_port do

@@ -49,6 +49,7 @@ defmodule AiurWeb.Presenter do
       idle: Enum.map(idle, &idle_entry_payload/1),
       agent_totals: public_agent_totals(snapshot.agent_totals),
       capacity: capacity_payload(Map.get(snapshot, :capacity)),
+      capacity_hold: capacity_hold_payload(Map.get(snapshot, :capacity_hold)),
       globally_paused: globally_paused
     }
 
@@ -477,6 +478,22 @@ defmodule AiurWeb.Presenter do
   end
 
   defp capacity_payload(_capacity), do: nil
+
+  # The active host-pressure admission hold from `State.capacity_hold`, surfaced
+  # so an Executor can distinguish capacity backoff from an idle or broken
+  # fleet. The signal names the measured limiting resource and its threshold.
+  defp capacity_hold_payload(%{held?: true} = hold) do
+    %{
+      held?: true,
+      signal: Map.get(hold, :signal),
+      measured: Map.get(hold, :measured),
+      threshold: Map.get(hold, :threshold),
+      held_for_seconds: non_negative_integer(Map.get(hold, :held_for_seconds))
+    }
+  end
+
+  defp capacity_hold_payload(_hold),
+    do: %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: nil

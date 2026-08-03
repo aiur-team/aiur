@@ -207,6 +207,21 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle("todo", false, 0) == :active
       assert WaitingReason.for_idle(nil, false, 0) == :active
     end
+
+    test "an active capacity hold makes a dispatchable row back off instead of reading active" do
+      assert WaitingReason.for_idle("todo", false, 0, capacity_hold_active?: true) == :backing_off
+      assert WaitingReason.for_idle(nil, false, 0, capacity_hold_active?: true) == :backing_off
+    end
+
+    test "capacity backoff never masks an open decision or a dependency" do
+      assert WaitingReason.for_idle("todo", true, 0, capacity_hold_active?: true) == :waiting_for_dependency
+      assert WaitingReason.for_idle("todo", false, 1, capacity_hold_active?: true) == :waiting_for_human
+    end
+
+    test "a capacity hold does not reclassify non-dispatchable tracker states" do
+      assert WaitingReason.for_idle("ci-wait", false, 0, capacity_hold_active?: true) == :waiting_for_ci
+      assert WaitingReason.for_idle("human-review", false, 0, capacity_hold_active?: true) == :waiting_for_review
+    end
   end
 
   describe "for_idle/4" do
@@ -240,6 +255,18 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
     test "no #1453 evidence falls back to the base idle classification" do
       assert WaitingReason.for_idle("rework", false, 0, []) == :waiting_for_human
       assert WaitingReason.for_idle("todo", false, 0, latched_lifetime: false) == :active
+    end
+
+    test "a #1453 cause wins over a capacity hold, which only masks the active fallback" do
+      assert WaitingReason.for_idle("todo", false, 0,
+               capacity_hold_active?: true,
+               latched_lifetime: true
+             ) == :latched_lifetime
+
+      assert WaitingReason.for_idle("todo", false, 0,
+               capacity_hold_active?: true,
+               auto_resume_retry_in_ms: 120_000
+             ) == :paused_transient
     end
   end
 end
