@@ -54,6 +54,12 @@ not fail a build on line count alone.
   `:sys.get_state`); never assert exact counts on shared singletons; keep
   `assert_receive` windows ≥ 2000 ms. A test that flakes is a defect in the
   test.
+- **Quarantine only while fixing.** Tag a confirmed flaky test with
+  `@tag :quarantine`, open or link its repair issue, and leave a short reason
+  beside the tag. Ordinary local and required CI runs exclude quarantined
+  tests; the `quarantined tests (non-blocking)` CI job runs them separately so
+  they remain visible. Remove the tag as part of the root-cause fix — it is not
+  a permanent exemption.
 - **Extracted modules are not coverage-exempt.** The coverage
   `ignore_modules` list in `src/mix.exs` only shrinks: every module split out
   of a giant ships tests for what it extracts, or CI fails the coverage gate

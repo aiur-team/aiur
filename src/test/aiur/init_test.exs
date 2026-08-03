@@ -170,6 +170,7 @@ defmodule Aiur.InitTest do
         github_login: fn -> "octocat" end,
         github_bot_account_default: fn -> nil end,
         github_token: fn -> nil end,
+        check_ci_readiness: fn _tracker -> {:ok, %{ready?: true, base_branch: "main", required_checks: ["ci / required"]}} end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
@@ -1293,6 +1294,24 @@ defmodule Aiur.InitTest do
       refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
     end
 
+    test "global init checks the current repository without storing it", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}, confirm: %{"No pull-request CI workflow found — scaffold .github/workflows/ci.yml?" => false}})
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          detect_repo: fn -> "octo/current-repo" end,
+          check_ci_readiness: fn tracker ->
+            send(self(), {:readiness_tracker, tracker})
+            {:ok, %{ready?: false, base_branch: "main", workflow_paths: [], issues: [:no_pr_workflow]}}
+          end
+        })
+
+      assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
+      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
+      refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
+    end
+
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do
       answers = %{
         select: %{@location_label => "repo", "Issue tracker" => "linear"},
@@ -1535,7 +1554,7 @@ defmodule Aiur.InitTest do
   end
 
   describe "agents, routing, permission mode" do
-    test "the agent multiselect offers only claude and codex (never claude-repl)", %{
+    test "the agent multiselect offers only configurable backends (never claude-repl or deepseek)", %{
       dir: dir,
       target: target
     } do
@@ -1554,7 +1573,11 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      refute "claude-repl" in opts
+      # DeepSeek is registered but not dispatch-enabled by default, so it must
+      # not be offerable from init.
+      refute "deepseek" in opts
     end
 
     test "the location options carry greyed config-path help", %{dir: dir, target: target} do
@@ -1705,11 +1728,12 @@ defmodule Aiur.InitTest do
       joined = Enum.join(log, "\n")
 
       assert joined =~ "Generate new token (classic)"
+      assert joined =~ "Administration: Read-only"
       assert joined =~ "repo` scope"
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"
       assert joined =~ "Issues"
-      assert joined =~ "Contents"
+      assert joined =~ "Contents: Read and write"
       assert joined =~ "Pull requests"
       assert joined =~ "write access to this repo"
     end
@@ -1862,7 +1886,9 @@ defmodule Aiur.InitTest do
       required = Labels.state_labels("agent") ++ Labels.required_rate_limit_fallback_labels("agent")
       assert Enum.sort(created) == Enum.sort(required)
       refute Enum.any?(created, &String.starts_with?(&1, "complexity:"))
-      refute Enum.any?(created, &(&1 != "model:claude" and String.starts_with?(&1, "model:")))
+      assert "model:claude" in created
+      refute "model:codex" in created
+      refute "model:claude-repl" in created
     end
 
     test "the remote-control stage only appears when claude is supported", %{dir: dir, target: target} do

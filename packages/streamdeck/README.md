@@ -10,8 +10,11 @@ device.
 Build and install the sidecar runtime from the #1354 implementation before
 enabling this unit. The examples below assume its built artifact is installed
 at `~/.local/share/aiur/streamdeck`; copy its `dist/` and runtime dependencies
-there. The unit expects `dist/index.js`. This ticket's rules, unit, and README
-do not contain the runtime JavaScript or a populated credential file.
+there. The unit expects `dist/main.js`. This ticket's rules, unit, and README
+do not contain a populated credential file.
+
+`AIUR_STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
+sidecar reapplies on open and on resume.
 
 ## Prerequisites
 
@@ -24,7 +27,24 @@ do not contain the runtime JavaScript or a populated credential file.
 
 The sidecar uses the official Stream Deck HID protocol. It must be the only
 process opening the deck; hidraw does not provide kernel-level exclusive
-access.
+access, so the sidecar takes its own advisory lock and refuses to start when
+another instance holds it.
+
+### Transport backend: libusb
+
+The sidecar talks to the deck over **libusb** (the `usb` package, which ships
+N-API prebuilt binaries — no native toolchain needed at install time). libusb
+is required because brightness, reset / "Show Logo", serial, and firmware are
+USB HID **feature reports**, and the `node:fs`/hidraw path cannot issue the
+`HIDIOCSFEATURE`/`HIDIOCGFEATURE` ioctls those need. Over libusb they are plain
+class control transfers, so all four work. OUTPUT reports (images, the
+key-stream reset) and INPUT reports (dials/touch) go over the interrupt
+endpoints.
+
+Because libusb **claims the interface and detaches the kernel hidraw driver**,
+the sidecar is the single owner of the device — do not also open the hidraw
+node. Access is granted by the `uaccess` tag on the **usb**-subsystem device
+(see the udev rules below), not by the hidraw node's ACL.
 
 ## udev permissions
 
@@ -85,7 +105,6 @@ local sidecar build:
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
 AIUR_DASHBOARD_USERNAME=operator
 AIUR_DASHBOARD_PASSWORD=replace-with-a-secret
-AIUR_STREAMDECK_JPEG_QUALITY=95
 ```
 
 Use `http://` only for a Phoenix endpoint on the same machine (such as the
@@ -95,10 +114,12 @@ send the dashboard credentials over plaintext HTTP.
 `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` are the same HTTP
 Basic Auth credentials used by the Phoenix dashboard. Keep them in this
 EnvironmentFile; do not put them in the unit or commit a populated copy.
-`AIUR_STREAMDECK_JPEG_QUALITY` accepts the sidecar's 1–100 JPEG quality
-setting. Start at 95 (the Node library's reference quality), then lower it
-only if USB throughput is a problem. The sidecar coalesces and serializes
-writes; changing quality does not make concurrent device owners safe.
+The key pipeline exports `resolveJpegQuality()` for the eventual canvas/JPEG
+encoder. Its default is 90, with an accepted range of 1–100; the encoder must
+pass an explicit value when that composition layer lands. There is not yet an
+`AIUR_STREAMDECK_JPEG_QUALITY` sidecar environment setting, so do not document
+or rely on one. The write queue coalesces pending key content and serializes
+writes; changing JPEG quality does not make concurrent device owners safe.
 
 For a user service to start before an interactive login after reboot, enable
 user lingering once:

@@ -72,9 +72,11 @@ defmodule Aiur.Regression.EngineControlTest do
         ])
 
       assert out =~ "CODE=1"
-      assert out =~ "no running aiur node at aiur-"
-      assert out =~ "global-config control identity is keyed by cwd #{realpath(other)}"
+      assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+      assert out =~ "global-config control identity is keyed by cwd"
       assert out =~ "run control commands from the launch directory"
+      assert out =~ "live launch directory candidate(s):"
+      assert out =~ launch_root
       refute File.read!(events) =~ "live592"
     end
   end
@@ -491,11 +493,6 @@ defmodule Aiur.Regression.EngineControlTest do
   end
 
   defp tmp_state, do: Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
-
-  defp realpath(path) do
-    {out, 0} = System.cmd("pwd", ["-P"], cd: path)
-    String.trim(out)
-  end
 
   defp spawn_sleeper(cwd) do
     port = Port.open({:spawn_executable, "/bin/sh"}, [:binary, args: ["-c", "exec sleep 300"], cd: cwd])

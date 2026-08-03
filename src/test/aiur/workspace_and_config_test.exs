@@ -1141,7 +1141,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       # seeds its bundled agent skills (#689) so a dispatched agent can load them
       # without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".claude", ".codex"]
+      assert Enum.sort(entries) == [".claude", ".codex", ".fake"]
       assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
     after
       File.rm_rf(workspace_root)
@@ -1881,6 +1881,27 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Config.dashboard_writable?()
   end
 
+  test "telemetry retention derives and accepts its prune interval" do
+    write_workflow_file!(Workflow.workflow_file_path(), observability_retention_max_bytes: 8 * 1024 * 1024)
+
+    assert Config.telemetry_retention() == [
+             max_bytes: 8 * 1024 * 1024,
+             max_age_days: 30,
+             prune_interval_bytes: 1 * 1024 * 1024
+           ]
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      observability_retention_max_bytes: 8 * 1024 * 1024,
+      observability_retention_prune_interval_bytes: 256
+    )
+
+    assert Config.telemetry_retention() == [
+             max_bytes: 8 * 1024 * 1024,
+             max_age_days: 30,
+             prune_interval_bytes: 256
+           ]
+  end
+
   test "decision supervisor policy round-trips through workflow configuration" do
     write_workflow_file!(Workflow.workflow_file_path(),
       supervisor_decision_allowed_kinds: [" Architecture ", "PRODUCT", "architecture"],
@@ -1921,7 +1942,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.workspace.bootstrap_image == nil
     refute config.workspace.bootstrap_image_pull
     assert config.worker.max_concurrent_agents_per_host == nil
-    assert config.agent.max_concurrent_agents == 10
+    # `max_concurrent_agents` is nil at the schema level; the derived default
+    # (calibrated from host schedulers) is resolved by `Config.max_concurrent_agents/0`.
+    assert config.agent.max_concurrent_agents == nil
+    assert Config.max_concurrent_agents() == Config.default_max_concurrent_agents()
 
     # Dashboard binds a free loopback port by default so claude remote-control's
     # transcript hook works without explicit server config. Port 0 = OS-assigned;
@@ -2224,7 +2248,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
     assert Enum.any?(bad.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
+             _ -> false
+           end)
+
+    # A registered-but-not-dispatch-enabled backend is rejected by the same path
+    # as an unknown one, so routing cannot reach an opt-in-only provider.
+    disabled =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "deepseek"}}, [:routing])
+      |> AgentValidation.validate_agent_routing(:routing)
+
+    assert Enum.any?(disabled.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(unknown or disabled backend "deepseek")
              _ -> false
            end)
 
@@ -2284,7 +2320,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
              _ -> false
            end)
 

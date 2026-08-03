@@ -18,6 +18,9 @@ defmodule Aiur.CodingAgent do
   alias Aiur.Config.RoutingValue
   alias Aiur.Issue
   alias Aiur.ModelAvailability
+  alias Aiur.ModelCatalog
+  alias Aiur.ProviderMeterProbe
+  alias Aiur.RunTelemetry.Lifecycle
 
   @type backend :: String.t()
 
@@ -77,6 +80,14 @@ defmodule Aiur.CodingAgent do
         adapter: Aiur.Codex.CodingAgent,
         transcript: Aiur.Codex.Transcript,
         family: "codex",
+        default: true,
+        rate_limit_fallback: "claude",
+        rate_limit_fallback_target: false,
+        skill_install: %{path: ".codex/skills", link_to: ".claude/skills"},
+        configurable: true,
+        init_order: 1,
+        default_command: "codex app-server",
+        model_catalog: &ModelCatalog.extract_codex/1,
         can_interrupt: true,
         safe_checkpoints: [:notification, :tool_result],
         control_application_confirmation: :confirmed,
@@ -99,12 +110,52 @@ defmodule Aiur.CodingAgent do
         # `resolve_model/2`). `codex:sol` therefore keeps following the latest
         # `*-sol` release instead of naming a version that will be retired.
         model_aliases: :derived,
-        efforts: ["none", "low", "medium", "high", "xhigh", "max"]
+        efforts: ["none", "low", "medium", "high", "xhigh", "max"],
+        # Provider-level presentation descriptor, keyed by family, used by every
+        # dashboard/strip surface so a new backend renders from its registry
+        # entry rather than a per-provider `case`. `order` fixes card ordering.
+        presentation: %{
+          order: 0,
+          label: "Codex",
+          logo: "/provider-assets/codex-color.svg",
+          token_icon: "/provider-assets/codex-token.svg",
+          css_class: "is-codex",
+          command_color: "#8fbcff",
+          command_border: "rgba(143, 188, 255, 0.4)",
+          unit_color: "#8fbcff",
+          unit_border: "rgba(143, 188, 255, 0.4)",
+          unit_background: "rgba(143, 188, 255, 0.12)"
+        },
+        pricing: %{
+          dimensions: %{
+            context_tier: %{allowed: [:short_context, :long_context], default: nil, required: true},
+            cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
+          },
+          component_dimensions: %{
+            default: %{context_tier: [:short_context, :long_context], cache_write_duration: [:not_applicable]}
+          }
+        },
+        usage: %{adapters: [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]},
+        meter_probe: &ProviderMeterProbe.probe_session/3,
+        run_telemetry: &Lifecycle.decode_codex_operation/1,
+        account_generation: %{
+          backends: [:app_server],
+          trusted_sources: [:codex_app_server],
+          auth_modes: ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey)
+        }
       },
       "claude" => %{
         adapter: Aiur.Claude.CodingAgent,
         transcript: Aiur.Claude.Transcript,
         family: "claude",
+        config_default: true,
+        rate_limit_fallback_target: true,
+        skill_install: %{path: ".claude/skills"},
+        configurable: true,
+        init_order: 0,
+        default_command: "aiur-claude",
+        model_catalog: &ModelCatalog.extract_claude/1,
+        install_hint: "install it with: npm install -g aiur-claude",
         can_interrupt: true,
         safe_checkpoints: [:notification],
         control_application_confirmation: :confirmed,
@@ -130,12 +181,50 @@ defmodule Aiur.CodingAgent do
         # through untouched rather than pinned to a version aiur happens to
         # know about.
         model_aliases: :native,
-        efforts: []
+        efforts: [],
+        presentation: %{
+          order: 1,
+          label: "Claude",
+          logo: "/provider-assets/claude-symbol.svg",
+          token_icon: "/provider-assets/claude-token.svg",
+          css_class: "is-claude",
+          command_color: "#f2a76b",
+          command_border: "rgba(242, 167, 107, 0.4)",
+          unit_color: "#f0a878",
+          unit_border: "rgba(240, 168, 120, 0.4)",
+          unit_background: "rgba(240, 168, 120, 0.12)"
+        },
+        pricing: %{
+          dimensions: %{
+            context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
+            cache_write_duration: %{allowed: [:five_minutes, :one_hour, :not_applicable], default: nil, required: true}
+          },
+          component_dimensions: %{
+            default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]},
+            cache_creation_input: %{context_tier: [:not_applicable], cache_write_duration: [:five_minutes, :one_hour]}
+          }
+        },
+        usage: %{adapters: [Aiur.Usage.Headless.Claude.RequestUsage]},
+        meter_probe: &ProviderMeterProbe.probe_usage_api/3,
+        run_telemetry: &Lifecycle.decode_claude_operation/1,
+        account_generation: %{
+          backends: [:app_server],
+          trusted_sources: [:claude_app_server],
+          auth_modes: ~w(subscription api_key)
+        }
       },
       "claude-repl" => %{
         adapter: Aiur.Claude.ReplAgent,
         transcript: Aiur.Claude.Transcript,
         family: "claude",
+        # A persistent REPL carries the primary session handle. It must never
+        # be selected as a usage-limit replacement for a different session.
+        rate_limit_fallback_target: false,
+        # The REPL is launched by its adapter rather than the init wizard, but
+        # rate-limit fallback still needs a registry-owned readiness command.
+        default_command: "claude",
+        model_catalog: &ModelCatalog.extract_claude/1,
+        model_catalog_backend: "claude",
         # Executor messages are typed straight into the live pane and the
         # agent's native input queue folds them in, so there is no
         # checkpoint to hold at — `safe_checkpoints` stays empty and
@@ -152,6 +241,7 @@ defmodule Aiur.CodingAgent do
         # backend. Declared here so the fallback never lives in a
         # dispatch `case`.
         fallback_backend: "claude",
+        run_telemetry: &Lifecycle.decode_claude_operation/1,
         # Only the hook-driven RC REPL needs the pane display tailer; every
         # other backend streams its own rich transcript.
         rc_display_tail: true,
@@ -168,11 +258,127 @@ defmodule Aiur.CodingAgent do
         efforts: ["low", "medium", "high", "xhigh", "max"]
       }
     }
+    |> Map.merge(Aiur.OpenAICompat.Registry.entries())
+    |> maybe_add_test_backend()
+  end
+
+  # Acceptance fixture for registry consumers. It intentionally lives only in
+  # the test build and is added exactly like a production provider: no caller
+  # receives a fake-specific branch or fixture hook.
+  if Mix.env() == :test do
+    defp maybe_add_test_backend(backends) do
+      Map.put(backends, "fake", %{
+        adapter: Aiur.Codex.CodingAgent,
+        transcript: Aiur.Codex.Transcript,
+        family: "fake",
+        skill_install: %{path: ".fake/skills"},
+        rate_limit_fallback_target: true,
+        configurable: true,
+        init_order: 99,
+        default_command: "fake-agent --serve",
+        models: ["fake-1"],
+        model_aliases: :native,
+        efforts: [],
+        can_interrupt: false,
+        safe_checkpoints: [],
+        control_application_confirmation: :confirmed,
+        remote_control: false,
+        resumable: false,
+        presentation: %{
+          order: 99,
+          label: "Fake",
+          logo: "/provider-assets/codex-color.svg",
+          token_icon: "/provider-assets/codex-token.svg",
+          css_class: "is-fake",
+          command_color: "#8fbcff",
+          command_border: "rgba(143, 188, 255, 0.4)",
+          unit_color: "#8fbcff",
+          unit_border: "rgba(143, 188, 255, 0.4)",
+          unit_background: "rgba(143, 188, 255, 0.12)"
+        },
+        pricing: %{
+          dimensions: %{
+            context_tier: %{allowed: [:not_applicable], default: :not_applicable, required: false},
+            cache_write_duration: %{allowed: [:not_applicable], default: :not_applicable, required: false}
+          },
+          component_dimensions: %{default: %{context_tier: [:not_applicable], cache_write_duration: [:not_applicable]}}
+        },
+        usage: %{adapters: [Aiur.Usage.Headless.Fake.RequestUsage]},
+        account_generation: %{backends: [:app_server], trusted_sources: [:fake_app_server], auth_modes: ["fake"]}
+      })
+    end
+  else
+    defp maybe_add_test_backend(backends), do: backends
   end
 
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Backends currently eligible for dispatch, including explicit config opt-ins."
+  @spec dispatchable_backends(map()) :: [backend()]
+  def dispatchable_backends(backend_configs \\ %{}) when is_map(backend_configs) do
+    backends()
+    |> Enum.filter(fn {backend, entry} ->
+      config = Map.get(backend_configs, backend, %{})
+      configured = Map.get(config, "enabled", Map.get(config, :enabled))
+      if is_boolean(configured), do: configured, else: Map.get(entry, :dispatch_enabled_by_default, true)
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  @doc "Backends approved by their registry entry as rate-limit fallback targets."
+  @spec rate_limit_fallback_targets() :: [backend()]
+  def rate_limit_fallback_targets do
+    backends()
+    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :rate_limit_fallback_target, false) end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  @doc "The registry-selected default backend used when no config section chooses one."
+  @spec default_backend() :: backend()
+  def default_backend do
+    backends()
+    |> Enum.find_value(fn {backend, entry} -> if Map.get(entry, :default, false), do: backend end)
+    |> Kernel.||(known_backends() |> List.first())
+  end
+
+  @doc "The registry-selected legacy configuration default."
+  @spec default_config_backend() :: backend()
+  def default_config_backend do
+    backends()
+    |> Enum.find_value(fn {backend, entry} -> if Map.get(entry, :config_default, false), do: backend end)
+    |> Kernel.||(default_backend())
+  end
+
+  @doc "Registry-selected fallback for the default backend's rate-limit reroute."
+  @spec default_rate_limit_fallback() :: backend() | nil
+  def default_rate_limit_fallback do
+    backends()
+    |> Map.get(default_backend(), %{})
+    |> Map.get(:rate_limit_fallback)
+  end
+
+  @doc "Workspace skill-install locations declared by registered backends."
+  @spec skill_install_locations() :: [%{optional(:link_to) => String.t(), path: String.t()}]
+  def skill_install_locations do
+    backends()
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :skill_install))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq_by(& &1.path)
+  end
+
+  @doc "Backends selectable during init, ordered by registry preference."
+  @spec configurable_backends() :: [backend()]
+  def configurable_backends do
+    dispatchable = dispatchable_backends()
+
+    backends()
+    |> Enum.filter(fn {backend, entry} -> backend in dispatchable and Map.get(entry, :configurable, false) end)
+    |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   @doc "Stable agent family for trusted Decision provenance, if the backend is known."
   @spec family_for(backend()) :: String.t() | nil
@@ -181,6 +387,172 @@ defmodule Aiur.CodingAgent do
       {:ok, entry} -> Map.get(entry, :family)
       :error -> nil
     end
+  end
+
+  @typedoc """
+  A provider descriptor combines presentation and its registry-owned metering,
+  pricing, and account-generation capabilities. The resolved `provider` family
+  atom and stable `order` keep card layout deterministic.
+  """
+  @type provider_descriptor :: %{
+          provider: atom(),
+          order: non_neg_integer(),
+          label: String.t(),
+          logo: String.t(),
+          token_icon: String.t(),
+          css_class: String.t(),
+          command_color: String.t(),
+          command_border: String.t(),
+          unit_color: String.t(),
+          unit_border: String.t(),
+          unit_background: String.t(),
+          pricing: map(),
+          usage: map(),
+          account_generation: map()
+        }
+
+  @doc """
+  Provider presentation descriptors, one per family that declares a
+  `:presentation` entry in the registry, ordered by their `order` field.
+  Presentation is family-level (`claude` and `claude-repl` share one), so the
+  list is deduplicated by provider family. Drives every provider-facing surface
+  so a new backend renders from its registry entry with no per-provider `case`.
+  """
+  @spec provider_descriptors() :: [provider_descriptor()]
+  def provider_descriptors do
+    backends()
+    |> Map.values()
+    |> Enum.flat_map(fn entry ->
+      case Map.get(entry, :presentation) do
+        %{} = presentation ->
+          [
+            presentation
+            |> Map.put(:provider, String.to_atom(entry.family))
+            |> Map.put(:pricing, Map.get(entry, :pricing, %{}))
+            |> Map.put(:usage, Map.get(entry, :usage, %{}))
+            |> Map.put(:account_generation, Map.get(entry, :account_generation, %{}))
+          ]
+
+        _ ->
+          []
+      end
+    end)
+    |> Enum.uniq_by(& &1.provider)
+    |> Enum.sort_by(& &1.order)
+  end
+
+  @doc "Provider family atoms with a presentation descriptor, in card order."
+  @spec provider_families() :: [atom()]
+  def provider_families, do: Enum.map(provider_descriptors(), & &1.provider)
+
+  @doc """
+  Map from each registered headless backend name to its provider family atom
+  (e.g. `%{"codex" => :codex, "claude" => :claude}`). A backend name need not
+  match its family name, so the map is derived from registry keys rather than
+  presentation descriptors. Transports without usage adapters (such as the
+  REPL) are deliberately excluded.
+  """
+  @spec provider_family_map() :: %{String.t() => atom()}
+  def provider_family_map do
+    for {backend, %{family: family, usage: %{adapters: adapters}}} <- backends(),
+        is_list(adapters),
+        adapters != [],
+        into: %{},
+        do: {backend, String.to_atom(family)}
+  end
+
+  @doc "Registry-owned usage backend and transport for a headless backend."
+  @spec usage_context(backend()) :: %{backend: atom(), transport: atom()} | nil
+  def usage_context(backend) when is_binary(backend) do
+    case Map.get(backends(), backend) do
+      %{usage: %{adapters: adapters}} = entry when is_list(adapters) and adapters != [] ->
+        %{
+          backend: Map.get(entry, :usage_backend, :app_server),
+          transport: Map.get(entry, :usage_transport, :app_server)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  def usage_context(_backend), do: nil
+
+  @doc "All registry-declared headless usage backend identities."
+  @spec usage_backends() :: [atom()]
+  def usage_backends do
+    backends()
+    |> Map.keys()
+    |> Enum.map(&usage_context/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.backend)
+    |> Enum.uniq()
+  end
+
+  @doc "All registry-declared headless usage transport identities."
+  @spec usage_transports() :: [atom()]
+  def usage_transports do
+    backends()
+    |> Map.keys()
+    |> Enum.map(&usage_context/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.transport)
+    |> Enum.uniq()
+  end
+
+  @doc "Presentation descriptor for one provider family atom, or `nil` if none."
+  @spec provider_descriptor(atom() | String.t() | nil) :: provider_descriptor() | nil
+  def provider_descriptor(provider) when is_atom(provider) do
+    Enum.find(provider_descriptors(), &(&1.provider == provider))
+  end
+
+  def provider_descriptor(provider) when is_binary(provider) do
+    Enum.find(provider_descriptors(), &(Atom.to_string(&1.provider) == provider))
+  end
+
+  def provider_descriptor(_provider), do: nil
+
+  @doc "Registry-supplied pricing policy for one provider family, or `nil` when it is not metered."
+  @spec provider_pricing(atom()) :: map() | nil
+  def provider_pricing(provider) when is_atom(provider) do
+    case provider_descriptor(provider) do
+      %{pricing: pricing} when is_map(pricing) -> pricing
+      _ -> nil
+    end
+  end
+
+  @doc "Registry-supplied account-generation policy for one provider family."
+  @spec provider_account_generation(atom()) :: map() | nil
+  def provider_account_generation(provider) when is_atom(provider) do
+    case provider_descriptor(provider) do
+      %{account_generation: policy} when is_map(policy) -> policy
+      _ -> nil
+    end
+  end
+
+  @doc "Primary registry-declared meter backend for a provider family."
+  @spec provider_meter_backend(atom()) :: atom()
+  def provider_meter_backend(provider) when is_atom(provider) do
+    provider
+    |> provider_account_generation()
+    |> then(&get_in(&1 || %{}, [:backends]))
+    |> case do
+      [backend | _] when is_atom(backend) -> backend
+      _ -> :app_server
+    end
+  end
+
+  @doc "Registry probe callback and backend for one provider family, if declared."
+  @spec provider_meter_probe(atom()) :: {backend(), function()} | nil
+  def provider_meter_probe(provider) when is_atom(provider) do
+    Enum.find_value(backends(), fn {backend, entry} ->
+      with %{provider: ^provider} <- provider_descriptor(entry.family),
+           probe when is_function(probe, 3) <- Map.get(entry, :meter_probe) do
+        {backend, probe}
+      else
+        _ -> nil
+      end
+    end)
   end
 
   @doc """
@@ -204,7 +576,8 @@ defmodule Aiur.CodingAgent do
   Derived from the registry so new backends/models seed automatically.
   """
   @spec override_labels() :: [String.t()]
-  def override_labels, do: override_labels(known_backends()) ++ alias_labels() ++ override_effort_labels()
+  def override_labels,
+    do: override_labels(dispatchable_backends(Config.agent_backend_configs())) ++ alias_labels() ++ override_effort_labels()
 
   @doc "Label-only alias override labels (e.g. `model:remote`)."
   @spec alias_labels() :: [String.t()]
@@ -277,7 +650,7 @@ defmodule Aiur.CodingAgent do
   `Aiur.AgentRunner.SessionLifecycle`, which surfaces it to the Executor).
   """
   @spec resolve_model(backend(), String.t() | nil) :: String.t() | nil
-  def resolve_model(_backend, nil), do: nil
+  def resolve_model(backend, nil), do: backend_default_model(backend)
 
   def resolve_model(backend, model) when is_binary(model) do
     entry = Map.get(backends(), backend, %{})
@@ -286,6 +659,16 @@ defmodule Aiur.CodingAgent do
       :derived -> Models.latest(Map.get(entry, :models, []), model) || model
       _native -> model
     end
+  end
+
+  # A bare `model:<backend>` override selects the backend but pins no model, and
+  # the routing table may not name this backend at all (routing is codex/claude
+  # shaped). Fall back to the backend's registered default so the session starts
+  # with a real model instead of `nil` (which would otherwise surface as an
+  # `unsupported_model` attention). OpenAI-compatible backends declare their
+  # default under `openai_compat.default_model`.
+  defp backend_default_model(backend) do
+    get_in(backends(), [backend, :openai_compat, :default_model])
   end
 
   @doc """
@@ -340,7 +723,23 @@ defmodule Aiur.CodingAgent do
   """
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
-    override_model(issue) || routing_model(issue)
+    case override_backend(issue) do
+      # With no override, the complexity-routing value names the model for the
+      # routed backend. With an override, fall through to the routing model only
+      # when it targets that same backend: a `model:codex` bare override still
+      # wants the codex routing model, while a `model:deepseek` override must
+      # not inherit a codex-shaped model that is invalid for it. A bare override
+      # for a backend the routing table never names (an OpenAI-compatible one)
+      # therefore yields nil, and `resolve_model/2` supplies the backend default.
+      nil ->
+        override_model(issue) || routing_model(issue)
+
+      backend ->
+        case routing_backend(issue) do
+          ^backend -> routing_model(issue)
+          _other -> override_model(issue)
+        end
+    end
   end
 
   @doc """
@@ -410,7 +809,7 @@ defmodule Aiur.CodingAgent do
   # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
   @spec override(Issue.t()) :: {backend(), String.t() | nil} | nil
   defp override(%Issue{} = issue) do
-    known = known_backends()
+    known = dispatchable_backends(Config.agent_backend_configs())
 
     issue
     |> Issue.label_names()
@@ -566,6 +965,15 @@ defmodule Aiur.CodingAgent do
   def remote_control?(backend) do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :remote_control, false)
+      :error -> false
+    end
+  end
+
+  @doc "Whether the backend can execute its session and tools on an SSH worker."
+  @spec remote_worker?(backend()) :: boolean()
+  def remote_worker?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :remote_worker, true)
       :error -> false
     end
   end

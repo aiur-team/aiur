@@ -217,7 +217,7 @@ defmodule Aiur.WorkflowStore do
   defp current_stamp(path) when is_binary(path) do
     with {:ok, stat} <- File.stat(path, time: :posix),
          {:ok, content} <- File.read(path) do
-      {:ok, {stat.mtime, stat.size, :erlang.phash2(content), prompt_file_stamp(path), hooks_file_stamp(path)}}
+      {:ok, {stat.mtime, stat.size, :erlang.phash2(content), prompt_file_stamp(path), hooks_file_stamp(path), prewarm_file_stamp(path)}}
     else
       {:error, reason} -> {:error, reason}
     end
@@ -240,6 +240,19 @@ defmodule Aiur.WorkflowStore do
     case Workflow.resolved_hooks_file_path(path) do
       hooks_path when is_binary(hooks_path) ->
         case File.read(hooks_path) do
+          {:ok, body} -> :erlang.phash2(body)
+          {:error, _reason} -> nil
+        end
+
+      nil ->
+        nil
+    end
+  end
+
+  defp prewarm_file_stamp(path) do
+    case Workflow.resolved_prewarm_file_path(path) do
+      prewarm_path when is_binary(prewarm_path) ->
+        case File.read(prewarm_path) do
           {:ok, body} -> :erlang.phash2(body)
           {:error, _reason} -> nil
         end

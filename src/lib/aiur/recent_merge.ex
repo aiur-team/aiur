@@ -75,13 +75,15 @@ defmodule Aiur.RecentMerge do
   def from_github_event(event, opts \\ [])
 
   def from_github_event(
-        %{
-          "type" => "PullRequestEvent",
-          "payload" => %{"action" => "closed", "pull_request" => %{"merged" => true} = pull}
-        } = event,
+        %{"type" => "PullRequestEvent", "payload" => %{"action" => action, "pull_request" => pull}} = event,
         opts
-      ) do
-    normalize_github_merge(event, pull, opts)
+      )
+      when is_map(pull) do
+    if merged_pull_request_event?(action, Map.get(pull, "merged")) do
+      normalize_github_merge(event, pull, opts)
+    else
+      :not_merge
+    end
   end
 
   def from_github_event(_event, _opts), do: :not_merge
@@ -104,7 +106,7 @@ defmodule Aiur.RecentMerge do
            optional_text(get_in(pull, ["merged_by", "login"]), @identity_max, :merged_by),
          {:ok, source_event_id} <-
            optional_text(Map.get(event, "id"), @identity_max, :source_event_id),
-         {:ok, merged_at} <- timestamp(Map.get(pull, "merged_at"), :merged_at),
+         {:ok, merged_at} <- timestamp(Map.get(pull, "merged_at") || Map.get(event, "created_at"), :merged_at),
          {:ok, observed_at} <- datetime(now, :observed_at),
          {:ok, observed_run_id} <- observed_run_id(live?, Keyword.get(opts, :run_id)) do
       %__MODULE__{
@@ -363,6 +365,10 @@ defmodule Aiur.RecentMerge do
 
   defp observed_run_id(false, _run_id), do: {:ok, nil}
   defp observed_run_id(true, run_id), do: required_text(run_id, @identity_max, :observed_run_id)
+
+  defp merged_pull_request_event?("merged", _merged), do: true
+  defp merged_pull_request_event?("closed", true), do: true
+  defp merged_pull_request_event?(_action, _merged), do: false
 
   defp replay_run_id(true, run_id), do: required_text(run_id, @identity_max, :observed_run_id)
 

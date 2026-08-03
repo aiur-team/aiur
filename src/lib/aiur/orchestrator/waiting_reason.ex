@@ -57,13 +57,27 @@ defmodule Aiur.Orchestrator.WaitingReason do
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
   only ever true for a `todo` issue with an unresolved dependency (see
-  `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`).
+  `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`). `capacity_hold?`
+  reports that host-pressure admission is currently deferring dispatchable
+  work, so a ready row reads as `:backing_off` (capacity) rather than
+  `:active` — letting an Executor distinguish capacity backoff from an idle or
+  broken fleet.
   """
-  @spec for_idle(String.t() | nil, boolean(), non_neg_integer()) :: t()
-  def for_idle(tracker_state, blocked_by_open?, open_decision_count)
-  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count) when open_decision_count > 0, do: :waiting_for_human
-  def for_idle(_tracker_state, true, 0), do: :waiting_for_dependency
-  def for_idle(tracker_state, false, 0), do: by_tracker_state(tracker_state)
+  @spec for_idle(String.t() | nil, boolean(), non_neg_integer(), boolean()) :: t()
+  def for_idle(tracker_state, blocked_by_open?, open_decision_count, capacity_hold? \\ false)
+  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count, _capacity_hold?) when open_decision_count > 0, do: :waiting_for_human
+  def for_idle(_tracker_state, true, 0, _capacity_hold?), do: :waiting_for_dependency
+  def for_idle(tracker_state, false, 0, true), do: capacity_or_tracker_state(tracker_state)
+  def for_idle(tracker_state, false, 0, false), do: by_tracker_state(tracker_state)
+
+  # A capacity hold only reclassifies dispatchable rows (the `:active` fallback)
+  # as `:backing_off`; rows waiting on CI, review, etc. keep their own reason.
+  defp capacity_or_tracker_state(tracker_state) do
+    case by_tracker_state(tracker_state) do
+      :active -> :backing_off
+      other -> other
+    end
+  end
 
   # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
   # actual exemption set: only `:paused` and `:deactivated` entries are

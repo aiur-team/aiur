@@ -8,11 +8,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   The same model serves two scopes. The live-session view passes
   `session: :current` and gets absolute timestamps over one daemon boot. The
-  Build Order view passes a member ticket set and `timeline: :active`, which
-  aggregates every session the build touched and reports elapsed *active* time
-  rather than calendar time — see `Aiur.RunTelemetry.Timeline` for why that
-  distinction is load-bearing. Both feed the same `Charts`, whose axis already
-  labels ticks as elapsed time.
+  Build Order view passes the selected member ticket set, `session: :current`,
+  and `timeline: :active`. That keeps its recurring refresh a bounded tail read;
+  cross-session reporting belongs to a materialized summary rather than a live
+  full-stream parse. Both feed the same `Charts`, whose axis already labels ticks
+  as elapsed time.
   """
 
   alias Aiur.RunTelemetry
@@ -578,10 +578,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp safe_cap do
-    case Aiur.Config.settings() do
-      {:ok, settings} -> Map.get(settings.agent, :max_concurrent_agents) || @default_cap
-      _ -> @default_cap
-    end
+    Aiur.Config.max_concurrent_agents()
   rescue
     _ -> @default_cap
   catch

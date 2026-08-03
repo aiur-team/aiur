@@ -270,6 +270,9 @@ function setupRealLauncher() {
       "#!/usr/bin/env bash",
       'echo "ELIXIR_ARGS:$*" >>"$AIUR_TEST_OUT"',
       'echo "ARGV_FILE:$(cat "$AIUR_ARGV_FILE")" >>"$AIUR_TEST_OUT"',
+      'echo "DEEPSEEK_API_KEY:${DEEPSEEK_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'echo "OPENROUTER_API_KEY:${OPENROUTER_API_KEY:-}" >>"$AIUR_TEST_OUT"',
+      'echo "MOONSHOT_API_KEY:${MOONSHOT_API_KEY:-}" >>"$AIUR_TEST_OUT"',
       "exit 0",
       "",
     ].join("\n"),
@@ -420,6 +423,42 @@ test("launcher routes init to a distribution-free foreground exec", () => {
   expect(capture).not.toContain("--cookie");
   // Argv crossed into the BEAM via the argv file.
   expect(capture).toContain("ARGV_FILE:init");
+});
+
+test("launcher loads global provider credentials before repo-local dotenv", () => {
+  const { launcher, releaseDir } = setupRealLauncher();
+  const home = path.join(root, "home");
+  const project = path.join(root, "project");
+  mkdirSync(path.join(home, ".aiur"), { recursive: true });
+  mkdirSync(project, { recursive: true });
+
+  writeFileSync(
+    path.join(home, ".aiur", ".env"),
+    "DEEPSEEK_API_KEY=global-deepseek\nMOONSHOT_API_KEY=global-moonshot\n",
+  );
+  writeFileSync(
+    path.join(project, ".env"),
+    "DEEPSEEK_API_KEY=repo-deepseek\nOPENROUTER_API_KEY=repo-openrouter\n",
+  );
+
+  const result = spawnSync(launcher, ["--todo", "1440"], {
+    cwd: project,
+    encoding: "utf8",
+    env: {
+      ...process.env,
+      HOME: home,
+      AIUR_RELEASE_DIR: releaseDir,
+      AIUR_TEST_OUT: captureFile,
+      MOONSHOT_API_KEY: "shell-moonshot",
+    },
+  });
+
+  expect(result.status).toBe(0);
+  const capture = readFileSync(captureFile, "utf8");
+  expect(capture).toContain("DEEPSEEK_API_KEY:global-deepseek");
+  expect(capture).toContain("OPENROUTER_API_KEY:repo-openrouter");
+  expect(capture).toContain("MOONSHOT_API_KEY:shell-moonshot");
+  expect(capture).not.toContain("repo-deepseek");
 });
 
 test("background start is idempotent when the existing tmux session has a live control plane", () => {
@@ -629,9 +668,30 @@ test("control rpc keeps the friendly hint when the node is genuinely down", () =
   });
 
   expect(result.status).not.toBe(0);
-  expect(result.stderr).toContain("no running aiur node");
+  expect(result.stderr).toContain(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
   // A down node gets the clean hint, not the cryptic transport error.
   expect(result.stderr).not.toContain(":noconnection");
+});
+
+test("todo reports a stopped daemon without leaking a GenServer stacktrace", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "noconnection",
+      AIUR_FAKE_EPMD_REGISTERED: "0",
+    },
+    ["--todo", "123"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(result.stderr.trim()).toBe(
+    "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.",
+  );
+  expect(result.stderr).not.toContain("GenServer");
 });
 
 test("control rpc propagates the control CLI exit code on a successful rpc", () => {

@@ -88,9 +88,10 @@ defmodule Aiur.GitHub.Transport do
   defp request_options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
+    timeout_ms = Map.get(req, :timeout_ms, 30_000)
 
     options
-    |> Keyword.merge(headers: headers, connect_options: [timeout: 30_000])
+    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms)
     |> maybe_bound_response(req)
   end
 

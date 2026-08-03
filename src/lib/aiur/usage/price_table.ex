@@ -11,7 +11,7 @@ defmodule Aiur.Usage.PriceTable do
   @version 1
 
   @type entry :: %{
-          provider: :codex | :claude,
+          provider: atom(),
           resolved_model: String.t(),
           token_dimension: atom(),
           relationship_revision: String.t(),

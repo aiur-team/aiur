@@ -1,6 +1,6 @@
 defmodule AiurWeb.OperatorControlCenter.ProviderMeterSource do
   @moduledoc """
-  Loads protected Codex and Claude provider-meter snapshots for the Units page
+  Loads protected registry provider-meter snapshots for the Units page
   strictly through the DASH-021 `AiurWeb.FinancialData` facade.
 
   Every read is a loader closure passed to the facade, so authorization is
@@ -15,16 +15,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSource do
   account's facts.
   """
 
-  alias Aiur.ProviderMeterProjection
+  alias Aiur.{CodingAgent, ProviderMeterProjection}
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialData
 
   @server AiurWeb.FinancialData
-  @providers [:codex, :claude]
   @max_age_ms 5_000
 
   @type context :: term()
-  @type snapshots :: %{codex: ProviderMeterSnapshot.t() | nil, claude: ProviderMeterSnapshot.t() | nil}
+  @type snapshots :: %{optional(atom()) => ProviderMeterSnapshot.t() | nil}
 
   @doc """
   Fetch current protected snapshots for every provider after authorization.
@@ -62,7 +61,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSource do
   defp snapshot_fun(opts), do: Keyword.get(opts, :snapshot_fun, &snapshot/2)
 
   defp fetch_all(fetch) do
-    Map.new(@providers, fn provider ->
+    Map.new(CodingAgent.provider_families(), fn provider ->
       {provider, fetch_one(provider, fetch)}
     end)
   end
