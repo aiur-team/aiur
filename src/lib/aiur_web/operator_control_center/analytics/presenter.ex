@@ -16,7 +16,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   """
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, Timeline}
+  alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
 
   @default_buckets 180
   @max_series_actors 8
@@ -43,8 +43,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   Scope options:
 
-    * `:session` — `:current` narrows to one daemon boot, `:all` (default) keeps
-      every session in the stream.
+    * `:session` — `:current` narrows to one daemon boot, `:cross` reads the
+      current boot live from raw (bounded tail) and every prior boot from its
+      materialized run summary, `:all` (default) keeps every session in the
+      stream.
     * `:tickets` — a list or `MapSet` of bare ticket-number strings to scope to.
     * `:timeline` — `:absolute` (default) or `:active` to elide idle gaps.
     * `:scope_total` — burn-up denominator when the scope knows its own size
@@ -54,18 +56,79 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   def load(opts \\ []) do
     file = Keyword.get(opts, :telemetry_file) || RunTelemetry.telemetry_file()
 
-    dataset_opts =
+    result =
       case Keyword.get(opts, :session, :all) do
-        :current -> [session: :current, boot_id: current_boot_id()]
-        _other -> []
+        :current ->
+          Dataset.build(file, session: :current, boot_id: current_boot_id())
+
+        :cross ->
+          cross_session(file)
+
+        _other ->
+          Dataset.build(file, [])
       end
 
-    case Dataset.build(file, dataset_opts) do
+    case result do
       {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
       {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
     end
   rescue
     _error -> {:unavailable, :error}
+  end
+
+  # Cross-session view: the current boot is read live from raw (bounded tail so
+  # it stays fresh on the 30 s tick); every prior boot is read from its
+  # materialized run summary instead of re-parsing the retained stream. When no
+  # summaries exist yet this falls back to the historical full raw parse so the
+  # Full-log view keeps working before the first materialization.
+  defp cross_session(file) do
+    current = current_boot_id()
+    prior = Summaries.load_prior_datasets(current)
+
+    if prior == [] do
+      Dataset.build(file, [])
+    else
+      case Dataset.build(file, session: :current, boot_id: current) do
+        {:ok, current_dataset} -> {:ok, merge_datasets([current_dataset | prior])}
+        {:error, _reason} -> {:ok, merge_datasets(prior)}
+      end
+    end
+  end
+
+  defp merge_datasets(datasets) do
+    %{
+      records: Enum.flat_map(datasets, & &1.records),
+      restarts: Enum.flat_map(datasets, & &1.restarts),
+      actors: Enum.reduce(datasets, %{}, fn dataset, acc -> Map.merge(acc, dataset.actors) end),
+      tickets: Enum.reduce(datasets, %{}, fn dataset, acc -> Map.merge(acc, dataset.tickets) end),
+      findings: Enum.flat_map(datasets, & &1.findings),
+      warnings: Enum.flat_map(datasets, & &1.warnings),
+      provenance: merge_provenance(datasets)
+    }
+  end
+
+  defp merge_provenance(datasets) do
+    provenances = Enum.map(datasets, & &1.provenance)
+    files = provenances |> Enum.flat_map(& &1.files) |> Enum.uniq()
+    inputs = provenances |> Enum.flat_map(& &1.inputs) |> Enum.uniq()
+    schema_versions = provenances |> Enum.flat_map(& &1.schema_versions) |> Enum.uniq() |> Enum.sort()
+    record_count = provenances |> Enum.reduce(0, &(&1.record_count + &2))
+
+    time_range =
+      case {provenances |> Enum.map(& &1.time_range) |> Enum.reject(&is_nil/1), []} do
+        {[], _} -> nil
+        {ranges, _} -> %{start: ranges |> Enum.map(& &1.start) |> Enum.min(), end: ranges |> Enum.map(& &1.end) |> Enum.max()}
+      end
+
+    %{
+      inputs: inputs,
+      files: files,
+      schema_versions: schema_versions,
+      time_range: time_range,
+      record_count: record_count,
+      enrich: Enum.any?(provenances, &Map.get(&1, :enrich, false)),
+      generated_by: "presenter:cross"
+    }
   end
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
@@ -97,6 +160,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp session_boot_id(_dataset, :all), do: nil
+  defp session_boot_id(_dataset, :cross), do: nil
 
   # The current boot is the live session whenever the daemon is writing. When the
   # stream predates this boot — a dashboard opened before anything was recorded —
