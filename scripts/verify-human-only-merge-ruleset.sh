@@ -77,7 +77,7 @@ if ! jq -e --argjson required_checks "$required_checks" '
   [.rules[] | select(.type == "required_status_checks") | .parameters] |
   length == 1 and
   .[0].do_not_enforce_on_create == false and
-  .[0].strict_required_status_checks_policy == false and
+  .[0].strict_required_status_checks_policy == true and
   (.[0].required_status_checks | map(.context) | sort) == ($required_checks | sort) and
   (.[0].required_status_checks | all(.integration_id == 15368))
 ' >/dev/null <<<"$ruleset"; then
