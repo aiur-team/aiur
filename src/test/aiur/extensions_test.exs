@@ -6,6 +6,7 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
@@ -69,7 +70,10 @@ defmodule Aiur.ExtensionsTest do
       GenServer.start_link(__MODULE__, opts, name: name)
     end
 
-    def init(opts), do: {:ok, opts}
+    def init(opts) do
+      :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), Keyword.fetch!(opts, :snapshot))
+      {:ok, opts}
+    end
 
     def handle_call(:snapshot, _from, state) do
       {:reply, Keyword.fetch!(state, :snapshot), state}
@@ -939,6 +943,10 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
+    provider_asset_conn = get(build_conn(), "/provider-assets/codex-color.svg")
+    assert response(provider_asset_conn, 200) =~ "<svg"
+    assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
     dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -1121,6 +1129,8 @@ defmodule Aiur.ExtensionsTest do
       Keyword.put(state, :snapshot, updated_snapshot)
     end)
 
+    :ok = SnapshotStore.publish(orchestrator_name, updated_snapshot)
+
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
     assert_eventually(fn ->
@@ -1298,7 +1308,7 @@ defmodule Aiur.ExtensionsTest do
 
     {:ok, _view, html} = live(build_conn(), "/")
     assert html =~ "Snapshot unavailable"
-    assert html =~ "snapshot_unavailable"
+    assert html =~ "orchestrator_unavailable"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do

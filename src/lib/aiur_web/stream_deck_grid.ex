@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamDeckGrid do
   client page without re-deriving fleet state.
   """
 
-  alias Aiur.{AgentEvents, AgentList.Summaries, Orchestrator}
+  alias Aiur.{AgentEvents, AgentList.Summaries, CodingAgent, Orchestrator}
 
   @columns_per_page 4
   @rows_per_column 2
@@ -18,10 +18,15 @@ defmodule AiurWeb.StreamDeckGrid do
 
   @spec payload(GenServer.name(), timeout()) :: map()
   def payload(orchestrator, snapshot_timeout_ms) do
-    case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
-      %{} = snapshot -> project(snapshot)
-      :timeout -> %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
-      :unavailable -> %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
+    case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
+      {status, snapshot, freshness} when status in [:current, :stale] ->
+        snapshot |> project() |> Map.put(:snapshot_freshness, freshness)
+
+      :snapshot_timeout ->
+        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
+
+      :orchestrator_unavailable ->
+        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
     end
   end
 
@@ -82,9 +87,11 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   defp vendor(entry) do
-    case Map.get(entry, :agent_family) || Map.get(entry, :backend) do
-      "claude" -> "claude"
-      _ -> "codex"
+    family = Map.get(entry, :agent_family) || CodingAgent.family_for(Map.get(entry, :backend))
+
+    case CodingAgent.provider_descriptor(family) do
+      %{provider: provider} -> Atom.to_string(provider)
+      _ -> "unknown"
     end
   end
 

@@ -75,7 +75,7 @@ defmodule Aiur.Config.Schema.Agent do
 
   @primary_key false
   embedded_schema do
-    field(:kind, :string, default: "codex")
+    field(:kind, :string, default: Aiur.CodingAgent.default_backend())
     # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
@@ -84,7 +84,7 @@ defmodule Aiur.Config.Schema.Agent do
     # max_turns recycle or completed-entry replacement) whose codex thread could
     # not be resumed gets continuation guidance instead of the cold-start prompt,
     # so it does not re-run brainstorm/plan over work that already exists.
-    field(:prior_work_continuation, :boolean, default: false)
+    field(:prior_work_continuation, :boolean, default: true)
     # Lifetime cap on (re)dispatches for one ticket. The per-window thrash
     # breaker resets whenever its window lapses, so a slowly-churning ticket is
     # never circuit-broken. 0 disables the latch.
@@ -107,15 +107,22 @@ defmodule Aiur.Config.Schema.Agent do
     field(:max_retry_attempts, :integer, default: 3)
     field(:max_retry_backoff_ms, :integer, default: 300_000)
     field(:max_concurrent_agents_by_state, :map, default: %{})
+    # Provider settings are keyed by the backend's registry name. Built-in
+    # schemas remain as typed compatibility views, while a new backend can keep
+    # its section here without adding another Ecto embed to this module.
+    field(:backend_configs, :map, default: %{})
     field(:routing, :map, default: %{})
     field(:switch_model_on_ratelimit, {:array, :string}, default: [])
-    # Automatic codex -> claude reroute for an ALREADY-RUNNING codex agent that
-    # hits usage_limit_exhausted, reverted at a safe boundary once
-    # ModelAvailability confirms codex recovery
+    # Automatic reroute for an ALREADY-RUNNING agent on `rate_limit_primary`
+    # that hits usage_limit_exhausted, reverted at a safe boundary once
+    # ModelAvailability confirms the primary recovered
     # (Aiur.Orchestrator.RateLimitFallback). Default on, unlike
     # switch_model_on_ratelimit above (opt-in, applies only to a new claim).
-    # "" disables it.
-    field(:rate_limit_fallback, :string, default: "claude")
+    # Both name a registered backend and the pair is validated below; the
+    # defaults preserve the historical codex -> claude reroute. "" on the
+    # fallback disables it.
+    field(:rate_limit_primary, :string, default: Aiur.CodingAgent.default_backend())
+    field(:rate_limit_fallback, :string, default: Aiur.CodingAgent.default_rate_limit_fallback())
     field(:complexity_prompts, :map, default: %{})
     field(:max_turns_by_complexity, :map, default: %{})
     # Backend-agnostic turn/stall timeouts (promoted from codex; claude-repl
@@ -168,8 +175,10 @@ defmodule Aiur.Config.Schema.Agent do
         :max_retry_attempts,
         :max_retry_backoff_ms,
         :max_concurrent_agents_by_state,
+        :backend_configs,
         :routing,
         :switch_model_on_ratelimit,
+        :rate_limit_primary,
         :rate_limit_fallback,
         :complexity_prompts,
         :max_turns_by_complexity,
@@ -208,6 +217,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> validate_dispatch_selections()
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -217,17 +227,76 @@ defmodule Aiur.Config.Schema.Agent do
         true -> [switch_model_on_ratelimit: "contains an unknown backend; known backends: #{inspect(known)}"]
       end
     end)
-    |> validate_change(:rate_limit_fallback, fn :rate_limit_fallback, backend ->
-      if backend in ["", "claude"],
+    |> validate_change(:rate_limit_primary, fn :rate_limit_primary, backend ->
+      known = Aiur.CodingAgent.known_backends()
+
+      if backend in known,
         do: [],
-        else: [rate_limit_fallback: "must be \"claude\" or \"\" to disable"]
+        else: [rate_limit_primary: "must be a registered backend; known backends: #{inspect(known)}"]
     end)
+    |> validate_rate_limit_fallback()
     |> update_change(:complexity_prompts, &AgentValidation.normalize_complexity_prompts/1)
     |> AgentValidation.validate_complexity_prompts(:complexity_prompts)
     |> update_change(:max_turns_by_complexity, &AgentValidation.normalize_max_turns_by_complexity/1)
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+  end
+
+  defp validate_dispatch_selections(changeset) do
+    dispatchable = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+
+    changeset
+    |> reject_disabled_backend(:kind, Ecto.Changeset.get_field(changeset, :kind), dispatchable)
+    |> reject_disabled_backends(:switch_model_on_ratelimit, Ecto.Changeset.get_field(changeset, :switch_model_on_ratelimit), dispatchable)
+    |> reject_disabled_backend(:rate_limit_primary, Ecto.Changeset.get_field(changeset, :rate_limit_primary), dispatchable)
+    |> reject_disabled_backend(:rate_limit_fallback, Ecto.Changeset.get_field(changeset, :rate_limit_fallback), dispatchable)
+  end
+
+  defp reject_disabled_backends(changeset, field, values, dispatchable) when is_list(values) do
+    case Enum.find(values, &(&1 not in dispatchable)) do
+      nil -> changeset
+      backend -> Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; dispatchable backends: #{inspect(dispatchable)}")
+    end
+  end
+
+  defp reject_disabled_backends(changeset, _field, _values, _dispatchable), do: changeset
+
+  defp reject_disabled_backend(changeset, _field, backend, _dispatchable) when backend in [nil, ""], do: changeset
+
+  defp reject_disabled_backend(changeset, field, backend, dispatchable) do
+    if backend in Aiur.CodingAgent.known_backends() and backend not in dispatchable do
+      Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; set agent.backend_configs.#{backend}.enabled: true to opt in")
+    else
+      changeset
+    end
+  end
+
+  # The fallback names a registered backend distinct from the primary, or "" to
+  # disable the reroute. Cross-field (fallback != primary), so it reads the
+  # changeset rather than living in a `validate_change` closure.
+  defp validate_rate_limit_fallback(changeset) do
+    backend = Ecto.Changeset.get_field(changeset, :rate_limit_fallback)
+    primary = Ecto.Changeset.get_field(changeset, :rate_limit_primary)
+    known = Aiur.CodingAgent.known_backends()
+    fallback_targets = Aiur.CodingAgent.rate_limit_fallback_targets()
+
+    cond do
+      backend in [nil, ""] ->
+        changeset
+
+      backend not in known ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must be a registered backend or \"\" to disable; known backends: #{inspect(known)}")
+
+      backend == primary ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must differ from rate_limit_primary (#{inspect(primary)})")
+
+      backend not in fallback_targets ->
+        Ecto.Changeset.add_error(changeset, :rate_limit_fallback, "must be an eligible registered fallback backend; eligible backends: #{inspect(fallback_targets)}")
+
+      true ->
+        changeset
+    end
   end
 
   # A `max_turns` of `none`/`unlimited`/`""` means uncapped — drop the key so

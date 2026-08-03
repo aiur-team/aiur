@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
-  alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderUsage}
 
   attr(:route_state, :any, required: true)
   attr(:model, :any, default: nil)
@@ -17,6 +17,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   attr(:analytics_unavailable, :any, default: nil)
   attr(:analytics_loading, :boolean, default: false)
   attr(:time_domain, :any, default: nil)
+  attr(:usage_scope, :map, required: true)
+  attr(:usage_view, :map, default: nil)
+  attr(:usage_announcement, :string, default: nil)
+  attr(:usage_drill_down, :map, default: nil)
+  attr(:usage_drill_trigger, :string, default: nil)
 
   @spec build_order_selected(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_selected(assigns) do
@@ -74,6 +79,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           unavailable={@analytics_unavailable}
           loading={@analytics_loading}
           time_domain={@time_domain}
+        />
+
+        <BuildOrderUsage.build_order_usage
+          :if={@model.status != :empty}
+          scope={@usage_scope}
+          view={@usage_view}
+          announcement={@usage_announcement}
+          drill_down={@usage_drill_down}
+          drill_trigger={@usage_drill_trigger}
         />
 
         <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">

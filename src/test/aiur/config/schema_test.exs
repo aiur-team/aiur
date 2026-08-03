@@ -14,6 +14,44 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent backend config sections" do
+    test "retains an arbitrary registry-named backend section" do
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{"backend_configs" => %{"fake" => %{"command" => "fake-agent --serve", "region" => "test"}}}
+               })
+
+      assert settings.agent.backend_configs["fake"] == %{"command" => "fake-agent --serve", "region" => "test"}
+    end
+
+    test "DeepSeek routing requires an explicit backend opt-in" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"routing" => %{"5" => "deepseek"}}})
+
+      assert message =~ "disabled backend"
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "backend_configs" => %{"deepseek" => %{"enabled" => true}},
+                   "routing" => %{"5" => "deepseek"}
+                 }
+               })
+
+      assert settings.agent.routing[5] == "deepseek"
+    end
+  end
+
+  describe "prior-work continuation" do
+    test "defaults on for cold backend handoff and remains configurable" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.prior_work_continuation == true
+
+      assert {:ok, disabled} = Schema.parse(%{"agent" => %{"prior_work_continuation" => false}})
+      assert disabled.agent.prior_work_continuation == false
+    end
+  end
+
   describe "GitHub planning graph bounds" do
     test "the checked-in GitHub workflow fixture satisfies the planning bounds" do
       fixture = Path.expand("../../fixtures/test.aiurconfig", __DIR__)
@@ -90,18 +128,49 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub human merger allowlist" do
+    test "accepts explicit human GitHub logins and defaults to deny all" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.human_mergers == []
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{"human_mergers" => ["its-everdred"]}
+                 }
+               })
+
+      assert settings.tracker.github.human_mergers == ["its-everdred"]
+    end
+
+    test "rejects blank human merger allowlist entries" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"human_mergers" => [""]}}})
+
+      assert message =~ "tracker.github.human_mergers"
+    end
+  end
+
   describe "agent rate_limit_fallback" do
     test "defaults to claude" do
       assert {:ok, defaults} = Schema.parse(%{})
       assert defaults.agent.rate_limit_fallback == "claude"
     end
 
-    test "rejects a resumable target that could replace the codex session handle" do
+    test "rejects claude-repl as a resumable fallback target" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "claude-repl"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "must be \"claude\""
+      assert message =~ "eligible registered fallback backend"
+    end
+
+    test "accepts a non-default eligible primary/fallback pair" do
+      assert {:ok, settings} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "fake"}})
+
+      assert settings.agent.rate_limit_primary == "claude"
+      assert settings.agent.rate_limit_fallback == "fake"
     end
 
     test "accepts an empty string to disable" do
@@ -109,12 +178,19 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.agent.rate_limit_fallback == ""
     end
 
-    test "rejects codex as the fallback target" do
+    test "rejects a fallback equal to the primary" do
       assert {:error, {:invalid_workflow_config, message}} =
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "codex"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "must be \"claude\""
+      assert message =~ "must differ from rate_limit_primary"
+    end
+
+    test "rejects codex as a resumable fallback target" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "claude", "rate_limit_fallback" => "codex"}})
+
+      assert message =~ "eligible registered fallback backend"
     end
 
     test "rejects an unknown backend" do
@@ -122,7 +198,15 @@ defmodule Aiur.Config.SchemaTest do
                Schema.parse(%{"agent" => %{"rate_limit_fallback" => "bogus"}})
 
       assert message =~ "rate_limit_fallback"
-      assert message =~ "must be \"claude\""
+      assert message =~ "must be a registered backend"
+    end
+
+    test "rejects an unknown primary backend" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"rate_limit_primary" => "bogus"}})
+
+      assert message =~ "rate_limit_primary"
+      assert message =~ "must be a registered backend"
     end
   end
 
@@ -429,8 +513,10 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.observability.dashboard_enabled == true
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 1_000
+      assert settings.observability.telemetry_enabled == true
       assert settings.observability.telemetry_retention_max_bytes == 64 * 1024 * 1024
       assert settings.observability.telemetry_retention_max_age_days == 30
+      assert settings.observability.telemetry_retention_prune_interval_bytes == nil
     end
 
     test "Observability section accepts explicit values" do
@@ -440,16 +526,20 @@ defmodule Aiur.Config.SchemaTest do
             "dashboard_enabled" => false,
             "dashboard_writable" => true,
             "refresh_ms" => 500,
+            "telemetry_enabled" => false,
             "telemetry_retention_max_bytes" => 1_024,
-            "telemetry_retention_max_age_days" => 7
+            "telemetry_retention_max_age_days" => 7,
+            "telemetry_retention_prune_interval_bytes" => 128
           }
         })
 
       assert settings.observability.dashboard_enabled == false
       assert settings.observability.dashboard_writable == true
       assert settings.observability.refresh_ms == 500
+      assert settings.observability.telemetry_enabled == false
       assert settings.observability.telemetry_retention_max_bytes == 1_024
       assert settings.observability.telemetry_retention_max_age_days == 7
+      assert settings.observability.telemetry_retention_prune_interval_bytes == 128
     end
 
     test "Server section parses with defaults" do

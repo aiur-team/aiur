@@ -437,6 +437,8 @@ defmodule AiurWeb.BuildOrderPresenter do
       title: member.title,
       url: member.url,
       document_url: member.document_url,
+      document_path: member.document_path,
+      draft_body: member.draft_body,
       plan: plan,
       execution: execution,
       activity: Map.delete(activity, :generation),
@@ -466,7 +468,9 @@ defmodule AiurWeb.BuildOrderPresenter do
       phase: plan.phase,
       lane_icon: lane_icon,
       status_icon: status_icon,
-      status_text: status_icon.text
+      status_text: status_icon.text,
+      icon: member.icon,
+      planned?: member.draft?
     }
   end
 

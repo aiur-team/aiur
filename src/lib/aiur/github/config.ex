@@ -162,6 +162,34 @@ defmodule Aiur.GitHub.Config do
   end
 
   @doc """
+  Returns the explicit human-only merge allowlist. Unlike comment trust and
+  dispatch authorization, this list never inherits CODEOWNERS, bot accounts,
+  or other trusted identities. An absent list denies all mergers.
+  """
+  @spec human_mergers() :: [String.t()]
+  def human_mergers do
+    section_value("human_mergers")
+    |> normalize_logins()
+  end
+
+  @doc """
+  Returns true only when `login` is explicitly configured as a human merger.
+  Login matching is case-insensitive.
+  """
+  @spec human_merger_allowed?(String.t() | nil, [String.t()]) :: boolean()
+  def human_merger_allowed?(login, allowed \\ human_mergers())
+
+  def human_merger_allowed?(nil, _allowed), do: false
+
+  def human_merger_allowed?(login, allowed) when is_binary(login) and is_list(allowed) do
+    normalized_login = login |> String.trim() |> String.downcase()
+
+    Enum.any?(allowed, fn candidate ->
+      is_binary(candidate) and String.downcase(String.trim(candidate)) == normalized_login
+    end)
+  end
+
+  @doc """
   Whether opt-in repo-wide PR comment watching is enabled (`pr_watch.enabled`).
   When false, aiur only reacts to comments on its own `aiur/<id>` PRs.
   """

@@ -87,7 +87,10 @@ defmodule Aiur.Orchestrator.RemoteControlModeTest do
                teardown_fun: fn current_state, _running_entry -> current_state end,
                dispatch_fun: fn dispatch_state, _issue, nil, nil, _opts -> dispatch_state end,
                schedule_retry_fun: fn retry_state, issue_id, _attempt, metadata ->
-                 assert metadata.prior_work == false
+                 # The torn-down entry was already running and continuation is
+                 # on by default, so the retry carries the prior work rather
+                 # than cold-starting over it.
+                 assert metadata.prior_work == true
                  assert metadata.error == "remote-control redispatch did not start"
 
                  %{

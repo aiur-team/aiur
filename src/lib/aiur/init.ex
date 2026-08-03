@@ -78,7 +78,7 @@ defmodule Aiur.Init do
         Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
         Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, Resume.agents_from_config(config))
+        provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
 
       {:error, reason} ->
         {:error,
@@ -135,42 +135,74 @@ defmodule Aiur.Init do
         Scaffold.setup_env(io, deps, tracker)
         Scaffold.maybe_offer_gitignore(io, deps, location)
         Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, agents)
+
+        provision(
+          io,
+          deps,
+          tracker
+          |> Map.put(:base_branch, configured_base_branch(config_yaml))
+          |> Map.put(:config_path, path),
+          agents
+        )
 
       {:error, reason} ->
         {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
     end
   end
 
-  defp provision(io, deps, %{kind: "github"} = tracker, agents) do
+  defp provision(io, deps, tracker, agents, pair \\ default_rate_limit_pair())
+
+  defp provision(io, deps, %{kind: "github"} = tracker, agents, pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents) do
-        :ok -> final_screen(io)
-        :error -> :ok
-      end
+      provision_github_with_token(io, deps, tracker, agents, pair)
     else
       token_setup_instructions(io)
+      :ok
     end
-
-    :ok
   end
 
-  defp provision(io, deps, %{kind: "linear"} = tracker, agents) do
+  defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     linear_walkthrough(io, tracker)
     final_screen(io)
     :ok
   end
 
-  defp provision(io, deps, _tracker, agents) do
+  defp provision(io, deps, _tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
     :ok
   end
 
+  defp provision_github_with_token(io, deps, tracker, agents, pair) do
+    case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
+      :ok ->
+        finish_github_provision(io, deps, tracker, agents, pair)
+
+      {:error, _message} = error ->
+        error
+    end
+  end
+
+  defp finish_github_provision(io, deps, tracker, agents, pair) do
+    case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
+      :ok -> final_screen(io)
+      :error -> :ok
+    end
+
+    :ok
+  end
+
   defp github_token_present?(deps), do: deps.github_token.() not in [nil, ""]
+
+  defp default_rate_limit_pair, do: {Aiur.CodingAgent.default_backend(), Aiur.CodingAgent.default_rate_limit_fallback()}
+
+  defp rate_limit_pair(config) do
+    agent = Map.get(config, "agent", %{})
+    {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+  end
 
   @spec runtime_deps() :: deps()
   def runtime_deps, do: Runtime.runtime_deps()
@@ -217,10 +249,13 @@ defmodule Aiur.Init do
     io.puts.("       • Check the `repo` scope (Full control of private repositories)")
     io.puts.("     Fine-grained token:")
     io.puts.("       • Repository access → `Only select repositories` → choose this repo")
-    io.puts.("       • Permissions → Repository permissions, set each to `Read and write`:")
-    io.puts.("           – Issues  (creating labels needs this)")
-    io.puts.("           – Contents")
-    io.puts.("           – Pull requests")
+    io.puts.("       • Permissions → Repository permissions:")
+    io.puts.("           – Issues: Read and write  (creating labels needs this)")
+    io.puts.("           – Contents: Read and write (agent branch pushes need this)")
+    io.puts.("           – Pull requests: Read and write")
+    io.puts.("     Keep Administration and Actions permissions disabled for the daemon token.")
+    io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
+    io.puts.("     Do not add that operator token to #{@env_file_name} or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
     io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")
@@ -230,6 +265,15 @@ defmodule Aiur.Init do
     io.puts.("\n✅ aiur is set up. You can now:")
     io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
     io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
+  end
+
+  defp configured_base_branch(config_yaml) do
+    with {:ok, config} <- YamlElixir.read_from_string(config_yaml),
+         branch when is_binary(branch) and branch != "" <- get_in(config, ["tracker", "base_branch"]) do
+      branch
+    else
+      _ -> "main"
+    end
   end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do

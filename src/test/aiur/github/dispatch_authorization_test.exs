@@ -183,6 +183,65 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     refute denied.dispatch_authorized?
   end
 
+  test "reports a truncated 200 timeline body as :timeline_truncated, not an HTTP status error" do
+    :ok = AgentPubSub.subscribe_agent("42")
+
+    denied =
+      DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: fn _request ->
+          # What Transport.bounded_response_collector/1 produces when a page
+          # exceeds @max_timeline_response_bytes: a 200 whose body is cleared.
+          {:ok, %{status: 200, body: "", private: %{aiur_response_too_large: true}}}
+        end
+      )
+
+    refute denied.dispatch_authorized?
+
+    assert_receive {:alert,
+                    %{
+                      name: "github.dispatch_authorization.ambiguous",
+                      reason: reason,
+                      needs_attention: true
+                    }},
+                   500
+
+    assert reason =~ ":timeline_truncated"
+    refute reason =~ "{:github, :http, %{status: 200}}"
+  end
+
+  test "authorizes from a full per_page=100 timeline page without truncation" do
+    events =
+      for id <- 1..100 do
+        labeled_event(id, "agent:todo", "trusted", "2026-01-01T00:00:00Z")
+      end
+
+    authorized =
+      DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        token: "test-token",
+        request_fun: fn _request -> {:ok, %{status: 200, body: events}} end
+      )
+
+    assert authorized.dispatch_authorized?
+  end
+
+  test "requests a timeline page cap that holds per_page=100 events" do
+    # Measured real timelines run ~2.5-3.5 KiB per event; a full 100-event page
+    # needs ~350 KiB, so the response cap must comfortably exceed 64 KiB.
+    request_fun = fn request ->
+      assert request.max_response_bytes >= 100 * 3_500
+      {:ok, %{status: 200, body: [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]}}
+    end
+
+    assert DispatchAuthorization.authorize(issue(), "owner", "repo", "agent",
+             allowed_users: ["trusted"],
+             token: "test-token",
+             request_fun: request_fun
+           ).dispatch_authorized?
+  end
+
   test "fails closed when timeline pagination exceeds the provenance budget" do
     request_fun = fn %{url: url} ->
       next = "<#{url}&page=next>; rel=\"next\""

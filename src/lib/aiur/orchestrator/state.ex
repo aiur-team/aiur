@@ -14,6 +14,9 @@ defmodule Aiur.Orchestrator.State do
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
+          snapshot_key: GenServer.server() | nil,
+          snapshot_generation: reference() | nil,
+          snapshot_ready?: boolean(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
@@ -57,6 +60,14 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          ci_readiness_checked: boolean() | nil,
+          ci_readiness_unavailable_alerted: boolean() | nil,
+          ci_readiness_check_pid: pid() | nil,
+          ci_readiness_check_token: reference() | nil,
+          ci_readiness_retry_at_ms: integer() | nil,
+          ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
+          ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
+          global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
           control_lifecycle: ControlLifecycle.t()
         }
 
@@ -65,6 +76,8 @@ defmodule Aiur.Orchestrator.State do
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
+    :snapshot_key,
+    :snapshot_generation,
     :max_concurrent_agents,
     :session_max_concurrent_agents,
     :effective_concurrent_agents,
@@ -73,6 +86,13 @@ defmodule Aiur.Orchestrator.State do
     :tick_timer_ref,
     :tick_token,
     :initial_dispatch_cycle,
+    :ci_readiness_checked,
+    :ci_readiness_unavailable_alerted,
+    :ci_readiness_check_pid,
+    :ci_readiness_check_token,
+    :ci_readiness_retry_at_ms,
+    :ci_readiness_scope,
+    :ci_readiness_result,
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
@@ -102,6 +122,8 @@ defmodule Aiur.Orchestrator.State do
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
+    global_pause: %{paused_at: nil, source: nil},
+    snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{}
   ]
 
