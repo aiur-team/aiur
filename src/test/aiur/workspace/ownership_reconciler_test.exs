@@ -204,6 +204,55 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert Path.wildcard(path <> ".corrupt-*") == []
   end
 
+  test "a newer-version receipts file carrying an unknown atom fails closed instead of being wiped" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "ownership-newer-version-new-atom-#{System.unique_integer([:positive])}"
+      )
+
+    path = Path.join(root, "workspace-ownership.receipts")
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    File.mkdir_p!(root)
+
+    # Build the v2 file in a separate BEAM so the receipts body carries an atom
+    # this test VM has never loaded. A `:safe` decode refuses to create that
+    # atom, which used to fold the whole file into the corruption path and
+    # quarantine + re-initialize empty — silently wiping live ownership data on
+    # a downgrade. The store must instead read the version from the outer header
+    # and fail closed.
+    build_code = """
+    root = System.fetch_env!("RECEIPT_DIR")
+    new_phase_atom = String.to_atom("phase_new_#{System.unique_integer([:positive])}")
+    receipts = %{"live-ticket" => %{phase: new_phase_atom}}
+    contents = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, receipts})
+    File.write!(Path.join(root, "workspace-ownership.receipts"), contents)
+    IO.puts("v2-with-new-atom-written")
+    """
+
+    assert {output, 0} = fresh_beam(build_code, root)
+    assert output =~ "v2-with-new-atom-written"
+
+    # The store refuses to boot against a newer-version file even though its
+    # body could not be decoded here: the unknown atom is intact live data, not
+    # corruption.
+    Process.flag(:trap_exit, true)
+
+    assert {:error, {:workspace_ownership_store_unavailable, {:unsupported_receipt_version, 2}}} =
+             Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+
+    # The file is untouched: not wiped, and no forensic archive was created.
+    assert {:ok, written} = File.read(path)
+
+    assert {:aiur_workspace_ownership_receipts, 2, %{"live-ticket" => %{phase: phase_atom}}} =
+             :erlang.binary_to_term(written)
+
+    assert phase_atom |> Atom.to_string() =~ "phase_new_"
+    assert Path.wildcard(path <> ".corrupt-*") == []
+  end
+
   test "receipt operations report store loss instead of crashing callers" do
     root = Path.join(System.tmp_dir!(), "ownership-store-loss-#{System.unique_integer([:positive])}")
     store_name = Module.concat(__MODULE__, :StoppedStore)
