@@ -1438,6 +1438,16 @@ defmodule Aiur.AgentControlCLITest do
       assert String.starts_with?(output, "GLOBALLY PAUSED")
     end
 
+    test "full board surfaces prewarm: warming while the base warms", %{watch_root: root} do
+      with_prewarm_enabled()
+      with_repo_base_phase(:building)
+
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+
+      assert output =~ "PREWARM prewarm: warming phase=building"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
     test "full board shows paused label override for idle active-state tickets", %{
       orchestrator: pid,
       watch_root: root
