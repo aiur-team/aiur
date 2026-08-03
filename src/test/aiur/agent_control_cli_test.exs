@@ -696,11 +696,13 @@ defmodule Aiur.AgentControlCLITest do
 
       :sys.replace_state(pid, fn state -> %{state | phase: phase, base_path: "/tmp/base"} end)
 
-      on_exit(fn ->
-        if Process.alive?(pid), do: :sys.replace_state(pid, fn _state -> original end)
-      end)
+      on_exit(fn -> restore_repo_base(pid, original) end)
 
       :ok
+    end
+
+    defp restore_repo_base(pid, original) do
+      if Process.alive?(pid), do: :sys.replace_state(pid, fn _state -> original end)
     end
 
     test "status surfaces prewarm: warming while the base build is in flight" do
