@@ -24,6 +24,15 @@ defmodule Aiur.Orchestrator.State do
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
           },
+          capacity_hold:
+            %{
+              signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
+              measured: term(),
+              threshold: term(),
+              held_since_ms: integer(),
+              alerted?: boolean()
+            }
+            | nil,
           next_poll_due_at_ms: integer() | nil,
           poll_check_in_progress: boolean() | nil,
           tick_timer_ref: reference() | nil,
@@ -99,6 +108,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_scope,
     :ci_readiness_result,
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+    capacity_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{
