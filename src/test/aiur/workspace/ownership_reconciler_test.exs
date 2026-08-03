@@ -70,18 +70,28 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert :ok = Ownership.release(replacement, second_registry_name)
   end
 
-  test "a corrupt receipt store fails closed instead of discarding ownership" do
+  test "a corrupt receipt store is quarantined and re-initialized instead of blocking startup" do
     root = Path.join(System.tmp_dir!(), "ownership-corrupt-#{System.unique_integer([:positive])}")
     store_name = Module.concat(__MODULE__, :CorruptStore)
+    path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
 
     File.mkdir_p!(root)
-    File.write!(Path.join(root, "workspace-ownership.receipts"), :erlang.term_to_binary(:wrong_format))
-    Process.flag(:trap_exit, true)
+    corrupt = :erlang.term_to_binary(:wrong_format)
+    File.write!(path, corrupt)
 
-    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
-             Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
+    {:ok, store} = Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
+
+    assert {:ok, %{}} = Store.all(store)
+
+    # the corrupt bytes are preserved for forensics under a .corrupt-* sibling
+    assert [quarantined] = Path.wildcard(path <> ".corrupt-*")
+    assert File.read!(quarantined) == corrupt
+
+    # and the live store is a fresh, writable store again
+    assert :ok = Store.put("ticket", %{phase: :active}, store)
+    assert {:ok, %{"ticket" => %{phase: :active}}} = Store.all(store)
   end
 
   test "a v1 receipt reloads in a fresh BEAM before receipt atoms are loaded" do
@@ -151,25 +161,31 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert output =~ "receipt-loaded"
   end
 
-  test "malformed bytes and unsupported receipt versions fail closed" do
+  test "malformed bytes and unsupported receipt versions are quarantined and re-initialized" do
     root = Path.join(System.tmp_dir!(), "ownership-invalid-#{System.unique_integer([:positive])}")
     path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
 
     File.mkdir_p!(root)
-    Process.flag(:trap_exit, true)
 
     File.write!(path, <<131, 104>>)
 
-    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
-             Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+    {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+    assert {:ok, %{}} = Store.all(store)
+    assert [malformed_quarantined] = Path.wildcard(path <> ".corrupt-*")
+    assert File.read!(malformed_quarantined) == <<131, 104>>
 
     unsupported = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, %{}})
     File.write!(path, unsupported)
 
-    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
-             Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+    {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+    assert {:ok, %{}} = Store.all(store)
+
+    assert [unsupported_quarantined] =
+             Path.wildcard(path <> ".corrupt-*") -- [malformed_quarantined]
+
+    assert File.read!(unsupported_quarantined) == unsupported
   end
 
   test "receipt operations report store loss instead of crashing callers" do
