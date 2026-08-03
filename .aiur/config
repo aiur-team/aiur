@@ -8,6 +8,7 @@ tracker:
     - merging
   terminal_states:
     - done
+    - closed
     - cancelled
     - canceled
   github:

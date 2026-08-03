@@ -573,6 +573,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     tracker_base_branch = Keyword.get(config, :tracker_base_branch)
+    tracker_terminal_fence_grace_seconds = Keyword.get(config, :tracker_terminal_fence_grace_seconds)
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
@@ -639,6 +640,8 @@ defmodule Aiur.TestSupport do
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "  base_branch: #{yaml_value(tracker_base_branch)}",
+        tracker_terminal_fence_grace_seconds &&
+          "  terminal_fence_grace_seconds: #{yaml_value(tracker_terminal_fence_grace_seconds)}",
         tracker_github_yaml(tracker_kind, config),
         tracker_linear_yaml(tracker_kind, config)
       ]
