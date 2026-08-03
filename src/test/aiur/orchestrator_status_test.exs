@@ -3809,6 +3809,26 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
   end
 
+  test "freezing the poll cycle fences a stale :run_poll_cycle so no live poll runs" do
+    orchestrator_name = Module.concat(__MODULE__, :FrozenPollCycleOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
+
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+
+    # The initial tick schedules a one-shot `:run_poll_cycle` (~20ms render
+    # delay) that is not token-fenced; the freeze must make it (and any
+    # explicit re-send) a no-op. A live poll always schedules a fresh tick via
+    # `Lifecycle.schedule_tick/2`, so `tick_timer_ref` staying nil proves no
+    # poll ran (and the load envelope was not re-armed).
+    send(pid, :run_poll_cycle)
+    Process.sleep(50)
+
+    state = :sys.get_state(pid)
+    assert state.tick_timer_ref == nil
+    assert state.poll_frozen == true
+  end
+
   test "chat-send to a paused agent auto-resumes it when a slot is free" do
     orchestrator_name = Module.concat(__MODULE__, :ChatPausedAutoResumeOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
@@ -4220,7 +4240,11 @@ defmodule Aiur.OrchestratorStatusTest do
         | tick_timer_ref: nil,
           tick_token: make_ref(),
           next_poll_due_at_ms: nil,
-          poll_check_in_progress: false
+          poll_check_in_progress: false,
+          # The initial tick schedules a one-shot `:run_poll_cycle` (20ms render
+          # delay) that is not token-fenced, so it can fire a live poll after
+          # this freeze and ramp the load envelope mid-test. Fence it here.
+          poll_frozen: true
       }
     end)
   end
