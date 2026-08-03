@@ -364,44 +364,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def maybe_choose_under_load(%State{} = state, issues, choose_fun, opts)
       when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
     now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
-    hard_threshold = Config.max_load_average()
-    target = Config.target_load_average()
-    run_queue_threshold = Config.run_queue_threshold()
-    memory_threshold_mb = Config.min_free_memory_mb()
-    schedulers = System.schedulers_online()
-    load = DispatchPolicy.read_load(hard_threshold, target)
-    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold)
-    available_memory_mb = DispatchPolicy.read_memory(memory_threshold_mb)
-    fd_sample = DispatchPolicy.read_file_descriptors()
-    build_status = DispatchPolicy.read_build_status()
-    provider_backends = DispatchPolicy.read_provider_backends()
-
+    probes = admission_probes()
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
       DispatchPolicy.update_load_envelope(
         state,
-        load,
-        target,
-        schedulers,
+        probes.load,
+        probes.target,
+        probes.schedulers,
         now_ms,
-        cpu_snapshot,
+        probes.cpu_snapshot,
         queued_demand?
       )
 
-    case DispatchPolicy.admission_gate(%{
-           memory_mb: available_memory_mb,
-           memory_threshold_mb: memory_threshold_mb,
-           fd_sample: fd_sample,
-           runnable: runnable_from(cpu_snapshot),
-           run_queue_threshold: run_queue_threshold,
-           schedulers: schedulers,
-           load: load,
-           load_threshold: hard_threshold,
-           build_status: build_status,
-           provider_backends: provider_backends,
-           queued_demand?: queued_demand?
-         }) do
+    case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
         reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts)
 
@@ -409,13 +386,83 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           reconcile_capacity_hold(
             state,
-            envelope_hold(state, load, target, schedulers, queued_demand?),
+            envelope_hold(state, probes.load, probes.target, probes.schedulers, queued_demand?),
             now_ms,
             opts
           )
 
         choose_fun.(state, issues)
     end
+  end
+
+  # Shared host-pressure probe reads for the normal dispatch path
+  # (`maybe_choose_under_load/4`) and the auto-resume admission mirror
+  # (`auto_resume_admission/1`). Every signal fails open when disabled or
+  # unavailable, so an explicit-disable config never touches a Linux-specific
+  # probe. `queued_demand?` is caller-specific (the normal path derives it from
+  # the whole board; the auto-resume mirror treats the pending ticket itself as
+  # the demand) and is injected at the gate.
+  defp admission_probes do
+    hard_threshold = Config.max_load_average()
+    target = Config.target_load_average()
+    run_queue_threshold = Config.run_queue_threshold()
+    memory_threshold_mb = Config.min_free_memory_mb()
+    schedulers = System.schedulers_online()
+    load = DispatchPolicy.read_load(hard_threshold, target)
+    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold)
+
+    %{
+      memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
+      memory_threshold_mb: memory_threshold_mb,
+      fd_sample: DispatchPolicy.read_file_descriptors(),
+      runnable: runnable_from(cpu_snapshot),
+      run_queue_threshold: run_queue_threshold,
+      schedulers: schedulers,
+      load: load,
+      load_threshold: hard_threshold,
+      build_status: DispatchPolicy.read_build_status(),
+      provider_backends: DispatchPolicy.read_provider_backends(),
+      cpu_snapshot: cpu_snapshot,
+      target: target
+    }
+  end
+
+  @doc false
+  # Auto-resume admission mirror (#1453 review P1). The normal dispatch path
+  # gates new work on the global pause switch, concurrent-agent capacity, the
+  # prewarm hold, and the host-pressure admission signals; the transient
+  # auto-resume path used to bypass all of them and spawn directly via
+  # `dispatch_issue/2`. This runs the same gates so an automatic resume can
+  # never spawn during an operator halt or an over-capacity / gated fleet.
+  # Returns `:dispatch` or `{:hold, reason}` (an atom naming the binding
+  # signal). Runs inside the orchestrator GenServer process, so no concurrent
+  # dispatch can interleave between this check and the subsequent spawn.
+  @spec auto_resume_admission(State.t()) :: :dispatch | {:hold, atom()}
+  def auto_resume_admission(%State{globally_paused: true}),
+    do: {:hold, :global_pause}
+
+  def auto_resume_admission(%State{} = state) do
+    cond do
+      Slots.available_slots(state) == 0 ->
+        {:hold, :max_concurrent_agents}
+
+      prewarm_hold?() ->
+        {:hold, :prewarm}
+
+      true ->
+        probes = admission_probes()
+
+        case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true)) do
+          :dispatch -> :dispatch
+          {:hold, reason} -> {:hold, reason.signal}
+        end
+    end
+  end
+
+  defp prewarm_hold? do
+    enabled? = Config.prewarm_enabled?()
+    phase = if enabled?, do: trigger_and_status(), else: :ready
+    DispatchPolicy.prewarm_gate(enabled?, phase) == :hold
   end
 
   @spec choose_issues(State.t(), [Issue.t()]) :: State.t()
@@ -842,15 +889,24 @@ defmodule Aiur.Orchestrator.Dispatcher do
   The supported exit from the lifetime dispatch latch: clears both the
   in-memory thrash entry and the durable `dispatch-budgets.json` entry so a
   latched ticket returns to dispatchable without hand-editing the store.
+
+  Returns `{state, :ok}` when the durable clear succeeded, or
+  `{state, {:error, reason}}` when the in-memory entry was cleared but the
+  durable store write failed — the ticket is dispatchable this generation but
+  would re-latch on restart, and the caller must surface the error rather than
+  report success (#1453 review P2b).
   """
-  @spec reset_lifetime_budget(State.t(), String.t()) :: State.t()
+  @spec reset_lifetime_budget(State.t(), String.t()) :: {State.t(), :ok | {:error, term()}}
   def reset_lifetime_budget(%State{} = state, issue_id) when is_binary(issue_id) do
     # Fully delete the in-memory entry (unlike `reset_thrash_budget/2`, which
     # deliberately preserves lifetime so an operator resume cannot refund it) —
     # this is the documented operator exit, and it must clear both copies.
     state = put_thrash_budget(state, Map.delete(thrash_budget(state), issue_id))
-    _ = DispatchBudgetStore.reset(issue_id)
-    state
+
+    case DispatchBudgetStore.reset(issue_id) do
+      :ok -> {state, :ok}
+      {:error, reason} -> {state, {:error, reason}}
+    end
   end
 
   @doc """

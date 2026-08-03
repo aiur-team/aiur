@@ -24,7 +24,7 @@ defmodule Aiur.Orchestrator.AutoResume do
   require Logger
 
   alias Aiur.GitHub.Errors
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.{Alerts, Issue, Tracker}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
 
   @backoff_ms [120_000, 300_000, 900_000]
@@ -93,12 +93,32 @@ defmodule Aiur.Orchestrator.AutoResume do
   """
   @spec schedule(State.t(), String.t(), cause()) :: State.t()
   def schedule(%State{} = state, issue_id, cause) when is_binary(issue_id) and is_atom(cause) do
+    schedule(state, issue_id, cause, &Alerts.emit_system/2)
+  end
+
+  @doc false
+  # Testable variant with an injected alert emitter; the production path routes
+  # through `Alerts.emit_system/2`.
+  @spec schedule(State.t(), String.t(), cause(), (String.t(), keyword() -> term())) :: State.t()
+  def schedule(%State{} = state, issue_id, cause, emit_fun)
+      when is_binary(issue_id) and is_atom(cause) and is_function(emit_fun, 2) do
     entries = state.auto_resume || %{}
     previous = Map.get(entries, issue_id) || %{}
     attempt = Map.get(previous, :attempt, 0) + 1
 
     if attempt > @max_attempts do
       Logger.warning("Transient auto-resume exhausted for issue_id=#{issue_id} attempts=#{@max_attempts} cause=#{cause}; parking for operator recovery")
+
+      emit_fun.("ticket.#{issue_id}.agent.auto_resume_exhausted",
+        message:
+          "Transient auto-resume exhausted for issue #{issue_id} after #{@max_attempts} " <>
+            "attempts (cause=#{cause}); the ticket is parked for operator recovery.",
+        reason:
+          "Automatic re-dispatch exhausted its bounded budget for issue #{issue_id} " <>
+            "(cause=#{cause}). `aiurdev resume <id>` or an operator state flip is required.",
+        needs_attention: true,
+        severity: "warning"
+      )
 
       %{state | auto_resume: Map.delete(entries, issue_id)}
     else
@@ -136,7 +156,11 @@ defmodule Aiur.Orchestrator.AutoResume do
   Reconciles due automatic resumes once per poll cycle, after the tracker
   poll has refreshed `last_polled_issues`. A due ticket is re-dispatched only
   when it is still alive (not terminal, not running, not claimed), not
-  operator-paused, and not held by the lifetime dispatch latch.
+  operator-paused, and not held by the lifetime dispatch latch. Dispatch is
+  gated by the same admission path as normal dispatch (global pause, capacity,
+  prewarm, host pressure); when a gate holds the entry is deferred without
+  spending a bounded attempt, so a fleet that is briefly paused or busy never
+  burns the ticket's auto-resume budget (#1453).
   """
   @spec maybe_resume(State.t(), integer(), keyword()) :: State.t()
   def maybe_resume(%State{} = state, now_ms, opts \\ []) do
@@ -192,18 +216,41 @@ defmodule Aiur.Orchestrator.AutoResume do
         restore_state(state, issue, opts)
       end
 
-    dispatch_fun = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/2)
-    next_state = dispatch_fun.(state, issue)
+    admission_fun = Keyword.get(opts, :admission_fun, &Dispatcher.auto_resume_admission/1)
 
-    if MapSet.member?(next_state.claimed, issue.id) or Map.has_key?(next_state.running, issue.id) do
-      Logger.info("Transient auto-resume dispatched #{State.issue_context(issue)}")
-      %{next_state | auto_resume: Map.delete(next_state.auto_resume, issue.id)}
-    else
-      # Dispatch did not start (no worker slot / thrash window / global pause).
-      # Advance the backoff and retry on a later poll instead of parking.
-      Logger.info("Transient auto-resume deferred for #{State.issue_context(issue)} cause=#{entry.cause}")
-      schedule(next_state, issue_id, entry.cause)
+    case admission_fun.(state) do
+      {:hold, reason} ->
+        # A non-causal deferral: the fleet is globally paused, at capacity, in a
+        # prewarm hold, or under host-pressure admission. Do NOT advance the
+        # bounded attempt budget — the original transient cause may already be
+        # clear, and burning a retry on an operator halt or a busy fleet would
+        # park the ticket after a handful of irrelevant holds (#1453 review P1/P2a).
+        defer_for_admission(state, issue_id, entry, reason)
+
+      :dispatch ->
+        dispatch_fun = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/2)
+        next_state = dispatch_fun.(state, issue)
+
+        if MapSet.member?(next_state.claimed, issue.id) or Map.has_key?(next_state.running, issue.id) do
+          Logger.info("Transient auto-resume dispatched #{State.issue_context(issue)}")
+          %{next_state | auto_resume: Map.delete(next_state.auto_resume, issue.id)}
+        else
+          # Admission passed but the dispatch itself refused (thrash window,
+          # backend usage limit, worker-capacity race, spawn failure) — a real
+          # re-dispatch attempt, so advance the bounded backoff.
+          Logger.info("Transient auto-resume deferred for #{State.issue_context(issue)} cause=#{entry.cause}")
+          schedule(next_state, issue_id, entry.cause)
+        end
     end
+  end
+
+  # Keeps the entry with its current attempt count so a later poll re-checks
+  # admission once the hold lifts. The entry is already due, so the next poll
+  # re-runs `maybe_resume/3` against it without spending a bounded attempt.
+  defp defer_for_admission(%State{} = state, issue_id, entry, reason) do
+    Logger.info("Transient auto-resume admission deferred for issue_id=#{issue_id} reason=#{inspect(reason)}")
+
+    %{state | auto_resume: Map.put(state.auto_resume, issue_id, entry)}
   end
 
   # An `agent:error` ticket (from retry exhaustion on a transient cause) must

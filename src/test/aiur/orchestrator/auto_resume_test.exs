@@ -81,6 +81,12 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
     %{state | claimed: MapSet.put(state.claimed, issue.id)}
   end
 
+  # Tests that exercise the dispatch path inject a permissive admission gate so
+  # the result does not depend on the host's live load/FD sample; the real gate
+  # (`Dispatcher.auto_resume_admission/1`) is unit-tested separately and the
+  # hold-deferral behaviour is covered by the injected-hold tests below.
+  defp admit, do: fn _state -> :dispatch end
+
   describe "classify/1" do
     test "classifies transient tracker failures" do
       assert AutoResume.classify({:github, :rate_limited, %{status: 403}}) == :rate_limit
@@ -132,6 +138,65 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       state = AutoResume.schedule(state, @issue_id, :transient_tracker)
       refute Map.has_key?(state.auto_resume, @issue_id)
     end
+
+    test "exhausting the attempt budget emits the operator alert the docstring promises" do
+      # #1453 review P2a: `schedule/3` documents "an operator alert is emitted"
+      # once the bounded budget is spent, but the original implementation only
+      # logged. Exhaustion must surface as a needs-attention alert so a parked
+      # ticket is diagnosable rather than silently dropped.
+      parent = self()
+
+      state =
+        Enum.reduce(1..AutoResume.max_attempts(), %State{}, fn _i, acc ->
+          AutoResume.schedule(acc, @issue_id, :rate_limit)
+        end)
+
+      state =
+        AutoResume.schedule(state, @issue_id, :rate_limit, fn name, opts ->
+          send(parent, {:exhaustion_alert, name, opts})
+          :ok
+        end)
+
+      assert_receive {:exhaustion_alert, "ticket.#{@issue_id}.agent.auto_resume_exhausted", opts}
+      assert Keyword.get(opts, :needs_attention) == true
+      refute Map.has_key?(state.auto_resume, @issue_id)
+    end
+  end
+
+  describe "Dispatcher.auto_resume_admission/1" do
+    @tag config: @enabled
+    test "holds during a global pause" do
+      assert {:hold, :global_pause} = Dispatcher.auto_resume_admission(%State{globally_paused: true})
+    end
+
+    @tag config: @enabled
+    test "holds at concurrent-agent capacity" do
+      state = %State{
+        max_concurrent_agents: 1,
+        running: %{"other" => %{control: %{status: :working}}}
+      }
+
+      assert {:hold, :max_concurrent_agents} = Dispatcher.auto_resume_admission(state)
+    end
+
+    @tag config: @enabled
+    test "admits a free-capacity, unpaused fleet without host-pressure holds" do
+      # Pin the host probes so the result does not depend on the CI host's live
+      # load/FD sample; with free capacity the mirror of the normal admission
+      # path admits, so the auto-resume can dispatch.
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn ->
+        %{pid: "1", used: 10, limit: 100_000, available: 99_990, headroom_ratio: 0.9999}
+      end)
+
+      on_exit(fn ->
+        Application.delete_env(:aiur, :loadavg_source_override)
+        Application.delete_env(:aiur, :file_descriptor_sample_override)
+      end)
+
+      assert :dispatch = Dispatcher.auto_resume_admission(%State{})
+    end
   end
 
   describe "maybe_resume/3" do
@@ -143,6 +208,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
       state =
         AutoResume.maybe_resume(state, now_ms,
+          admission_fun: admit(),
           update_state_fun: fn identifier, target ->
             send(parent, {:restored, identifier, target})
             :ok
@@ -162,6 +228,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
       state =
         AutoResume.maybe_resume(state, now_ms,
+          admission_fun: admit(),
           update_state_fun: fn _id, _target -> flunk("rework ticket must not be relabelled") end,
           dispatch_fun: &claim_fun/2
         )
@@ -214,7 +281,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       refute Map.has_key?(state.auto_resume, @issue_id)
 
       # Operator clears the latch through the supported exit (both copies).
-      state = Dispatcher.reset_lifetime_budget(state, @issue_id)
+      {state, :ok} = Dispatcher.reset_lifetime_budget(state, @issue_id)
       assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
 
       # A fresh transient failure schedules a new auto-resume, which now
@@ -229,6 +296,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
       state =
         AutoResume.maybe_resume(state, System.monotonic_time(:millisecond),
+          admission_fun: admit(),
           update_state_fun: fn _id, _target -> :ok end,
           dispatch_fun: &claim_fun/2
         )
@@ -255,6 +323,7 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
 
       state =
         AutoResume.maybe_resume(state, now_ms,
+          admission_fun: admit(),
           update_state_fun: fn _id, _target -> :ok end,
           dispatch_fun: fn state, _issue -> state end
         )
@@ -262,6 +331,55 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       # Not claimed; the entry was rescheduled with a bumped attempt.
       refute MapSet.member?(state.claimed, @issue_id)
       assert %{attempt: 2, cause: :transient_tracker} = state.auto_resume[@issue_id]
+    end
+
+    @tag config: @enabled
+    test "an admission hold defers without spending a bounded attempt" do
+      # #1453 review P1/P2a: when the fleet is globally paused, at capacity, or
+      # under a prewarm/load hold, auto-resume must not spawn AND must not burn
+      # one of its 3 bounded attempts on a non-causal deferral — the ticket
+      # keeps its budget and re-checks on the next poll once the hold lifts.
+      state = due_state(issue())
+      now_ms = System.monotonic_time(:millisecond)
+
+      state =
+        AutoResume.maybe_resume(state, now_ms,
+          admission_fun: fn _state -> {:hold, :global_pause} end,
+          dispatch_fun: fn _s, _i -> flunk("admission hold must not dispatch") end
+        )
+
+      refute MapSet.member?(state.claimed, @issue_id)
+      # Same attempt retained; the entry stays due for the next poll.
+      assert %{attempt: 1, cause: :transient_tracker} = state.auto_resume[@issue_id]
+
+      state =
+        AutoResume.maybe_resume(state, now_ms,
+          admission_fun: fn _state -> {:hold, :max_concurrent_agents} end,
+          dispatch_fun: fn _s, _i -> flunk("admission hold must not dispatch") end
+        )
+
+      refute MapSet.member?(state.claimed, @issue_id)
+      assert %{attempt: 1} = state.auto_resume[@issue_id]
+
+      # A prewarm / host-pressure hold defers the same way (no attempt burned).
+      state =
+        AutoResume.maybe_resume(state, now_ms,
+          admission_fun: fn _state -> {:hold, :prewarm} end,
+          dispatch_fun: fn _s, _i -> flunk("admission hold must not dispatch") end
+        )
+
+      refute MapSet.member?(state.claimed, @issue_id)
+      assert %{attempt: 1} = state.auto_resume[@issue_id]
+
+      # Once the hold lifts, the retained entry dispatches on a later poll.
+      state =
+        AutoResume.maybe_resume(state, now_ms,
+          admission_fun: admit(),
+          dispatch_fun: &claim_fun/2
+        )
+
+      assert MapSet.member?(state.claimed, @issue_id)
+      refute Map.has_key?(state.auto_resume, @issue_id)
     end
 
     @tag config: @enabled

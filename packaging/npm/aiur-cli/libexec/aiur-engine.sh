@@ -1908,6 +1908,14 @@ cmd_reset_budget() {
     exit 64
   fi
 
+  # --all is rejected (exit 64 with guidance) rather than silently no-opping:
+  # clearing every ticket's latch at once is not a documented operation and
+  # would mask which tickets are structurally stuck (#1453 review P2d).
+  if [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: reset-budget does not accept --all; name ticket IDs explicitly (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
   local expression
   expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
   run_control_rpc "$expression"

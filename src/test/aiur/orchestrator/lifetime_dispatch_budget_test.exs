@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   alias Aiur.{DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Orchestrator.Dispatcher
+  alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume
   alias Aiur.Workflow
 
@@ -76,6 +77,10 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   @enabled """
   tracker:
     kind: memory
+    active_states:
+      - todo
+      - in-progress
+      - rework
   agent:
     kind: codex
     max_dispatches_per_ticket: 10
@@ -229,7 +234,7 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     state = dispatch_n(%Orchestrator.State{}, 10)
     assert {:lifetime, 10, 10} = Dispatcher.dispatch_latch_status(state, @issue_id)
 
-    state = Dispatcher.reset_lifetime_budget(state, @issue_id)
+    {state, :ok} = Dispatcher.reset_lifetime_budget(state, @issue_id)
 
     assert :none = Dispatcher.dispatch_latch_status(state, @issue_id)
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
@@ -293,6 +298,83 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
+  test "a durable reset failure is surfaced instead of reporting false success" do
+    # #1453 review P2b: `reset_lifetime_budget/2` used to discard the durable
+    # store's result, so `reset-budget` reported success while the latch would
+    # survive a restart. A failed durable write must surface as an error.
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    # Point the durable store at an unreadable path so the reset write fails.
+    unreadable_path = Path.join(Path.dirname(DispatchBudgetStore.path_for()), "is-a-directory")
+    File.mkdir_p!(unreadable_path)
+    Application.put_env(:aiur, :dispatch_budget_store_path, unreadable_path)
+
+    assert {:reply, {:error, {:budget_reset_failed, _reason}}, reset_state} =
+             PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+
+    # The in-memory latch was cleared this generation, but the failure is
+    # reported so the operator knows it will re-latch on restart.
+    assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
+  end
+
+  @tag config: @enabled
+  test "reset-budget restores a latched agent:error ticket to a dispatchable state" do
+    # #1453 review P2c: a latched ticket is durably moved to `agent:error`
+    # (not an active state), so clearing the budget alone left it
+    # undispatchable. `reset_dispatch_budget_call` must also restore it to
+    # `rework` so the reset actually returns the ticket to the board.
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "error"}
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    assert {:reply, {:ok, :reset}, reset_state} =
+             PauseResume.reset_dispatch_budget_call(state, "repo#lifetime")
+
+    assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
+    assert %Issue{state: "rework"} = reset_state.last_polled_issues[@issue_id]
+    assert DispatchPolicy.should_dispatch_issue?(reset_state.last_polled_issues[@issue_id], reset_state)
+  end
+
+  @tag config: @enabled
+  test "rework dispatchability is gated by the lifetime latch, not the rework state" do
+    # #1453 review P2f: the original acceptance test only asserted the
+    # (unchanged) `should_dispatch_issue?` predicate, which passed even before
+    # the fix — rework was already an active state. This proves the latch is
+    # the dispatch gate: the SAME rework ticket dispatches when not latched,
+    # is refused by the dispatch gate when latched, and dispatches again after
+    # the supported reset.
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Rework", state: "rework"}
+    state = %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+
+    # Not latched: a full dispatch candidate with free capacity.
+    assert DispatchPolicy.should_dispatch_issue?(issue, state)
+
+    # Latched at the cap: the dispatch gate refuses even though the rework
+    # ticket is otherwise a valid candidate — the latch is the gate.
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+
+    latched =
+      state
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    assert {:lifetime, 10, 10} = Dispatcher.dispatch_latch_status(latched, @issue_id)
+    assert {:trip, _} = Dispatcher.check_thrash_budget(latched, @issue_id, @window_ms + 1)
+
+    # After the supported reset, the same rework ticket is dispatchable again.
+    {reset_state, :ok} = Dispatcher.reset_lifetime_budget(latched, @issue_id)
+    assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
+    assert DispatchPolicy.should_dispatch_issue?(issue, reset_state)
   end
 
   @tag config: @enabled

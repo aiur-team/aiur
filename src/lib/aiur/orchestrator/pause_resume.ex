@@ -57,9 +57,28 @@ defmodule Aiur.Orchestrator.PauseResume do
   def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
     case find_issue_id_by_identifier(state, issue_identifier) do
       {:ok, issue_id} ->
-        state = Dispatcher.reset_lifetime_budget(state, issue_id)
-        Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue_id}")
-        {:reply, {:ok, :reset}, state}
+        issue = Map.get(state.last_polled_issues, issue_id)
+        was_latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue_id))
+        {state, reset_result} = Dispatcher.reset_lifetime_budget(state, issue_id)
+
+        case reset_result do
+          :ok ->
+            case restore_latched_error_state(state, issue, was_latched?) do
+              {:ok, state} ->
+                Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue_id}")
+                {:reply, {:ok, :reset}, state}
+
+              {:error, reason} ->
+                Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
+
+                {:reply, {:error, {:state_restore_failed, reason}}, state}
+            end
+
+          {:error, reason} ->
+            Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
+
+            {:reply, {:error, {:budget_reset_failed, reason}}, state}
+        end
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -69,6 +88,29 @@ defmodule Aiur.Orchestrator.PauseResume do
   def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
     {:reply, {:error, :invalid_identifier}, state}
   end
+
+  # A lifetime-latched ticket is durably moved to `agent:error` when it trips
+  # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
+  # so clearing the budget alone leaves the ticket undispatchable. Restore a
+  # latched error ticket to `rework` (the active state the latch most commonly
+  # trips from) so `reset-budget` actually returns it to dispatchable
+  # (#1453 review P2c). Non-error or non-latched tickets pass through untouched.
+  defp restore_latched_error_state(state, %Issue{state: tracker_state} = issue, true) do
+    if DispatchPolicy.normalize_issue_state(tracker_state) == "error" and is_binary(issue.identifier) do
+      case Tracker.update_issue_state(issue.identifier, "rework") do
+        :ok ->
+          refreshed = %{issue | state: "rework"}
+          {:ok, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, state}
+    end
+  end
+
+  defp restore_latched_error_state(state, _issue, _was_latched?), do: {:ok, state}
 
   defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
     case Enum.find(state.last_polled_issues, fn

@@ -52,9 +52,12 @@ agent:
   # dispatches that survived provisioning (preflight/prewarm/tracker-auth
   # failures leave it unchanged) and `aiurdev reset-budget <id>` is the
   # supported exit. Hitting the cap signals a structurally-stuck ticket that
-  # needs an operator, not more turns. Raise/remove (0) freely if a windowed
-  # thrash guard (`codex.thrash_max_per_window`) is the only backstop wanted.
-  max_dispatches_per_ticket: 20
+  # needs an operator, not more turns. 40 (raised from the pre-#1453 20): with
+  # the counter committed-only, a legitimate multi-round rework ticket plus
+  # normal churn stays comfortably under it while a genuinely-stuck ticket
+  # still latches. Set 0 to rely solely on the windowed thrash guard
+  # (`codex.thrash_max_per_window`).
+  max_dispatches_per_ticket: 40
   # Per-complexity turn ceiling; a level set here replaces `max_turns` for that
   # ticket (it is an override, not a floor). Only the trivial levels are tightened —
   # 4 and 5 are deliberately left unset so they keep falling back to `max_turns: 12`
