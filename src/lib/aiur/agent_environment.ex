@@ -225,16 +225,25 @@ defmodule Aiur.AgentEnvironment do
     {Path.join(root, ".aiur-hex"), Path.join(root, ".aiur-mix"), Path.join(root, ".aiur-npm-cache")}
   end
 
+  @doc """
+  The neutral repo identity used when the configured tracker has no repository
+  slug (Linear, memory, or other non-GitHub trackers). Sidecars and the state
+  node path then resolve to a stable shared location under the state root
+  instead of a per-workspace path, and hooks receive the same value as agents.
+  """
+  @spec neutral_repo_url() :: String.t()
+  def neutral_repo_url, do: "unknown/unknown"
+
   defp repo_url(opts) do
     Keyword.get_lazy(opts, :repo_url, fn ->
       case Aiur.GitHub.Config.repo() do
         repo when is_binary(repo) and repo != "" -> "https://github.com/#{repo}.git"
-        _ -> "unknown/unknown"
+        _ -> neutral_repo_url()
       end
     end)
     |> case do
       url when is_binary(url) and url != "" -> url
-      _ -> "unknown/unknown"
+      _ -> neutral_repo_url()
     end
   end
 

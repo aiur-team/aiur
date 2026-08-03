@@ -640,7 +640,11 @@ defmodule Aiur.RepoBaseTest do
       assert {:ok, ["first-migration-one", "first-migration-two"]} = Findings.slugs()
       assert File.dir?(Path.join(RepoBase.base_path(repo), ".git"))
       refute File.dir?(Path.join(RepoBase.repo_path(repo), ".git"))
-      refute File.exists?(RepoBase.repo_path(repo) <> ".migration-lock")
+      # The SQLite migration lease is the real cross-process lock: the file is
+      # only created when with_migration_lock runs, so this is a non-vacuous
+      # proof the lease was exercised, and both concurrent appends above
+      # succeeding proves the exclusive transaction was released afterward.
+      assert File.regular?(RepoBase.repo_path(repo) <> ".migration-lock.sqlite3")
     end
 
     test "is idempotent when main has not advanced", %{origin: origin, base: base} do
@@ -812,6 +816,30 @@ defmodule Aiur.RepoBaseTest do
       assert RepoBase.retros_path(repo) |> Path.split() |> Enum.take(-4) == ["foo", "bar", "meta", "retros"]
       assert RepoBase.analytics_path(repo) |> Path.split() |> Enum.take(-3) == ["foo", "bar", "analytics"]
       assert RepoBase.repo_relative_path(repo) == ".aiur/repo/foo/bar"
+    end
+
+    test "rejects repo identities that would escape the state root", %{tmp: tmp} do
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "state"))
+
+      on_exit(fn ->
+        case previous_root do
+          nil -> Application.delete_env(:aiur, :repo_base_root)
+          root -> Application.put_env(:aiur, :repo_base_root, root)
+        end
+      end)
+
+      # `..` landing in the final two slug segments would resolve outside the
+      # state root; the CLI already rejects these, this guards the lib boundary.
+      for malicious <- [
+            "https://github.com/../escape",
+            "https://github.com/owner/..",
+            "owner/../project",
+            "owner/project/.."
+          ] do
+        assert_raise ArgumentError, fn -> RepoBase.repo_path(malicious) end
+        assert_raise ArgumentError, fn -> RepoBase.repo_relative_path(malicious) end
+      end
     end
   end
 

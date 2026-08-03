@@ -33,7 +33,10 @@ defmodule Aiur.RepoBase do
   @state_entries ["builds", "analytics", "meta"]
   @migration_lease_suffix ".migration-lock.sqlite3"
   @findings_transfer_suffix ".migration-transfer"
-  @migration_lock_timeout_ms 30_000
+  # Cache sidecar migrations copy potentially gigabytes of hex/mix/npm cache
+  # under an exclusive transaction, so the busy-wait must outlast a slow copy
+  # on the second of two hosts sharing one state root.
+  @migration_lock_timeout_ms 300_000
   @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
@@ -1293,15 +1296,26 @@ defmodule Aiur.RepoBase do
   end
 
   # Reduce a repo URL or local path to a stable `<owner>/<name>`-style slug for
-  # the base directory. Handles https/ssh URLs and bare local paths.
+  # the base directory. Handles https/ssh URLs and bare local paths. Rejects
+  # path-traversal components (`..`) so a malicious or malformed repo identity
+  # can never resolve outside the state root — defense in depth, since the CLI
+  # already validates the slug at its boundary.
   defp slug(repo_url) do
-    repo_url
-    |> String.trim_trailing("/")
-    |> String.replace_suffix(".git", "")
-    |> String.split(~r{[/:]})
-    |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
-    |> Enum.take(-2)
-    |> Enum.join("/")
+    slug =
+      repo_url
+      |> String.trim_trailing("/")
+      |> String.replace_suffix(".git", "")
+      |> String.split(~r{[/:]})
+      |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
+      |> Enum.take(-2)
+      |> Enum.join("/")
+
+    if Enum.any?(Path.split(slug), &(&1 == "..")) do
+      raise ArgumentError,
+            "repo identity must not escape the state root (got: #{inspect(repo_url)})"
+    end
+
+    slug
   end
 
   defp emit(phase), do: AgentPubSub.broadcast_prewarm_phase(phase)

@@ -202,25 +202,42 @@ defmodule Aiur.Workspace.Hooks do
   # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL.
   # `THIS_BASE_BRANCH` is resolved by RepoBase, keeping generated hooks on the
   # same configured branch as warm-base refresh and materialization.
+  #
+  # `AIUR_REPO_STATE_PATH` is ALWAYS exported. Scaffolded hooks (which `aiur
+  # init` writes for every tracker) guard it with `${VAR:?}`, so a tracker
+  # without a repo slug must still receive a usable value or the whole hook
+  # aborts. Non-GitHub trackers get the same neutral state path that
+  # `AgentEnvironment` hands agents, keeping hooks and agents consistent.
   defp hook_env(issue_context, opts \\ []) do
-    repository_env =
-      with "github" <- Config.settings!().tracker.kind,
-           repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-        repo_url = "https://github.com/#{repo}.git"
-        :ok = RepoBase.ensure_state_tree(repo_url)
+    remote? = Keyword.get(opts, :remote?, false)
 
-        [
-          {"THIS_REPOSITORY_URL", repo_url},
-          {"THIS_BASE_BRANCH", RepoBase.base_branch()},
-          {"AIUR_REPO_STATE_PATH", repo_state_path(repo_url, Keyword.get(opts, :remote?, false))}
-        ]
-      else
-        _ -> []
+    repository_env =
+      case github_repo_url() do
+        nil ->
+          [{"AIUR_REPO_STATE_PATH", repo_state_path(Aiur.AgentEnvironment.neutral_repo_url(), remote?)}]
+
+        repo_url ->
+          :ok = RepoBase.ensure_state_tree(repo_url)
+
+          [
+            {"THIS_REPOSITORY_URL", repo_url},
+            {"THIS_BASE_BRANCH", RepoBase.base_branch()},
+            {"AIUR_REPO_STATE_PATH", repo_state_path(repo_url, remote?)}
+          ]
       end
 
     case Map.get(issue_context, :branch_name) do
       branch_name when is_binary(branch_name) and branch_name != "" -> [{"AIUR_TICKET_BRANCH", branch_name} | repository_env]
       _ -> repository_env
+    end
+  end
+
+  defp github_repo_url do
+    with "github" <- Config.settings!().tracker.kind,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      "https://github.com/#{repo}.git"
+    else
+      _ -> nil
     end
   end
 
