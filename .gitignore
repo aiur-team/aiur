@@ -40,3 +40,8 @@ packages/streamdeck/coverage/
 packages/streamdeck/dist/
 /packages/streamdeck/**/*.streamDeckPlugin
 .aiur-design-import/
+
+# Toolchain-local caches (mise/gh/elixir_make) regenerated on every build; the
+# affected-tests classifier treats them as unclassifiable untracked changes.
+.cache/
+.local/

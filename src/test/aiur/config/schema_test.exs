@@ -14,6 +14,16 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent saturation sentinel" do
+    test "defaults to enabled and accepts an explicit opt-out" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.saturation_log_enabled == true
+
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"saturation_log_enabled" => false}})
+      assert configured.agent.saturation_log_enabled == false
+    end
+  end
+
   describe "agent backend config sections" do
     test "retains an arbitrary registry-named backend section" do
       assert {:ok, settings} =
