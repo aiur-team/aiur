@@ -90,4 +90,20 @@ defmodule Aiur.Fs do
       {output, status} -> {:error, {:sync_failed, status, output}}
     end
   end
+
+  @doc """
+  Quarantines a corrupt file in place by renaming it to a uniquely-suffixed
+  sibling (`path.corrupt-<n>`) so its bytes are preserved for forensics while
+  the live path is freed for re-initialization. A missing file is already
+  absent, so that is not an error. Returns `{:error, reason}` when the rename
+  itself fails.
+  """
+  @spec quarantine(Path.t()) :: :ok | {:error, term()}
+  def quarantine(path) do
+    case File.lstat(path) do
+      {:error, :enoent} -> :ok
+      {:ok, _stat} -> File.rename(path, path <> ".corrupt-" <> Integer.to_string(System.unique_integer([:positive])))
+      {:error, reason} -> {:error, reason}
+    end
+  end
 end
