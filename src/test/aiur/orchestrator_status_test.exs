@@ -297,6 +297,15 @@ defmodule Aiur.OrchestratorStatusTest do
     # projects it, so the dashboard cadence is not gated on this mailbox.
     :ok = StatusReport.notify_dashboard(state)
 
+    # Guard the decoupling wiring itself: publish_snapshot must record to the
+    # publisher's write-model (a fast, non-blocking ETS insert) rather than
+    # casting directly to SnapshotStore. If it reverted to the old direct cast,
+    # the write-model row below would be absent and the projection-under-freeze
+    # assertions would silently pass anyway — exactly the root-cause regression
+    # this ticket exists to prevent.
+    assert [{^orchestrator_name, ^generation, _version, %State{}}] =
+             :ets.lookup(SnapshotPublisher, orchestrator_name)
+
     assert {:current, %{agent_totals: %{input_tokens: 0}}, %{status: :current}} =
              wait_for_published_snapshot(
                orchestrator_name,
@@ -393,6 +402,25 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.dashboard_snapshot(orchestrator_name, 100)
 
     assert fresh == 100
+  end
+
+  test "a new snapshot generation clears the prior instance's write-model entry" do
+    orchestrator_name = Module.concat(__MODULE__, :GenerationWriteModelClearOrchestrator)
+
+    # The prior instance's bounded input sits in the shared write-model under
+    # its old generation token.
+    SnapshotStore.begin_generation(orchestrator_name)
+    :ok = SnapshotPublisher.write(orchestrator_name, make_ref(), %State{agent_totals: %{}})
+
+    assert [{^orchestrator_name, _generation, _version, %State{}}] =
+             :ets.lookup(SnapshotPublisher, orchestrator_name)
+
+    # A restarted orchestrator begins a new generation; the publisher must drop
+    # the prior instance's fenced entry so it never casts stale input under the
+    # new token (P2-1 generation pollution, publisher side).
+    SnapshotStore.begin_generation(orchestrator_name)
+
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator_name)
   end
 
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
