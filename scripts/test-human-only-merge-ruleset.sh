@@ -72,6 +72,16 @@ expect_rejected \
   "missing-required-checks-rule" \
   '.rules |= map(select(.type != "required_status_checks"))' \
   "ruleset must require every blocking GitHub Actions status check"
+
+expect_rejected \
+  "empty-required-checks" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) = []' \
+  "ruleset must require every blocking GitHub Actions status check"
+
+expect_rejected \
+  "non-strict-required-checks" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = false' \
+  "ruleset must require every blocking GitHub Actions status check"
 expect_rejected \
   "missing-workflow-security-check" \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) |= map(select(.context != "workflow security"))' \

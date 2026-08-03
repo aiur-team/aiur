@@ -110,8 +110,10 @@ expect_rejected \
   "ruleset must require every blocking GitHub Actions status check from the declaration"
 
 # The drift check runs read-only: GitHub hides bypass_actors (returns null)
-# without ruleset write visibility, and the strict flag is being reconciled by
-# #1487. Both must be tolerated here; the admin verifier owns those checks.
+# without ruleset write visibility, so that property must be tolerated here and
+# stays in the admin verifier's domain. Strict status checks are read-only
+# visible and are asserted against the declaration, so a non-strict live
+# ruleset is rejected.
 expect_accepted \
   "hidden-bypass-actors" \
   '.bypass_actors = null'
@@ -119,3 +121,8 @@ expect_accepted \
 expect_accepted \
   "strict-true" \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = true'
+
+expect_rejected \
+  "non-strict" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = false' \
+  "ruleset must require every blocking GitHub Actions status check from the declaration"

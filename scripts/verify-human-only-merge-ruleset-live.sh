@@ -11,15 +11,13 @@ set -euo pipefail
 # This script is the CI counterpart. It runs with a read-only GITHUB_TOKEN and
 # verifies every ruleset property a read-only token can see, so a regressed
 # gate -- a ruleset that stops actively protecting main/develop, drops the
-# pull-request approval rule, or loses the required_status_checks rule -- fails
-# CI visibly instead of silently.
+# pull-request approval rule, or loses or weakens the required_status_checks
+# rule -- fails CI visibly instead of silently.
 #
-# Two properties are deliberately NOT asserted here and stay in the admin
+# One property is deliberately NOT asserted here and stays in the admin
 # verifier's domain:
 #   - bypass_actors: GitHub returns null without ruleset write visibility, so a
 #     read-only token cannot prove the live ruleset has no bypass.
-#   - strict_required_status_checks_policy: its required value is being landed
-#     by #1487 and enforced by the admin verifier at apply time.
 
 repo="${GITHUB_REPOSITORY:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)}"
 name="human-only-merge-gate"
@@ -71,19 +69,29 @@ if ! jq -e '
   exit 1
 fi
 
-# The expected required-status-check contexts come from the reviewed
+# The expected required_status_checks parameters come from the reviewed
 # declaration (docs/security/human-only-merge-ruleset.json), the single source
 # of truth, so the drift check stays in sync with the admin verifier when the
-# blocking check set changes. A declaration that drops the rule produces an
-# empty expectation, which fails against any protected live ruleset.
+# blocking check set changes. A declaration that drops the rule produces null
+# expectations, which fail against any protected live ruleset (fail-closed).
 expected_checks="$(jq -c '
   [.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks[].context]
 ' "$declaration")"
+expected_strict="$(jq -c '
+  [.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy][0]
+' "$declaration")"
+expected_do_not_enforce="$(jq -c '
+  [.rules[] | select(.type == "required_status_checks") | .parameters.do_not_enforce_on_create][0]
+' "$declaration")"
 
-if ! jq -e --argjson expected_checks "$expected_checks" '
+if ! jq -e \
+  --argjson expected_checks "$expected_checks" \
+  --argjson expected_strict "$expected_strict" \
+  --argjson expected_do_not_enforce "$expected_do_not_enforce" '
   [.rules[] | select(.type == "required_status_checks") | .parameters] |
   length == 1 and
-  .[0].do_not_enforce_on_create == false and
+  .[0].do_not_enforce_on_create == $expected_do_not_enforce and
+  .[0].strict_required_status_checks_policy == $expected_strict and
   (.[0].required_status_checks | map(.context) | sort) == ($expected_checks | sort) and
   (.[0].required_status_checks | all(.integration_id == 15368))
 ' >/dev/null <<<"$ruleset"; then
@@ -92,4 +100,4 @@ if ! jq -e --argjson expected_checks "$expected_checks" '
 fi
 
 echo "ruleset drift check passed: $name matches the declaration for all read-only-visible properties"
-echo "note: bypass_actors and strict_required_status_checks_policy are verified by the admin verifier (scripts/verify-human-only-merge-ruleset.sh), not by this read-only check"
+echo "note: bypass_actors is verified by the admin verifier (scripts/verify-human-only-merge-ruleset.sh), not by this read-only check"

@@ -326,18 +326,21 @@ token-bearing URL from the first push, and open agent pull requests with the
 agent's own token: GitHub counts the PR **opener**, not the commit author, when
 deciding self-approval.
 
-The declaration requires every blocking CI job as required status checks, and
-the gate is enforced once that declaration is applied to the live ruleset. The
-CI `merge ruleset drift` check verifies the live ruleset against that
-declaration on every PR and merge, so a regressed gate fails CI visibly.
-Verify checks by hand before every merge.
+The declaration requires every blocking CI job as required status checks,
+including `build`, `test`, and `workflow security`, with strict status checks
+enabled, and the gate is enforced once that declaration is applied to the live
+ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
+that declaration on every PR and merge, so a regressed gate fails CI visibly.
+The Executor must wait for the required checks and the review conditions before
+merging; never merge a pending, failing, or stale head.
 
 A solo operator cannot merge `develop` into `main` through the gate
 (issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
 and `require_last_push_approval`, the only in-gate path is a bot approval, which
-defeats the gate; `--admin` does not bypass it. The current workaround is a
-documented ruleset window: back up the ruleset, disable it, merge, restore it,
-and re-read the ruleset to confirm restoration rather than trusting the write.
+defeats the gate; `--admin` does not bypass it. Any approved maintenance window
+must change only the review-side rules while leaving the required-status-check
+rule active. Back up and re-read the ruleset to confirm the review-side change
+rather than trusting the write.
 
 ## Ticket close-out
 
