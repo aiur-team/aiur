@@ -17,6 +17,14 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @global_pause_key {__MODULE__, :global_pause}
   @projection_delay_ms 50
 
+  # Staleness is load-aware: the freshness window derives from the
+  # Orchestrator's own recent publish cadence so a busy-but-publishing
+  # Orchestrator keeps its fleet view `:current` instead of demoting a
+  # near-current snapshot to last-known-good under sustained dispatch.
+  @publish_gap_history 4
+  @stale_window_margin 2
+  @stale_window_ceiling_ms 60_000
+
   @type result ::
           {:current, map(), map()}
           | {:stale, map(), map()}
@@ -88,6 +96,11 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   Reads the last published snapshot without sending a message to the
   Orchestrator. A cache is retained across Orchestrator restarts; its metadata
   makes that degraded state explicit instead of blanking the dashboard.
+
+  Staleness is load-aware: a snapshot remains `:current` while it falls within
+  a window derived from the Orchestrator's own recent publish cadence, so a
+  busy-but-publishing Orchestrator under sustained dispatch does not demote a
+  near-current fleet view to last-known-good.
   """
   @spec read(GenServer.server(), timeout()) :: result()
   def read(orchestrator, timeout) do
@@ -182,13 +195,29 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   defp schedule_projection(store), do: store
 
   defp put_snapshot(orchestrator, generation, snapshot) do
+    previous = cached_snapshot(orchestrator)
+    observed_at_ms = System.monotonic_time(:millisecond)
+
+    recent_gaps_ms =
+      case Map.get(previous || %{}, :observed_at_ms) do
+        nil ->
+          []
+
+        previous_ms when is_integer(previous_ms) ->
+          gap_ms = max(observed_at_ms - previous_ms, 0)
+
+          (Map.get(previous || %{}, :recent_gaps_ms, []) ++ [gap_ms])
+          |> Enum.take(-@publish_gap_history)
+      end
+
     :persistent_term.put(
       {@cache_key, orchestrator},
       %{
         generation: generation,
         snapshot: snapshot,
         observed_at: DateTime.utc_now(),
-        observed_at_ms: System.monotonic_time(:millisecond)
+        observed_at_ms: observed_at_ms,
+        recent_gaps_ms: recent_gaps_ms
       }
     )
   end
@@ -238,12 +267,13 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     age_ms = max(System.monotonic_time(:millisecond) - observed_at_ms, 0)
     pid = live_pid(orchestrator)
     mailbox_depth = mailbox_depth(pid)
+    freshness_window_ms = effective_window(timeout, Map.get(cached, :recent_gaps_ms, []))
 
     reason =
       cond do
         is_nil(pid) -> :orchestrator_unavailable
         Map.get(cached, :generation) != active_generation(orchestrator) -> :orchestrator_unavailable
-        timeout_elapsed_behind_backlog?(age_ms, timeout, mailbox_depth) -> :snapshot_timeout
+        stale_behind_backlog?(age_ms, timeout, freshness_window_ms, mailbox_depth) -> :snapshot_timeout
         true -> nil
       end
 
@@ -253,13 +283,50 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       observed_at: DateTime.to_iso8601(observed_at),
       age_ms: age_ms,
       age_seconds: div(age_ms, 1_000),
+      freshness_window_ms: freshness_window_ms,
       orchestrator_mailbox_depth: mailbox_depth
     }
   end
 
-  defp timeout_elapsed_behind_backlog?(age_ms, timeout, mailbox_depth) do
-    is_integer(timeout) and timeout >= 0 and age_ms >= timeout and is_integer(mailbox_depth) and
-      mailbox_depth > 0
+  # A snapshot is stale only when it is older than the configured timeout AND
+  # falls outside the load-aware window while the Orchestrator is backlogged.
+  # Under sustained dispatch the Orchestrator publishes on a slower cadence, so
+  # `freshness_window_ms` grows to cover that cadence; an Orchestrator that has
+  # gone quiet relative to its own recent cadence is still flagged stale.
+  defp stale_behind_backlog?(age_ms, timeout, freshness_window_ms, mailbox_depth) do
+    is_integer(timeout) and timeout >= 0 and is_integer(age_ms) and age_ms >= timeout and
+      is_integer(freshness_window_ms) and age_ms >= freshness_window_ms and
+      is_integer(mailbox_depth) and mailbox_depth > 0
+  end
+
+  defp effective_window(timeout, gaps) when is_list(gaps) do
+    case median(gaps) do
+      nil ->
+        timeout
+
+      median_ms when is_integer(median_ms) and median_ms > 0 ->
+        capped = min(median_ms * @stale_window_margin, @stale_window_ceiling_ms)
+        max(timeout, capped)
+
+      _ ->
+        timeout
+    end
+  end
+
+  defp effective_window(timeout, _gaps), do: timeout
+
+  defp median([]), do: nil
+
+  defp median(gaps) do
+    sorted = Enum.sort(gaps)
+    length = length(sorted)
+    middle = div(length, 2)
+
+    if rem(length, 2) == 0 do
+      div(Enum.at(sorted, middle - 1) + Enum.at(sorted, middle), 2)
+    else
+      Enum.at(sorted, middle)
+    end
   end
 
   defp maybe_log_timeout(orchestrator, %{reason: :snapshot_timeout} = metadata) do
