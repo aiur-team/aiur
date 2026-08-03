@@ -71,6 +71,7 @@ defmodule Aiur.GitHub.Errors do
        %{
          status: 403,
          retry_after: retry_after(response),
+         reset_at: rate_limit_reset(response),
          poll_interval: rate_limit_poll_interval(response)
        }}
     else
@@ -83,6 +84,7 @@ defmodule Aiur.GitHub.Errors do
      %{
        status: 429,
        retry_after: retry_after(response),
+       reset_at: rate_limit_reset(response),
        poll_interval: rate_limit_poll_interval(response)
      }}
   end
@@ -143,6 +145,8 @@ defmodule Aiur.GitHub.Errors do
   def retryable_github_error?({:github, kind, _detail})
       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
       do: true
+
+  def retryable_github_error?({:github, :http, %{status: status}}) when status in 500..599, do: true
 
   def retryable_github_error?(_reason), do: false
 end
