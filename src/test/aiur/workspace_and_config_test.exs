@@ -1942,7 +1942,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.workspace.bootstrap_image == nil
     refute config.workspace.bootstrap_image_pull
     assert config.worker.max_concurrent_agents_per_host == nil
-    assert config.agent.max_concurrent_agents == 10
+    # `max_concurrent_agents` is nil at the schema level; the derived default
+    # (calibrated from host schedulers) is resolved by `Config.max_concurrent_agents/0`.
+    assert config.agent.max_concurrent_agents == nil
+    assert Config.max_concurrent_agents() == Config.default_max_concurrent_agents()
 
     # Dashboard binds a free loopback port by default so claude remote-control's
     # transcript hook works without explicit server config. Port 0 = OS-assigned;
@@ -2245,7 +2248,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
     assert Enum.any?(bad.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
+             _ -> false
+           end)
+
+    # A registered-but-not-dispatch-enabled backend is rejected by the same path
+    # as an unknown one, so routing cannot reach an opt-in-only provider.
+    disabled =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "deepseek"}}, [:routing])
+      |> AgentValidation.validate_agent_routing(:routing)
+
+    assert Enum.any?(disabled.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(unknown or disabled backend "deepseek")
              _ -> false
            end)
 
@@ -2305,7 +2320,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
              _ -> false
            end)
 

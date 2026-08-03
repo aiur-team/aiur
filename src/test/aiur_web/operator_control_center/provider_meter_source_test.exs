@@ -39,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
 
     snapshots = ProviderMeterSource.load(nil, snapshot_fun: sentinel)
 
-    assert snapshots == %{codex: nil, claude: nil, fake: nil}
+    assert snapshots == Map.new(Aiur.CodingAgent.provider_families(), &{&1, nil})
     refute_receive {:protected_provider_invoked, _provider}, 0
   end
 
@@ -81,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeterSourceTest do
 
     snapshots = ProviderMeterSource.reload(context, {FinancialData, :updated, {"bogus", "identity"}}, snapshot_fun: sentinel)
 
-    assert snapshots == %{codex: nil, claude: nil, fake: nil}
+    assert snapshots == Map.new(Aiur.CodingAgent.provider_families(), &{&1, nil})
     refute_receive {:protected_provider_invoked, _provider}, 0
   end
 

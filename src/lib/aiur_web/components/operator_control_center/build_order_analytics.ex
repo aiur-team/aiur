@@ -1,12 +1,11 @@
 defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
   @moduledoc """
-  Long-run analytics pane for the selected Build Order, rendered under Waves &
-  Epics.
+  Current-session analytics pane for the selected Build Order, rendered under
+  Waves & Epics.
 
-  This is the cross-session counterpart to `/analytics`. Where the live page
-  answers "what is this session doing right now", this pane answers "what has
-  this whole build cost, and how is it burning down" — aggregated over every
-  session that touched a member ticket.
+  This pane narrows the live session to the selected Build Order's members. A
+  materialized summary will provide cross-session reporting without reparsing
+  retained telemetry on each refresh.
 
   Two things follow from that scope and are stated in the copy rather than left
   for the reader to assume. Every time axis is elapsed *active* time with the
@@ -71,7 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
           <div class="an-card-head">
             <div>
               <h5 class="an-card-title">Member lifecycle</h5>
-              <p class="an-card-sub">Every member ticket across the build's life — the wait rail into a work bar coloured by status, capped by an end marker.</p>
+              <p class="an-card-sub">Every member ticket observed this session — the wait rail into a work bar coloured by status, capped by an end marker.</p>
             </div>
           </div>
           <div id="build-order-gantt-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.gantt(@chart_model))}</div>
@@ -81,7 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
           <div class="an-card-head">
             <div>
               <h5 class="an-card-title">Per-member CPU</h5>
-              <p class="an-card-sub">Stacked CPU over active build time. The baseline layer is daemon/executor overhead shared with anything else running in those sessions, not cost this build incurred alone.</p>
+              <p class="an-card-sub">Stacked CPU over this session's active build time. The baseline layer is daemon/executor overhead shared with anything else running in the session, not cost this build incurred alone.</p>
             </div>
           </div>
           <div id="build-order-cpu-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.cpu_stack(@chart_model, @selected))}</div>
@@ -111,7 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
           <div class="an-card-head">
             <div>
               <h5 class="an-card-title">Cost per member</h5>
-              <p class="an-card-sub">CPU-seconds burned per member ticket, accumulated across every session it ran in.</p>
+              <p class="an-card-sub">CPU-seconds burned per member ticket in this session.</p>
             </div>
           </div>
           <div class="an-chart">{Phoenix.HTML.raw(Charts.cost(@model, @selected, :cpu))}</div>
@@ -143,7 +142,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
     [
       %{label: "Sessions", val: k.sessions, sub: "daemon boots observed", tone: nil},
       %{label: "Active time", val: hours(k.active_ms), sub: "idle gaps elided", tone: nil},
-      %{label: "CPU burned", val: "#{k.cpu_hours}h", sub: "across all sessions", tone: nil},
+      %{label: "CPU burned", val: "#{k.cpu_hours}h", sub: "this session", tone: nil},
       %{label: "Peak concurrency", val: k.peak_conc, sub: "of #{k.cap} cap", tone: nil},
       %{label: "Members merged", val: "#{k.done} / #{k.total}", sub: "#{k.done_pct}% complete", tone: nil},
       %{label: "Capacity elsewhere", val: "#{k.wasted_slot_hours}h", sub: "slots not on #{member_word(scope)}", tone: "block"}
@@ -154,7 +153,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
   defp member_word(_scope), do: "this build"
 
   defp scope_note(scope, model) do
-    base = "Aggregated across every session that ran a member of this Build Order."
+    base = "Current session, scoped to members of this Build Order."
 
     case {scope, model} do
       {%{rejected: rejected}, _model} when rejected > 0 ->

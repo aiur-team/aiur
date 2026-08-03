@@ -7,6 +7,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.GitHub.{CiReadiness, Errors}
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -26,7 +27,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
   }
 
   alias Aiur.Orchestrator.RetryEngine
+  alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
+
+  @ci_readiness_timeout_ms 5_000
+  @ci_readiness_retry_ms 60_000
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
@@ -54,6 +59,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp do_maybe_dispatch(%State{} = state) do
+    state = maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
     state = CommentPolling.poll_github_firehose(state)
     state = CommentPolling.poll_github_comments(state)
@@ -69,6 +75,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
           |> IssueSync.sync_polled_issue_state(issues)
           |> IssueSync.sync_todo_capacity_alert(issues)
 
+        # The poll just refreshed `last_polled_issues`, so this generation can
+        # replace a retained snapshot from a prior same-name orchestrator.
+        state = %{state | snapshot_ready?: true}
+
         # The poll just refreshed `last_polled_issues`, so push a fresh
         # summary out to any open agent-list pane immediately.
         StatusReport.notify_dashboard(state)
@@ -82,21 +92,250 @@ defmodule Aiur.Orchestrator.Dispatcher do
     end
   end
 
+  # Readiness is advisory at dispatch: the operator may be deliberately
+  # setting up a repository mid-run, so this must never hold otherwise-valid
+  # tickets. A transient inspection failure retries on subsequent polls, but
+  # only emits its needs-attention alert once.
+  @doc false
+  @spec maybe_warn_ci_readiness(State.t()) :: State.t()
+  def maybe_warn_ci_readiness(state) do
+    state = reset_ci_readiness_for_config_change(state)
+    do_maybe_warn_ci_readiness(state)
+  end
+
+  defp do_maybe_warn_ci_readiness(%State{ci_readiness_checked: true} = state) do
+    if Config.tracker_kind() == "github" do
+      reconcile_completed_ci_readiness(state)
+    else
+      state
+    end
+  end
+
+  defp do_maybe_warn_ci_readiness(%State{ci_readiness_retry_at_ms: retry_at_ms} = state) when is_integer(retry_at_ms) do
+    if retry_at_ms > System.monotonic_time(:millisecond) do
+      state
+    else
+      start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+    end
+  end
+
+  defp do_maybe_warn_ci_readiness(%State{initial_dispatch_cycle: true} = state) do
+    start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+  end
+
+  defp do_maybe_warn_ci_readiness(state), do: state
+
+  defp reset_ci_readiness_for_config_change(state) do
+    scope = CiReadiness.readiness_scope(base_branch: Config.base_branch())
+
+    if state.ci_readiness_scope == scope do
+      state
+    else
+      if is_pid(state.ci_readiness_check_pid) and Process.alive?(state.ci_readiness_check_pid) do
+        Process.exit(state.ci_readiness_check_pid, :kill)
+      end
+
+      %{
+        state
+        | ci_readiness_checked: false,
+          ci_readiness_unavailable_alerted: false,
+          ci_readiness_check_pid: nil,
+          ci_readiness_check_token: nil,
+          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond),
+          ci_readiness_scope: scope,
+          ci_readiness_result: nil
+      }
+    end
+  end
+
+  defp reconcile_completed_ci_readiness(state) do
+    case CiReadiness.cached_result(base_branch: Config.base_branch()) do
+      :unavailable ->
+        state = %{state | ci_readiness_checked: false, ci_readiness_result: nil}
+        start_initial_ci_readiness_check(state, Config.tracker_kind(), Config.base_branch(), CiReadiness.check_fun())
+
+      result when result == state.ci_readiness_result ->
+        state
+
+      result ->
+        accept_cached_ci_readiness_result(state, result, &Alerts.emit_system/2)
+    end
+  end
+
+  @doc false
+  @spec start_initial_ci_readiness_check(State.t(), String.t() | nil, String.t(), function()) :: State.t()
+  def start_initial_ci_readiness_check(%State{ci_readiness_checked: true} = state, _kind, _base_branch, _check_fun), do: state
+
+  def start_initial_ci_readiness_check(%State{ci_readiness_check_pid: pid} = state, _kind, _base_branch, _check_fun) when is_pid(pid),
+    do: state
+
+  def start_initial_ci_readiness_check(state, "github", base_branch, check_fun) do
+    parent = self()
+    token = make_ref()
+
+    case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
+           send(parent, {:ci_readiness_result, token, check_fun.(base_branch: base_branch, timeout_ms: @ci_readiness_timeout_ms)})
+         end) do
+      {:ok, pid} ->
+        Process.send_after(parent, {:ci_readiness_timeout, token}, @ci_readiness_timeout_ms)
+        %{state | ci_readiness_check_pid: pid, ci_readiness_check_token: token, ci_readiness_retry_at_ms: nil}
+
+      {:error, reason} ->
+        record_ci_readiness_result(state, {:error, reason}, &Alerts.emit_system/2)
+    end
+  end
+
+  def start_initial_ci_readiness_check(state, _kind, _base_branch, _check_fun), do: %{state | ci_readiness_checked: true}
+
+  @doc false
+  @spec handle_ci_readiness_result(State.t(), reference(), {:ok, CiReadiness.result()} | {:error, term()}) :: State.t()
+  def handle_ci_readiness_result(%State{ci_readiness_check_token: token} = state, token, result) do
+    state
+    |> clear_ci_readiness_check()
+    |> record_ci_readiness_result(result, &Alerts.emit_system/2)
+  end
+
+  def handle_ci_readiness_result(state, _token, _result), do: state
+
+  @doc false
+  @spec handle_ci_readiness_timeout(State.t(), reference()) :: State.t()
+  def handle_ci_readiness_timeout(%State{ci_readiness_check_token: token, ci_readiness_check_pid: pid} = state, token) do
+    if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
+
+    state
+    |> clear_ci_readiness_check()
+    |> record_ci_readiness_result({:error, :timeout}, &Alerts.emit_system/2)
+  end
+
+  def handle_ci_readiness_timeout(state, _token), do: state
+
+  defp clear_ci_readiness_check(state), do: %{state | ci_readiness_check_pid: nil, ci_readiness_check_token: nil}
+
+  @doc false
+  @spec check_initial_ci_readiness(State.t(), String.t() | nil, String.t(), function(), function()) :: State.t()
+  def check_initial_ci_readiness(%State{ci_readiness_checked: true} = state, _kind, _base_branch, _check_fun, _emit_fun), do: state
+
+  def check_initial_ci_readiness(state, "github", base_branch, check_fun, emit_fun) do
+    record_ci_readiness_result(state, check_fun.(base_branch: base_branch), emit_fun)
+  end
+
+  def check_initial_ci_readiness(state, _kind, _base_branch, _check_fun, _emit_fun), do: %{state | ci_readiness_checked: true}
+
+  defp record_ci_readiness_result(state, {:ok, %{ready?: true} = readiness}, _emit_fun) do
+    CiReadiness.cache_result(readiness)
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
+  end
+
+  defp record_ci_readiness_result(state, {:ok, readiness}, emit_fun) do
+    CiReadiness.cache_result(readiness)
+
+    emit_fun.("system.ci_readiness.not_ready",
+      message: "Repository CI readiness is incomplete",
+      reason: CiReadiness.format(readiness),
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
+  end
+
+  defp record_ci_readiness_result(state, {:error, reason}, emit_fun) do
+    if retryable_ci_readiness_error?(reason) do
+      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+
+      %{
+        state
+        | ci_readiness_unavailable_alerted: true,
+          ci_readiness_retry_at_ms: System.monotonic_time(:millisecond) + ci_readiness_retry_delay_ms(reason),
+          ci_readiness_result: nil
+      }
+    else
+      readiness = CiReadiness.unavailable(Config.base_branch(), reason)
+      CiReadiness.cache_result(readiness)
+      maybe_emit_ci_readiness_unavailable(state, reason, emit_fun)
+      %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
+    end
+  end
+
+  defp accept_cached_ci_readiness_result(state, %{ready?: true} = readiness, _emit_fun) do
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
+  end
+
+  defp accept_cached_ci_readiness_result(state, readiness, emit_fun) do
+    emit_fun.("system.ci_readiness.not_ready",
+      message: "Repository CI readiness is incomplete",
+      reason: CiReadiness.format(readiness),
+      needs_attention: true,
+      severity: "warning"
+    )
+
+    %{state | ci_readiness_checked: true, ci_readiness_retry_at_ms: nil, ci_readiness_result: readiness}
+  end
+
+  defp retryable_ci_readiness_error?(:timeout), do: true
+  defp retryable_ci_readiness_error?(reason), do: Errors.retryable_github_error?(reason)
+
+  defp ci_readiness_retry_delay_ms({:github, :rate_limited, detail}) when is_map(detail) do
+    case Map.get(detail, :retry_after) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds * 1_000
+      _ -> retry_delay_from_reset(Map.get(detail, :reset_at)) || @ci_readiness_retry_ms
+    end
+  end
+
+  defp ci_readiness_retry_delay_ms(_reason), do: @ci_readiness_retry_ms
+
+  defp retry_delay_from_reset(reset_at) when is_binary(reset_at) do
+    case DateTime.from_iso8601(reset_at) do
+      {:ok, reset_at, _offset} -> max(DateTime.diff(reset_at, DateTime.utc_now(), :millisecond), 0)
+      _ -> nil
+    end
+  end
+
+  defp retry_delay_from_reset(_reset_at), do: nil
+
+  defp maybe_emit_ci_readiness_unavailable(%State{ci_readiness_unavailable_alerted: true}, _reason, _emit_fun), do: :ok
+
+  defp maybe_emit_ci_readiness_unavailable(_state, reason, emit_fun) do
+    emit_fun.("system.ci_readiness.unavailable",
+      message: "Repository CI readiness could not be inspected",
+      reason: "CI readiness inspection failed: #{inspect(reason)}",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  # The prewarm gate holds the whole fleet while the warm base builds/clones.
+  # That can persist across many poll cycles, so the hold is logged at most once
+  # per this many consecutive hold ticks instead of every tick (which would bury
+  # the signal in a wall of identical lines) — but still often enough that a
+  # slow or permanently-stuck base build stays visible in the daemon log.
+  @prewarm_hold_log_interval_ticks 30
+
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,
-  # while an in-progress build holds this tick.
+  # while an in-progress build holds this tick. The hold is made observable (see
+  # log_prewarm_hold/2) so a gated fleet is distinguishable from an idle one.
   @spec dispatch_or_hold(State.t(), [Issue.t()]) :: State.t()
   def dispatch_or_hold(%State{} = state, issues) when is_list(issues) do
+    dispatch_or_hold(state, issues, &trigger_and_status/0)
+  end
+
+  @doc false
+  # Testable variant with an injected phase reader; the production path passes
+  # `&RepoBase.refresh_for_dispatch/0` via `trigger_and_status/0`.
+  @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term())) :: State.t()
+  def dispatch_or_hold(%State{} = state, issues, trigger_fun)
+      when is_list(issues) and is_function(trigger_fun, 0) do
     enabled? = Config.prewarm_enabled?()
-    phase = if enabled?, do: trigger_and_status(), else: :ready
+    phase = if enabled?, do: trigger_fun.(), else: :ready
 
     case DispatchPolicy.prewarm_gate(enabled?, phase) do
       :dispatch ->
         maybe_log_base_error(phase)
-        maybe_choose_under_load(state, issues)
+        maybe_choose_under_load(%{state | prewarm_hold_ticks: 0}, issues)
 
       :hold ->
-        state
+        log_prewarm_hold(state, phase)
     end
   end
 
@@ -104,21 +343,34 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # this function so a capacity wait never burns their retry budget.
   @spec maybe_choose_under_load(State.t(), [Issue.t()]) :: State.t()
   def maybe_choose_under_load(%State{} = state, issues) when is_list(issues) do
-    maybe_choose_under_load(state, issues, &maybe_choose/2)
+    maybe_choose_under_load(state, issues, &maybe_choose/2, [])
   end
 
   @doc false
   @spec maybe_choose_under_load(State.t(), [Issue.t()], (State.t(), [Issue.t()] -> State.t())) :: State.t()
   def maybe_choose_under_load(%State{} = state, issues, choose_fun)
       when is_list(issues) and is_function(choose_fun, 2) do
+    maybe_choose_under_load(state, issues, choose_fun, [])
+  end
+
+  @doc false
+  @spec maybe_choose_under_load(State.t(), [Issue.t()], (State.t(), [Issue.t()] -> State.t()), keyword()) :: State.t()
+  def maybe_choose_under_load(%State{} = state, issues, choose_fun, opts)
+      when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
+    now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
     hard_threshold = Config.max_load_average()
     target = Config.target_load_average()
+    run_queue_threshold = Config.run_queue_threshold()
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
-    cpu_snapshot = DispatchPolicy.read_cpu(target)
+    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold)
     available_memory_mb = DispatchPolicy.read_memory(memory_threshold_mb)
     fd_sample = DispatchPolicy.read_file_descriptors()
+    build_status = DispatchPolicy.read_build_status()
+    provider_backends = DispatchPolicy.read_provider_backends()
+
+    queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
       DispatchPolicy.update_load_envelope(
@@ -126,18 +378,37 @@ defmodule Aiur.Orchestrator.Dispatcher do
         load,
         target,
         schedulers,
-        System.monotonic_time(:millisecond),
+        now_ms,
         cpu_snapshot,
-        DispatchPolicy.queued_dispatch_demand?(issues, state)
+        queued_demand?
       )
 
-    case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
-      :hold ->
-        log_memory_hold(available_memory_mb, memory_threshold_mb)
-        state
+    case DispatchPolicy.admission_gate(%{
+           memory_mb: available_memory_mb,
+           memory_threshold_mb: memory_threshold_mb,
+           fd_sample: fd_sample,
+           runnable: runnable_from(cpu_snapshot),
+           run_queue_threshold: run_queue_threshold,
+           schedulers: schedulers,
+           load: load,
+           load_threshold: hard_threshold,
+           build_status: build_status,
+           provider_backends: provider_backends,
+           queued_demand?: queued_demand?
+         }) do
+      {:hold, reason} ->
+        reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts)
 
       :dispatch ->
-        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
+        state =
+          reconcile_capacity_hold(
+            state,
+            envelope_hold(state, load, target, schedulers, queued_demand?),
+            now_ms,
+            opts
+          )
+
+        choose_fun.(state, issues)
     end
   end
 
@@ -285,7 +556,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     with {:ok, selected_issue} <- redispatch_backend(issue),
          :ok <- known_redispatch_backend(selected_issue),
          :ok <- redispatch_thrash_budget(state, selected_issue.id, now_ms),
-         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+         :ok <- redispatch_worker_slot(state, selected_issue, preferred_worker_host) do
       :ok
     else
       {:all_limited, candidates} -> {:error, {:all_limited, candidates}}
@@ -302,7 +573,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     with {:ok, selected_issue} <- redispatch_backend(issue),
          :ok <- known_redispatch_backend(selected_issue),
          {:ok, state} <- admit_redispatch_thrash_budget(state, selected_issue, now_ms, opts),
-         :ok <- redispatch_worker_slot(state, selected_issue.id, preferred_worker_host) do
+         :ok <- redispatch_worker_slot(state, selected_issue, preferred_worker_host) do
       {:ok, state}
     else
       {:all_limited, candidates} -> {:error, {:all_limited, candidates}, state}
@@ -354,10 +625,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # A backend swap replaces the issue's existing host slot. Exclude that entry
   # from the capacity sample, but require an exact preferred-host match so the
   # workspace and on-disk rollout never migrate during the swap.
-  defp redispatch_worker_slot(state, issue_id, preferred_worker_host) do
-    capacity_state = %{state | running: Map.delete(state.running, issue_id)}
+  defp redispatch_worker_slot(state, issue, preferred_worker_host) do
+    capacity_state = %{state | running: Map.delete(state.running, issue.id)}
 
-    case Slots.select_worker_host(capacity_state, preferred_worker_host) do
+    case select_worker_host(capacity_state, issue, preferred_worker_host) do
       ^preferred_worker_host -> :ok
       :no_worker_capacity -> {:error, :no_worker_capacity}
       _other_host -> {:error, :preferred_worker_unavailable}
@@ -548,18 +819,143 @@ defmodule Aiur.Orchestrator.Dispatcher do
       Slots.worker_slots_available?(state, worker_host)
   end
 
-  defp log_load_hold(load, threshold, schedulers) do
-    Logger.info(
-      "aiur_perf load_hold load=#{load} threshold=#{threshold} " <>
-        "schedulers=#{schedulers} limit=#{threshold * schedulers}"
+  # The active limiting reason for a poll that dispatches: the AIMD envelope
+  # counts as capacity backoff when load still exceeds the target (the envelope
+  # is holding effective capacity below the static ceiling) while dispatchable
+  # work remains. Hard gates above already hold outright; this only names the
+  # envelope as the binding constraint. Below-target recovery ramps are not a
+  # hold — dispatch is already resuming.
+  defp envelope_hold(state, load, target, schedulers, queued_demand?) do
+    if queued_demand? and is_number(target) and target > 0 and is_number(load) and
+         load > target * schedulers and envelope_backed_off?(state) do
+      {:hold,
+       %{
+         signal: :envelope,
+         measured: state.effective_concurrent_agents,
+         threshold: Slots.max_concurrent_agent_limit(state)
+       }}
+    else
+      :dispatch
+    end
+  end
+
+  defp envelope_backed_off?(state) do
+    case {state.effective_concurrent_agents, Slots.max_concurrent_agent_limit(state)} do
+      {effective, static} when is_integer(effective) and effective > 0 and is_integer(static) and static > 0 ->
+        effective < static
+
+      _ ->
+        false
+    end
+  end
+
+  defp runnable_from(%{runnable: runnable}) when is_integer(runnable) and runnable >= 0, do: runnable
+  defp runnable_from(_snapshot), do: :unavailable
+
+  @capacity_backoff_alert_ms 30_000
+
+  # Reconciles the persisted `capacity_hold` with this poll's decision so status
+  # always reflects the active binding constraint. A `:dispatch` clears any
+  # prior hold (emitting a recovery signal); a `{:hold, reason}` starts or
+  # extends the hold, emitting a backoff alert once the same signal has
+  # persisted past the debounce window.
+  defp reconcile_capacity_hold(state, :dispatch, _now_ms, opts) do
+    clear_capacity_hold(state, opts)
+  end
+
+  defp reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts) do
+    log_admission_hold(reason)
+    update_capacity_hold(state, reason, now_ms, opts)
+  end
+
+  defp clear_capacity_hold(state, opts) do
+    case state.capacity_hold do
+      nil ->
+        state
+
+      %{signal: signal} ->
+        emit_fun = Keyword.get(opts, :emit_fun, &default_capacity_alert/2)
+        telemetry_fun = Keyword.get(opts, :telemetry_fun, &RunTelemetry.record/2)
+        reason = %{signal: signal, measured: nil, threshold: nil}
+        emit_fun.("system.fleet.capacity.resumed", reason)
+        telemetry_fun.(:capacity_resumed, Aiur.JSONSafe.normalize(reason))
+        %{state | capacity_hold: nil}
+    end
+  end
+
+  defp update_capacity_hold(state, reason, now_ms, opts) do
+    emit_fun = Keyword.get(opts, :emit_fun, &default_capacity_alert/2)
+    telemetry_fun = Keyword.get(opts, :telemetry_fun, &RunTelemetry.record/2)
+    debounce_ms = Keyword.get(opts, :alert_debounce_ms, @capacity_backoff_alert_ms)
+    signal = Map.fetch!(reason, :signal)
+
+    case state.capacity_hold do
+      %{signal: ^signal, alerted?: true} = hold ->
+        %{state | capacity_hold: Map.merge(hold, Map.take(reason, [:measured, :threshold]))}
+
+      %{signal: ^signal, alerted?: false} = hold ->
+        hold = Map.merge(hold, Map.take(reason, [:measured, :threshold]))
+
+        if now_ms - hold.held_since_ms < debounce_ms do
+          %{state | capacity_hold: hold}
+        else
+          emit_fun.("system.fleet.capacity.backoff", reason)
+          %{state | capacity_hold: Map.put(hold, :alerted?, true)}
+        end
+
+      _other ->
+        telemetry_fun.(:capacity_hold, Aiur.JSONSafe.normalize(reason))
+        %{state | capacity_hold: Map.merge(reason, %{held_since_ms: now_ms, alerted?: false})}
+    end
+  end
+
+  defp default_capacity_alert(name, reason) do
+    Alerts.emit_system(name,
+      reason:
+        "Fleet admission is being limited by #{capacity_signal_label(reason)} " <>
+          "(measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}).",
+      needs_attention: false,
+      severity: "info"
     )
   end
 
-  defp log_memory_hold(available_mb, threshold_mb) do
+  defp capacity_signal_label(%{signal: signal}) when is_atom(signal),
+    do: String.replace(Atom.to_string(signal), "_", " ")
+
+  defp capacity_signal_label(_reason), do: "host pressure"
+
+  defp log_admission_hold(%{signal: :memory, measured: available_mb, threshold: threshold_mb}) do
     Logger.info(
       "aiur_perf memory_hold surface=dispatch available_mb=#{available_mb} " <>
         "threshold_mb=#{threshold_mb}"
     )
+  end
+
+  defp log_admission_hold(%{signal: :file_descriptors, measured: sample}) do
+    log_fd_hold(sample)
+  end
+
+  defp log_admission_hold(%{signal: :load, measured: load, threshold: limit}) do
+    Logger.info("aiur_perf load_hold load=#{load} limit=#{limit}")
+  end
+
+  defp log_admission_hold(%{signal: :run_queue, measured: runnable, threshold: limit}) do
+    Logger.info("aiur_perf run_queue_hold runnable=#{runnable} limit=#{limit}")
+  end
+
+  defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
+    Logger.info(
+      "aiur_perf build_hold surface=dispatch active=#{inspect(Map.get(measured, :active))} " <>
+        "queued=#{inspect(Map.get(measured, :queued))} capacity=#{inspect(capacity)}"
+    )
+  end
+
+  defp log_admission_hold(%{signal: :envelope, measured: effective, threshold: static}) do
+    Logger.info("aiur_perf envelope_hold effective=#{effective} static=#{static}")
+  end
+
+  defp log_admission_hold(%{signal: :provider, measured: backends, threshold: _}) do
+    Logger.info("aiur_perf provider_hold surface=dispatch backends=#{inspect(backends)} status=all_usage_limited")
   end
 
   defp log_fd_hold(:exhausted) do
@@ -577,28 +973,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
-  defp maybe_choose_with_fd_headroom(state, issues, fd_sample, load, threshold, schedulers, choose_fun) do
-    case DispatchPolicy.fd_gate(fd_sample) do
-      :hold ->
-        log_fd_hold(fd_sample)
-        state
-
-      :dispatch ->
-        maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun)
-    end
-  end
-
-  defp maybe_choose_under_hard_load(state, issues, load, threshold, schedulers, choose_fun) do
-    case DispatchPolicy.load_gate(load, threshold, schedulers) do
-      :hold ->
-        log_load_hold(load, threshold, schedulers)
-        state
-
-      :dispatch ->
-        choose_fun.(state, issues)
-    end
-  end
-
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()
   end
@@ -611,6 +985,23 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
 
   defp maybe_log_base_error(_phase), do: :ok
+
+  # A silent indefinite hold is the core defect behind #1404: with the warm base
+  # warming (or failing to rebuild), every poll tick held dispatch and nothing
+  # was logged, so an operator saw an idle fleet instead of a gated one. Count
+  # consecutive hold ticks and emit one `aiur_perf prewarm_hold` line at most
+  # once per `@prewarm_hold_log_interval_ticks`; the counter resets as soon as
+  # the gate lets a tick through, so the interval measures back-to-back holds.
+  defp log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase) do
+    next_ticks = ticks + 1
+    state = %{state | prewarm_hold_ticks: next_ticks}
+
+    if rem(next_ticks, @prewarm_hold_log_interval_ticks) == 1 do
+      Logger.info("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
+    end
+
+    state
+  end
 
   defp maybe_schedule_startup_todo_alert(
          previous_state,
@@ -644,14 +1035,27 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, opts) do
     recipient = self()
 
-    case Slots.select_worker_host(state, preferred_worker_host) do
+    case select_worker_host(state, issue, preferred_worker_host) do
       :no_worker_capacity ->
         Logger.debug("No SSH worker slots available for #{State.issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
 
         state
 
+      :preferred_worker_unavailable ->
+        Logger.warning("Backend cannot use the preferred SSH worker for #{State.issue_context(issue)} preferred_worker_host=#{inspect(preferred_worker_host)}")
+
+        state
+
       worker_host ->
         spawn_issue_on_worker_host(state, issue, attempt, recipient, worker_host, opts)
+    end
+  end
+
+  defp select_worker_host(state, issue, preferred_worker_host) do
+    if CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) do
+      Slots.select_worker_host(state, preferred_worker_host)
+    else
+      if is_nil(preferred_worker_host), do: nil, else: :preferred_worker_unavailable
     end
   end
 
