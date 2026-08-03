@@ -227,6 +227,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       duration_minutes: Map.get(window, :duration_minutes),
       resets_at: datetime(Map.get(window, :resets_at)),
       expires_at: datetime(Map.get(window, :expires_at)),
+      observed_at: datetime(Map.get(window, :observed_at)),
       credits: credits(Map.get(window, :credits)),
       spend_control: spend_control(Map.get(window, :spend_control)),
       freshness: window_freshness,
