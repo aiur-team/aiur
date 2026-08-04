@@ -43,14 +43,13 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
     <section :if={@decision.answer} class="decision-revision" aria-labelledby={"decision-revision-title-#{@decision.decision_id}"}>
       <header class="decision-action-header">
         <div>
-          <p class="section-eyebrow">Append-only correction</p>
           <h4 id={"decision-revision-title-#{@decision.decision_id}"}>Revise Command</h4>
         </div>
         <span class="chip super">Revision {@decision.revision_sequence}</span>
       </header>
 
       <p class="decision-revision-caution">
-        A revision records new direction; it does not claim earlier effects were rolled back.
+        Revising sets new direction — it does not undo what already happened.
       </p>
 
       <div :if={@decision.revisions != []} class="decision-revision-list">
@@ -109,7 +108,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionRevisionAction do
             <input type="radio" name="revision[choice]" value="custom" checked={@choice == "custom"} />
             <span class="decision-choice-copy">
               <strong>Custom response</strong>
-              <small>Replace the current direction with bounded free text.</small>
+              <small>Replace the current direction with free text.</small>
             </span>
           </label>
         </fieldset>
