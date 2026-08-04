@@ -125,14 +125,24 @@ defmodule Aiur.AgentEnvironmentTest do
       refute trusted == ~c"/work/aiur/440/elixir/mise.toml"
     end
 
-    test "exposes per-workspace hex/mix homes and the agent-workspace marker" do
-      env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration")
+    test "exposes repository-node hex/mix homes and the agent-workspace marker" do
+      repo_url = "https://github.com/owner/project.git"
+      env = AgentEnvironment.workspace_env("/work/aiur/440", base_branch: "integration", repo_url: repo_url)
 
-      assert {~c"HEX_HOME", ~c"/work/aiur/440/.aiur-hex"} =
+      assert {~c"HEX_HOME", hex} =
                List.keyfind(env, ~c"HEX_HOME", 0)
 
-      assert {~c"MIX_HOME", ~c"/work/aiur/440/.aiur-mix"} =
+      assert to_string(hex) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-hex")
+
+      assert {~c"MIX_HOME", mix} =
                List.keyfind(env, ~c"MIX_HOME", 0)
+
+      assert to_string(mix) == Path.join(Aiur.RepoBase.repo_path(repo_url), ".aiur-mix")
+
+      assert {~c"AIUR_REPO_STATE_PATH", state_path} =
+               List.keyfind(env, ~c"AIUR_REPO_STATE_PATH", 0)
+
+      assert to_string(state_path) == Aiur.RepoBase.repo_path(repo_url)
 
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
@@ -187,19 +197,36 @@ defmodule Aiur.AgentEnvironmentTest do
   end
 
   describe "workspace_env_export_prefix/1" do
-    test "is shell-composable and exports workspace environment after scrubbing the operator token" do
+    test "exports home-relative sidecar paths and scrubs operator credentials" do
+      repo_url = "https://github.com/owner/project.git"
+
       prefix =
         AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
-          base_branch: "integration"
+          base_branch: "integration",
+          repo_url: repo_url
         )
 
       assert prefix =~ "MISE_TRUSTED_CONFIG_PATHS='/work/aiur/440'"
       assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
+      assert prefix =~ "HEX_HOME='~/.aiur/repo/owner/project/.aiur-hex'"
+      assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
+      assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
+      assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
+      refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
       refute prefix =~ "elixir/mise.toml"
+
+      {paths, 0} =
+        System.cmd("sh", ["-lc", "#{prefix}; printf '%s|%s|%s|%s' \"$HEX_HOME\" \"$MIX_HOME\" \"$npm_config_cache\" \"$AIUR_REPO_STATE_PATH\""], env: [{"HOME", "/remote-home"}])
+
+      assert paths ==
+               "/remote-home/.aiur/repo/owner/project/.aiur-hex|" <>
+                 "/remote-home/.aiur/repo/owner/project/.aiur-mix|" <>
+                 "/remote-home/.aiur/repo/owner/project/.aiur-npm-cache|" <>
+                 "/remote-home/.aiur/repo/owner/project"
 
       {output, status} =
         System.cmd("bash", ["-c", "false && #{prefix} && printf 'FELL_THROUGH'"],

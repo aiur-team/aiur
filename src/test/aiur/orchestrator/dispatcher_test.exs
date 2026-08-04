@@ -14,14 +14,22 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
     previous_fd_sample = Application.get_env(:aiur, :file_descriptor_sample_override)
     previous_proc_stat = Application.get_env(:aiur, :proc_stat_source_override)
+    previous_build_status = Application.get_env(:aiur, :build_gate_status_override)
     previous_lifecycle_recorder = Application.get_env(:aiur, :run_telemetry_lifecycle_recorder)
     previous_ci_readiness_check_fun = Application.get_env(:aiur, :ci_readiness_check_fun)
+
+    # Dispatch must not shell out to the real build-gate lock files on every
+    # poll; default to a free (fail-open) gate status and override per-test.
+    Application.put_env(:aiur, :build_gate_status_override, fn ->
+      %{enabled?: false, capacity: 0, active: 0, queued: 0}
+    end)
 
     on_exit(fn ->
       restore_app_env(:meminfo_source_override, previous_meminfo)
       restore_app_env(:loadavg_source_override, previous_loadavg)
       restore_app_env(:file_descriptor_sample_override, previous_fd_sample)
       restore_app_env(:proc_stat_source_override, previous_proc_stat)
+      restore_app_env(:build_gate_status_override, previous_build_status)
       restore_app_env(:run_telemetry_lifecycle_recorder, previous_lifecycle_recorder)
       restore_app_env(:ci_readiness_check_fun, previous_ci_readiness_check_fun)
       CiReadiness.clear_cached_result()
@@ -296,6 +304,228 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       assert log =~
                "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown available=0 threshold=unknown threshold_pct=10"
+    end
+  end
+
+  describe "capacity_hold surfacing" do
+    defp noop_choose, do: fn state, _issues -> state end
+
+    defp capacity_opts(test_pid, now_ms) do
+      [
+        emit_fun: fn name, reason -> send(test_pid, {:capacity_alert, name, reason}) end,
+        telemetry_fun: fn kind, attrs -> send(test_pid, {:capacity_telemetry, kind, attrs}) end,
+        alert_debounce_ms: 0,
+        now_ms: now_ms
+      ]
+    end
+
+    test "a memory hold persists the limiting reason and emits a debounced backoff alert, then clears on recovery" do
+      write_workflow_file!(Workflow.workflow_file_path(), min_free_memory_mb: 2_048)
+      Application.put_env(:aiur, :meminfo_source_override, fn -> {:ok, "MemAvailable: 1048576 kB\n"} end)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+
+      test_pid = self()
+      state = %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("queued")],
+          noop_choose(),
+          capacity_opts(test_pid, 1_000)
+        )
+
+      assert %{signal: :memory, measured: 1_024, threshold: 2_048, alerted?: false} = held.capacity_hold
+      refute_received {:capacity_alert, "system.fleet.capacity.backoff", _}
+
+      # Same signal on the next poll crosses the (zeroed) debounce window.
+      alerted =
+        Dispatcher.maybe_choose_under_load(
+          held,
+          [issue("queued")],
+          noop_choose(),
+          capacity_opts(test_pid, 2_000)
+        )
+
+      assert alerted.capacity_hold.alerted?
+      assert_received {:capacity_alert, "system.fleet.capacity.backoff", %{signal: :memory}}
+      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "memory"}}
+
+      # Recovery: memory frees above the floor; the hold clears and reports resume.
+      Application.put_env(:aiur, :meminfo_source_override, fn -> {:ok, "MemAvailable: 3145728 kB\n"} end)
+
+      recovered =
+        Dispatcher.maybe_choose_under_load(
+          alerted,
+          [issue("queued")],
+          noop_choose(),
+          capacity_opts(test_pid, 3_000)
+        )
+
+      assert recovered.capacity_hold == nil
+      assert_received {:capacity_alert, "system.fleet.capacity.resumed", %{signal: :memory}}
+      assert_received {:capacity_telemetry, :capacity_resumed, %{"signal" => "memory"}}
+    end
+
+    test "a saturated build gate defers dispatch and reports :build as the limiting reason" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 2)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :build_gate_status_override, fn -> %{enabled?: true, capacity: 2, active: 2, queued: 1} end)
+
+      test_pid = self()
+      state = %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("queued")],
+          &consume_available_slots/2,
+          capacity_opts(test_pid, 1_000)
+        )
+
+      assert %{signal: :build, threshold: 2} = held.capacity_hold
+      assert map_size(held.running) == 0
+      assert_received {:capacity_telemetry, :capacity_hold, %{"signal" => "build"}}
+    end
+
+    test "the AIMD envelope backs off :envelope as the limiting reason while load exceeds target and work waits" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
+      schedulers = System.schedulers_online()
+      # Between the 1.0 target and the 1.5 hard-gate ceiling: the envelope backs
+      # off but the hard load gate does not hold outright.
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{schedulers * 1.2} 1.0 1.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      test_pid = self()
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+
+      held =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          Enum.map(1..2, &issue("queued-#{&1}")),
+          &consume_available_slots/2,
+          capacity_opts(test_pid, 1_000)
+        )
+
+      assert %{signal: :envelope, measured: 2, threshold: 8} = held.capacity_hold
+      # Dispatch still proceeds up to the reduced envelope limit.
+      assert map_size(held.running) == 2
+    end
+
+    test "below-target recovery does not report an envelope hold" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      test_pid = self()
+      state = %State{max_concurrent_agents: 8, effective_concurrent_agents: 4}
+
+      recovered =
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue("queued")],
+          &consume_available_slots/2,
+          capacity_opts(test_pid, 1_000)
+        )
+
+      assert recovered.capacity_hold == nil
+      assert map_size(recovered.running) == 1
+    end
+  end
+
+  describe "prewarm hold observability" do
+    # Mirrors Dispatcher's @prewarm_hold_log_interval_ticks; kept literal so a
+    # change to the production interval is a deliberate, visible edit here too.
+    @hold_log_interval 30
+
+    test "logs the hold reason at most once per hold-log interval" do
+      with_prewarm_enabled_config()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      hold = fn acc -> Dispatcher.dispatch_or_hold(acc, [], fn -> :building end) end
+
+      # 30 consecutive holds (ticks 1..30) log only on the first tick.
+      first_window =
+        capture_log(fn ->
+          state =
+            Enum.reduce(1..@hold_log_interval, %State{}, fn _i, acc ->
+              hold.(acc)
+            end)
+
+          assert state.prewarm_hold_ticks == @hold_log_interval
+        end)
+
+      assert count_substring(first_window, "aiur_perf prewarm_hold") == 1
+      assert first_window =~ "aiur_perf prewarm_hold surface=dispatch phase=:building"
+
+      # A second window (ticks 31..60) adds exactly one more line.
+      second_window =
+        capture_log(fn ->
+          state =
+            Enum.reduce(1..(@hold_log_interval * 2), %State{}, fn _i, acc ->
+              hold.(acc)
+            end)
+
+          assert state.prewarm_hold_ticks == @hold_log_interval * 2
+        end)
+
+      assert count_substring(second_window, "aiur_perf prewarm_hold") == 2
+    end
+
+    test "fails open to a cold clone on a base-build error and resets the hold counter" do
+      with_prewarm_enabled_config()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        prewarm_hold_ticks: 25
+      }
+
+      log =
+        capture_log(fn ->
+          next = Dispatcher.dispatch_or_hold(state, [], fn -> {:error, :base_build_failed} end)
+          assert next.prewarm_hold_ticks == 0
+        end)
+
+      assert log =~ "prewarm base unavailable"
+      assert log =~ "dispatching via cold clone"
+    end
+
+    test "resets the hold counter once the base is ready" do
+      with_prewarm_enabled_config()
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        prewarm_hold_ticks: 10
+      }
+
+      next = Dispatcher.dispatch_or_hold(state, [], fn -> :ready end)
+      assert next.prewarm_hold_ticks == 0
+    end
+
+    test "does not hold or log when prewarm is disabled" do
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        prewarm_hold_ticks: 7
+      }
+
+      log =
+        capture_log(fn ->
+          next = Dispatcher.dispatch_or_hold(state, [], fn -> :building end)
+          assert next.prewarm_hold_ticks == 0
+        end)
+
+      refute log =~ "aiur_perf prewarm_hold"
     end
   end
 
@@ -637,6 +867,31 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
+
+  defp count_substring(haystack, needle) when is_binary(haystack) and is_binary(needle) do
+    haystack |> String.split(needle) |> length() |> Kernel.-(1)
+  end
+
+  # Points the workflow config at a prewarm-enabled file for the duration of a
+  # test. No `base_build` and a memory tracker keep RepoBase's own resolve/poll
+  # inert while `Config.prewarm_enabled?/0` reads true.
+  defp with_prewarm_enabled_config do
+    tmp = Path.join(System.tmp_dir!(), "dispatcher_prewarm_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(tmp)
+    cfg = Path.join(tmp, "config")
+    File.write!(cfg, "tracker:\n  kind: memory\nprewarm:\n  enabled: true\n  poll_seconds: 0\n")
+    previous = Application.get_env(:aiur, :workflow_file_path)
+    Aiur.Workflow.set_workflow_file_path(cfg)
+
+    on_exit(fn ->
+      case previous do
+        nil -> Aiur.Workflow.clear_workflow_file_path()
+        path -> Aiur.Workflow.set_workflow_file_path(path)
+      end
+    end)
+
+    :ok
+  end
 
   defp consume_available_slots(state, issues) do
     Enum.reduce(issues, state, fn issue, acc ->
