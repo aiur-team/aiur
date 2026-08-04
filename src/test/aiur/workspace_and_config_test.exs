@@ -1942,7 +1942,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.workspace.bootstrap_image == nil
     refute config.workspace.bootstrap_image_pull
     assert config.worker.max_concurrent_agents_per_host == nil
-    assert config.agent.max_concurrent_agents == 10
+    # `max_concurrent_agents` is nil at the schema level; the derived default
+    # (calibrated from host schedulers) is resolved by `Config.max_concurrent_agents/0`.
+    assert config.agent.max_concurrent_agents == nil
+    assert Config.max_concurrent_agents() == Config.default_max_concurrent_agents()
 
     # Dashboard binds a free loopback port by default so claude remote-control's
     # transcript hook works without explicit server config. Port 0 = OS-assigned;
@@ -3222,7 +3225,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert trace =~ "-p 2200 worker-01 bash -lc"
       assert trace =~ "__AIUR_WORKSPACE__"
       assert trace =~ "~/.aiur-remote-workspaces/project/MT-SSH-WS"
-      assert trace =~ "${workspace#~/}"
+      assert trace =~ "${workspace#\\~/}"
       assert trace =~ "echo before-run"
       assert trace =~ "echo after-run"
       assert trace =~ "echo before-remove"

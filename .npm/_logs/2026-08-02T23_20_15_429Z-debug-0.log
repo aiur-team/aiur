@@ -1,0 +1,18 @@
+0 verbose cli /opt/aiur-mise/installs/node/24.18.0/bin/node /opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.16.0
+2 info using node@v24.18.0
+3 silly config load:file:/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/src/browser/.npmrc
+5 silly config load:file:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npmrc
+6 silly config load:file:/opt/aiur-mise/installs/node/24.18.0/etc/npmrc
+7 verbose title npm run test:streamdeck
+8 verbose argv "run" "test:streamdeck"
+9 verbose logfile logs-max:10 dir:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npm/_logs/2026-08-02T23_20_15_429Z-
+10 verbose logfile /home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npm/_logs/2026-08-02T23_20_15_429Z-debug-0.log
+11 silly logfile done cleaning log files
+12 verbose cwd /home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/src/browser
+13 verbose os Linux 7.1.4-arch1-1
+14 verbose node v24.18.0
+15 verbose npm  v11.16.0
+16 verbose exit 0
+17 info ok

@@ -19,6 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         choice: choice,
         answerable?: assigns.decision.decision_status in [:open, :deferred, :dismissed],
         deferrable?: assigns.decision.decision_status in [:open, :deferred],
+        acknowledgeable?: assigns.decision.options == [] and assigns.decision.decision_status == :open,
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )
@@ -65,7 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             <input type="radio" name="answer[choice]" value="custom" checked={@choice == "custom"} />
             <span class="decision-choice-copy">
               <strong>Custom response</strong>
-              <small>Record a bounded response in your own words.</small>
+              <small>Record a response in your own words.</small>
             </span>
           </label>
         </fieldset>
@@ -93,6 +94,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Deferring…"
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
+            <button
+              :if={@acknowledgeable?}
+              class="btn ghost"
+              type="button"
+              phx-click="dismiss-decision"
+              phx-value-decision-id={@decision.decision_id}
+              phx-disable-with="Acknowledging…"
+            >Acknowledge</button>
             <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>
         </footer>

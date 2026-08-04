@@ -1,0 +1,111 @@
+0 verbose cli /opt/aiur-mise/installs/node/24.18.0/bin/node /opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.16.0
+2 info using node@v24.18.0
+3 silly config load:file:/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npmrc
+5 silly config load:file:/opt/aiur-mise/installs/node/24.18.0/etc/npmrc
+6 verbose title npm install opencode-ai@1.15.6
+7 verbose argv "install" "--global" "opencode-ai@1.15.6" "--no-offline" "--no-prefer-offline"
+8 verbose logfile logs-max:10 dir:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npm/_logs/2026-08-02T23_49_00_085Z-
+9 verbose logfile /home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npm/_logs/2026-08-02T23_49_00_085Z-debug-0.log
+10 silly packumentCache heap:4496293888 maxSize:1124073472 maxEntrySize:562036736
+11 silly logfile done cleaning log files
+12 silly idealTree buildDeps
+13 silly fetch manifest opencode-ai@1.15.6
+14 silly packumentCache full:https://registry.npmjs.org/opencode-ai cache-miss
+15 http fetch GET 200 https://registry.npmjs.org/opencode-ai 755ms (cache miss)
+16 silly packumentCache full:https://registry.npmjs.org/opencode-ai set size:undefined disposed:false
+17 silly placeDep ROOT opencode-ai@1.15.6 OK for:  want: 1.15.6
+18 silly fetch manifest opencode-linux-x64@1.15.6
+19 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64 cache-miss
+20 silly fetch manifest opencode-darwin-x64@1.15.6
+21 silly packumentCache full:https://registry.npmjs.org/opencode-darwin-x64 cache-miss
+22 silly fetch manifest opencode-linux-arm64@1.15.6
+23 silly packumentCache full:https://registry.npmjs.org/opencode-linux-arm64 cache-miss
+24 silly fetch manifest opencode-windows-x64@1.15.6
+25 silly packumentCache full:https://registry.npmjs.org/opencode-windows-x64 cache-miss
+26 silly fetch manifest opencode-darwin-arm64@1.15.6
+27 silly packumentCache full:https://registry.npmjs.org/opencode-darwin-arm64 cache-miss
+28 silly fetch manifest opencode-windows-arm64@1.15.6
+29 silly packumentCache full:https://registry.npmjs.org/opencode-windows-arm64 cache-miss
+30 silly fetch manifest opencode-linux-x64-musl@1.15.6
+31 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64-musl cache-miss
+32 silly fetch manifest opencode-linux-arm64-musl@1.15.6
+33 silly packumentCache full:https://registry.npmjs.org/opencode-linux-arm64-musl cache-miss
+34 silly fetch manifest opencode-linux-x64-baseline@1.15.6
+35 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64-baseline cache-miss
+36 silly fetch manifest opencode-darwin-x64-baseline@1.15.6
+37 silly packumentCache full:https://registry.npmjs.org/opencode-darwin-x64-baseline cache-miss
+38 silly fetch manifest opencode-windows-x64-baseline@1.15.6
+39 silly packumentCache full:https://registry.npmjs.org/opencode-windows-x64-baseline cache-miss
+40 silly fetch manifest opencode-linux-x64-baseline-musl@1.15.6
+41 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64-baseline-musl cache-miss
+42 http fetch GET 200 https://registry.npmjs.org/opencode-windows-arm64 433ms (cache miss)
+43 silly packumentCache full:https://registry.npmjs.org/opencode-windows-arm64 set size:undefined disposed:false
+44 http fetch GET 200 https://registry.npmjs.org/opencode-linux-x64-baseline-musl 606ms (cache miss)
+45 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64-baseline-musl set size:undefined disposed:false
+46 http fetch GET 200 https://registry.npmjs.org/opencode-linux-arm64-musl 659ms (cache miss)
+47 silly packumentCache full:https://registry.npmjs.org/opencode-linux-arm64-musl set size:undefined disposed:false
+48 http fetch GET 200 https://registry.npmjs.org/opencode-windows-x64-baseline 703ms (cache miss)
+49 silly packumentCache full:https://registry.npmjs.org/opencode-windows-x64-baseline set size:undefined disposed:false
+50 http fetch GET 200 https://registry.npmjs.org/opencode-linux-x64-musl 741ms (cache miss)
+51 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64-musl set size:undefined disposed:false
+52 http fetch GET 200 https://registry.npmjs.org/opencode-darwin-arm64 814ms (cache miss)
+53 silly packumentCache full:https://registry.npmjs.org/opencode-darwin-arm64 set size:undefined disposed:false
+54 http fetch GET 200 https://registry.npmjs.org/opencode-linux-x64-baseline 858ms (cache miss)
+55 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64-baseline set size:undefined disposed:false
+56 http fetch GET 200 https://registry.npmjs.org/opencode-windows-x64 916ms (cache miss)
+57 silly packumentCache full:https://registry.npmjs.org/opencode-windows-x64 set size:undefined disposed:false
+58 http fetch GET 200 https://registry.npmjs.org/opencode-linux-x64 959ms (cache miss)
+59 silly packumentCache full:https://registry.npmjs.org/opencode-linux-x64 set size:undefined disposed:false
+60 http fetch GET 200 https://registry.npmjs.org/opencode-darwin-x64-baseline 1000ms (cache miss)
+61 silly packumentCache full:https://registry.npmjs.org/opencode-darwin-x64-baseline set size:undefined disposed:false
+62 http fetch GET 200 https://registry.npmjs.org/opencode-darwin-x64 1050ms (cache miss)
+63 silly packumentCache full:https://registry.npmjs.org/opencode-darwin-x64 set size:undefined disposed:false
+64 http fetch GET 200 https://registry.npmjs.org/opencode-linux-arm64 1092ms (cache miss)
+65 silly packumentCache full:https://registry.npmjs.org/opencode-linux-arm64 set size:undefined disposed:false
+66 silly placeDep node_modules/opencode-ai opencode-darwin-arm64@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+67 silly placeDep node_modules/opencode-ai opencode-darwin-x64@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+68 silly placeDep node_modules/opencode-ai opencode-darwin-x64-baseline@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+69 silly placeDep node_modules/opencode-ai opencode-linux-arm64@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+70 silly placeDep node_modules/opencode-ai opencode-linux-arm64-musl@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+71 silly placeDep node_modules/opencode-ai opencode-linux-x64@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+72 silly placeDep node_modules/opencode-ai opencode-linux-x64-baseline@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+73 silly placeDep node_modules/opencode-ai opencode-linux-x64-baseline-musl@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+74 silly placeDep node_modules/opencode-ai opencode-linux-x64-musl@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+75 silly placeDep node_modules/opencode-ai opencode-windows-arm64@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+76 silly placeDep node_modules/opencode-ai opencode-windows-x64@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+77 silly placeDep node_modules/opencode-ai opencode-windows-x64-baseline@1.15.6 OK for: opencode-ai@1.15.6 want: 1.15.6
+78 silly reify mark retired [
+78 silly reify   '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/opencode-ai',
+78 silly reify   '/opt/aiur-mise/installs/node/24.18.0/bin/opencode'
+78 silly reify ]
+79 silly reify moves {
+79 silly reify   '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/opencode-ai': '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/.opencode-ai-rphRdHew',
+79 silly reify   '/opt/aiur-mise/installs/node/24.18.0/bin/opencode': '/opt/aiur-mise/installs/node/24.18.0/bin/.opencode-JYoSgKLY'
+79 silly reify }
+80 verbose stack Error: EROFS: read-only file system, rename '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/opencode-ai' -> '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/.opencode-ai-rphRdHew'
+80 verbose stack     at async Object.rename (node:internal/fs/promises:785:10)
+80 verbose stack     at async moveFile (/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/node_modules/@npmcli/fs/lib/move-file.js:30:5)
+80 verbose stack     at async Promise.allSettled (index 0)
+80 verbose stack     at async #reifyPackages (/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:322:11)
+80 verbose stack     at async Arborist.reify (/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/node_modules/@npmcli/arborist/lib/arborist/reify.js:128:5)
+80 verbose stack     at async Install.exec (/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/lib/commands/install.js:157:5)
+80 verbose stack     at async Npm.exec (/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/lib/npm.js:193:9)
+80 verbose stack     at async module.exports (/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/lib/cli/entry.js:67:5)
+81 error code EROFS
+82 error syscall rename
+83 error path /opt/aiur-mise/installs/node/24.18.0/lib/node_modules/opencode-ai
+84 error dest /opt/aiur-mise/installs/node/24.18.0/lib/node_modules/.opencode-ai-rphRdHew
+85 error errno -30
+86 error rofs EROFS: read-only file system, rename '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/opencode-ai' -> '/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/.opencode-ai-rphRdHew'
+87 error rofs Often virtualized file systems, or other file systems that don't support symlinks, give this error.
+88 silly unfinished npm timer reify 1785714540236
+89 silly unfinished npm timer reify:retireShallow 1785714542230
+90 verbose cwd /home/everdred/code/aiur-workspaces/aiur-team/aiur/1358
+91 verbose os Linux 7.1.4-arch1-1
+92 verbose node v24.18.0
+93 verbose npm  v11.16.0
+94 verbose exit -30
+95 verbose code -30
+96 error A complete log of this run can be found in: /home/everdred/code/aiur-workspaces/aiur-team/aiur/1358/.npm/_logs/2026-08-02T23_49_00_085Z-debug-0.log

@@ -160,12 +160,15 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     refute final_retry_token == retry_token
     Process.cancel_timer(final_state.retry_attempts[issue.id].timer_ref)
 
-    assert eventually(fn ->
-             match?(
-               {:current, %{retrying: [%{identifier: "MT-FINAL"}]}, _freshness},
-               Aiur.Orchestrator.dashboard_snapshot(self(), 1_000)
-             )
-           end)
+    assert eventually(
+             fn ->
+               match?(
+                 {:current, %{retrying: [%{identifier: "MT-FINAL"}]}, _freshness},
+                 Aiur.Orchestrator.dashboard_snapshot(self(), 1_000)
+               )
+             end,
+             200
+           )
   end
 
   describe "schedule_issue_retry/4" do
@@ -722,7 +725,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
     end
   end
 
-  defp eventually(fun, attempts \\ 30)
+  defp eventually(fun, attempts)
 
   defp eventually(fun, attempts) when is_function(fun, 0) and attempts > 0 do
     if fun.() do

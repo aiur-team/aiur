@@ -37,6 +37,7 @@ Foreground mode provides the terminal board and live chat panes. Background mode
 | `aiur pause --all` | Pause all active tickets. |
 | `aiur resume 142 143` | Resume specific paused tickets. |
 | `aiur resume --all` | Resume all paused tickets. |
+| `aiur reset-budget 142 143` | Clear a ticket’s lifetime dispatch latch so it can dispatch again (the supported exit from the #1453 latch; `resume` cannot clear it). |
 | `aiur message 142 "Check the latest review"` | Deliver an Executor message through the agent’s native queue. |
 | `aiur stop` | Stop the BEAM and its tmux lifetime session. |
 

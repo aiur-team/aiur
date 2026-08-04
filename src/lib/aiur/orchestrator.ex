@@ -48,7 +48,25 @@ defmodule Aiur.Orchestrator do
 
   def handle_info(:tick, state), do: Lifecycle.handle_tick(state)
 
-  def handle_info(:run_poll_cycle, state), do: Dispatcher.run_poll_cycle(state)
+  # A test freeze (freeze_poll_cycle) sets `poll_frozen` so the one-shot
+  # `:run_poll_cycle` the initial tick scheduled (20ms render delay, not
+  # token-fenced) cannot fire a live poll that would ramp the load envelope
+  # mid-test.
+  def handle_info(:run_poll_cycle, %State{poll_frozen: true} = state), do: {:noreply, state}
+
+  def handle_info(:run_poll_cycle, %State{} = state), do: Dispatcher.run_poll_cycle(state)
+
+  def handle_info({:ci_readiness_result, token, result}, state) when is_reference(token) do
+    state = Dispatcher.handle_ci_readiness_result(state, token, result)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
+
+  def handle_info({:ci_readiness_timeout, token}, state) when is_reference(token) do
+    state = Dispatcher.handle_ci_readiness_timeout(state, token)
+    StatusReport.notify_dashboard(state)
+    {:noreply, state}
+  end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
     RetryEngine.handle_agent_down(state, ref, reason)
@@ -57,6 +75,14 @@ defmodule Aiur.Orchestrator do
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
       when is_binary(issue_id) and is_map(runtime_info),
       do: State.handle_worker_runtime_info(state, issue_id, runtime_info)
+
+  # The runner confirms it survived provisioning; bill exactly one lifetime
+  # dispatch unit (#1453). Preflight/prewarm/tracker-auth failures never reach
+  # this message, so they leave the lifetime budget unchanged.
+  def handle_info({:dispatch_committed, issue_id}, state) when is_binary(issue_id) do
+    state = Dispatcher.record_dispatch_committed(state, issue_id)
+    {:noreply, state}
+  end
 
   def handle_info({:live_conversation_restarted, projection_epoch, observed_at}, state) do
     State.handle_live_conversation_restart(state, projection_epoch, observed_at)
@@ -386,6 +412,19 @@ defmodule Aiur.Orchestrator do
   def control_lifecycle(identifier), do: PauseResume.control_lifecycle(identifier)
   @spec control_lifecycle(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
   def control_lifecycle(server, identifier), do: PauseResume.control_lifecycle(server, identifier)
+
+  @doc """
+  Clears a ticket's lifetime dispatch latch (in-memory + durable store) so a
+  latched ticket returns to dispatchable. The supported operator exit from
+  the #1453 latch — `aiurdev reset-budget <id>` routes here.
+  """
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
+  def reset_dispatch_budget(identifier), do: PauseResume.reset_dispatch_budget(identifier)
+
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
+  def reset_dispatch_budget(server, identifier),
+    do: PauseResume.reset_dispatch_budget(server, identifier)
+
   @spec max_concurrent_agents() :: map() | :unavailable
   def max_concurrent_agents, do: Slots.max_concurrent_agents()
   @spec max_concurrent_agents(GenServer.server()) :: map() | :unavailable
@@ -597,6 +636,14 @@ defmodule Aiur.Orchestrator do
       do: PauseResume.resume_issue_call(state, issue_identifier)
 
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:reset_dispatch_budget, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: PauseResume.reset_dispatch_budget_call(state, issue_identifier)
+
+  def handle_call({:reset_dispatch_budget, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
