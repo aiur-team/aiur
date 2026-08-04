@@ -7,14 +7,15 @@ runtime facts.
 ## Runtime artifact tree
 
 ```text
-builds/<slug>/
+~/.aiur/repo/<owner>/<repo>/builds/<slug>/
   build-order.json
   status.json                 # daemon-owned runtime projection
   tickets/<ID>.md             # draft issue body until promoted
 ```
 
-The state node is the only path Aiur reads. A developer may keep a copied plan
-in repository version control, but that copy is inert to Aiur.
+The state node is host-local runtime storage and the only path Aiur reads. A
+developer may keep a copied plan in repository version control, but that copy
+is inert to Aiur.
 
 ## Canonical pack
 
