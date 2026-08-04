@@ -149,4 +149,14 @@ describe("providerSegmentModel", () => {
     expect(model.session?.usedPercent).toBe(50);
     expect(model.weekly).toBeNull();
   });
+
+  it("reports no data (never a fabricated 0%) for a lone window without a used_percent (#1436)", () => {
+    const model = providerSegmentModel({
+      provider: "claude",
+      windows: { "rate-limit": { resets_at: "2026-07-30T16:00:00Z" } },
+    });
+    expect(model.hasData).toBe(false);
+    expect(model.session).toBeNull();
+    expect(model.weekly).toBeNull();
+  });
 });

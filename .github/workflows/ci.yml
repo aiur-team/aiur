@@ -9,6 +9,34 @@ on:
       - v2
 
 jobs:
+  workflow-security:
+    name: workflow security
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Guard workflow triggers and action pins
+        run: bash scripts/test-workflow-security.sh
+      - name: Test human-only merge ruleset verifier
+        run: bash scripts/test-human-only-merge-ruleset.sh
+      - name: Test human-only merge ruleset drift check
+        run: bash scripts/test-human-only-merge-ruleset-live.sh
+
+  merge-ruleset-drift:
+    name: merge ruleset drift
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Verify live human-only merge ruleset matches the declaration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/verify-human-only-merge-ruleset-live.sh
+
   build:
     runs-on: ubuntu-latest
     defaults:
@@ -58,7 +86,7 @@ jobs:
           TEST_PARTITIONS: 4
         run: make coverage-partition
       - name: Upload partition coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: coverage-${{ matrix.partition }}
           path: src/cover/${{ matrix.partition }}.coverdata
@@ -79,7 +107,7 @@ jobs:
       - name: Set up Elixir
         uses: ./.github/actions/setup-elixir
       - name: Download partition coverage
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           pattern: coverage-*
           path: src/cover
@@ -187,7 +215,7 @@ jobs:
         run: npm run verify:failure-artifacts
       - name: Upload browser failure evidence
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: browser-harness-artifacts
           path: src/browser/.artifacts-run-*/

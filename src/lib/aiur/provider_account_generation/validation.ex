@@ -1,11 +1,8 @@
 defmodule Aiur.ProviderAccountGeneration.Validation do
   @moduledoc false
 
-  @trusted_sources %{codex: [:codex_app_server], claude: [:claude_app_server]}
-  @auth_modes %{
-    codex: ~w(apikey chatgpt chatgptAuthTokens headers agentIdentity personalAccessToken bedrockApiKey),
-    claude: ~w(subscription api_key)
-  }
+  alias Aiur.CodingAgent
+
   @invalidation_reasons [
     :logout,
     :credential_replaced,
@@ -18,8 +15,7 @@ defmodule Aiur.ProviderAccountGeneration.Validation do
   ]
 
   @spec scope?(atom(), atom()) :: boolean()
-  def scope?(provider, :app_server), do: provider in [:codex, :claude]
-  def scope?(_provider, _backend), do: false
+  def scope?(provider, backend), do: backend in policy(provider, :backends)
 
   @spec observation?(atom(), atom(), term(), map()) :: boolean()
   def observation?(provider, backend, binding, opts) do
@@ -36,7 +32,13 @@ defmodule Aiur.ProviderAccountGeneration.Validation do
   @spec same_binding_continuity?(map()) :: boolean()
   def same_binding_continuity?(opts), do: Map.get(opts, :continuity) == :proven
 
-  defp trusted_source?(provider, source), do: source in Map.get(@trusted_sources, provider, [])
+  defp trusted_source?(provider, source), do: source in policy(provider, :trusted_sources)
   defp auth_mode?(_provider, nil), do: true
-  defp auth_mode?(provider, auth_mode), do: auth_mode in Map.get(@auth_modes, provider, [])
+  defp auth_mode?(provider, auth_mode), do: auth_mode in policy(provider, :auth_modes)
+
+  defp policy(provider, key) do
+    provider
+    |> CodingAgent.provider_account_generation()
+    |> then(&Map.get(&1 || %{}, key, []))
+  end
 end

@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
+    AutoResume,
     ControlLifecycle,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -40,7 +41,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
           {:noreply, state}
       end
 
-    StatusReport.notify_dashboard(state)
+    publish_final_retry_state(result)
+  end
+
+  @doc false
+  @spec publish_final_retry_state({:noreply, State.t()}) :: {:noreply, State.t()}
+  def publish_final_retry_state({:noreply, final_state} = result) do
+    StatusReport.notify_dashboard(final_state)
     result
   end
 
@@ -91,6 +98,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
                 tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
                 priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
                 error: "agent exited: #{inspect(reason)}",
+                # Structured failure reason retained so retry exhaustion can
+                # classify it as a transient infrastructure fault for the #1453
+                # automatic re-dispatch (the formatted `error` string cannot).
+                transient_reason: reason,
                 prior_work: prior_work_for_retry?(running_entry),
                 worker_host: Map.get(running_entry, :worker_host),
                 workspace_path: Map.get(running_entry, :workspace_path)
@@ -306,6 +317,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     next_attempt = if is_integer(attempt), do: attempt, else: previous_retry.attempt + 1
     identifier = pick_retry_identifier(issue_id, previous_retry, metadata)
     error = pick_retry_error(previous_retry, metadata)
+    transient_reason = pick_retry_transient_reason(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
@@ -350,7 +362,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # write parks the ticket in `error` on the next give-up — keeping the
       # ticket recoverable without a restart rather than stranding it in
       # `claimed`, which is the behaviour #699 is fixing.
+      #
+      # When the exhaustion cause is a transient infrastructure fault (tracker
+      # 403 / rate limit / provider timeout), also schedule a bounded automatic
+      # re-dispatch so the ticket recovers once the cause clears instead of
+      # parking until an operator notices (#1453). The structured transient
+      # reason wins when recorded; otherwise the formatted error string is the
+      # fallback (which `AutoResume.classify/1` treats as terminal).
       released = release_issue_claim(state, issue_id)
+
+      released =
+        maybe_schedule_transient_auto_resume(
+          released,
+          issue_id,
+          effective_exhaustion_reason(transient_reason, error)
+        )
+
       %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
     else
       delay_ms = retry_delay(next_attempt, metadata)
@@ -383,6 +410,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               due_at_ms: due_at_ms,
               identifier: identifier,
               error: error,
+              transient_reason: transient_reason,
               retry_poll_failures: retry_poll_failures,
               prior_work: prior_work?,
               worker_host: worker_host,
@@ -415,6 +443,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         metadata = %{
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
+          transient_reason: Map.get(retry_entry, :transient_reason),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           prior_work: Map.get(retry_entry, :prior_work, false),
           worker_host: Map.get(retry_entry, :worker_host),
@@ -442,7 +471,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
         Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
 
-        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, formatted)}
+        # Pass the structured reason (not the formatted string) so retry-poll
+        # exhaustion can classify a transient tracker fault for the #1453
+        # automatic re-dispatch.
+        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
     end
   end
 
@@ -587,6 +619,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   def format_retry_preflight_error(reason), do: inspect(reason)
 
+  # Schedules a bounded automatic re-dispatch when an exhaustion cause is a
+  # classifiably transient infrastructure fault (#1453). Returns `state`
+  # unchanged for terminal causes, operator pauses, or when the latch is
+  # disabled/irrelevant — the ticket parks for normal (operator) recovery.
+  @doc false
+  @spec maybe_schedule_transient_auto_resume(State.t(), String.t(), term()) :: State.t()
+  def maybe_schedule_transient_auto_resume(%State{} = state, issue_id, reason)
+      when is_binary(issue_id) do
+    case AutoResume.classify(reason) do
+      nil ->
+        state
+
+      cause ->
+        Logger.info("Scheduling transient auto-resume issue_id=#{issue_id} cause=#{cause} reason=#{inspect(reason)}")
+
+        AutoResume.schedule(state, issue_id, cause)
+    end
+  end
+
   defp handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
     retry_poll_failures = normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
@@ -597,7 +648,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
     if retry_poll_failures >= @max_retry_poll_failures and not metadata[:terminal_membership_pending?] do
       emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata)
+
+      # A transient tracker failure (403 / rate limit / provider timeout) that
+      # exhausted retry polling schedules a bounded automatic re-dispatch once
+      # the cause clears, instead of parking until an operator notices (#1453).
       release_issue_claim(state, issue_id)
+      |> maybe_schedule_transient_auto_resume(issue_id, reason)
     else
       schedule_issue_retry(
         state,
@@ -905,6 +961,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
   end
+
+  # The structured (non-formatted) failure reason, retained so retry exhaustion
+  # can classify a transient infrastructure fault for the #1453 auto-resume.
+  defp pick_retry_transient_reason(previous_retry, metadata) do
+    if Map.has_key?(metadata, :transient_reason) do
+      Map.get(metadata, :transient_reason)
+    else
+      Map.get(previous_retry, :transient_reason)
+    end
+  end
+
+  # The cause passed to `AutoResume.classify/1` at retry exhaustion: the
+  # structured transient reason when one was recorded, else the formatted error
+  # string (which classifies as terminal, so an infra fault with no structured
+  # record still parks for operator recovery rather than auto-resuming on an
+  # unclassifiable cause).
+  defp effective_exhaustion_reason(nil, error), do: error
+  defp effective_exhaustion_reason(transient_reason, _error), do: transient_reason
 
   # The generic "retry budget exhausted" alert text alone forces the operator
   # to grep the daemon log to find the actual failure (e.g. a workspace

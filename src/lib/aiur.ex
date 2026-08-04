@@ -31,8 +31,8 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
-    debug? = Aiur.LogFile.debug_enabled?()
-    if debug?, do: Aiur.RunTelemetry.start_boot()
+    telemetry? = Aiur.Config.telemetry_enabled?()
+    Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
@@ -54,7 +54,7 @@ defmodule Aiur.Application do
           interactive_cli?: interactive_cli?,
           headless?: headless?,
           dashboard?: not no_dashboard?,
-          debug?: debug?
+          telemetry?: telemetry?
         )
 
       Supervisor.start_link(
@@ -119,7 +119,7 @@ defmodule Aiur.Application do
     interactive_cli? = Keyword.fetch!(opts, :interactive_cli?)
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
-    debug? = Keyword.get(opts, :debug?, false)
+    telemetry? = Keyword.get(opts, :telemetry?, true)
 
     cli_children =
       if interactive_cli? do
@@ -161,7 +161,7 @@ defmodule Aiur.Application do
       Aiur.Events.IdGenerator,
       Aiur.Events.Exchange,
       Aiur.Events.BranchRefStore,
-      if(debug?, do: Aiur.RunTelemetry.Supervisor),
+      if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
@@ -191,6 +191,8 @@ defmodule Aiur.Application do
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
+      Aiur.Orchestrator.SnapshotStore,
+      Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
       # LiveConversation is projection-only: it never replays workspace logs
       # after restart, so a missing key truthfully reports :restart_unknown.
@@ -201,6 +203,7 @@ defmodule Aiur.Application do
       Aiur.Claude.Telemetry,
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
+      {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,

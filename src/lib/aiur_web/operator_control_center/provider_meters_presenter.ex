@@ -20,14 +20,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   `empty_supported`), standing, freshness, and reset distinct.
   """
 
+  alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
 
-  @providers [:codex, :claude]
   @real_failures [:authentication, :malformed, :timeout, :transport]
   @window_kind_order %{rate_limit: 0, credit: 1, spend_control: 2}
 
-  @type snapshots :: %{optional(:codex) => ProviderMeterSnapshot.t() | nil, optional(:claude) => ProviderMeterSnapshot.t() | nil}
+  @type snapshots :: %{optional(atom()) => ProviderMeterSnapshot.t() | nil}
   @type view :: map()
 
   @doc """
@@ -45,7 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
     %{
       state: :authorized,
       locked: nil,
-      cards: Enum.map(@providers, &card(&1, Map.get(snapshots, &1)))
+      cards: Enum.map(CodingAgent.provider_families(), &card(&1, Map.get(snapshots, &1)))
     }
   end
 
@@ -56,7 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   @doc "A single bounded screen-reader announcement summarising the presented `view`."
   @spec announcement(view()) :: String.t()
   def announcement(%{state: :locked}) do
-    "Provider account meters are locked. Authentication is required to view Codex and Claude account meters."
+    "Provider account meters are locked. Authentication is required to view provider account meters."
   end
 
   def announcement(%{state: :authorized, cards: cards}) when is_list(cards) do
@@ -227,6 +227,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       duration_minutes: Map.get(window, :duration_minutes),
       resets_at: datetime(Map.get(window, :resets_at)),
       expires_at: datetime(Map.get(window, :expires_at)),
+      observed_at: datetime(Map.get(window, :observed_at)),
       credits: credits(Map.get(window, :credits)),
       spend_control: spend_control(Map.get(window, :spend_control)),
       freshness: window_freshness,
@@ -295,11 +296,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- labels --------------------------------------------------------------
 
-  defp provider_label(:codex), do: "Codex"
-  defp provider_label(:claude), do: "Claude"
-  defp provider_label(other), do: other |> to_string() |> String.capitalize()
+  defp provider_label(provider) do
+    case CodingAgent.provider_descriptor(provider) do
+      %{label: label} -> label
+      _ -> provider |> to_string() |> String.capitalize()
+    end
+  end
 
   defp backend_label(%ProviderMeterSnapshot{backend: :app_server}), do: "App server"
+  defp backend_label(%ProviderMeterSnapshot{backend: :openai_compat}), do: "OpenAI-compatible API"
   defp backend_label(_snapshot), do: "Backend unknown"
 
   defp status_label(:loading), do: "Loading…"
