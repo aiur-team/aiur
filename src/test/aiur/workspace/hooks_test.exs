@@ -246,4 +246,73 @@ defmodule Aiur.Workspace.HooksTest do
     refute path =~ release_erts_bin
     assert path =~ user_bin
   end
+
+  test "remote hook command expands repository state under the worker home", %{workspace: workspace, test_root: test_root} do
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, Path.join(test_root, "daemon-state"))
+
+    on_exit(fn ->
+      case previous_root do
+        nil -> Application.delete_env(:aiur, :repo_base_root)
+        root -> Application.put_env(:aiur, :repo_base_root, root)
+      end
+    end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      tracker_kind: "github",
+      tracker_repo: "owner/project"
+    )
+
+    command = Hooks.remote_hook_command("true", workspace, %{issue_id: 1, issue_identifier: "123"})
+
+    assert command =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
+    assert command =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
+    refute command =~ Path.join([test_root, "daemon-state", "owner", "project"])
+  end
+
+  test "remote hook command exports a neutral state path for non-GitHub trackers", %{workspace: workspace, test_root: test_root} do
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, Path.join(test_root, "daemon-state"))
+
+    on_exit(fn ->
+      case previous_root do
+        nil -> Application.delete_env(:aiur, :repo_base_root)
+        root -> Application.put_env(:aiur, :repo_base_root, root)
+      end
+    end)
+
+    # Default test config is a Linear tracker with no repo slug.
+    command = Hooks.remote_hook_command("true", workspace, %{issue_id: 1, issue_identifier: "123"})
+
+    assert command =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/unknown/unknown'"
+    assert command =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
+  end
+
+  test "local hooks receive a usable state path for non-GitHub trackers (no ${VAR:?} abort)", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    Application.put_env(:aiur, :repo_base_root, Path.join(test_root, "daemon-state"))
+
+    on_exit(fn ->
+      case previous_root do
+        nil -> Application.delete_env(:aiur, :repo_base_root)
+        root -> Application.put_env(:aiur, :repo_base_root, root)
+      end
+    end)
+
+    issue_context = %{issue_id: 1, issue_identifier: "123", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    # Mirrors the scaffolded `.aiur/examples/hooks.example` guard: when the
+    # state path is unset, `${VAR:?}` aborts the whole script before mkdir.
+    command =
+      ~s(cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"; ) <>
+        ~s(mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"; ) <>
+        ~s(touch "$cache_root/meta/findings.ndjson"; ) <>
+        ~s(test -f "$cache_root/meta/findings.ndjson")
+
+    assert :ok = Hooks.run_hook(command, workspace, issue_context, "before_run", nil)
+  end
 end

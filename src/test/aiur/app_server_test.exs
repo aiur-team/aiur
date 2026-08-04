@@ -1389,6 +1389,8 @@ defmodule Aiur.AppServerTest do
       assert remote_command =~ remote_workspace
       assert remote_command =~ "exec "
       assert remote_command =~ "fake-remote-codex app-server"
+      assert remote_command =~ "HEX_HOME="
+      assert remote_command =~ "${HEX_HOME#\\~/}"
 
       expected_turn_policy = %{
         "type" => "workspaceWrite",

@@ -217,6 +217,21 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       order = card(Presenter.present(authorized(), %{codex: with_windows(:codex, windows)}), :codex).windows |> Enum.map(& &1.name)
       assert order == ["Primary", "Secondary", "Credits", "Spend control"]
     end
+
+    # A surface must be able to name a credit window's age ("as of HH:MM") and
+    # its freshness horizon, so the presenter carries both timestamps through.
+    test "a window exposes its observed_at and expires_at timestamps" do
+      expires_at = DateTime.add(@observed, 300, :second)
+
+      credit =
+        window(kind: :credit, name: "Credits", coverage: :supported, used_percent: nil, credits: %{status: :available, amount: 7.25})
+        |> Map.put(:observed_at, @observed)
+        |> Map.put(:expires_at, expires_at)
+
+      [view] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"c" => credit})}), :codex).windows
+      assert view.observed_at == @observed
+      assert view.expires_at == expires_at
+    end
   end
 
   describe "announcements" do

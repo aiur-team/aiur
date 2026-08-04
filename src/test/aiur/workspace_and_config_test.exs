@@ -3225,7 +3225,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert trace =~ "-p 2200 worker-01 bash -lc"
       assert trace =~ "__AIUR_WORKSPACE__"
       assert trace =~ "~/.aiur-remote-workspaces/project/MT-SSH-WS"
-      assert trace =~ "${workspace#~/}"
+      assert trace =~ "${workspace#\\~/}"
       assert trace =~ "echo before-run"
       assert trace =~ "echo after-run"
       assert trace =~ "echo before-remove"

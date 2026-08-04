@@ -118,13 +118,33 @@ defmodule Aiur.Workspace.Hooks do
   @doc false
   @spec remote_hook_command(String.t(), Path.t(), map()) :: String.t()
   def remote_hook_command(command, workspace, issue_context) do
-    exports =
-      hook_env(issue_context)
-      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+    {state_path, environment} =
+      hook_env(issue_context, remote?: true)
+      |> Enum.split_with(fn {key, _value} -> key == "AIUR_REPO_STATE_PATH" end)
 
-    prefix = if exports == "", do: "", else: "export #{exports}; "
+    state_exports =
+      Enum.map_join(state_path, "\n", fn {key, value} ->
+        [Remote.remote_shell_assign(key, value), "export #{key}"]
+        |> Enum.join("\n")
+      end)
+
+    exports = Enum.map_join(environment, " ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+
+    prefix =
+      [
+        state_exports,
+        if(exports == "", do: "", else: "export #{exports};")
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
     scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
-    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
+
+    if prefix == "" do
+      "cd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
+    else
+      "#{prefix}\ncd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
+    end
   end
 
   @doc false
@@ -184,13 +204,28 @@ defmodule Aiur.Workspace.Hooks do
   # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL.
   # `THIS_BASE_BRANCH` is resolved by RepoBase, keeping generated hooks on the
   # same configured branch as warm-base refresh and materialization.
-  defp hook_env(issue_context) do
+  #
+  # `AIUR_REPO_STATE_PATH` is ALWAYS exported. Scaffolded hooks (which `aiur
+  # init` writes for every tracker) guard it with `${VAR:?}`, so a tracker
+  # without a repo slug must still receive a usable value or the whole hook
+  # aborts. Non-GitHub trackers get the same neutral state path that
+  # `AgentEnvironment` hands agents, keeping hooks and agents consistent.
+  defp hook_env(issue_context, opts \\ []) do
+    remote? = Keyword.get(opts, :remote?, false)
+
     repository_env =
-      with "github" <- Config.settings!().tracker.kind,
-           repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-        [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}, {"THIS_BASE_BRANCH", RepoBase.base_branch()}]
-      else
-        _ -> []
+      case github_repo_url() do
+        nil ->
+          [{"AIUR_REPO_STATE_PATH", repo_state_path(Aiur.AgentEnvironment.neutral_repo_url(), remote?)}]
+
+        repo_url ->
+          :ok = RepoBase.ensure_state_tree(repo_url)
+
+          [
+            {"THIS_REPOSITORY_URL", repo_url},
+            {"THIS_BASE_BRANCH", RepoBase.base_branch()},
+            {"AIUR_REPO_STATE_PATH", repo_state_path(repo_url, remote?)}
+          ]
       end
 
     case Map.get(issue_context, :branch_name) do
@@ -198,6 +233,18 @@ defmodule Aiur.Workspace.Hooks do
       _ -> repository_env
     end
   end
+
+  defp github_repo_url do
+    with "github" <- Config.settings!().tracker.kind,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      "https://github.com/#{repo}.git"
+    else
+      _ -> nil
+    end
+  end
+
+  defp repo_state_path(repo_url, true), do: Path.join("~", RepoBase.repo_relative_path(repo_url))
+  defp repo_state_path(repo_url, false), do: RepoBase.repo_path(repo_url)
 
   defp sanitize_hook_output_for_log(output, max_bytes \\ 2_048) do
     binary_output = IO.iodata_to_binary(output)
