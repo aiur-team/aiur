@@ -62,6 +62,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     render_component(&ConversationDrawer.conversation_drawer/1, %{
       id: "units-conversation-drawer",
       view: view,
+      composer: Keyword.get(opts, :composer),
+      writable: Keyword.get(opts, :writable, false),
       close_event: Keyword.get(opts, :close_event, "close-conversation"),
       fallback_focus_id: "units-title",
       origin_id: Keyword.get(opts, :origin_id, "units-conversation-token")
@@ -170,6 +172,28 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "composer-change"
     refute html =~ ~s(<form)
     refute html =~ ~s(<textarea)
+  end
+
+  test "renders the writable composer when a unique target is provided" do
+    composer = %{target_key: "1110", writable_target?: true, messages: []}
+    html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
+
+    assert html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ ~s(phx-change="composer-change")
+    assert html =~ ~s(phx-click="pause-agent")
+    assert html =~ ~s(<textarea)
+    assert html =~ "Message agent…"
+    refute html =~ "Read-only dashboard"
+    refute html =~ "not a unique writable target"
+  end
+
+  test "renders the not-unique-writable-target notice when a composer is present but not writable" do
+    composer = %{target_key: "1110", writable_target?: false, messages: []}
+    html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
+
+    refute html =~ ~s(<textarea)
+    refute html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "not a unique writable target"
   end
 
   test "never leaks the generation handle, session material, or a local path" do
