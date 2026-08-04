@@ -17,3 +17,8 @@ does not broaden the merge-boundary change into an authentication migration.
 
 Ruleset administration remains an operator-only action. No Administration
 credential is stored in Actions or given to the daemon.
+
+`aiur init` may inspect repository readiness with a separately supplied,
+one-shot `AIUR_CI_READINESS_TOKEN`. That operator credential needs only
+Contents, Actions, and Administration read access for the inspection endpoints;
+it must not be stored in `.env` or inherited by the daemon.
