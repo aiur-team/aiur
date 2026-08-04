@@ -170,7 +170,7 @@ defmodule Aiur.AgentEnvironmentTest do
 
   test "scrub_shell_command clears parent log environment before exec" do
     grep_pattern =
-      "^(AIUR_LOGS_ROOT|AIUR_AGENT_IR_LOGS_PARENT|AIUR_AGENT_WORKSPACE|AIUR_DEBUG)="
+      "^(AIUR_LOGS_ROOT|AIUR_AGENT_IR_LOGS_PARENT|AIUR_CI_READINESS_TOKEN|AIUR_AGENT_WORKSPACE|AIUR_DEBUG)="
 
     command =
       AgentEnvironment.scrub_shell_command("env | grep -E '#{grep_pattern}' | sort")
@@ -180,6 +180,7 @@ defmodule Aiur.AgentEnvironmentTest do
         env: [
           {"AIUR_LOGS_ROOT", "/home/operator/.aiur/logs/live-session"},
           {"AIUR_AGENT_IR_LOGS_PARENT", "/home/operator/.aiur/logs"},
+          {"AIUR_CI_READINESS_TOKEN", "operator-only"},
           {"AIUR_AGENT_WORKSPACE", "/work/aiur/697"},
           {"AIUR_DEBUG", "1"}
         ]
@@ -275,6 +276,9 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_AGENT_IR_LOGS_PARENT", false} =
                List.keyfind(env, ~c"AIUR_AGENT_IR_LOGS_PARENT", 0)
 
+      assert {~c"AIUR_CI_READINESS_TOKEN", false} =
+               List.keyfind(env, ~c"AIUR_CI_READINESS_TOKEN", 0)
+
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/697"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
 
@@ -295,7 +299,7 @@ defmodule Aiur.AgentEnvironmentTest do
   end
 
   describe "workspace_env_export_prefix/1" do
-    test "exports MISE_TRUSTED_CONFIG_PATHS pointed at the workspace root" do
+    test "is shell-composable and exports workspace environment after scrubbing the operator token" do
       prefix =
         AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
           base_branch: "integration"
@@ -305,8 +309,26 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_MIX_SCHEDULERS='4'"
       assert prefix =~ "ELIXIR_ERL_OPTIONS='+S 4:4'"
       assert prefix =~ "AIUR_BASE_BRANCH='integration'"
+      assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
       refute prefix =~ "elixir/mise.toml"
+
+      {output, status} =
+        System.cmd("bash", ["-c", "false && #{prefix} && printf 'FELL_THROUGH'"],
+          env: [{"AIUR_CI_READINESS_TOKEN", "operator-only"}],
+          stderr_to_stdout: true
+        )
+
+      assert status != 0
+      refute output =~ "FELL_THROUGH"
+
+      {output, 0} =
+        System.cmd("bash", ["-c", "#{prefix} && printf 'TOKEN=%s' \"${AIUR_CI_READINESS_TOKEN-unset}\""],
+          env: [{"AIUR_CI_READINESS_TOKEN", "operator-only"}],
+          stderr_to_stdout: true
+        )
+
+      assert output == "TOKEN=unset"
     end
 
     test "returns an empty string for a non-binary path" do

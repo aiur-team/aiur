@@ -51,6 +51,7 @@ defmodule Aiur.Init.Runtime do
           github_login: (-> String.t() | nil),
           github_bot_account_default: (-> String.t() | nil),
           github_token: (-> String.t() | nil),
+          check_ci_readiness: (map() -> {:ok, Aiur.GitHub.CiReadiness.result()} | {:error, term()}),
           list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
         }
@@ -105,6 +106,7 @@ defmodule Aiur.Init.Runtime do
       github_login: &Aiur.Init.GitHub.detect_github_login/0,
       github_bot_account_default: &Aiur.Init.GitHub.detect_bot_account/0,
       github_token: &GitHubConfig.token/0,
+      check_ci_readiness: &Aiur.Init.GitHub.check_ci_readiness/1,
       list_labels: &Aiur.Init.GitHub.list_repo_labels/1,
       create_labels: &Aiur.Init.GitHub.create_labels/2
     }
