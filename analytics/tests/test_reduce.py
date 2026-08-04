@@ -146,6 +146,72 @@ class BootSummaryTest(unittest.TestCase):
             self.assertEqual(loaded["schema_version"], 1)
             self.assertIn("930", loaded["tickets"])
 
+    def test_boot_summary_keeps_only_that_boots_scoped_warnings(self):
+        # Two boots each with a sequence gap: a per-boot summary must not carry
+        # the other boot's gap.
+        lines = [
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "lifecycle",
+                    "timestamp": "2026-07-11T01:00:00Z",
+                    "boot_id": "boot-a",
+                    "sequence": 1,
+                    "record_id": "boot-a:1",
+                    "attributes": {"ticket": "1", "event": "dispatch", "boundary": "point"},
+                }
+            ),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "lifecycle",
+                    "timestamp": "2026-07-11T01:00:02Z",
+                    "boot_id": "boot-a",
+                    "sequence": 3,
+                    "record_id": "boot-a:3",
+                    "attributes": {"ticket": "1", "event": "agent_pause", "boundary": "point"},
+                }
+            ),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "lifecycle",
+                    "timestamp": "2026-07-11T02:00:00Z",
+                    "boot_id": "boot-b",
+                    "sequence": 1,
+                    "record_id": "boot-b:1",
+                    "attributes": {"ticket": "2", "event": "dispatch", "boundary": "point"},
+                }
+            ),
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "kind": "lifecycle",
+                    "timestamp": "2026-07-11T02:00:02Z",
+                    "boot_id": "boot-b",
+                    "sequence": 3,
+                    "record_id": "boot-b:3",
+                    "attributes": {"ticket": "2", "event": "agent_pause", "boundary": "point"},
+                }
+            ),
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "telemetry.ndjson"
+            path.write_text("\n".join(lines) + "\n")
+            dataset = reducer.reduce_files([path])
+
+        gaps_by_boot = {w["boot_id"] for w in dataset["warnings"] if w["type"] == "sequence_gap"}
+        self.assertEqual(gaps_by_boot, {"boot-a", "boot-b"})
+
+        summary_a = reducer.boot_summary(dataset, "boot-a")
+        self.assertEqual(
+            {w["boot_id"] for w in summary_a["warnings"] if w["type"] == "sequence_gap"}, {"boot-a"}
+        )
+        summary_b = reducer.boot_summary(dataset, "boot-b")
+        self.assertEqual(
+            {w["boot_id"] for w in summary_b["warnings"] if w["type"] == "sequence_gap"}, {"boot-b"}
+        )
+
 
 class BuildSummaryTest(unittest.TestCase):
     def test_build_summary_rolls_up_members(self):

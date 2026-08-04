@@ -43,15 +43,19 @@ Executor-placed.
 
 ## Tools
 
-All tools are dependency-free (Python 3 stdlib only) and can be run from any
-host with a checkout of this repository.
+The Python tools are dependency-free (Python 3 stdlib only) and can be run from
+any host with a checkout of this repository. `cost-report` is the exception: it
+delegates to an offline Elixir mix task over `UsageAggregate` + `PriceTable`,
+so it needs the Elixir toolchain (`mise`/`mix`) and a checkout of `src/` — not
+just the `analytics/` directory. It still needs no new recording: it reads the
+usage-aggregate checkpoint and price table that the daemon already maintains.
 
 | Tool | Purpose |
 |------|---------|
 | `analytics/reduce` | Materialize run-summaries (and optional build rollups). Idempotent, cron/post-run safe. |
 | `analytics/run-summary [<boot-id>|--current]` | One boot: dispatched/merged/open, CPU-hours, peak concurrency vs cap, wasted slot-hours, top-5 by cost (CPU-seconds). `--json` for machines. |
 | `analytics/build-report <slug>` | **The retrospective number-fetcher.** Members merged/closed/open, wall-clock and active time across every boot touching a member, CI cycles, rework count, spend. Replaces hand-counting. |
-| `analytics/cost-report` | Spend by model, agent family, ticket — pure wiring over `UsageAggregate` + `PriceTable` (offline mix task). Needs no new recording. |
+| `analytics/cost-report` | Spend by model, agent family, ticket — pure wiring over `UsageAggregate` + `PriceTable` (offline mix task; needs the Elixir toolchain + `src/` checkout, unlike the dependency-free Python tools). Needs no new recording. |
 | `analytics/flake-report` | **BLOCKED.** Not shipped: there is no durable flake database. Exits with an explicit explanation rather than a silent empty report. Ship after CI outcomes are recorded durably. |
 
 ## Running the tools

@@ -96,15 +96,9 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp merge_datasets(datasets) do
-    %{
-      records: Enum.flat_map(datasets, & &1.records),
-      restarts: Enum.flat_map(datasets, & &1.restarts),
-      actors: Enum.reduce(datasets, %{}, fn dataset, acc -> Map.merge(acc, dataset.actors) end),
-      tickets: Enum.reduce(datasets, %{}, fn dataset, acc -> Map.merge(acc, dataset.tickets) end),
-      findings: Enum.flat_map(datasets, & &1.findings),
-      warnings: Enum.flat_map(datasets, & &1.warnings),
-      provenance: merge_provenance(datasets)
-    }
+    datasets
+    |> Dataset.merge()
+    |> Map.put(:provenance, merge_provenance(datasets))
   end
 
   defp merge_provenance(datasets) do

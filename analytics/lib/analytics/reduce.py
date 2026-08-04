@@ -233,9 +233,16 @@ def boot_summary(dataset: dict, boot_id: str, opts: dict | None = None) -> dict:
         "actors": actors,
         "tickets": tickets,
         "findings": findings,
-        "warnings": [warning for warning in dataset["warnings"]],
+        "warnings": _warnings_for_boot(dataset["warnings"], boot_id),
         "provenance": provenance,
     }
+
+
+def _warnings_for_boot(warnings: list[dict], boot_id: str) -> list[dict]:
+    """Keep the warnings that belong to one boot; file-level warnings (no boot
+    id) are boot-agnostic and stay. A per-boot summary must not carry another
+    boot's boot-scoped warnings (e.g. its sequence gaps)."""
+    return [warning for warning in warnings if warning.get("boot_id") in (None, boot_id)]
 
 
 def os_path_size(path: Any) -> int:

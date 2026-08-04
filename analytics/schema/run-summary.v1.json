@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/aiur-team/aiur/analytics/schema/run-summary.v1.json",
   "title": "Run summary",
-  "description": "One reduced per-boot telemetry dataset, materialized by analytics/reduce into the per-repo state node at <node>/analytics/runs/<boot-id>/run-summary.json. Consumed by the dashboard (Elixir Presenter, prior-boot reads) and by Executor tools (run-summary, build-report). Materialization is a cache, never a source of truth: every summary is regenerable from its declared source_files, and provenance identifies the sources.",
+  "description": "Reduced telemetry dataset materialized by analytics/reduce into the per-repo state node: one per daemon boot at <node>/analytics/runs/<boot-id>/run-summary.json, and one cross-boot build rollup at <node>/builds/<slug>/build-summary.json (which additionally carries the optional build_order member manifest). Consumed by the dashboard (Elixir Presenter, prior-boot reads) and by Executor tools (run-summary, build-report). Materialization is a cache, never a source of truth: every summary is regenerable from its declared source_files, and provenance identifies the sources.",
   "type": "object",
   "required": [
     "schema_version",
@@ -57,6 +57,32 @@
     },
     "findings": { "type": "array", "items": { "type": "object" } },
     "warnings": { "type": "array", "items": { "type": "object" }, "description": "Tolerant-parse warnings (malformed/unsupported/partial records)." },
+    "build_order": {
+      "type": "object",
+      "description": "Present only in cross-boot build rollups (builds/<slug>/build-summary.json), never in a per-boot run summary. Carries the build-order identity and member manifest so build-report can render per-member rows; the dashboard ignores it.",
+      "required": ["id", "member_count", "members"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "root_number": { "type": ["string", "null"] },
+        "member_count": { "type": "integer", "minimum": 0 },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": ["string", "null"] },
+              "title": { "type": ["string", "null"] },
+              "lane": { "type": ["string", "null"] },
+              "phase": {},
+              "complexity": {},
+              "ticket": { "type": ["integer", "string"] }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
     "provenance": {
       "type": "object",
       "required": ["inputs", "files", "schema_versions", "record_count"],
