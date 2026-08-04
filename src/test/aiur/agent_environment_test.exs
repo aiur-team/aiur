@@ -163,7 +163,108 @@ defmodule Aiur.AgentEnvironmentTest do
         ]
       )
 
-    assert [^user_root, ^user_bin, "", "", path] = String.split(output, "\n")
+    # ROOTDIR/BINDIR are user values here, so EMU/PROGNAME (`beam`/`erl`) are
+    # NOT release-owned either and must survive — only the PATH cleanup is
+    # unconditional once AIUR_RELEASE_DIR establishes the boundary.
+    assert [^user_root, ^user_bin, "beam", "erl", path] = String.split(output, "\n")
+    refute path =~ release_root
+    assert path =~ user_bin
+  end
+
+  test "scrub_shell_command scrubs EMU/PROGNAME only when the release launcher owns them" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME"))
+
+    # EMU=beam/PROGNAME=erl are generic values; with unrelated ROOTDIR/BINDIR
+    # they are user values and must survive the scrub.
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", "/opt/user-otp"},
+          {"BINDIR", "/opt/user-otp/bin"},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"}
+        ]
+      )
+
+    assert output == "/opt/user-otp\n/opt/user-otp/bin\nbeam\nerl"
+
+    # Once ROOTDIR or BINDIR is release-owned, EMU/PROGNAME at the canonical
+    # values belong to the release and are scrubbed.
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"}
+        ]
+      )
+
+    assert output == "\n\n\n"
+  end
+
+  test "scrub_shell_command removes trailing-slash release BINDIR and PATH entries" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_bin = "/opt/user-otp/bin"
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin <> "/"},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin <> "/", release_bin <> "/", user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    # BINDIR with a trailing slash is still release-owned; trailing-slash PATH
+    # entries still get filtered, while unrelated user entries are preserved.
+    assert ["", "", "", "", path] = String.split(output, "\n")
+    refute path =~ release_root
+    assert path =~ user_bin
+    assert path =~ "/usr/bin"
+  end
+
+  test "release launcher scrub runs under a POSIX sh interpreter" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_bin = "/opt/user-otp/bin"
+
+    # The release launcher block must stay POSIX-sh portable (dash on Debian
+    # CI); `dash` is not installed on every host, so fall back to the system
+    # POSIX sh.
+    interpreter = System.find_executable("dash") || System.find_executable("sh") || "sh"
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd(interpreter, ["-c", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    assert ["", "", "", "", path] = String.split(output, "\n")
     refute path =~ release_root
     assert path =~ user_bin
   end

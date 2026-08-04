@@ -53,11 +53,26 @@ defmodule Aiur.AgentEnvironment do
     String.trim(~S"""
     aiur_release_root=${AIUR_RELEASE_DIR%/}
     if [ -n "$aiur_release_root" ]; then
-      [ "${ROOTDIR:-}" = "$aiur_release_root" ] && unset ROOTDIR
-      case "${BINDIR:-}" in "$aiur_release_root"/erts-*/bin) unset BINDIR ;; esac
-      [ "${EMU:-}" = beam ] && unset EMU
-      [ "${PROGNAME:-}" = erl ] && unset PROGNAME
+      # ROOTDIR/BINDIR/EMU/PROGNAME are scrubbed independently, and only when
+      # their value is canonical for the release. EMU/PROGNAME carry the generic
+      # values `beam`/`erl` that any toolchain could set, so they are
+      # release-owned only when the launcher boundary (ROOTDIR or BINDIR) is
+      # actually in force; otherwise a user's unrelated EMU/PROGNAME would be
+      # dropped too.
+      aiur_launcher_owned=
+      if [ "${ROOTDIR:-}" = "$aiur_release_root" ]; then unset ROOTDIR; aiur_launcher_owned=1; fi
+      aiur_bindir=${BINDIR:-}
+      aiur_bindir=${aiur_bindir%/}
+      case "$aiur_bindir" in "$aiur_release_root"/erts-*/bin) unset BINDIR; aiur_launcher_owned=1 ;; esac
+      unset aiur_bindir
+      if [ -n "$aiur_launcher_owned" ]; then
+        [ "${EMU:-}" = beam ] && unset EMU
+        [ "${PROGNAME:-}" = erl ] && unset PROGNAME
+      fi
 
+      # Filter release bin/erts-*-bin PATH entries regardless of launcher-var
+      # ownership. Each entry is compared with a trailing slash stripped so a
+      # `.../bin/` entry cannot leak a release ERTS onto the child PATH.
       aiur_remaining_path=${PATH-}
       aiur_clean_path=
       aiur_path_separator=
@@ -66,7 +81,8 @@ defmodule Aiur.AgentEnvironment do
           *:*) aiur_path_entry=${aiur_remaining_path%%:*}; aiur_remaining_path=${aiur_remaining_path#*:}; aiur_path_more=1 ;;
           *) aiur_path_entry=$aiur_remaining_path; aiur_path_more= ;;
         esac
-        case "$aiur_path_entry" in
+        aiur_path_norm=${aiur_path_entry%/}
+        case "$aiur_path_norm" in
           "$aiur_release_root/bin"|"$aiur_release_root"/erts-*/bin) ;;
           *) aiur_clean_path="${aiur_clean_path}${aiur_path_separator}${aiur_path_entry}"; aiur_path_separator=: ;;
         esac
@@ -75,7 +91,7 @@ defmodule Aiur.AgentEnvironment do
       PATH=$aiur_clean_path
       export PATH
     fi
-    unset aiur_release_root aiur_remaining_path aiur_clean_path aiur_path_separator aiur_path_entry aiur_path_more
+    unset aiur_release_root aiur_remaining_path aiur_clean_path aiur_path_separator aiur_path_entry aiur_path_more aiur_path_norm aiur_launcher_owned
     """)
   end
 
