@@ -10,7 +10,7 @@ defmodule Aiur.Workspace.Remote do
       "#{variable_name}=#{Aiur.Shell.escape(raw_path)}",
       "case \"$#{variable_name}\" in",
       "  '~') #{variable_name}=\"$HOME\" ;;",
-      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#~/}\" ;;",
+      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#\\~/}\" ;;",
       "esac"
     ]
     |> Enum.join("\n")

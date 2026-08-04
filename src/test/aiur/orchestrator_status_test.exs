@@ -15,6 +15,7 @@ defmodule Aiur.OrchestratorStatusTest do
     OperatorMessages,
     PauseResume,
     Reconciler,
+    SnapshotPublisher,
     SnapshotStore,
     State,
     StatusReport,
@@ -273,6 +274,155 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.dashboard_snapshot(stalled_name, 50)
   end
 
+  test "decoupled publisher keeps the fleet snapshot current while the orchestrator is starved" do
+    orchestrator_name = Module.concat(__MODULE__, :PublisherDecoupledSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
+    state = :sys.get_state(pid)
+    generation = state.snapshot_generation
+
+    # The orchestrator's normal publish path records its latest input in the
+    # shared write-model; the periodic SnapshotPublisher (not the orchestrator)
+    # projects it, so the dashboard cadence is not gated on this mailbox.
+    :ok = StatusReport.notify_dashboard(state)
+
+    # Guard the decoupling wiring itself: publish_snapshot must record to the
+    # publisher's write-model (a fast, non-blocking ETS insert) rather than
+    # casting directly to SnapshotStore. If it reverted to the old direct cast,
+    # the write-model row below would be absent and the projection-under-freeze
+    # assertions would silently pass anyway — exactly the root-cause regression
+    # this ticket exists to prevent.
+    assert [{^orchestrator_name, ^generation, _version, %State{}}] =
+             :ets.lookup(SnapshotPublisher, orchestrator_name)
+
+    assert {:current, %{agent_totals: %{input_tokens: 0}}, %{status: :current}} =
+             wait_for_published_snapshot(
+               orchestrator_name,
+               &match?(%{agent_totals: %{input_tokens: 0}}, &1)
+             )
+
+    # Freeze the orchestrator (a dispatch mailbox so backlogged it never
+    # reaches a publish-triggering tick) and leave a message in its mailbox so
+    # staleness detection observes a non-empty dispatch queue.
+    :sys.suspend(pid)
+    send(pid, :dispatch_backlog)
+
+    # The dispatcher's state advances while starved; the decoupled write path
+    # records it and the publisher projects it on its own cadence.
+    :ok =
+      SnapshotPublisher.write(
+        orchestrator_name,
+        generation,
+        %State{agent_totals: %{input_tokens: 7, output_tokens: 0, total_tokens: 7, seconds_running: 0}}
+      )
+
+    assert {:current, %{agent_totals: %{input_tokens: 7}}, %{status: :current}} =
+             wait_for_published_snapshot(
+               orchestrator_name,
+               &match?(%{agent_totals: %{input_tokens: 7}}, &1)
+             )
+  end
+
+  test "decoupled publisher does not republish an unchanged write-model (stall not masked)" do
+    orchestrator_name = Module.concat(__MODULE__, :PublisherNoHeartbeatSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
+    :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
+
+    assert {:current, _, %{status: :current}} =
+             wait_for_published_snapshot(orchestrator_name, fn _snapshot -> true end)
+
+    # Freeze the orchestrator and stop writing: the publisher must NOT
+    # republish the unchanged input as a heartbeat, so the snapshot's
+    # observed-at ages and the read flags the stall instead of masking it.
+    :sys.suspend(pid)
+    send(pid, :dispatch_backlog)
+
+    assert eventually?(
+             fn ->
+               match?(
+                 {:stale, _, %{status: :stale, reason: :snapshot_timeout}},
+                 Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+               )
+             end,
+             200
+           )
+  end
+
+  test "a new snapshot generation resets the recent gap history" do
+    orchestrator_name = Module.concat(__MODULE__, :GenerationGapResetSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    snapshot = %{running: [], retrying: [], idle: []}
+
+    # A slow-cadence first generation widens its load-aware freshness window.
+    SnapshotStore.begin_generation(orchestrator_name)
+    :ok = SnapshotStore.publish(orchestrator_name, snapshot)
+    Process.sleep(80)
+    :ok = SnapshotStore.publish(orchestrator_name, snapshot)
+
+    assert {:current, _, %{freshness_window_ms: widened}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+
+    assert widened > 100
+
+    # A restarted orchestrator begins a new generation: it must not inherit the
+    # prior instance's gap history, so the window collapses back to the timeout
+    # (P2-1 from the #1546 review).
+    SnapshotStore.begin_generation(orchestrator_name)
+    :ok = SnapshotStore.publish(orchestrator_name, snapshot)
+
+    assert {:current, _, %{freshness_window_ms: fresh}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+
+    assert fresh == 100
+  end
+
+  test "a new snapshot generation clears the prior instance's write-model entry" do
+    orchestrator_name = Module.concat(__MODULE__, :GenerationWriteModelClearOrchestrator)
+
+    # The prior instance's bounded input sits in the shared write-model under
+    # its old generation token.
+    SnapshotStore.begin_generation(orchestrator_name)
+    :ok = SnapshotPublisher.write(orchestrator_name, make_ref(), %State{agent_totals: %{}})
+
+    assert [{^orchestrator_name, _generation, _version, %State{}}] =
+             :ets.lookup(SnapshotPublisher, orchestrator_name)
+
+    # A restarted orchestrator begins a new generation; the publisher must drop
+    # the prior instance's fenced entry so it never casts stale input under the
+    # new token (P2-1 generation pollution, publisher side).
+    SnapshotStore.begin_generation(orchestrator_name)
+
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator_name)
+  end
+
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
     orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -362,6 +512,36 @@ defmodule Aiur.OrchestratorStatusTest do
     snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
 
     assert [%{identifier: "MT-RETRY-CI", ci_result: %{decision: :pending, pr_number: 1501}}] = snapshot.retrying
+  end
+
+  test "capacity hold is projected with the measured limiting signal and threshold" do
+    held_at = System.monotonic_time(:millisecond) - 5_000
+
+    state = %State{
+      capacity_hold: %{
+        signal: :build,
+        measured: %{active: 2, queued: 1},
+        threshold: 2,
+        held_since_ms: held_at,
+        alerted?: true
+      }
+    }
+
+    snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert %{
+             held?: true,
+             signal: :build,
+             measured: %{active: 2, queued: 1},
+             threshold: 2,
+             held_for_seconds: 5
+           } = snapshot.capacity_hold
+  end
+
+  test "an absent capacity hold projects a not-held block" do
+    snapshot = %State{} |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert %{held?: false, signal: nil, threshold: nil} = snapshot.capacity_hold
   end
 
   test "an old projector cannot replace a same-name orchestrator snapshot" do
@@ -3629,6 +3809,26 @@ defmodule Aiur.OrchestratorStatusTest do
     end)
   end
 
+  test "freezing the poll cycle fences a stale :run_poll_cycle so no live poll runs" do
+    orchestrator_name = Module.concat(__MODULE__, :FrozenPollCycleOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    freeze_poll_cycle(pid)
+
+    on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
+
+    # The initial tick schedules a one-shot `:run_poll_cycle` (~20ms render
+    # delay) that is not token-fenced; the freeze must make it (and any
+    # explicit re-send) a no-op. A live poll always schedules a fresh tick via
+    # `Lifecycle.schedule_tick/2`, so `tick_timer_ref` staying nil proves no
+    # poll ran (and the load envelope was not re-armed).
+    send(pid, :run_poll_cycle)
+    Process.sleep(50)
+
+    state = :sys.get_state(pid)
+    assert state.tick_timer_ref == nil
+    assert state.poll_frozen == true
+  end
+
   test "chat-send to a paused agent auto-resumes it when a slot is free" do
     orchestrator_name = Module.concat(__MODULE__, :ChatPausedAutoResumeOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
@@ -3986,6 +4186,39 @@ defmodule Aiur.OrchestratorStatusTest do
     end
   end
 
+  # Polls the SnapshotStore read model until the periodic SnapshotPublisher has
+  # projected a snapshot matching `predicate`, returning the full read result.
+  defp wait_for_published_snapshot(orchestrator_name, predicate, timeout_ms \\ 5_000)
+       when is_function(predicate, 1) do
+    deadline_ms = System.monotonic_time(:millisecond) + timeout_ms
+    do_wait_for_published_snapshot(orchestrator_name, predicate, deadline_ms)
+  end
+
+  defp do_wait_for_published_snapshot(orchestrator_name, predicate, deadline_ms) do
+    result = Orchestrator.dashboard_snapshot(orchestrator_name, 1_000)
+
+    case result do
+      {:current, snapshot, _freshness} ->
+        if predicate.(snapshot) do
+          result
+        else
+          retry_published_snapshot(orchestrator_name, predicate, deadline_ms)
+        end
+
+      _not_yet_published ->
+        retry_published_snapshot(orchestrator_name, predicate, deadline_ms)
+    end
+  end
+
+  defp retry_published_snapshot(orchestrator_name, predicate, deadline_ms) do
+    if System.monotonic_time(:millisecond) >= deadline_ms do
+      flunk("timed out waiting for the publisher to project a fleet snapshot for #{inspect(orchestrator_name)}")
+    else
+      Process.sleep(25)
+      do_wait_for_published_snapshot(orchestrator_name, predicate, deadline_ms)
+    end
+  end
+
   defp operator_message_probe(parent) do
     receive do
       message ->
@@ -4007,7 +4240,11 @@ defmodule Aiur.OrchestratorStatusTest do
         | tick_timer_ref: nil,
           tick_token: make_ref(),
           next_poll_due_at_ms: nil,
-          poll_check_in_progress: false
+          poll_check_in_progress: false,
+          # The initial tick schedules a one-shot `:run_poll_cycle` (20ms render
+          # delay) that is not token-fenced, so it can fire a live poll after
+          # this freeze and ramp the load envelope mid-test. Fence it here.
+          poll_frozen: true
       }
     end)
   end
