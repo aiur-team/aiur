@@ -118,6 +118,27 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
                 </article>
               </li>
             </ol>
+            <section :if={@view.log} class="conversation-drawer-log" aria-label="Agent log">
+              <h3 class="conversation-drawer-log-heading">Agent log</h3>
+              <ol class="conversation-drawer-log-entries">
+                <li
+                  :for={entry <- @view.log}
+                  id={"#{@id}-log-#{entry.id}"}
+                  class={"conversation-message conversation-log-entry conversation-log-#{entry.role}"}
+                >
+                  <article>
+                    <header class="conversation-message-header">
+                      <span class="conversation-message-role">{entry.role_label}</span>
+                      <span :if={entry.title != entry.role_label} class="conversation-message-title">
+                        {entry.title}
+                      </span>
+                      <span class="conversation-message-time mono">{entry.timestamp}</span>
+                    </header>
+                    <p class="conversation-message-body">{entry.body}</p>
+                  </article>
+                </li>
+              </ol>
+            </section>
           </div>
           <button type="button" class="btn conversation-drawer-jump" data-conversation-jump hidden>
             Jump to latest

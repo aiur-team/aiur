@@ -1694,6 +1694,7 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, "units-conversation-#{token}")
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, snapshot)
+    |> assign(:conversation_log, agent_log_for_conversation(socket.assigns.payload, row))
     |> present_conversation()
   end
 
@@ -1707,6 +1708,7 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, nil)
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, nil)
+    |> assign(:conversation_log, nil)
   end
 
   defp present_conversation(socket) do
@@ -1714,10 +1716,22 @@ defmodule AiurWeb.DashboardLive do
       ConversationPresenter.present(
         socket.assigns.conversation_row,
         socket.assigns.conversation_snapshot,
-        socket.assigns.conversation_lifecycle
+        socket.assigns.conversation_lifecycle,
+        socket.assigns.conversation_log
       )
 
     assign(socket, :conversation_drawer, view)
+  end
+
+  # The chat modal carries the running agent's workspace log beneath the
+  # conversation. Only the parsed transcript is surfaced (no local path).
+  defp agent_log_for_conversation(payload, row) do
+    with %{} = entry <- AgentLogModal.find_running_entry(payload, Map.get(row, :identity)),
+         %{messages: messages} <- Aiur.AgentLog.read_workspace(Map.get(entry, :workspace_path)) do
+      %{messages: messages}
+    else
+      _none -> nil
+    end
   end
 
   # Replace only the pinned generation's snapshot. A change for any other handle

@@ -128,6 +128,31 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ ~s(<ol class="conversation-drawer-messages")
   end
 
+  test "renders the agent log transcript beneath the conversation when present" do
+    log = %{
+      messages: [
+        %{role: "assistant", title: "Agent", timestamp: "2026-07-17T11:30:00Z", body: "Building the grid."},
+        %{role: "tool", title: "Run `make ci`", timestamp: "2026-07-17T11:31:00Z", body: "make ci passed"}
+      ]
+    }
+
+    html = render(Presenter.present(row(), snapshot(), :active, log))
+
+    assert html =~ "Agent log"
+    assert html =~ "Building the grid."
+    assert html =~ "make ci passed"
+    assert html =~ "Run `make ci`"
+    assert html =~ "2026-07-17T11:30:00Z"
+    assert html =~ "conversation-log-tool"
+  end
+
+  test "omits the agent log section when no log is provided" do
+    html = render(Presenter.present(row(), snapshot()))
+
+    refute html =~ "Agent log"
+    refute html =~ "conversation-log-"
+  end
+
   test "renders the truncation note when older messages are evicted" do
     html = render(Presenter.present(row(), snapshot(%{truncated?: true, evicted_count: 2})))
     assert html =~ "2 earlier"
