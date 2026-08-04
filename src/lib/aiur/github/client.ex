@@ -19,8 +19,13 @@ defmodule Aiur.GitHub.Client do
     Teams
   }
 
+  alias Aiur.GitHub.CiReadiness
+
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []), do: AuthPreflight.preflight_auth(opts)
+
+  @spec check_ci_readiness(keyword()) :: {:ok, CiReadiness.result()} | {:error, term()}
+  def check_ci_readiness(opts \\ []), do: CiReadiness.check(opts)
 
   @spec format_auth_preflight_error(term()) :: String.t()
   def format_auth_preflight_error(reason), do: AuthPreflight.format_auth_preflight_error(reason)

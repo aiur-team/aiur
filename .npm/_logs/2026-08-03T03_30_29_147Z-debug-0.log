@@ -1,0 +1,19 @@
+0 verbose cli /opt/aiur-mise/installs/node/24.18.0/bin/node /opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@11.16.0
+2 info using node@v24.18.0
+3 silly config load:file:/opt/aiur-mise/installs/node/24.18.0/lib/node_modules/npm/npmrc
+4 silly config load:file:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1497/website/docs-app/.npmrc
+5 silly config load:file:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1497/.npmrc
+6 silly config load:file:/opt/aiur-mise/installs/node/24.18.0/etc/npmrc
+7 verbose title npm run check:cli-reference
+8 verbose argv "run" "check:cli-reference"
+9 verbose logfile logs-max:10 dir:/home/everdred/code/aiur-workspaces/aiur-team/aiur/1497/.npm/_logs/2026-08-03T03_30_29_147Z-
+10 verbose logfile /home/everdred/code/aiur-workspaces/aiur-team/aiur/1497/.npm/_logs/2026-08-03T03_30_29_147Z-debug-0.log
+11 silly logfile start cleaning logs, removing 1 files
+12 silly logfile done cleaning log files
+13 verbose cwd /home/everdred/code/aiur-workspaces/aiur-team/aiur/1497/website/docs-app
+14 verbose os Linux 7.1.4-arch1-1
+15 verbose node v24.18.0
+16 verbose npm  v11.16.0
+17 verbose exit 0
+18 info ok

@@ -326,10 +326,13 @@ token-bearing URL from the first push, and open agent pull requests with the
 agent's own token: GitHub counts the PR **opener**, not the commit author, when
 deciding self-approval.
 
-The repository ruleset requires the full blocking status-check set, including
-`build`, `test`, and `workflow security`, with strict status checks enabled. The
-Executor must wait for those checks and the review conditions before merging;
-never merge a pending, failing, or stale head.
+The declaration requires every blocking CI job as required status checks,
+including `build`, `test`, and `workflow security`, with strict status checks
+enabled, and the gate is enforced once that declaration is applied to the live
+ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
+that declaration on every PR and merge, so a regressed gate fails CI visibly.
+The Executor must wait for the required checks and the review conditions before
+merging; never merge a pending, failing, or stale head.
 
 A solo operator cannot merge `develop` into `main` through the gate
 (issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
@@ -399,45 +402,36 @@ where it repeatedly paid for itself):
    tickets per pattern, and never expand the active feature boundary with
    them — process/infra tickets ride alongside the build order; feature
    tickets need operator sign-off.
-4. **File the findings; writing them down is not filing them.** A finding
-   recorded without a ticket number is not a completed retrospective. Prose on a
-   handoff branch is a record, not a repair, and the only thing converting it
-   into a ticket is the Executor remembering to — which is why the 2026-07/08
-   run produced 71 findings and 23 of them reached no ticket at all. The
-   retrospective is a filing step: append every finding to the ledger below,
-   and before ending the retrospective confirm each one carries either a ticket
-   number or an explicit deliberate-skip note.
+4. **Write and file the entry** in the repository state node. The narrative
+   retrospective is `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`;
+   each actionable item is an append-only `meta/findings.ndjson` record with a
+   reusable slug, evidence references, and its filed ticket (or `ticket: null`).
+   Write it only through `aiurdev findings --record '<json>' --repo
+   <owner>/<repo>` so schema validation and the atomic size cap cannot be
+   bypassed.
+   `aiur init` creates the tree and `aiurdev findings --unfiled` makes a missing
+   ticket visible before a retrospective can be treated as complete. Raw records
+   remain host-local; periodically run `mkdir -p docs/executor && aiurdev
+   findings --digest > docs/executor/open-findings.md`, inspect the regenerated
+   file, and commit it. That generated digest is the deliberate git channel
+   between machines, not a sync of host paths or boot IDs.
 
-   The ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`; create the
-   directory if it is absent. Write one JSON object per line, each line hard
-   capped at 4 KiB so `O_APPEND` stays atomic when two Executor instances share
-   a host. Cite evidence by reference — an issue number, a log path plus line —
-   never a pasted log dump, which is also how a record stays inside the cap.
+   The ledger contains one JSON object per line, hard-capped at 4 KiB so
+   `O_APPEND` remains atomic when two Executor instances share a host. Cite
+   evidence by reference - an issue number or a log path plus line - never a
+   pasted log dump.
 
    ```json
-   {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":"#1442; ~/.aiur/logs/agent-1442.log:8812","cost":"5.8h","ticket":1451,"status":"filed"}
+   {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":["#1442","~/.aiur/logs/agent-1442.log:8812"],"cost":"5.8h","ticket":1451,"status":"filed"}
    ```
 
-   `slug` is a reusable kebab join key, so the same finding observed twice
-   groups into a recurrence count instead of a second entry to triage — that is
-   what makes the "3+ reproductions" threshold in step 3 a number to read
-   rather than one to remember. `scope` is `aiur` when the finding reproduces
-   on any repository and `repo` when it names this repository's tests, CI, or
-   code. `status` moves `open` -> `filed` -> `resolved`. A record left at
-   `ticket: null` with no deliberate-skip note is a bug in the retrospective,
-   not an accepted state.
-
-   Issue #1464 is landing this as product: schema validation, an
-   `aiurdev findings --unfiled` query, and `aiur init` creating the tree. Until
-   it ships the Executor writes the file directly. Keep the path and the record
-   shape identical so no migration is needed.
-5. **Write the narrative entry down** in a durable retrospective log, e.g.
-   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
-   branch: the bottleneck, the number, the proposed reduction, what was filed
-   vs deferred. The log is what makes the daily skill-review pass possible and
-   what a replacement Executor resumes from; the ledger above is what proves
-   nothing fell through.
-6. **Daily**, review the accumulated hourly notes and ask whether any Aiur
+   `slug` is a reusable kebab join key, so repeated observations group into a
+   recurrence count. `scope` is `aiur` when the finding reproduces on any
+   repository and `repo` when it names this repository's tests, CI, or code.
+   `status` moves `open` -> `filed` -> `resolved`. A record left at
+   `ticket: null` remains visible to the unfiled gate; it is not an accepted
+   completed finding.
+5. **Daily**, review the accumulated hourly notes and ask whether any Aiur
    skill should change so the next run never rediscovers the lesson. Capture
    that as a concrete skill-doc edit and land it as a small PR.
 

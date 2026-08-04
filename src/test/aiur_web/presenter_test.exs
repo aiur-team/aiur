@@ -256,6 +256,57 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.open_decision_count_health == :available
   end
 
+  test "surfaces an active capacity hold with the measured limiting signal and threshold" do
+    orchestrator_name = Module.concat(__MODULE__, :CapacityHoldOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    held_at = System.monotonic_time(:millisecond) - 12_000
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | capacity_hold: %{
+            signal: :load,
+            measured: 19.5,
+            threshold: 18.0,
+            held_since_ms: held_at,
+            alerted?: true
+          }
+      }
+    end)
+
+    publish_dashboard_snapshot(pid)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert %{
+             held?: true,
+             signal: :load,
+             measured: 19.5,
+             threshold: 18.0,
+             held_for_seconds: 12
+           } = payload.capacity_hold
+  end
+
+  test "reports a not-held capacity block when no admission hold is active" do
+    orchestrator_name = Module.concat(__MODULE__, :NoCapacityHoldOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    publish_dashboard_snapshot(pid)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert %{held?: false, signal: nil, threshold: nil} = payload.capacity_hold
+  end
+
   test "snapshot carries fresh activity progress, including retained retry identities" do
     original_activity_state = :sys.get_state(TicketActivity)
     orchestrator_name = Module.concat(__MODULE__, :ActivityProgressOrchestrator)

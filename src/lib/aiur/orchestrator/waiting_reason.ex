@@ -17,6 +17,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :paused
           | :run_paused
           | :awaiting_dispatch
+          | :paused_operator
+          | :paused_transient
+          | :latched_lifetime
           | :backing_off
           | :unresponsive
           | :active
@@ -58,12 +61,55 @@ defmodule Aiur.Orchestrator.WaitingReason do
   An open decision takes precedence, followed by `blocked_by_open?`, which is
   only ever true for a `todo` issue with an unresolved dependency (see
   `DispatchPolicy.todo_issue_blocked_by_non_terminal?/2`).
+
+  The fourth argument is a keyword list of idle-reason evidence so #1457 can
+  render *why* a row is idle rather than a bare "idle":
+
+    * `:latched_lifetime` — true when the ticket is held by the lifetime
+      dispatch latch (`Dispatcher.dispatch_latch_status/2` != `:none`); not
+      resume-clearable
+    * `:tracker_paused` — true when the operator's `agent:paused` label
+      override is present (`Issue.paused?/1`)
+    * `:auto_resume_retry_in_ms` — non-nil when a transient-caused pause/error
+      has a pending automatic resume (`Aiur.Orchestrator.AutoResume.retry_in_ms/3`)
+    * `:capacity_hold_active?` — true when host-pressure admission is currently
+      deferring dispatchable work, so a ready row reads as `:backing_off`
+      (capacity) rather than `:active`
+
+  Precedence: an open decision, then a dependency, then the more specific
+  #1453 causes (latch > operator pause > pending transient resume), then a
+  capacity hold (which only reclassifies the `:active` fallback), then the
+  tracker-state classification.
   """
-  @spec for_idle(String.t() | nil, boolean(), non_neg_integer()) :: t()
-  def for_idle(tracker_state, blocked_by_open?, open_decision_count)
-  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count) when open_decision_count > 0, do: :waiting_for_human
-  def for_idle(_tracker_state, true, 0), do: :waiting_for_dependency
-  def for_idle(tracker_state, false, 0), do: by_tracker_state(tracker_state)
+  @spec for_idle(String.t() | nil, boolean(), non_neg_integer(), keyword()) :: t()
+  def for_idle(tracker_state, blocked_by_open?, open_decision_count, opts \\ [])
+  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count, _opts) when open_decision_count > 0, do: :waiting_for_human
+  def for_idle(_tracker_state, true, 0, _opts), do: :waiting_for_dependency
+  def for_idle(tracker_state, false, 0, opts), do: idle_classification(tracker_state, opts)
+
+  # A lifetime latch wins over a label pause (the latch is not resume-clearable
+  # and `resume` cannot move it); an operator pause wins over a pending transient
+  # resume (an operator's explicit pause supersedes an automatic one); a
+  # capacity hold only reclassifies the `:active` fallback, so it never masks a
+  # specific #1453 cause.
+  defp idle_classification(tracker_state, opts) do
+    cond do
+      Keyword.get(opts, :latched_lifetime, false) -> :latched_lifetime
+      Keyword.get(opts, :tracker_paused, false) -> :paused_operator
+      Keyword.get(opts, :auto_resume_retry_in_ms) != nil -> :paused_transient
+      Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state)
+      true -> by_tracker_state(tracker_state)
+    end
+  end
+
+  # A capacity hold only reclassifies dispatchable rows (the `:active` fallback)
+  # as `:backing_off`; rows waiting on CI, review, etc. keep their own reason.
+  defp capacity_or_tracker_state(tracker_state) do
+    case by_tracker_state(tracker_state) do
+      :active -> :backing_off
+      other -> other
+    end
+  end
 
   # Mirrors `Aiur.Orchestrator.RuntimeWatchdog.restart_stalled_issue/5`'s
   # actual exemption set: only `:paused` and `:deactivated` entries are
