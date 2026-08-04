@@ -146,6 +146,29 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon-private prepaid-balance baseline state directory.
+
+  The OpenAI-compatible balance baseline (`balance-baseline.json`) is
+  daemon-private runtime state: it records the first-observed prepaid balance
+  used to derive an honest spend percentage. It lives under the same
+  instance- and repository-qualified root as other daemon-private state so a
+  read-only (or repo-checked-in) `.aiur/` config directory can never pollute
+  VCS or block the probe's write.
+  """
+  @spec balance_baseline_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def balance_baseline_state_dir do
+    case Application.get_env(:aiur, :balance_baseline_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "balance-baselines")}
+        end
+    end
+  end
+
+  @doc """
   Returns the sanitized last segment of the tracker's project identity,
   or `"aiur"` if no identity is available. Safe to use as a filename
   prefix.

@@ -19,7 +19,17 @@ defmodule Aiur.OpenAICompat.CodingAgent do
     WorkspacePath
   }
 
-  @max_tool_rounds 32
+  # Per-turn tool-round budget. OpenAI-compatible providers are the only
+  # backends capped at this granularity; a full implementation turn
+  # (investigation + planning + multi-file edits + running tests) can
+  # legitimately spend well over 32 round-trips, which surfaced as
+  # :tool_round_limit_exceeded on complex DeepSeek tickets. Kept a flat
+  # constant rather than derived from agent.max_turns: max_turns caps the
+  # number of *turns* in a run (a different axis, and nil when uncapped),
+  # while this bounds round-trips inside a single turn. 256 is 8x the old
+  # cap — headroom for full implementation turns while still guarding
+  # against a runaway loop.
+  @max_tool_rounds 256
 
   @impl true
   def start_session(workspace, opts) when is_binary(workspace) and is_list(opts) do

@@ -10,6 +10,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionEvents do
     "decision-action-change",
     "answer-decision",
     "defer-decision",
+    "dismiss-decision",
     "retry-decision",
     "decision-revision-change",
     "revise-decision",
@@ -36,6 +37,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionEvents do
 
   def handle("defer-decision", %{"decision-id" => decision_id}, socket, reload_fun) do
     DecisionCommands.defer(socket, decision_id, reload_fun)
+  end
+
+  def handle("dismiss-decision", %{"decision-id" => decision_id}, socket, reload_fun) do
+    DecisionCommands.dismiss(socket, decision_id, reload_fun)
   end
 
   def handle(

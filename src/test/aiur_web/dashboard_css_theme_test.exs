@@ -104,6 +104,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
     end
   end
 
+  # A meter that has reached 100% used is critical: the fill turns red so an
+  # exhausted window is never mistaken for a healthy one (#1532). The rule must
+  # keep using the themed blocking token so it stays legible in both themes.
+  test ".rs-meter is-critical uses the themed blocking fill" do
+    rule = css_rule(".rs-meter > i.is-critical")
+    assert rule =~ "var(--blocking)"
+  end
+
   defp declarations(rule) do
     ~r/(--[a-z0-9-]+)\s*:\s*([^;]+);/
     |> Regex.scan(rule)

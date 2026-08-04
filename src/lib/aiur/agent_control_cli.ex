@@ -1,14 +1,20 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
+  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.GitHub.{CodeOwners, StatePolicy}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
+
+  # RepoBase phases that mean the warm base is still becoming dispatchable
+  # (the gate holds new work). Anything else with prewarm enabled — :ready
+  # (normal), {:error, _} (fail-open cold clone), :idle — is not a "warming"
+  # state and is handled separately.
+  @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
   # `aiur watch` remembers the last board it reported (per-row signature) in a
   # node-local persistent term so `--changes` can print only state-level deltas
@@ -31,7 +37,9 @@ defmodule Aiur.AgentControlCLI do
 
             print_capacity_status(Orchestrator.max_concurrent_agents())
 
+            print_ci_readiness()
             print_build_gate_status()
+            print_prewarm_status()
             exit_marker(0)
 
           {:error, :unavailable} ->
@@ -78,6 +86,8 @@ defmodule Aiur.AgentControlCLI do
       statuses when is_list(statuses) ->
         case print_global_pause_banner() do
           :ok ->
+            print_prewarm_status()
+
             rows =
               statuses
               |> Enum.filter(&visible_status_row?/1)
@@ -445,6 +455,39 @@ defmodule Aiur.AgentControlCLI do
 
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
+
+  # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
+  # dispatch latch. Clears the in-memory + durable budget entries so a latched
+  # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
+  @spec reset_budget([String.t()]) :: :ok
+  def reset_budget(targets) when is_list(targets) do
+    targets
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.each(&reset_budget_one/1)
+
+    exit_marker(0)
+  end
+
+  defp reset_budget_one(target) do
+    # Resolve the display number to the canonical tracker identifier (e.g.
+    # `repo#49`) so the orchestrator can find the issue's budget entry.
+    status =
+      case Orchestrator.status() do
+        statuses when is_list(statuses) -> Enum.find(statuses, &target_matches?(&1, target))
+        _ -> nil
+      end
+
+    identifier = if status, do: canonical_identifier(status), else: target
+
+    case Orchestrator.reset_dispatch_budget(identifier) do
+      {:ok, :reset} ->
+        IO.puts("aiur: reset lifetime dispatch budget for ##{target}")
+
+      {:error, reason} ->
+        print_failure(:reset_budget, %{identifier: identifier, issue_id: target}, reason)
+    end
+  end
 
   # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
   # single daemon-wide halt distinct from per-agent pause: it stops all
@@ -910,6 +953,43 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  defp print_ci_readiness do
+    if Config.tracker_kind() == "github" do
+      case CiReadiness.cached_result() do
+        :unavailable -> IO.puts("CI readiness: unavailable (no completed dispatcher assessment)")
+        readiness -> IO.puts(CiReadiness.format(readiness))
+      end
+    end
+  end
+
+  # Surface the warm-base state so a gated fleet is distinguishable from an idle
+  # one (#1404): with prewarm enabled, a warming base holds dispatch on every
+  # poll tick and an errored base degrades to cold clones. A :ready base is the
+  # normal steady state and prints nothing. No-op when prewarm is disabled or
+  # RepoBase is not running.
+  defp print_prewarm_status do
+    if Config.prewarm_enabled?() do
+      case prewarm_status_safe() do
+        {phase, _base} when phase in @prewarm_warming_phases ->
+          IO.puts("PREWARM prewarm: warming phase=#{phase} — dispatch held while the base build completes")
+
+        {{:error, reason}, _base} ->
+          IO.puts("PREWARM prewarm: unavailable reason=#{inspect(reason)} — dispatching via cold clone")
+
+        _steady_or_unknown ->
+          :ok
+      end
+    end
+  end
+
+  defp prewarm_status_safe do
+    if Process.whereis(RepoBase), do: RepoBase.status(), else: {:idle, nil}
+  rescue
+    _ -> {:idle, nil}
+  catch
+    :exit, _ -> {:idle, nil}
+  end
+
   defp visible_status_row?(%{work_state: :deactivated}), do: false
   defp visible_status_row?(%{work_state: "deactivated"}), do: false
 
@@ -1340,7 +1420,10 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
-        timeout: "orchestrator timed out"
+        timeout: "orchestrator timed out",
+        unknown_issue: "unknown issue",
+        lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",
+        dispatch_failed: "dispatch failed"
       },
       reason,
       inspect(reason)
