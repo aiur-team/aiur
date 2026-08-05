@@ -14,6 +14,16 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent saturation sentinel" do
+    test "defaults to enabled and accepts an explicit opt-out" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.saturation_log_enabled == true
+
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"saturation_log_enabled" => false}})
+      assert configured.agent.saturation_log_enabled == false
+    end
+  end
+
   describe "host-pressure admission defaults" do
     test "max_concurrent_agents defaults nil (derived from host capacity) and run_queue_threshold is opt-in" do
       assert {:ok, defaults} = Schema.parse(%{})

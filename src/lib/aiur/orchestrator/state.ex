@@ -22,7 +22,8 @@ defmodule Aiur.Orchestrator.State do
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
             last_decrease_ms: integer() | nil,
-            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
+            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
+            bootstrap_complete?: boolean()
           },
           capacity_hold:
             %{
@@ -129,7 +130,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_retry_at_ms,
     :ci_readiness_scope,
     :ci_readiness_result,
-    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
