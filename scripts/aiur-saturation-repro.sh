@@ -47,11 +47,21 @@
 #                               (default: uncapped Elixir CPU burn, see below)
 #   AIUR_REPRO_DUMP             explicit erl_crash.dump path (default: newest
 #                               under $HOME/.aiur/logs or $AIUR_LOGS_ROOT)
-#   AIUR_BIN                    aiur CLI to use for fleet/status probes
+#   AIUR_BIN                    aiur CLI to use for every probe (status,
+#                               __identity, epmd classification). One value
+#                               drives all of them — do NOT point this at the
+#                               raw release bin, which has no `status`.
+#   AIUR_REPRO_STATUS_TIMEOUT   seconds to allow `aiur status` (default 20); a
+#                               timeout means saturated, not dead
 #
-# Exit codes: 0 = window elapsed without a daemon crash; 1 = daemon crashed
-# during the window (reproduced, dump details printed); 2 = usage/preflight
-# error; 3 = fleet target not reached within the fleet-wait window.
+# Exit codes: 0 = window elapsed without a daemon crash; 1 = REPRODUCED (crash
+# dump appeared during the window, details printed); 2 = usage/preflight error;
+# 3 = fleet target not reached within the fleet-wait window; 4 = the daemon BEAM
+# disappeared but wrote no crash dump (real death, unconfirmed signature).
+#
+# A daemon that is merely scheduler-saturated — alive per epmd but timing out
+# control RPC — is expected under these conditions and is NOT counted as a
+# crash.
 
 set -euo pipefail
 
@@ -66,6 +76,7 @@ fleet_target="${AIUR_REPRO_FLEET_TARGET:-}"
 fleet_wait="${AIUR_REPRO_FLEET_WAIT:-900}"
 cores="${AIUR_REPRO_CORES:-$(nproc 2>/dev/null || echo 1)}"
 aiur_bin="${AIUR_BIN:-aiur}"
+status_timeout="${AIUR_REPRO_STATUS_TIMEOUT:-20}"
 dump_path="${AIUR_REPRO_DUMP:-}"
 external_cmd="${AIUR_REPRO_EXTERNAL_CMD:-}"
 
@@ -107,28 +118,80 @@ float_gt() {
   awk -v a="$1" -v b="$2" 'BEGIN{exit !(a > b)}'
 }
 
-# Probe daemon control-plane liveness via the release `rpc` (mirrors the
-# engine's probe_control_liveness). Falls back to `aiur status`' exit marker.
-daemon_up() {
-  local expr output rc
-  expr='case Process.whereis(Aiur.Orchestrator) do pid when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
+# Resolve the daemon's distribution node short name and release dir from the
+# CLI's own identity report (`aiur __identity`), so we never guess either. Sets
+# the globals once and reuses them; missing values stay empty and downstream
+# epmd classification degrades to `unknown` rather than lying.
+identity_release_dir=""
+identity_node_short=""
+identity_loaded=0
+load_identity() {
+  [ "$identity_loaded" -eq 1 ] && return 0
+  identity_loaded=1
+  local out line node
   set +e
-  output="$("$aiur_bin" rpc "$expr" 2>&1)"
+  out="$("$aiur_bin" __identity 2>/dev/null)"
+  set -e
+  while IFS= read -r line; do
+    case "$line" in
+      AIUR_RELEASE_DIR=*) identity_release_dir="${line#AIUR_RELEASE_DIR=}" ;;
+      AIUR_RELEASE_NODE=*) node="${line#AIUR_RELEASE_NODE=}" ;;
+    esac
+  done <<<"$out"
+  node="${node:-${AIUR_RELEASE_NODE:-}}"
+  identity_node_short="${node%@*}"
+}
+
+# Classify the daemon's BEAM via epmd, which advertises a node only while its
+# BEAM holds the registration (mirrors the engine's probe_node_liveness). Echoes
+# exactly one word: `up` (node registered — alive), `down` (epmd answered and
+# the node is absent — the BEAM is gone), or `unknown` (epmd unqueryable, so
+# state is indeterminate and callers must NOT assume the daemon died).
+epmd_node_state() {
+  load_identity
+  [ -n "$identity_node_short" ] || { printf 'unknown'; return; }
+  local epmd names
+  for epmd in "$identity_release_dir"/erts-*/bin/epmd $(command -v epmd 2>/dev/null); do
+    [ -x "$epmd" ] || continue
+    names="$(ERL_EPMD_ADDRESS="${ERL_EPMD_ADDRESS:-127.0.0.1}" "$epmd" -names 2>/dev/null)" \
+      || { printf 'unknown'; return; }
+    case "$names" in
+      *"name ${identity_node_short} at port "*) printf 'up' ;;
+      *) printf 'down' ;;
+    esac
+    return
+  done
+  printf 'unknown'
+}
+
+# Classify the daemon into one of four states. This is the crash-detection
+# primitive, and the distinction matters: the engine documents that a
+# scheduler-saturated-but-ALIVE daemon times out control RPC, which is exactly
+# what the target conditions of this repro provoke. Treating that as a death
+# would false-positive "REPRODUCED" on every run.
+#
+#   up        — `aiur status` answered cleanly; control plane is healthy.
+#   saturated — control probe failed/timed out but epmd still advertises the
+#               node: the BEAM is alive, just not answering. NOT a crash.
+#   down      — control probe failed AND epmd says the node is gone: the BEAM
+#               died. This is the signal we are hunting.
+#   unknown   — control probe failed and epmd could not be queried. Never
+#               treated as a crash.
+daemon_state() {
+  local rc
+  set +e
+  timeout -k 5 "$status_timeout" "$aiur_bin" status >/dev/null 2>&1
   rc=$?
   set -e
-  if [ "$rc" -eq 0 ] && [[ "$output" == *"__AIUR_CONTROL_READY__"* ]]; then
+  if [ "$rc" -eq 0 ]; then
     printf 'up'
-    return 0
+    return
   fi
-  set +e
-  output="$("$aiur_bin" status 2>&1)"
-  rc=$?
-  set -e
-  if [ "$rc" -eq 0 ] && [[ "$output" == *"__AIUR_CONTROL_EXIT__:0"* ]]; then
-    printf 'up'
-    return 0
-  fi
-  printf 'down'
+  case "$(epmd_node_state)" in
+    up) printf 'saturated' ;;
+    down) printf 'down' ;;
+    *) printf 'unknown' ;;
+  esac
 }
 
 # Best-effort count of running agents from `aiur status` output. Prefers the
@@ -153,6 +216,77 @@ dump_slogan() {
   local path="$1"
   if [ ! -f "$path" ]; then echo "no dump at $path"; return; fi
   head -n 20 "$path" 2>/dev/null | grep -v '^$' | head -n 8 || true
+}
+
+# Watch the daemon + crash-dump path from $1 (epoch) until $2 (epoch), or until
+# a terminal condition trips. Sourced-and-callable so tests can drive it with
+# stubbed probes. Sets three globals the reporter reads:
+#   peak_load  — highest 1-min load seen
+#   dump_seen  — 1 when a dump appeared/was rewritten at or after the start
+#   crashed    — 1 when the BEAM is gone (dump seen, or epmd says `down`)
+# `saturated` and `unknown` states are logged and tolerated: under the target
+# conditions a live daemon routinely stops answering control RPC, and calling
+# that a crash would false-positive every run.
+watch_window() {
+  local watch_start="$1" watch_end="$2" load state dump_mtime
+  peak_load=0
+  crashed=0
+  dump_seen=0
+
+  while [ "$(date +%s)" -lt "$watch_end" ]; do
+    load="$(read_load1)"
+    if float_gt "$load" "$peak_load"; then peak_load="$load"; fi
+
+    dump_mtime=0
+    if [ -f "$resolved_dump" ]; then
+      dump_mtime="$(stat -c %Y "$resolved_dump" 2>/dev/null || echo 0)"
+    fi
+    if [ "$dump_mtime" -ge "$watch_start" ] && [ "$dump_mtime" -gt 0 ]; then
+      dump_seen=1
+      crashed=1
+      return 0
+    fi
+
+    state="$(daemon_state)"
+    case "$state" in
+      down)
+        # Give a dump one grace beat to finish being written before reporting.
+        sleep 5
+        if [ -f "$resolved_dump" ] &&
+          [ "$(stat -c %Y "$resolved_dump" 2>/dev/null || echo 0)" -ge "$watch_start" ]; then
+          dump_seen=1
+        fi
+        crashed=1
+        return 0
+        ;;
+      saturated)
+        info "t+$(( $(date +%s) - watch_start ))s load=$load peak=$peak_load daemon=saturated (alive, control rpc not answering)"
+        ;;
+      unknown)
+        info "t+$(( $(date +%s) - watch_start ))s load=$load peak=$peak_load daemon=unknown (epmd unqueryable; not treated as a crash)"
+        ;;
+      *)
+        info "t+$(( $(date +%s) - watch_start ))s load=$load peak=$peak_load daemon=up"
+        ;;
+    esac
+    sleep 5
+  done
+  return 0
+}
+
+# Tail the saturation sentinel (added alongside this ticket) for VM-internal
+# context. Written beside the daemon log (<logs-root>/log/saturation.log); also
+# check the logs root directly for older layouts.
+print_sentinel_tail() {
+  local dump_dir sentinel="" candidate
+  dump_dir="$(dirname "$resolved_dump")"
+  for candidate in "$dump_dir/log/saturation.log" "$dump_dir/saturation.log"; do
+    if [ -f "$candidate" ]; then sentinel="$candidate"; break; fi
+  done
+  if [ -n "$sentinel" ]; then
+    echo "$log_prefix saturation sentinel tail ($sentinel):"
+    tail -n 5 "$sentinel" 2>/dev/null | sed 's/^/    /' || true
+  fi
 }
 
 # Default external workload: an UNcapped Elixir BEAM (full scheduler set) that
@@ -185,14 +319,14 @@ repro_cleanup() {
 # ---- usage -----------------------------------------------------------------
 
 usage() {
-  sed -n '2,52p' "$0" | sed -n 's/^# \{0,1\}//p' >&2
+  sed -n '2,64p' "$0" | sed -n 's/^# \{0,1\}//p' >&2
 }
 
 # ---- main ------------------------------------------------------------------
 
 main() {
   local waited reached current i load peak_load crashed end_ts start_ts \
-    burn_script sentinel dump_dir
+    burn_script sentinel dump_dir preflight_state state dump_seen
   trap 'repro_cleanup' EXIT
 
   while [ "$#" -gt 0 ]; do
@@ -219,8 +353,10 @@ main() {
 
   info "host cores=$cores 1-min-load=$(read_load1)"
   info "probing daemon liveness at '$aiur_bin'..."
-  if [ "$(daemon_up)" != "up" ]; then
-    err "no responding daemon — start one first (this repro stacks load on a RUNNING fleet)"
+  preflight_state="$(daemon_state)"
+  if [ "$preflight_state" != "up" ]; then
+    err "daemon control plane is '$preflight_state', not 'up' — start a healthy daemon first"
+    err "(this repro stacks load on a RUNNING fleet; baseline must be a clean 'aiur status')"
     exit 2
   fi
   info "daemon is up"
@@ -281,50 +417,33 @@ main() {
   info "external beams running: ${external_pids[*]}"
 
   # Phase 3: watch the daemon and the crash dump for the window.
-  peak_load=0
-  crashed=0
-  end_ts=$((start_ts + window_seconds))
-  while [ "$(date +%s)" -lt "$end_ts" ]; do
-    load="$(read_load1)"
-    if float_gt "$load" "$peak_load"; then peak_load="$load"; fi
+  watch_window "$start_ts" $((start_ts + window_seconds))
 
-    # Crash detection: a NEW/updated dump, or the daemon control plane dropping.
-    if [ -f "$resolved_dump" ] && [ "$(stat -c %Y "$resolved_dump" 2>/dev/null || echo 0)" -ge "$start_ts" ]; then
-      crashed=1
-      break
-    fi
-    if [ "$(daemon_up)" != "up" ]; then
-      crashed=1
-      break
-    fi
+  # Phase 4: report. A crash dump is the only thing that earns "REPRODUCED" —
+  # a BEAM death with no dump is a real but weaker signal, and a saturated or
+  # unclassifiable control plane is not a death at all.
+  if [ "$dump_seen" -eq 1 ]; then
+    echo
+    echo "$log_prefix REPRODUCED: a crash dump appeared during the window."
+    echo "$log_prefix peak load reached: $peak_load"
+    echo "$log_prefix crash dump: $resolved_dump"
+    echo "$log_prefix slogan:"
+    dump_slogan "$resolved_dump" | sed 's/^/    /'
+    print_sentinel_tail
+    exit 1
+  fi
 
-    info "t+$(( $(date +%s) - start_ts ))s load=$load peak=$peak_load"
-    sleep 5
-  done
-
-  # Phase 4: report.
   if [ "$crashed" -eq 1 ]; then
     echo
-    echo "$log_prefix REPRODUCED: daemon control plane died or a crash dump appeared during the window."
+    echo "$log_prefix DAEMON DOWN, NO DUMP: epmd stopped advertising the node during"
+    echo "$log_prefix the window, but no crash dump was written. The BEAM died without"
+    echo "$log_prefix dumping (SIGKILL/OOM-killer class), or the #856 dump path is"
+    echo "$log_prefix misconfigured. This is NOT a confirmed reproduction of the #852"
+    echo "$log_prefix crash signature — check dmesg for an OOM kill before concluding."
     echo "$log_prefix peak load reached: $peak_load"
-    if [ -f "$resolved_dump" ]; then
-      echo "$log_prefix crash dump: $resolved_dump"
-      echo "$log_prefix slogan:"
-      dump_slogan "$resolved_dump" | sed 's/^/    /'
-    fi
-    # Sentinel tail (added alongside this ticket) gives VM-internal context.
-    # Written beside the daemon log (<logs-root>/log/saturation.log); also
-    # check the logs root directly for older layouts.
-    dump_dir="$(dirname "$resolved_dump")"
-    sentinel=""
-    for candidate in "$dump_dir/log/saturation.log" "$dump_dir/saturation.log"; do
-      if [ -f "$candidate" ]; then sentinel="$candidate"; break; fi
-    done
-    if [ -n "$sentinel" ]; then
-      echo "$log_prefix saturation sentinel tail ($sentinel):"
-      tail -n 5 "$sentinel" 2>/dev/null | sed 's/^/    /' || true
-    fi
-    exit 1
+    echo "$log_prefix watched dump path: $resolved_dump"
+    print_sentinel_tail
+    exit 4
   fi
 
   info "window elapsed without a daemon crash. peak load=$peak_load"
