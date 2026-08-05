@@ -433,6 +433,16 @@ defmodule Aiur.Config do
   end
 
   @doc """
+  Whether the saturation sentinel recorder is enabled. The sentinel appends
+  VM-internal + host diagnostics to `saturation.log` when 1-min load crosses
+  the escalation threshold, so a crash under saturation is interpretable.
+  """
+  @spec saturation_log_enabled?() :: boolean()
+  def saturation_log_enabled? do
+    settings!().agent.saturation_log_enabled
+  end
+
+  @doc """
   Number of opencode-serve instances to pre-warm at boot. Each pre-
   warmed slot binds to a different active ticket as its leadoff so
   the user's first click on that ticket opens its chat pane in
