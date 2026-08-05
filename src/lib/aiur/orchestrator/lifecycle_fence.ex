@@ -76,23 +76,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   def reconcile_observed_state(%State{} = state, %Issue{} = issue, terminal_states) do
     case running_fence(state, issue) do
       {issue_id, %{authoritative_state: nil}} ->
-        case normalize_state(issue.state) do
-          observed_state when is_binary(observed_state) ->
-            # An already-terminal first observation adopts the state but keeps
-            # the fence's original `opened_at`, so teardown is not pushed out by
-            # an extra full grace window.
-            {:fenced,
-             adopt_observed_state(
-               state,
-               issue_id,
-               issue,
-               observed_state,
-               DispatchPolicy.terminal_issue_state?(observed_state, terminal_states)
-             )}
-
-          _ ->
-            {:fenced, state}
-        end
+        adopt_first_observation(state, issue_id, issue, terminal_states)
 
       {issue_id, fence = %{authoritative_state: authoritative_state}}
       when is_binary(authoritative_state) ->
@@ -240,6 +224,26 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     )
 
     state
+  end
+
+  # First observation for a fence opened without an authoritative state. An
+  # already-terminal observation keeps the fence's original `opened_at`, so
+  # teardown is not pushed out by an extra full grace window.
+  defp adopt_first_observation(state, issue_id, issue, terminal_states) do
+    case normalize_state(issue.state) do
+      observed_state when is_binary(observed_state) ->
+        {:fenced,
+         adopt_observed_state(
+           state,
+           issue_id,
+           issue,
+           observed_state,
+           DispatchPolicy.terminal_issue_state?(observed_state, terminal_states)
+         )}
+
+      _ ->
+        {:fenced, state}
+    end
   end
 
   defp adopt_observed_state(state, issue_id, issue, observed_state, keep_opened_at? \\ false) do
