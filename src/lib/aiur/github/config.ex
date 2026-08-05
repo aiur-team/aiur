@@ -186,7 +186,9 @@ defmodule Aiur.GitHub.Config do
     if AppCredentials.configured?() do
       case bot_account() do
         nil -> :bot_account_missing
-        login -> unless String.ends_with?(login, "[bot]"), do: {:bot_account_not_app_bot, login}
+        # Case-insensitive, matching every consumer of bot_account: an operator
+        # who wrote `My-App[Bot]` has a working config and must not be alerted.
+        login -> unless String.ends_with?(String.downcase(login), "[bot]"), do: {:bot_account_not_app_bot, login}
       end
     end
   end

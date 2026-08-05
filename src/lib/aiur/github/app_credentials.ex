@@ -124,13 +124,25 @@ defmodule Aiur.GitHub.AppCredentials do
   Human-readable description of which credential is missing, for diagnostics.
   Never includes the key material.
   """
-  @spec missing_credential() :: atom() | nil
+  @spec missing_credential() ::
+          :missing_app_id | :missing_installation_id | :missing_private_key | :unreadable_private_key | nil
   def missing_credential do
     cond do
       is_nil(app_id()) -> :missing_app_id
       is_nil(installation_id()) -> :missing_installation_id
-      match?({:error, :missing_private_key}, private_key_pem()) -> :missing_private_key
-      true -> nil
+      true -> private_key_issue()
+    end
+  end
+
+  # Reads the key so diagnostics can distinguish "no key configured" from
+  # "configured but unreadable" — the case `configured?/0` deliberately treats
+  # as configured so it fails closed at acquisition instead of downgrading to
+  # the PAT. Never on a request hot path.
+  defp private_key_issue do
+    case private_key_pem() do
+      {:error, :missing_private_key} -> :missing_private_key
+      {:error, {:private_key_path_unreadable, _path, _reason}} -> :unreadable_private_key
+      _ -> nil
     end
   end
 

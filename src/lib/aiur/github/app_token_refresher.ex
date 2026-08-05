@@ -240,7 +240,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
           @identity_mismatch_topic,
           "GitHub App authentication is configured but tracker.github.bot_account is unset. " <>
             "Set it to the App's bot login (`<app-slug>[bot]`) — self-loop suppression, PR " <>
-            "command handling, and reply verification all key off it and are inert while it is nil."
+            "command handling, and the CODEOWNERS self-include all key off it and are inert while it is nil."
         )
 
       {:bot_account_not_app_bot, login} ->
@@ -260,9 +260,17 @@ defmodule Aiur.GitHub.AppTokenRefresher do
   defp identity_issue do
     Config.app_identity_issue()
   rescue
-    _ -> nil
+    error -> skipped_identity_check(error)
   catch
-    _, _ -> nil
+    kind, _reason -> skipped_identity_check(kind)
+  end
+
+  # Logged rather than swallowed silently: this check is the only automatic
+  # signal for the bot_account mismatch, so an operator needs to know when it
+  # could not run at all.
+  defp skipped_identity_check(detail) do
+    Logger.warning("github_app_token identity_check_skipped reason=#{inspect(detail)}")
+    nil
   end
 
   defp ensure_token(state) do
@@ -349,5 +357,8 @@ defmodule Aiur.GitHub.AppTokenRefresher do
   defp describe_reason({:github, classification, _detail}) when classification in [:dns, :timeout, :tls, :transport],
     do: "the access-token exchange failed before GitHub returned a status (#{classification})"
 
-  defp describe_reason(reason), do: "unexpected failure (#{inspect(reason)})"
+  # Sanitized before inspect/1 so a future error variant carrying the key path
+  # (or other secret-adjacent detail) cannot reach a log line or an alert body
+  # through this catch-all.
+  defp describe_reason(reason), do: "unexpected failure (#{inspect(AppCredentials.sanitize_error(reason))})"
 end

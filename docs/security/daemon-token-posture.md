@@ -94,13 +94,17 @@ reacting to its own writes.
 it is load-bearing for:
 
 - **Self-loop suppression** — `Aiur.Events.Publisher` drops events whose actor
-  equals `bot_account`. Left pointing at the PAT account, the App bot's own
+  equals `bot_account` (except authoritative `.pr.merged` events, which publish
+  regardless of actor). Left pointing at the PAT account, the App bot's own
   comments are not recognized as self and are republished back into the
   orchestrator.
 - **PR command self-loop drop** — `Aiur.Events.PrCommandScanner` ignores `/aiur`
   comments authored by `bot_account`; a mismatch lets an agent re-trigger itself.
-- **Review-thread reply verification** and the **CODEOWNERS self-include**,
-  which both compare against the same login.
+- **CODEOWNERS self-include** — the trust allowlist always unions in
+  `bot_account`, so a wrong login drops that fail-closed safety net.
+- **Review-thread reply verification** compares against `bot_account` when it is
+  set, falling back to the token's own viewer login when it is nil. A *wrong*
+  `bot_account` therefore breaks it; an unset one does not.
 
 **So: when you enable App auth, set `tracker.github.bot_account` to the App bot
 login, `<app-slug>[bot]`.** The daemon checks this at startup and emits a

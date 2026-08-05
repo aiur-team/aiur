@@ -31,8 +31,10 @@ defmodule Aiur.GitHub.AppIdentityTest do
     System.put_env("GITHUB_APP_PRIVATE_KEY", pem())
   end
 
+  # Synced: every test reads Config.bot_account/0 on the very next line, and the
+  # unsynced writer can let that read observe the previous test's config.
   defp write_config!(bot_account) do
-    write_workflow_file!(Workflow.workflow_file_path(),
+    write_workflow_file_synced!(Workflow.workflow_file_path(),
       tracker_kind: "github",
       tracker_repo: "owner/repo",
       tracker_label_prefix: "aiur",
@@ -75,6 +77,15 @@ defmodule Aiur.GitHub.AppIdentityTest do
 
     test "accepts a bot_account naming the App bot" do
       write_config!(@app_bot_login)
+      put_app_credentials()
+
+      assert Config.app_identity_issue() == nil
+    end
+
+    # Every consumer of bot_account compares case-insensitively, so an
+    # operator-typed `My-App[Bot]` is a working config and must not be alerted.
+    test "accepts the App bot suffix regardless of case" do
+      write_config!("Aiur-Daemon[BOT]")
       put_app_credentials()
 
       assert Config.app_identity_issue() == nil

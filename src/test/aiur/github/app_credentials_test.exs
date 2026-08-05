@@ -185,4 +185,14 @@ defmodule Aiur.GitHub.AppCredentialsTest do
     System.put_env("GITHUB_APP_INSTALLATION_ID", "678")
     assert AppCredentials.missing_credential() == :missing_private_key
   end
+
+  # configured?/0 calls an unreadable key path "configured" so it fails closed.
+  # Diagnostics must not then report that nothing is missing.
+  test "missing_credential/0 distinguishes an unreadable key path from an absent one" do
+    System.put_env("GITHUB_APP_ID", "12345")
+    System.put_env("GITHUB_APP_INSTALLATION_ID", "678")
+    System.put_env("GITHUB_APP_PRIVATE_KEY_PATH", "/nonexistent/aiur/app-key.pem")
+
+    assert AppCredentials.missing_credential() == :unreadable_private_key
+  end
 end

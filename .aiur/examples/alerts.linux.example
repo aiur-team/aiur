@@ -46,6 +46,10 @@ alerts:
     message: bot_account is not the GitHub App bot login
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "system.github_app_token.refresh_recovered":
+    message: GitHub App token refresh recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/message.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:

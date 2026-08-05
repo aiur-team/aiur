@@ -1,5 +1,8 @@
 defmodule Aiur.GitHub.AppTokenTest do
-  use ExUnit.Case, async: true
+  # async: false — the acquire/1 tests set the GITHUB_APP_* env vars, which are
+  # process-global: while they are set, any concurrent test reading
+  # GitHub.Config.token/0 would be switched onto the App path.
+  use ExUnit.Case, async: false
 
   alias Aiur.GitHub.AppToken
 
