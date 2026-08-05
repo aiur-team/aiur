@@ -34,6 +34,30 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "system.dispatch.prewarm_blocked":
+    message: Shared prewarm is blocking dispatch
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.dispatch.prewarm_blocked.resolved":
+    message: Shared prewarm recovered
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
+  "system.dispatch.capacity_starved":
+    message: Fleet dispatch capacity is constrained
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.dispatch.capacity_starved.resolved":
+    message: Fleet dispatch capacity recovered
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
+  "system.tracker.auth_preflight_failed":
+    message: Tracker authentication is blocking fleet dispatch
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.tracker.auth_preflight_failed.resolved":
+    message: Tracker authentication recovered
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
@@ -50,10 +74,18 @@ alerts:
     message: Agent paused
     sound:
       - "/System/Library/Sounds/Funk.aiff"
+  "ticket.*.agent.paused.resolved":
+    message: Agent pause resolved
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
   "ticket.*.agent.attention.*":
     message: Executor decision required
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "ticket.*.agent.attention.*.resolved":
+    message: Executor attention resolved
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:
