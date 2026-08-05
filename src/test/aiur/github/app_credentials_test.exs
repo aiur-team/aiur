@@ -107,6 +107,75 @@ defmodule Aiur.GitHub.AppCredentialsTest do
     assert {:error, :invalid_private_key} = AppCredentials.parse_private_key()
   end
 
+  # configured?/0 runs on every Config.token/0 call — i.e. on every GitHub API
+  # request — so it must decide from the environment alone and never read the
+  # key file.
+  test "configured?/0 does not read the private key file" do
+    path = Path.join(System.tmp_dir!(), "aiur-app-key-#{System.unique_integer([:positive])}.pem")
+    File.write!(path, real_pem())
+    on_exit(fn -> File.rm(path) end)
+
+    System.put_env("GITHUB_APP_ID", "12345")
+    System.put_env("GITHUB_APP_INSTALLATION_ID", "678")
+    System.put_env("GITHUB_APP_PRIVATE_KEY_PATH", path)
+
+    assert AppCredentials.configured?()
+
+    # Deleting the file must not change the answer: were the file being read on
+    # this path, this would flip to false.
+    File.rm!(path)
+    assert AppCredentials.configured?()
+  end
+
+  # Fail closed: an unreadable key path is a broken App deployment that must
+  # surface as an alerted acquisition failure, not a silent downgrade to the
+  # GITHUB_TOKEN PAT.
+  test "configured?/0 stays true for an unreadable key path so acquisition fails loudly" do
+    System.put_env("GITHUB_APP_ID", "12345")
+    System.put_env("GITHUB_APP_INSTALLATION_ID", "678")
+    System.put_env("GITHUB_APP_PRIVATE_KEY_PATH", "/nonexistent/aiur/app-key.pem")
+
+    assert AppCredentials.configured?()
+    assert {:error, {:private_key_path_unreadable, _, _}} = AppCredentials.parse_private_key()
+  end
+
+  # A public-key PEM decodes cleanly and JOSE.JWK.from_pem/1 accepts it, but the
+  # resulting JWK cannot sign: without this guard the first JWT raises a
+  # FunctionClauseError inside JOSE and takes the refresher down.
+  test "parse_private_key/0 rejects a valid-but-public-key PEM instead of raising later" do
+    {_kty, public_pem} =
+      JOSE.JWK.generate_key({:rsa, 2048})
+      |> JOSE.JWK.to_public()
+      |> JOSE.JWK.to_pem()
+
+    System.put_env("GITHUB_APP_PRIVATE_KEY", public_pem)
+
+    assert {:error, :invalid_private_key} = AppCredentials.parse_private_key()
+  end
+
+  test "parse_private_key/0 rejects a certificate PEM" do
+    cert_pem = """
+    -----BEGIN CERTIFICATE-----
+    MIIBhTCCASugAwIBAgIQIRi6zePL6mKjOipn+dNuaTAKBggqhkjOPQQDAjASMRAw
+    -----END CERTIFICATE-----
+    """
+
+    System.put_env("GITHUB_APP_PRIVATE_KEY", cert_pem)
+
+    assert {:error, :invalid_private_key} = AppCredentials.parse_private_key()
+  end
+
+  test "sanitize_error/1 strips the private key path from an unreadable-path error" do
+    sanitized = AppCredentials.sanitize_error({:private_key_path_unreadable, "/secrets/app.pem", :enoent})
+
+    assert sanitized == {:private_key_path_unreadable, :enoent}
+    refute inspect(sanitized) =~ "/secrets/app.pem"
+  end
+
+  test "sanitize_error/1 passes other reasons through unchanged" do
+    assert AppCredentials.sanitize_error(:missing_app_id) == :missing_app_id
+  end
+
   test "missing_credential/0 identifies the absent credential" do
     assert AppCredentials.missing_credential() == :missing_app_id
 

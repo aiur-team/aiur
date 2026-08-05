@@ -56,10 +56,26 @@ defmodule Aiur.GitHub.AppCredentials do
   True when all three App credentials (app id, installation id, private key)
   resolve from the environment. This gates whether the daemon authenticates
   with an installation token or falls back to the `GITHUB_TOKEN` PAT.
+
+  Deliberately an environment-only check: it runs on every `Config.token/0`
+  call — i.e. on every GitHub API request — so it must never touch the
+  filesystem. A configured-but-unreadable key path is therefore "configured"
+  here and fails closed later at acquisition time, where the failure is
+  retried and raised as a needs-attention alert, rather than silently
+  downgrading the daemon to the `GITHUB_TOKEN` PAT.
   """
   @spec configured?() :: boolean()
   def configured? do
-    is_binary(app_id()) and is_binary(installation_id()) and match?({:ok, _}, private_key_pem())
+    is_binary(app_id()) and is_binary(installation_id()) and private_key_configured?()
+  end
+
+  @doc """
+  True when a private-key source (path or inline PEM) is present in the
+  environment. Does not read or parse the key.
+  """
+  @spec private_key_configured?() :: boolean()
+  def private_key_configured? do
+    is_binary(env_value(@private_key_path_env)) or is_binary(env_value(@private_key_env))
   end
 
   @doc "The configured GitHub App id, or nil when unset/blank."
@@ -118,18 +134,46 @@ defmodule Aiur.GitHub.AppCredentials do
     end
   end
 
+  @doc """
+  Strips secret-adjacent detail (notably the private-key file path) from a
+  credential error so it is safe to log. Callers that log an acquisition
+  failure must pass the reason through here first.
+  """
+  @spec sanitize_error(term()) :: term()
+  def sanitize_error({:private_key_path_unreadable, _path, reason}),
+    do: {:private_key_path_unreadable, reason}
+
+  def sanitize_error(reason), do: reason
+
+  # Private-key PEM entry types. A public key or certificate PEM decodes
+  # cleanly and `JOSE.JWK.from_pem/1` accepts it, but the resulting JWK cannot
+  # sign — it would raise a FunctionClauseError deep inside JOSE at the first
+  # JWT signature, breaking this module's never-raises contract. Reject it here.
+  # GitHub Apps issue RSA keys and the App JWT is always RS256, so PKCS#1
+  # (`RSAPrivateKey`) and PKCS#8 (`PrivateKeyInfo`) are the accepted forms.
+  @private_key_pem_types [:RSAPrivateKey, :PrivateKeyInfo]
+
   defp jwk_from_pem(pem) do
     case :public_key.pem_decode(pem) do
-      [_entry | _] ->
-        try do
-          {:ok, JOSE.JWK.from_pem(pem)}
-        rescue
-          _ -> {:error, :invalid_private_key}
-        end
+      [{type, _der, _cipher} | _] when type in @private_key_pem_types ->
+        signing_jwk(pem)
 
-      [] ->
+      _ ->
         {:error, :invalid_private_key}
     end
+  end
+
+  # Confirms the parsed key can actually produce a signature, so a structurally
+  # private-looking but unusable PEM fails here as an error tuple rather than
+  # raising later inside the refresher.
+  defp signing_jwk(pem) do
+    jwk = JOSE.JWK.from_pem(pem)
+    _signature = JOSE.JWS.compact(JOSE.JWT.sign(jwk, %{"alg" => "RS256", "typ" => "JWT"}, %{}))
+    {:ok, jwk}
+  rescue
+    _ -> {:error, :invalid_private_key}
+  catch
+    _, _ -> {:error, :invalid_private_key}
   end
 
   defp normalize_pem(pem) do

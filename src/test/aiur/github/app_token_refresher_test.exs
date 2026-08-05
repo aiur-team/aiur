@@ -79,7 +79,13 @@ defmodule Aiur.GitHub.AppTokenRefresherTest do
       on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
       assert AppTokenRefresher.current_token() == "ghs_installation_token_ok"
-      refute_received {:alert, _, _, _}
+
+      # A healthy acquisition raises no token-lifecycle alert. The separate
+      # startup identity check (`system.github_app_token.identity_mismatch`,
+      # covered in AppIdentityTest) depends on the ambient workflow config
+      # rather than this acquisition, so it is not what this test pins.
+      refute_received {:alert, "system.github_app_token.refresh_failed", _, _}
+      refute_received {:alert, "system.github_app_token.permission_violation", _, _}
     end
 
     test "is inert when no App credentials are configured" do

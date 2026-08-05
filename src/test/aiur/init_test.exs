@@ -19,6 +19,7 @@ defmodule Aiur.InitTest do
     "system.dispatch.todo_capacity_exceeded",
     "system.github_app_token.refresh_failed",
     "system.github_app_token.permission_violation",
+    "system.github_app_token.identity_mismatch",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",

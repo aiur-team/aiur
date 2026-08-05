@@ -91,7 +91,9 @@ defmodule Aiur.GitHub.Config do
         token
 
       {:error, reason} ->
-        Logger.warning("aiur_boot phase=github_app_token_resolve_failed reason=#{inspect(reason)}")
+        # Sanitized: the raw reason can carry the private-key file path.
+        sanitized = AppCredentials.sanitize_error(reason)
+        Logger.warning("aiur_boot phase=github_app_token_resolve_failed reason=#{inspect(sanitized)}")
         nil
     end
   end
@@ -161,6 +163,31 @@ defmodule Aiur.GitHub.Config do
 
       _ ->
         nil
+    end
+  end
+
+  @doc """
+  Checks that `github.bot_account` names the identity the daemon actually
+  writes as.
+
+  A GitHub App installation token authenticates as the App's bot user
+  (`<app-slug>[bot]`), never as the operator account a PAT authenticated as.
+  Every identity-keyed gate — `Events.Publisher`'s self-loop suppression, the
+  PR command scanner's self-loop drop, review-thread reply verification, the
+  CODEOWNERS self-include — compares the event actor against `bot_account`, so
+  a `bot_account` left pointing at the old PAT account silently stops
+  recognizing the daemon's own writes and the daemon reacts to itself.
+
+  Returns `nil` when the daemon is on the PAT path or `bot_account` already
+  names an App bot; otherwise the concrete misconfiguration.
+  """
+  @spec app_identity_issue() :: nil | :bot_account_missing | {:bot_account_not_app_bot, String.t()}
+  def app_identity_issue do
+    if AppCredentials.configured?() do
+      case bot_account() do
+        nil -> :bot_account_missing
+        login -> unless String.ends_with?(login, "[bot]"), do: {:bot_account_not_app_bot, login}
+      end
     end
   end
 

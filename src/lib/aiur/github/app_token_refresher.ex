@@ -28,7 +28,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, Config, Transport}
 
   @token_key {__MODULE__, :installation_token}
   @min_refresh_ms 1_000
@@ -37,6 +37,7 @@ defmodule Aiur.GitHub.AppTokenRefresher do
   @refresh_failed_topic "system.github_app_token.refresh_failed"
   @permission_violation_topic "system.github_app_token.permission_violation"
   @refresh_recovered_topic "system.github_app_token.refresh_recovered"
+  @identity_mismatch_topic "system.github_app_token.identity_mismatch"
 
   @type state :: %{
           enabled: boolean(),
@@ -108,6 +109,8 @@ defmodule Aiur.GitHub.AppTokenRefresher do
       violation: nil,
       refresh_timer: nil
     }
+
+    if state.enabled, do: check_identity(state)
 
     state =
       if state.enabled do
@@ -219,6 +222,47 @@ defmodule Aiur.GitHub.AppTokenRefresher do
     else
       state
     end
+  end
+
+  # Under App auth the daemon writes as the App bot (`<slug>[bot]`), so a
+  # `bot_account` still naming the PAT account breaks every self-loop and
+  # authorship gate that compares against it. Checked once at startup and
+  # raised as needs-attention rather than left to be discovered as the daemon
+  # reacting to its own comments.
+  defp check_identity(state) do
+    case identity_issue() do
+      nil ->
+        :ok
+
+      :bot_account_missing ->
+        safe_emit(
+          state,
+          @identity_mismatch_topic,
+          "GitHub App authentication is configured but tracker.github.bot_account is unset. " <>
+            "Set it to the App's bot login (`<app-slug>[bot]`) — self-loop suppression, PR " <>
+            "command handling, and reply verification all key off it and are inert while it is nil."
+        )
+
+      {:bot_account_not_app_bot, login} ->
+        safe_emit(
+          state,
+          @identity_mismatch_topic,
+          "tracker.github.bot_account is `#{login}`, but the daemon now authenticates as a GitHub " <>
+            "App and writes as the App's bot user (`<app-slug>[bot]`). Update bot_account to the " <>
+            "App bot login, or the daemon will not recognize its own comments, labels and PRs."
+        )
+    end
+  end
+
+  # Reading `bot_account` goes through the loaded settings; if they are not
+  # available the identity check simply does not run, rather than taking the
+  # token refresher down with it.
+  defp identity_issue do
+    Config.app_identity_issue()
+  rescue
+    _ -> nil
+  catch
+    _, _ -> nil
   end
 
   defp ensure_token(state) do

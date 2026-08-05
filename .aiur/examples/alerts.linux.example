@@ -42,6 +42,10 @@ alerts:
     message: GitHub App has excessive permissions
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "system.github_app_token.identity_mismatch":
+    message: bot_account is not the GitHub App bot login
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:

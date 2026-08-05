@@ -26,8 +26,12 @@ defmodule Aiur.GitHub.AppTokenTest do
 
       assert header == %{"alg" => "RS256", "typ" => "JWT"}
       assert payload["iss"] == @app_id
-      assert payload["iat"] == 1_700_000_000
-      assert payload["exp"] == 1_700_000_600
+      # iat is backdated 60s for clock skew (GitHub rejects a future iat), and
+      # exp is anchored to iat so the window stays within GitHub's 10-minute
+      # maximum rather than overshooting it by the skew allowance.
+      assert payload["iat"] == 1_700_000_000 - 60
+      assert payload["exp"] == payload["iat"] + 600
+      assert payload["exp"] - payload["iat"] <= 600
 
       assert JOSE.JWT.verify_strict(key, ["RS256"], jwt) |> elem(0)
       refute JOSE.JWT.verify_strict(JOSE.JWK.generate_key({:rsa, 2048}), ["RS256"], jwt) |> elem(0)
@@ -115,6 +119,24 @@ defmodule Aiur.GitHub.AppTokenTest do
     test "flags a permission elevated beyond the allowed level" do
       assert {:error, %{extra_permissions: %{"contents" => "read"}}} =
                AppToken.verify_permissions(%{"contents" => "read"})
+    end
+
+    # The posture forbids Organization permissions outright. They arrive in the
+    # same flat `permissions` map as `organization_*` keys, and the check is an
+    # allowlist rather than a denylist, so they are rejected without needing a
+    # dedicated rule — pinned here so a future denylist rewrite cannot drop them.
+    test "flags organization-level permissions" do
+      for org_permission <- [
+            "organization_administration",
+            "organization_secrets",
+            "organization_self_hosted_runners",
+            "members"
+          ] do
+        assert {:error, %{extra_permissions: extra}} =
+                 AppToken.verify_permissions(%{"contents" => "write", org_permission => "read"})
+
+        assert Map.has_key?(extra, org_permission)
+      end
     end
   end
 
@@ -211,6 +233,29 @@ defmodule Aiur.GitHub.AppTokenTest do
       end)
 
       assert {:error, :missing_private_key} = AppToken.acquire(request_fun: fn _ -> flunk("no request expected") end)
+    end
+
+    # An operator who pastes the App's *public* key supplies a PEM that decodes
+    # and loads fine but cannot sign. acquire/1 must return an error tuple —
+    # raising here would crash the refresher instead of alerting.
+    test "returns an error, not a raise, for a valid-but-public-key PEM" do
+      {_kty, public_pem} =
+        JOSE.JWK.generate_key({:rsa, 2048})
+        |> JOSE.JWK.to_public()
+        |> JOSE.JWK.to_pem()
+
+      System.put_env("GITHUB_APP_ID", @app_id)
+      System.put_env("GITHUB_APP_INSTALLATION_ID", @installation_id)
+      System.put_env("GITHUB_APP_PRIVATE_KEY", public_pem)
+
+      on_exit(fn ->
+        System.delete_env("GITHUB_APP_ID")
+        System.delete_env("GITHUB_APP_INSTALLATION_ID")
+        System.delete_env("GITHUB_APP_PRIVATE_KEY")
+      end)
+
+      assert {:error, :invalid_private_key} =
+               AppToken.acquire(request_fun: fn _ -> flunk("no request expected") end)
     end
   end
 end

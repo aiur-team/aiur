@@ -79,7 +79,43 @@ fallback when no App credentials are present.
   `administration: write`) emits a **needs-attention** alert
   (`system.github_app_token.permission_violation`).
 
-### 4. Verifying least privilege
+### 4. Daemon identity under App auth (required)
+
+Switching from a PAT to an installation token **changes who the daemon is on
+GitHub**, and this must be reconciled in config or the daemon will start
+reacting to its own writes.
+
+- A PAT authenticates as the operator account (for example `its-applekid`).
+- An installation token authenticates as the App's **bot user**,
+  `<app-slug>[bot]` (for example `aiur-daemon[bot]`). Every API-created
+  comment, label change, review and pull request is attributed to that login.
+
+`tracker.github.bot_account` is the single place Aiur records "this is me", and
+it is load-bearing for:
+
+- **Self-loop suppression** — `Aiur.Events.Publisher` drops events whose actor
+  equals `bot_account`. Left pointing at the PAT account, the App bot's own
+  comments are not recognized as self and are republished back into the
+  orchestrator.
+- **PR command self-loop drop** — `Aiur.Events.PrCommandScanner` ignores `/aiur`
+  comments authored by `bot_account`; a mismatch lets an agent re-trigger itself.
+- **Review-thread reply verification** and the **CODEOWNERS self-include**,
+  which both compare against the same login.
+
+**So: when you enable App auth, set `tracker.github.bot_account` to the App bot
+login, `<app-slug>[bot]`.** The daemon checks this at startup and emits a
+needs-attention `system.github_app_token.identity_mismatch` alert when App
+credentials are configured and `bot_account` is unset or is not a `[bot]`
+login. Confirm the exact login by looking at the author of any comment the
+daemon posts after the switch.
+
+One asymmetry is expected and is not a misconfiguration: **git commits keep
+their configured author** (the installation token is used only as the HTTPS
+credential for push, not as the commit author), while **GitHub API objects are
+authored by the App bot**. Add the App bot login to `trusted_accounts` if any
+gate needs to trust it beyond the `bot_account` self-include.
+
+### 5. Verifying least privilege
 
 - In the GitHub App settings page, confirm the Repository permissions are
   exactly Contents, Issues, and Pull requests (plus the implicit Metadata).

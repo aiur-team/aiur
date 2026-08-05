@@ -17,6 +17,7 @@ defmodule Aiur.GitHub.AppToken do
 
   @access_tokens_base_url "https://api.github.com/app/installations"
   @jwt_ttl_seconds 600
+  @clock_skew_seconds 60
   @default_refresh_margin_seconds 300
   @min_refresh_ms 1_000
   @rate_limit_url "https://api.github.com/rate_limit"
@@ -27,13 +28,17 @@ defmodule Aiur.GitHub.AppToken do
     do: "#{@access_tokens_base_url}/#{installation_id}/access_tokens"
 
   @doc """
-  Builds and RS256-signs the GitHub App JWT for `app_id` using `jwk`, with
-  `iat` = `now` and `exp` = `now + 10 minutes` (GitHub's maximum JWT lifetime).
-  The header is `%{"alg" => "RS256", "typ" => "JWT"}`.
+  Builds and RS256-signs the GitHub App JWT for `app_id` using `jwk`.
+
+  `iat` is backdated by 60 seconds to tolerate clock skew between this host and
+  GitHub, which rejects a JWT whose `iat` is in the future. `exp` is
+  `iat + 10 minutes` — GitHub's maximum JWT lifetime is measured from `iat`, so
+  anchoring `exp` there keeps the window valid rather than 60 seconds over the
+  limit. The header is `%{"alg" => "RS256", "typ" => "JWT"}`.
   """
   @spec app_jwt(JOSE.JWK.t(), String.t(), DateTime.t()) :: String.t()
   def app_jwt(jwk, app_id, now \\ DateTime.utc_now()) do
-    iat = DateTime.to_unix(now)
+    iat = DateTime.to_unix(now) - @clock_skew_seconds
     claims = %{"iat" => iat, "exp" => iat + @jwt_ttl_seconds, "iss" => app_id}
 
     jwk

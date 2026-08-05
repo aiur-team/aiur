@@ -12,8 +12,12 @@ tracker:
   # GitHub App installation token when GITHUB_APP_ID/GITHUB_APP_INSTALLATION_ID and
   # the App private key are set (preferred; see docs/security/daemon-token-posture.md),
   # else the GITHUB_TOKEN PAT in .env. bot_account is the login Aiur recognizes as its
-  # own to suppress self-triggered comment/event loops. Prefer a dedicated bot account
-  # (e.g. its-applekid) when operators also comment
+  # own to suppress self-triggered comment/event loops. It must name the identity the
+  # daemon actually writes as: under GitHub App auth that is the App's bot user,
+  # `<app-slug>[bot]` — NOT the PAT account. A stale PAT login here silently disables
+  # self-loop suppression; the daemon alerts on the mismatch at startup
+  # (system.github_app_token.identity_mismatch). On the PAT path, prefer a dedicated bot
+  # account (e.g. its-applekid) when operators also comment
   # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
   # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
   # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
