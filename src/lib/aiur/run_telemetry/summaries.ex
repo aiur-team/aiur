@@ -268,12 +268,19 @@ defmodule Aiur.RunTelemetry.Summaries do
   end
 
   defp decode_record(map) when is_map(map) do
+    # `Dataset` records carry `timestamp` as a `DateTime`; the reducer's
+    # lifecycle paths do date arithmetic on it directly. Summaries serialize it
+    # as ISO-8601, so parse it back here — a decoded record must be
+    # indistinguishable from a freshly built one, or re-reducing a merged
+    # dataset crashes on the first review finding.
+    timestamp = decode_timestamp(map)
+
     %{
       schema_version: Map.get(map, "schema_version"),
       kind: Map.get(map, "kind"),
-      timestamp: Map.get(map, "timestamp"),
-      timestamp_iso: Map.get(map, "timestamp_iso") || Map.get(map, "timestamp"),
-      timestamp_ms: Map.get(map, "timestamp_ms"),
+      timestamp: timestamp,
+      timestamp_iso: DateTime.to_iso8601(timestamp),
+      timestamp_ms: DateTime.to_unix(timestamp, :millisecond),
       recorded_at: Map.get(map, "recorded_at"),
       boot_id: Map.get(map, "boot_id"),
       sequence: Map.get(map, "sequence"),
@@ -282,6 +289,22 @@ defmodule Aiur.RunTelemetry.Summaries do
       source_path: Map.get(map, "source_path"),
       source_line: Map.get(map, "source_line")
     }
+  end
+
+  defp decode_timestamp(map) do
+    case Map.get(map, "timestamp") || Map.get(map, "timestamp_iso") do
+      %DateTime{} = timestamp ->
+        timestamp
+
+      value when is_binary(value) ->
+        case DateTime.from_iso8601(value) do
+          {:ok, parsed, _offset} -> parsed
+          _other -> raise ArgumentError, "invalid summary record timestamp"
+        end
+
+      _other ->
+        raise ArgumentError, "missing summary record timestamp"
+    end
   end
 
   defp decode_actors(actors) when is_map(actors) do

@@ -1,6 +1,7 @@
 defmodule Aiur.RunTelemetry.SummariesTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.RunTelemetry.Dataset
   alias Aiur.RunTelemetry.Summaries
   alias AiurWeb.OperatorControlCenter.Analytics.Presenter
 
@@ -66,6 +67,34 @@ defmodule Aiur.RunTelemetry.SummariesTest do
 
     test "rejects malformed JSON" do
       assert {:error, :invalid_summary} = Summaries.decode_summary("not json")
+    end
+
+    test "rejects a summary whose record timestamp is not ISO-8601" do
+      body = Jason.encode!(%{"records" => [Map.put(lifecycle_record("review_pause", 0), "timestamp", "whenever")]})
+      assert {:error, :invalid_summary} = Summaries.decode_summary(body)
+    end
+
+    # Review P1: `Dataset.merge/1` re-reduces the union of records, and the
+    # review-finding path does `DateTime.add/3` on a record's timestamp. A
+    # summary-decoded record that kept its ISO string there crashes the whole
+    # :cross pane, which the Presenter swallows into {:unavailable, :error}.
+    test "decoded records re-reduce through Dataset.merge, including review findings" do
+      body =
+        Jason.encode!(%{
+          "records" => [
+            lifecycle_record("review_pause", 0),
+            lifecycle_record("comment_received", 60)
+          ]
+        })
+
+      assert {:ok, dataset} = Summaries.decode_summary(body)
+      merged = Dataset.merge([dataset])
+
+      assert %DateTime{} = hd(dataset.records).timestamp
+
+      assert [finding] = merged.findings
+      assert finding.type == "review_pause_resume"
+      assert finding.ticket == "930"
     end
   end
 
@@ -185,6 +214,26 @@ defmodule Aiur.RunTelemetry.SummariesTest do
       assert model.available?
       assert model.kpis.sessions == 1
     end
+  end
+
+  defp lifecycle_record(event, offset_seconds) do
+    timestamp =
+      DateTime.add(~U[2026-07-09 00:00:00Z], offset_seconds, :second) |> DateTime.to_iso8601()
+
+    %{
+      "schema_version" => 1,
+      "kind" => "lifecycle",
+      "timestamp" => timestamp,
+      "boot_id" => "boot-a",
+      "sequence" => offset_seconds,
+      "record_id" => "boot-a:#{event}:#{offset_seconds}",
+      "attributes" => %{
+        "ticket" => "930",
+        "event" => event,
+        "boundary" => "point",
+        "source_id" => "comment-1"
+      }
+    }
   end
 
   defp with_tmp_reduce(fun) do
