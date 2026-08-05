@@ -34,6 +34,22 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "system.github_app_token.refresh_failed":
+    message: GitHub App token refresh failed
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.github_app_token.permission_violation":
+    message: GitHub App has excessive permissions
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.github_app_token.identity_mismatch":
+    message: bot_account is not the GitHub App bot login
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.github_app_token.refresh_recovered":
+    message: GitHub App token refresh recovered
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
   "system.dispatch.prewarm_blocked":
     message: Shared prewarm is blocking dispatch
     sound:
