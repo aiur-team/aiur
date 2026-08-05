@@ -86,6 +86,9 @@ package on the path:
 PYTHONPATH=analytics/lib python3 -m unittest discover -s analytics/tests -t analytics
 ```
 
+CI runs this same command in the `analytics` job of `.github/workflows/ci.yml`,
+so a regression in the reducer fails the build rather than passing silently.
+
 
 ## Design notes
 
