@@ -139,6 +139,38 @@ defmodule Aiur.RunTelemetry.SummariesTest do
       assert model.kpis.done >= 1
     end
 
+    # Review P2: the assertions above (session count, ticket-id set, done count)
+    # all survive a last-wins map merge, so none of them detects the collision.
+    # `_daemon` is sampled in boot-a (summary) and again in boot-b (live raw); a
+    # last-wins merge keeps only boot-a's actor entry and the live boot's sample
+    # disappears from the resource chart. Daemon CPU folds into `exec_cpu`, so a
+    # non-zero bucket after boot-a's last record is the collision-sensitive proof
+    # that both boots' samples survived.
+    test "the live boot's daemon samples survive the merge with a prior boot's summary" do
+      seed_state_node()
+
+      assert {:ok, model} =
+               Presenter.load(
+                 session: :cross,
+                 telemetry_file: @telemetry_fixtures,
+                 cap: 4,
+                 cores: 4,
+                 host_mem_bytes: 1_000_000_000
+               )
+
+      # boot-a's newest record is pr_merged at 00:00:13Z; boot-b's daemon sample
+      # is at 00:01:01Z. Anything charted after the boot-a boundary can only have
+      # come from the live boot.
+      boot_a_end_ms = 1_783_728_013_000
+
+      assert Enum.any?(model.series, &(&1.t_ms > boot_a_end_ms and &1.exec_cpu > 0)),
+             "expected the live boot's _daemon sample to appear after the prior boot's last record"
+
+      # And the prior boot's own samples are still charted — the union must not
+      # trade one boot's data for the other's.
+      assert Enum.any?(model.series, &(&1.t_ms <= boot_a_end_ms and &1.exec_cpu > 0))
+    end
+
     test "falls back to a full raw parse when no summaries exist yet" do
       # No summaries seeded: :cross must degrade to the historical full parse.
       assert {:ok, model} =
