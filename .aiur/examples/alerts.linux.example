@@ -50,6 +50,30 @@ alerts:
     message: GitHub App token refresh recovered
     sound:
       - "/usr/share/sounds/freedesktop/stereo/message.oga"
+  "system.dispatch.prewarm_blocked":
+    message: Shared prewarm is blocking dispatch
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.dispatch.prewarm_blocked.resolved":
+    message: Shared prewarm recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "system.dispatch.capacity_starved":
+    message: Fleet dispatch capacity is constrained
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.dispatch.capacity_starved.resolved":
+    message: Fleet dispatch capacity recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "system.tracker.auth_preflight_failed":
+    message: Tracker authentication is blocking fleet dispatch
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-error.oga"
+  "system.tracker.auth_preflight_failed.resolved":
+    message: Tracker authentication recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
@@ -66,10 +90,18 @@ alerts:
     message: Agent paused
     sound:
       - "/usr/share/sounds/freedesktop/stereo/power-unplug.oga"
+  "ticket.*.agent.paused.resolved":
+    message: Agent pause resolved
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/power-plug.oga"
   "ticket.*.agent.attention.*":
     message: Executor decision required
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "ticket.*.agent.attention.*.resolved":
+    message: Executor attention resolved
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:
