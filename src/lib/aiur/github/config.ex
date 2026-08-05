@@ -183,14 +183,15 @@ defmodule Aiur.GitHub.Config do
   """
   @spec app_identity_issue() :: nil | :bot_account_missing | {:bot_account_not_app_bot, String.t()}
   def app_identity_issue do
-    if AppCredentials.configured?() do
-      case bot_account() do
-        nil -> :bot_account_missing
-        # Case-insensitive, matching every consumer of bot_account: an operator
-        # who wrote `My-App[Bot]` has a working config and must not be alerted.
-        login -> unless String.ends_with?(String.downcase(login), "[bot]"), do: {:bot_account_not_app_bot, login}
-      end
-    end
+    if AppCredentials.configured?(), do: bot_account_issue(bot_account())
+  end
+
+  defp bot_account_issue(nil), do: :bot_account_missing
+
+  # Case-insensitive, matching every consumer of bot_account: an operator who
+  # wrote `My-App[Bot]` has a working config and must not be alerted.
+  defp bot_account_issue(login) do
+    unless String.ends_with?(String.downcase(login), "[bot]"), do: {:bot_account_not_app_bot, login}
   end
 
   @doc """
