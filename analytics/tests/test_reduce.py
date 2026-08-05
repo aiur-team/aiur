@@ -232,5 +232,53 @@ class BuildSummaryTest(unittest.TestCase):
             self.assertEqual(boots, {"boot-a", "boot-b"})
 
 
+class SchemaConformanceTest(unittest.TestCase):
+    """Both materialized shapes must stay within the declared schema.
+
+    The schema sets ``additionalProperties: false``, so any top-level key the
+    reducer emits but the schema does not declare is a silent contract break --
+    exactly how the ``build_order`` rollup key drifted out of the schema. These
+    checks are stdlib-only (no jsonschema dependency) and assert the two
+    properties that drift actually violates: every declared ``required`` key is
+    emitted, and every emitted key is declared.
+    """
+
+    def setUp(self):
+        schema_path = Path(__file__).resolve().parents[1] / "schema" / "run-summary.v1.json"
+        self.schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertFalse(
+            self.schema.get("additionalProperties", True),
+            "schema must forbid undeclared top-level keys for this check to mean anything",
+        )
+        self.dataset = reducer.reduce_files([SESSION_A, SESSION_B])
+
+    def assert_conforms(self, summary):
+        declared = set(self.schema["properties"])
+        self.assertEqual(
+            set(summary) - declared,
+            set(),
+            "summary emits top-level keys the schema does not declare",
+        )
+        self.assertEqual(
+            set(self.schema["required"]) - set(summary),
+            set(),
+            "summary omits keys the schema marks required",
+        )
+
+    def test_run_summary_conforms(self):
+        summary = reducer.boot_summary(self.dataset, "boot-a")
+        self.assertNotIn("build_order", summary, "build_order belongs only to build rollups")
+        self.assert_conforms(summary)
+
+    def test_build_rollup_conforms(self):
+        build_order = json.loads(BUILD_ORDER.read_text(encoding="utf-8"))
+        with tempfile.TemporaryDirectory() as tmp:
+            path = reducer.build_summary_for(Path(tmp) / "node", self.dataset, "test-build", build_order)
+            summary = json.loads(Path(path).read_text(encoding="utf-8"))
+
+        self.assertIn("build_order", summary)
+        self.assert_conforms(summary)
+
+
 if __name__ == "__main__":
     unittest.main()

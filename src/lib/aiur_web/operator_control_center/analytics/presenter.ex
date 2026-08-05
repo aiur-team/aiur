@@ -95,34 +95,11 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     end
   end
 
+  # `Dataset.merge/1` already unions provenance across the merged boots; only the
+  # producer label differs, so name this path rather than recomputing the union.
   defp merge_datasets(datasets) do
-    datasets
-    |> Dataset.merge()
-    |> Map.put(:provenance, merge_provenance(datasets))
-  end
-
-  defp merge_provenance(datasets) do
-    provenances = Enum.map(datasets, & &1.provenance)
-    files = provenances |> Enum.flat_map(& &1.files) |> Enum.uniq()
-    inputs = provenances |> Enum.flat_map(& &1.inputs) |> Enum.uniq()
-    schema_versions = provenances |> Enum.flat_map(& &1.schema_versions) |> Enum.uniq() |> Enum.sort()
-    record_count = provenances |> Enum.reduce(0, &(&1.record_count + &2))
-
-    time_range =
-      case {provenances |> Enum.map(& &1.time_range) |> Enum.reject(&is_nil/1), []} do
-        {[], _} -> nil
-        {ranges, _} -> %{start: ranges |> Enum.map(& &1.start) |> Enum.min(), end: ranges |> Enum.map(& &1.end) |> Enum.max()}
-      end
-
-    %{
-      inputs: inputs,
-      files: files,
-      schema_versions: schema_versions,
-      time_range: time_range,
-      record_count: record_count,
-      enrich: Enum.any?(provenances, &Map.get(&1, :enrich, false)),
-      generated_by: "presenter:cross"
-    }
+    merged = Dataset.merge(datasets)
+    Map.update!(merged, :provenance, &Map.put(&1, :generated_by, "presenter:cross"))
   end
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
