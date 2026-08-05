@@ -17,10 +17,10 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
   @typedoc "Drawer lifecycle beyond the snapshot state, owned by the LiveView."
   @type lifecycle :: :active | :superseded | :out_of_scope
 
-  @spec present(map(), map() | nil, lifecycle()) :: map()
-  def present(row, snapshot, lifecycle \\ :active)
+  @spec present(map(), map() | nil, lifecycle(), map() | nil) :: map()
+  def present(row, snapshot, lifecycle \\ :active, log \\ nil)
 
-  def present(row, snapshot, lifecycle) when is_map(row) do
+  def present(row, snapshot, lifecycle, log) when is_map(row) do
     snapshot = normalize_snapshot(snapshot)
     state = state_for(lifecycle, snapshot)
     messages = present_messages(snapshot.messages)
@@ -44,7 +44,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
       truncated?: snapshot.truncated? or snapshot.evicted_count > 0,
       evicted_count: snapshot.evicted_count,
       truncation_note: truncation_note(snapshot),
-      participation_notice: @participation_notice
+      participation_notice: @participation_notice,
+      log: present_log(log)
     }
   end
 
@@ -96,6 +97,44 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter do
     |> Enum.reject(&is_nil/1)
     |> Enum.sort_by(&{message_sort_key(&1.occurred_at), &1.id})
   end
+
+  # Agent-log entries (Aiur.AgentLog) are a simpler shape than conversation
+  # messages: role/title/timestamp/body with no occurred_at. Present them as a
+  # bounded, chronologically-ordered transcript so the drawer can render the
+  # log beneath the conversation.
+  defp present_log(nil), do: nil
+
+  defp present_log(%{messages: messages}) when is_list(messages) do
+    presented = messages |> Enum.map(&present_log_entry/1) |> Enum.reject(&is_nil/1)
+    if presented == [], do: nil, else: presented
+  end
+
+  defp present_log(_log), do: nil
+
+  defp present_log_entry(%{role: role, title: title, timestamp: timestamp, body: body})
+       when is_binary(role) and is_binary(body) do
+    %{
+      id: log_entry_id(title, timestamp, body),
+      role: role,
+      role_label: role_label(role),
+      title: entry_title(title, role),
+      body: body,
+      occurred_at: nil,
+      observed_at: nil,
+      timestamp: timestamp
+    }
+  end
+
+  defp present_log_entry(_entry), do: nil
+
+  defp log_entry_id(title, timestamp, body)
+       when is_binary(title) and is_binary(timestamp) and is_binary(body),
+       do: :crypto.hash(:sha256, title <> timestamp <> body) |> Base.encode16(case: :lower)
+
+  defp log_entry_id(_title, _timestamp, _body), do: "log"
+
+  defp entry_title(title, role) when is_binary(title) and title != "" and title != role, do: title
+  defp entry_title(_title, role), do: role_label(role)
 
   defp present_message(%{id: id, role: role, body: body} = message)
        when is_binary(id) and is_binary(role) and is_binary(body) do
