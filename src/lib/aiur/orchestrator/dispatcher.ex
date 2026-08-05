@@ -7,7 +7,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   require Logger
 
   alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
-  alias Aiur.GitHub.{AuthPreflight, CiReadiness, Errors}
+  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -47,7 +48,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @spec maybe_dispatch(State.t()) :: State.t()
   def maybe_dispatch(%State{} = state) do
-    maybe_dispatch(state, &do_maybe_dispatch/1)
+    CycleFetchCache.start_cycle()
+
+    try do
+      maybe_dispatch(state, &do_maybe_dispatch/1)
+    after
+      CycleFetchCache.end_cycle()
+    end
   end
 
   @doc false
@@ -88,8 +95,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = CommandScan.scan_pr_commands(state)
     state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} ->
+    case fetch_candidate_issues(state) do
+      {:ok, issues, state} ->
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -115,7 +122,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         %{state | initial_dispatch_cycle: false}
 
-      {:error, reason} ->
+      {:error, reason, state} ->
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
@@ -339,6 +346,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # the signal in a wall of identical lines) — but still often enough that a
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
+
+  defp fetch_candidate_issues(%State{} = state) do
+    if Config.tracker_kind() == "github" do
+      case GitHubTracker.fetch_issues_by_states_conditional(
+             Config.active_states(),
+             issue_list_cache(state)
+           ) do
+        {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
+        {:error, reason} -> {:error, reason, state}
+      end
+    else
+      case Tracker.fetch_candidate_issues() do
+        {:ok, issues} -> {:ok, issues, state}
+        {:error, reason} -> {:error, reason, state}
+      end
+    end
+  end
+
+  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
+  end
+
+  defp put_issue_list_cache(%State{} = state, cache) do
+    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
+  end
 
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,

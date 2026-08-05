@@ -4488,8 +4488,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       # No targets at all (no running, no human-review, watch disabled) ->
-      # the poller is never invoked.
-      assert next == state
+      # the poller is never invoked. Only the per-cycle conditional issue-list
+      # cache may differ; every other field, `approved_heads` included, must be
+      # untouched.
+      assert put_in(next.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
+               put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
+
       refute_receive :unexpected_watch_fetch, 100
       refute_receive {:unexpected_request, _url}, 100
     after
