@@ -6,7 +6,7 @@ defmodule Aiur.Usage.PriceTable.Data do
   these sources; a source update adds a new effective-dated revision.
   """
 
-  @catalog_revision "api-equivalent-standard-global-2026-07-15"
+  @catalog_revision "multi-provider-standard-global-2026-08-01"
   @effective_date ~D[2026-07-15]
   @reviewed_at ~D[2026-07-15]
   @token_unit 1_000_000
@@ -43,11 +43,29 @@ defmodule Aiur.Usage.PriceTable.Data do
     {"claude-haiku-4-5", %{input: "1.00", cached_input: "0.10", five_minutes: "1.25", one_hour: "2.00", output: "5.00"}}
   ]
 
+  @provider_effective_date ~D[2026-08-01]
+  @provider_reviewed_at ~D[2026-08-01]
+  @openai_compat_models %{
+    kimi: [
+      {"kimi-k2.7-code", %{input: "0.95", cached_input: "0.19", output: "4.00"}},
+      {"kimi-k2.7-code-highspeed", %{input: "0.95", cached_input: "0.19", output: "4.00"}}
+    ],
+    deepseek: [
+      {"deepseek-v4-flash", %{input: "0.14", cached_input: "0.0028", output: "0.28"}}
+    ],
+    openrouter: [
+      {"deepseek/deepseek-v4-flash", %{input: "0.14", cached_input: "0.0028", output: "0.28"}},
+      {"moonshotai/kimi-k2.7-code", %{input: "0.95", cached_input: "0.19", output: "4.00"}},
+      {"anthropic/claude-sonnet-5", %{input: "2.00", cached_input: "0.20", output: "10.00"}},
+      {"anthropic/claude-opus-5", %{input: "5.00", cached_input: "0.50", output: "25.00"}}
+    ]
+  }
+
   @spec catalog_revision() :: String.t()
   def catalog_revision, do: @catalog_revision
 
   @spec entries() :: [map()]
-  def entries, do: openai_entries() ++ anthropic_entries()
+  def entries, do: openai_entries() ++ anthropic_entries() ++ openai_compat_entries()
 
   defp openai_entries do
     for {model, contexts} <- @openai_models,
@@ -68,6 +86,42 @@ defmodule Aiur.Usage.PriceTable.Data do
         cache_write_duration: duration
       })
     end
+  end
+
+  defp openai_compat_entries do
+    for {provider, models} <- @openai_compat_models,
+        {model, rates} <- models,
+        {dimension, price} <- openai_compat_rates(rates) do
+      openai_compat_entry(provider, model, dimension, price)
+    end
+  end
+
+  defp openai_compat_rates(rates) do
+    [
+      input: rates.input,
+      cached_input: rates.cached_input,
+      output: rates.output,
+      reasoning_output: rates.output
+    ]
+  end
+
+  defp openai_compat_entry(provider, model, dimension, price) do
+    %{
+      provider: provider,
+      resolved_model: model,
+      token_dimension: dimension,
+      relationship_revision: openai_compat_relationship(provider),
+      currency: "USD",
+      context_tier: :not_applicable,
+      cache_write_duration: :not_applicable,
+      price: price,
+      token_unit: @token_unit,
+      effective_date: @provider_effective_date,
+      price_revision: openai_compat_price_revision(provider),
+      source_url: openai_compat_source(provider),
+      source_reviewed_at: @provider_reviewed_at,
+      pricing_scope: @pricing_scope
+    }
   end
 
   defp anthropic_rates(rates) do
@@ -112,4 +166,14 @@ defmodule Aiur.Usage.PriceTable.Data do
 
   defp source(:codex), do: @openai_source
   defp source(:claude), do: @anthropic_source
+
+  defp openai_compat_relationship(:kimi), do: "kimi-request-usage-2026-08"
+  defp openai_compat_relationship(:deepseek), do: "deepseek-request-usage-2026-08"
+  defp openai_compat_relationship(:openrouter), do: "openrouter-request-usage-2026-08"
+
+  defp openai_compat_price_revision(provider), do: "#{provider}-standard-global-2026-08-01"
+
+  defp openai_compat_source(:kimi), do: "https://platform.kimi.ai/docs/pricing/chat-k27-code"
+  defp openai_compat_source(:deepseek), do: "https://api-docs.deepseek.com/quick_start/pricing"
+  defp openai_compat_source(:openrouter), do: "https://openrouter.ai/docs/overview/models"
 end

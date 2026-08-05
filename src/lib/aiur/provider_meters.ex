@@ -11,7 +11,7 @@ defmodule Aiur.ProviderMeters do
   alias Aiur.ProviderMeterSnapshot
 
   @type provider :: atom()
-  @type backend :: :app_server
+  @type backend :: atom()
 
   @spec ingest(map()) :: {:ok, ProviderMeterSnapshot.t()} | {:error, atom()}
   def ingest(update), do: Store.ingest(Store, update)

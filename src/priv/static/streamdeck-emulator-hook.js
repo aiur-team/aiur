@@ -1,10 +1,8 @@
 // Stream Deck emulator interaction hook.
 //
-// Authority model: local-first. Dial values, mode, and paging offsets are
-// owned by this hook and survive LiveView patches via beforeUpdate/updated.
-// The server is not consulted for individual dial increments — a round trip
-// per degree would be unusable. Server data remains authoritative for fleet
-// state; the hook pushes coarse events (press, key-click) when needed.
+// Authority model: dial gestures are local-first, while fleet page and log
+// offsets are server-authoritative. The hook pushes one coarse event per
+// gesture step and LiveView clamps the resulting state to real bounds.
 //
 // Patch-survival pattern follows #1306: state is captured in beforeUpdate and
 // restored in updated, so LiveView re-renders cannot revert local interaction.
@@ -52,9 +50,13 @@
     this.index = index;
     this.hook = hook;
     this.value = parseInt(this.knobEl.dataset.value || "0", 10);
+    this.preciseValue = this.value;
     this.isDragging = false;
     this.dragAngle = 0;
     this.accumulatedDeg = 0;
+    this.netDeltaDeg = 0;
+    this.visualAngle = parseFloat(this.knobEl.style.getPropertyValue("--a"));
+    if (!Number.isFinite(this.visualAngle)) this.visualAngle = (this.value / 100) * 270 - 135;
     this._activePid = null;
     this._pressTimer = null;
 
@@ -78,48 +80,80 @@
 
   Knob.prototype._onPointerDown = function (e) {
     e.preventDefault();
+    this.hook._pendingPageDialValue = null;
     this.knobEl.setPointerCapture(e.pointerId);
     this._activePid = e.pointerId;
     var c = this._centre();
     this.dragAngle = angleDeg(c.x, c.y, e.clientX, e.clientY);
     this.accumulatedDeg = 0;
+    this.netDeltaDeg = 0;
     this.isDragging = true;
 
-    this.knobEl.addEventListener("pointermove", this._onPointerMove);
-    this.knobEl.addEventListener("pointerup", this._onPointerUp);
-    this.knobEl.addEventListener("pointercancel", this._onPointerCancel);
+    this._bindDragListeners();
+  };
+
+  // Listen above the patched subtree so an active gesture survives replacement
+  // of the knob element. Pointer capture still keeps normal browser delivery
+  // semantics, while the document listener is the durable release path.
+  Knob.prototype._bindDragListeners = function () {
+    document.addEventListener("pointermove", this._onPointerMove);
+    document.addEventListener("pointerup", this._onPointerUp);
+    document.addEventListener("pointercancel", this._onPointerCancel);
+  };
+
+  Knob.prototype._unbindDragListeners = function () {
+    document.removeEventListener("pointermove", this._onPointerMove);
+    document.removeEventListener("pointerup", this._onPointerUp);
+    document.removeEventListener("pointercancel", this._onPointerCancel);
   };
 
   Knob.prototype._onPointerMove = function (e) {
     if (!this.isDragging) return;
+    if (this._activePid != null && e.pointerId !== this._activePid) return;
     var c = this._centre();
     var newAngle = angleDeg(c.x, c.y, e.clientX, e.clientY);
     var delta = normaliseWrap(newAngle - this.dragAngle);
     this.dragAngle = newAngle;
     this.accumulatedDeg += Math.abs(delta);
-    this._step(delta / DRAG_DIVISOR);
+    this.netDeltaDeg += delta;
+    this._step(delta / DRAG_DIVISOR, false);
   };
 
   Knob.prototype._onPointerUp = function (e) {
     if (!this.isDragging) return;
+    if (this._activePid != null && e.pointerId !== this._activePid) return;
+    var accumulatedDeg = this.accumulatedDeg;
+    var netDeltaDeg = this.netDeltaDeg;
     this._endDrag();
-    if (this.accumulatedDeg < PRESS_THRESHOLD_DEG) {
+    if (accumulatedDeg < PRESS_THRESHOLD_DEG) {
       this._press();
+    } else {
+      // Keep the gesture local until release, then commit its final value once.
+      // Press detection uses absolute travel. Log scrolling needs signed net
+      // movement for both transcript (A) and event (D) dials, while grid dial D
+      // retains absolute accumulation so back-and-forth travel still commits
+      // its final logical value.
+      var signedCommit = this.index === 0 || (this.index === 3 && this.hook._mode === "logs");
+      var commitDelta = signedCommit ? netDeltaDeg : accumulatedDeg;
+      this.hook._handleDialStep(this.index, commitDelta);
     }
   };
 
   // A cancelled gesture is never a press — only reset drag state.
-  Knob.prototype._onPointerCancel = function () {
+  Knob.prototype._onPointerCancel = function (e) {
     if (!this.isDragging) return;
+    if (this._activePid != null && e.pointerId !== this._activePid) return;
     this._endDrag();
   };
 
   Knob.prototype._endDrag = function () {
+    this._unbindDragListeners();
+    if (this._activePid != null) {
+      try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
+    }
     this.isDragging = false;
     this._activePid = null;
-    this.knobEl.removeEventListener("pointermove", this._onPointerMove);
-    this.knobEl.removeEventListener("pointerup", this._onPointerUp);
-    this.knobEl.removeEventListener("pointercancel", this._onPointerCancel);
+    this.netDeltaDeg = 0;
   };
 
   Knob.prototype._onWheel = function (e) {
@@ -138,13 +172,19 @@
     }
   };
 
-  Knob.prototype._step = function (delta) {
-    this.value = clamp(Math.round(this.value + delta), 0, 100);
+  Knob.prototype._step = function (delta, notify) {
+    if (notify !== false && this.index === 3) this.hook._pendingPageDialValue = null;
+    var previousPreciseValue = this.preciseValue;
+    this.preciseValue = clamp(this.preciseValue + delta, 0, 100);
+    var appliedDelta = this.preciseValue - previousPreciseValue;
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
     this._render();
-    // Angle: 0 → -135deg (min), 100 → +135deg (max), centred at top.
-    var angle = (this.value / 100) * 270 - 135;
-    this.knobEl.style.setProperty("--a", angle + "deg");
+    // Apply relative input to the retained physical marker. Programmatic
+    // logical sync may intentionally leave the marker at a different angle.
+    this.visualAngle = clamp(this.visualAngle + (appliedDelta * 270) / 100, -135, 135);
+    this.knobEl.style.setProperty("--a", this.visualAngle + "deg");
     this.knobEl.setAttribute("aria-valuenow", String(this.value));
+    if (notify !== false) this.hook._handleDialStep(this.index, delta);
   };
 
   Knob.prototype._render = function () {
@@ -173,17 +213,21 @@
     this.hook.pushEvent("dial-press", { index: this.index, action: action });
   };
 
-  Knob.prototype.destroy = function () {
+  Knob.prototype.destroy = function (preserveDrag) {
     // Cancel any outstanding press animation timer.
     clearTimeout(this._pressTimer);
     this._pressTimer = null;
 
     // Release pointer capture and clean up dynamic drag listeners in case
     // destroy() is called while a drag is in progress (e.g., mid-patch).
-    if (this.isDragging && this._activePid != null) {
+    if (this.isDragging && this._activePid != null && !preserveDrag) {
       try { this.knobEl.releasePointerCapture(this._activePid); } catch (_) {}
     }
-    this._endDrag();
+    if (preserveDrag && this.isDragging) {
+      this._unbindDragListeners();
+    } else {
+      this._endDrag();
+    }
 
     this.knobEl.removeEventListener("pointerdown", this._onPointerDown);
     this.knobEl.removeEventListener("wheel", this._onWheel);
@@ -191,13 +235,42 @@
   };
 
   Knob.prototype.snapshotState = function () {
-    return { value: this.value };
+    return {
+      value: this.value,
+      preciseValue: this.preciseValue,
+      visualAngle: this.visualAngle,
+      drag: this.isDragging ? {
+        pointerId: this._activePid,
+        dragAngle: this.dragAngle,
+        accumulatedDeg: this.accumulatedDeg,
+        netDeltaDeg: this.netDeltaDeg
+      } : null
+    };
   };
 
   Knob.prototype.restoreState = function (state) {
     if (!state) return;
-    this.value = state.value;
-    this._step(0);
+    this.preciseValue = Number.isFinite(state.preciseValue) ? state.preciseValue : state.value;
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
+    this._render();
+    this.knobEl.setAttribute("aria-valuenow", String(this.value));
+    this.visualAngle = Number.isFinite(state.visualAngle) ? state.visualAngle : (this.value / 100) * 270 - 135;
+    this.knobEl.style.setProperty("--a", this.visualAngle + "deg");
+    if (state.drag) {
+      this.isDragging = true;
+      this._activePid = state.drag.pointerId;
+      this.dragAngle = state.drag.dragAngle;
+      this.accumulatedDeg = state.drag.accumulatedDeg;
+      this.netDeltaDeg = state.drag.netDeltaDeg;
+      this._bindDragListeners();
+    }
+  };
+
+  Knob.prototype._setLogicalValue = function (value) {
+    this.preciseValue = clamp(value, 0, 100);
+    this.value = clamp(Math.round(this.preciseValue), 0, 100);
+    this._render();
+    this.knobEl.setAttribute("aria-valuenow", String(this.value));
   };
 
   window.AiurStreamdeckEmulatorHook = {
@@ -211,6 +284,7 @@
       this._onMicUp = null;
       this._mode = "grid";
       this._modeHistory = [];
+      this._pendingPageDialValue = null;
       // Version counter guards against a patch's beforeUpdate/updated window
       // overwriting a mode change that happened mid-patch (race condition).
       this._modeVersion = 0;
@@ -229,7 +303,7 @@
       this._pendingModeHistory = this._modeHistory.slice();
       // Record the version so updated() can detect mid-patch mode changes.
       this._pendingModeVersion = this._modeVersion;
-      this._destroyKnobs();
+      this._destroyKnobs(true);
       this._unbindKeys();
       this._unbindMic();
     },
@@ -243,6 +317,18 @@
         var state = this._knobState;
         this._knobs.forEach(function (k, i) { k.restoreState(state[i]); });
         this._knobState = null;
+      }
+      var serverPageDialValue = this._syncPageKnob();
+      if (this._pendingPageDialValue !== null) {
+        if (serverPageDialValue === this._pendingPageDialValue) {
+          // The authoritative patch acknowledged the optimistic page cycle.
+          // Retire it so a later fleet/status patch can move the dial again.
+          this._pendingPageDialValue = null;
+        } else if (this._knobs[3]) {
+          // An unrelated patch arrived first. Preserve the optimistic value
+          // until the matching page-cycle acknowledgement is rendered.
+          this._knobs[3]._setLogicalValue(this._pendingPageDialValue);
+        }
       }
       // Restore mode state only if it did not change during the patch window.
       // A mid-patch user action (e.g. a second back press) increments _modeVersion;
@@ -279,9 +365,37 @@
       this._knobs = wraps.map(function (wrap, i) { return new Knob(wrap, i, self); });
     },
 
-    _destroyKnobs() {
-      this._knobs.forEach(function (k) { k.destroy(); });
+    _destroyKnobs(preserveDrag) {
+      this._knobs.forEach(function (k) { k.destroy(preserveDrag); });
       this._knobs = [];
+    },
+
+    _handleDialStep(index, delta) {
+      if (!delta) return;
+      var dial = this._knobs && this._knobs[index];
+      var value = dial ? dial.value : 0;
+      if (this._mode === "grid" && index === 3) {
+        this._requestGridPage(value);
+      } else if (this._mode === "logs" && index === 3) {
+        this.pushEvent("logs-scroll", { axis: "events", delta: delta > 0 ? 1 : -1 });
+      } else if (this._mode === "logs" && index === 0) {
+        this.pushEvent("logs-scroll", { axis: "transcript", delta: delta > 0 ? 1 : -1 });
+      }
+    },
+
+    _requestGridPage(value) {
+      if (!Number.isFinite(value)) return;
+      this.pushEvent("grid-page", { value: clamp(value, 0, 100) });
+    },
+
+    _syncPageKnob() {
+      var keys = this.el.querySelector("#sd-keys");
+      var knob = this._knobs && this._knobs[3];
+      if (!keys || !knob) return null;
+      var value = parseInt(keys.getAttribute("data-grid-dial-value") || "0", 10);
+      if (!Number.isFinite(value)) return null;
+      knob._setLogicalValue(value);
+      return value;
     },
 
     _bindKeys() {
@@ -302,6 +416,11 @@
           // Key click in grid mode transitions to cmd view.
           if (self._mode === "grid") {
             self._setMode("cmd");
+          }
+
+          var identifier = key.getAttribute("data-streamdeck-identifier");
+          if (identifier) {
+            self.pushEvent("key-press", { identifier: identifier });
           }
         };
         key.addEventListener("click", handler);
@@ -373,10 +492,32 @@
         var prev = this._modeHistory.pop();
         this._setMode(prev !== undefined ? prev : "grid", false);
       } else if (action === "cycle-window") {
+        if (this._mode === "grid") {
+          this._requestGridWindowCycle();
+          return;
+        }
         var idx = MODES.indexOf(this._mode);
         var next = MODES[(idx + 1) % MODES.length];
         this._setMode(next);
       }
+    },
+
+    _requestGridWindowCycle() {
+      var keys = this.el.querySelector("#sd-keys");
+      var dial = this._knobs && this._knobs[3];
+      if (keys && dial) {
+        var total = parseInt(keys.getAttribute("data-grid-total") || "0", 10);
+        var windows = parseInt(keys.getAttribute("data-grid-page-count") || "1", 10);
+        var page = parseInt(keys.getAttribute("data-grid-page") || "0", 10);
+        var maxOffset = Math.max(0, Math.ceil(total / 2) - 4);
+        var nextPage = (page + 1) % Math.max(windows, 1);
+        var offset = Math.min(nextPage * 4, maxOffset);
+        var value = maxOffset === 0 ? 0 : Math.round((offset / maxOffset) * 100);
+        // A page cycle changes logical value, not the physical marker.
+        this._pendingPageDialValue = value;
+        dial._setLogicalValue(value);
+      }
+      this.pushEvent("grid-page", { action: "cycle" });
     },
 
     // Set the active mode. Updates data-mode on .sd-device and aria-hidden on

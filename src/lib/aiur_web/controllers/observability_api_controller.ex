@@ -13,7 +13,8 @@ defmodule AiurWeb.ObservabilityApiController do
 
   @spec state(Conn.t(), map()) :: Conn.t()
   def state(conn, _params) do
-    json(conn, Presenter.state_payload(orchestrator(), snapshot_timeout_ms()))
+    conn
+    |> json(Presenter.state_payload(orchestrator(), snapshot_timeout_ms()) |> legacy_snapshot_error())
   end
 
   @spec streamdeck_grid(Conn.t(), map()) :: Conn.t()
@@ -161,6 +162,15 @@ defmodule AiurWeb.ObservabilityApiController do
   defp snapshot_timeout_ms do
     Endpoint.config(:snapshot_timeout_ms) || 15_000
   end
+
+  # The dashboard distinguishes a stopped Orchestrator from an empty read model,
+  # while the long-standing machine endpoint exposes both as a snapshot-unavailable
+  # response. Keep that wire contract stable for existing API consumers.
+  defp legacy_snapshot_error(%{error: %{code: "orchestrator_unavailable"}} = payload) do
+    put_in(payload, [:error], %{code: "snapshot_unavailable", message: "Snapshot unavailable"})
+  end
+
+  defp legacy_snapshot_error(payload), do: payload
 
   defp send_operator_message(issue_identifier, text) do
     Orchestrator.send_operator_message(orchestrator(), issue_identifier, %{kind: :text, body: text})

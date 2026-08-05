@@ -7,7 +7,6 @@ set -euo pipefail
 
 mode="${1:-due}"
 run_id="${AIUR_EXECUTOR_RUN_ID:-}"
-state_root="${AIUR_EXECUTOR_STATE_DIR:-/tmp/aiur-executor-watch}"
 interval_seconds="${AIUR_EXECUTOR_RETROSPECTIVE_SECONDS:-3600}"
 
 # Adaptive quiet-audit wait bounds. Event-driven wakes stay immediate; these
@@ -37,9 +36,52 @@ if [[ ! "$wait_backoff" =~ ^[1-9][0-9]*$ ]]; then
   exit 64
 fi
 
+repo_slug="${AIUR_EXECUTOR_REPO:-}"
+if [ -z "$repo_slug" ]; then
+  remote_url="$(git config --get remote.origin.url 2>/dev/null || true)"
+  remote_url="${remote_url%/}"
+  remote_url="${remote_url%.git}"
+  repo_name="${remote_url##*/}"
+  remote_parent="${remote_url%/*}"
+  repo_owner="${remote_parent##*:}"
+  repo_owner="${repo_owner##*/}"
+  if [ -n "$repo_owner" ] && [ -n "$repo_name" ]; then
+    repo_slug="$repo_owner/$repo_name"
+  fi
+fi
+
+case "$repo_slug" in
+  */*)
+    repo_owner="${repo_slug%%/*}"
+    repo_name="${repo_slug#*/}"
+    ;;
+  *)
+    repo_owner=""
+    repo_name=""
+    ;;
+esac
+
+if [[ ! "$repo_owner" =~ ^[A-Za-z0-9._-]+$ ]] ||
+   [[ ! "$repo_name" =~ ^[A-Za-z0-9._-]+$ ]] ||
+   [ "$repo_owner" = "." ] || [ "$repo_owner" = ".." ] ||
+   [ "$repo_name" = "." ] || [ "$repo_name" = ".." ]; then
+  if [ -z "${AIUR_EXECUTOR_STATE_DIR:-}" ] || [ -z "${AIUR_EXECUTOR_RETRO_FILE:-}" ]; then
+    printf 'AIUR_EXECUTOR_REPO must be owner/repo when the repository cannot be derived from git\n' >&2
+    exit 64
+  fi
+  repo_slug=""
+fi
+
+repo_state_root=""
+if [ -n "$repo_slug" ]; then
+  repo_state_root="${AIUR_EXECUTOR_REPO_STATE_DIR:-${HOME:?HOME is required}/.aiur/repo/$repo_slug}"
+fi
+state_root="${AIUR_EXECUTOR_STATE_DIR:-$repo_state_root/executor}"
+
 run_dir="$state_root/$run_id"
 state_file="$run_dir/retrospective-state.json"
 history_file="$run_dir/history.ndjson"
+retro_file="${AIUR_EXECUTOR_RETRO_FILE:-$repo_state_root/meta/retros/$run_id.md}"
 lock_dir="$run_dir/.retrospective-lock"
 lock_owner_marker=""
 lock_claim_marker=""
@@ -434,6 +476,9 @@ record() {
     --arg adjustment "$adjustment" --arg run_id "$run_id" --argjson interval "$interval_seconds" \
     --argjson report "$report" \
     '{type:"hourly_retrospective",at:$at,epoch:$epoch,run_id:$run_id,window_seconds:$interval,assessment:$assessment,adjustment:$adjustment,summary:$report}')"
+  mkdir -p "$(dirname "$retro_file")"
+  printf '## %s\n\n- Bottleneck: %s\n- Adjustment: %s\n- Window: %s\n\n' \
+    "$at" "$assessment" "$adjustment" "$(jq -r '.count_sentence' <<< "$report")" >> "$retro_file"
   printf '%s\n' "$event" >> "$history_file"
 
   current="$(cat "$state_file")"

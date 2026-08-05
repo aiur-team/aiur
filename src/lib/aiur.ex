@@ -156,6 +156,7 @@ defmodule Aiur.Application do
       Aiur.CoordinationTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
+      Aiur.GitHub.AppTokenRefresher,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
@@ -191,6 +192,8 @@ defmodule Aiur.Application do
       Aiur.DecisionAttention,
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
+      Aiur.Orchestrator.SnapshotStore,
+      Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
       # LiveConversation is projection-only: it never replays workspace logs
       # after restart, so a missing key truthfully reports :restart_unknown.
@@ -201,6 +204,7 @@ defmodule Aiur.Application do
       Aiur.Claude.Telemetry,
       {Aiur.BuildOrder.TicketHistoryProvider, runtime_config?: true},
       {Aiur.BuildOrder.AdHocSource, poll_on_start: Application.get_env(:aiur, :build_order_adhoc_poll?, true)},
+      {Aiur.BuildOrder.PackStatus, poll_on_start: Application.get_env(:aiur, :build_order_pack_status_poll?, true)},
       {Aiur.Orchestrator, initial_poll?: Application.get_env(:aiur, :orchestrator_initial_poll?, true)},
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
