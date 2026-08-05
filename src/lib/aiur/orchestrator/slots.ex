@@ -182,7 +182,7 @@ defmodule Aiur.Orchestrator.Slots do
         state.max_concurrent_agents
 
       true ->
-        Config.settings!().agent.max_concurrent_agents
+        Config.max_concurrent_agents()
     end
   end
 
@@ -207,7 +207,7 @@ defmodule Aiur.Orchestrator.Slots do
       paused: State.paused_running_count(state.running),
       reserved_paused: reserved_paused,
       occupied: active + reserved_paused,
-      configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
+      configured: state.max_concurrent_agents || Config.max_concurrent_agents(),
       max: max,
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),

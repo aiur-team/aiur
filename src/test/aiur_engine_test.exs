@@ -150,6 +150,9 @@ defmodule AiurEngineTest do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
     assert out =~ "aiur --todo <ids...> [--only]"
+    assert out =~ "aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
+    assert out =~ "aiur findings --record <json> --repo <owner/repo>"
+    assert out =~ "aiur findings --digest [--scope aiur|repo]"
     assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
@@ -570,6 +573,18 @@ defmodule AiurEngineTest do
     refute out =~ "error: aiur is not running"
   end
 
+  test "findings boots distribution-free without requiring a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["findings", "--slugs"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
+    refute out =~ "BIN:"
+  end
+
   test "todo without IDs exits 64 before resolving a release" do
     {out, code} = run_engine(["--todo"], [])
     assert code == 64
@@ -681,6 +696,25 @@ defmodule AiurEngineTest do
 
     {resumed, _} = run_engine_real(["resume", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
     assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
+  end
+
+  test "reset-budget --all exits 64 with guidance instead of silently no-opping" do
+    # #1453 review P2d: `parse_issue_targets` accepts `--all` (empty targets),
+    # and the original cmd_reset_budget proceeded to reset_budget([]) → exit 0
+    # no-op. The command must reject --all loudly so an operator never believes
+    # the whole board was reset.
+    rel = fake_release()
+    {out, code} = run_engine(["reset-budget", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert code == 64
+    assert out =~ "reset-budget does not accept --all"
+    assert out =~ "name ticket IDs explicitly"
+  end
+
+  test "reset-budget with non-numeric targets exits 64" do
+    rel = fake_release()
+    {out, code} = run_engine(["reset-budget", "not-an-id"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert code == 64
+    assert out =~ "reset-budget expects issue IDs"
   end
 
   test "usage RPCs the usage expression" do

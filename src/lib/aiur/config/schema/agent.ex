@@ -89,7 +89,18 @@ defmodule Aiur.Config.Schema.Agent do
     # breaker resets whenever its window lapses, so a slowly-churning ticket is
     # never circuit-broken. 0 disables the latch.
     field(:max_dispatches_per_ticket, :integer, default: 0)
-    field(:max_concurrent_agents, :integer, default: 10)
+    # Ceiling for new fleet admissions. When omitted (nil), it derives from the
+    # measured host capacity (see `Config.default_max_concurrent_agents/1`):
+    # schedulers + 1/4 schedulers, which matches the measured ~19-20 concurrent
+    # agents on a 16-core host. Explicit config still wins. The load envelope
+    # reduces effective concurrency below this ceiling under host pressure.
+    field(:max_concurrent_agents, :integer)
+    # Per-scheduler runnable-process ceiling for the instantaneous run-queue
+    # dispatch gate. nil disables the gate (the 1-minute load gate and envelope
+    # still apply); a positive value holds new dispatch while `procs_running`
+    # strictly exceeds `run_queue_threshold * schedulers`, catching short CPU
+    # bursts the lagging load average smooths out.
+    field(:run_queue_threshold, :float)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
@@ -174,6 +185,7 @@ defmodule Aiur.Config.Schema.Agent do
         :prior_work_continuation,
         :max_dispatches_per_ticket,
         :max_concurrent_agents,
+        :run_queue_threshold,
         :max_concurrent_builds,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
@@ -203,6 +215,7 @@ defmodule Aiur.Config.Schema.Agent do
       empty_values: []
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
+    |> validate_number(:run_queue_threshold, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)

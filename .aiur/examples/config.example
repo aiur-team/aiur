@@ -4,7 +4,8 @@
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
   active_states: [todo, in-progress, rework, merging]
-  terminal_states: [done, cancelled, canceled]
+  terminal_states: [done, closed, cancelled, canceled]
+  # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
 {{TRACKER_PROVIDER}}
   # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
   # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur

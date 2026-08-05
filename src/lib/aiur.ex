@@ -193,6 +193,7 @@ defmodule Aiur.Application do
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator.SnapshotStore,
+      Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
       # LiveConversation is projection-only: it never replays workspace logs
       # after restart, so a missing key truthfully reports :restart_unknown.
