@@ -324,7 +324,17 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec pause_issue_for_label_override(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_label_override(%State{} = state, %Issue{} = issue) do
-    case Map.get(state.running, issue.id) do
+    running_entry = Map.get(state.running, issue.id)
+
+    if pending_local_pause?(state, running_entry, issue.id) do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      apply_label_override(state, running_entry, issue)
+    end
+  end
+
+  defp apply_label_override(state, running_entry, issue) do
+    case running_entry do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
 
@@ -338,12 +348,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
       %{control: %{status: :paused}} = running_entry ->
-        running_entry =
-          running_entry
-          |> Map.put(:issue, issue)
-          |> Map.put(:paused_reason, :label_override)
-
-        transition_control_status(state, running_entry, :paused, "label_override")
+        apply_label_override_to_paused_issue(state, running_entry, issue)
 
       running_entry when is_map(running_entry) ->
         Logger.info("Issue pause override detected: #{State.issue_context(issue)}; pausing active agent")
@@ -352,6 +357,37 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       _ ->
         state
+    end
+  end
+
+  defp pending_local_pause?(state, running_entry, issue_id) when is_map(running_entry) do
+    pending_reason = Map.get(running_entry, :pending_pause_reason)
+    pending_request = ControlLifecycle.current_pending(state.control_lifecycle, issue_id)
+
+    case {pending_reason, pending_request} do
+      {%{request_id: request_id, reason: reason}, %{action: :pause, request_id: request_id}}
+      when reason != :label_override ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp pending_local_pause?(_state, _running_entry, _issue_id), do: false
+
+  defp apply_label_override_to_paused_issue(state, running_entry, issue) do
+    pause_reason = Map.get(running_entry, :paused_reason)
+
+    if not is_nil(pause_reason) and pause_reason != :label_override do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      running_entry =
+        running_entry
+        |> Map.put(:issue, issue)
+        |> Map.put(:paused_reason, :label_override)
+
+      transition_control_status(state, running_entry, :paused, "label_override")
     end
   end
 
@@ -380,7 +416,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp pause_completed_issue_for_label_override(state, running_entry, issue) do
     if State.paused_running_entry?(running_entry) and
-         Map.get(running_entry, :paused_reason) == :label_override do
+         not is_nil(Map.get(running_entry, :paused_reason)) do
       Reconciler.refresh_running_entry_issue(state, issue, running_entry)
     else
       state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)
@@ -600,6 +636,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp apply_worker_control_state(state, issue_id, running_entry, status, pause_payload, request) do
     previous_status = get_in(running_entry, [:control, :status]) || :working
+    previous_pause_reason = Map.get(running_entry, :paused_reason)
     pause_reason = worker_pause_reason(running_entry, pause_payload, request)
     transition_cause = control_transition_cause(request, status, pause_reason)
 
@@ -613,7 +650,13 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     maybe_log_worker_pause(status, updated_running_entry, pause_reason)
     record_control_transition(updated_running_entry, previous_status, status, transition_cause)
-    OperatorMessages.maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+    OperatorMessages.maybe_emit_agent_control_alert(
+      previous_status,
+      status,
+      updated_running_entry,
+      if(status == :working, do: previous_pause_reason, else: pause_reason)
+    )
 
     state = %{state | running: Map.put(state.running, issue_id, updated_running_entry)}
     state = finalize_applied_resume(state, issue_id, request)
@@ -793,6 +836,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
+    previous_pause_reason = Map.get(running_entry, :paused_reason)
     running_entry = normalize_pause_context(running_entry, new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
@@ -813,7 +857,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
       record_control_transition(next_entry, old_status, new_status, reason)
-      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry, previous_pause_reason)
       StatusReport.notify_dashboard(next_state)
       next_state
     end
@@ -1118,7 +1162,13 @@ defmodule Aiur.Orchestrator.PauseResume do
         updated_entry = Map.get(state.running, issue_id, running_entry)
         resume_cause = if operator?, do: :operator_resume, else: :automatic_resume
         record_control_transition(updated_entry, previous_status, :working, resume_cause)
-        OperatorMessages.maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
+
+        OperatorMessages.maybe_emit_agent_control_alert(
+          previous_status,
+          :working,
+          updated_entry,
+          Map.get(running_entry, :paused_reason)
+        )
 
         {{:ok, :resumed}, state}
 
