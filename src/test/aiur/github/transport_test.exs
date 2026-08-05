@@ -232,4 +232,104 @@ defmodule Aiur.GitHub.TransportTest do
     assert Transport.maybe_put_query(%{}, "since", nil) == %{}
     assert Transport.maybe_put_query(%{}, "since", "now") == %{"since" => "now"}
   end
+
+  describe "conditional reads" do
+    @transport_test_options_key :github_transport_test_options
+
+    setup do
+      prev = Application.get_env(:aiur, @transport_test_options_key)
+      Application.put_env(:aiur, @transport_test_options_key, plug: {Req.Test, __MODULE__})
+
+      on_exit(fn ->
+        case prev do
+          nil -> Application.delete_env(:aiur, @transport_test_options_key)
+          value -> Application.put_env(:aiur, @transport_test_options_key, value)
+        end
+      end)
+
+      :ok
+    end
+
+    test "default_request_fun sends a cached etag as an If-None-Match request header" do
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        send(test_pid, {:if_none_match, Plug.Conn.get_req_header(conn, "if-none-match")})
+        Req.Test.json(conn, [])
+      end)
+
+      assert {:ok, _response} =
+               Transport.default_request_fun(%{
+                 method: :get,
+                 url: "https://api.github.com/repos/owner/repo/issues",
+                 token: "token",
+                 etag: "W/\"abc123\""
+               })
+
+      assert_receive {:if_none_match, ["W/\"abc123\""]}
+    end
+
+    test "default_request_fun omits If-None-Match when no etag is cached" do
+      test_pid = self()
+
+      Req.Test.stub(__MODULE__, fn conn ->
+        send(test_pid, {:if_none_match, Plug.Conn.get_req_header(conn, "if-none-match")})
+        Req.Test.json(conn, [])
+      end)
+
+      assert {:ok, _response} =
+               Transport.default_request_fun(%{
+                 method: :get,
+                 url: "https://api.github.com/repos/owner/repo/issues",
+                 token: "token"
+               })
+
+      assert_receive {:if_none_match, []}
+    end
+  end
+
+  describe "fetch_json_list_conditional/4" do
+    test "returns the body and the response etag on 200" do
+      request_fun = fn request ->
+        assert request.etag == "etag-old"
+        {:ok, %{status: 200, headers: [{"etag", "etag-new"}], body: [%{"id" => 1}]}}
+      end
+
+      assert {:ok, [%{"id" => 1}], "etag-new"} =
+               Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", "etag-old")
+    end
+
+    test "keeps the cached etag on 200 when the response omits one" do
+      request_fun = fn _request -> {:ok, %{status: 200, headers: [], body: []}} end
+
+      assert {:ok, [], "etag-old"} =
+               Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", "etag-old")
+    end
+
+    test "returns :not_modified with the retained etag on 304" do
+      request_fun = fn request ->
+        assert request.etag == "etag-old"
+        {:ok, %{status: 304, headers: [], body: ""}}
+      end
+
+      assert {:not_modified, "etag-old"} =
+               Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", "etag-old")
+    end
+
+    test "omits the etag field entirely when no etag is cached" do
+      request_fun = fn request ->
+        refute Map.has_key?(request, :etag)
+        {:ok, %{status: 200, headers: [], body: []}}
+      end
+
+      assert {:ok, [], nil} = Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", nil)
+    end
+
+    test "classifies a non-2xx status as an error" do
+      request_fun = fn _request -> {:ok, %{status: 403, headers: [], body: %{"message" => "forbidden"}}} end
+
+      assert {:error, _reason} =
+               Transport.fetch_json_list_conditional(request_fun, "token", "https://api.github.com/x", "etag-old")
+    end
+  end
 end

@@ -17,8 +17,17 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "target_0: issueOrPullRequest(number: 42)"
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-comment-batch", states: OPEN)
+      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-comment-batch", states: OPEN, orderBy:)
+      # The cost claim: aliases only, never a scan of the repository's open PR
+      # list (paginated or not).
       refute body["query"] =~ "states: OPEN, after:"
+      refute body["query"] =~ ~r/pullRequests\(states:\s*OPEN/
+      refute body["query"] =~ ~r/pullRequests\(first:/
+      assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
+      # Comment tails are read newest-first so a >100-comment target does not
+      # overflow into a permanent per-cycle REST fallback.
+      refute body["query"] =~ "comments(first: 100)"
+      assert body["query"] =~ "comments(last: 100)"
       assert body["variables"] == %{"owner" => "owner", "repo" => "repo"}
 
       {:ok,
@@ -50,8 +59,12 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert batch.review_thread_comments == []
   end
 
-  test "omits an overflowed comment connection so the poller can fetch it completely" do
-    request_fun = fn %{method: :post} ->
+  # The batch reads `comments(last: 100)`, so "more comments exist" is only a
+  # problem when more than 100 arrived inside one poll interval. A long-running
+  # ticket with 500 comments must stay in the batch, or the savings evaporate on
+  # exactly the busiest targets.
+  defp overflowing_issue_request_fun(comments) do
+    fn %{method: :post} ->
       {:ok,
        %{
          status: 200,
@@ -59,14 +72,45 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
            "data" => %{
              "repository" => %{
                "target_0" =>
-                 issue([comment(1, "first page")])
-                 |> put_in(["comments", "pageInfo"], %{"hasNextPage" => true, "endCursor" => "next"}),
+                 comments
+                 |> issue()
+                 |> put_in(["comments", "pageInfo"], %{"hasPreviousPage" => true}),
                "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
        }}
     end
+  end
+
+  test "keeps a target with more than 100 comments when the newest-100 window covers the cursor" do
+    request_fun = overflowing_issue_request_fun([comment(1, "older than cursor", "2026-07-30T11:00:00Z")])
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
+               since: %{"42" => "2026-07-30T12:00:00Z"}
+             )
+
+    assert [%{"body" => "older than cursor"}] = batch.issue_comments
+  end
+
+  test "omits a target when every comment in the window is newer than the cursor" do
+    request_fun = overflowing_issue_request_fun([comment(1, "newer than cursor", "2026-07-30T13:00:00Z")])
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
+               since: %{"42" => "2026-07-30T12:00:00Z"}
+             )
+
+    refute Map.has_key?(batch, :issue_comments)
+  end
+
+  test "omits an overflowing target when no cursor is known" do
+    request_fun = overflowing_issue_request_fun([comment(1, "first page", "2026-07-30T12:00:00Z")])
 
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"],
@@ -75,12 +119,11 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
              )
 
     refute Map.has_key?(batch, :issue_comments)
-    assert batch.open_pull_request == nil
   end
 
   test "omits a target whose legacy branch guess finds no PR so REST can resolve it" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN)
+      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
 
       {:ok,
        %{
@@ -135,12 +178,12 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     }
   end
 
-  defp comment(id, body) do
+  defp comment(id, body, created_at \\ "2026-07-30T12:00:00Z") do
     %{
       "databaseId" => id,
       "body" => body,
-      "createdAt" => "2026-07-30T12:00:00Z",
-      "updatedAt" => "2026-07-30T12:00:00Z",
+      "createdAt" => created_at,
+      "updatedAt" => created_at,
       "url" => "https://example.test/comments/#{id}",
       "author" => %{"login" => "its-everdred"}
     }

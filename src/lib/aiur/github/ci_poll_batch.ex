@@ -98,7 +98,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp branch_alias(%{branch: branch}, index) do
     """
-    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, first: #{@pull_requests_per_branch}) {
+    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes {
         number state headRefName headRefOid baseRefName

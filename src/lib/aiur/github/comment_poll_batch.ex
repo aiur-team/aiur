@@ -95,10 +95,10 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp target_aliases(%{target: target, branch: branch}, index) do
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
-      ... on Issue { comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { #{comment_fields()} } } }
+      ... on Issue { comments(last: 100) { pageInfo { hasPreviousPage } nodes { #{comment_fields()} } } }
       ... on PullRequest { #{pull_request_fields()} }
     }
-    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, first: #{@pull_requests_per_branch}) {
+    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes { #{pull_request_fields()} }
     }
@@ -112,7 +112,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_fields do
     """
     number state headRefName headRefOid baseRefName
-    comments(first: 100) { pageInfo { hasNextPage endCursor } nodes { #{comment_fields()} } }
+    comments(last: 100) { pageInfo { hasPreviousPage } nodes { #{comment_fields()} } }
     reviewThreads(first: 100) {
       pageInfo { hasNextPage endCursor }
       nodes { id isResolved path line comments(last: 20) { nodes { #{thread_comment_fields()} } } }
@@ -171,6 +171,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp target_batch(target, direct, pull_request, opts) do
     batch = %{open_pull_request: pull_request_payload(pull_request)}
+    since = target_since(opts, target)
 
     batch =
       put_comments_if_complete(
@@ -178,7 +179,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
         :issue_comments,
         direct,
         target,
-        "issue_comments"
+        "issue_comments",
+        since
       )
 
     batch =
@@ -187,7 +189,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
         :pr_issue_comments,
         pull_request || %{},
         target,
-        "pull_request_comments"
+        "pull_request_comments",
+        since
       )
 
     if review_threads_overflow?(pull_request) do
@@ -207,7 +210,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_payload(nil), do: nil
 
   defp pull_request_payload(%{} = pull_request) do
-    Map.drop(pull_request, [:kind, :comments, :comments_overflow, :review_threads, :review_threads_page_info])
+    Map.drop(pull_request, [:kind, :comments, :comments_page_info, :review_threads, :review_threads_page_info])
   end
 
   defp normalize_issue_or_pull_request(%{"headRefName" => _} = pull_request), do: normalize_pull_request(pull_request)
@@ -216,7 +219,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
     %{
       kind: :issue,
       comments: normalize_comments(get_in(issue, ["comments", "nodes"])),
-      comments_overflow: comments_overflow?(issue)
+      comments_page_info: comments_page_info(issue)
     }
   end
 
@@ -228,7 +231,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
       "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
       "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
       comments: normalize_comments(get_in(pull_request, ["comments", "nodes"])),
-      comments_overflow: comments_overflow?(pull_request),
+      comments_page_info: comments_page_info(pull_request),
       review_threads: review_thread_nodes(pull_request),
       review_threads_page_info: review_thread_page_info(pull_request)
     }
@@ -268,8 +271,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp review_threads_overflow?(_pull_request), do: false
 
-  defp put_comments_if_complete(batch, key, source, target, label) do
-    if comments_overflow?(source) do
+  defp put_comments_if_complete(batch, key, source, target, label, since) do
+    if comments_truncated?(source, since) do
       Logger.warning("Github comment GraphQL batch overflow: #{label} target=#{target}")
       batch
     else
@@ -277,13 +280,63 @@ defmodule Aiur.GitHub.CommentPollBatch do
     end
   end
 
-  defp comments_overflow?(%{comments_overflow: overflow}) when is_boolean(overflow), do: overflow
-
-  defp comments_overflow?(source) when is_map(source) do
-    get_in(source, ["comments", "pageInfo", "hasNextPage"]) == true
+  # The batch asks for the *newest* 100 comments (`last: 100`), so a target with
+  # more than 100 comments is not truncated in any way the poller cares about:
+  # it only wants comments newer than its `since` cursor. The window is
+  # incomplete only when older comments exist AND the window's own oldest
+  # comment is still newer than `since` — i.e. more than 100 comments arrived in
+  # one poll interval. Without a known cursor, stay conservative and fall back.
+  defp comments_truncated?(source, since) when is_map(source) do
+    Map.get(comments_page_info(source), "hasPreviousPage") == true and
+      not window_covers_since?(Map.get(source, :comments, []), since)
   end
 
-  defp comments_overflow?(_source), do: false
+  defp comments_truncated?(_source, _since), do: false
+
+  defp window_covers_since?(_comments, nil), do: false
+
+  defp window_covers_since?(comments, %DateTime{} = since) do
+    case oldest_created_at(comments) do
+      nil -> false
+      oldest -> DateTime.compare(oldest, since) != :gt
+    end
+  end
+
+  defp oldest_created_at(comments) do
+    comments
+    |> Enum.map(&parse_datetime(Map.get(&1, "created_at")))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
+  end
+
+  defp comments_page_info(%{comments_page_info: %{} = page_info}), do: page_info
+
+  defp comments_page_info(source) when is_map(source) do
+    case get_in(source, ["comments", "pageInfo"]) do
+      %{} = page_info -> page_info
+      _other -> %{}
+    end
+  end
+
+  defp comments_page_info(_source), do: %{}
+
+  defp target_since(opts, target) do
+    case Keyword.get(opts, :since) do
+      %{} = since_by_target -> parse_datetime(Map.get(since_by_target, target))
+      since -> parse_datetime(since)
+    end
+  end
+
+  defp parse_datetime(%DateTime{} = value), do: value
+
+  defp parse_datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _other -> nil
+    end
+  end
+
+  defp parse_datetime(_value), do: nil
 
   defp positive_number?(target) do
     case Integer.parse(target) do

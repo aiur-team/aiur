@@ -72,6 +72,128 @@ defmodule Aiur.Orchestrator.CommandScanTest do
     end
   end
 
+  describe "scan_pr_commands/2 conditional reads" do
+    defp review_comment(id, created_at) do
+      %{
+        "id" => id,
+        "body" => "/aiur retry",
+        "created_at" => created_at,
+        "updated_at" => created_at,
+        "html_url" => "https://github.com/owner/repo/pull/77#discussion_r#{id}",
+        "pull_request_url" => "https://api.github.com/repos/owner/repo/pulls/77",
+        "user" => %{"login" => "its-everdred"}
+      }
+    end
+
+    defp etag_state do
+      %{
+        base_state()
+        | github_command_scan_since: "2024-01-01T00:00:00Z",
+          github_comment_etags: %{command_scan_review: "review-etag", command_scan_issue: "issue-etag"}
+      }
+    end
+
+    test "sends each stream its own stored etag" do
+      test_pid = self()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn opts ->
+          send(test_pid, {:review_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "review-etag"}
+        end,
+        command_scan_issue_comment_fetcher: fn opts ->
+          send(test_pid, {:issue_etag, Keyword.get(opts, :etag)})
+          {:not_modified, "issue-etag"}
+        end
+      ]
+
+      CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert_receive {:review_etag, "review-etag"}
+      assert_receive {:issue_etag, "issue-etag"}
+    end
+
+    test "a 304 on both streams leaves the cursor and the etags untouched" do
+      state = etag_state()
+
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(state, opts)
+
+      assert result.github_command_scan_since == state.github_command_scan_since
+      assert result.github_comment_etags[:command_scan_review] == "review-etag"
+      assert result.github_comment_etags[:command_scan_issue] == "issue-etag"
+    end
+
+    test "stores the refreshed etag and still processes comments on a 200" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts ->
+          {:ok, [review_comment(1, "2024-06-15T12:00:00Z")], "review-etag-2"}
+        end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.github_comment_etags[:command_scan_review] == "review-etag-2"
+      assert result.github_comment_etags[:command_scan_issue] == "issue-etag"
+      # The cursor only advances if the 200 body actually reached the scan
+      # pipeline: a 304-returns-empty bug here would silently drop commands.
+      assert result.github_command_scan_since == "2024-06-15T11:59:59Z"
+    end
+
+    test "a 304 on one stream does not discard the other stream's comments" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:not_modified, "review-etag"} end,
+        command_scan_issue_comment_fetcher: fn _opts ->
+          {:ok,
+           [
+             %{
+               "id" => 9,
+               "body" => "/aiur retry",
+               "created_at" => "2024-06-15T12:00:00Z",
+               "updated_at" => "2024-06-15T12:00:00Z",
+               "html_url" => "https://github.com/owner/repo/pull/77#issuecomment-9",
+               "issue_url" => "https://api.github.com/repos/owner/repo/issues/77",
+               "user" => %{"login" => "its-everdred"}
+             }
+           ], "issue-etag-2"}
+        end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.github_command_scan_since == "2024-06-15T11:59:59Z"
+      assert result.github_comment_etags[:command_scan_issue] == "issue-etag-2"
+    end
+
+    test "a failed stream retains its previous etag rather than clearing it" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:error, :boom} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:not_modified, "issue-etag"} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.github_comment_etags[:command_scan_review] == "review-etag"
+    end
+
+    test "an unconditional 2-tuple fetcher still works and keeps its etag" do
+      opts = [
+        command_scan_review_comment_fetcher: fn _opts -> {:ok, [review_comment(2, "2024-06-15T12:00:00Z")]} end,
+        command_scan_issue_comment_fetcher: fn _opts -> {:ok, []} end
+      ]
+
+      result = CommandScan.scan_pr_commands(etag_state(), opts)
+
+      assert result.github_comment_etags[:command_scan_review] == "review-etag"
+      assert result.github_command_scan_since == "2024-06-15T11:59:59Z"
+    end
+  end
+
   describe "advance_command_scan_since/2" do
     test "returns input since when newest is nil" do
       since = "2024-01-01T00:00:00Z"

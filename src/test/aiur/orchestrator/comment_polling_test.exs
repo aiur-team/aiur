@@ -52,16 +52,18 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
   end
 
   describe "poll_github_comments/2" do
-    test "widens a quiet source with an empty target set" do
+    test "makes no GitHub call and returns state unchanged with empty target set" do
       state = base_state()
       # review_issue_fetcher returns empty list so no targets are built
       opts = [review_issue_fetcher: fn _states -> {:ok, []} end, watch_pull_request_fetcher: fn _label -> {:ok, []} end]
       result = CommentPolling.poll_github_comments(state, opts)
 
-      assert %{delay_ms: 120_000, next_poll_at_ms: next_poll_at_ms} =
-               result.github_poll_delays[{:quiet, :comments}]
-
-      assert is_integer(next_poll_at_ms)
+      # Nothing changes except the per-cycle conditional issue-list cache, which
+      # target discovery writes back before it finds an empty target set.
+      # Compared narrowly rather than blanking `ci_lifecycle` wholesale, so a
+      # regression touching e.g. `approved_heads` still fails here.
+      assert put_in(result.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
+               put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
     end
   end
 

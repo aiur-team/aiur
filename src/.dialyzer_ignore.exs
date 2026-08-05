@@ -7,6 +7,7 @@
   # unreachable from the inferred call sites.
   {"lib/aiur/agent_list/app.ex"},
   {"lib/aiur/http_server.ex", :pattern_match_cov},
+  {"lib/aiur/opencode/slot.ex", :pattern_match_cov},
 
   # `call_with_opaque` / `call_without_opaque`: MapSet/Map opaque-type
   # interop. The runtime works; dialyzer's opaque tracking gets confused.

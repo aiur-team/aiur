@@ -53,7 +53,11 @@ defmodule Aiur.GitHub.Tracker do
   def fetch_issues_by_states_conditional(states, cache) do
     client = client_module()
 
-    if function_exported?(client, :fetch_issues_by_states_conditional, 2) do
+    # `Code.ensure_loaded?/1` first: under a release's lazy module loading,
+    # `function_exported?/3` answers false for a module that simply has not been
+    # loaded yet, which would silently route every call to the unconditional
+    # path and with it lose the whole ETag saving.
+    if Code.ensure_loaded?(client) and function_exported?(client, :fetch_issues_by_states_conditional, 2) do
       client.fetch_issues_by_states_conditional(states, cache)
     else
       with {:ok, issues} <- client.fetch_issues_by_states(states), do: {:ok, issues, cache}

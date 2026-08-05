@@ -32,12 +32,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
+      # See `CommentPolling.poll_github_comments/2`: CI polling also keeps the
+      # configured cadence rather than widening on quiet, so CI detection
+      # latency is unchanged at the same polling interval.
       "github" ->
-        if map_size(state.running) > 0 or TrackerHealth.github_source_due?(state, :ci) do
-          do_poll_github_ci(state, opts)
-        else
-          state
-        end
+        do_poll_github_ci(state, opts)
 
       _ ->
         state
@@ -367,15 +366,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     targets = Map.keys(issues_by_target)
 
     if targets == [] do
-      TrackerHealth.note_github_poll_quiet(state, :ci)
+      state
     else
       poll_github_ci_targets(state, issues_by_target, targets, poller, opts)
     end
   end
 
   defp poll_github_ci_targets(state, issues_by_target, targets, poller, opts) do
-    state = TrackerHealth.note_github_poll_active(state, :ci)
-
     poll_opts =
       Keyword.put(
         opts,

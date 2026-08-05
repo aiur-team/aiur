@@ -13,8 +13,6 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.State
 
-  @quiet_poll_max_ms 300_000
-
   @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
   def note_github_connectivity_success(%State{} = state, source) do
     %{
@@ -73,43 +71,6 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   end
 
   def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
-
-  @doc false
-  @spec github_source_due?(State.t(), atom(), integer()) :: boolean()
-  def github_source_due?(%State{} = state, source, now_ms \\ System.monotonic_time(:millisecond))
-      when is_atom(source) and is_integer(now_ms) do
-    case Map.get(state.github_poll_delays, {:quiet, source}) do
-      %{next_poll_at_ms: due_at_ms} when is_integer(due_at_ms) -> now_ms >= due_at_ms
-      _ -> true
-    end
-  end
-
-  @doc false
-  @spec note_github_poll_quiet(State.t(), atom(), integer()) :: State.t()
-  def note_github_poll_quiet(%State{} = state, source, now_ms \\ System.monotonic_time(:millisecond))
-      when is_atom(source) and is_integer(now_ms) do
-    base_delay =
-      if is_integer(state.poll_interval_ms) and state.poll_interval_ms > 0,
-        do: state.poll_interval_ms,
-        else: 1_000
-
-    previous_delay =
-      case Map.get(state.github_poll_delays, {:quiet, source}) do
-        %{delay_ms: delay_ms} when is_integer(delay_ms) and delay_ms > 0 -> delay_ms
-        _ -> base_delay
-      end
-
-    delay_ms = min(max(previous_delay, base_delay) * 2, @quiet_poll_max_ms)
-
-    quiet_delay = %{delay_ms: delay_ms, next_poll_at_ms: now_ms + delay_ms}
-    %{state | github_poll_delays: Map.put(state.github_poll_delays, {:quiet, source}, quiet_delay)}
-  end
-
-  @doc false
-  @spec note_github_poll_active(State.t(), atom()) :: State.t()
-  def note_github_poll_active(%State{} = state, source) when is_atom(source) do
-    %{state | github_poll_delays: Map.delete(state.github_poll_delays, {:quiet, source})}
-  end
 
   @spec next_poll_delay_ms(State.t()) :: non_neg_integer()
   def next_poll_delay_ms(%State{} = state) do

@@ -17,8 +17,13 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN)
+      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
+      # The cost claim: aliases only, never a scan of the repository's open PR
+      # list (paginated or not).
       refute body["query"] =~ "states: OPEN, after:"
+      refute body["query"] =~ ~r/pullRequests\(states:\s*OPEN/
+      refute body["query"] =~ ~r/pullRequests\(first:/
+      assert body["query"] =~ "orderBy: {field: CREATED_AT, direction: DESC}"
 
       {:ok,
        %{
@@ -49,7 +54,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
   test "falls back to the legacy branch name when orchestration knows no branch" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN)
+      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
 
       {:ok,
        %{

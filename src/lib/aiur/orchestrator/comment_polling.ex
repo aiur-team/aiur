@@ -10,7 +10,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.TrackerHealth
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
 
@@ -130,12 +129,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
   @spec poll_github_comments(State.t(), keyword()) :: State.t()
   def poll_github_comments(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
+      # Comment polling always runs at the configured cadence. #1384 scoped a
+      # widen-on-quiet backoff, but it is deliberately not implemented: a global
+      # quiet gate is inert whenever any agent is running (the case the rate
+      # incident is about) and a per-target one would delay a new ticket's first
+      # comment wake, which the ticket lists as a non-goal. The steady-state
+      # saving comes from 304s and the GraphQL batch, not from skipping cycles.
       "github" ->
-        if map_size(state.running) > 0 or TrackerHealth.github_source_due?(state, :comments) do
-          do_poll_github_comments(state, opts)
-        else
-          state
-        end
+        do_poll_github_comments(state, opts)
 
       _ ->
         state
@@ -154,13 +155,10 @@ defmodule Aiur.Orchestrator.CommentPolling do
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts),
-    do: TrackerHealth.note_github_poll_quiet(state, :comments)
+  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts), do: state
 
   defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
        when is_list(targets) do
-    state = TrackerHealth.note_github_poll_active(state, :comments)
-
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
@@ -217,7 +215,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
     end
   rescue
     exception ->
-      Logger.warning("Github comment GraphQL batch raised; falling back to conditional REST reads error=#{inspect(exception)}")
+      # The fallback keeps polling correct, but an exception here is a bug in
+      # the batch itself, not an expected condition: log it at :error with the
+      # stacktrace so it cannot hide as an indefinitely silent REST fallback.
+      Logger.error(
+        "Github comment GraphQL batch raised; falling back to conditional REST reads error=" <>
+          Exception.format(:error, exception, __STACKTRACE__)
+      )
 
       opts
   end
