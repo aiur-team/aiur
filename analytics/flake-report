@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+# Flake reporting is blocked on durable CI-outcome instrumentation; this exits
+# with an explicit "not shipped" answer rather than a silent empty report.
+set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$script_dir/lib${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m analytics.flake_report "$@"
