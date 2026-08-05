@@ -8,11 +8,20 @@ tracker:
     - merging
   terminal_states:
     - done
+    - closed
     - cancelled
     - canceled
   github:
     repo: your-org/your-repo
     label_prefix: agent
+    # Required for server-side dispatch authorization. When omitted, Aiur uses
+    # the currently resolved CODEOWNERS set and denies dispatch if unavailable.
+    allowed_users:
+      - your-github-login
+      - your-teammate-login
+    # Required for human-only merge attribution. Keep machine identities out.
+    human_mergers:
+      - your-github-login
     # Optional: trusted human Executor logins whose GitHub comments reach
     # agent event digests even when CODEOWNERS team expansion is unavailable.
     # trusted_accounts:
@@ -37,6 +46,12 @@ build_order:
   ticket_history_limit: 50
   ticket_history_max_identities: 100
   ticket_history_stale_after_ms: 60000
+observability:
+  # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # telemetry_enabled: true
+  # Retain useful cross-session telemetry without splitting an individual boot.
+  telemetry_retention_max_bytes: 67108864
+  telemetry_retention_max_age_days: 30
 polling:
   interval_seconds: 30
 server:
@@ -56,6 +71,14 @@ agent:
   kind: codex
   max_concurrent_agents: 2
   max_turns: 12
+  # Cold backend switches continue from workspace context; provider transcripts
+  # are never transferred across backends.
+  prior_work_continuation: true
+  # Direct OpenAI-compatible instances use keys from the environment (prefer
+  # ~/.aiur/.env) and can be enabled/selected without adding provider unions:
+  # backend_configs:
+  #   deepseek: {enabled: false}
+  #   openrouter: {model: moonshotai/kimi-k2.7-code}
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
   # unlabeled issues fall back to `kind`; a `model:<backend>` issue label

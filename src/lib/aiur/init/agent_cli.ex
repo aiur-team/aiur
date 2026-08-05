@@ -5,11 +5,7 @@ defmodule Aiur.Init.AgentCli do
   the claude app-server automatically.
   """
 
-  alias Aiur.Claude.Config, as: ClaudeConfig
-  alias Aiur.Codex.Config, as: CodexConfig
-
-  # Low complexity routes to the first kind, high to the last.
-  @routing_order ["claude", "codex"]
+  alias Aiur.{CodingAgent, Config}
 
   # `aiur-claude` 1.1.0 is the first adapter release that serves the engine's
   # `dynamicTools` to the agent (earlier versions silently dropped them on
@@ -27,10 +23,8 @@ defmodule Aiur.Init.AgentCli do
 
   @spec check_agent_clis(Aiur.Init.io(), Aiur.Init.deps(), [String.t()]) :: :ok
   def check_agent_clis(io, deps, agents) do
-    # Only CLI-backed agents have a command to verify; `claude-repl` (a routed
-    # or resumed remote transport) has none, so skip it rather than warn.
     agents
-    |> Enum.filter(&(&1 in @routing_order))
+    |> Enum.filter(&(&1 in CodingAgent.configurable_backends() and not is_nil(agent_executable(&1))))
     |> Enum.each(&ensure_agent_cli(io, deps, &1))
 
     :ok
@@ -107,8 +101,9 @@ defmodule Aiur.Init.AgentCli do
   # actionable instead of pointing at a generic "CLI".
   @doc false
   @spec install_hint(String.t(), String.t()) :: String.t()
-  def install_hint("claude", _exe), do: "install it with: npm install -g aiur-claude"
-  def install_hint(_kind, exe), do: "install #{exe} and add it to PATH"
+  def install_hint(kind, exe) do
+    get_in(CodingAgent.backends(), [kind, :install_hint]) || "install #{exe} and add it to PATH"
+  end
 
   # Installs the claude app-server (`aiur-claude`) globally via npm. Isolated
   # behind its own function so `aiur init` can provision the claude backend and
@@ -207,12 +202,7 @@ defmodule Aiur.Init.AgentCli do
   @doc false
   @spec agent_executable(String.t()) :: String.t() | nil
   def agent_executable(kind) do
-    command =
-      case kind do
-        "claude" -> ClaudeConfig.command()
-        "codex" -> CodexConfig.command()
-        _ -> nil
-      end
+    command = Config.backend_config(kind)["command"] || get_in(CodingAgent.backends(), [kind, :default_command])
 
     case command && String.split(String.trim(command), ~r/\s+/, trim: true) do
       [exe | _] -> exe

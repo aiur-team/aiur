@@ -1,0 +1,10 @@
+name: unsafe fixture
+
+on:
+  workflow_run:
+    workflows: ["ci"]
+    types: [completed]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest

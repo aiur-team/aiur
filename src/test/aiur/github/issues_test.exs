@@ -50,7 +50,7 @@ defmodule Aiur.GitHub.IssuesTest do
             }
           ]
 
-          {:ok, %{status: 200, body: body}}
+          {:ok, %{status: 200, headers: [{"etag", "\"issue-list-v1\""}], body: body}}
         else
           {:ok, %{status: 200, body: []}}
         end
@@ -59,6 +59,7 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, [issue]} = Issues.fetch_issues_by_states(["todo"], request_fun: request_fun)
       assert issue.id == "7"
       assert issue.state == "todo"
+      assert issue.dispatch_revision == "\"issue-list-v1\""
     end
 
     test "follows Link rel=next so CI lifecycle states are not silently omitted" do
@@ -79,7 +80,9 @@ defmodule Aiur.GitHub.IssuesTest do
         if String.contains?(url, "page=2") do
           {:ok, %{status: 200, headers: [], body: [issue.(200)]}}
         else
-          next = ~s(<https://api.github.com/repos/owner/repo/issues?labels=sym%3Aci-wait&state=open&per_page=100&page=2>; rel="next")
+          next =
+            ~s(<https://api.github.com/repos/owner/repo/issues?labels=sym%3Aci-wait&state=open&per_page=100&page=2>; rel="next")
+
           {:ok, %{status: 200, headers: [{"link", next}], body: [issue.(100)]}}
         end
       end
@@ -191,7 +194,11 @@ defmodule Aiur.GitHub.IssuesTest do
         {:ok, %{status: 200, body: %{}}}
       end
 
-      assert {:ok, %{}} = Issues.fetch_issue_raw(5, repository: {"explicit", "repository"}, request_fun: request_fun)
+      assert {:ok, %{}} =
+               Issues.fetch_issue_raw(5,
+                 repository: {"explicit", "repository"},
+                 request_fun: request_fun
+               )
     end
 
     test "rejects an invalid explicit repository before transport" do
@@ -220,6 +227,7 @@ defmodule Aiur.GitHub.IssuesTest do
         "body" => "body text",
         "html_url" => "https://github.com/owner/repo/issues/10",
         "labels" => [%{"name" => "sym:todo"}, %{"name" => "priority:1"}],
+        "user" => %{"login" => "creator"},
         "assignee" => %{"login" => "alice"},
         "state" => "open",
         "created_at" => "2026-01-01T00:00:00Z",
@@ -244,6 +252,8 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.priority == 1
       assert issue.state == "todo"
       assert issue.assignee_id == "alice"
+      assert issue.creator_login == "creator"
+      refute issue.dispatch_authorized?
       assert issue.paused == false
     end
 

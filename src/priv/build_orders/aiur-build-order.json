@@ -1,9 +1,9 @@
 {
   "schema_version": 1,
-  "build_order_id": "its-everdred/aiur:build-order-dashboard",
+  "build_order_id": "aiur-team/aiur:build-order-dashboard",
   "title": "Aiur Build Order dashboard",
-  "subtitle": "The build-order feature that ships this dashboard \u2014 permanent plan pack (8 phases)",
-  "repository": "its-everdred/aiur",
+  "subtitle": "The build-order feature that ships this dashboard — permanent plan pack (8 phases)",
+  "repository": "aiur-team/aiur",
   "root_number": 1084,
   "plan_version": 1,
   "permanent": true,
@@ -36,11 +36,11 @@
       "lane": "plan-graph",
       "phase": 1,
       "complexity": 3,
-      "number": 1085,
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1085"
+      "ticket": 1085,
+      "doc": "tickets/BO-001.md"
     },
     {
       "id": "BO-002",
@@ -48,11 +48,11 @@
       "lane": "plan-graph",
       "phase": 2,
       "complexity": 4,
-      "number": 1091,
       "depends_on": [
         "BO-001"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1091"
+      "ticket": 1091,
+      "doc": "tickets/BO-002.md"
     },
     {
       "id": "BO-003",
@@ -60,11 +60,11 @@
       "lane": "plan-graph",
       "phase": 3,
       "complexity": 4,
-      "number": 1092,
       "depends_on": [
         "BO-002"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1092"
+      "ticket": 1092,
+      "doc": "tickets/BO-003.md"
     },
     {
       "id": "BO-004",
@@ -72,9 +72,9 @@
       "lane": "plan-graph",
       "phase": 1,
       "complexity": 3,
-      "number": 1086,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1086"
+      "ticket": 1086,
+      "doc": "tickets/BO-004.md"
     },
     {
       "id": "BO-017",
@@ -82,11 +82,11 @@
       "lane": "runtime",
       "phase": 2,
       "complexity": 4,
-      "number": 1104,
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1104"
+      "ticket": 1104,
+      "doc": "tickets/BO-017.md"
     },
     {
       "id": "BO-005",
@@ -94,11 +94,11 @@
       "lane": "runtime",
       "phase": 3,
       "complexity": 4,
-      "number": 1093,
       "depends_on": [
         "BO-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1093"
+      "ticket": 1093,
+      "doc": "tickets/BO-005.md"
     },
     {
       "id": "BO-006",
@@ -106,11 +106,11 @@
       "lane": "runtime",
       "phase": 4,
       "complexity": 3,
-      "number": 1094,
       "depends_on": [
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1094"
+      "ticket": 1094,
+      "doc": "tickets/BO-006.md"
     },
     {
       "id": "BO-007",
@@ -118,13 +118,13 @@
       "lane": "plan-graph",
       "phase": 4,
       "complexity": 4,
-      "number": 1095,
       "depends_on": [
         "BO-001",
         "BO-003",
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1095"
+      "ticket": 1095,
+      "doc": "tickets/BO-007.md"
     },
     {
       "id": "BO-008",
@@ -132,9 +132,9 @@
       "lane": "platform",
       "phase": 1,
       "complexity": 4,
-      "number": 1087,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1087"
+      "ticket": 1087,
+      "doc": "tickets/BO-008.md"
     },
     {
       "id": "BO-009",
@@ -142,12 +142,12 @@
       "lane": "platform",
       "phase": 2,
       "complexity": 4,
-      "number": 1096,
       "depends_on": [
         "BO-001",
         "BO-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1096"
+      "ticket": 1096,
+      "doc": "tickets/BO-009.md"
     },
     {
       "id": "BO-010",
@@ -155,12 +155,12 @@
       "lane": "platform",
       "phase": 3,
       "complexity": 4,
-      "number": 1097,
       "depends_on": [
         "BO-008",
         "BO-009"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1097"
+      "ticket": 1097,
+      "doc": "tickets/BO-010.md"
     },
     {
       "id": "BO-011",
@@ -168,12 +168,12 @@
       "lane": "dashboard-ui",
       "phase": 4,
       "complexity": 4,
-      "number": 1098,
       "depends_on": [
         "BO-007",
         "BO-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1098"
+      "ticket": 1098,
+      "doc": "tickets/BO-011.md"
     },
     {
       "id": "BO-016",
@@ -181,11 +181,11 @@
       "lane": "plan-graph",
       "phase": 4,
       "complexity": 4,
-      "number": 1103,
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1103"
+      "ticket": 1103,
+      "doc": "tickets/BO-016.md"
     },
     {
       "id": "BO-019",
@@ -193,11 +193,11 @@
       "lane": "plan-graph",
       "phase": 4,
       "complexity": 3,
-      "number": 1106,
       "depends_on": [
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1106"
+      "ticket": 1106,
+      "doc": "tickets/BO-019.md"
     },
     {
       "id": "BO-018",
@@ -205,13 +205,13 @@
       "lane": "dashboard-ui",
       "phase": 4,
       "complexity": 3,
-      "number": 1105,
       "depends_on": [
         "BO-008",
         "BO-016",
         "BO-019"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1105"
+      "ticket": 1105,
+      "doc": "tickets/BO-018.md"
     },
     {
       "id": "BO-012",
@@ -219,14 +219,14 @@
       "lane": "dashboard-ui",
       "phase": 5,
       "complexity": 4,
-      "number": 1099,
       "depends_on": [
         "BO-003",
         "BO-007",
         "BO-010",
         "BO-011"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1099"
+      "ticket": 1099,
+      "doc": "tickets/BO-012.md"
     },
     {
       "id": "BO-013",
@@ -234,12 +234,12 @@
       "lane": "dashboard-ui",
       "phase": 6,
       "complexity": 4,
-      "number": 1100,
       "depends_on": [
         "BO-008",
         "BO-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1100"
+      "ticket": 1100,
+      "doc": "tickets/BO-013.md"
     },
     {
       "id": "BO-014",
@@ -247,12 +247,12 @@
       "lane": "dashboard-ui",
       "phase": 7,
       "complexity": 4,
-      "number": 1101,
       "depends_on": [
         "BO-008",
         "BO-013"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1101"
+      "ticket": 1101,
+      "doc": "tickets/BO-014.md"
     },
     {
       "id": "BO-015",
@@ -260,7 +260,6 @@
       "lane": "dashboard-ui",
       "phase": 8,
       "complexity": 4,
-      "number": 1102,
       "depends_on": [
         "BO-006",
         "BO-014",
@@ -268,7 +267,8 @@
         "DASH-023",
         "DASH-033"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1102"
+      "ticket": 1102,
+      "doc": "tickets/BO-015.md"
     },
     {
       "id": "BO-020",
@@ -276,12 +276,12 @@
       "lane": "dashboard-ui",
       "phase": 6,
       "complexity": 2,
-      "number": 1107,
       "depends_on": [
         "BO-003",
         "BO-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1107"
+      "ticket": 1107,
+      "doc": "tickets/BO-020.md"
     },
     {
       "id": "DASH-001",
@@ -289,11 +289,11 @@
       "lane": "dashboard-ui",
       "phase": 2,
       "complexity": 3,
-      "number": 1108,
       "depends_on": [
         "BO-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1108"
+      "ticket": 1108,
+      "doc": "tickets/DASH-001.md"
     },
     {
       "id": "DASH-002",
@@ -301,11 +301,11 @@
       "lane": "runtime",
       "phase": 3,
       "complexity": 4,
-      "number": 1109,
       "depends_on": [
         "BO-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1109"
+      "ticket": 1109,
+      "doc": "tickets/DASH-002.md"
     },
     {
       "id": "DASH-003",
@@ -313,13 +313,13 @@
       "lane": "dashboard-ui",
       "phase": 6,
       "complexity": 3,
-      "number": 1110,
       "depends_on": [
         "DASH-001",
         "DASH-016",
         "BO-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1110"
+      "ticket": 1110,
+      "doc": "tickets/DASH-003.md"
     },
     {
       "id": "DASH-004",
@@ -327,11 +327,11 @@
       "lane": "runtime",
       "phase": 2,
       "complexity": 4,
-      "number": 1111,
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1111"
+      "ticket": 1111,
+      "doc": "tickets/DASH-004.md"
     },
     {
       "id": "DASH-005",
@@ -339,12 +339,12 @@
       "lane": "dashboard-ui",
       "phase": 7,
       "complexity": 3,
-      "number": 1112,
       "depends_on": [
         "DASH-003",
         "DASH-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1112"
+      "ticket": 1112,
+      "doc": "tickets/DASH-005.md"
     },
     {
       "id": "DASH-006",
@@ -352,9 +352,9 @@
       "lane": "runtime",
       "phase": 1,
       "complexity": 3,
-      "number": 1088,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1088"
+      "ticket": 1088,
+      "doc": "tickets/DASH-006.md"
     },
     {
       "id": "DASH-007",
@@ -362,13 +362,13 @@
       "lane": "dashboard-ui",
       "phase": 3,
       "complexity": 3,
-      "number": 1113,
       "depends_on": [
         "DASH-001",
         "DASH-006",
         "DASH-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1113"
+      "ticket": 1113,
+      "doc": "tickets/DASH-007.md"
     },
     {
       "id": "DASH-008",
@@ -376,12 +376,12 @@
       "lane": "accounting",
       "phase": 3,
       "complexity": 3,
-      "number": 1114,
       "depends_on": [
         "BO-017",
         "DASH-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1114"
+      "ticket": 1114,
+      "doc": "tickets/DASH-008.md"
     },
     {
       "id": "DASH-009",
@@ -389,11 +389,11 @@
       "lane": "accounting",
       "phase": 4,
       "complexity": 4,
-      "number": 1115,
       "depends_on": [
         "DASH-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1115"
+      "ticket": 1115,
+      "doc": "tickets/DASH-009.md"
     },
     {
       "id": "DASH-010",
@@ -401,12 +401,12 @@
       "lane": "accounting",
       "phase": 4,
       "complexity": 3,
-      "number": 1116,
       "depends_on": [
         "DASH-008",
         "DASH-019"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1116"
+      "ticket": 1116,
+      "doc": "tickets/DASH-010.md"
     },
     {
       "id": "DASH-011",
@@ -414,11 +414,11 @@
       "lane": "accounting",
       "phase": 4,
       "complexity": 3,
-      "number": 1117,
       "depends_on": [
         "DASH-008"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1117"
+      "ticket": 1117,
+      "doc": "tickets/DASH-011.md"
     },
     {
       "id": "DASH-012",
@@ -426,11 +426,11 @@
       "lane": "accounting",
       "phase": 2,
       "complexity": 3,
-      "number": 1118,
       "depends_on": [
         "DASH-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1118"
+      "ticket": 1118,
+      "doc": "tickets/DASH-012.md"
     },
     {
       "id": "DASH-013",
@@ -438,11 +438,11 @@
       "lane": "accounting",
       "phase": 3,
       "complexity": 4,
-      "number": 1119,
       "depends_on": [
         "DASH-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1119"
+      "ticket": 1119,
+      "doc": "tickets/DASH-013.md"
     },
     {
       "id": "DASH-014",
@@ -450,11 +450,11 @@
       "lane": "runtime",
       "phase": 5,
       "complexity": 4,
-      "number": 1120,
       "depends_on": [
         "DASH-016"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1120"
+      "ticket": 1120,
+      "doc": "tickets/DASH-014.md"
     },
     {
       "id": "DASH-015",
@@ -462,14 +462,14 @@
       "lane": "accounting",
       "phase": 7,
       "complexity": 3,
-      "number": 1121,
       "depends_on": [
         "DASH-003",
         "DASH-013",
         "DASH-020",
         "DASH-021"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1121"
+      "ticket": 1121,
+      "doc": "tickets/DASH-015.md"
     },
     {
       "id": "DASH-016",
@@ -477,12 +477,12 @@
       "lane": "dashboard-ui",
       "phase": 4,
       "complexity": 3,
-      "number": 1122,
       "depends_on": [
         "DASH-002",
         "BO-005"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1122"
+      "ticket": 1122,
+      "doc": "tickets/DASH-016.md"
     },
     {
       "id": "DASH-017",
@@ -490,9 +490,9 @@
       "lane": "runtime",
       "phase": 1,
       "complexity": 3,
-      "number": 1089,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1089"
+      "ticket": 1089,
+      "doc": "tickets/DASH-017.md"
     },
     {
       "id": "DASH-018",
@@ -500,9 +500,9 @@
       "lane": "accounting",
       "phase": 1,
       "complexity": 3,
-      "number": 1090,
       "depends_on": [],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1090"
+      "ticket": 1090,
+      "doc": "tickets/DASH-018.md"
     },
     {
       "id": "DASH-019",
@@ -510,11 +510,11 @@
       "lane": "platform",
       "phase": 2,
       "complexity": 4,
-      "number": 1123,
       "depends_on": [
         "BO-004"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1123"
+      "ticket": 1123,
+      "doc": "tickets/DASH-019.md"
     },
     {
       "id": "DASH-020",
@@ -522,11 +522,11 @@
       "lane": "accounting",
       "phase": 3,
       "complexity": 3,
-      "number": 1124,
       "depends_on": [
         "DASH-012"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1124"
+      "ticket": 1124,
+      "doc": "tickets/DASH-020.md"
     },
     {
       "id": "DASH-021",
@@ -534,11 +534,11 @@
       "lane": "platform",
       "phase": 3,
       "complexity": 3,
-      "number": 1125,
       "depends_on": [
         "DASH-001"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1125"
+      "ticket": 1125,
+      "doc": "tickets/DASH-021.md"
     },
     {
       "id": "DASH-022",
@@ -546,12 +546,12 @@
       "lane": "dashboard-ui",
       "phase": 7,
       "complexity": 3,
-      "number": 1126,
       "depends_on": [
         "DASH-003",
         "DASH-014"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1126"
+      "ticket": 1126,
+      "doc": "tickets/DASH-022.md"
     },
     {
       "id": "DASH-023",
@@ -559,7 +559,6 @@
       "lane": "accounting",
       "phase": 8,
       "complexity": 4,
-      "number": 1127,
       "depends_on": [
         "BO-003",
         "BO-012",
@@ -567,7 +566,8 @@
         "DASH-031",
         "DASH-021"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1127"
+      "ticket": 1127,
+      "doc": "tickets/DASH-023.md"
     },
     {
       "id": "DASH-024",
@@ -575,11 +575,11 @@
       "lane": "accounting",
       "phase": 5,
       "complexity": 4,
-      "number": 1128,
       "depends_on": [
         "DASH-009"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1128"
+      "ticket": 1128,
+      "doc": "tickets/DASH-024.md"
     },
     {
       "id": "DASH-025",
@@ -587,11 +587,11 @@
       "lane": "accounting",
       "phase": 6,
       "complexity": 4,
-      "number": 1129,
       "depends_on": [
         "DASH-024"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1129"
+      "ticket": 1129,
+      "doc": "tickets/DASH-025.md"
     },
     {
       "id": "DASH-026",
@@ -599,11 +599,11 @@
       "lane": "runtime",
       "phase": 3,
       "complexity": 3,
-      "number": 1130,
       "depends_on": [
         "BO-017"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1130"
+      "ticket": 1130,
+      "doc": "tickets/DASH-026.md"
     },
     {
       "id": "DASH-027",
@@ -611,12 +611,12 @@
       "lane": "dashboard-ui",
       "phase": 7,
       "complexity": 3,
-      "number": 1131,
       "depends_on": [
         "DASH-003",
         "DASH-026"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1131"
+      "ticket": 1131,
+      "doc": "tickets/DASH-027.md"
     },
     {
       "id": "DASH-028",
@@ -624,11 +624,11 @@
       "lane": "dashboard-ui",
       "phase": 7,
       "complexity": 2,
-      "number": 1132,
       "depends_on": [
         "DASH-003"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1132"
+      "ticket": 1132,
+      "doc": "tickets/DASH-028.md"
     },
     {
       "id": "DASH-029",
@@ -636,13 +636,13 @@
       "lane": "accounting",
       "phase": 4,
       "complexity": 3,
-      "number": 1133,
       "depends_on": [
         "DASH-008",
         "BO-017",
         "DASH-018"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1133"
+      "ticket": 1133,
+      "doc": "tickets/DASH-029.md"
     },
     {
       "id": "DASH-030",
@@ -650,12 +650,12 @@
       "lane": "accounting",
       "phase": 6,
       "complexity": 3,
-      "number": 1134,
       "depends_on": [
         "DASH-011",
         "DASH-024"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1134"
+      "ticket": 1134,
+      "doc": "tickets/DASH-030.md"
     },
     {
       "id": "DASH-031",
@@ -663,7 +663,6 @@
       "lane": "accounting",
       "phase": 7,
       "complexity": 4,
-      "number": 1135,
       "depends_on": [
         "DASH-003",
         "DASH-010",
@@ -674,7 +673,8 @@
         "DASH-029",
         "DASH-030"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1135"
+      "ticket": 1135,
+      "doc": "tickets/DASH-031.md"
     },
     {
       "id": "DASH-032",
@@ -682,12 +682,12 @@
       "lane": "runtime",
       "phase": 6,
       "complexity": 3,
-      "number": 1136,
       "depends_on": [
         "DASH-002",
         "DASH-014"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1136"
+      "ticket": 1136,
+      "doc": "tickets/DASH-032.md"
     },
     {
       "id": "DASH-033",
@@ -695,7 +695,6 @@
       "lane": "dashboard-ui",
       "phase": 8,
       "complexity": 3,
-      "number": 1137,
       "depends_on": [
         "DASH-001",
         "DASH-003",
@@ -708,7 +707,8 @@
         "DASH-031",
         "DASH-034"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1137"
+      "ticket": 1137,
+      "doc": "tickets/DASH-033.md"
     },
     {
       "id": "DASH-034",
@@ -716,13 +716,13 @@
       "lane": "dashboard-ui",
       "phase": 7,
       "complexity": 3,
-      "number": 1138,
       "depends_on": [
         "DASH-003",
         "DASH-007",
         "DASH-032"
       ],
-      "document_url": "https://github.com/its-everdred/aiur/issues/1138"
+      "ticket": 1138,
+      "doc": "tickets/DASH-034.md"
     }
   ],
   "completed": true

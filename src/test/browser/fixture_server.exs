@@ -31,6 +31,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
+        <script defer src="/assets/streamdeck-emulator-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
         <script>
@@ -58,6 +59,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurBuildOrderGridHook) {
               window.BrowserHarnessHooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
+            }
+
+            if (window.AiurStreamdeckEmulatorHook) {
+              window.BrowserHarnessHooks.StreamdeckEmulator = window.AiurStreamdeckEmulatorHook;
             }
 
             window.liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
@@ -790,6 +795,7 @@ end
 defmodule Aiur.BrowserHarness.UnitsLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
+  alias Aiur.BrowserHarness.FixtureServer
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
@@ -875,6 +881,15 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       update_catalog(socket.assigns.catalog, fn rows ->
         Enum.reject(rows, &same_identity?(Map.get(&1, :identity), selected && selected.identity))
       end)
+
+    projected_ids =
+      catalog
+      |> UnitsPresenter.project(socket.assigns.selection)
+      |> Map.get(:rows, [])
+      |> Enum.map(& &1.identity.identifier)
+
+    FixtureServer.set_streamdeck_snapshot_identities(projected_ids)
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
 
     {:noreply,
      socket
@@ -965,7 +980,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         lifecycle: :active,
         runtime: runtime(:running, :working, :active, 4_200),
         progress: %{status: :known, percent: 50, source: :checkin, freshness: :fresh},
-        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}}
+        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}},
+        live_conversation: %{
+          generation_handle: "conversation:" <> String.duplicate("a", 43),
+          state: :live,
+          health: :healthy,
+          freshness: :current
+        }
       }),
       row(identity("NODE-1111", "1111"), %{
         title: "Paused provider follow-up",
@@ -997,7 +1018,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         progress: %{status: :known, percent: 100, source: :phase, freshness: :stale},
         latest_evidence: %{status: :known, source: %{kind: :pull_request, name: "merged"}}
       })
-    ]
+    ] ++
+      Enum.map(1114..1116, fn number ->
+        row(identity("NODE-#{number}", to_string(number)), %{
+          title: "Queued integration #{number}",
+          lifecycle: :queued,
+          runtime: runtime(:retrying, :retrying, :backing_off, 0),
+          reasons: reasons(:backing_off, nil, nil, nil, :backing_off),
+          requested_model: nil,
+          resolved_model: nil,
+          effort: nil,
+          complexity: nil,
+          build_lane: nil,
+          progress: %{status: :unknown},
+          latest_evidence: %{status: :unknown}
+        })
+      end)
   end
 
   defp row(identity, overrides) do
@@ -1154,6 +1190,7 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
   def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
   def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
+  def streamdeck_emulator_hook(conn, _params), do: serve_embedded(conn, "/streamdeck-emulator-hook.js")
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
@@ -1470,6 +1507,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
     get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
+    get("/assets/streamdeck-emulator-hook.js", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator_hook)
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end
@@ -1528,6 +1566,7 @@ end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
   alias Aiur.BrowserHarness.FixtureEndpoint
+  alias Aiur.IssueLog
 
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
 
@@ -1573,6 +1612,89 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     Process.sleep(:infinity)
   end
 
+  def set_streamdeck_snapshot_identities(identifiers) when is_list(identifiers) do
+    :persistent_term.put({__MODULE__, :streamdeck_snapshot_identities}, Enum.map(identifiers, &to_string/1))
+  end
+
+  def streamdeck_snapshot do
+    case :persistent_term.get({__MODULE__, :streamdeck_snapshot_identities}, nil) do
+      identifiers when is_list(identifiers) ->
+        streamdeck_snapshot(identifiers)
+
+      _ ->
+        # The canonical bucket order puts the alert agent first, so the LiveView
+        # initially focuses 1331; seed its durable feed so the production
+        # AgentEventFeed path has real content to project in logs mode.
+        write_feed_if_missing("1331")
+
+        %{
+          running: [streamdeck_agent("1352", "Fixture running", "codex")],
+          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+          idle: [
+            streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
+            streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
+            streamdeck_agent("1331", "Fixture alert", "claude", open_decision_count: 1),
+            streamdeck_agent("1360", "Fixture extra 1", "codex"),
+            streamdeck_agent("1361", "Fixture extra 2", "codex"),
+            streamdeck_agent("1362", "Fixture extra 3", "codex"),
+            streamdeck_agent("1363", "Fixture extra 4", "codex"),
+            streamdeck_agent("1366", "Fixture extra 5", "codex"),
+            streamdeck_agent("1367", "Fixture extra 6", "codex"),
+            streamdeck_agent("1370", "Fixture extra 7", "codex"),
+            streamdeck_agent("1371", "Fixture extra 8", "codex"),
+            streamdeck_agent("1372", "Fixture extra 9", "codex"),
+            streamdeck_agent("1373", "Fixture extra 10", "codex"),
+            streamdeck_agent("1374", "Fixture extra 11", "codex"),
+            streamdeck_agent("1375", "Fixture extra 12", "codex"),
+            streamdeck_agent("1376", "Fixture extra 13", "codex"),
+            streamdeck_agent("1377", "Fixture extra 14", "codex")
+          ]
+        }
+    end
+  end
+
+  defp streamdeck_snapshot(identifiers) when is_list(identifiers) do
+    agents =
+      Enum.map(identifiers, fn identifier ->
+        streamdeck_agent(identifier, "Unit #{identifier}", "codex")
+      end)
+
+    if agents != [], do: write_feed_if_missing(hd(identifiers))
+
+    %{running: Enum.take(agents, 1), retrying: [], idle: Enum.drop(agents, 1)}
+  end
+
+  def streamdeck_provider_meters do
+    %{
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+    }
+  end
+
+  defp write_feed_if_missing(identifier) when is_binary(identifier) do
+    path = IssueLog.transcript_path(identifier)
+    if File.exists?(path), do: :ok, else: write_feed(path)
+  end
+
+  defp write_feed(path) do
+    File.mkdir_p!(Path.dirname(path))
+
+    events =
+      Enum.map(10..1, fn index ->
+        %{
+          "role" => "assistant",
+          "body" => "event-#{index}",
+          "timestamp" => "2026-08-02T00:00:00Z",
+          "msg_id" => nil,
+          "sequence" => index,
+          "turn_id" => "fixture-#{index}",
+          "payload" => nil
+        }
+      end)
+
+    File.write!(path, Enum.map_join(events, "\n", &Jason.encode!/1) <> "\n")
+  end
+
   defp configure_forwarded_dashboard do
     config =
       :aiur
@@ -1581,10 +1703,31 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         server: false,
         dashboard_writable: false,
         control_center_cache: false,
-        snapshot_timeout_ms: 100
+        snapshot_timeout_ms: 100,
+        streamdeck_fixture_fleet: true,
+        streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
+        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0
       )
+      |> Keyword.delete(:streamdeck_logs_fun)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, config)
+  end
+
+  defp streamdeck_agent(identifier, title, backend, attrs \\ []) do
+    Map.merge(
+      %{
+        identifier: identifier,
+        title: title,
+        backend: backend,
+        work_state: :working,
+        open_decision_count: 0,
+        waiting_reason: :active,
+        tracker_paused: false,
+        progress_percent: 50,
+        priority: nil
+      },
+      Map.new(attrs)
+    )
   end
 end
 

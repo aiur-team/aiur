@@ -64,8 +64,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
           </tr>
         </thead>
         <tbody>
-          <tr :for={entry <- @entries}>
+          <tr :for={entry <- @entries} class={if(entry.completed?, do: "bo-catalog-completed", else: "bo-catalog-active")}>
             <td>
+              <span class="bo-catalog-icon" aria-label={catalog_icon_label(entry.icon)}>{catalog_icon(entry.icon)}</span>
               <.link :if={catalog_path(entry)} patch={catalog_path(entry)} class="bo-catalog-link">{entry.title}</.link>
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
             </td>
@@ -113,6 +114,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
 
   defp count_display(count) when is_integer(count), do: Integer.to_string(count)
   defp count_display(_count), do: "—"
+
+  defp catalog_icon("bolt"), do: "ϟ"
+  defp catalog_icon("cube"), do: "◆"
+  defp catalog_icon("sparkles"), do: "✦"
+  defp catalog_icon("server-stack"), do: "▤"
+  defp catalog_icon("rectangle-group"), do: "▦"
+  defp catalog_icon(_icon), do: "◈"
+
+  defp catalog_icon_label(icon) when is_binary(icon) and icon != "", do: "Build Order icon: #{icon}"
+  defp catalog_icon_label(_icon), do: "Build Order icon"
 
   defp catalog_path(%RootSummary{identity: %TrackerIdentity{identifier: identifier} = identity}) when is_binary(identifier) do
     if TrackerIdentity.joinable?(identity), do: "/build-orders/#{identifier}"

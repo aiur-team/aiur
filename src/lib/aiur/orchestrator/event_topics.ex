@@ -16,8 +16,8 @@ defmodule Aiur.Orchestrator.EventTopics do
   defp route_classified(state, {:issue_commented, identifier}, event),
     do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
-  defp route_classified(state, {:pr_merged, identifier}, _event),
-    do: CommentWake.mark_pr_merged_issue_done(state, identifier)
+  defp route_classified(state, {:pr_merged, identifier}, event),
+    do: CommentWake.mark_pr_merged_issue_done(state, identifier, merged_by_login: get_in(event, [:pr, "merged_by", "login"]))
 
   defp route_classified(state, {:ci_failed, identifier}, _event),
     do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :failed)

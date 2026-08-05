@@ -46,7 +46,8 @@ defmodule Aiur.GitHub.Labels do
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
     state_labels(prefix) ++
-      marker_labels(prefix) ++
+      required_rate_limit_fallback_labels(prefix) ++
+      (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
   end
 
@@ -68,10 +69,19 @@ defmodule Aiur.GitHub.Labels do
   @spec marker_labels(String.t()) :: [String.t()]
   def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
 
-  @doc "Labels required for the default codex-to-claude fallback."
+  @doc "Labels required for the configured rate-limit fallback pair."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
   def required_rate_limit_fallback_labels(prefix),
-    do: rate_limit_fallback_marker_labels(prefix) ++ ["model:claude"]
+    do: required_rate_limit_fallback_labels(prefix, CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback())
+
+  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [String.t()]
+  def required_rate_limit_fallback_labels(prefix, _primary, fallback) do
+    rate_limit_fallback_marker_labels(prefix) ++
+      case fallback do
+        backend when is_binary(backend) and backend != "" -> ["model:" <> backend]
+        _ -> []
+      end
+  end
 
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()

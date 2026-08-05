@@ -6,6 +6,7 @@ defmodule Aiur.BuildOrder.RootSummary do
   @type t :: %__MODULE__{
           identity: TrackerIdentity.t() | nil,
           title: String.t(),
+          icon: String.t() | nil,
           url: String.t() | nil,
           parent_identity: TrackerIdentity.t() | nil,
           lifecycle: Lifecycle.t(),
@@ -16,11 +17,13 @@ defmodule Aiur.BuildOrder.RootSummary do
           epic_count: non_neg_integer() | nil,
           phase_count: non_neg_integer() | nil,
           progress: non_neg_integer() | nil,
+          completed?: boolean(),
           diagnostics: [Diagnostic.t()]
         }
 
   defstruct identity: nil,
             title: "Untitled Build Order",
+            icon: nil,
             url: nil,
             parent_identity: nil,
             lifecycle: %Lifecycle{},
@@ -31,6 +34,7 @@ defmodule Aiur.BuildOrder.RootSummary do
             epic_count: nil,
             phase_count: nil,
             progress: nil,
+            completed?: false,
             diagnostics: []
 
   @spec new(term()) :: t()
@@ -54,6 +58,7 @@ defmodule Aiur.BuildOrder.RootSummary do
     %__MODULE__{
       identity: identity,
       title: title,
+      icon: icon(Map.get(attributes, :icon)),
       url: url,
       parent_identity: parent,
       lifecycle: lifecycle(attributes),
@@ -64,6 +69,7 @@ defmodule Aiur.BuildOrder.RootSummary do
       epic_count: count(Map.get(attributes, :epic_count)),
       phase_count: count(Map.get(attributes, :phase_count)),
       progress: percent(Map.get(attributes, :progress)),
+      completed?: Map.get(attributes, :completed?) == true,
       diagnostics: diagnostics
     }
   end
@@ -80,6 +86,9 @@ defmodule Aiur.BuildOrder.RootSummary do
       :error -> {"Untitled Build Order", Diagnostic.new(:invalid_title)}
     end
   end
+
+  defp icon(value) when is_binary(value) and byte_size(value) in 1..80, do: value
+  defp icon(_value), do: nil
 
   defp url(value, nil), do: safe_url(value)
 

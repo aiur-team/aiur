@@ -32,7 +32,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
       "`priv/`, not the repo's `.claude` tree. (A runtime `__DIR__`-relative read",
-      "@skills_root Path.expand(\"../../../\#{@claude_skills_dir}\", __DIR__)",
+      "@skills_root Path.expand(\"../../../\#{@bundled_skills_dir}\", __DIR__)",
       "for path <- bundled_paths, do: @external_resource(path)"
     ],
     "aiur/init/templates.ex" => [

@@ -1,15 +1,17 @@
 defmodule Aiur.Orchestrator.RateLimitFallback do
   @moduledoc """
-  Automatically reroutes a running codex agent to headless Claude after
-  `usage_limit_exhausted`, then reverts at a safe turn boundary once
-  `Aiur.ModelAvailability` confirms codex recovery. Configured by
-  `agent.rate_limit_fallback` (default `"claude"`).
+  Automatically reroutes a running agent on the configured primary backend to
+  the configured fallback backend after `usage_limit_exhausted`, then reverts at
+  a safe turn boundary once `Aiur.ModelAvailability` confirms the primary
+  recovered. The backend pair is `agent.rate_limit_primary` /
+  `agent.rate_limit_fallback` (defaults `"codex"` / `"claude"`); any eligible
+  registry-declared fallback target works, and `""` disables the reroute.
 
-  A durable `model:claude` label drives existing backend routing, while a
+  A durable `model:<fallback>` label drives existing backend routing, while a
   second marker records Aiur's ownership so Executor-authored overrides remain
-  untouched. Headless Claude does not replace codex's resumable session handle,
-  and redispatch preserves worker affinity, allowing the original rollout to
-  resume after recovery or an Aiur restart.
+  untouched. The fallback does not replace the primary's resumable session
+  handle, and redispatch preserves worker affinity, allowing the original
+  rollout to resume after recovery or an Aiur restart.
 
   All functions execute inside the orchestrator GenServer process, called
   once per poll tick from `Reconciler.reconcile_running_lifecycle/1`.
@@ -17,8 +19,8 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   require Logger
 
-  alias Aiur.Claude.Config, as: ClaudeConfig
   alias Aiur.{CodingAgent, Config, Issue, ModelAvailability, Tracker}
+  alias Aiur.Init.AgentCli
 
   alias Aiur.Orchestrator.{
     Dispatcher,
@@ -28,8 +30,6 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     State
   }
 
-  @primary_backend "codex"
-  @fallback_backend "claude"
   @marker_label_suffix "rate-limit-fallback"
   @minimum_fallback_dwell_seconds 60
   @max_transitions_per_tick 1
@@ -45,6 +45,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     opts =
       opts
       |> Keyword.put_new_lazy(:fallback_backend, &Config.rate_limit_fallback_backend/0)
+      |> Keyword.put_new_lazy(:primary_backend, &Config.rate_limit_primary_backend/0)
       |> Keyword.put_new_lazy(:marker_label, &marker_label/0)
       |> Keyword.put_new_lazy(:state, &ModelAvailability.load/0)
 
@@ -83,19 +84,21 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp usage_limited_on_primary?(running_entry, issue, opts) do
-    fallback_backend = Keyword.get_lazy(opts, :fallback_backend, &Config.rate_limit_fallback_backend/0)
+    fallback_backend = fallback_backend(opts)
+    primary_backend = primary_backend(opts)
     current_backend = Keyword.get_lazy(opts, :current_backend, fn -> CodingAgent.backend_for(issue) end)
 
     State.paused_running_entry?(running_entry) and
       Map.get(running_entry, :paused_reason) == :usage_limit_exhausted and
-      fallback_backend == @fallback_backend and
+      is_binary(fallback_backend) and fallback_backend in CodingAgent.known_backends() and
+      fallback_backend != current_backend and
       ModelAvailability.available?(fallback_backend, opts) and
       is_nil(CodingAgent.override_backend(issue)) and
-      current_backend == @primary_backend
+      current_backend == primary_backend
   end
 
   defp recovery_ready?(running_entry, opts) do
-    ModelAvailability.recovery_confirmed?(@primary_backend, opts) and
+    ModelAvailability.recovery_confirmed?(primary_backend(opts), opts) and
       fallback_dwell_elapsed?(running_entry, opts)
   end
 
@@ -129,7 +132,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp decide_engaged_recovery(running_entry, opts) do
     cond do
       recovery_pending?(running_entry) and
-          not ModelAvailability.recovery_confirmed?(@primary_backend, opts) ->
+          not ModelAvailability.recovery_confirmed?(primary_backend(opts), opts) ->
         :cancel_revert
 
       recovery_ready?(running_entry, opts) ->
@@ -182,7 +185,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   defp apply_decision(state, _running_entry, _issue, :noop, _opts), do: {state, false}
 
   defp apply_decision(state, running_entry, issue, :engage, opts) do
-    fallback_backend = Keyword.get_lazy(opts, :fallback_backend, &Config.rate_limit_fallback_backend/0)
+    fallback_backend = fallback_backend(opts)
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
     relabeled = engage_issue(issue, fallback_backend, marker_label)
     context = transition_context(state, running_entry, issue, relabeled, opts)
@@ -206,8 +209,9 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp apply_decision(state, running_entry, issue, :revert, opts) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
-    relabeled = revert_issue(issue, marker_label)
-    context = transition_context(state, running_entry, issue, relabeled, opts)
+    engaged = engaged_fallback(issue, opts)
+    relabeled = revert_issue(issue, marker_label, engaged, opts)
+    context = Map.put(transition_context(state, running_entry, issue, relabeled, opts), :engaged_fallback, engaged)
 
     case redispatch_admission(state, relabeled, running_entry, opts) do
       {:ok, admitted_state} ->
@@ -220,7 +224,7 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
 
   defp apply_decision(state, running_entry, issue, :prepare_revert, opts) do
     marker_label = Keyword.get_lazy(opts, :marker_label, &marker_label/0)
-    relabeled = revert_issue(issue, marker_label)
+    relabeled = revert_issue(issue, marker_label, engaged_fallback(issue, opts), opts)
     pause = Keyword.get(opts, :pause_fun, &PauseResume.send_pause_control_message/2)
 
     case redispatch_admission(state, relabeled, running_entry, opts) do
@@ -256,9 +260,21 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
           PauseResume.resume_paused_issue(current_state, entry, false)
         end)
 
-      staged_state = put_running_entry(state, get_in(running_entry, [:issue, Access.key(:id)]), cleared_entry)
+      # Resume from an entry that still carries `:paused_reason`. PauseResume
+      # reads it to emit the matching `agent.attention.paused-<cause>.resolved`
+      # and clears it itself; handing over the already-cleared entry made the
+      # cause look absent, so the pause attention stayed active forever.
+      resume_entry = Map.delete(cleared_entry, :rate_limit_fallback_revert_pending)
 
-      case resume.(staged_state, cleared_entry) do
+      resume_entry =
+        case Map.fetch(running_entry, :paused_reason) do
+          {:ok, reason} -> Map.put(resume_entry, :paused_reason, reason)
+          :error -> resume_entry
+        end
+
+      staged_state = put_running_entry(state, get_in(running_entry, [:issue, Access.key(:id)]), resume_entry)
+
+      case resume.(staged_state, resume_entry) do
         {{:ok, :resumed}, resumed_state} -> {resumed_state, true}
         _ -> {state, false}
       end
@@ -321,19 +337,21 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
   end
 
   defp revert_after_preflight(context, marker_label) do
-    case context.remove_label.(context.identifier, model_label(@fallback_backend)) do
+    fallback_label = model_label(context.engaged_fallback)
+
+    case context.remove_label.(context.identifier, fallback_label) do
       :ok ->
         case context.remove_label.(context.identifier, marker_label) do
           :ok ->
             Logger.info(
-              "Codex recovered; reverting usage-limit fallback: " <>
+              "Primary recovered; reverting usage-limit fallback: " <>
                 log_context(context.running_entry, context.issue)
             )
 
             {redispatch(context.state, context.running_entry, context.relabeled, context.opts), true}
 
           {:error, reason} ->
-            rollback = context.add_label.(context.identifier, model_label(@fallback_backend))
+            rollback = context.add_label.(context.identifier, fallback_label)
 
             log_transition_failure(
               :revert,
@@ -430,19 +448,22 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
         default_backend_ready?(candidate, host, opts)
       end)
 
-    backend == @fallback_backend and backend in CodingAgent.known_backends() and
+    is_binary(backend) and backend in CodingAgent.known_backends() and
       ready.(backend, worker_host)
   end
 
-  # Headless Claude currently spawns on the orchestrator host and cannot use an
-  # SSH worker's remote-only workspace. Leave those codex agents parked rather
-  # than moving their durable labels to a backend that cannot start there.
-  defp default_backend_ready?(@fallback_backend, nil, opts) do
+  # A headless fallback spawns on the orchestrator host and cannot use an SSH
+  # worker's remote-only workspace, so readiness is only checked there; a
+  # worker-hosted entry is left parked rather than moved to a backend that
+  # cannot start on that worker. The executable is resolved from the backend's
+  # own config (`agent_executable/1`), so any eligible registered fallback works, not
+  # just headless claude.
+  defp default_backend_ready?(backend, nil, opts) when is_binary(backend) do
     find_executable = Keyword.get(opts, :find_executable_fun, &System.find_executable/1)
 
-    case ClaudeConfig.command() |> String.split(~r/\s+/, trim: true) do
-      [executable | _args] -> is_binary(find_executable.(executable))
-      [] -> false
+    case AgentCli.agent_executable(backend) do
+      executable when is_binary(executable) -> is_binary(find_executable.(executable))
+      _ -> false
     end
   end
 
@@ -455,23 +476,42 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     |> RemoteControlMode.add_issue_label(marker_label)
   end
 
-  defp revert_issue(issue, marker_label) do
+  defp revert_issue(issue, marker_label, engaged_fallback, opts) do
     issue
     |> select_backend(nil)
     |> RemoteControlMode.remove_issue_label(marker_label)
-    |> RemoteControlMode.remove_issue_label(model_label(@fallback_backend))
-    |> select_current_route()
+    |> RemoteControlMode.remove_issue_label(model_label(engaged_fallback))
+    |> select_current_route(opts)
   end
 
   defp select_backend(issue, backend), do: %{issue | selected_backend: backend}
 
-  defp select_current_route(issue) do
+  defp select_current_route(issue, opts) do
     backend =
       CodingAgent.override_backend(issue) ||
-        CodingAgent.routing_backend(issue) || @primary_backend
+        CodingAgent.routing_backend(issue) || primary_backend(opts)
 
     select_backend(issue, backend)
   end
+
+  # The backend whose `model:<backend>` label revert must strip. Prefer the
+  # running entry's `selected_backend` when it is still pinned to the engaged
+  # fallback, since that is unambiguous even when an operator's own
+  # `model:<backend>` override also sits on the issue (so we must not use
+  # `override_backend/1`, which would pick the first label and could strip the
+  # operator's). When `selected_backend` is not set (a reloaded entry drops the
+  # in-memory field), fall back to the configured fallback — correct as long as
+  # the fallback config has not changed since engage, which is the normal case;
+  # a config change between engage and revert is a rare edge that could orphan
+  # the label, and is not handled here.
+  defp engaged_fallback(%Issue{selected_backend: backend}, _opts) when is_binary(backend), do: backend
+  defp engaged_fallback(_issue, opts), do: fallback_backend(opts)
+
+  defp fallback_backend(opts),
+    do: Keyword.get_lazy(opts, :fallback_backend, &Config.rate_limit_fallback_backend/0)
+
+  defp primary_backend(opts),
+    do: Keyword.get_lazy(opts, :primary_backend, &Config.rate_limit_primary_backend/0)
 
   defp maybe_resume_deferred_revert(state, running_entry, reason, opts) do
     Logger.info("Rate-limit fallback revert deferred: #{log_context(running_entry, running_entry.issue)} reason=#{inspect(reason)}")

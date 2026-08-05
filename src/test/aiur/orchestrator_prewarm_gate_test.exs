@@ -15,7 +15,7 @@ defmodule Aiur.OrchestratorPrewarmGateTest do
     end
 
     test "holds dispatch while the base is still warming" do
-      for phase <- [:idle, :cloning, :fetching, :building] do
+      for phase <- [:idle, :cloning, :fetching, :building, :checking] do
         assert Orchestrator.prewarm_gate(true, phase) == :hold
       end
     end

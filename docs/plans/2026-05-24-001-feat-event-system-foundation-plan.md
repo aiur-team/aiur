@@ -1384,9 +1384,9 @@ graph TB
 **First-time setup** (one-time, not part of this unit):
 1. Create 3 GitHub test tickets via `gh`:
    ```sh
-   gh issue create --repo its-everdred/aiur --label test:event-flow:1 --title "test:event-flow:1 — function_a" --body "<from brainstorm test-scaffold ticket #A body>"
-   gh issue create --repo its-everdred/aiur --label test:event-flow:2 --title "test:event-flow:2 — function_b" --body "<from brainstorm test-scaffold ticket #B body>"
-   gh issue create --repo its-everdred/aiur --label test:event-flow:3 --title "test:event-flow:3 — function_c" --body "<from brainstorm test-scaffold ticket #C body>"
+   gh issue create --repo aiur-team/aiur --label test:event-flow:1 --title "test:event-flow:1 — function_a" --body "<from brainstorm test-scaffold ticket #A body>"
+   gh issue create --repo aiur-team/aiur --label test:event-flow:2 --title "test:event-flow:2 — function_b" --body "<from brainstorm test-scaffold ticket #B body>"
+   gh issue create --repo aiur-team/aiur --label test:event-flow:3 --title "test:event-flow:3 — function_c" --body "<from brainstorm test-scaffold ticket #C body>"
    ```
 2. Set GitHub native dependencies: `gh api ... /dependencies/blocked_by` POST `{"issue_id": <id-of-1>}` on ticket #2. Ticket #3 starts with NO blocker (discovery scenario).
 3. Populate `.aiur-test-tickets.json` with the assigned numbers: `{"tickets": [<id-1>, <id-2>, <id-3>]}`
@@ -1614,7 +1614,7 @@ graph TB
 
 ## Dependencies / Prerequisites
 
-- GitHub repo (`its-everdred/aiur`) has `read:org` scope on `GITHUB_TOKEN` for CODEOWNERS team resolution (otherwise CODEOWNERS degrades to direct-user entries — see CODEOWNERS finding)
+- GitHub repo (`aiur-team/aiur`) has `read:org` scope on `GITHUB_TOKEN` for CODEOWNERS team resolution (otherwise CODEOWNERS degrades to direct-user entries — see CODEOWNERS finding)
 - GitHub repo has `.github/CODEOWNERS` file present (current value: `* @its-everdred @its-applekid`)
 - Native GitHub issue-dependencies API enabled on the repo (GA since August 2025 per release notes — confirmed available)
 - 3 test tickets manually created on GitHub with labels `test:event-flow:1`, `test:event-flow:2`, `test:event-flow:3` before first `aiur --test` run (operator step; populate `.aiur-test-tickets.json` with the issue numbers)

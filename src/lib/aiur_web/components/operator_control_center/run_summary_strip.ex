@@ -3,6 +3,18 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   use Phoenix.Component
 
+  alias Aiur.CodingAgent
+  alias Aiur.ModelAvailability
+
+  # The dispatch-limits ledger's buckets, used to find the governing one when a
+  # provider has no live meter observation this boot.
+  @durable_windows ~w(hourly weekly monthly)
+
+  # The provider card that leads the strip. The run summary moved out of the
+  # strip into the compact above-filters section, so the first provider card
+  # takes the position the Summary block used to occupy.
+  @lead_provider :deepseek
+
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
@@ -10,48 +22,63 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    cards = provider_cards(assigns.usage, assigns.meters)
+    assigns =
+      assigns
+      |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
+      |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
 
+    ~H"""
+    <section class="run-summary" aria-label="Provider usage">
+      <.vendor_card :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
+    </section>
+    """
+  end
+
+  # The compact run summary, rendered above the Units table filters. The
+  # Summary block that used to lead the strip lives here now: it only has room
+  # to say something real when there are tickets still to work, so the section
+  # hides entirely at zero remaining.
+  attr(:run, :map, required: true)
+  attr(:usage, :map, required: true)
+  attr(:meters, :map, required: true)
+  attr(:now, :any, required: true)
+
+  @spec run_summary_compact(map()) :: Phoenix.LiveView.Rendered.t()
+  def run_summary_compact(assigns) do
     run_state = Map.get(assigns.run, :state)
+    remaining = remaining_count(run_state, assigns.run)
 
     assigns =
       assigns
       |> assign(:run_state, run_state)
       |> assign(:run_ready?, run_state in [:ready, :stale])
-      |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
-      |> assign(:cards, cards)
-      |> assign(:spend_total, provider_spend_total(cards))
+      |> assign(:remaining, remaining)
+      |> assign(:spend_total, provider_spend_total(provider_cards(assigns.usage, assigns.meters)))
 
     ~H"""
-    <section class="run-summary" aria-label="Run summary and provider usage">
-      <div class="rs-block rs-status">
-        <div class="rs-head">
-          <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
-          <span class="rs-name">Summary</span>
-          <div class="rs-head-stats">
-            <%!-- An unknown ticket count is dropped rather than shown as N/A: it
-                  is a head-row stat with no row of its own, so an empty one is
-                  noise. Progress and Limits keep their N/A because each owns a
-                  labelled row and a meter — silently dropping those would leave
-                  a card that looks like it has nothing to report. --%>
-            <div :if={known_count?(@run_state)} class="rs-stat">
-              <span class="rs-stat-label">Tickets</span>
-              <span class="rs-stat-val">{count(@run_state, @run, :remaining, "remain")}</span>
-            </div>
-            <div :if={@spend_total} class="rs-stat"><span class="rs-stat-label">Spend</span><span class="rs-stat-val rs-stat-spend">{@spend_total}</span></div>
+    <section :if={@remaining && @remaining > 0} class="rs-block rs-summary-compact" aria-label="Run summary">
+      <div class="rs-head">
+        <img class="rs-logo" src="/aiur-logo.png" alt="" aria-hidden="true" />
+        <span class="rs-name">Summary</span>
+        <div class="rs-head-stats">
+          <div class="rs-stat">
+            <span class="rs-stat-label">Tickets</span>
+            <span class="rs-stat-val">{@remaining} remain</span>
           </div>
-        </div>
-        <div class="rs-progress">
-          <div class="rs-limit-top">
-            <span class="rs-limit-label">Progress</span>
-            <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
-            <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
+          <div :if={@spend_total} class="rs-stat">
+            <span class="rs-stat-label">Spend</span>
+            <span class="rs-stat-val rs-stat-spend">{@spend_total}</span>
           </div>
-          <div class="rs-meter"><i style={"width:#{run_percent(@run)}%"}></i></div>
         </div>
       </div>
-
-      <.vendor_card :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
+      <div class="rs-progress">
+        <div class="rs-limit-top">
+          <span class="rs-limit-label">Progress</span>
+          <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
+          <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
+        </div>
+        <div class="rs-meter"><i class={meter_class(run_percent(@run))} style={"width:#{run_percent(@run)}%"}></i></div>
+      </div>
     </section>
     """
   end
@@ -64,8 +91,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     assigns =
       assigns
       |> assign(:usage, provider_usage(assigns.card))
-      |> assign(:windows, rate_windows(assigns.card))
+      |> assign(:windows, meter_windows(assigns.card))
       |> assign(:show_spend?, provider_spend?(assigns.card))
+      |> assign(:token_count, token_count(assigns.usage_ready?, provider_usage(assigns.card)))
 
     ~H"""
     <div class="rs-block">
@@ -73,15 +101,19 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
         <div class="rs-head-stats">
-          <div class="rs-stat">
+          <div :if={@token_count} class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
             <span class="rs-stat-val">
-              <%!-- The per-provider token glyph. Decorative: the label already
-                    says Tokens, and the count carries the meaning. --%>
+              {@token_count}
+              <%!-- The per-provider token glyph sits to the right of the count.
+                    Decorative: the label already says Tokens. --%>
               <img class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
-              {if @usage_ready?, do: tokens(@usage), else: "N/A"}
             </span>
           </div>
+          <%!-- An unknown token count hides its label and the "N/A" text: a bare
+                "Tokens N/A" row is noise. The token glyph remains, alone, at the
+                top right of the card at logo size, so the card keeps its shape. --%>
+          <img :if={is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
           <div :if={@show_spend?} class="rs-stat">
             <span class="rs-stat-label">Spend</span>
             <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
@@ -89,7 +121,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         </div>
       </div>
       <div class="rs-limits">
-        <div :if={@windows == []} class="rs-limit">
+        <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
+          <div class="rs-limit-top">
+            <span class="rs-limit-label">Limits</span>
+            <span class="rs-limit-meta">{durable_meta(durable_record(@card), @now)}</span>
+          </div>
+          <div class="rs-meter"><i class={meter_class(durable_percent(durable_record(@card)))} style={"width:#{durable_percent(durable_record(@card))}%"}></i></div>
+        </div>
+        <div :if={@windows == [] and is_nil(durable_record(@card))} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">Limits</span>
             <span class="rs-limit-meta">{provider_status(@card)}</span>
@@ -101,7 +140,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
             <span class="rs-limit-meta">{window_meta(window, @now)}</span>
           </div>
-          <div class="rs-meter"><i style={"width:#{meter_percent(window)}%"}></i></div>
+          <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
         </div>
       </div>
     </div>
@@ -109,13 +148,120 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
-    Enum.map(cards, fn card ->
-      Map.put(card, :usage, get_in(usage, [:providers, card.provider]))
+    cards
+    |> Enum.map(fn card ->
+      card
+      |> Map.put(:usage, get_in(usage, [:providers, card.provider]))
+      |> put_durable_observation()
     end)
+    |> keyed_cards()
+    |> order_cards()
   end
 
   defp provider_cards(_usage, _meters) do
-    for provider <- [:codex, :claude], do: %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
+    CodingAgent.provider_families()
+    |> Enum.map(fn provider ->
+      %{provider: provider, provider_label: provider_label(provider), status_label: "N/A", windows: []}
+    end)
+    |> keyed_cards()
+    |> order_cards()
+  end
+
+  # A provider card only occupies strip space when the provider is actually
+  # connected. OpenAI-compatible providers gate on their configured credential
+  # env — `api_key_env` / `management_api_key_env` resolving to a non-empty
+  # value, the same "keyed" notion the meter probe uses. App-server providers
+  # (codex, claude) authenticate by session rather than an env key, so they
+  # always show.
+  defp keyed_cards(cards), do: Enum.filter(cards, &provider_keyed?(&1.provider))
+
+  defp provider_keyed?(provider) do
+    case get_in(CodingAgent.backends(), [Atom.to_string(provider), :openai_compat]) do
+      %{} = compat ->
+        case Map.get(compat, :management_api_key_env) || Map.get(compat, :api_key_env) do
+          env when is_binary(env) and env != "" -> env_present?(env)
+          _ -> false
+        end
+
+      _ ->
+        true
+    end
+  end
+
+  defp env_present?(env) do
+    case System.get_env(env) do
+      value when is_binary(value) and value != "" -> true
+      _ -> false
+    end
+  end
+
+  # DeepSeek leads the strip: it takes the position the Summary block used to
+  # occupy, so it sorts ahead of the registry card order while the rest keep
+  # their relative order.
+  defp order_cards(cards) do
+    cards
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {card, index} -> {lead_rank(card.provider), index} end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp lead_rank(@lead_provider), do: 0
+  defp lead_rank(_provider), do: 1
+
+  # A provider that has never been observed this boot reads `:unknown` — a bare
+  # "N/A" — even when the durable dispatch-limits ledger holds its last real
+  # standing (e.g. Codex at 100/100 from the previous boot, now unable to open
+  # a probe session on an exhausted quota). Attach that durable record so the
+  # card can render a visibly-stale last-known value instead of an empty one.
+  defp put_durable_observation(%{state: :unknown} = card) do
+    case durable_observation(card.provider) do
+      nil -> card
+      observation -> Map.put(card, :durable_observation, observation)
+    end
+  end
+
+  defp put_durable_observation(card), do: card
+
+  # The card's attached durable record, when present.
+  defp durable_record(%{durable_observation: observation}), do: observation
+  defp durable_record(_card), do: nil
+
+  # The durable record is keyed by backend family and carries the last used/limit
+  # per window plus an observed timestamp. `ModelAvailability` is a public read
+  # API; the web layer simply never reached it before. The record's windows are
+  # the dispatch buckets (`hourly`/`weekly`/`monthly`); the governing one is the
+  # most-used, which is what limits whether new work may start.
+  defp durable_observation(provider) do
+    with %{"backends" => backends} <- ModelAvailability.load(),
+         %{} = entry when map_size(entry) > 0 <- Map.get(backends, Atom.to_string(provider)),
+         %{percent: percent} <- durable_percent_entry(entry) do
+      %{
+        percent: percent,
+        observed_at: parse_observed_at(Map.get(entry, "observed_at"))
+      }
+    else
+      _ -> nil
+    end
+  end
+
+  defp parse_observed_at(%DateTime{} = value), do: value
+
+  defp parse_observed_at(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp parse_observed_at(_value), do: nil
+
+  defp durable_percent_entry(entry) do
+    entry
+    |> Map.take(@durable_windows)
+    |> Enum.map(fn {_window, %{"used" => used, "limit" => limit}} when is_number(used) and is_number(limit) and limit > 0 ->
+      %{percent: min(round(used / limit * 100), 100)}
+    end)
+    |> Enum.max_by(& &1.percent, fn -> nil end)
   end
 
   defp provider_usage(%{usage: usage}), do: usage
@@ -125,7 +271,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp provider_spend?(_card), do: false
 
   # An unknown-identity meter used to render no label at all above a 0%-wide
-  # bar, which reads as a real "0% consumed". Name it instead.
+  # bar, which reads as a real "0% consumed". Name it instead. A card that has
+  # a durable observation renders that from the template (with staleness); the
+  # status clause below is only reached for a card with nothing durable either.
   defp provider_status(%{state: :unknown}), do: "N/A"
   defp provider_status(%{status_label: label}) when is_binary(label) and label != "", do: label
   defp provider_status(_card), do: "N/A"
@@ -135,16 +283,41 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # is shown: it is the one that governs whether work can proceed at all, and
   # listing a row per model turns a glanceable card into a table. Per-model
   # limits remain in the projection for anything that wants them.
-  defp rate_windows(%{windows: windows} = card) when is_list(windows) do
-    rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit))
+  #
+  # Credit-based providers (a prepaid balance) publish no rate-limit percentage,
+  # only a dollar window. Those are shown too — a prepaid balance is the honest
+  # standing for a provider like DeepSeek, and dropping it makes the card read
+  # as if the provider had no limit at all.
+  #
+  # The local-concurrency gauge is a measured in-flight window: at zero requests
+  # it reads a truthful "0%" but is pure noise, so it only appears once there is
+  # something in flight to show.
+  defp meter_windows(%{windows: windows} = card) when is_list(windows) do
+    rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit and visible_rate_limit?(&1)))
+    credits = Enum.filter(windows, &(&1.kind == :credit))
 
-    case Enum.filter(rate_limits, &account_wide?(&1, Map.get(card, :provider))) do
-      [] -> Enum.take(rate_limits, 2)
-      account_wide -> Enum.take(account_wide, 2)
-    end
+    shown_rate_limits =
+      case Enum.filter(rate_limits, &account_wide?(&1, Map.get(card, :provider))) do
+        [] -> Enum.take(rate_limits, 2)
+        account_wide -> Enum.take(account_wide, 2)
+      end
+
+    Enum.take(shown_rate_limits, 2) ++ Enum.take(credits, 1)
   end
 
-  defp rate_windows(_card), do: []
+  defp meter_windows(_card), do: []
+
+  # The local-concurrency gauge is a measured in-flight window: it reads a
+  # truthful "0%" at zero requests but is pure noise, so it only appears once
+  # there is something in flight to show. The decision keys on the *used*
+  # value (the in-flight count), not the rounded meter percent — a few requests
+  # against a large limit round to 0% but are still real activity.
+  defp visible_rate_limit?(%{limit_id: "local-concurrency"} = window), do: concurrency_used(window) > 0
+  defp visible_rate_limit?(_window), do: true
+
+  defp concurrency_used(%{used: used}) when is_number(used), do: used
+  defp concurrency_used(%{used_percent: percent}) when is_number(percent), do: percent
+  defp concurrency_used(_window), do: 0
 
   # Account-wide windows carry the bare provider scope; a per-model one suffixes
   # it with the model's codename.
@@ -182,18 +355,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     |> String.replace("_", " ")
   end
 
-  # Whether the run actually reported a count, as opposed to not being known yet.
-  defp known_count?(state), do: state in [:ready, :stale, :empty]
-
-  defp count(state, %{counts: counts}, key, suffix) when state in [:ready, :stale],
-    do: "#{Map.get(counts, key, 0)} #{suffix}"
-
-  # An empty run is a *known* zero, not missing data: the daemon confirmed there
-  # is no active run. Naming it "Unavailable" reads as a failure when nothing is
-  # wrong. This is not a synthetic zero — the loading and unavailable states,
-  # where the count genuinely isn't known, still say so.
-  defp count(:empty, _run, _key, suffix), do: "0 #{suffix}"
-  defp count(_state, _run, _key, _suffix), do: "N/A"
+  # Whether the remaining ticket count is a known value at all, as opposed to
+  # not being known yet (loading, unavailable).
+  defp remaining_count(state, run) when state in [:ready, :stale], do: Map.get(run[:counts] || %{}, :remaining, 0)
+  defp remaining_count(:empty, _run), do: 0
+  defp remaining_count(_state, _run), do: nil
 
   defp progress_meta(state, run) when state in [:ready, :stale], do: run.elapsed.label <> " elapsed"
   defp progress_meta(:empty, _run), do: "0% · no active run"
@@ -228,8 +394,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     |> Enum.sort_by(& &1.currency)
   end
 
-  defp tokens(%{tokens: %{total: total}}), do: compact_number(total)
-  defp tokens(_usage), do: "N/A"
+  # A token count is only worth a labelled row when it is a real number; an
+  # unknown count degrades to `nil` so the template drops the label and the
+  # "N/A" and keeps the glyph alone.
+  defp token_count(true, %{tokens: %{total: total}}) when is_integer(total), do: compact_number(total)
+  defp token_count(_ready?, _usage), do: nil
 
   defp money(%{api_equivalent: amounts}), do: money_list(amounts)
   defp money(_usage), do: "N/A"
@@ -244,13 +413,102 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compact_number(number) when is_integer(number) and number >= 1_000_000, do: "#{Float.round(number / 1_000_000, 2)}M"
   defp compact_number(number) when is_integer(number) and number >= 1_000, do: "#{Float.round(number / 1_000, 1)}K"
   defp compact_number(number) when is_integer(number), do: Integer.to_string(number)
-  defp compact_number(_number), do: "N/A"
 
+  # A prepaid-balance window carries its spend percentage as `used_percent`
+  # (the probe attaches it only once a durable baseline exists); the bar renders
+  # that measured value rather than an empty 0%. Measured rate-limit windows
+  # carry the same percentage under `meter.now`. Credit percentages are rounded
+  # to one decimal so a float measurement never renders a noisy bar width.
+  defp meter_percent(%{kind: :credit, used_percent: percent}) when is_number(percent), do: Float.round(percent, 1)
   defp meter_percent(%{meter: %{kind: :exact, now: percent}}), do: percent
   defp meter_percent(_window), do: 0
 
+  # A bar that is fully consumed reads as critical: the fill turns red so an
+  # exhausted window is never mistaken for a healthy one. Credit percentages
+  # arrive as floats (e.g. 100.0), so the guard accepts any number at/above 100.
+  defp meter_class(percent) when is_number(percent) and percent >= 100, do: "is-critical"
+  defp meter_class(_percent), do: ""
+
+  # A credit window is a dollar balance. When a durable baseline exists the
+  # window carries a measured `used_percent` and renders a real spend bar
+  # alongside the dollar amount; without a baseline the bar stays empty and the
+  # meta carries the balance, so a prepaid provider never reads as a fabricated
+  # "0% consumed" (issue #1436).
+  #
+  # A credit window whose freshness horizon is near or past is no longer a
+  # current reading: the meta names its observation time and marks it stale
+  # instead of presenting the balance as live (issue #1550).
+  defp window_meta(%{kind: :credit, used_percent: used_percent, credits: %{amount: amount}} = window, now)
+       when is_number(amount) and is_number(used_percent) do
+    base = "#{currency_amount("USD", amount)} · #{format_used_percent(used_percent)}% used"
+    if credit_stale?(window, now), do: base <> credit_stale_suffix(window), else: base
+  end
+
+  defp window_meta(%{kind: :credit, credits: %{amount: amount}} = window, now) when is_number(amount) do
+    if credit_stale?(window, now) do
+      "#{currency_amount("USD", amount)}" <> credit_stale_suffix(window)
+    else
+      "#{currency_amount("USD", amount)} · #{reset_text(window.expires_at, now)}"
+    end
+  end
+
+  defp window_meta(%{kind: :credit, credits: %{status: status}} = _window, _now) do
+    to_string(status) <> " balance"
+  end
+
   defp window_meta(%{meter: %{kind: :exact, now: percent}} = window, now), do: "#{percent}% · #{reset_text(window.resets_at, now)}"
   defp window_meta(window, now), do: "#{window.coverage_label} · #{reset_text(window.resets_at, now)}"
+
+  # The probe stamps a credit window with a 300s freshness horizon
+  # (`observed_at + 300s`, the provider endpoint's rate limit). A balance is
+  # only a current reading while it sits comfortably inside that horizon; once
+  # the final minute has begun — or the horizon has passed — the value must not
+  # present as live. The 60s lead keeps a balance observed >4 minutes ago from
+  # reading as fresh (the regression this ticket pins).
+  @credit_stale_before_expiry_s 60
+
+  defp credit_stale?(%{expires_at: %DateTime{} = expires_at}, %DateTime{} = now) do
+    DateTime.compare(expires_at, DateTime.add(now, @credit_stale_before_expiry_s, :second)) != :gt
+  end
+
+  defp credit_stale?(_window, _now), do: false
+
+  defp credit_stale_suffix(%{observed_at: %DateTime{} = observed_at}) do
+    " · as of #{clock_label(observed_at)} (stale)"
+  end
+
+  defp credit_stale_suffix(_window), do: " (stale)"
+
+  defp format_used_percent(percent) when is_number(percent) do
+    percent = percent |> max(0) |> min(100)
+    rounded = Float.round(percent, 1)
+
+    if rounded == trunc(rounded) do
+      Integer.to_string(trunc(rounded))
+    else
+      :erlang.float_to_binary(rounded, decimals: 1)
+    end
+  end
+
+  # A durable observation renders the last-known standing from the dispatch
+  # ledger with an explicit staleness label, so a value that is not a fresh
+  # probe is never mistaken for one.
+  defp durable_meta(%{percent: percent, observed_at: observed_at}, _now) do
+    "#{percent}% used · as of #{clock_label(observed_at)}"
+  end
+
+  defp durable_percent(%{percent: percent}), do: percent
+
+  # The ledger stores observations in UTC; render them as such so the "as of"
+  # label is never mistaken for a local-time reading.
+  defp clock_label(%DateTime{} = observed_at) do
+    observed_at = DateTime.shift_zone!(observed_at, "Etc/UTC")
+    "#{pad2(observed_at.hour)}:#{pad2(observed_at.minute)} UTC"
+  end
+
+  defp clock_label(_observed_at), do: "time unknown"
+
+  defp pad2(value), do: value |> Integer.to_string() |> String.pad_leading(2, "0")
 
   defp reset_text(%DateTime{} = reset, %DateTime{} = now) do
     seconds = DateTime.diff(reset, now, :second)
@@ -273,13 +531,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     "#{div(seconds, @seconds_per_day)}d #{div(rem(seconds, @seconds_per_day), @seconds_per_hour)}h #{div(rem(seconds, @seconds_per_hour), 60)}m"
   end
 
-  defp provider_logo(:codex), do: "/codex-color.svg"
-  defp provider_logo(:claude), do: "/claude-symbol.svg"
-  defp provider_logo(_provider), do: "/aiur-logo.png"
+  # Each card renders its own registry logo. The ticket's "swap the Codex and
+  # Claude logos" premise was verified false on review: `codex-color.svg` is the
+  # Codex mark, `claude-symbol.svg` is Anthropic's, and the descriptor lookup
+  # below already paired every card with its own logo before this change.
+  # Swapping would have inverted a correct pairing, so the strip keeps the
+  # truthful mapping (consistent with every other surface that reads the
+  # registry).
+  defp provider_logo(provider), do: descriptor_field(provider, :logo, "/aiur-logo.png")
 
-  defp provider_token_icon(:codex), do: "/codex-token.svg"
-  defp provider_token_icon(:claude), do: "/claude-token.svg"
-  defp provider_token_icon(_provider), do: "/aiur-logo.png"
-  defp provider_label(:codex), do: "Codex"
-  defp provider_label(:claude), do: "Claude"
+  defp provider_token_icon(provider), do: descriptor_field(provider, :token_icon, "/aiur-logo.png")
+  defp provider_label(provider), do: descriptor_field(provider, :label, to_string(provider))
+
+  defp descriptor_field(provider, field, fallback) do
+    case CodingAgent.provider_descriptor(provider) do
+      %{^field => value} -> value
+      _ -> fallback
+    end
+  end
 end

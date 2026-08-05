@@ -1,6 +1,9 @@
 defmodule Aiur.TestSupport do
   import ExUnit.Assertions
 
+  alias Aiur.Events.Publisher, as: EventsPublisher
+  alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -25,6 +28,8 @@ defmodule Aiur.TestSupport do
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
+      alias Aiur.Events.Publisher, as: EventsPublisher
+      alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
@@ -62,9 +67,19 @@ defmodule Aiur.TestSupport do
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
         previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+        previous_global_pause_store_path = Application.get_env(:aiur, :global_pause_store_path)
+
+        # These callbacks live in :persistent_term so they outlast the test
+        # process that installed them. Start every TestSupport case from the
+        # production-safe defaults and restore those defaults at teardown;
+        # otherwise a filtering/enqueue stub can silently affect an unrelated
+        # Exchange test that happens to run later in the VM.
+        EventsPublisher.set_tracked_fn(fn _ -> true end)
+        EventsSubscriptionStore.set_enqueue_fn(nil)
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
+        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -79,6 +94,17 @@ defmodule Aiur.TestSupport do
         # test is absent from the run (e.g. `mix test test/aiur/core_test.exs`).
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
+
+        # Global pause is deliberately durable in production, but that makes a
+        # suite-wide test path hazardous: a case that pauses the daemon can
+        # make a later named Orchestrator boot paused. Give every TestSupport
+        # case its own store so persisted control state cannot cross test
+        # boundaries or depend on ExUnit's randomized file order.
+        Application.put_env(
+          :aiur,
+          :global_pause_store_path,
+          Path.join([workflow_root, "state", "global-pause.json"])
+        )
 
         # A prior test may have terminated the shared WorkflowStore singleton
         # (e.g. extensions_test / core_test tear it down) and, on a mid-test
@@ -106,9 +132,16 @@ defmodule Aiur.TestSupport do
             path -> Application.put_env(:aiur, :build_gate_dir_override, path)
           end
 
+          case previous_global_pause_store_path do
+            nil -> Application.delete_env(:aiur, :global_pause_store_path)
+            path -> Application.put_env(:aiur, :global_pause_store_path, path)
+          end
+
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
+          EventsPublisher.set_tracked_fn(fn _ -> true end)
+          EventsSubscriptionStore.set_enqueue_fn(nil)
           File.rm_rf(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
@@ -508,6 +541,7 @@ defmodule Aiur.TestSupport do
           build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
+          max_dispatches_per_ticket: nil,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           command: "codex app-server",
@@ -541,6 +575,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     tracker_base_branch = Keyword.get(config, :tracker_base_branch)
+    tracker_terminal_fence_grace_seconds = Keyword.get(config, :tracker_terminal_fence_grace_seconds)
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
@@ -559,6 +594,7 @@ defmodule Aiur.TestSupport do
     build_start_stagger_seconds = Keyword.get(config, :build_start_stagger_seconds)
     min_free_memory_mb = Keyword.get(config, :min_free_memory_mb)
     max_turns = Keyword.get(config, :max_turns)
+    max_dispatches_per_ticket = Keyword.get(config, :max_dispatches_per_ticket)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
     agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
@@ -573,6 +609,9 @@ defmodule Aiur.TestSupport do
     observability_writable = Keyword.get(config, :observability_writable)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
+    observability_retention_max_bytes = Keyword.get(config, :observability_retention_max_bytes)
+    observability_retention_max_age_days = Keyword.get(config, :observability_retention_max_age_days)
+    observability_retention_prune_interval_bytes = Keyword.get(config, :observability_retention_prune_interval_bytes)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
     opencode_command = Keyword.get(config, :opencode_command)
@@ -604,6 +643,8 @@ defmodule Aiur.TestSupport do
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "  base_branch: #{yaml_value(tracker_base_branch)}",
+        tracker_terminal_fence_grace_seconds &&
+          "  terminal_fence_grace_seconds: #{yaml_value(tracker_terminal_fence_grace_seconds)}",
         tracker_github_yaml(tracker_kind, config),
         tracker_linear_yaml(tracker_kind, config)
       ]
@@ -619,6 +660,8 @@ defmodule Aiur.TestSupport do
         "  build_start_stagger_seconds: #{yaml_value(build_start_stagger_seconds)}",
         "  min_free_memory_mb: #{yaml_value(min_free_memory_mb)}",
         "  max_turns: #{yaml_value(max_turns)}",
+        max_dispatches_per_ticket &&
+          "  max_dispatches_per_ticket: #{yaml_value(max_dispatches_per_ticket)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
         "  routing: #{yaml_value(agent_routing)}",
@@ -653,7 +696,10 @@ defmodule Aiur.TestSupport do
           observability_enabled,
           observability_writable,
           observability_refresh_ms,
-          observability_render_interval_ms
+          observability_render_interval_ms,
+          observability_retention_max_bytes,
+          observability_retention_max_age_days,
+          observability_retention_prune_interval_bytes
         ),
         decisions_yaml(overrides),
         server_yaml(server_port, server_host),
@@ -869,13 +915,17 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms) do
+  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms, retention_max_bytes, retention_max_age_days, retention_prune_interval_bytes) do
     [
       "observability:",
       "  dashboard_enabled: #{yaml_value(enabled)}",
       writable != nil && "  dashboard_writable: #{yaml_value(writable)}",
       "  refresh_ms: #{yaml_value(refresh_ms)}",
-      "  render_interval_ms: #{yaml_value(render_interval_ms)}"
+      "  render_interval_ms: #{yaml_value(render_interval_ms)}",
+      retention_max_bytes != nil && "  telemetry_retention_max_bytes: #{yaml_value(retention_max_bytes)}",
+      retention_max_age_days != nil && "  telemetry_retention_max_age_days: #{yaml_value(retention_max_age_days)}",
+      retention_prune_interval_bytes != nil &&
+        "  telemetry_retention_prune_interval_bytes: #{yaml_value(retention_prune_interval_bytes)}"
     ]
     |> Enum.reject(&(&1 == false))
     |> Enum.join("\n")

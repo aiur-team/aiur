@@ -66,7 +66,7 @@ configured limit.
 ## Quickstart
 
 ```bash
-git clone https://github.com/its-everdred/aiur
+git clone https://github.com/aiur-team/aiur
 cd aiur
 npm run setup                    # installs the toolchain (mise + erlang/elixir) and symlinks aiurdev
 #   (or, if you already have mise:  mise run setup)
@@ -118,7 +118,13 @@ walks:
 5. **GitHub token** — used to create labels and act as the bot account. With no
    `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
    failing.
-6. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
+6. **CI readiness** — for GitHub repositories, verifies the configured base
+   branch exists, a pull-request workflow targets it, branch protection or an
+   applicable ruleset requires a check, and that a workflow produces that check.
+   A gap stops setup with a clear error; when no pull-request workflow exists,
+   the wizard offers a minimal `ci.yml` scaffold with a stable aggregator check
+   name (`ci / required`).
+7. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
    complexity, model, and remote-control labels the orchestrator routes on.
    Each stage creates only the labels that are missing; when a group already exists it reports
    `<group> tags: created.` and skips the prompt.
@@ -144,11 +150,21 @@ For GitHub trackers, `github.trusted_accounts` can name Executor accounts whose
 comments should reach agent event digests even when CODEOWNERS team expansion is
 unavailable. Keep it separate from `github.bot_account`: bot-account authors are
 filtered as self-loops, while trusted accounts are allowed human Executors.
+`github.human_mergers` is a separate, explicit human-only allowlist used for
+post-merge attribution. It never inherits CODEOWNERS, bot accounts, trusted
+accounts, or dispatch `allowed_users`; an absent list treats every merger as
+unallowlisted and raises a needs-attention alert without undoing terminal state.
 
 Build Order planning reads use finite `github.planning_root_limit`,
 `github.planning_page_budget`, and `github.planning_call_budget` safeguards.
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
+
+For local planning packs, the supervised PackStatus poller writes tracker
+lifecycle facts to the sibling `status.json` projection in batches of 50
+tickets. The projection survives run boundaries; failed or incomplete tracker
+reads retain the last-known-good file and mark Build Order health stale or
+unavailable until a later refresh succeeds.
 
 The optional root-level `build_order` section configures three supervised,
 in-memory configured-repository stores. Ticket detail defaults to a 30-second
@@ -214,7 +230,7 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state |
+| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
@@ -340,15 +356,21 @@ require `observability.dashboard_writable: true`, an exact dashboard/loopback
 [OCC-7 supervisor Decision API contract](../docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md)
 for routes, payloads, retry semantics, and audit guarantees.
 
-## Debug run telemetry
+## Run telemetry
 
-`aiur --debug` (or config-level `debug: true`) starts daemon-owned run telemetry.
-The daemon continuously records resource samples for itself, locally attributable
-ticket process trees, and the Executor process when it can be identified. It also
-records sanitized ticket lifecycle boundaries such as dispatch, workspace setup,
-implementation, build/test, PR/review, pause/resume, and rework. Debug-off runs do
-not start the telemetry writer or sampler and do not scan procfs or create a
-telemetry file.
+Aiur records daemon-owned run telemetry by default. The daemon continuously
+records resource samples for itself, locally attributable ticket process trees,
+and the Executor process when it can be identified. It also records sanitized
+ticket lifecycle boundaries such as dispatch, workspace setup, implementation,
+build/test, PR/review, pause/resume, and rework. Prompt text, command text, and
+output are never included.
+
+To opt out, set `observability.telemetry_enabled: false` in your config; the
+telemetry writer and sampler will not start and no file will be created. The
+setting is read once at daemon startup — a restart is required to apply a change.
+
+`--debug` (or config-level `debug: true`) controls **log verbosity and evidence
+capture**, not whether telemetry is recorded.
 
 The append-only schema-versioned stream is written beside `aiur.log` as
 `telemetry.ndjson`. A default run therefore writes to:
@@ -361,6 +383,16 @@ Each daemon start appends a restart marker with a new boot identity. Schema 1
 readers keep valid records from every selected stream and report malformed lines,
 unknown record kinds, unsupported future schemas, attribution gaps, and unavailable
 platform metrics as warnings instead of discarding the rest of the run.
+
+Before a new writer starts, Aiur prunes old **whole boots** from the stream. The
+default retention window is 30 days and 64 MiB (`observability.telemetry_retention_max_age_days`
+and `observability.telemetry_retention_max_bytes`); these defaults retain useful
+cross-session Build Order history without allowing a long-running operator stream to
+grow indefinitely. During a long-running daemon boot, the writer closes a telemetry
+segment and prunes at `observability.telemetry_retention_prune_interval_bytes`; it
+defaults to `max(max_bytes / 8, 1 MiB)` (8 MiB with the default cap). Size is a
+whole-boot-segment target: if one segment alone exceeds it, Aiur keeps that segment
+intact rather than truncating lifecycle intervals mid-session.
 
 From the repository root, generate the canonical analytics artifact from one file,
 one session directory, or several session roots:
@@ -394,6 +426,24 @@ path parameter and is never browser-cacheable.
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
+- Run credentials resolve in this order: exported environment, `~/.aiur/.env`,
+  then repository-local `./.env`. The native provider variables are
+  `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_KEY`;
+  OpenRouter credit polling additionally uses `OPENROUTER_MANAGEMENT_KEY`.
+  Keep values out of workflow YAML and Git.
+- `agent.kind` may name any registered backend, including `kimi`, `deepseek`,
+  and `openrouter`. Per-instance overrides live under
+  `agent.backend_configs.<name>`. DeepSeek is disabled for dispatch until its
+  entry sets `enabled: true`. OpenRouter requires an explicit underlying model
+  through a model label/routing rule or `backend_configs.openrouter.model`.
+  Kimi and DeepSeek have native default models.
+- OpenAI-compatible backends are local-only transports today: when SSH workers
+  are configured, their sessions remain on the orchestrator host. They are
+  deliberately non-resumable, so backend switches continue from shared
+  workspace state rather than a cross-provider transcript.
+- `agent.prior_work_continuation` defaults to `true`; a cold redispatch or
+  backend switch receives continuation guidance based on the existing shared
+  workspace instead of pretending the provider conversation was resumed.
 - Codex defaults to safer policies when omitted (`approval_policy` rejects unprompted
   approvals, `thread_sandbox` is `workspace-write`).
 - Setting `agent.codex.thread_sandbox: danger-full-access` also defaults Codex turns to
@@ -405,6 +455,10 @@ path parameter and is never browser-cacheable.
   unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- An explicit `aiur --max-agents N` launch value takes precedence over
+  `agent.max_concurrent_agents`, including when it is higher. Aiur warns when
+  the CLI value exceeds the configured value so the effective cap is visible; omit the flag or set it at
+  or below the configured value to silence the warning.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
   backends, for example `[claude, codex]`. It applies only when no explicit
   `model:` label or complexity-routing rule selected a backend, and only to new

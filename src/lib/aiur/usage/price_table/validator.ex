@@ -3,7 +3,8 @@ defmodule Aiur.Usage.PriceTable.Validator do
 
   alias Aiur.Usage.PriceTable.ProviderDimensions
 
-  @providers [:codex, :claude]
+  # Registry-derived at compile time so a new metered backend needs no edit here.
+  @providers Aiur.CodingAgent.provider_families()
   @dimensions [:input, :cached_input, :cache_creation_input, :output, :reasoning_output]
   @context_tiers [:short_context, :long_context, :not_applicable]
   @cache_write_durations [:five_minutes, :one_hour, :not_applicable]

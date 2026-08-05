@@ -26,7 +26,7 @@ defmodule Aiur.Usage.GroupedScopes.PriceAdapter do
   # priced component dimension, so it never contributes to the API-equivalent
   # estimate (pricing it would double count the component dimensions).
 
-  alias Aiur.Usage.PriceTable
+  alias Aiur.{CodingAgent, Usage.PriceTable}
   alias Aiur.UsageAggregate.Key
   alias Aiur.UsageEnvelope.RelationshipRegistry
 
@@ -91,17 +91,51 @@ defmodule Aiur.Usage.GroupedScopes.PriceAdapter do
     end
   end
 
-  # Codex never retains its context tier, so no codex component can be priced
-  # from the aggregate. Claude retains no cache-write duration, which only
-  # discriminates the cache-creation dimension; every other claude dimension has
-  # a fully known (`:not_applicable`) partition and prices exactly.
-  defp partition_dimensions(:codex, _token_dimension), do: {:unknown, :unretained_context_tier}
+  defp partition_dimensions(provider, token_dimension) do
+    case CodingAgent.provider_pricing(provider) do
+      %{dimensions: policies, component_dimensions: components} when is_map(policies) and is_map(components) ->
+        partition =
+          provider
+          |> default_partition(policies)
+          |> apply_component_constants(Map.get(components, token_dimension, Map.get(components, :default, %{})))
 
-  defp partition_dimensions(:claude, :cache_creation_input),
-    do: {:unknown, :unretained_cache_write_duration}
+        case required_partition(partition, policies) do
+          :ok -> {:ok, partition}
+          {:unknown, _reason} = unknown -> unknown
+        end
 
-  defp partition_dimensions(:claude, _token_dimension),
-    do: {:ok, %{context_tier: :not_applicable, cache_write_duration: :not_applicable}}
+      _ ->
+        {:unknown, :unsupported_pricing_provider}
+    end
+  end
+
+  defp default_partition(_provider, dimensions) do
+    Map.new(dimensions, fn {dimension, policy} -> {dimension, Map.get(policy, :default)} end)
+  end
+
+  defp apply_component_constants(partition, component_dimensions) do
+    Enum.reduce(component_dimensions, partition, fn
+      {dimension, [value]}, result ->
+        if is_nil(Map.get(result, dimension)), do: Map.put(result, dimension, value), else: result
+
+      _component, result ->
+        result
+    end)
+  end
+
+  defp required_partition(partition, policies) do
+    Enum.reduce_while(policies, :ok, fn {dimension, policy}, :ok ->
+      if Map.get(policy, :required, false) and is_nil(Map.get(partition, dimension)) do
+        {:halt, {:unknown, unretained_reason(dimension)}}
+      else
+        {:cont, :ok}
+      end
+    end)
+  end
+
+  defp unretained_reason(:context_tier), do: :unretained_context_tier
+  defp unretained_reason(:cache_write_duration), do: :unretained_cache_write_duration
+  defp unretained_reason(_dimension), do: :unretained_pricing_dimension
 
   defp lookup_query(dims, token_dimension, currency, partition) do
     Map.merge(

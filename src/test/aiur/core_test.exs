@@ -2,7 +2,7 @@ defmodule Aiur.CoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
-  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, Reconciler, Slots}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, LifecycleFence, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
     def preflight_auth, do: :ok
@@ -190,6 +190,112 @@ defmodule Aiur.CoreTest do
       assert prompt =~ "{{ issue.title }}"
       assert is_binary(Config.workflow_prompt())
       assert Config.workflow_prompt() == prompt
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
+  end
+
+  test "production config treats GitHub closed as terminal so a fenced closed issue is finalized" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    try do
+      Workflow.set_workflow_file_path(Path.expand("../.aiur/config", File.cwd!()))
+
+      assert {:ok, %{config: config}} = Workflow.load()
+
+      terminal_states =
+        config
+        |> Map.get("tracker", %{})
+        |> Map.get("terminal_states", [])
+        |> Enum.map(&DispatchPolicy.normalize_issue_state/1)
+        |> Enum.reject(&(&1 == ""))
+        |> MapSet.new()
+
+      # Config-drift guard for #1329: the repo's own production config must treat
+      # GitHub `closed` as a terminal state, or a closed-but-fenced running entry
+      # is never released and `aiur status` keeps showing the ticket as running.
+      assert MapSet.member?(terminal_states, "closed")
+      assert DispatchPolicy.terminal_issue_state?("closed", terminal_states)
+
+      issue_id = "issue-prod-config-closed"
+      observed = %Issue{id: issue_id, identifier: "PROD-1", state: "closed"}
+
+      fenced_entry = fn opened_at ->
+        %{
+          identifier: "PROD-1",
+          issue: observed,
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: opened_at,
+            pending_item_ids: MapSet.new([1])
+          }
+        }
+      end
+
+      fresh_state = %Orchestrator.State{running: %{issue_id => fenced_entry.(DateTime.utc_now())}}
+
+      assert {:fenced, _next} =
+               LifecycleFence.reconcile_observed_state(fresh_state, observed, terminal_states)
+
+      expired_state = %Orchestrator.State{
+        running: %{issue_id => fenced_entry.(DateTime.add(DateTime.utc_now(), -31, :second))}
+      }
+
+      assert :admit =
+               LifecycleFence.reconcile_observed_state(expired_state, observed, terminal_states)
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
+  end
+
+  test "terminal fence grace is configurable and bounds teardown of a closed observation" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_terminal_states: ["done", "closed"],
+        tracker_terminal_fence_grace_seconds: 60
+      )
+
+      assert Config.terminal_fence_grace_seconds() == 60
+
+      terminal_states = DispatchPolicy.terminal_state_set()
+      assert MapSet.member?(terminal_states, "closed")
+
+      issue_id = "issue-grace-configurable"
+      observed = %Issue{id: issue_id, identifier: "GRACE-1", state: "closed"}
+
+      fenced_entry = fn opened_at ->
+        %{
+          identifier: "GRACE-1",
+          issue: observed,
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: opened_at,
+            pending_item_ids: MapSet.new([1])
+          }
+        }
+      end
+
+      # 45s old but the grace is 60s: still fenced, runner retained.
+      within_grace = %Orchestrator.State{
+        running: %{issue_id => fenced_entry.(DateTime.add(DateTime.utc_now(), -45, :second))}
+      }
+
+      assert {:fenced, _next} =
+               LifecycleFence.reconcile_observed_state(within_grace, observed, terminal_states)
+
+      # 61s old, past the configured 60s grace: admitted for teardown.
+      past_grace = %Orchestrator.State{
+        running: %{issue_id => fenced_entry.(DateTime.add(DateTime.utc_now(), -61, :second))}
+      }
+
+      assert :admit = LifecycleFence.reconcile_observed_state(past_grace, observed, terminal_states)
     after
       Workflow.set_workflow_file_path(original_workflow_path)
     end
@@ -877,6 +983,8 @@ defmodule Aiur.CoreTest do
     assert log =~ "reason=retry_exhausted"
     assert log =~ "caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"
+    assert log =~ "ticket.MT-EX.agent.attention.error-retry_exhausted"
+    assert log =~ "automatic retry is no longer scheduled"
 
     assert_receive {:memory_tracker_state_update, "MT-EX", "error"}
   end

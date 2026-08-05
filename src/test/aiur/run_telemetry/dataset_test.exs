@@ -276,6 +276,57 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     assert {:error, {:no_telemetry_files, [^empty]}} = Dataset.build(empty)
   end
 
+  test "current-session reads stop at the newest boot boundary" do
+    path = temporary_stream!()
+
+    old_records =
+      for sequence <- 1..5_000 do
+        lifecycle_record(sequence, "old_event", "point", ~U[2026-07-11 01:00:00Z], "old-#{sequence}")
+        |> Map.put(:boot_id, "old-boot")
+        |> Map.put(:record_id, "old-boot:#{sequence}")
+      end
+
+    current_records = [
+      restart_record("current-boot", ~U[2026-07-11 02:00:00Z]),
+      lifecycle_record(2, "current_event", "point", ~U[2026-07-11 02:00:01Z], "current-event")
+      |> Map.put(:boot_id, "current-boot")
+      |> Map.put(:record_id, "current-boot:2")
+    ]
+
+    File.write!(path, Enum.map_join(old_records ++ current_records, "\n", &Jason.encode!/1) <> "\n")
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert Dataset.boot_ids(dataset) == ["current-boot"]
+    assert Enum.map(dataset.records, & &1.record_id) == ["current-boot:1", "current-boot:2"]
+    assert dataset.warnings == []
+  end
+
+  test "current-session retains valid records beside a malformed trailing line" do
+    path = temporary_stream!()
+
+    records = [
+      restart_record("current-boot", ~U[2026-07-11 02:00:00Z]),
+      lifecycle_record(2, "current_event", "point", ~U[2026-07-11 02:00:01Z], "current-event")
+      |> Map.put(:boot_id, "current-boot")
+      |> Map.put(:record_id, "current-boot:2")
+    ]
+
+    File.write!(path, Enum.map_join(records, "\n", &Jason.encode!/1) <> "\nnot-json\n")
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert Enum.map(dataset.records, & &1.record_id) == ["current-boot:1", "current-boot:2"]
+    assert [%{type: :malformed_line}] = dataset.warnings
+  end
+
+  test "current-session bounds an unterminated tail line" do
+    path = temporary_stream!()
+    File.write!(path, String.duplicate("x", 1_048_577))
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current)
+    assert dataset.records == []
+    assert [%{type: :tail_line_too_large, max_bytes: 1_048_576}] = dataset.warnings
+  end
+
   defp temporary_stream! do
     root = Path.join(System.tmp_dir!(), "aiur-dataset-#{System.unique_integer([:positive])}")
     File.mkdir_p!(root)
@@ -305,6 +356,39 @@ defmodule Aiur.RunTelemetry.DatasetTest do
           },
           extra_attributes
         )
+    }
+  end
+
+  defp restart_record(boot_id, timestamp) do
+    %{
+      schema_version: 1,
+      kind: "restart",
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: boot_id,
+      sequence: 1,
+      record_id: "#{boot_id}:1",
+      attributes: %{event: "daemon_restart"}
+    }
+  end
+
+  defp resource_record(sequence, boot_id, timestamp, cpu, actor) do
+    %{
+      schema_version: 1,
+      kind: "resource",
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: boot_id,
+      sequence: sequence,
+      record_id: "#{boot_id}:#{sequence}",
+      attributes: %{
+        actor: actor,
+        actor_type: "agent",
+        ticket: "940",
+        availability: "measured",
+        cpu_percent: cpu,
+        rss_bytes: 100_000
+      }
     }
   end
 
@@ -401,6 +485,106 @@ defmodule Aiur.RunTelemetry.DatasetTest do
       {:ok, dataset} = Dataset.build(@fixtures)
 
       assert Dataset.filter(dataset, []) == dataset
+    end
+  end
+
+  describe "merge/1" do
+    # Two boots for the same ticket: dispatch+implement in boot-a, merged in
+    # boot-b. A last-wins map merge keeps only one boot's intervals; the union
+    # must keep both — the P1 the cross-session presenter merge used to lose.
+    test "a ticket active in current and prior boots keeps both boots' intervals" do
+      prior_path = temporary_stream!()
+      current_path = temporary_stream!()
+
+      prior_records = [
+        lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 01:00:00Z], "prior-dispatch")
+        |> Map.put(:boot_id, "boot-a")
+        |> Map.put(:record_id, "boot-a:1"),
+        lifecycle_record(2, "implement", "start", ~U[2026-07-11 01:00:01Z], "prior-impl")
+        |> Map.put(:boot_id, "boot-a")
+        |> Map.put(:record_id, "boot-a:2"),
+        lifecycle_record(3, "implement", "end", ~U[2026-07-11 01:00:11Z], "prior-impl")
+        |> Map.put(:boot_id, "boot-a")
+        |> Map.put(:record_id, "boot-a:3")
+      ]
+
+      current_records = [
+        lifecycle_record(4, "pr_merged", "point", ~U[2026-07-11 02:00:00Z], "current-merge")
+        |> Map.put(:boot_id, "boot-b")
+        |> Map.put(:record_id, "boot-b:4")
+      ]
+
+      File.write!(prior_path, Enum.map_join(prior_records, "\n", &Jason.encode!/1) <> "\n")
+      File.write!(current_path, Enum.map_join(current_records, "\n", &Jason.encode!/1) <> "\n")
+
+      {:ok, prior} = Dataset.build(prior_path)
+      {:ok, current} = Dataset.build(current_path)
+
+      merged = Dataset.merge([current, prior])
+
+      phases = merged.tickets["940"].intervals |> Enum.map(& &1.phase) |> Enum.sort()
+      assert "implement" in phases
+      assert "pr_merged" in phases
+      assert length(merged.tickets["940"].intervals) == 3
+
+      assert merged.tickets["940"].events |> Enum.map(& &1.boot_id) |> Enum.sort() ==
+               ["boot-a", "boot-a", "boot-a", "boot-b"]
+
+      # The union keeps the merged status; the old last-wins merge lost the
+      # current boot's merge and rendered the ticket as still active.
+      assert Enum.any?(merged.tickets["940"].intervals, &(&1.phase == "pr_merged"))
+    end
+
+    test "an actor's samples concatenate across boots and its profile re-derives" do
+      prior_path = temporary_stream!()
+      current_path = temporary_stream!()
+
+      prior_records = [
+        resource_record(1, "boot-a", ~U[2026-07-11 01:00:00Z], 50.0, "ticket:940"),
+        resource_record(2, "boot-a", ~U[2026-07-11 01:00:05Z], 60.0, "ticket:940")
+      ]
+
+      current_records = [
+        resource_record(3, "boot-b", ~U[2026-07-11 02:00:00Z], 70.0, "ticket:940")
+      ]
+
+      File.write!(prior_path, Enum.map_join(prior_records, "\n", &Jason.encode!/1) <> "\n")
+      File.write!(current_path, Enum.map_join(current_records, "\n", &Jason.encode!/1) <> "\n")
+
+      {:ok, prior} = Dataset.build(prior_path)
+      {:ok, current} = Dataset.build(current_path)
+
+      merged = Dataset.merge([current, prior])
+      actor = merged.actors["ticket:940"]
+
+      assert length(actor.samples) == 3
+      assert actor.samples |> Enum.map(& &1.boot_id) |> Enum.sort() == ["boot-a", "boot-a", "boot-b"]
+      assert actor.profile["cpu_percent"].count == 3
+      assert actor.profile["cpu_percent"].max == 70.0
+    end
+
+    test "github anchors shared across summaries are not duplicated" do
+      path = temporary_stream!()
+
+      github_events = [
+        %{
+          id: 700,
+          topic: "ticket.940.pr.merged",
+          source: :github,
+          pr: %{"number" => 80, "merged_at" => "2026-07-11T02:00:00Z"}
+        }
+      ]
+
+      File.write!(path, Enum.map_join([], "\n", &Jason.encode!/1) <> "\n")
+
+      # Both per-boot summaries carry the boot-agnostic github anchor.
+      {:ok, prior} = Dataset.build(path, github_events: github_events)
+      {:ok, current} = Dataset.build(path, github_events: github_events)
+
+      merged = Dataset.merge([current, prior])
+
+      assert Enum.count(merged.tickets["940"].events, &(&1.event == "pr_merged")) == 1
+      assert Enum.count(merged.records, &(&1.boot_id == "github")) == 1
     end
   end
 end

@@ -1,13 +1,13 @@
 [Unit]
 Description=Aiur Stream Deck sidecar
-Documentation=https://github.com/its-everdred/aiur/tree/develop/packages/streamdeck
+Documentation=https://github.com/aiur-team/aiur/tree/develop/packages/streamdeck
 After=graphical-session.target
 
 [Service]
 Type=simple
 # The sidecar stays resident while the deck is absent and receives hotplug
 # events from #1354. Restart is for an unexpected process failure only.
-ExecStart=/usr/bin/env node %h/.local/share/aiur/streamdeck/dist/index.js
+ExecStart=/usr/bin/env node %h/.local/share/aiur/streamdeck/dist/main.js
 EnvironmentFile=%h/.config/aiur/streamdeck.env
 Restart=on-failure
 RestartSec=5s

@@ -1,0 +1,10 @@
+name: unsafe composite action fixture
+description: proves local composite action definitions are scanned
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v5
+      with:
+        path: fixture
+        key: fixture

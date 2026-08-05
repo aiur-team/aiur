@@ -64,9 +64,15 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   # gets those instead. Rendering an empty bar for Claude would read as "0%
   # consumed", which is a claim the data does not support.
   defp usage_segment({provider, %{state: :observed} = view}) do
-    case usage_percent(view) do
-      nil -> "#{provider_abbrev(provider)} #{standing_summary(view)}"
-      percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
+    case local_concurrency_summary(view) do
+      nil ->
+        case usage_percent(view) do
+          nil -> "#{provider_abbrev(provider)} #{fact_summary(view)}"
+          percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
+        end
+
+      summary ->
+        "#{provider_abbrev(provider)} #{summary} #{age_suffix(view[:age_seconds])}"
     end
   end
 
@@ -88,16 +94,55 @@ defmodule Aiur.AgentList.Renderer.Chrome do
 
   defp usage_percent(_view), do: nil
 
+  defp local_concurrency_summary(view) do
+    view
+    |> Map.get(:windows, %{})
+    |> Map.values()
+    |> Enum.find(&local_concurrency_window?/1)
+    |> case do
+      %{used: used, limit: limit} when is_number(used) and is_number(limit) ->
+        [credit_fact(view), "#{used}/#{limit} concurrent"]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" · ")
+
+      _window ->
+        nil
+    end
+  end
+
+  defp local_concurrency_window?(window) do
+    Map.get(window, :name) in [:concurrency, "Local concurrency"]
+  end
+
   # A provider that reports standing without a percentage still has something
   # worth the header's space: whether it is allowed, and when the window resets.
-  defp standing_summary(view) do
+  defp fact_summary(view) do
     windows = view |> Map.get(:windows, %{}) |> Map.values() |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
 
     case Enum.find(windows, &Map.get(&1, :standing)) do
-      nil -> "n/a"
+      nil -> credit_summary(view)
       window -> [standing_word(window.standing), reset_suffix(Map.get(window, :resets_at))] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
     end
   end
+
+  defp credit_summary(view) do
+    case credit_fact(view) do
+      nil -> "n/a"
+      fact -> "#{fact} #{age_suffix(view[:age_seconds])}"
+    end
+  end
+
+  defp credit_fact(view) do
+    view
+    |> Map.get(:windows, %{})
+    |> Map.values()
+    |> Enum.find_value(fn
+      %{kind: :credit, credits: %{amount: amount}} when is_number(amount) -> "$#{format_amount(amount)} left"
+      _window -> nil
+    end)
+  end
+
+  defp format_amount(amount), do: :erlang.float_to_binary(amount / 1, decimals: 2)
 
   defp standing_word(:allowed), do: "ok"
   defp standing_word(:allowed_warning), do: "near limit"

@@ -9,7 +9,7 @@ topic: warm-main-base-for-agent-workspaces
 
 Every per-issue agent workspace cold-boots. Workspace creation is `mkdir` + the `.aiurconfig` `after_create` hook, which today runs a full network `git clone` of the target repo plus a from-scratch dependency install and compile. When N agents are dispatched at once these run in parallel and saturate the machine, leaving agents stuck in the TUI "warming up" state for minutes before any real work.
 
-Measured this run (`its-everdred/aiur`, mix): 8 tickets dispatched → 11 parallel cold `mix compile`s → all 12 cores saturated → ~5–6 min of warming before the first agent narrated. The cost is paid **every dispatch** and gets worse with concurrency.
+Measured this run (`aiur-team/aiur`, mix): 8 tickets dispatched → 11 parallel cold `mix compile`s → all 12 cores saturated → ~5–6 min of warming before the first agent narrated. The cost is paid **every dispatch** and gets worse with concurrency.
 
 We want agents to spin a workspace off an already-warm copy of the repo's **latest main** — deps installed, build warm — so they jump straight into work. The hard constraint: aiur cannot assume the target repo's language or build system, and must not impose a container runtime (Docker) on the dev's unrelated repo.
 

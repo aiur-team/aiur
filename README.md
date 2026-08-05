@@ -91,8 +91,9 @@ and it will walk you through setup and ask which mode you want.
 - **Github issues:** In addition to Linear, agents can watch and move Github issues.
 - **Tracker adapters:** configure tracker backends for board- or issue-based queues, including
   label-based state machines where the tracker supports them.
-- **Implementation adapters:** configure implementation backends through Aiur's app-server
-  protocol.
+- **Implementation adapters:** configure Codex and Claude through Aiur's app-server
+  protocol, or use the direct OpenAI-compatible transport for native Kimi,
+  native DeepSeek, and OpenRouter instances.
 - **Live run logs:** each workspace writes a human-readable `logs/agent.md` transcript, which the
   dashboard opens in a live-updating modal while a run is active, plus `logs/agent.ndjson`, a
   structured per-event JSON stream that feeds the attentions feed and records agent crash reasons.
@@ -131,6 +132,9 @@ npm test
 npm run build
 ```
 
+For the emulator and optional hardware acceptance flow, see the
+[Stream Deck end-to-end proof runbook](docs/research/streamdeck-end-to-end-proof.md).
+
 ## Running Aiur
 
 Aiur works best in codebases with clear setup instructions, automated validation, and workflow
@@ -152,7 +156,9 @@ repo-local Executor skills available to it, then ask it to "run aiur" — see
 [Using Aiur with a coding agent](#using-aiur-with-a-coding-agent).
 
 See [src/README.md](src/README.md) for setup, configuration, and the `aiur` command
-reference (foreground, background, and `stop` modes on Linux and macOS).
+reference (foreground, background, and `stop` modes on Linux and macOS). It also documents
+the default 64 MiB / 30-day telemetry retention window, which preserves complete boots for
+useful cross-session history.
 
 ---
 
