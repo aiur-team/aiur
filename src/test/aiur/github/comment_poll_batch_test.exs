@@ -84,7 +84,11 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
   end
 
   test "keeps a target with more than 100 comments when the newest-100 window covers the cursor" do
-    request_fun = overflowing_issue_request_fun([comment(1, "older than cursor", "2026-07-30T11:00:00Z")])
+    request_fun =
+      overflowing_issue_request_fun([
+        comment(1, "older than cursor", "2026-07-30T11:00:00Z"),
+        comment(2, "newer than cursor", "2026-07-30T13:00:00Z")
+      ])
 
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"],
@@ -93,7 +97,10 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
                since: %{"42" => "2026-07-30T12:00:00Z"}
              )
 
-    assert [%{"body" => "older than cursor"}] = batch.issue_comments
+    # Not omitted: the window reaches back past the cursor, so it is complete
+    # for the poller's purposes even though older comments exist.
+    assert Map.has_key?(batch, :issue_comments)
+    assert [%{"body" => "newer than cursor"}] = batch.issue_comments
   end
 
   test "omits a target when every comment in the window is newer than the cursor" do
@@ -162,6 +169,38 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
     assert %{"number" => 77, "head" => %{"ref" => "feature/watched"}} = batch.open_pull_request
     assert [%{"body" => "watched PR comment"}] = batch.pr_issue_comments
+  end
+
+  test "filters the batch window to comments at or after the since cursor" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" =>
+                 issue([
+                   comment(1, "already seen", "2026-07-30T11:00:00Z"),
+                   comment(2, "new", "2026-07-30T13:00:00Z")
+                 ]),
+               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
+               since: %{"42" => "2026-07-30T12:00:00Z"}
+             )
+
+    # Without this filter the batch republishes the whole newest-100 window
+    # every cycle and leans entirely on publisher dedup.
+    assert [%{"body" => "new"}] = batch.issue_comments
   end
 
   defp issue(comments), do: %{"comments" => %{"nodes" => comments}}

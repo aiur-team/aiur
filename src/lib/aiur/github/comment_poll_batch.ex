@@ -276,8 +276,29 @@ defmodule Aiur.GitHub.CommentPollBatch do
       Logger.warning("Github comment GraphQL batch overflow: #{label} target=#{target}")
       batch
     else
-      Map.put(batch, key, Map.get(source, :comments, []))
+      Map.put(batch, key, since_filtered(Map.get(source, :comments, []), since))
     end
+  end
+
+  # The REST path passes `since` to GitHub, which filters server-side. The batch
+  # always gets the newest 100, so filter here to keep both paths semantically
+  # identical — otherwise every cycle republishes the whole window and relies
+  # entirely on publisher dedup, which re-fires old comments once its TTL lapses.
+  # Inclusive, matching REST `since`, and on `updated_at` with a `created_at`
+  # fallback, matching the poller's own `comment_datetime/1`.
+  defp since_filtered(comments, nil), do: comments
+
+  defp since_filtered(comments, %DateTime{} = since) do
+    Enum.filter(comments, fn comment ->
+      case comment_datetime(comment) do
+        nil -> true
+        datetime -> DateTime.compare(datetime, since) != :lt
+      end
+    end)
+  end
+
+  defp comment_datetime(comment) do
+    parse_datetime(Map.get(comment, "updated_at") || Map.get(comment, "created_at"))
   end
 
   # The batch asks for the *newest* 100 comments (`last: 100`), so a target with
@@ -291,8 +312,6 @@ defmodule Aiur.GitHub.CommentPollBatch do
       not window_covers_since?(Map.get(source, :comments, []), since)
   end
 
-  defp comments_truncated?(_source, _since), do: false
-
   defp window_covers_since?(_comments, nil), do: false
 
   defp window_covers_since?(comments, %DateTime{} = since) do
@@ -304,7 +323,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp oldest_created_at(comments) do
     comments
-    |> Enum.map(&parse_datetime(Map.get(&1, "created_at")))
+    |> Enum.map(&comment_datetime/1)
     |> Enum.reject(&is_nil/1)
     |> Enum.min_by(&DateTime.to_unix(&1, :microsecond), fn -> nil end)
   end
@@ -317,8 +336,6 @@ defmodule Aiur.GitHub.CommentPollBatch do
       _other -> %{}
     end
   end
-
-  defp comments_page_info(_source), do: %{}
 
   defp target_since(opts, target) do
     case Keyword.get(opts, :since) do

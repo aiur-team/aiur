@@ -199,17 +199,22 @@ defmodule Aiur.GitHub.IssueDependencies do
       true ->
         state = %{state | visited: MapSet.put(state.visited, node)}
 
-        case Client.fetch_blocking(node, opts) do
-          {:ok, blocking} ->
-            next = blocking |> Enum.map(&Map.get(&1, "number")) |> Enum.filter(&is_integer/1) |> Enum.map(&{to_string(&1), depth + 1})
-            rest_bfs(rest ++ next, %{state | api_calls: state.api_calls + 1}, opts)
-
-          {:error, reason} ->
-            if github_http_status?(reason, 404),
-              do: rest_bfs(rest, %{state | api_calls: state.api_calls + 1}, opts),
-              else: {:error, :cycle_check_inconclusive}
-        end
+        rest_bfs_visit(Client.fetch_blocking(node, opts), rest, depth, state, opts)
     end
+  end
+
+  defp rest_bfs_visit({:ok, blocking}, rest, depth, state, opts) do
+    next = blocking |> Enum.map(&Map.get(&1, "number")) |> Enum.filter(&is_integer/1) |> Enum.map(&{to_string(&1), depth + 1})
+    rest_bfs(rest ++ next, %{state | api_calls: state.api_calls + 1}, opts)
+  end
+
+  # A 404 means the node is gone, not that the closure is unknowable; anything
+  # else leaves the closure incomplete, and an incomplete closure must fail
+  # closed rather than report "no cycle".
+  defp rest_bfs_visit({:error, reason}, rest, _depth, state, opts) do
+    if github_http_status?(reason, 404),
+      do: rest_bfs(rest, %{state | api_calls: state.api_calls + 1}, opts),
+      else: {:error, :cycle_check_inconclusive}
   end
 
   defp graph_bfs([], _state, _opts), do: :ok
@@ -264,17 +269,19 @@ defmodule Aiur.GitHub.IssueDependencies do
       cursor_variables = Map.new(cursors, fn {node, cursor} -> {"after_#{node}", cursor} end)
       variables = Map.merge(%{"owner" => owner, "repo" => repo}, cursor_variables)
 
-      case Transport.github_graphql(request_fun, token, blocking_query(nodes), variables) do
-        {:ok, body} ->
-          with {:ok, {page_edges, next_cursors}} <- blocking_page(body, nodes) do
-            fetch_blocking_graph_pages(Map.keys(next_cursors), next_cursors, edges ++ page_edges, opts)
-          end
-
-        {:error, reason} ->
-          {:error, reason}
-      end
+      request_fun
+      |> Transport.github_graphql(token, blocking_query(nodes), variables)
+      |> continue_blocking_graph_pages(nodes, edges, opts)
     end
   end
+
+  defp continue_blocking_graph_pages({:ok, body}, nodes, edges, opts) do
+    with {:ok, {page_edges, next_cursors}} <- blocking_page(body, nodes) do
+      fetch_blocking_graph_pages(Map.keys(next_cursors), next_cursors, edges ++ page_edges, opts)
+    end
+  end
+
+  defp continue_blocking_graph_pages({:error, reason}, _nodes, _edges, _opts), do: {:error, reason}
 
   defp blocking_query(nodes) do
     variables = Enum.map_join(nodes, ", ", fn node -> "$after_#{node}: String" end)

@@ -127,9 +127,17 @@ defmodule Aiur.GitHub.IssuesTest do
         }
       }
 
-      request_fun = fn %{url: url, etag: etag} ->
-        assert {url, etag} in [{page_one, "one"}, {page_two, "two"}]
-        {:ok, %{status: 304}}
+      request_fun = fn
+        %{url: url, etag: etag} ->
+          assert {url, etag} in [{page_one, "one"}, {page_two, "two"}]
+          {:ok, %{status: 304}}
+
+        # Dispatch authorization reads each issue's timeline to find who applied
+        # the trigger label. Unconditional requests reaching this clause are the
+        # proof that the conditional path still authorizes.
+        %{url: url} ->
+          assert url =~ "/timeline"
+          {:ok, %{status: 200, headers: [], body: []}}
       end
 
       assert {:ok, issues, updated_cache} =
@@ -137,6 +145,45 @@ defmodule Aiur.GitHub.IssuesTest do
 
       assert Enum.map(issues, & &1.id) |> Enum.sort() == ["1", "2"]
       assert updated_cache == cache
+    end
+
+    # Regression guard: the conditional path once returned `Map.values(...)`
+    # without `authorize_dispatches/6`. `normalize_issue/5` defaults
+    # `dispatch_authorized?: false`, so `DispatchPolicy.candidate_issue?/3`
+    # rejected every issue and the daemon silently dispatched nothing.
+    test "authorizes dispatch on the conditional path just like the unconditional one" do
+      gh_issue = %{
+        "number" => 7,
+        "title" => "Issue 7",
+        "body" => nil,
+        "html_url" => "https://github.com/owner/repo/issues/7",
+        "labels" => [%{"name" => "sym:ci-wait"}],
+        "assignee" => nil,
+        "user" => %{"login" => "its-everdred"},
+        "created_at" => "2026-01-01T00:00:00Z",
+        "updated_at" => "2026-01-02T00:00:00Z"
+      }
+
+      request_fun = fn
+        %{url: url, etag: _etag} ->
+          assert url =~ "/issues?labels="
+          {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+
+        %{url: url} ->
+          assert url =~ "/issues?labels=" or url =~ "/timeline"
+          {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+      end
+
+      assert {:ok, conditional_issues, _cache} =
+               Issues.fetch_issues_by_states_conditional(["ci-wait"], %{}, request_fun: request_fun)
+
+      assert {:ok, unconditional_issues} =
+               Issues.fetch_issues_by_states(["ci-wait"], request_fun: request_fun)
+
+      assert Enum.map(conditional_issues, & &1.dispatch_authorized?) ==
+               Enum.map(unconditional_issues, & &1.dispatch_authorized?)
+
+      assert [true] = Enum.map(conditional_issues, & &1.dispatch_authorized?)
     end
   end
 
