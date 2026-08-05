@@ -48,6 +48,8 @@ alerts:
       - "/System/Library/Sounds/Basso.aiff"
   "system.github_app_token.refresh_recovered":
     message: GitHub App token refresh recovered
+    sound:
+      - "/System/Library/Sounds/Glass.aiff"
   "system.dispatch.prewarm_blocked":
     message: Shared prewarm is blocking dispatch
     sound:
