@@ -94,6 +94,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
       load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
+      poll_frozen: false,
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,

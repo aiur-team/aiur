@@ -48,6 +48,24 @@ defmodule Aiur.AlertsTest do
              |> AgentLog.parse()
   end
 
+  test "emit_system persists a dynamic readiness alert without a configured topic" do
+    root = Path.join(System.tmp_dir!(), "aiur-readiness-alert-#{System.unique_integer([:positive])}")
+    workspace = Path.join([root, "project", "1474"])
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf!(root) end)
+
+    assert :ok =
+             Alerts.emit_system("system.ci_readiness.not_ready",
+               message: "Repository CI readiness is incomplete",
+               reason: "CI readiness: not ready for main",
+               needs_attention: true,
+               workspace: workspace
+             )
+
+    assert [%{"topic" => "system.ci_readiness.not_ready", "needs_attention" => true}] =
+             AlertFeed.list(roots: [root], log_roots: [])
+  end
+
   # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
   # scopes (`task.*`, `agent.*`, `chat.*`). That gate moved to Ticket A's
   # `emit_event` tool allowlist — server-side `Alerts` no longer policies

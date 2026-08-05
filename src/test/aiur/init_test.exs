@@ -100,6 +100,10 @@ defmodule Aiur.InitTest do
         end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
+        setup_repo_state: fn tracker ->
+          send(parent, {:repo_state, tracker})
+          :ok
+        end,
         detect_toolchain: fn -> :none end,
         prewarm_build: fn url, cmd ->
           send(parent, {:prewarm_build, url, cmd})
@@ -178,6 +182,7 @@ defmodule Aiur.InitTest do
         github_login: fn -> "octocat" end,
         github_bot_account_default: fn -> nil end,
         github_token: fn -> nil end,
+        check_ci_readiness: fn _tracker -> {:ok, %{ready?: true, base_branch: "main", required_checks: ["ci / required"]}} end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
@@ -1278,6 +1283,8 @@ defmodule Aiur.InitTest do
     test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
+      assert_received {:repo_state, %{kind: "github", repo: "octo/repo"}}
+
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
       assert config["tracker"]["github"]["repo"] == "octo/repo"
@@ -1299,6 +1306,24 @@ defmodule Aiur.InitTest do
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
       refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
+    end
+
+    test "global init checks the current repository without storing it", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}, confirm: %{"No pull-request CI workflow found — scaffold .github/workflows/ci.yml?" => false}})
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          detect_repo: fn -> "octo/current-repo" end,
+          check_ci_readiness: fn tracker ->
+            send(self(), {:readiness_tracker, tracker})
+            {:ok, %{ready?: false, base_branch: "main", workflow_paths: [], issues: [:no_pr_workflow]}}
+          end
+        })
+
+      assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
+      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
+      refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
     end
 
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do
@@ -1401,6 +1426,8 @@ defmodule Aiur.InitTest do
       assert template =~ "after_create:"
       assert template =~ "before_run:"
       assert template =~ "$THIS_REPOSITORY_URL"
+      assert template =~ "$AIUR_REPO_STATE_PATH"
+      assert template =~ "move_sidecars_to_state"
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
@@ -1717,11 +1744,12 @@ defmodule Aiur.InitTest do
       joined = Enum.join(log, "\n")
 
       assert joined =~ "Generate new token (classic)"
+      assert joined =~ "Administration: Read-only"
       assert joined =~ "repo` scope"
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"
       assert joined =~ "Issues"
-      assert joined =~ "Contents"
+      assert joined =~ "Contents: Read and write"
       assert joined =~ "Pull requests"
       assert joined =~ "write access to this repo"
     end

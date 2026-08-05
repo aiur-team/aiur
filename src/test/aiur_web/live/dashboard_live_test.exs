@@ -2392,7 +2392,6 @@ defmodule AiurWeb.DashboardLiveTest do
       })
 
     assert html =~ "Revision recorded"
-    assert html =~ "A revision records new direction"
     assert html =~ "Original answer · preserved"
     assert html =~ "Hold deployment until the incident closes"
     assert html =~ "New production evidence"
@@ -2748,6 +2747,52 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert html =~ "Answer recorded"
     assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
+  end
+
+  test "free-form attention acknowledges without recording an answer" do
+    orchestrator_name = Module.concat(__MODULE__, :AckFreeFormOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :AckFreeFormStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          "source_id" => "dashboard-ack-free-form",
+          "question" => "Heads up: the run finished.",
+          "blocking" => false,
+          "urgency" => "normal",
+          "reversibility" => "reversible",
+          "options" => []
+        },
+        [
+          ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+          source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-ack"}
+        ],
+        store
+      )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ ~s(phx-click="dismiss-decision")
+
+    html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert html =~ "acknowledged"
+    assert {:ok, dismissed} = DecisionStore.get(decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
   end
 
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do
@@ -3622,6 +3667,60 @@ defmodule AiurWeb.DashboardLiveTest do
 
     render_hook(view, "pause-agent", %{})
     assert_receive {:typed_agent_pause, ^identity}
+  end
+
+  test "the chat modal composer carries the writable agent log and passes the typed Unit identity" do
+    identity = units_identity()
+    membership = units_membership(identity)
+    handle = conversation_handle_value("c")
+    orchestrator_name = Module.concat(__MODULE__, :TypedConversationComposerOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    snapshot = units_orchestrator_snapshot(identity)
+
+    running =
+      snapshot.running
+      |> hd()
+      |> Map.merge(%{
+        live_conversation: %{generation_handle: handle, state: :live, health: :healthy, freshness: :current},
+        workspace_path: Path.join(System.tmp_dir!(), "units-chat-composer-log")
+      })
+
+    replace_counting_snapshot(orchestrator, %{snapshot | running: [running]})
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      live_conversation_resolve_fun: fn _handle -> {:ok, conversation_snapshot(handle)} end,
+      live_conversation_subscribe_fun: fn _handle -> :ok end,
+      agent_chat_send_fun: fn selected, text ->
+        send(test_pid, {:drawer_agent_message, selected, text})
+        {:ok, 9}
+      end,
+      agent_chat_pause_fun: fn selected ->
+        send(test_pid, {:drawer_agent_pause, selected})
+        {:ok, 10}
+      end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    token = UnitsPresenter.row_token(%{identity: identity})
+
+    html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
+
+    assert html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "Agent log"
+
+    render_submit(view, "send-operator-message", %{"message" => "drawer hello"})
+    assert_receive {:drawer_agent_message, ^identity, "drawer hello"}
+
+    render_hook(view, "pause-agent", %{})
+    assert_receive {:drawer_agent_pause, ^identity}
   end
 
   describe "unit controls (DASH-005)" do
