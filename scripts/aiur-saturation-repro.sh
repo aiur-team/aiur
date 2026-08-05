@@ -232,6 +232,8 @@ watch_window() {
   peak_load=0
   crashed=0
   dump_seen=0
+  unknown_samples=0
+  saturated_samples=0
 
   while [ "$(date +%s)" -lt "$watch_end" ]; do
     load="$(read_load1)"
@@ -260,9 +262,11 @@ watch_window() {
         return 0
         ;;
       saturated)
+        saturated_samples=$((saturated_samples + 1))
         info "t+$(( $(date +%s) - watch_start ))s load=$load peak=$peak_load daemon=saturated (alive, control rpc not answering)"
         ;;
       unknown)
+        unknown_samples=$((unknown_samples + 1))
         info "t+$(( $(date +%s) - watch_start ))s load=$load peak=$peak_load daemon=unknown (epmd unqueryable; not treated as a crash)"
         ;;
       *)
@@ -447,6 +451,20 @@ main() {
   fi
 
   info "window elapsed without a daemon crash. peak load=$peak_load"
+  if [ "$saturated_samples" -gt 0 ]; then
+    info "daemon was saturated (alive, control rpc timing out) for $saturated_samples sample(s)"
+    info "— the load profile bit, but the BEAM survived it."
+  fi
+  if [ "$unknown_samples" -gt 0 ]; then
+    # Preflight proved epmd was queryable and the node registered, so losing
+    # that mid-window is a real blind spot: a BEAM death during those samples
+    # would have been misread as "no crash". Say so instead of implying a clean
+    # run, and point the operator at the independent evidence.
+    info "WARNING: daemon state was UNCLASSIFIABLE for $unknown_samples sample(s) — epmd"
+    info "became unqueryable after a clean preflight, so a death during that span"
+    info "could have been missed. Treat this run as INCONCLUSIVE, not negative:"
+    info "check '$aiur_bin status', the daemon log, and $resolved_dump before rerunning."
+  fi
   info "not reproduced in this window — to push further raise --external / --duration,"
   info "add --fleet-target, or raise the internal load_cap_beams in this script."
   exit 0

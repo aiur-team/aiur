@@ -164,9 +164,27 @@ defmodule AiurSaturationReproTest do
     #{dump_setup}
     daemon_state() { printf '%s' "#{stub_daemon_state}"; }
     sleep() { :; }
-    now=$(date +%s)
-    watch_window "$now" $((now + 12)) >/dev/null
-    echo "crashed=$crashed dump_seen=$dump_seen"
+    # Deterministic virtual clock anchored to a REAL epoch, so dump-mtime
+    # comparisons stay meaningful while the loop runs a fixed number of
+    # iterations instead of spinning for wall-clock seconds. Each iteration
+    # burns two `date` calls (loop condition + info line), so a 6-second
+    # window is exactly 3 iterations.
+    #
+    # The tick counter lives in a FILE, not a shell variable: watch_window
+    # reads the clock as `$(date +%s)`, and a variable incremented inside that
+    # command substitution's subshell would never advance in the parent — the
+    # loop condition would then never terminate.
+    __base=$(command date +%s)
+    __clock_file="#{dir}/clock"
+    echo 0 > "$__clock_file"
+    date() {
+      local n
+      n=$(( $(cat "$__clock_file") + 1 ))
+      echo "$n" > "$__clock_file"
+      printf '%s' "$((__base + n))"
+    }
+    watch_window "$__base" "$((__base + 6))" >/dev/null
+    echo "crashed=$crashed dump_seen=$dump_seen unknown=$unknown_samples saturated=$saturated_samples"
     """)
   end
 
@@ -200,6 +218,14 @@ defmodule AiurSaturationReproTest do
     # A dump left over from an earlier crash must not be read as this run's.
     out = watch("up", ~s|touch -d '2 hours ago' "$resolved_dump"|)
     assert out =~ "crashed=0 dump_seen=0"
+  end
+
+  test "watch_window counts saturated and unknown samples so the report can qualify them" do
+    # A clean-looking window that was actually unclassifiable must not be
+    # reported as a negative result; the reporter keys off these counters.
+    assert watch("unknown") =~ "unknown=3 saturated=0"
+    assert watch("saturated") =~ "unknown=0 saturated=3"
+    assert watch("up") =~ "unknown=0 saturated=0"
   end
 
   test "script header documents the operator-only safety boundary" do
