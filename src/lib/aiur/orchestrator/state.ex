@@ -24,8 +24,18 @@ defmodule Aiur.Orchestrator.State do
             last_decrease_ms: integer() | nil,
             cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
           },
+          capacity_hold:
+            %{
+              signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
+              measured: term(),
+              threshold: term(),
+              held_since_ms: integer(),
+              alerted?: boolean()
+            }
+            | nil,
           next_poll_due_at_ms: integer() | nil,
           poll_check_in_progress: boolean() | nil,
+          poll_frozen: boolean() | nil,
           tick_timer_ref: reference() | nil,
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
@@ -62,6 +72,10 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
+          # Transient-caused pause/error tickets waiting a bounded backoff before
+          # automatic re-dispatch (#1453). Keyed by issue_id; see
+          # `Aiur.Orchestrator.AutoResume`.
+          auto_resume: %{String.t() => map()},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -75,8 +89,20 @@ defmodule Aiur.Orchestrator.State do
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
+          ci_readiness_checked: boolean() | nil,
+          ci_readiness_unavailable_alerted: boolean() | nil,
+          ci_readiness_check_pid: pid() | nil,
+          ci_readiness_check_token: reference() | nil,
+          ci_readiness_retry_at_ms: integer() | nil,
+          ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
+          ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
-          control_lifecycle: ControlLifecycle.t()
+          control_lifecycle: ControlLifecycle.t(),
+          # Consecutive poll ticks the prewarm gate has held dispatch for a
+          # warming base. Drives the at-most-once-per-N-ticks hold log so a
+          # slow/stuck base build stays visible in the daemon log without
+          # spamming it (see Dispatcher.log_prewarm_hold/2).
+          prewarm_hold_ticks: non_neg_integer()
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -91,10 +117,19 @@ defmodule Aiur.Orchestrator.State do
     :effective_concurrent_agents,
     :next_poll_due_at_ms,
     :poll_check_in_progress,
+    :poll_frozen,
     :tick_timer_ref,
     :tick_token,
     :initial_dispatch_cycle,
+    :ci_readiness_checked,
+    :ci_readiness_unavailable_alerted,
+    :ci_readiness_check_pid,
+    :ci_readiness_check_token,
+    :ci_readiness_retry_at_ms,
+    :ci_readiness_scope,
+    :ci_readiness_result,
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+    capacity_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{
@@ -120,6 +155,7 @@ defmodule Aiur.Orchestrator.State do
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
+    auto_resume: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
@@ -135,7 +171,8 @@ defmodule Aiur.Orchestrator.State do
     globally_paused: false,
     global_pause: %{paused_at: nil, source: nil},
     snapshot_ready?: false,
-    control_lifecycle: %ControlLifecycle{}
+    control_lifecycle: %ControlLifecycle{},
+    prewarm_hold_ticks: 0
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

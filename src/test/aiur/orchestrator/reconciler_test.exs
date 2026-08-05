@@ -382,6 +382,46 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       assert %State{} = result
     end
 
+    test "keeps a fenced terminal issue running during the grace window" do
+      issue = terminal_fenced_issue()
+      state = terminal_fenced_state(issue, DateTime.utc_now())
+
+      result =
+        Reconciler.reconcile_issue_state(
+          issue,
+          state,
+          MapSet.new(["in-progress"]),
+          MapSet.new(["closed"]),
+          fn _observed_identity, _lifecycle -> :ok end
+        )
+
+      assert result == state
+      assert Map.has_key?(result.running, issue.id)
+    end
+
+    test "records a fenced terminal issue before removing it after the grace window" do
+      parent = self()
+      identity = tracker_identity("I-fenced-terminal")
+      issue = terminal_fenced_issue(identity)
+      state = terminal_fenced_state(issue, DateTime.add(DateTime.utc_now(), -31, :second))
+
+      result =
+        Reconciler.reconcile_issue_state(
+          issue,
+          state,
+          MapSet.new(["in-progress"]),
+          MapSet.new(["closed"]),
+          fn observed_identity, lifecycle ->
+            send(parent, {observed_identity, lifecycle})
+            :ok
+          end
+        )
+
+      assert_received {^identity, :completed}
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+    end
+
     test "records cancellation and replacement lifecycle observations" do
       parent = self()
       identity = tracker_identity("I-cancelled")
@@ -488,6 +528,36 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
       provider_id: provider_id,
       identifier: "42",
       reason: nil
+    }
+  end
+
+  defp terminal_fenced_issue(identity \\ tracker_identity("I-fenced-terminal")) do
+    %Issue{
+      id: "issue-fenced-terminal",
+      identifier: "I-fenced-terminal",
+      state: "closed",
+      tracker_identity: identity
+    }
+  end
+
+  defp terminal_fenced_state(issue, opened_at) do
+    %State{
+      running: %{
+        issue.id => %{
+          pid: nil,
+          ref: nil,
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.utc_now(),
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: opened_at,
+            pending_item_ids: MapSet.new([99])
+          }
+        }
+      },
+      claimed: MapSet.new([issue.id])
     }
   end
 

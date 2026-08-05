@@ -36,6 +36,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "Inspect ticket"
     refute html =~ ~s(href="/decisions?ticket=1110")
     refute html =~ ">Agent log</button>"
+    # The standalone read-agent-log row action is gone: the chat modal now
+    # carries the agent log beneath the conversation.
+    refute html =~ "Read agent log"
+    refute html =~ ~s(phx-click="show-agent-log")
     assert html =~ ~s(phx-value-unit="#{token}")
     refute html =~ ~s(phx-value-issue="1110")
     refute html =~ ~r/<tr[^>]+phx-click=/

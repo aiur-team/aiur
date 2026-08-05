@@ -101,7 +101,7 @@ defmodule Aiur.Alerts do
 
   @spec emit_system(String.t(), keyword()) :: :ok | {:error, term()}
   def emit_system(name, opts \\ []) when is_binary(name) do
-    do_emit(name, nil, Keyword.put(opts, :event_source, :system))
+    do_emit(name, Keyword.get(opts, :message), Keyword.put(opts, :event_source, :system))
   end
 
   @spec emit_custom(String.t(), String.t()) :: :ok | {:error, term()}

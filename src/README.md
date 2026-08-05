@@ -118,7 +118,13 @@ walks:
 5. **GitHub token** — used to create labels and act as the bot account. With no
    `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
    failing.
-6. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
+6. **CI readiness** — for GitHub repositories, verifies the configured base
+   branch exists, a pull-request workflow targets it, branch protection or an
+   applicable ruleset requires a check, and that a workflow produces that check.
+   A gap stops setup with a clear error; when no pull-request workflow exists,
+   the wizard offers a minimal `ci.yml` scaffold with a stable aggregator check
+   name (`ci / required`).
+7. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
    complexity, model, and remote-control labels the orchestrator routes on.
    Each stage creates only the labels that are missing; when a group already exists it reports
    `<group> tags: created.` and skips the prompt.
@@ -224,7 +230,7 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state |
+| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |

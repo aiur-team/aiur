@@ -11,6 +11,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   require Logger
 
   alias Aiur.AgentQueueItem
+  alias Aiur.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator.{DispatchPolicy, State}
   alias Aiur.Orchestrator.OperatorMessages.DeliveryPolicy
@@ -67,6 +68,12 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   @spec reconcile_observed_state(State.t(), Issue.t()) :: :admit | {:fenced, State.t()}
   def reconcile_observed_state(%State{} = state, %Issue{} = issue) do
+    reconcile_observed_state(state, issue, DispatchPolicy.terminal_state_set())
+  end
+
+  @doc false
+  @spec reconcile_observed_state(State.t(), Issue.t(), MapSet.t()) :: :admit | {:fenced, State.t()}
+  def reconcile_observed_state(%State{} = state, %Issue{} = issue, terminal_states) do
     case running_fence(state, issue) do
       {issue_id, %{authoritative_state: nil}} ->
         case normalize_state(issue.state) do
@@ -77,11 +84,20 @@ defmodule Aiur.Orchestrator.LifecycleFence do
             {:fenced, state}
         end
 
-      {issue_id, %{authoritative_state: authoritative_state}}
+      {issue_id, fence = %{authoritative_state: authoritative_state}}
       when is_binary(authoritative_state) ->
         actual_state = normalize_state(issue.state)
 
         cond do
+          DispatchPolicy.terminal_issue_state?(actual_state, terminal_states) ->
+            reconcile_terminal_observation(
+              state,
+              issue,
+              fence,
+              actual_state,
+              authoritative_state
+            )
+
           actual_state == authoritative_state ->
             {:fenced, state}
 
@@ -197,25 +213,13 @@ defmodule Aiur.Orchestrator.LifecycleFence do
   end
 
   defp restore_authoritative_state(state, issue, actual_state, authoritative_state)
-       when actual_state == "closed" do
-    retain_terminal_handoff(state, issue, actual_state, authoritative_state)
-  end
-
-  defp restore_authoritative_state(state, issue, actual_state, authoritative_state)
        when is_binary(actual_state) do
-    if DispatchPolicy.terminal_issue_state?(
-         actual_state,
-         DispatchPolicy.terminal_state_set()
-       ) do
-      retain_terminal_handoff(state, issue, actual_state, authoritative_state)
-    else
-      restore_nonterminal_authoritative_state(
-        state,
-        issue,
-        actual_state,
-        authoritative_state
-      )
-    end
+    restore_nonterminal_authoritative_state(
+      state,
+      issue,
+      actual_state,
+      authoritative_state
+    )
   end
 
   defp restore_authoritative_state(state, issue, actual_state, authoritative_state) do
@@ -287,16 +291,6 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     end
   end
 
-  defp retain_terminal_handoff(state, issue, actual_state, authoritative_state) do
-    Logger.warning(
-      "Terminal lifecycle handoff held locally while authoritative input is undelivered: " <>
-        "#{State.issue_context(issue)} observed_state=#{actual_state} " <>
-        "authoritative_state=#{authoritative_state} decision=keep_runner_without_reopening"
-    )
-
-    state
-  end
-
   defp refresh_cached_authoritative_state(state, issue, authoritative_state) do
     case running_fence(state, issue) do
       {issue_id, _fence} ->
@@ -328,4 +322,35 @@ defmodule Aiur.Orchestrator.LifecycleFence do
 
   defp normalize_state(state) when is_binary(state), do: DispatchPolicy.normalize_issue_state(state)
   defp normalize_state(_state), do: nil
+
+  defp reconcile_terminal_observation(
+         state,
+         issue,
+         fence,
+         actual_state,
+         authoritative_state
+       ) do
+    if terminal_fence_expired?(fence) do
+      Logger.info(
+        "Terminal tracker state observed after lifecycle fence grace; admitting for teardown: " <>
+          "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+      )
+
+      :admit
+    else
+      Logger.info(
+        "Terminal tracker state observed while lifecycle fence grace is active; keeping runner: " <>
+          "#{State.issue_context(issue)} observed_state=#{actual_state} authoritative_state=#{authoritative_state}"
+      )
+
+      {:fenced, state}
+    end
+  end
+
+  defp terminal_fence_expired?(%{opened_at: %DateTime{} = opened_at}) do
+    DateTime.diff(DateTime.utc_now(), opened_at, :second) >=
+      Config.terminal_fence_grace_seconds()
+  end
+
+  defp terminal_fence_expired?(_fence), do: false
 end

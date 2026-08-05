@@ -20,7 +20,7 @@ defmodule Aiur.GitHub.ErrorsTest do
     response = %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "7"}]}
 
     assert Errors.classify_error(response) ==
-             {:github, :rate_limited, %{status: 403, retry_after: 7, poll_interval: nil}}
+             {:github, :rate_limited, %{status: 403, retry_after: 7, poll_interval: nil, reset_at: nil}}
 
     assert Errors.classify_error(%{status: 500}) == {:github, :http, %{status: 500}}
   end
