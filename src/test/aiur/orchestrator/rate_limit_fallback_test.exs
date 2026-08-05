@@ -618,6 +618,38 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
 
       assert RateLimitFallback.reconcile(state, reconcile_opts()) == state
     end
+
+    test "hands the pause cause to resume so the pause attention can be resolved" do
+      # PauseResume reads `:paused_reason` off the entry it is given to emit the
+      # matching `agent.attention.paused-<cause>.resolved`. Cancelling a
+      # deferred revert used to strip the reason first, so the resolution was
+      # skipped and the pause attention stayed active forever.
+      issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label], selected_backend: "claude"}
+
+      entry =
+        fallback_entry(%{
+          issue: issue,
+          control: %{status: :paused},
+          paused_reason: :rate_limit_fallback_recovery,
+          rate_limit_fallback_revert_pending: true
+        })
+
+      test_pid = self()
+
+      RateLimitFallback.reconcile(
+        %State{running: %{issue.id => entry}},
+        reconcile_opts(
+          # Force the deferred-revert cancel path.
+          dispatch_ready_fun: fn _state, _issue, _worker_host -> {:error, :max_concurrent_agents_reached} end,
+          resume_fun: fn current_state, resumed_entry ->
+            send(test_pid, {:resumed_with, Map.get(resumed_entry, :paused_reason)})
+            {{:ok, :resumed}, current_state}
+          end
+        )
+      )
+
+      assert_received {:resumed_with, :rate_limit_fallback_recovery}
+    end
   end
 
   defp fallback_state(labels, selected_backend \\ nil, status \\ :paused) do

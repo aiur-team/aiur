@@ -368,7 +368,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
           [
             :unavailable,
             :unavailable,
-            %{pid: "123", used: 91, limit: 100, available: 9, headroom_ratio: 0.09},
+            # `:exhausted` holds unconditionally. A headroom-ratio sample would
+            # instead be compared against the configured FD threshold, making
+            # this assertion depend on the shared workflow file that other test
+            # modules rewrite concurrently.
+            :exhausted,
             :unavailable
           ]
         end)
@@ -467,6 +471,77 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
 
       assert alerted.capacity_starvation.alerted == ["build-queue"]
+      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+      assert event["reason"] =~ "build-queue gate"
+    end
+
+    test "keeps a persistent build-queue age while a higher-priority memory gate oscillates" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_builds: 2,
+        min_free_memory_mb: 2_048
+      )
+
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      # The build queue stays saturated for the whole window; memory drops out
+      # and recovers around it. Memory outranks build in `admission_gate/1`, so
+      # before every failing gate was sampled independently the build-queue
+      # identity vanished from the constraint set on the memory ticks and its
+      # age restarted — suppressing the alert for as long as memory oscillated.
+      Application.put_env(:aiur, :build_gate_status_override, fn ->
+        %{enabled?: true, capacity: 2, active: 2, queued: 1}
+      end)
+
+      {:ok, memory_samples} =
+        Agent.start_link(fn ->
+          ["MemAvailable: 4096000 kB\n", "MemAvailable: 1048576 kB\n", "MemAvailable: 4096000 kB\n"]
+        end)
+
+      Application.put_env(:aiur, :meminfo_source_override, fn ->
+        Agent.get_and_update(memory_samples, fn [sample | rest] -> {{:ok, sample}, rest} end)
+      end)
+
+      ready = issue("build-starved")
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
+      end
+
+      held =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
+
+      assert Enum.any?(held.dispatch_capacity_constraints, &(&1.kind == :build_queue))
+
+      masked =
+        held
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 30_000)
+
+      # Memory is binding on this tick, but the build queue must still be
+      # recorded so its age survives.
+      assert Enum.any?(masked.dispatch_capacity_constraints, &(&1.kind == :memory))
+      assert Enum.any?(masked.dispatch_capacity_constraints, &(&1.kind == :build_queue))
+      assert masked.capacity_starvation.since_ms["build-queue"] == 1_000
+
+      alerted =
+        masked
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
+
+      assert "build-queue" in alerted.capacity_starvation.alerted
       assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
       assert event["reason"] =~ "build-queue gate"
     end

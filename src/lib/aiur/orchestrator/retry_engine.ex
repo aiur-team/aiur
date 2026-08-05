@@ -585,7 +585,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
           issue: identifier,
           reason: message,
           needs_attention: true,
-          severity: "warning"
+          severity: "warning",
+          # Must reach the central feed: IssueSync rediscovers the persisted
+          # error cause from there after a restart.
+          central: true
         )
 
         :alert_emitted

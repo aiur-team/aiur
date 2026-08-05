@@ -373,10 +373,22 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
       :hold ->
         state
+        |> maybe_sample_host_pressure_under_prewarm_hold(issues)
         |> log_prewarm_hold(phase)
         |> emit_prewarm_blocked_alert(phase)
     end
   end
+
+  # Sample host pressure even though prewarm already decided the hold.
+  # Otherwise a prewarm phase that flickers ready/:building across ticks drops
+  # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
+  # of a gate that never actually cleared — suppressing the starvation alert for
+  # as long as prewarm keeps oscillating. Only probe when ready work exists,
+  # since that is the sole condition the starvation alert reports on.
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, []), do: state
+
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues) when is_list(issues),
+    do: record_capacity_constraints(state, admission_probes())
 
   @doc false
   @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
@@ -547,12 +559,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
-        # The independent samples above cover only the gates that can be probed
-        # in isolation. Recording the binding signal as well guarantees a held
-        # fleet always has at least one constraint, so `capacity_starved` can
-        # never read an empty list and silently clear while dispatch is stuck.
+        # Every admission signal is sampled independently above, so the binding
+        # signal is normally already recorded and re-recording it would add a
+        # duplicate identity. Fall back to it only when nothing was sampled, so
+        # a held fleet always carries at least one constraint and
+        # `capacity_starved` can never read an empty list and silently clear.
         state
-        |> record_binding_constraint(reason)
+        |> record_fallback_binding_constraint(reason)
         |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
 
       :dispatch ->
@@ -1338,7 +1351,57 @@ defmodule Aiur.Orchestrator.Dispatcher do
       probes.load_threshold,
       probes.schedulers
     )
+    |> maybe_record_run_queue_constraint(
+      DispatchPolicy.run_queue_gate(probes.runnable, probes.schedulers, probes.run_queue_threshold),
+      probes
+    )
+    |> maybe_record_build_constraint(
+      DispatchPolicy.build_gate(probes.build_status),
+      probes.build_status
+    )
+    |> maybe_record_provider_constraint(
+      DispatchPolicy.provider_gate(probes.provider_backends),
+      probes.provider_backends
+    )
   end
+
+  defp maybe_record_run_queue_constraint(state, :hold, probes) do
+    record_capacity_constraint(
+      state,
+      :run_queue,
+      "runnable=#{inspect(probes.runnable)} threshold=#{inspect(probes.run_queue_threshold)} " <>
+        "schedulers=#{probes.schedulers}"
+    )
+  end
+
+  defp maybe_record_run_queue_constraint(state, _gate, _probes), do: state
+
+  defp maybe_record_build_constraint(state, :hold, status),
+    do: record_capacity_constraint(state, :build_queue, "build=#{inspect(status)}")
+
+  defp maybe_record_build_constraint(state, _gate, _status), do: state
+
+  defp maybe_record_provider_constraint(state, :hold, backends),
+    do: record_capacity_constraint(state, :provider, "backends=#{inspect(backends)}")
+
+  defp maybe_record_provider_constraint(state, _gate, _backends), do: state
+
+  defp record_fallback_binding_constraint(%State{dispatch_capacity_constraints: []} = state, %{signal: signal} = reason)
+       when is_atom(signal) do
+    record_capacity_constraint(
+      state,
+      binding_constraint_kind(signal),
+      "measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}"
+    )
+  end
+
+  defp record_fallback_binding_constraint(%State{} = state, _reason), do: state
+
+  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
+  # different condition from the prewarm hold that records the `:build`
+  # constraint kind; keep them distinct so an alert never misattributes one.
+  defp binding_constraint_kind(:build), do: :build_queue
+  defp binding_constraint_kind(signal), do: signal
 
   defp maybe_record_memory_constraint(state, :hold, available_memory_mb, threshold_mb) do
     record_capacity_constraint(
@@ -1364,27 +1427,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp maybe_record_load_constraint(state, _gate, _load, _threshold, _schedulers), do: state
-
-  # Records the gate `admission_gate/1` named as binding. The independently
-  # sampled gates are already recorded with richer detail, so only the signals
-  # that have no standalone probe (`:run_queue`, `:build`, `:provider`) add an
-  # entry here.
-  defp record_binding_constraint(%State{} = state, %{signal: signal} = reason)
-       when signal in [:run_queue, :build, :provider] do
-    record_capacity_constraint(
-      state,
-      binding_constraint_kind(signal),
-      "measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}"
-    )
-  end
-
-  defp record_binding_constraint(%State{} = state, _reason), do: state
-
-  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
-  # different condition from the prewarm hold that records the `:build`
-  # constraint kind; keep them distinct so an alert never misattributes one.
-  defp binding_constraint_kind(:build), do: :build_queue
-  defp binding_constraint_kind(signal), do: signal
 
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()
@@ -1556,7 +1598,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
             issue: issue.identifier,
             reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
             needs_attention: true,
-            severity: "warning"
+            severity: "warning",
+            # IssueSync reconstructs the persisted error cause after a restart
+            # from the central feed only, so this attention must land there or
+            # it can never be resolved or rearmed.
+            central: true
           )
 
           updated_entry = Map.put(entry, :durable_latch_applied, true)

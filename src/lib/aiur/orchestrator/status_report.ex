@@ -734,7 +734,16 @@ defmodule Aiur.Orchestrator.StatusReport do
         last_codex_event: nil,
         retry_attempt: Map.get(retry, :attempt),
         retry_reason: retry_reason,
-        reason: if(tracker_paused, do: StatusReason.for_paused_retry(:label_override, Map.get(retry, :error), due_in_ms), else: retry_reason)
+        reason:
+          if tracker_paused do
+            StatusReason.for_paused_retry(
+              tracker_pause_cause(state),
+              Map.get(retry, :error),
+              due_in_ms
+            )
+          else
+            retry_reason
+          end
       }
     end)
   end
@@ -828,6 +837,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp idle_issue_pause_reason(_issue), do: nil
+
+  # A ticket with no running entry (idle or awaiting retry) carries no local
+  # pause cause, so the tracker label is normally the whole story. A fleet-wide
+  # pause is the one cause that is still knowable, and it explains the stall far
+  # better than rendering every such row as an operator pause.
+  defp tracker_pause_cause(%State{globally_paused: true}), do: :global_pause
+  defp tracker_pause_cause(_state), do: :label_override
 
   @spec next_poll_in_ms(integer() | nil, integer()) :: non_neg_integer() | nil
   def next_poll_in_ms(nil, _now_ms), do: nil
