@@ -547,7 +547,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
-        reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts)
+        # The independent samples above cover only the gates that can be probed
+        # in isolation. Recording the binding signal as well guarantees a held
+        # fleet always has at least one constraint, so `capacity_starved` can
+        # never read an empty list and silently clear while dispatch is stuck.
+        state
+        |> record_binding_constraint(reason)
+        |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
 
       :dispatch ->
         state =
@@ -1358,6 +1364,27 @@ defmodule Aiur.Orchestrator.Dispatcher do
   end
 
   defp maybe_record_load_constraint(state, _gate, _load, _threshold, _schedulers), do: state
+
+  # Records the gate `admission_gate/1` named as binding. The independently
+  # sampled gates are already recorded with richer detail, so only the signals
+  # that have no standalone probe (`:run_queue`, `:build`, `:provider`) add an
+  # entry here.
+  defp record_binding_constraint(%State{} = state, %{signal: signal} = reason)
+       when signal in [:run_queue, :build, :provider] do
+    record_capacity_constraint(
+      state,
+      binding_constraint_kind(signal),
+      "measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}"
+    )
+  end
+
+  defp record_binding_constraint(%State{} = state, _reason), do: state
+
+  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
+  # different condition from the prewarm hold that records the `:build`
+  # constraint kind; keep them distinct so an alert never misattributes one.
+  defp binding_constraint_kind(:build), do: :build_queue
+  defp binding_constraint_kind(signal), do: signal
 
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()

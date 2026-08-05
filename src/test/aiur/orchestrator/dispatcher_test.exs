@@ -424,6 +424,52 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
       assert event["reason"] =~ "load gate"
     end
+
+    # `admission_gate/1` can bind on gates that have no standalone probe. Without
+    # recording the binding signal, a fleet held by one of them reports zero
+    # constraints and `sync_capacity_starvation_alert/3` clears starvation
+    # instead of alerting — the fleet is stuck and nothing says so.
+    test "a build-queue hold still records a constraint and starves" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 2)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      Application.put_env(:aiur, :build_gate_status_override, fn ->
+        %{enabled?: true, capacity: 2, active: 2, queued: 1}
+      end)
+
+      ready = issue("build-queued")
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
+      end
+
+      held =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
+
+      assert Enum.any?(held.dispatch_capacity_constraints, &(&1.kind == :build_queue))
+
+      alerted =
+        held
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
+
+      assert alerted.capacity_starvation.alerted == ["build-queue"]
+      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+      assert event["reason"] =~ "build-queue gate"
+    end
   end
 
   describe "capacity_hold surfacing" do

@@ -1030,13 +1030,20 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp dispatch_capacity_constraint_entry(_constraint), do: []
 
   defp dispatch_constraint_identity(:build), do: "build"
+  defp dispatch_constraint_identity(:build_queue), do: "build-queue"
   defp dispatch_constraint_identity(:fd), do: "fd"
   defp dispatch_constraint_identity(:load), do: "load"
   defp dispatch_constraint_identity(:load_envelope), do: "load-envelope"
   defp dispatch_constraint_identity(:memory), do: "memory"
+  defp dispatch_constraint_identity(:provider), do: "provider"
+  defp dispatch_constraint_identity(:run_queue), do: "run-queue"
   defp dispatch_constraint_identity(kind), do: "dispatch:#{kind}"
 
-  defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "build gate (#{detail})"
+  defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "prewarm build (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :build_queue, detail: detail}),
+    do: "build-queue gate (#{detail})"
+
   defp render_capacity_constraint(%{kind: :fd, detail: detail}), do: "FD gate (#{detail})"
   defp render_capacity_constraint(%{kind: :load, detail: detail}), do: "load gate (#{detail})"
 
@@ -1044,6 +1051,13 @@ defmodule Aiur.Orchestrator.IssueSync do
     do: "load-envelope limit (#{detail})"
 
   defp render_capacity_constraint(%{kind: :memory, detail: detail}), do: "memory gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :provider, detail: detail}),
+    do: "provider gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :run_queue, detail: detail}),
+    do: "run-queue gate (#{detail})"
+
   defp render_capacity_constraint(_constraint), do: nil
 
   defp per_state_capacity_constraint_entries(%State{} = state, issues) do

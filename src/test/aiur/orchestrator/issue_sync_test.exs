@@ -73,7 +73,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "memory gate"
     assert event["reason"] =~ "FD gate"
     assert event["reason"] =~ "load gate"
-    assert event["reason"] =~ "build gate"
+    assert event["reason"] =~ "prewarm build"
     refute event["reason"] =~ "cold-start"
 
     assert IssueSync.sync_capacity_starvation_alert(alerted, [ready], 122_000) == alerted

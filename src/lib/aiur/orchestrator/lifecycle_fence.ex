@@ -78,7 +78,17 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       {issue_id, %{authoritative_state: nil}} ->
         case normalize_state(issue.state) do
           observed_state when is_binary(observed_state) ->
-            {:fenced, adopt_observed_state(state, issue_id, issue, observed_state)}
+            # An already-terminal first observation adopts the state but keeps
+            # the fence's original `opened_at`, so teardown is not pushed out by
+            # an extra full grace window.
+            {:fenced,
+             adopt_observed_state(
+               state,
+               issue_id,
+               issue,
+               observed_state,
+               DispatchPolicy.terminal_issue_state?(observed_state, terminal_states)
+             )}
 
           _ ->
             {:fenced, state}
@@ -232,7 +242,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
     state
   end
 
-  defp adopt_observed_state(state, issue_id, issue, observed_state) do
+  defp adopt_observed_state(state, issue_id, issue, observed_state, keep_opened_at? \\ false) do
     entry = Map.fetch!(state.running, issue_id)
     fence = Map.fetch!(entry, :lifecycle_fence)
 
@@ -240,7 +250,7 @@ defmodule Aiur.Orchestrator.LifecycleFence do
       fence
       | authoritative_state: observed_state,
         generation: fence.generation + 1,
-        opened_at: DateTime.utc_now()
+        opened_at: if(keep_opened_at?, do: fence.opened_at, else: DateTime.utc_now())
     }
 
     cached_issue =
