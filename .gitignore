@@ -41,6 +41,8 @@ packages/streamdeck/dist/
 /packages/streamdeck/**/*.streamDeckPlugin
 .aiur-design-import/
 
+.aiur-base-built
+
 # Machine-local toolchain caches created by the pre-warmed mise/hex setup
 # (elixir_make NIFs, mise tracked-config state). Regenerated on demand.
 /.cache/
