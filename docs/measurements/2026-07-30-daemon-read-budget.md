@@ -44,11 +44,24 @@ total REST consumption. Excluded, and still charged at full rate:
 
 Both fan-outs are per-target aliased GraphQL operations keyed by each target's
 head branch name (`pullRequests(headRefName:)`), never a scan of the
-repository's open pull request list. The CI batch fits 100 targets per call and
-the comment batch 50 (two aliases per target), so 20 agents is one call per
-fan-out per cycle. More targets than one call covers deliberately issues
-additional calls and emits an overflow warning; a result is never silently
-truncated.
+repository's open pull request list. The CI batch fits 50 targets per call and
+the comment batch 33, so 20 agents is one call per fan-out per cycle. More
+targets than one call covers deliberately issues additional calls and emits an
+overflow warning; a result is never silently truncated.
+
+GitHub-tracked issues carry no branch name (`Issues.normalize_issue/5` sets
+`branch_name: nil`), so when the cycle does not already know a target's PR, each
+batch queries **two** candidate branches: the generated `aiur/<id>-<slug>` name
+derived from the issue title exactly as `TicketBranch.branch_name/2` derives it
+at branch-creation time, and the legacy `aiur/<id>` name. The first candidate
+resolving to an open PR wins. Without the title-derived candidate every target
+would miss, drop out of the batch, and cost a GraphQL call *on top of* the
+unchanged REST fan-out — a net budget increase rather than a saving.
+
+A target with no known comment cursor is omitted from the batch rather than
+returned unfiltered: the REST path still applies the poller's default `since`,
+so trusting an unbounded window would replay a target's entire comment history
+as fresh events after an orchestrator restart.
 
 Comment tails are read as `comments(last: 100)` — the *newest* 100. A
 long-running ticket with several hundred comments therefore stays in the batch:
