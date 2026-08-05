@@ -165,6 +165,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put_new(:etags, state.github_comment_etags)
       |> TargetSelection.put_open_pull_requests_by_target(human_review_targets)
       |> TargetSelection.put_open_pull_requests_by_target(watch_targets)
+      |> Keyword.put_new(:titles_by_target, running_titles_by_target(state))
 
     poll_opts = put_comment_batch(poll_opts, targets)
 
@@ -196,6 +197,23 @@ defmodule Aiur.Orchestrator.CommentPolling do
               )
         }
     end
+  end
+
+  # GitHub issues carry no branch name, so the comment batch derives each
+  # running ticket's generated `aiur/<id>-<slug>` branch from its title. Without
+  # this every target without an already-known PR guesses the legacy
+  # `aiur/<id>` branch, misses, and falls back to the full REST fan-out.
+  defp running_titles_by_target(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.reduce(%{}, fn entry, acc ->
+      with identifier when is_binary(identifier) and identifier != "" <- Map.get(entry, :identifier),
+           %{title: title} when is_binary(title) and title != "" <- Map.get(entry, :issue) do
+        Map.put(acc, to_string(identifier), title)
+      else
+        _other -> acc
+      end
+    end)
   end
 
   defp put_comment_batch(opts, targets) do

@@ -408,7 +408,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp put_ci_batch_fetch(opts, targets, issues_by_target) do
     fetcher = Keyword.get(opts, :ci_batch_fetcher, &CIPollBatch.fetch/2)
-    opts = Keyword.put_new(opts, :branch_names_by_target, ci_branch_names_by_target(issues_by_target))
+
+    opts =
+      opts
+      |> Keyword.put_new(:branch_names_by_target, ci_branch_names_by_target(issues_by_target))
+      |> Keyword.put_new(:titles_by_target, ci_titles_by_target(issues_by_target))
 
     case fetcher.(targets, opts) do
       {:ok, batch} when is_map(batch) ->
@@ -422,6 +426,16 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Logger.warning("Github CI GraphQL batch returned unexpected value; falling back to REST reads value=#{inspect(other)}")
         opts
     end
+  end
+
+  # GitHub issues have no branch name, so the batch derives the generated
+  # `aiur/<id>-<slug>` branch from the title the same way TicketBranch does when
+  # the branch is created.
+  defp ci_titles_by_target(issues_by_target) do
+    Enum.reduce(issues_by_target, %{}, fn
+      {target, %Issue{title: title}}, acc when is_binary(title) and title != "" -> Map.put(acc, target, title)
+      {_target, _issue}, acc -> acc
+    end)
   end
 
   defp ci_branch_names_by_target(issues_by_target) do

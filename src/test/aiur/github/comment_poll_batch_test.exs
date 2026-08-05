@@ -17,7 +17,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "target_0: issueOrPullRequest(number: 42)"
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-comment-batch", states: OPEN, orderBy:)
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-comment-batch", states: OPEN, orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR
       # list (paginated or not).
       refute body["query"] =~ "states: OPEN, after:"
@@ -37,7 +37,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
            "data" => %{
              "repository" => %{
                "target_0" => issue([comment(1, "issue comment")]),
-               "branch_0" => %{
+               "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
                  "nodes" => [pull_request(77, "aiur/42-comment-batch", [comment(2, "PR comment")])]
                }
@@ -50,7 +50,8 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert {:ok, %{"42" => batch}} =
              CommentPollBatch.fetch(["42"],
                request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"},
+               since: %{"42" => "2026-07-30T00:00:00Z"}
              )
 
     assert [%{"body" => "issue comment"}] = batch.issue_comments
@@ -75,7 +76,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
                  comments
                  |> issue()
                  |> put_in(["comments", "pageInfo"], %{"hasPreviousPage" => true}),
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
@@ -116,7 +117,10 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     refute Map.has_key?(batch, :issue_comments)
   end
 
-  test "omits an overflowing target when no cursor is known" do
+  # Without a cursor the batch cannot bound the window, while the REST path
+  # still applies the poller's default `since`. Trusting the raw window would
+  # replay a target's whole comment history after an orchestrator restart.
+  test "omits a target's comments when no cursor is known" do
     request_fun = overflowing_issue_request_fun([comment(1, "first page", "2026-07-30T12:00:00Z")])
 
     assert {:ok, %{"42" => batch}} =
@@ -130,7 +134,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
 
   test "omits a target whose legacy branch guess finds no PR so REST can resolve it" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
 
       {:ok,
        %{
@@ -139,7 +143,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
            "data" => %{
              "repository" => %{
                "target_0" => issue([comment(1, "issue comment")]),
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
@@ -159,14 +163,16 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
            "data" => %{
              "repository" => %{
                "target_0" => pull_request(77, "feature/watched", [comment(3, "watched PR comment")]),
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
        }}
     end
 
-    assert {:ok, %{"77" => batch}} = CommentPollBatch.fetch(["77"], request_fun: request_fun)
+    assert {:ok, %{"77" => batch}} =
+             CommentPollBatch.fetch(["77"], request_fun: request_fun, since: %{"77" => "2026-07-30T00:00:00Z"})
+
     assert %{"number" => 77, "head" => %{"ref" => "feature/watched"}} = batch.open_pull_request
     assert [%{"body" => "watched PR comment"}] = batch.pr_issue_comments
   end
@@ -184,7 +190,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
                    comment(1, "already seen", "2026-07-30T11:00:00Z"),
                    comment(2, "new", "2026-07-30T13:00:00Z")
                  ]),
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }

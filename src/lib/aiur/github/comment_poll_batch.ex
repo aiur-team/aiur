@@ -6,10 +6,11 @@ defmodule Aiur.GitHub.CommentPollBatch do
   alias Aiur.GitHub.{ReviewThreads, Transport}
   alias Aiur.TicketBranch
 
-  # Each target contributes two aliases (issueOrPullRequest + a
-  # headRefName-keyed pullRequests lookup), so 50 targets keeps every call at
+  # Each target contributes an issueOrPullRequest alias plus up to two
+  # headRefName-keyed pullRequests lookups (the generated `aiur/<id>-<slug>`
+  # branch and the legacy `aiur/<id>` one), so 33 targets keeps every call at
   # or under 100 aliases without ever scanning the repository's open PR list.
-  @targets_per_query 50
+  @targets_per_query 33
   @pull_requests_per_branch 5
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
@@ -41,8 +42,22 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp target_entry(target, opts) do
     case known_branch(target, opts) do
-      nil -> %{target: target, branch: TicketBranch.legacy_branch_name(target), known_branch: false}
-      branch -> %{target: target, branch: branch, known_branch: true}
+      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
+      branch -> %{target: target, branches: [branch], known_branch: true}
+    end
+  end
+
+  # GitHub issues carry no branch name (`Issues.normalize_issue/5` sets
+  # `branch_name: nil`), so without the title-derived candidate every target
+  # whose PR is not already known would guess the legacy `aiur/<id>` branch and
+  # miss the real `aiur/<id>-<slug>` one.
+  defp guessed_branches(target, opts) do
+    title = opts |> Keyword.get(:titles_by_target, %{}) |> Map.get(target)
+    legacy = TicketBranch.legacy_branch_name(target)
+
+    case TicketBranch.branch_name(target, title) do
+      ^legacy -> [legacy]
+      generated -> [generated, legacy]
     end
   end
 
@@ -92,13 +107,24 @@ defmodule Aiur.GitHub.CommentPollBatch do
     """
   end
 
-  defp target_aliases(%{target: target, branch: branch}, index) do
+  defp target_aliases(%{target: target, branches: branches}, index) do
+    branch_aliases =
+      branches
+      |> Enum.with_index()
+      |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, index, candidate) end)
+
     """
     target_#{index}: issueOrPullRequest(number: #{target}) {
       ... on Issue { comments(last: 100) { pageInfo { hasPreviousPage } nodes { #{comment_fields()} } } }
       ... on PullRequest { #{pull_request_fields()} }
     }
-    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
+    #{branch_aliases}
+    """
+  end
+
+  defp branch_alias(branch, index, candidate) do
+    """
+    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes { #{pull_request_fields()} }
     }
@@ -150,18 +176,32 @@ defmodule Aiur.GitHub.CommentPollBatch do
   defp pull_request_for_entry(_entry, %{kind: :pull_request} = direct, _repository, _index), do: {:ok, direct}
 
   defp pull_request_for_entry(entry, _direct, repository, index) do
-    case Map.get(repository, "branch_#{index}") do
-      %{"nodes" => nodes} = connection when is_list(nodes) ->
-        if get_in(connection, ["pageInfo", "hasNextPage"]) == true do
-          Logger.warning("Github comment GraphQL batch overflow: head_ref_pull_requests target=#{entry.target}")
-          :unknown
-        else
-          branch_pull_request(entry, nodes)
-        end
+    connections =
+      entry.branches
+      |> Enum.with_index()
+      |> Enum.map(fn {_branch, candidate} -> Map.get(repository, "branch_#{index}_#{candidate}") end)
 
-      _other ->
-        Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
+    if Enum.all?(connections, &match?(%{"nodes" => nodes} when is_list(nodes), &1)) do
+      branch_pull_request_from_candidates(entry, connections)
+    else
+      Logger.warning("Github comment GraphQL batch alias missing: target=#{entry.target}")
+      :unknown
+    end
+  end
+
+  # The first candidate branch that resolves to an open PR wins; an overflowed
+  # connection is inconclusive and must not be trusted.
+  defp branch_pull_request_from_candidates(entry, connections) do
+    cond do
+      Enum.any?(connections, &(get_in(&1, ["pageInfo", "hasNextPage"]) == true)) ->
+        Logger.warning("Github comment GraphQL batch overflow: head_ref_pull_requests target=#{entry.target}")
         :unknown
+
+      connection = Enum.find(connections, fn %{"nodes" => nodes} -> nodes != [] end) ->
+        branch_pull_request(entry, Map.get(connection, "nodes"))
+
+      true ->
+        branch_pull_request(entry, [])
     end
   end
 
@@ -286,8 +326,6 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # entirely on publisher dedup, which re-fires old comments once its TTL lapses.
   # Inclusive, matching REST `since`, and on `updated_at` with a `created_at`
   # fallback, matching the poller's own `comment_datetime/1`.
-  defp since_filtered(comments, nil), do: comments
-
   defp since_filtered(comments, %DateTime{} = since) do
     Enum.filter(comments, fn comment ->
       case comment_datetime(comment) do
@@ -307,12 +345,17 @@ defmodule Aiur.GitHub.CommentPollBatch do
   # incomplete only when older comments exist AND the window's own oldest
   # comment is still newer than `since` — i.e. more than 100 comments arrived in
   # one poll interval. Without a known cursor, stay conservative and fall back.
+  # No cursor for this target means the batch cannot bound the window at all.
+  # The REST path would still apply the poller's default `since` (the boot
+  # cutoff), so returning the raw window here would replay a target's whole
+  # comment history as fresh events after an orchestrator restart. Omit instead
+  # and let REST read it.
+  defp comments_truncated?(_source, nil), do: true
+
   defp comments_truncated?(source, since) when is_map(source) do
     Map.get(comments_page_info(source), "hasPreviousPage") == true and
       not window_covers_since?(Map.get(source, :comments, []), since)
   end
-
-  defp window_covers_since?(_comments, nil), do: false
 
   defp window_covers_since?(comments, %DateTime{} = since) do
     case oldest_created_at(comments) do

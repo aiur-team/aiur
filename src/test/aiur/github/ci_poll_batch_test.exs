@@ -17,7 +17,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
       assert body["query"] =~ "query AiurCIPollBatch"
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-ci-batch", states: OPEN, orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR
       # list (paginated or not).
       refute body["query"] =~ "states: OPEN, after:"
@@ -31,7 +31,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0" => %{
+               "branch_0_0" => %{
                  "pageInfo" => %{"hasNextPage" => false},
                  "nodes" => [pull_request()]
                }
@@ -52,9 +52,14 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
   end
 
-  test "falls back to the legacy branch name when orchestration knows no branch" do
+  # Regression guard: GitHub issues have no branch name, so without the
+  # title-derived candidate every target guesses the legacy `aiur/<id>` branch,
+  # misses the real `aiur/<id>-<slug>` one, drops out of the batch, and the
+  # daemon pays a GraphQL call ON TOP OF the unchanged REST fan-out.
+  test "queries the title-derived branch as well as the legacy one" do
     request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ ~s(branch_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-daemon-read-budget-conditional")
+      assert body["query"] =~ ~s(branch_0_1: pullRequests(headRefName: "aiur/42")
 
       {:ok,
        %{
@@ -62,7 +67,56 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]},
+               "branch_0_1" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               titles_by_target: %{"42" => "Daemon read-budget: conditional requests, GraphQL-batched fan-outs"}
+             )
+
+    assert %{"number" => 77} = batch.pull_request
+  end
+
+  test "falls back to the legacy branch alias when the title-derived one has no PR" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []},
+               "branch_0_1" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request()]}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CIPollBatch.fetch(["42"], request_fun: request_fun, titles_by_target: %{"42" => "Some legacy ticket"})
+
+    assert %{"number" => 77} = batch.pull_request
+  end
+
+  test "falls back to the legacy branch name when orchestration knows no branch" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42", states: OPEN, orderBy:)
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
@@ -83,7 +137,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => []}
              }
            }
          }
@@ -115,7 +169,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
          body: %{
            "data" => %{
              "repository" => %{
-               "branch_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [overflowed]}
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [overflowed]}
              }
            }
          }

@@ -6,9 +6,11 @@ defmodule Aiur.GitHub.CIPollBatch do
   alias Aiur.GitHub.Transport
   alias Aiur.TicketBranch
 
-  # One headRefName-keyed alias per target keeps every query bounded by the
-  # requested targets instead of scanning the repository's open PR list.
-  @targets_per_query 100
+  # Up to two headRefName-keyed aliases per target (the generated
+  # `aiur/<id>-<slug>` branch and the legacy `aiur/<id>` one) keeps every query
+  # bounded by the requested targets instead of scanning the repository's open
+  # PR list, while staying at or under 100 aliases per call.
+  @targets_per_query 50
   @pull_requests_per_branch 5
 
   @spec fetch([String.t()], keyword()) :: {:ok, map()} | {:error, term()}
@@ -47,8 +49,23 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp target_entry(target, opts) do
     case known_branch(target, opts) do
-      nil -> %{target: target, branch: TicketBranch.legacy_branch_name(target), known_branch: false}
-      branch -> %{target: target, branch: branch, known_branch: true}
+      nil -> %{target: target, branches: guessed_branches(target, opts), known_branch: false}
+      branch -> %{target: target, branches: [branch], known_branch: true}
+    end
+  end
+
+  # GitHub issues carry no branch name (`Issues.normalize_issue/5` sets
+  # `branch_name: nil`), so without the title-derived candidate every target
+  # would guess the legacy `aiur/<id>` branch, miss the real
+  # `aiur/<id>-<slug>` one, and fall back to the full REST fan-out — paying a
+  # GraphQL call on top of the reads this batch exists to remove.
+  defp guessed_branches(target, opts) do
+    title = opts |> Keyword.get(:titles_by_target, %{}) |> Map.get(target)
+    legacy = TicketBranch.legacy_branch_name(target)
+
+    case TicketBranch.branch_name(target, title) do
+      ^legacy -> [legacy]
+      generated -> [generated, legacy]
     end
   end
 
@@ -85,7 +102,7 @@ defmodule Aiur.GitHub.CIPollBatch do
   end
 
   defp query(indexed) do
-    aliases = Enum.map_join(indexed, "\n", fn {entry, index} -> branch_alias(entry, index) end)
+    aliases = Enum.map_join(indexed, "\n", fn {entry, index} -> branch_aliases(entry, index) end)
 
     """
     query AiurCIPollBatch($owner: String!, $repo: String!) {
@@ -96,9 +113,15 @@ defmodule Aiur.GitHub.CIPollBatch do
     """
   end
 
-  defp branch_alias(%{branch: branch}, index) do
+  defp branch_aliases(%{branches: branches}, index) do
+    branches
+    |> Enum.with_index()
+    |> Enum.map_join("\n", fn {branch, candidate} -> branch_alias(branch, index, candidate) end)
+  end
+
+  defp branch_alias(branch, index, candidate) do
     """
-    branch_#{index}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
+    branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes {
         number state headRefName headRefOid baseRefName
@@ -129,15 +152,40 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   defp match_entries(indexed, repository) do
     Enum.reduce(indexed, %{}, fn {entry, index}, acc ->
-      case Map.get(repository, "branch_#{index}") do
-        %{"nodes" => nodes} = connection when is_list(nodes) ->
-          put_entry_result(acc, entry, nodes, Map.get(connection, "pageInfo") || %{})
+      case candidate_connections(entry, repository, index) do
+        {:ok, connections} ->
+          match_candidates(acc, entry, connections)
 
-        _other ->
+        :missing ->
           Logger.warning("Github CI GraphQL batch alias missing: target=#{entry.target}")
           acc
       end
     end)
+  end
+
+  defp candidate_connections(entry, repository, index) do
+    connections =
+      entry.branches
+      |> Enum.with_index()
+      |> Enum.map(fn {_branch, candidate} -> Map.get(repository, "branch_#{index}_#{candidate}") end)
+
+    if Enum.all?(connections, &match?(%{"nodes" => nodes} when is_list(nodes), &1)),
+      do: {:ok, connections},
+      else: :missing
+  end
+
+  # The first candidate branch that resolves to an open PR wins. Only when no
+  # candidate matched does the "no open PR" answer stand — and then only for a
+  # branch orchestration actually knows.
+  defp match_candidates(acc, entry, connections) do
+    case Enum.find(connections, fn %{"nodes" => nodes} -> nodes != [] end) do
+      nil ->
+        [connection | _rest] = connections
+        put_entry_result(acc, entry, [], Map.get(connection, "pageInfo") || %{})
+
+      connection ->
+        put_entry_result(acc, entry, Map.get(connection, "nodes"), Map.get(connection, "pageInfo") || %{})
+    end
   end
 
   defp put_entry_result(acc, entry, nodes, page_info) do
