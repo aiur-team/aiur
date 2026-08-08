@@ -119,6 +119,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           |> dispatch_or_hold(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
+          |> IssueSync.sync_fleet_capacity_starved_alert(issues)
 
         %{state | initial_dispatch_cycle: false}
 
@@ -419,8 +420,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # since that is the sole condition the starvation alert reports on.
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, []), do: state
 
-  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues) when is_list(issues),
-    do: record_capacity_constraints(state, admission_probes())
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues) when is_list(issues) do
+    probes = admission_probes()
+    state |> record_capacity_sample(probes) |> record_capacity_constraints(probes)
+  end
 
   @doc false
   @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
@@ -588,6 +591,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # constraint list is deliberately broader than the single binding signal
     # `admission_gate/1` returns below.
     state = record_capacity_constraints(state, probes)
+    state = record_capacity_sample(state, probes)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
@@ -1395,6 +1399,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
       DispatchPolicy.provider_gate(probes.provider_backends),
       probes.provider_backends
     )
+  end
+
+  defp record_capacity_sample(%State{} = state, probes) do
+    %{
+      state
+      | dispatch_capacity_sample: %{
+          load: probes.load,
+          target: probes.target,
+          schedulers: probes.schedulers
+        }
+    }
   end
 
   defp maybe_record_run_queue_constraint(state, :hold, probes) do
