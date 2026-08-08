@@ -34,13 +34,65 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
-      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT AIUR_CI_READINESS_TOKEN OPENROUTER_MANAGEMENT_KEY; " <>
+    ("unset " <>
+       Enum.join(
+         @erlang_distribution_env_names ++
+           @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
+         " "
+       ) <>
+       "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
-      "done"
+      "done; " <>
+      release_launcher_scrub_prefix()
+  end
+
+  defp release_launcher_scrub_prefix do
+    String.trim(~S"""
+    aiur_release_root=${AIUR_RELEASE_DIR%/}
+    if [ -n "$aiur_release_root" ]; then
+      # ROOTDIR/BINDIR/EMU/PROGNAME are scrubbed independently, and only when
+      # their value is canonical for the release. EMU/PROGNAME carry the generic
+      # values `beam`/`erl` that any toolchain could set, so they are
+      # release-owned only when the launcher boundary (ROOTDIR or BINDIR) is
+      # actually in force; otherwise a user's unrelated EMU/PROGNAME would be
+      # dropped too.
+      aiur_launcher_owned=
+      if [ "${ROOTDIR:-}" = "$aiur_release_root" ]; then unset ROOTDIR; aiur_launcher_owned=1; fi
+      aiur_bindir=${BINDIR:-}
+      aiur_bindir=${aiur_bindir%/}
+      case "$aiur_bindir" in "$aiur_release_root"/erts-*/bin) unset BINDIR; aiur_launcher_owned=1 ;; esac
+      unset aiur_bindir
+      if [ -n "$aiur_launcher_owned" ]; then
+        [ "${EMU:-}" = beam ] && unset EMU
+        [ "${PROGNAME:-}" = erl ] && unset PROGNAME
+      fi
+
+      # Filter release bin/erts-*-bin PATH entries regardless of launcher-var
+      # ownership. Each entry is compared with a trailing slash stripped so a
+      # `.../bin/` entry cannot leak a release ERTS onto the child PATH.
+      aiur_remaining_path=${PATH-}
+      aiur_clean_path=
+      aiur_path_separator=
+      while :; do
+        case "$aiur_remaining_path" in
+          *:*) aiur_path_entry=${aiur_remaining_path%%:*}; aiur_remaining_path=${aiur_remaining_path#*:}; aiur_path_more=1 ;;
+          *) aiur_path_entry=$aiur_remaining_path; aiur_path_more= ;;
+        esac
+        aiur_path_norm=${aiur_path_entry%/}
+        case "$aiur_path_norm" in
+          "$aiur_release_root/bin"|"$aiur_release_root"/erts-*/bin) ;;
+          *) aiur_clean_path="${aiur_clean_path}${aiur_path_separator}${aiur_path_entry}"; aiur_path_separator=: ;;
+        esac
+        [ -n "$aiur_path_more" ] || break
+      done
+      PATH=$aiur_clean_path
+      export PATH
+    fi
+    unset aiur_release_root aiur_remaining_path aiur_clean_path aiur_path_separator aiur_path_entry aiur_path_more aiur_path_norm aiur_launcher_owned
+    """)
   end
 
   @spec parent_log_env_name?(String.t()) :: boolean()

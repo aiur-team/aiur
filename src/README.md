@@ -489,9 +489,12 @@ path parameter and is never browser-cacheable.
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
-  per scheduler): capacity grows by `agent.load_ramp_step` below the target and
-  halves after high samples, no more often than `agent.load_cooldown_seconds`.
-  Set the target to `null` to use only the static cap and hard gate.
+  per scheduler): queued cold starts seed daemon capacity from active and
+  reserved ticket slots plus observed idle CPU headroom, bounded by the static
+  cap. That bootstrap seed is one-shot and never lowers a warmed envelope. Later
+  capacity grows by `agent.load_ramp_step` below the target, and high samples
+  halve it no more often than `agent.load_cooldown_seconds`. Set the target to
+  `null` to use only the static cap and hard gate.
 - `agent.max_load_average` remains the separate per-scheduler hard ceiling for
   new dispatch (default `1.5`); it holds work above the ceiling even when the
   adaptive envelope is enabled.

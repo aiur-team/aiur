@@ -132,16 +132,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
                   <button
-                    :if={running?(row)}
-                    id={"units-agent-log-#{token}"}
-                    type="button"
-                    class="units-icon-action"
-                    phx-click="show-agent-log"
-                    phx-value-unit={token}
-                    aria-label={"Read agent log for #{identity_label(row.identity)}"}
-                    title="Read agent log"
-                  >{icon(:log)}</button>
-                  <button
                     id={"units-conversation-#{token}"}
                     type="button"
                     class={["units-icon-action", !conversation_handle(row) && "unavailable"]}
@@ -244,13 +234,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp icon(:warning),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>))
-
-  defp icon(:log),
-    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M8 6h11M8 12h11M8 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>))
-
-  # A unit is running when its correlated fleet entry is in the running bucket;
-  # only then is there a live agent log to read.
-  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
 
   # Remote control deep-link, present only when the agent exposes one.
   defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) when is_binary(url) and url != "", do: url

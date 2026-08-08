@@ -1,7 +1,8 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{DispatchBudgetStore, Issue, Orchestrator}
+  alias Aiur.{AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
+  alias Aiur.Config.Paths
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.PauseResume
@@ -434,6 +435,33 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     assert Dispatcher.persist_lifetime_trip(state, issue, fn _, _ ->
              flunk("durable latch must not be applied twice")
            end) == state
+  end
+
+  @tag config: @enabled
+  test "the lifetime latch attention reaches the central alert feed" do
+    # IssueSync rebuilds the persisted error cause after a restart from the
+    # central feed alone (`AlertFeed.list(roots: [], log_roots: [...])`). A
+    # latch attention written only to the workspace log is invisible there, so
+    # the attention could never be resolved or rearmed.
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime-central"}
+    state = dispatch_n(%Orchestrator.State{}, 10)
+    assert {:trip, state} = run(state, 11 * (@window_ms + 1))
+
+    # Alerts only route to a workspace log when that workspace directory
+    # exists, which is true for any ticket that has run. Create it so this
+    # exercises the production routing rather than the no-workspace fallback.
+    workspace = Aiur.Workspace.workspace_path_under(Config.workspace_root(), issue.identifier)
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf(workspace) end)
+
+    Dispatcher.persist_lifetime_trip(state, issue, fn _identifier, _target_state -> :ok end)
+
+    topic = "ticket.repo#lifetime-central.agent.attention.error-lifetime_latch"
+
+    assert Enum.any?(
+             AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()]),
+             &(&1["topic"] == topic)
+           )
   end
 
   @tag config: """

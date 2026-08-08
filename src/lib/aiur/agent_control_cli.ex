@@ -6,6 +6,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
+  alias Aiur.Orchestrator.StatusReason
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
@@ -701,10 +702,14 @@ defmodule Aiur.AgentControlCLI do
         " ",
         String.pad_trailing(to_string(status.state), 7),
         " ",
-        to_string(status.title || "")
+        to_string(status.title || ""),
+        status_reason_suffix(status)
       ])
     end)
   end
+
+  defp status_reason_suffix(%{reason: reason}) when not is_nil(reason), do: " (#{StatusReason.render(reason)})"
+  defp status_reason_suffix(_status), do: ""
 
   defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
@@ -1159,6 +1164,7 @@ defmodule Aiur.AgentControlCLI do
     run_state = Map.get(status, :state)
     stuck? = run_state == :running and is_integer(age) and age >= @watch_stuck_after_seconds
     pr_ready? = state in ["human-review", "merging"]
+    reason = Map.get(status, :reason)
 
     %{
       id: display_identifier(status),
@@ -1170,7 +1176,7 @@ defmodule Aiur.AgentControlCLI do
       stuck?: stuck?,
       pr_ready?: pr_ready?,
       doing: watch_activity(status),
-      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), stuck?, pr_ready?}
+      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), stuck?, pr_ready?}
     }
   end
 
@@ -1178,12 +1184,21 @@ defmodule Aiur.AgentControlCLI do
   defp watch_state(%{tracker_paused: "true"}), do: "paused"
   defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
 
+  defp watch_activity(%{tracker_paused: paused, reason: reason})
+       when paused in [true, "true"] and not is_nil(reason),
+       do: "(paused: #{StatusReason.render(reason)})"
+
   defp watch_activity(%{tracker_paused: true}), do: "(paused: label override)"
   defp watch_activity(%{tracker_paused: "true"}), do: "(paused: label override)"
   defp watch_activity(%{tracker_state: "ci-wait"}), do: "(waiting for CI)"
   defp watch_activity(%{state: "ci-wait"}), do: "(waiting for CI)"
+  defp watch_activity(%{state: :idle, reason: reason}) when not is_nil(reason), do: "(idle: #{StatusReason.render(reason)})"
   defp watch_activity(%{state: :idle}), do: "(idle)"
+  defp watch_activity(%{state: :paused, reason: reason}) when not is_nil(reason), do: "(paused: #{StatusReason.render(reason)})"
   defp watch_activity(status), do: agent_activity(status)
+
+  defp watch_reason_signature(nil), do: nil
+  defp watch_reason_signature(reason), do: StatusReason.render(reason)
 
   defp watch_sort_key(status) do
     raw = to_string(Map.get(status, :issue_id) || Map.get(status, :identifier) || "")

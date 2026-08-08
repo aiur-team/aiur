@@ -343,7 +343,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         severity: "warning"
       )
 
-      move_exhausted_issue_to_error_state(issue_id, identifier)
+      error_alert_emitted? = move_exhausted_issue_to_error_state(issue_id, identifier, error) == :alert_emitted
 
       # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -378,7 +378,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
           effective_exhaustion_reason(transient_reason, error)
         )
 
-      %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
+      released
+      |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
+      |> maybe_mark_observed_error_alert(issue_id, error_alert_emitted?)
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
@@ -570,12 +572,26 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(issue_id, identifier) when is_binary(identifier) do
+  defp move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
     Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
     case Tracker.update_issue_state(identifier, "error") do
       :ok ->
-        :ok
+        message =
+          "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
+            retry_exhausted_error_suffix(error)
+
+        Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
+          issue: identifier,
+          reason: message,
+          needs_attention: true,
+          severity: "warning",
+          # Must reach the central feed: IssueSync rediscovers the persisted
+          # error cause from there after a restart.
+          central: true
+        )
+
+        :alert_emitted
 
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
@@ -584,7 +600,20 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_issue_id, _identifier), do: :ok
+  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+
+  defp maybe_mark_observed_error_alert(state, issue_id, true) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, :retry_exhausted)
+    }
+  end
+
+  defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
+
+  defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
+  defp retry_exhausted_error_suffix(_error), do: ""
 
   defp log_scheduled_retry(
          issue_id,

@@ -4,14 +4,14 @@ defmodule Aiur.OrchestratorDeactivateTest do
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
   alias Aiur.CIApprovalStore
-  alias Aiur.Events.{BranchRefStore, Exchange, SubscriptionStore}
+  alias Aiur.Events.{BranchRefStore, Exchange, Publisher, SubscriptionStore}
   alias Aiur.GitHub.CodeOwners
   alias Aiur.Issue
   alias Aiur.Opencode.ActiveTurns
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{CiLifecycle, CommandScan, CommentPolling, Dispatcher, DispatchPolicy, State}
   alias Aiur.Orchestrator.{EventTopics, PauseResume, PrAnchored, PushRouting, Reconciler}
-  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots}
+  alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, StatusReport}
   alias Aiur.SessionHandle
   alias Aiur.TrackerIdentity
 
@@ -1962,7 +1962,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == true
     end
 
-    test "removing the override resumes only label-paused agents" do
+    test "removing the override reports divergence, resumes, and returns the row to running" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_active_states: ["todo", "in-progress", "rework", "merging"],
         tracker_terminal_states: ["done", "cancelled", "canceled"],
@@ -2008,12 +2008,37 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: ["agent:in-progress"]
       }
 
+      Publisher.set_tracked_fn(fn _ -> true end)
+      divergence_topic = "ticket.#{identifier}.agent.attention.state_divergence"
+      :ok = Exchange.subscribe(divergence_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
       next = Reconciler.reconcile_running_issue_states([unpaused_issue], state)
 
-      assert_receive {:resume_agent, _request_id, 101}
+      assert_receive {:event, %{topic: ^divergence_topic} = event}
+      assert event["reason"] =~ "local=paused(label_override) tracker=agent:in-progress"
+
+      assert_receive {:resume_agent, request_id, 101}
       assert get_in(next.running, [issue_id, :control, :status]) == :paused
       assert get_in(next.running, [issue_id, :paused_reason]) == :label_override
       assert get_in(next.running, [issue_id, :issue, Access.key(:paused)]) == false
+
+      assert {:noreply, resumed} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: request_id, generation: 101}},
+                 next
+               )
+
+      assert resumed.running[issue_id].control.status == :working
+      refute Map.has_key?(resumed.running[issue_id], :paused_reason)
+
+      assert [%{state: :running, tracker_paused: false, reason: nil}] =
+               StatusReport.agent_statuses(resumed, fn _timeout -> {:unavailable, nil} end)
     end
 
     test "resume clears the durable override before waking the agent" do
@@ -4463,8 +4488,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         )
 
       # No targets at all (no running, no human-review, watch disabled) ->
-      # the poller is never invoked.
-      assert next == state
+      # the poller is never invoked. Only the per-cycle conditional issue-list
+      # cache may differ; every other field, `approved_heads` included, must be
+      # untouched.
+      assert put_in(next.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
+               put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
+
       refute_receive :unexpected_watch_fetch, 100
       refute_receive {:unexpected_request, _url}, 100
     after
@@ -5256,7 +5285,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert get_in(generic.running, [issue_id, :paused_reason]) == :agent_pause_request
     end
 
-    test "unrelated real pause transitions replace blocker context before final unblock", %{
+    test "real control transitions replace blocker context before final unblock", %{
       identifier: identifier,
       fake_pid: fake_pid
     } do
@@ -5284,8 +5313,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         max_concurrent_agents: 6
       }
 
+      tracker_paused = PauseResume.pause_issue_for_label_override(state, issue)
+      assert tracker_paused.running[issue_id].paused_reason == :blocker_dependency
+      assert Map.has_key?(tracker_paused.running[issue_id], :blocker_pause)
+      assert Map.has_key?(tracker_paused.running[issue_id], :pending_auto_resume)
+
       transitions = [
-        {:label_override, fn current -> PauseResume.pause_issue_for_label_override(current, issue) end},
         {:ci_wait, fn current -> CiLifecycle.pause_issue_for_ci_wait(current, issue) end},
         {:operator_pause, fn current -> elem(PauseResume.pause_agent_reply(current, identifier), 1) end},
         {:max_agent_duration,

@@ -983,6 +983,8 @@ defmodule Aiur.CoreTest do
     assert log =~ "reason=retry_exhausted"
     assert log =~ "caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"
+    assert log =~ "ticket.MT-EX.agent.attention.error-retry_exhausted"
+    assert log =~ "automatic retry is no longer scheduled"
 
     assert_receive {:memory_tracker_state_update, "MT-EX", "error"}
   end
