@@ -35,8 +35,9 @@ defmodule AiurWeb.StreamDeckGrid do
     agents =
       snapshot
       |> snapshot_agents()
-      |> Enum.map(&agent_payload/1)
-      |> Enum.sort_by(&sort_key/1)
+      |> Enum.map(fn entry -> {agent_payload(entry), priority_rank(entry)} end)
+      |> Enum.sort_by(fn {agent, priority_rank} -> sort_key(agent, priority_rank) end)
+      |> Enum.map(&elem(&1, 0))
 
     total = length(agents)
 
@@ -81,9 +82,9 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp maybe_put_dependency_ready(payload, _entry, _bucket), do: payload
 
-  defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
+  defp sort_key(%{bucket: bucket, identifier: identifier} = agent, priority_rank) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
+    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
   end
 
   defp vendor(entry) do
@@ -102,7 +103,14 @@ defmodule AiurWeb.StreamDeckGrid do
     end
   end
 
-  defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
+  defp priority?(entry), do: priority_rank(entry) < 5
+
+  defp priority_rank(entry) do
+    case Map.get(entry, :priority) do
+      priority when is_integer(priority) and priority > 0 -> priority
+      _ -> 5
+    end
+  end
 
   defp dependency_ready(%{streamdeck_source: :queued, waiting_reason: :waiting_for_dependency}), do: false
   defp dependency_ready(%{streamdeck_source: :queued}), do: true

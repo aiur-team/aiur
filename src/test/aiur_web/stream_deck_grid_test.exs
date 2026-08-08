@@ -130,10 +130,23 @@ defmodule AiurWeb.StreamDeckGridTest do
   end
 
   test "only flags positive priority ranks" do
-    [unprioritized, prioritized] = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
+    agents = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
+    unprioritized = Enum.find(agents, &(&1.identifier == "1"))
+    prioritized = Enum.find(agents, &(&1.identifier == "2"))
 
     refute unprioritized.priority
     assert prioritized.priority
+  end
+
+  test "places prioritized agents first within their Stream Deck bucket" do
+    payload =
+      StreamDeckGrid.project(%{
+        running: [agent("normal"), agent("priority-two", priority: 2), agent("priority-one", priority: 1)],
+        retrying: [],
+        idle: []
+      })
+
+    assert Enum.map(payload.agents, & &1.identifier) == ["priority-one", "priority-two", "normal"]
   end
 
   defp agent(identifier, attrs \\ []) do
