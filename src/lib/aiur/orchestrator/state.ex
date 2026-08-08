@@ -22,7 +22,8 @@ defmodule Aiur.Orchestrator.State do
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
             last_decrease_ms: integer() | nil,
-            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
+            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
+            bootstrap_complete?: boolean()
           },
           capacity_hold:
             %{
@@ -49,6 +50,21 @@ defmodule Aiur.Orchestrator.State do
             rewakes: map()
           },
           todo_over_capacity_alert_active: boolean(),
+          prewarm_blocked_alert_active: boolean(),
+          prewarm_blocked_alert_resolution_emitted: boolean(),
+          tracker_preflight_alert_signature: String.t() | nil,
+          tracker_preflight_alert_resolution_emitted: boolean(),
+          capacity_starvation_resolution_emitted: boolean(),
+          observed_error_alerts: MapSet.t(),
+          active_attention_topics: MapSet.t(),
+          observed_error_alert_causes: %{optional(String.t()) => atom()},
+          dispatch_capacity_constraints: [map()],
+          capacity_starvation: %{
+            since_ms: %{optional(String.t()) => integer()},
+            alert_active: boolean(),
+            signature: [String.t()],
+            alerted: [String.t()]
+          },
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -69,6 +85,7 @@ defmodule Aiur.Orchestrator.State do
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
           github_comments_since: String.t() | map() | nil,
+          github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -113,7 +130,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_retry_at_ms,
     :ci_readiness_scope,
     :ci_readiness_result,
-    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
@@ -125,6 +142,16 @@ defmodule Aiur.Orchestrator.State do
       rewakes: %{}
     },
     todo_over_capacity_alert_active: false,
+    prewarm_blocked_alert_active: false,
+    prewarm_blocked_alert_resolution_emitted: false,
+    tracker_preflight_alert_signature: nil,
+    tracker_preflight_alert_resolution_emitted: false,
+    capacity_starvation_resolution_emitted: false,
+    observed_error_alerts: MapSet.new(),
+    active_attention_topics: MapSet.new(),
+    observed_error_alert_causes: %{},
+    dispatch_capacity_constraints: [],
+    capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
@@ -139,6 +166,7 @@ defmodule Aiur.Orchestrator.State do
     events_etag: nil,
     events_last_id: nil,
     github_comments_since: nil,
+    github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},

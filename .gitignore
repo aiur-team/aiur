@@ -41,6 +41,10 @@ packages/streamdeck/dist/
 /packages/streamdeck/**/*.streamDeckPlugin
 .aiur-design-import/
 
+# Python bytecode (analytics/ tooling)
+__pycache__/
+*.pyc
+
 .aiur-base-built
 
 # Machine-local toolchain caches created by the pre-warmed mise/hex setup

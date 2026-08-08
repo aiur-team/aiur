@@ -21,11 +21,14 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
+  alias Aiur.RepoBase
   alias Aiur.TicketActivity
   alias Aiur.TrackerIdentity
 
   @activity_snapshot_timeout_ms 100
+  @repo_base_status_timeout_ms 100
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
   def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
@@ -641,15 +644,24 @@ defmodule Aiur.Orchestrator.StatusReport do
   # the status rows so `aiur watch` can render the cx column without a tracker
   # round-trip — the issue is already in memory.
   defp issue_complexity(%Issue{} = issue), do: CodingAgent.complexity_level(issue)
+  defp issue_complexity(_issue), do: nil
 
   @spec agent_statuses(State.t()) :: [map()]
   def agent_statuses(%State{} = state) do
+    status_fun = if Config.prewarm_enabled?(), do: &RepoBase.status/1, else: fn _timeout -> {:unavailable, nil} end
+    agent_statuses(state, status_fun)
+  end
+
+  @doc false
+  @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
+  def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
     now = DateTime.utc_now()
+    prewarm_phase = prewarm_phase(status_fun)
 
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now) ++ idle_statuses(state, running_by_identifier))
+    (running_statuses(state, now) ++ retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
     |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
   end
 
@@ -684,24 +696,82 @@ defmodule Aiur.Orchestrator.StatusReport do
       complexity: issue_complexity(issue),
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
-      last_codex_event: Map.get(entry, :last_codex_event)
+      last_codex_event: Map.get(entry, :last_codex_event),
+      reason: if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
     }
   end
 
-  defp idle_statuses(%State{} = state, _running_by_identifier) do
-    state.last_polled_issues
-    |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue) end)
+  defp retry_statuses(%State{} = state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    Enum.map(state.retry_attempts, fn {issue_id, retry} ->
+      issue = Map.get(state.last_polled_issues, issue_id)
+      identifier = Map.get(retry, :identifier) || Map.get(issue || %{}, :identifier) || issue_id
+      due_in_ms = max(0, Map.get(retry, :due_at_ms, now_ms) - now_ms)
+      retry_reason = StatusReason.for_retry(Map.get(retry, :error), due_in_ms)
+      tracker_paused = tracker_paused?(issue)
+
+      %{
+        issue_id: issue_id,
+        identifier: identifier,
+        tracker_identity: retry_snapshot_tracker_identity(retry, issue),
+        state: :paused,
+        work_state: :paused,
+        tracker_state: Map.get(issue || %{}, :state),
+        tracker_paused: tracker_paused,
+        tag: State.issue_tag(issue),
+        title: Map.get(issue || %{}, :title),
+        url: Map.get(issue || %{}, :url),
+        worker_host: Map.get(retry, :worker_host),
+        workspace_path: Map.get(retry, :workspace_path),
+        session_id: nil,
+        live_conversation: nil,
+        runtime_seconds: 0,
+        queue_depth: idle_queue_depth(state, identifier),
+        complexity: issue_complexity(issue),
+        last_codex_timestamp: nil,
+        last_codex_message: nil,
+        last_codex_event: nil,
+        retry_attempt: Map.get(retry, :attempt),
+        retry_reason: retry_reason,
+        reason:
+          if tracker_paused do
+            StatusReason.for_paused_retry(
+              tracker_pause_cause(state),
+              Map.get(retry, :error),
+              due_in_ms
+            )
+          else
+            retry_reason
+          end
+      }
+    end)
   end
 
-  defp idle_status(%State{} = state, issue) do
+  defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
+  defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
+  defp tracker_paused?(_issue), do: false
+
+  defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
+    state.last_polled_issues
+    |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id) end)
+    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue, prewarm_phase) end)
+  end
+
+  defp idle_status(%State{} = state, issue, prewarm_phase) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
+    budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
+    prewarm_blocked? = prewarm_blocked?(prewarm_phase)
+
+    work_state = idle_issue_work_state(issue)
+    pause_reason = idle_issue_pause_reason(issue)
 
     %{
       issue_id: Map.get(issue, :id),
       identifier: identifier,
       tracker_identity: Issue.tracker_identity(issue),
-      state: :idle,
+      state: if(work_state == :paused, do: :paused, else: :idle),
+      work_state: work_state,
       tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
       tag: State.issue_tag(issue),
@@ -715,9 +785,37 @@ defmodule Aiur.Orchestrator.StatusReport do
       complexity: issue_complexity(issue),
       last_codex_timestamp: nil,
       last_codex_message: nil,
-      last_codex_event: nil
+      last_codex_event: nil,
+      reason:
+        if work_state == :paused do
+          StatusReason.for_pause(pause_reason)
+        else
+          StatusReason.for_idle(
+            prewarm_blocked?,
+            Map.get(budget, :tripped),
+            Map.get(budget, :lifetime, 0),
+            Config.agent_max_dispatches_per_ticket()
+          )
+        end
     }
   end
+
+  @doc false
+  # A status projection must never wait behind a base build or crash while the
+  # RepoBase process is restarting. Treat a timeout or process exit as an
+  # unavailable snapshot; dispatch admission remains the authoritative gate.
+  @spec prewarm_phase((timeout() -> term())) :: atom() | :unavailable
+  def prewarm_phase(status_fun \\ &RepoBase.status/1) when is_function(status_fun, 1) do
+    case status_fun.(@repo_base_status_timeout_ms) do
+      {phase, _path} when is_atom(phase) -> phase
+      _ -> :unavailable
+    end
+  catch
+    :exit, _reason -> :unavailable
+  end
+
+  defp prewarm_blocked?(phase) when phase in [:cloning, :fetching, :building, :checking], do: true
+  defp prewarm_blocked?(_phase), do: false
 
   defp idle_queue_depth(%State{} = state, identifier) when is_binary(identifier) do
     OM.queue_depth_for_issue(state, identifier)
@@ -739,6 +837,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp idle_issue_pause_reason(_issue), do: nil
+
+  # A ticket with no running entry (idle or awaiting retry) carries no local
+  # pause cause, so the tracker label is normally the whole story. A fleet-wide
+  # pause is the one cause that is still knowable, and it explains the stall far
+  # better than rendering every such row as an operator pause.
+  defp tracker_pause_cause(%State{globally_paused: true}), do: :global_pause
+  defp tracker_pause_cause(_state), do: :label_override
 
   @spec next_poll_in_ms(integer() | nil, integer()) :: non_neg_integer() | nil
   def next_poll_in_ms(nil, _now_ms), do: nil
