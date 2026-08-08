@@ -115,6 +115,48 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     end
   end
 
+  @doc "Refreshes a locally revisioned pack, bypassing only generation comparison."
+  @spec refresh_pack_state(Socket.t()) :: Socket.t()
+  def refresh_pack_state(socket) do
+    source = socket.assigns.source
+    catalog = Runtime.safe_source_call(source, :catalog, [], nil)
+
+    socket =
+      case accept_authority(socket, catalog) do
+        {:ok, socket} ->
+          {route_state, effects} = RouteState.replace_catalog(socket.assigns.route_state, catalog)
+
+          socket
+          |> assign(:route_state, route_state)
+          |> apply_effects(effects)
+          |> assign_model()
+
+        :ignored ->
+          socket
+      end
+
+    case RouteState.selected_identity(socket.assigns.route_state) do
+      %TrackerIdentity{} = identity ->
+        case Runtime.safe_source_call(source, :selected, [identity], {:error, :unavailable}) do
+          {:ok, %Snapshot{} = snapshot} ->
+            case accept_authority(socket, snapshot) do
+              {:ok, socket} ->
+                {route_state, _update} = RouteState.replace_selected(socket.assigns.route_state, snapshot)
+                socket |> assign(:route_state, route_state) |> assign_model() |> schedule_reload()
+
+              :ignored ->
+                socket
+            end
+
+          _failure ->
+            socket
+        end
+
+      _identity ->
+        socket
+    end
+  end
+
   @spec complete_reload(Socket.t(), term(), term()) :: Socket.t()
   def complete_reload(socket, token, sources) do
     socket = assign(socket, :source_reload_loading?, false)

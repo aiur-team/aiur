@@ -77,6 +77,14 @@ defmodule AiurWeb.BuildOrder.RouteState do
 
   def put_catalog(%__MODULE__{} = state, _snapshot), do: {state, []}
 
+  @doc "Replaces catalog data after a locally revisioned pack file changes."
+  @spec replace_catalog(t(), Snapshot.t()) :: {t(), [effect()]}
+  def replace_catalog(%__MODULE__{} = state, %Snapshot{scope: :catalog} = snapshot) do
+    state |> Map.put(:catalog_snapshot, snapshot) |> resolve_selected()
+  end
+
+  def replace_catalog(%__MODULE__{} = state, _snapshot), do: {state, []}
+
   @spec put_selected(t(), term()) :: {t(), :generation | :health | :ignored}
   def put_selected(%__MODULE__{} = state, %Snapshot{} = snapshot) do
     with true <- selected_snapshot_for_state?(snapshot, state),
@@ -100,6 +108,18 @@ defmodule AiurWeb.BuildOrder.RouteState do
   end
 
   def put_selected(%__MODULE__{} = state, _snapshot), do: {state, :ignored}
+
+  @doc "Replaces the selected data after a locally revisioned pack file changes."
+  @spec replace_selected(t(), Snapshot.t()) :: {t(), :generation | :ignored}
+  def replace_selected(%__MODULE__{} = state, %Snapshot{} = snapshot) do
+    if selected_snapshot_for_state?(snapshot, state) do
+      dom_generation = if is_nil(snapshot.data), do: state.dom_generation, else: state.dom_generation + 1
+
+      {%{state | selected_snapshot: snapshot, status: selected_status(snapshot), dom_generation: dom_generation}, :generation}
+    else
+      {state, :ignored}
+    end
+  end
 
   @doc "Marks an exact selected scope unavailable when its initial demand cannot be served."
   @spec demand_failed(t(), term()) :: t()

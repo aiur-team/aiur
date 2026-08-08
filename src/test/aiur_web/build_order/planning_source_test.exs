@@ -131,7 +131,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   end
 
   test "keeps a discovered member in its lane and exposes baseline drift" do
-    path = Path.join(System.tmp_dir!(), "planning-source-discovered-#{System.unique_integer([:positive])}.json")
+    directory = Path.join(System.tmp_dir!(), "planning-source-discovered-#{System.unique_integer([:positive])}")
+    path = Path.join(directory, "build-order.json")
 
     pack =
       String.replace(
@@ -140,20 +141,11 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
         ~s({"id": "AS-102", "title": "Render deck", "lane": "dashboard-ui", "phase": 3, "provenance": "discovered", "added_at": "2026-08-01T12:00:00Z",)
       )
 
+    File.mkdir_p!(directory)
     File.write!(path, pack)
+    File.write!(Path.join(directory, "status.json"), ~s({"members":{"4101":"completed","4102":"open"}}))
     Application.put_env(:aiur, :build_order_planning_pack, path)
-    on_exit(fn -> File.rm(path) end)
-
-    Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
-      {:ok, identity} =
-        TrackerIdentity.from_github(
-          %{"number" => 4101, "node_id" => "I_live_4101"},
-          {"acme", "widgets"},
-          {"acme", "widgets"}
-        )
-
-      %{generation: 1, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: :completed}]}
-    end)
+    on_exit(fn -> File.rm_rf(directory) end)
 
     [root] = PlanningSource.catalog().data.entries
     {:ok, snapshot} = PlanningSource.demand(root.identity)
@@ -168,9 +160,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %{source: "4101", target: "4102", state: "cleared"} in grid.edges
   end
 
-  test "missing pack yields no catalog rather than crashing" do
+  test "invalid pack keeps the planning source structurally invalid rather than falling back" do
     Application.put_env(:aiur, :build_order_planning_pack, "/does/not/exist.json")
-    assert PlanningSource.catalog() == nil
+    assert PlanningSource.available?()
+    assert %{health: %{state: :structurally_invalid, failure: :invalid_pack}, data: %{entries: []}} = PlanningSource.catalog()
   end
 
   test "hydrates canonical ticket fields from membership without tracker reads" do
@@ -554,7 +547,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       File.rm(outside_document)
     end)
 
-    assert PlanningSource.catalog() == nil
+    assert_invalid_pack()
   end
 
   test "uses live labels for created tickets and pack labels for drafts" do
@@ -596,10 +589,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     File.write!(path, String.replace(@pack, "\"ticket\": null", "\"ticket\": -1"))
     Application.put_env(:aiur, :build_order_planning_pack, path)
-    assert PlanningSource.catalog() == nil
+    assert_invalid_pack()
 
     File.write!(path, String.replace(@pack, "\"doc\": \"tickets/T-1.md\"", "\"doc\": \"plan.md\""))
-    assert PlanningSource.catalog() == nil
+    assert_invalid_pack()
   end
 
   test "rejects discovered members without a valid provenance timestamp" do
@@ -615,7 +608,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       File.write!(path, String.replace(@pack, ~s("ticket": null, "doc": "tickets/T-1.md"), replacement, global: false))
       Application.put_env(:aiur, :build_order_planning_pack, path)
 
-      assert PlanningSource.catalog() == nil
+      assert_invalid_pack()
     end
   end
 
@@ -707,6 +700,38 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert MapSet.disjoint?(first_tickets, second_tickets)
   end
 
+  test "quarantines a duplicate materialized member from the later pack" do
+    first = Path.join(System.tmp_dir!(), "planning-source-owner-#{System.unique_integer([:positive])}.json")
+    second = Path.join(System.tmp_dir!(), "planning-source-duplicate-#{System.unique_integer([:positive])}.json")
+
+    File.write!(first, @canonical_pack)
+
+    File.write!(
+      second,
+      @canonical_pack
+      |> String.replace("acme/widgets:analytics-streamdeck", "acme/widgets:second-build")
+      |> String.replace("Analytics Stream Deck", "Second runtime build")
+      |> String.replace("\"root_number\": 9900", "\"root_number\": 9901")
+      |> String.replace("\"ticket\": 4101", "\"ticket\": 5101")
+    )
+
+    Application.put_env(:aiur, :build_order_planning_packs, [first, second])
+    Application.delete_env(:aiur, :build_order_planning_pack)
+
+    on_exit(fn ->
+      Application.delete_env(:aiur, :build_order_planning_packs)
+      File.rm(first)
+      File.rm(second)
+    end)
+
+    [first_root, second_root] = PlanningSource.catalog().data.entries
+    {:ok, first_snapshot} = PlanningSource.demand(first_root.identity)
+    {:ok, second_snapshot} = PlanningSource.demand(second_root.identity)
+
+    assert Enum.map(first_snapshot.data.members, & &1.identity.identifier) == ["4101", "4102"]
+    assert Enum.map(second_snapshot.data.members, & &1.identity.identifier) == ["5101"]
+  end
+
   test "assigns distinct deterministic catalog icons when packs omit one" do
     first = Path.join(System.tmp_dir!(), "planning-source-first-#{System.unique_integer([:positive])}.json")
     second = Path.join(System.tmp_dir!(), "planning-source-second-#{System.unique_integer([:positive])}.json")
@@ -776,5 +801,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
       %{generation: 9, health: :healthy, freshness: %{status: :fresh}, members: [%{identity: identity, lifecycle: lifecycle}]}
     end)
+  end
+
+  defp assert_invalid_pack do
+    assert %{health: %{state: :structurally_invalid, failure: :invalid_pack}, data: %{entries: []}} = PlanningSource.catalog()
   end
 end

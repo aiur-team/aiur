@@ -33,7 +33,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @default_root_number_range 800_000_000
   @spec available?() :: boolean()
   def available? do
-    load_packs() != []
+    # Do not fall through to the GitHub source while an Executor repairs a
+    # malformed pack edit; that would restore a repo-wide view unexpectedly.
+    pack_paths() != []
   end
 
   @spec revision() :: [term()]
@@ -53,7 +55,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
     case load_packs() do
       [] ->
-        nil
+        if pack_paths() == [], do: nil, else: invalid_catalog()
 
       packs ->
         {provider_health, source_generation} = provider(membership, packs)
@@ -417,11 +419,8 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   defp completion_known?(_ticket, %{completed: true}, _membership), do: true
 
   defp completion_known?(ticket, pack, membership) do
-    membership_member?(member_identity(pack, ticket, membership), membership) or
-      status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
+    status_lifecycle(member_identity(pack, ticket, membership), pack) in [:completed, :cancelled, :open]
   end
-
-  defp membership_member?(identity, membership), do: not is_nil(membership_member(identity, membership))
 
   defp membership_lifecycle(identity, membership) do
     membership_member(identity, membership)
@@ -560,8 +559,54 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       :error -> []
     end)
     |> Enum.sort(&pack_before?/2)
+    |> quarantine_duplicate_members()
     |> assign_default_root_numbers()
     |> assign_default_icons()
+  end
+
+  # A materialized GitHub issue has exactly one pack owner. Keep the first pack
+  # in stable catalog order authoritative and quarantine only the conflicting
+  # member from later packs, not the entire otherwise-valid pack.
+  defp quarantine_duplicate_members(packs) do
+    {packs, _claimed} =
+      Enum.map_reduce(packs, MapSet.new(), fn pack, claimed ->
+        {tickets, claimed} =
+          Enum.reduce(pack.tickets, {[], claimed}, fn ticket, {tickets, claimed} ->
+            case materialized_member_key(pack, ticket) do
+              nil ->
+                {[ticket | tickets], claimed}
+
+              key ->
+                if MapSet.member?(claimed, key),
+                  do: {tickets, claimed},
+                  else: {[ticket | tickets], MapSet.put(claimed, key)}
+            end
+          end)
+
+        tickets = Enum.reverse(tickets)
+
+        {%{pack | tickets: tickets, materialized?: Enum.any?(tickets, &is_integer(&1.number)), numbers: ticket_numbers(tickets)}, claimed}
+      end)
+
+    packs
+  end
+
+  defp materialized_member_key(%{repository: {owner, repository}}, %{number: number}) when is_integer(number),
+    do: {String.downcase(owner), String.downcase(repository), number}
+
+  defp materialized_member_key(_pack, _ticket), do: nil
+
+  defp invalid_catalog do
+    health = ProviderHealth.new(@generation, :structurally_invalid, false, failure: :invalid_pack)
+
+    %Snapshot{
+      scope: :catalog,
+      repository: {"unknown", "unknown"},
+      generation: @generation,
+      authority_epoch: @epoch,
+      data: Catalog.new([], health),
+      health: health
+    }
   end
 
   defp pack_paths, do: PackPaths.planning()

@@ -76,7 +76,7 @@ defmodule AiurWeb.BuildOrderLive do
   defp refresh_pack_if_changed(%{assigns: %{source: PlanningSource, pack_revision: revision}} = socket) do
     case PlanningSource.revision() do
       ^revision -> socket
-      revision -> socket |> assign(:pack_revision, revision) |> SourceRuntime.refresh_live_state()
+      revision -> socket |> assign(:pack_revision, revision) |> SourceRuntime.refresh_pack_state()
     end
   end
 

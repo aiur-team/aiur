@@ -139,6 +139,20 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
       assert {^state, :ignored} = RouteState.put_selected(state, selected_snapshot(other, selected_root(other), 4, :healthy))
     end
 
+    test "replaces selected data only for an explicit local pack refresh", %{identity: identity, state: state} do
+      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, selected_root(identity), 3, :healthy))
+
+      replacement =
+        identity
+        |> selected_root()
+        |> Map.update!(:root, &%{&1 | title: "Edited pack title"})
+
+      {state, :generation} = RouteState.replace_selected(state, selected_snapshot(identity, replacement, 3, :healthy))
+
+      assert RouteState.dom_generation(state) == 2
+      assert RouteState.selected_snapshot(state).data.root.title == "Edited pack title"
+    end
+
     test "distinguishes selected unavailable, stale, and structural-invalid snapshots", %{
       identity: identity,
       state: state
