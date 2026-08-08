@@ -15,7 +15,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, Orchestrator}
+  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
@@ -175,15 +175,6 @@ defmodule AiurWeb.StreamdeckLive do
             </li>
           </ul>
 
-          <div id="sd-pager-dots" class="sd-pager-dots" aria-label="Agent pages">
-            <span
-              :for={page <- pager_pages(@grid.windows)}
-              class={if page == @grid_page, do: "is-active", else: nil}
-              data-page={page}
-              aria-current={if page == @grid_page, do: "page", else: nil}
-            >•</span>
-          </div>
-
           <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands" aria-hidden="true">
             <p class="sd-mode-label">Commands</p>
             <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
@@ -212,11 +203,46 @@ defmodule AiurWeb.StreamdeckLive do
           </div>
 
           <div id="sd-screen" class="sd-screen" role="group" aria-label="Touch strip">
-            <div :for={segment <- @screen} class={["sd-screen-segment", segment.live? && "is-live"]}>
-              <span :if={segment.label == "Claude"} class="sd-mic" aria-hidden="true"></span>
-              <span class="sd-screen-icon" aria-hidden="true">{segment.icon}</span>
-              <span>{segment.label}</span>
-              <span :if={segment.value} class="sd-screen-value">{segment.value}</span>
+            <div :for={segment <- @screen} class={["sd-screen-segment", "sd-seg", "sd-seg-info", segment.observed? && "is-live"]} data-segment={segment.kind}>
+              <div class="sd-info-hd">
+                <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
+                <span>{segment.label}</span>
+                <span :if={segment.kind == :provider and segment.provider == "claude"} class="sd-mic" aria-hidden="true"></span>
+              </div>
+
+              <div :if={segment.kind == :summary} class="sd-info-live">
+                <b>{segment.live}</b> live · <b>{segment.remaining}</b> left
+              </div>
+
+              <div :if={segment.kind == :summary} class="sd-mini" data-meter="build" data-observed="false">
+                <span class="sd-mini-label">Build</span>
+                <span class="sd-mini-stat"></span>
+                <span class="sd-mini-bar" aria-label="Build progress unavailable"><i></i></span>
+              </div>
+
+              <div
+                :for={meter <- segment.meters}
+                :if={segment.kind == :provider}
+                class={["sd-mini", meter.observed? && "is-observed"]}
+                data-provider={segment.provider}
+                data-meter={meter.key}
+                data-percent={meter.percent}
+                data-observed={to_string(meter.observed?)}
+              >
+                <span class="sd-mini-label">{meter.label}</span>
+                <span :if={meter.observed?} class="sd-mini-stat">{meter.percent}%<span :if={meter.metadata}> · {meter.metadata}</span></span>
+                <span :if={!meter.observed?} class="sd-mini-stat"></span>
+                <span class="sd-mini-bar" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} style={"width: #{meter.percent}%"}></i></span>
+              </div>
+
+              <div :if={segment.kind == :pager} class="sd-pager" aria-label="Agent pages">
+                <span
+                  :for={page <- segment.pages}
+                  class={["sd-pager-dot", page == segment.current_page && "is-active"]}
+                  data-pager-page={page}
+                  aria-current={if page == segment.current_page, do: "page", else: nil}
+                ></span>
+              </div>
             </div>
           </div>
 
@@ -285,7 +311,7 @@ defmodule AiurWeb.StreamdeckLive do
     |> assign(:grid_dial_value, dial_value)
     |> assign(:selected_identifier, selected_identifier(socket, grid, visible_agents))
     |> assign(:keys, key_descriptors(grid.agents, column_offset))
-    |> assign(:screen, screen_descriptors(grid, usage))
+    |> assign(:screen, screen_descriptors(grid, usage, page))
     |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
   end
 
@@ -349,43 +375,65 @@ defmodule AiurWeb.StreamdeckLive do
   defp empty_key(slot),
     do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
 
-  defp screen_descriptors(grid, usage) do
+  defp screen_descriptors(grid, usage, current_page) do
     [
-      %{label: "Summary", icon: "▤", live?: grid.total > 0, value: "#{grid.total} agents"},
-      provider_segment("Claude", "claude", "◒", usage),
-      provider_segment("Codex", "codex", "◇", usage),
-      %{label: "Pager", icon: "›", live?: grid.windows > 1, value: "#{grid.windows} windows"}
-    ]
+      %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: grid.total, remaining: nil, meters: []}
+      | Enum.map(CodingAgent.provider_descriptors(), &provider_segment(&1, usage))
+    ] ++ [%{kind: :pager, label: "MORE AGENTS", logo: "/aiur-logo.png", observed?: grid.windows > 1, pages: pager_pages(grid.windows), current_page: current_page, meters: []}]
   end
 
-  defp provider_segment(label, provider, icon, usage) do
+  defp provider_segment(descriptor, usage) do
+    provider = Atom.to_string(descriptor.provider)
     meter = Map.get(usage, provider)
-    %{label: label, icon: icon, live?: is_map(meter), value: provider_value(meter)}
+
+    %{
+      kind: :provider,
+      provider: provider,
+      label: descriptor.label,
+      logo: descriptor.logo,
+      observed?: observed_provider?(meter),
+      meters: [provider_meter("session", "Session", meter), provider_meter("weekly", "Weekly", meter)]
+    }
   end
 
-  defp provider_value(%{} = meter) do
-    percentages =
-      case get_value(meter, "windows") do
-        windows when is_map(windows) ->
-          windows
-          |> Enum.map(fn {name, window} -> {name, window_percentage(window)} end)
-          |> Enum.filter(fn {_name, percentage} -> is_integer(percentage) end)
-          |> Enum.sort_by(fn {name, _percentage} -> to_string(name) end)
+  defp provider_meter(key, label, meter) do
+    window = if observed_provider?(meter), do: meter |> get_value("windows", %{}) |> get_value(key), else: nil
+    percent = window_percentage(window)
 
-        _ ->
-          []
-      end
+    %{key: key, label: label, percent: percent, metadata: window_metadata(window), observed?: is_integer(percent)}
+  end
 
-    case percentages do
-      [_ | _] ->
-        Enum.map_join(percentages, " · ", fn {name, percentage} -> "#{name} #{percentage}%" end)
+  defp observed_provider?(%{} = meter), do: get_value(meter, "state") in [:observed, "observed"]
+  defp observed_provider?(_meter), do: false
 
-      [] ->
-        get_value(meter, "state", "observed") |> to_string()
+  defp window_metadata(window) when is_map(window) do
+    case get_value(window, "remaining") do
+      remaining when is_binary(remaining) and remaining != "" -> remaining
+      _ -> window |> get_value("resets_at") |> reset_label()
     end
   end
 
-  defp provider_value(_meter), do: "Unavailable"
+  defp window_metadata(_window), do: nil
+
+  defp reset_label(%DateTime{} = reset), do: "#{weekday(reset)} #{hour_label(reset)}"
+
+  defp reset_label(reset) when is_binary(reset) do
+    case DateTime.from_iso8601(reset) do
+      {:ok, datetime, _offset} -> reset_label(datetime)
+      _ -> nil
+    end
+  end
+
+  defp reset_label(_reset), do: nil
+
+  defp weekday(%DateTime{} = datetime), do: Enum.at(~w(Mon Tue Wed Thu Fri Sat Sun), Date.day_of_week(DateTime.to_date(datetime)) - 1)
+  defp hour_label(%DateTime{hour: hour}), do: "#{rem(hour + 11, 12) + 1}#{if(hour < 12, do: "AM", else: "PM")}"
+
+  defp meter_aria_label(%{label: label, observed?: true, percent: percent, metadata: metadata}) do
+    Enum.reject([label, "#{percent}%", metadata], &is_nil/1) |> Enum.join(" · ")
+  end
+
+  defp meter_aria_label(%{label: label}), do: "#{label} unavailable"
 
   defp bucket_label(:alert), do: "Alert"
   defp bucket_label(:stuck), do: "Stuck"
