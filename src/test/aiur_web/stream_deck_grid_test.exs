@@ -61,10 +61,10 @@ defmodule AiurWeb.StreamDeckGridTest do
     assert payload.max_column_offset == 6
   end
 
-  test "preserves the raw fleet order within equal ranks" do
+  test "uses canonical ticket ordering within equal ranks" do
     payload = StreamDeckGrid.project(%{running: [agent("10"), agent("2")], retrying: [], idle: []})
 
-    assert Enum.map(payload.agents, & &1.identifier) == ["10", "2"]
+    assert Enum.map(payload.agents, & &1.identifier) == ["2", "10"]
   end
 
   test "sorts one agent per bucket and places dependency-ready queued work first" do
@@ -135,14 +135,12 @@ defmodule AiurWeb.StreamDeckGridTest do
     end
   end
 
-  test "keeps an unchanged fleet in exactly the same order across refreshes" do
-    snapshot = %{
-      running: [agent("running-2"), agent("running-1"), agent("stuck", work_state: :error)],
-      retrying: [],
-      idle: [agent("queued-2"), agent("queued-1")]
-    }
+  test "keeps equal-rank agents stable when snapshot order changes" do
+    first_snapshot = %{running: [agent("10"), agent("2")], retrying: [], idle: []}
+    second_snapshot = %{running: [agent("2"), agent("10")], retrying: [], idle: []}
 
-    assert StreamDeckGrid.project(snapshot).agents == StreamDeckGrid.project(snapshot).agents
+    assert Enum.map(StreamDeckGrid.project(first_snapshot).agents, & &1.identifier) == ["2", "10"]
+    assert Enum.map(StreamDeckGrid.project(second_snapshot).agents, & &1.identifier) == ["2", "10"]
   end
 
   test "includes the Stream Deck agent fields" do

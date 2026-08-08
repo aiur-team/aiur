@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamDeckGrid do
   client page without re-deriving fleet state.
   """
 
-  alias Aiur.{AgentEvents, CodingAgent, Orchestrator}
+  alias Aiur.{AgentEvents, AgentList.Summaries, CodingAgent, Orchestrator}
 
   @columns_per_page 4
   @rows_per_column 2
@@ -91,9 +91,9 @@ defmodule AiurWeb.StreamDeckGrid do
     |> Enum.map(&elem(&1, 0))
   end
 
-  defp sort_key(%{bucket: bucket} = agent) do
+  defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1)}
+    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
   end
 
   defp vendor(entry) do
