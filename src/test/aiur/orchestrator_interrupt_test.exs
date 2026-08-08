@@ -233,8 +233,8 @@ defmodule Aiur.OrchestratorInterruptTest do
       version: 1,
       status: :joinable,
       kind: :github,
-      owner: github_owner(),
-      repository: github_repository_name(),
+      owner: Aiur.TestSupport.github_owner(),
+      repository: Aiur.TestSupport.github_repository_name(),
       provider_id: "I_kwDO#{identifier}",
       identifier: "101",
       reason: nil

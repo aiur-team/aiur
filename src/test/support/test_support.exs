@@ -51,9 +51,6 @@ defmodule Aiur.TestSupport do
           write_workflow_file!: 2,
           write_workflow_file_synced!: 1,
           write_workflow_file_synced!: 2,
-          github_owner: 0,
-          github_repository: 0,
-          github_repository_name: 0,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
