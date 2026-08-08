@@ -4,8 +4,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.AgentEvents
-  alias Aiur.AgentPubSub
+  alias Aiur.{AgentEvents, AgentPubSub, IssueLog}
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -24,9 +23,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
         secret_key_base: String.duplicate("s", 64),
         dashboard_writable: true,
         dashboard_auth_required: false,
+        streamdeck_transcript_flush_ms: 1,
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
         streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
-        streamdeck_logs_fun: fn -> fixture_logs() end,
+        streamdeck_logs_fun: &fixture_logs/1,
         agent_chat_pause_fun: fn identifier ->
           send(test_pid, {:streamdeck_pause, identifier})
           {:ok, 1}
@@ -143,41 +143,139 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert_receive {:streamdeck_resume, "1345"}
   end
 
-  test "subscribes the initial focused agent exactly once" do
-    {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    event = AgentEvents.transcript_event(:assistant, "focused-agent-event")
+  test "initial mount creates one real PubSub transcript subscription" do
+    {:ok, _view, _html} = live(build_conn(), "/streamdeck")
 
-    assert :ok = AgentPubSub.broadcast_transcript("1352", event)
+    identifier =
+      Enum.find(
+        ~w(1352 1345 1350 1360 1361 1362 1363 1366 1367 1370 1371 1372 1373 1374 1375 1376 1377),
+        fn id ->
+          match?([{_relay, _metadata}], Registry.lookup(Aiur.PubSub, AgentEvents.agent_topic(id)))
+        end
+      )
 
-    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-    assert html |> String.split("focused-agent-event") |> length() == 2
+    assert is_binary(identifier)
+    topic = AgentEvents.agent_topic(identifier)
+
+    assert [{relay, _metadata}] = Registry.lookup(Aiur.PubSub, topic)
+    assert Process.alive?(relay)
   end
 
-  test "read-only focus swaps subscriptions and ignores the old agent topic" do
-    endpoint_config = Application.get_env(:aiur, Endpoint)
-    read_only_config = Keyword.put(endpoint_config, :dashboard_writable, false)
-    Endpoint.config_change(%{Endpoint => read_only_config}, [])
+  test "key selection follows the focused agent even in read-only mode" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    previous_writable = Endpoint.config(:dashboard_writable)
+    Phoenix.Config.put(Endpoint, :dashboard_writable, false)
 
     try do
-      {:ok, view, html} = live(build_conn(), "/streamdeck")
-      assert html =~ ~s(data-grid-selected-identifier="1352")
-
       html = render_hook(view, "key-press", %{"identifier" => "1345"})
-      assert html =~ ~s(data-grid-selected-identifier="1345")
-      refute_receive {:streamdeck_pause, _identifier}
-      refute_receive {:streamdeck_resume, _identifier}
 
-      old_event = AgentEvents.transcript_event(:assistant, "old-agent-event")
-      new_event = AgentEvents.transcript_event(:assistant, "new-agent-event")
-      assert :ok = AgentPubSub.broadcast_transcript("1352", old_event)
-      assert :ok = AgentPubSub.broadcast_transcript("1345", new_event)
+      assert html =~ ~s(data-focused-identifier="1345")
+      refute html =~ "Resume requested"
+      refute_receive {:streamdeck_resume, "1345"}
+    after
+      Phoenix.Config.put(Endpoint, :dashboard_writable, previous_writable)
+    end
+  end
+
+  test "scrolls bounded event and flattened transcript logs" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    # Events pane shows the eight newest event headers; the transcript pane is
+    # the flattened sequence oldest-first, so its top two lines are the oldest.
+    assert log_pane(html, "sd-log-events") =~ "event-1"
+    assert log_pane(html, "sd-log-transcript") =~ "event-10"
+    assert html =~ ~s(data-log-kind="event_header")
+    assert html =~ ~s(data-log-kind="message")
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "1"})
+    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="1"}
+    refute log_pane(html, "sd-log-events") =~ "event-1"
+    assert log_pane(html, "sd-log-events") =~ "event-2"
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="18"[^>]*data-max-offset="18"}
+    assert log_pane(html, "sd-log-transcript") =~ "event-1"
+    assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+  end
+
+  test "projects classified AgentEventFeed entries through the flattened two-line window" do
+    with_production_feed(fn ->
+      write_feed("1352", [
+        feed_event("assistant", "older message", "turn-1"),
+        feed_event("tool", "edit lib/example.ex", "turn-1", %{
+          "tool" => "edit",
+          "changes" => [%{"path" => "lib/example.ex", "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"}]
+        }),
+        feed_event("assistant", "newest message", "turn-2")
+      ])
+
+      {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+      assert html =~ "[AGENT] newest message"
+      assert html =~ "[EMIT] lib/example.ex"
+      assert html =~ "[assistant] older message"
+      assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="3"}
+
+      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "1"})
+      assert html =~ "[diff] lib/example.ex +1 -1 new"
 
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-      refute html =~ "old-agent-event"
-      assert html |> String.split("new-agent-event") |> length() == 2
-    after
-      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
-    end
+      assert html =~ "newest message"
+      assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+    end)
+  end
+
+  test "focus switching rejects old feed topics and resets to the new agent projection" do
+    with_production_feed(fn ->
+      write_feed("1352", [feed_event("assistant", "old focused entry", "old-turn")])
+      write_feed("1345", [feed_event("assistant", "new focused entry", "new-turn")])
+
+      {:ok, view, html} = live(build_conn(), "/streamdeck")
+      assert html =~ "old focused entry"
+
+      html = render_hook(view, "key-press", %{"identifier" => "1345"})
+      assert html =~ ~s(data-focused-identifier="1345")
+      assert html =~ "new focused entry"
+      refute html =~ "old focused entry"
+
+      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
+      Process.sleep(20)
+      html = render(view)
+      refute html =~ "stale topic"
+      assert html =~ "new focused entry"
+    end)
+  end
+
+  test "read-only focus swaps relays and ignores the old agent topic" do
+    with_production_feed(fn ->
+      write_feed("1352", [feed_event("assistant", "old-agent-event", "old-turn")])
+      write_feed("1345", [feed_event("assistant", "new-agent-event", "new-turn")])
+
+      endpoint_config = Application.get_env(:aiur, Endpoint)
+      read_only_config = Keyword.put(endpoint_config, :dashboard_writable, false)
+      Endpoint.config_change(%{Endpoint => read_only_config}, [])
+
+      try do
+        {:ok, view, html} = live(build_conn(), "/streamdeck")
+        assert html =~ ~s(data-grid-selected-identifier="1352")
+        assert html =~ "old-agent-event"
+
+        html = render_hook(view, "key-press", %{"identifier" => "1345"})
+        assert html =~ ~s(data-grid-selected-identifier="1345")
+        assert html =~ "new-agent-event"
+        refute html =~ "old-agent-event"
+        refute_receive {:streamdeck_pause, _identifier}
+        refute_receive {:streamdeck_resume, _identifier}
+
+        AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
+        Process.sleep(20)
+        html = render(view)
+        refute html =~ "stale topic"
+        assert html =~ "new-agent-event"
+      after
+        Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+      end
+    end)
   end
 
   test "pages the complete fleet and clamps the page at both ends" do
@@ -195,27 +293,6 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "grid-page", %{"page" => "99"})
     assert html =~ ~s(data-grid-page="2")
     assert html =~ ~s(data-streamdeck-identifier="1377")
-  end
-
-  test "scrolls bounded event and transcript logs and accepts live transcript events" do
-    {:ok, view, html} = live(build_conn(), "/streamdeck")
-
-    assert html =~ "event-1"
-    assert html =~ "transcript-1"
-
-    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "1"})
-    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="1"}
-    assert html =~ "event-2"
-    refute html =~ "event-1"
-
-    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="6"[^>]*data-max-offset="6"}
-    assert html =~ "transcript-10"
-    assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
-
-    send(view.pid, {:transcript_event, %{role: :assistant, body: "live transcript", sequence: 99}})
-    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-    assert html =~ "live transcript"
   end
 
   test "renders provider percentages and refreshes them from the live meter event", %{meter_agent: meter_agent} do
@@ -318,11 +395,57 @@ defmodule AiurWeb.StreamdeckLiveTest do
     }
   end
 
-  defp fixture_logs do
+  defp fixture_logs(_identifier), do: Enum.map(1..10, &feed_entry("event-#{&1}", "fixture-#{&1}"))
+
+  defp feed_entry(body, turn_id) do
     %{
-      events: Enum.map(1..10, &%{role: :system, body: "event-#{&1}"}),
-      transcript: Enum.map(1..10, &%{role: :assistant, body: "transcript-#{&1}"})
+      type: "message",
+      badge: "AGENT",
+      role: "assistant",
+      body: body,
+      timestamp: "2026-08-02T00:00:00Z",
+      turn_id: turn_id
     }
+  end
+
+  defp feed_event(role, body, turn_id, payload \\ nil) do
+    %{
+      "role" => role,
+      "body" => body,
+      "timestamp" => "2026-08-02T00:00:00Z",
+      "msg_id" => nil,
+      "sequence" => 1,
+      "turn_id" => turn_id,
+      "payload" => payload
+    }
+  end
+
+  defp write_feed(identifier, events) do
+    path = IssueLog.transcript_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, Enum.map_join(events, "\n", &Jason.encode!/1) <> "\n")
+  end
+
+  defp with_production_feed(fun) do
+    previous_endpoint_value = Endpoint.config(:streamdeck_logs_fun)
+    previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
+
+    Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, nil)
+    Application.put_env(:aiur, Endpoint, Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil))
+
+    try do
+      fun.()
+    after
+      Application.put_env(:aiur, Endpoint, previous_endpoint_config)
+      Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, previous_endpoint_value)
+    end
+  end
+
+  defp log_pane(html, id) do
+    case Regex.run(~r{<div id="#{id}"[^>]*>.*?</div>}s, html) do
+      [pane | _] -> pane
+      nil -> flunk("missing log pane ##{id}")
+    end
   end
 
   defp slot_identifiers(html) do

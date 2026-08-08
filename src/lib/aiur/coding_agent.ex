@@ -118,7 +118,7 @@ defmodule Aiur.CodingAgent do
           order: 0,
           label: "Codex",
           logo: "/provider-assets/codex-color.svg",
-          token_icon: "/provider-assets/codex-token.svg",
+          token_icon: "/provider-assets/claude-token.svg",
           css_class: "is-codex",
           command_color: "#8fbcff",
           command_border: "rgba(143, 188, 255, 0.4)",
@@ -186,7 +186,7 @@ defmodule Aiur.CodingAgent do
           order: 1,
           label: "Claude",
           logo: "/provider-assets/claude-symbol.svg",
-          token_icon: "/provider-assets/claude-token.svg",
+          token_icon: "/provider-assets/codex-token.svg",
           css_class: "is-claude",
           command_color: "#f2a76b",
           command_border: "rgba(242, 167, 107, 0.4)",
@@ -258,6 +258,7 @@ defmodule Aiur.CodingAgent do
         efforts: ["low", "medium", "high", "xhigh", "max"]
       }
     }
+    |> Map.merge(Aiur.OpenAICompat.Registry.entries())
     |> maybe_add_test_backend()
   end
 
@@ -273,7 +274,7 @@ defmodule Aiur.CodingAgent do
         skill_install: %{path: ".fake/skills"},
         rate_limit_fallback_target: true,
         configurable: true,
-        init_order: 2,
+        init_order: 99,
         default_command: "fake-agent --serve",
         models: ["fake-1"],
         model_aliases: :native,
@@ -284,7 +285,7 @@ defmodule Aiur.CodingAgent do
         remote_control: false,
         resumable: false,
         presentation: %{
-          order: 2,
+          order: 99,
           label: "Fake",
           logo: "/provider-assets/codex-color.svg",
           token_icon: "/provider-assets/codex-token.svg",
@@ -313,6 +314,18 @@ defmodule Aiur.CodingAgent do
   @doc "Known backend keys, derived from the registry."
   @spec known_backends() :: [backend()]
   def known_backends, do: Map.keys(backends())
+
+  @doc "Backends currently eligible for dispatch, including explicit config opt-ins."
+  @spec dispatchable_backends(map()) :: [backend()]
+  def dispatchable_backends(backend_configs \\ %{}) when is_map(backend_configs) do
+    backends()
+    |> Enum.filter(fn {backend, entry} ->
+      config = Map.get(backend_configs, backend, %{})
+      configured = Map.get(config, "enabled", Map.get(config, :enabled))
+      if is_boolean(configured), do: configured, else: Map.get(entry, :dispatch_enabled_by_default, true)
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   @doc "Backends approved by their registry entry as rate-limit fallback targets."
   @spec rate_limit_fallback_targets() :: [backend()]
@@ -359,8 +372,10 @@ defmodule Aiur.CodingAgent do
   @doc "Backends selectable during init, ordered by registry preference."
   @spec configurable_backends() :: [backend()]
   def configurable_backends do
+    dispatchable = dispatchable_backends()
+
     backends()
-    |> Enum.filter(fn {_backend, entry} -> Map.get(entry, :configurable, false) end)
+    |> Enum.filter(fn {backend, entry} -> backend in dispatchable and Map.get(entry, :configurable, false) end)
     |> Enum.sort_by(fn {backend, entry} -> {Map.get(entry, :init_order, 9_999), backend} end)
     |> Enum.map(&elem(&1, 0))
   end
@@ -446,6 +461,45 @@ defmodule Aiur.CodingAgent do
         do: {backend, String.to_atom(family)}
   end
 
+  @doc "Registry-owned usage backend and transport for a headless backend."
+  @spec usage_context(backend()) :: %{backend: atom(), transport: atom()} | nil
+  def usage_context(backend) when is_binary(backend) do
+    case Map.get(backends(), backend) do
+      %{usage: %{adapters: adapters}} = entry when is_list(adapters) and adapters != [] ->
+        %{
+          backend: Map.get(entry, :usage_backend, :app_server),
+          transport: Map.get(entry, :usage_transport, :app_server)
+        }
+
+      _ ->
+        nil
+    end
+  end
+
+  def usage_context(_backend), do: nil
+
+  @doc "All registry-declared headless usage backend identities."
+  @spec usage_backends() :: [atom()]
+  def usage_backends do
+    backends()
+    |> Map.keys()
+    |> Enum.map(&usage_context/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.backend)
+    |> Enum.uniq()
+  end
+
+  @doc "All registry-declared headless usage transport identities."
+  @spec usage_transports() :: [atom()]
+  def usage_transports do
+    backends()
+    |> Map.keys()
+    |> Enum.map(&usage_context/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(& &1.transport)
+    |> Enum.uniq()
+  end
+
   @doc "Presentation descriptor for one provider family atom, or `nil` if none."
   @spec provider_descriptor(atom() | String.t() | nil) :: provider_descriptor() | nil
   def provider_descriptor(provider) when is_atom(provider) do
@@ -473,6 +527,18 @@ defmodule Aiur.CodingAgent do
     case provider_descriptor(provider) do
       %{account_generation: policy} when is_map(policy) -> policy
       _ -> nil
+    end
+  end
+
+  @doc "Primary registry-declared meter backend for a provider family."
+  @spec provider_meter_backend(atom()) :: atom()
+  def provider_meter_backend(provider) when is_atom(provider) do
+    provider
+    |> provider_account_generation()
+    |> then(&get_in(&1 || %{}, [:backends]))
+    |> case do
+      [backend | _] when is_atom(backend) -> backend
+      _ -> :app_server
     end
   end
 
@@ -510,7 +576,8 @@ defmodule Aiur.CodingAgent do
   Derived from the registry so new backends/models seed automatically.
   """
   @spec override_labels() :: [String.t()]
-  def override_labels, do: override_labels(known_backends()) ++ alias_labels() ++ override_effort_labels()
+  def override_labels,
+    do: override_labels(dispatchable_backends(Config.agent_backend_configs())) ++ alias_labels() ++ override_effort_labels()
 
   @doc "Label-only alias override labels (e.g. `model:remote`)."
   @spec alias_labels() :: [String.t()]
@@ -583,7 +650,7 @@ defmodule Aiur.CodingAgent do
   `Aiur.AgentRunner.SessionLifecycle`, which surfaces it to the Executor).
   """
   @spec resolve_model(backend(), String.t() | nil) :: String.t() | nil
-  def resolve_model(_backend, nil), do: nil
+  def resolve_model(backend, nil), do: backend_default_model(backend)
 
   def resolve_model(backend, model) when is_binary(model) do
     entry = Map.get(backends(), backend, %{})
@@ -592,6 +659,16 @@ defmodule Aiur.CodingAgent do
       :derived -> Models.latest(Map.get(entry, :models, []), model) || model
       _native -> model
     end
+  end
+
+  # A bare `model:<backend>` override selects the backend but pins no model, and
+  # the routing table may not name this backend at all (routing is codex/claude
+  # shaped). Fall back to the backend's registered default so the session starts
+  # with a real model instead of `nil` (which would otherwise surface as an
+  # `unsupported_model` attention). OpenAI-compatible backends declare their
+  # default under `openai_compat.default_model`.
+  defp backend_default_model(backend) do
+    get_in(backends(), [backend, :openai_compat, :default_model])
   end
 
   @doc """
@@ -646,7 +723,23 @@ defmodule Aiur.CodingAgent do
   """
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
-    override_model(issue) || routing_model(issue)
+    case override_backend(issue) do
+      # With no override, the complexity-routing value names the model for the
+      # routed backend. With an override, fall through to the routing model only
+      # when it targets that same backend: a `model:codex` bare override still
+      # wants the codex routing model, while a `model:deepseek` override must
+      # not inherit a codex-shaped model that is invalid for it. A bare override
+      # for a backend the routing table never names (an OpenAI-compatible one)
+      # therefore yields nil, and `resolve_model/2` supplies the backend default.
+      nil ->
+        override_model(issue) || routing_model(issue)
+
+      backend ->
+        case routing_backend(issue) do
+          ^backend -> routing_model(issue)
+          _other -> override_model(issue)
+        end
+    end
   end
 
   @doc """
@@ -716,7 +809,7 @@ defmodule Aiur.CodingAgent do
   # backend, as `{backend, variant | nil}`. Unknown backends are skipped.
   @spec override(Issue.t()) :: {backend(), String.t() | nil} | nil
   defp override(%Issue{} = issue) do
-    known = known_backends()
+    known = dispatchable_backends(Config.agent_backend_configs())
 
     issue
     |> Issue.label_names()
@@ -872,6 +965,15 @@ defmodule Aiur.CodingAgent do
   def remote_control?(backend) do
     case Map.fetch(backends(), backend) do
       {:ok, entry} -> Map.get(entry, :remote_control, false)
+      :error -> false
+    end
+  end
+
+  @doc "Whether the backend can execute its session and tools on an SSH worker."
+  @spec remote_worker?(backend()) :: boolean()
+  def remote_worker?(backend) do
+    case Map.fetch(backends(), backend) do
+      {:ok, entry} -> Map.get(entry, :remote_worker, true)
       :error -> false
     end
   end

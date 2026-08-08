@@ -238,6 +238,99 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
   end
 
+  # An in-process session (an OpenAI-compatible HTTP agent) has no OS process,
+  # group, or remote host. It must be accepted as a valid provider so dispatch
+  # is not rejected before the first turn, and the lease must release cleanly
+  # on owner death (there is nothing to reap).
+  test "accepts an in-process provider and releases cleanly on owner death" do
+    ticket = "ownership-in-process-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} = Ownership.claim(ticket)
+        {:ok, active_lease} = Ownership.activate(lease)
+        :ok = Ownership.expect_provider(lease)
+        :ok = Ownership.track_provider(lease, %{in_process: true})
+        send(parent, {:in_process_tracked, active_lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:in_process_tracked, _lease}, 2_000
+    monitor = Process.monitor(owner)
+    Process.exit(owner, :kill)
+    assert_receive {:DOWN, ^monitor, :process, ^owner, :killed}, 2_000
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
+  # The `in_process` marker is session-level, but a provider that later also
+  # reports an OS identity must not be released early: the marker's fast path
+  # only applies while the provider has nothing to reap. A merged descendant
+  # snapshot therefore keeps the lease fail-closed in :reaping like any other
+  # OS containment rather than being released through the in-process path.
+  test "an in-process provider that later reports descendants is retained, not released early" do
+    ticket = "ownership-in-process-descendant-#{System.unique_integer([:positive])}"
+    child_pid = System.unique_integer([:positive])
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            process_alive_fun: fn _pid -> true end,
+            process_identity_fun: fn ^child_pid -> {:ok, :late_child} end
+          )
+
+        :ok = Ownership.track_provider(lease, %{in_process: true})
+        :ok = Ownership.track_provider(lease, %{descendant_pids: [child_pid]})
+        send(parent, {:in_process_descendant_tracked, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:in_process_descendant_tracked, lease}, 2_000
+    Process.exit(owner, :kill)
+
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+
+    Process.exit(lease.guardian, :kill)
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
+  # A descendant-only provider has no `in_process` marker and must be treated
+  # strictly as OS containment: on owner death with nothing proven gone it is
+  # retained (fail-closed), never released through the in-process fast path.
+  test "a descendant-only provider is not treated as in-process" do
+    ticket = "ownership-descendant-not-in-process-#{System.unique_integer([:positive])}"
+    descendant_pid = System.unique_integer([:positive])
+    parent = self()
+
+    owner =
+      spawn(fn ->
+        {:ok, lease} =
+          Ownership.claim(ticket, Aiur.Workspace.Ownership.Registry,
+            process_alive_fun: fn _pid -> true end,
+            process_identity_fun: fn ^descendant_pid -> {:ok, :only_descendant} end
+          )
+
+        :ok = Ownership.track_provider(lease, %{descendant_pids: [descendant_pid]})
+        send(parent, {:descendant_only_tracked, lease})
+        Process.sleep(:infinity)
+      end)
+
+    assert_receive {:descendant_only_tracked, lease}, 2_000
+    guardian = lease.guardian
+    guardian_monitor = Process.monitor(guardian)
+    Process.exit(owner, :kill)
+
+    assert_eventually(fn -> match?({:ok, %{phase: :reaping}}, Ownership.current(ticket)) end)
+    assert {:error, {:workspace_owned, {:ok, %{phase: :reaping}}}} = Ownership.claim(ticket)
+
+    Process.exit(guardian, :kill)
+    assert_receive {:DOWN, ^guardian_monitor, :process, ^guardian, _reason}, 2_000
+    assert_eventually(fn -> Ownership.current(ticket) == :none end)
+  end
+
   test "duplicate and malformed receipt restoration fail closed" do
     ticket = "ownership-restore-fencing-#{System.unique_integer([:positive])}"
     assert {:ok, lease} = Ownership.claim(ticket)

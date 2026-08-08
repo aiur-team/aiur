@@ -1,0 +1,108 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/aiur-team/aiur/analytics/schema/run-summary.v1.json",
+  "title": "Run summary",
+  "description": "Reduced telemetry dataset materialized by analytics/reduce into the per-repo state node: one per daemon boot at <node>/analytics/runs/<boot-id>/run-summary.json, and one cross-boot build rollup at <node>/builds/<slug>/build-summary.json (which additionally carries the optional build_order member manifest). Consumed by the dashboard (Elixir Presenter, prior-boot reads) and by Executor tools (run-summary, build-report). Materialization is a cache, never a source of truth: every summary is regenerable from its declared source_files, and provenance identifies the sources.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "boot_id",
+    "generated_at",
+    "source_files",
+    "source_bytes",
+    "records",
+    "restarts",
+    "actors",
+    "tickets",
+    "findings",
+    "warnings",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": 1,
+      "description": "run-summary schema version. Distinct from the telemetry record schema_version carried on each record."
+    },
+    "boot_id": { "type": "string", "description": "The daemon boot this summary reduces." },
+    "generated_at": { "type": "string", "format": "date-time", "description": "When the summary was materialized (UTC ISO-8601)." },
+    "source_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Expanded telemetry files the reducer consumed."
+    },
+    "source_bytes": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Total bytes of the source files consumed, so a partial or rotated source is detectable."
+    },
+    "records": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "Normalized telemetry envelopes retained for this boot."
+    },
+    "restarts": {
+      "type": "array",
+      "items": { "type": "object" },
+      "description": "daemon_restart / segment_boundary restart records."
+    },
+    "actors": {
+      "type": "object",
+      "additionalProperties": { "type": "object" },
+      "description": "Per-actor resource samples, profile statistics, gaps, and availability counts."
+    },
+    "tickets": {
+      "type": "object",
+      "additionalProperties": { "type": "object" },
+      "description": "Per-ticket lifecycle events, intervals, dispatch complexity, and findings."
+    },
+    "findings": { "type": "array", "items": { "type": "object" } },
+    "warnings": { "type": "array", "items": { "type": "object" }, "description": "Tolerant-parse warnings (malformed/unsupported/partial records)." },
+    "build_order": {
+      "type": "object",
+      "description": "Present only in cross-boot build rollups (builds/<slug>/build-summary.json), never in a per-boot run summary. Carries the build-order identity and member manifest so build-report can render per-member rows; the dashboard ignores it.",
+      "required": ["id", "member_count", "members"],
+      "properties": {
+        "id": { "type": ["string", "null"] },
+        "title": { "type": ["string", "null"] },
+        "root_number": { "type": ["string", "null"] },
+        "member_count": { "type": "integer", "minimum": 0 },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": ["string", "null"] },
+              "title": { "type": ["string", "null"] },
+              "lane": { "type": ["string", "null"] },
+              "phase": {},
+              "complexity": {},
+              "ticket": { "type": ["integer", "string"] }
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    },
+    "provenance": {
+      "type": "object",
+      "required": ["inputs", "files", "schema_versions", "record_count"],
+      "properties": {
+        "inputs": { "type": "array", "items": { "type": "string" }, "description": "The CLI inputs as supplied." },
+        "files": { "type": "array", "items": { "type": "string" }, "description": "Expanded telemetry files consumed." },
+        "schema_versions": { "type": "array", "items": { "type": "integer" }, "description": "Telemetry record schema versions observed." },
+        "time_range": {
+          "type": ["object", "null"],
+          "properties": {
+            "start": { "type": "string" },
+            "end": { "type": "string" }
+          }
+        },
+        "record_count": { "type": "integer", "minimum": 0 },
+        "enrich": { "type": "boolean", "description": "true when GitHub enrichment was applied; enrich is an explicit opt-in." },
+        "generated_by": { "type": "string", "description": "Tool that produced the summary." }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": false
+}

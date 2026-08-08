@@ -327,6 +327,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
+       aiur findings --record <json> --repo <owner/repo>  append one validated finding
+       aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -406,16 +409,26 @@ run_todo() {
   run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
 }
 
+# --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
+
+run_findings() {
+  run_init "$@"
+}
+
 # --- interactive / background run -------------------------------------------
 #
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load KEY=VALUE pairs from ./.env into the environment so the running release
-# (e.g. GITHUB_TOKEN, dashboard creds) sees what `aiur init` scaffolded there.
-# An already-exported variable always wins, so a shell export overrides the file.
+# Load operator/machine credentials before repo-local settings. Since each file
+# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
 load_dotenv() {
-  local file=".env" line key val
+  load_dotenv_file "$HOME/.aiur/.env"
+  load_dotenv_file ".env"
+}
+
+load_dotenv_file() {
+  local file="$1" line key val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
@@ -433,6 +446,13 @@ load_dotenv() {
     [ -n "${!key+x}" ] && continue
     export "$key=$val"
   done <"$file"
+}
+
+# The readiness token grants the one-shot `aiur init` assessment access that a
+# normal daemon and its child agents must never inherit. Keep dotenv loading
+# generic, then remove this run-only secret before any session process starts.
+scrub_run_only_env() {
+  unset AIUR_CI_READINESS_TOKEN
 }
 
 run_argv=()
@@ -505,6 +525,7 @@ run_session() {
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
+  scrub_run_only_env
 
   init_argv_file
 
@@ -601,6 +622,7 @@ run_session() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
+    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
@@ -1887,6 +1909,27 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
+# `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
+# more tickets (the supported exit from the #1453 latch; no JSON hand-editing).
+cmd_reset_budget() {
+  if ! parse_issue_targets "$@"; then
+    echo "aiur: reset-budget expects issue IDs (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  # --all is rejected (exit 64 with guidance) rather than silently no-opping:
+  # clearing every ticket's latch at once is not a documented operation and
+  # would mask which tickets are structurally stuck (#1453 review P2d).
+  if [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: reset-budget does not accept --all; name ticket IDs explicitly (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  local expression
+  expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
+  run_control_rpc "$expression"
+}
+
 # `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
@@ -2359,6 +2402,9 @@ aiur_engine_main() {
     init)
       run_init "$@"
       ;;
+    findings)
+      run_findings "$@"
+      ;;
     --bg)
       dispatch_run "$@"
       ;;
@@ -2409,6 +2455,10 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    reset-budget)
+      shift
+      cmd_reset_budget "$@"
       ;;
     message)
       shift

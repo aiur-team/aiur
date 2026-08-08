@@ -41,12 +41,19 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "authorized composition" do
-    test "renders one card per provider in Codex-then-Claude order" do
+    test "renders one card per registry provider in registry order" do
       view = Presenter.present(authorized(), %{codex: healthy(:codex), claude: healthy(:claude)})
 
       assert view.state == :authorized
-      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :fake]
-      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Fake"]
+      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
+      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Fake"]
+    end
+
+    test "names the generic transport backend" do
+      snapshot = %{healthy(:deepseek) | backend: :openai_compat}
+      view = Presenter.present(authorized(), %{deepseek: snapshot})
+
+      assert Enum.find(view.cards, &(&1.provider == :deepseek)).backend_label == "OpenAI-compatible API"
     end
 
     test "a provider with no loaded snapshot renders loading without affecting the other card" do
@@ -191,6 +198,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert by_kind[:credit].credits.label == "Exhausted"
       assert by_kind[:credit].credits.amount == 0
       assert by_kind[:spend_control].spend_control.label == "Enabled"
+
+      # A prepaid provider reports dollars, not a consumed fraction. A supported
+      # window carrying no used_percent must render as no meter at all: showing
+      # it as "0% used" reads as full headroom when the truth is unknown (#1436).
+      assert by_kind[:credit].meter == %{kind: :none}
+      assert by_kind[:spend_control].meter == %{kind: :none}
     end
 
     test "windows sort deterministically by kind then name" do
@@ -203,6 +216,21 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
 
       order = card(Presenter.present(authorized(), %{codex: with_windows(:codex, windows)}), :codex).windows |> Enum.map(& &1.name)
       assert order == ["Primary", "Secondary", "Credits", "Spend control"]
+    end
+
+    # A surface must be able to name a credit window's age ("as of HH:MM") and
+    # its freshness horizon, so the presenter carries both timestamps through.
+    test "a window exposes its observed_at and expires_at timestamps" do
+      expires_at = DateTime.add(@observed, 300, :second)
+
+      credit =
+        window(kind: :credit, name: "Credits", coverage: :supported, used_percent: nil, credits: %{status: :available, amount: 7.25})
+        |> Map.put(:observed_at, @observed)
+        |> Map.put(:expires_at, expires_at)
+
+      [view] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"c" => credit})}), :codex).windows
+      assert view.observed_at == @observed
+      assert view.expires_at == expires_at
     end
   end
 

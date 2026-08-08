@@ -470,6 +470,26 @@ defmodule Aiur.RunTelemetry.DatasetTest do
     }
   end
 
+  defp resource_record(sequence, boot_id, timestamp, cpu, actor) do
+    %{
+      schema_version: 1,
+      kind: "resource",
+      timestamp: DateTime.to_iso8601(timestamp),
+      recorded_at: DateTime.to_iso8601(timestamp),
+      boot_id: boot_id,
+      sequence: sequence,
+      record_id: "#{boot_id}:#{sequence}",
+      attributes: %{
+        actor: actor,
+        actor_type: "agent",
+        ticket: "940",
+        availability: "measured",
+        cpu_percent: cpu,
+        rss_bytes: 100_000
+      }
+    }
+  end
+
   describe "filter/2" do
     test "boot_ids/1 lists every session in the stream, oldest first" do
       {:ok, dataset} = Dataset.build(@fixtures)
@@ -563,6 +583,106 @@ defmodule Aiur.RunTelemetry.DatasetTest do
       {:ok, dataset} = Dataset.build(@fixtures)
 
       assert Dataset.filter(dataset, []) == dataset
+    end
+  end
+
+  describe "merge/1" do
+    # Two boots for the same ticket: dispatch+implement in boot-a, merged in
+    # boot-b. A last-wins map merge keeps only one boot's intervals; the union
+    # must keep both — the P1 the cross-session presenter merge used to lose.
+    test "a ticket active in current and prior boots keeps both boots' intervals" do
+      prior_path = temporary_stream!()
+      current_path = temporary_stream!()
+
+      prior_records = [
+        lifecycle_record(1, "dispatch", "point", ~U[2026-07-11 01:00:00Z], "prior-dispatch")
+        |> Map.put(:boot_id, "boot-a")
+        |> Map.put(:record_id, "boot-a:1"),
+        lifecycle_record(2, "implement", "start", ~U[2026-07-11 01:00:01Z], "prior-impl")
+        |> Map.put(:boot_id, "boot-a")
+        |> Map.put(:record_id, "boot-a:2"),
+        lifecycle_record(3, "implement", "end", ~U[2026-07-11 01:00:11Z], "prior-impl")
+        |> Map.put(:boot_id, "boot-a")
+        |> Map.put(:record_id, "boot-a:3")
+      ]
+
+      current_records = [
+        lifecycle_record(4, "pr_merged", "point", ~U[2026-07-11 02:00:00Z], "current-merge")
+        |> Map.put(:boot_id, "boot-b")
+        |> Map.put(:record_id, "boot-b:4")
+      ]
+
+      File.write!(prior_path, Enum.map_join(prior_records, "\n", &Jason.encode!/1) <> "\n")
+      File.write!(current_path, Enum.map_join(current_records, "\n", &Jason.encode!/1) <> "\n")
+
+      {:ok, prior} = Dataset.build(prior_path)
+      {:ok, current} = Dataset.build(current_path)
+
+      merged = Dataset.merge([current, prior])
+
+      phases = merged.tickets["940"].intervals |> Enum.map(& &1.phase) |> Enum.sort()
+      assert "implement" in phases
+      assert "pr_merged" in phases
+      assert length(merged.tickets["940"].intervals) == 3
+
+      assert merged.tickets["940"].events |> Enum.map(& &1.boot_id) |> Enum.sort() ==
+               ["boot-a", "boot-a", "boot-a", "boot-b"]
+
+      # The union keeps the merged status; the old last-wins merge lost the
+      # current boot's merge and rendered the ticket as still active.
+      assert Enum.any?(merged.tickets["940"].intervals, &(&1.phase == "pr_merged"))
+    end
+
+    test "an actor's samples concatenate across boots and its profile re-derives" do
+      prior_path = temporary_stream!()
+      current_path = temporary_stream!()
+
+      prior_records = [
+        resource_record(1, "boot-a", ~U[2026-07-11 01:00:00Z], 50.0, "ticket:940"),
+        resource_record(2, "boot-a", ~U[2026-07-11 01:00:05Z], 60.0, "ticket:940")
+      ]
+
+      current_records = [
+        resource_record(3, "boot-b", ~U[2026-07-11 02:00:00Z], 70.0, "ticket:940")
+      ]
+
+      File.write!(prior_path, Enum.map_join(prior_records, "\n", &Jason.encode!/1) <> "\n")
+      File.write!(current_path, Enum.map_join(current_records, "\n", &Jason.encode!/1) <> "\n")
+
+      {:ok, prior} = Dataset.build(prior_path)
+      {:ok, current} = Dataset.build(current_path)
+
+      merged = Dataset.merge([current, prior])
+      actor = merged.actors["ticket:940"]
+
+      assert length(actor.samples) == 3
+      assert actor.samples |> Enum.map(& &1.boot_id) |> Enum.sort() == ["boot-a", "boot-a", "boot-b"]
+      assert actor.profile["cpu_percent"].count == 3
+      assert actor.profile["cpu_percent"].max == 70.0
+    end
+
+    test "github anchors shared across summaries are not duplicated" do
+      path = temporary_stream!()
+
+      github_events = [
+        %{
+          id: 700,
+          topic: "ticket.940.pr.merged",
+          source: :github,
+          pr: %{"number" => 80, "merged_at" => "2026-07-11T02:00:00Z"}
+        }
+      ]
+
+      File.write!(path, Enum.map_join([], "\n", &Jason.encode!/1) <> "\n")
+
+      # Both per-boot summaries carry the boot-agnostic github anchor.
+      {:ok, prior} = Dataset.build(path, github_events: github_events)
+      {:ok, current} = Dataset.build(path, github_events: github_events)
+
+      merged = Dataset.merge([current, prior])
+
+      assert Enum.count(merged.tickets["940"].events, &(&1.event == "pr_merged")) == 1
+      assert Enum.count(merged.records, &(&1.boot_id == "github")) == 1
     end
   end
 end

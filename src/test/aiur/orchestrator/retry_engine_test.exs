@@ -3,8 +3,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.RetryEngine
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{RetryEngine, SnapshotStore, State}
   alias Aiur.Workspace.Ownership
 
   describe "failure_retry?/1" do
@@ -123,6 +122,53 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       state = %State{retry_attempts: %{}}
       assert RetryEngine.pop_retry_attempt_state(state, "issue-x", make_ref()) == :missing
     end
+  end
+
+  test "publishes the retry engine's final state" do
+    issue = %Issue{id: "issue-final", identifier: "MT-FINAL", state: "In Progress", title: "Final retry"}
+
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      opencode_command: System.find_executable("true")
+    )
+
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    generation = SnapshotStore.begin_generation(self())
+    retry_token = make_ref()
+
+    state = %State{
+      snapshot_key: self(),
+      snapshot_generation: generation,
+      snapshot_ready?: true,
+      globally_paused: true,
+      claimed: MapSet.new([issue.id]),
+      retry_attempts: %{
+        issue.id => %{
+          attempt: 2,
+          identifier: issue.identifier,
+          retry_token: retry_token
+        }
+      }
+    }
+
+    assert {:noreply, final_state} = RetryEngine.handle_retry_message(state, issue.id, retry_token)
+
+    assert %{error: "no available orchestrator slots", identifier: "MT-FINAL", retry_token: final_retry_token} =
+             final_state.retry_attempts[issue.id]
+
+    refute final_retry_token == retry_token
+    Process.cancel_timer(final_state.retry_attempts[issue.id].timer_ref)
+
+    assert eventually(
+             fn ->
+               match?(
+                 {:current, %{retrying: [%{identifier: "MT-FINAL"}]}, _freshness},
+                 Aiur.Orchestrator.dashboard_snapshot(self(), 1_000)
+               )
+             end,
+             200
+           )
   end
 
   describe "schedule_issue_retry/4" do
@@ -678,4 +724,17 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute RetryEngine.prior_work_for_retry?(%{prior_work: true, completed_turn_count: 1}, false)
     end
   end
+
+  defp eventually(fun, attempts)
+
+  defp eventually(fun, attempts) when is_function(fun, 0) and attempts > 0 do
+    if fun.() do
+      true
+    else
+      Process.sleep(10)
+      eventually(fun, attempts - 1)
+    end
+  end
+
+  defp eventually(_fun, 0), do: false
 end
