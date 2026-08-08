@@ -64,6 +64,29 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Pager"
   end
 
+  test "opens and closes the Stream Deck installation modal without rendering credentials" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(id="streamdeck-install-control")
+    refute html =~ ~s(id="streamdeck-install-modal")
+
+    html = render_click(view, "open-streamdeck-install")
+
+    assert html =~ ~s(id="streamdeck-install-modal")
+    assert html =~ "Install on your Stream Deck +"
+    assert html =~ "Linux with udev"
+    assert html =~ "Pair it with your daemon"
+    assert html =~ "Download and extract"
+    assert html =~ "Install the udev rule"
+    assert html =~ "Enable the sidecar"
+    assert html =~ "Plug in the deck"
+    assert html =~ "What success looks like"
+    refute html =~ "AIUR_DASHBOARD_PASSWORD="
+
+    html = render_click(view, "close-streamdeck-install")
+    refute html =~ ~s(id="streamdeck-install-modal")
+  end
+
   test "renders the queued dependency chip and the active status dot footer" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 

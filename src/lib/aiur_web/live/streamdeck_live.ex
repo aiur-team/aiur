@@ -33,6 +33,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:transcript_relay, nil)
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
+      |> assign(:install_modal?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> refresh_grid()
@@ -58,6 +59,10 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
     do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event("open-streamdeck-install", _params, socket), do: {:noreply, assign(socket, :install_modal?, true)}
+
+  def handle_event("close-streamdeck-install", _params, socket), do: {:noreply, assign(socket, :install_modal?, false)}
 
   def handle_event("grid-page", %{"page" => page}, socket) do
     page = parse_integer(page, socket.assigns.grid_page)
@@ -144,6 +149,9 @@ defmodule AiurWeb.StreamdeckLive do
           <header class="sd-brand">
             <span class="sd-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
             <span>STREAM DECK</span>
+            <button id="streamdeck-install-control" class="sd-install-control" type="button" phx-click="open-streamdeck-install">
+              Install +
+            </button>
           </header>
 
           <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
@@ -243,6 +251,55 @@ defmodule AiurWeb.StreamdeckLive do
           </div>
         </div>
       </section>
+
+      <div :if={@install_modal?} class="modal-backdrop sd-install-backdrop">
+        <section
+          id="streamdeck-install-modal"
+          class="modal-panel sd-install-modal"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="streamdeck-install-title"
+          phx-click-away="close-streamdeck-install"
+          phx-hook="TicketContextDialog"
+          data-close-event="close-streamdeck-install"
+          data-origin-id="streamdeck-install-control"
+        >
+          <header class="modal-header">
+            <div>
+              <p class="section-eyebrow">Stream Deck + sidecar</p>
+              <h2 id="streamdeck-install-title" tabindex="-1" data-dialog-heading>Install on your Stream Deck +</h2>
+            </div>
+            <button type="button" class="tool-btn" phx-click="close-streamdeck-install">Close</button>
+          </header>
+
+          <p class="sd-install-intro">
+            You need a Stream Deck +, Linux with udev, and a running Aiur daemon that the deck can reach.
+          </p>
+
+          <section class="sd-install-pairing" aria-labelledby="streamdeck-pairing-title">
+            <h3 id="streamdeck-pairing-title">Pair it with your daemon</h3>
+            <p>
+              Put the daemon address and the dashboard’s HTTP Basic Auth username and password in
+              <code>~/.config/aiur/streamdeck.env</code>. Get the address from the dashboard URL and the credential from
+              the dashboard configuration or the operator who runs it; never paste a live credential into this page.
+            </p>
+          </section>
+
+          <ol class="sd-install-steps">
+            <li><strong>Download and extract</strong> the Stream Deck + package into <code>~/.local/share/aiur/streamdeck</code>.</li>
+            <li><strong>Install the udev rule:</strong> <code>sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules /etc/udev/rules.d/70-streamdeck.rules</code></li>
+            <li><strong>Enable the sidecar:</strong> <code>systemctl --user enable --now aiur-streamdeck.service</code></li>
+            <li><strong>Plug in the deck.</strong> The sidecar detects it and paints the fleet.</li>
+          </ol>
+
+          <section class="sd-install-result" aria-labelledby="streamdeck-success-title">
+            <h3 id="streamdeck-success-title">What success looks like</h3>
+            <p>The deck shows your Aiur fleet. If it does not, first check <code>systemctl --user status aiur-streamdeck.service</code>.</p>
+          </section>
+
+          <p class="modal-meta">Package version and Aiur commit will be shown with the published download.</p>
+        </section>
+      </div>
     </DashboardShell.dashboard_shell>
     """
   end

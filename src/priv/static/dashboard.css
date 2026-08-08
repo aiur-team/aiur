@@ -7251,6 +7251,70 @@ html[data-theme="light"] .toggle-icon .moon {
   letter-spacing: 0.18em;
 }
 
+.sd-install-control {
+  margin-left: auto;
+  padding: 0.28rem 0.48rem;
+  border: 1px solid var(--accent-ink);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--accent-ink);
+  font: inherit;
+  font-size: 0.58rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+}
+
+.sd-install-control:hover {
+  background: var(--accent-soft);
+}
+
+.sd-install-control:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-install-modal {
+  grid-template-rows: auto auto auto auto auto auto;
+  width: min(680px, 100%);
+  overflow: auto;
+}
+
+.sd-install-intro,
+.sd-install-pairing p,
+.sd-install-result p {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.sd-install-pairing,
+.sd-install-result {
+  padding: 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 9px;
+  background: var(--surface-2);
+}
+
+.sd-install-pairing h3,
+.sd-install-result h3 {
+  margin: 0 0 0.35rem;
+  font-size: 0.86rem;
+}
+
+.sd-install-steps {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+  padding-left: 1.4rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+
+.sd-install-modal code {
+  overflow-wrap: anywhere;
+}
+
 .sd-brand-mark {
   display: grid;
   grid-template-columns: repeat(2, 4px);
@@ -7663,6 +7727,11 @@ html[data-theme="light"] .sd-device {
     top: 6px;
     height: 13px;
     transform-origin: 1px 20px;
+  }
+
+  .sd-install-modal {
+    max-height: calc(100dvh - 1rem);
+    padding: 0.85rem;
   }
 }
 
