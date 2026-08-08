@@ -279,7 +279,7 @@
       this._micActive = false;
       this._knobState = null;
       this._keyHandlers = [];
-      this._micSegment = null;
+      this._micKey = null;
       this._onMicDown = null;
       this._onMicUp = null;
       this._mode = "grid";
@@ -290,7 +290,7 @@
       this._modeVersion = 0;
 
       this._bindKeys();
-      this._bindMic();
+      this._bindCommandKeys();
       this._bindKnobs();
     },
 
@@ -305,13 +305,13 @@
       this._pendingModeVersion = this._modeVersion;
       this._destroyKnobs(true);
       this._unbindKeys();
-      this._unbindMic();
+      this._unbindCommandKeys();
     },
 
     updated() {
       // Re-bind after patch and restore local state so patches don't revert dials.
       this._bindKeys();
-      this._bindMic();
+      this._bindCommandKeys();
       this._bindKnobs();
       if (this._knobState) {
         var state = this._knobState;
@@ -356,7 +356,7 @@
     destroyed() {
       this._destroyKnobs();
       this._unbindKeys();
-      this._unbindMic();
+      this._unbindCommandKeys();
     },
 
     _bindKnobs() {
@@ -401,7 +401,7 @@
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      var keys = Array.prototype.slice.call(this.el.querySelectorAll(".sd-key:not(.is-empty)"));
+      var keys = Array.prototype.slice.call(this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty)"));
       keys.forEach(function (key) {
         var timer = null;
         var handler = function () {
@@ -436,34 +436,51 @@
       this._keyHandlers = [];
     },
 
-    _bindMic() {
+    _bindCommandKeys() {
       var self = this;
-      var mic = this.el.querySelector(".sd-screen-segment .sd-mic");
-      if (!mic) {
-        mic = this.el.querySelector(".sd-mic");
-      }
-      // Find the segment that contains the mic span.
-      var micSegment = mic ? mic.closest(".sd-screen-segment") : null;
-      if (!micSegment) return;
+      this._commandHandlers = [];
+      var keys = Array.prototype.slice.call(this.el.querySelectorAll("[data-streamdeck-command]"));
+      keys.forEach(function (key) {
+        var command = key.getAttribute("data-streamdeck-command");
+        if (command === "mic") {
+          self._micKey = key;
+          self._onMicDown = function () { self._setMic(true); };
+          self._onMicUp = function () { self._setMic(false); };
+          key.addEventListener("pointerdown", self._onMicDown);
+          key.addEventListener("pointerup", self._onMicUp);
+          key.addEventListener("pointerleave", self._onMicUp);
+          key.addEventListener("pointercancel", self._onMicUp);
+          return;
+        }
 
-      this._micSegment = micSegment;
-      this._onMicDown = function () { self._setMic(true); };
-      this._onMicUp = function () { self._setMic(false); };
-
-      micSegment.addEventListener("pointerdown", this._onMicDown);
-      micSegment.addEventListener("pointerup", this._onMicUp);
-      micSegment.addEventListener("pointerleave", this._onMicUp);
-      micSegment.addEventListener("pointercancel", this._onMicUp);
+        var timer = null;
+        var handler = function () {
+          clearTimeout(timer);
+          key.classList.remove("is-flashing");
+          void key.offsetWidth;
+          key.classList.add("is-flashing");
+          timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
+          self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
+          if (command === "logs") self._setMode("logs");
+        };
+        key.addEventListener("click", handler);
+        self._commandHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
+      });
     },
 
-    _unbindMic() {
-      var seg = this._micSegment;
-      if (!seg) return;
-      seg.removeEventListener("pointerdown", this._onMicDown);
-      seg.removeEventListener("pointerup", this._onMicUp);
-      seg.removeEventListener("pointerleave", this._onMicUp);
-      seg.removeEventListener("pointercancel", this._onMicUp);
-      this._micSegment = null;
+    _unbindCommandKeys() {
+      (this._commandHandlers || []).forEach(function (entry) {
+        clearTimeout(entry.timer());
+        entry.el.removeEventListener("click", entry.handler);
+      });
+      this._commandHandlers = [];
+      var key = this._micKey;
+      if (!key) return;
+      key.removeEventListener("pointerdown", this._onMicDown);
+      key.removeEventListener("pointerup", this._onMicUp);
+      key.removeEventListener("pointerleave", this._onMicUp);
+      key.removeEventListener("pointercancel", this._onMicUp);
+      this._micKey = null;
       this._onMicDown = null;
       this._onMicUp = null;
     },
@@ -471,12 +488,12 @@
     _setMic(active) {
       if (this._micActive === active) return;
       this._micActive = active;
-      var seg = this._micSegment;
-      if (!seg) return;
+      var key = this._micKey;
+      if (!key) return;
       if (active) {
-        seg.classList.add("is-live");
+        key.classList.add("mic-live");
       } else {
-        seg.classList.remove("is-live");
+        key.classList.remove("mic-live");
       }
       // Skip the server push when restoring across a patch — the server already
       // knows the mic state; a duplicate push would double-fire mic-hold.

@@ -7674,8 +7674,8 @@ html[data-theme="light"] .sd-device {
   display: none;
 }
 
-.sd-device[data-mode="cmd"] .sd-keys,
-.sd-device[data-mode="logs"] .sd-keys {
+.sd-device[data-mode="cmd"] > #sd-keys,
+.sd-device[data-mode="logs"] > #sd-keys {
   display: none;
 }
 
@@ -7696,26 +7696,69 @@ html[data-theme="light"] .sd-device {
   text-transform: uppercase;
 }
 
-.sd-cmd-list {
+.sd-cmd-keys {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.3rem;
 }
 
-.sd-cmd-item {
-  padding: 0.4rem 0.6rem;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 6px;
-  color: var(--fg);
-  font-size: 0.72rem;
+.sd-cmd-key {
+  --sd-accent: #9fd0ff;
+  --sd-glow: rgba(159, 208, 255, 0.24);
+}
+
+.sd-cmd-key:has([data-streamdeck-command="pause"]) {
+  --sd-accent: #ffcf87;
+  --sd-glow: rgba(255, 207, 135, 0.25);
+}
+
+.sd-cmd-key:has([data-streamdeck-command="mic"]) {
+  --sd-accent: #7fe0a0;
+  --sd-glow: rgba(127, 224, 160, 0.25);
+}
+
+.sd-cmd-key .sd-key-face {
+  appearance: none;
+  border: 0;
   cursor: pointer;
+  grid-template-rows: 1fr auto auto;
+  place-items: center;
+  text-align: center;
 }
 
-.sd-cmd-item:hover {
-  background: rgba(255, 255, 255, 0.06);
+.sd-cmd-key .sd-key-face:focus-visible {
+  outline: 2px solid var(--sd-accent);
+  outline-offset: -4px;
+}
+
+.sd-cmd-key .sd-key-face.mic-live {
+  background: linear-gradient(145deg, rgba(127, 224, 160, 0.3), #0f151c 68%);
+  box-shadow: inset 0 0 22px rgba(127, 224, 160, 0.48);
+}
+
+.sd-cmd-key .sd-key-face.is-flashing {
+  animation: sd-flash 0.45s ease-out;
+}
+
+.sd-cmd-icon {
+  color: var(--sd-accent);
+  font-size: 1.45rem;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.sd-cmd-label {
+  color: var(--fg);
+  font-size: clamp(0.58rem, 1.4vw, 0.72rem);
+  font-weight: 700;
+}
+
+.sd-cmd-sub {
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.48rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
 }
 
 .sd-log-body {

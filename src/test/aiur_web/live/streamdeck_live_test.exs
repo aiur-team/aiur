@@ -143,6 +143,33 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert_receive {:streamdeck_resume, "1345"}
   end
 
+  test "renders state-derived command keys with four disabled blank slots" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert command_key(html, "pause") =~ "Pause"
+    assert command_key(html, "priority") =~ "Deprioritize"
+    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 4
+    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 4
+
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_key(html, "pause") =~ "Play"
+    assert command_key(html, "priority") =~ "Prioritize"
+  end
+
+  test "command presses report intent and mic-hold state persists through patches" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "command-press", %{"command" => "pause", "identifier" => "1352"})
+    assert html =~ "Pause selected"
+
+    html = render_hook(view, "mic-hold", %{"active" => true})
+    assert command_key(html, "mic") =~ "mic-live"
+
+    html = render_hook(view, "mic-hold", %{"active" => false})
+    refute command_key(html, "mic") =~ "mic-live"
+  end
+
   test "initial mount creates one real PubSub transcript subscription" do
     {:ok, _view, _html} = live(build_conn(), "/streamdeck")
 
@@ -451,6 +478,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp slot_identifiers(html) do
     Regex.scan(~r/data-streamdeck-identifier="([^"]+)"/, html, capture: :all_but_first)
     |> List.flatten()
+  end
+
+  defp command_key(html, command) do
+    [key] = Regex.run(~r{<button[^>]*data-streamdeck-command="#{command}".*?</button>}s, html)
+    key
   end
 
   defp fleet_snapshot(total) do

@@ -153,37 +153,89 @@ test('key click triggers is-flashing animation; rapid repeat restarts it', async
   await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
 })
 
-test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
+test('command keys render real state-derived controls, flash on click, and emit events', async ({ page }) => {
   await openStreamdeck(page)
 
-  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
-  await expect(micSegment).toBeVisible()
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const commands = page.locator('[data-streamdeck-command]')
+  await expect(commands).toHaveCount(4)
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prioritize', exact: true })).toBeVisible()
+  await expect(page.locator('#sd-command-keys button:disabled')).toHaveCount(4)
+  await expect(page.locator('#sd-command-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
 
-  await micSegment.hover()
-  await page.mouse.down()
-  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckCommandEvents = []
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'command-press') window.__streamdeckCommandEvents.push({ name, payload })
+      if (name === 'key-press') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
 
-  await page.mouse.up()
-  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+  for (const command of ['pause', 'priority', 'logs']) {
+    const key = page.locator(`[data-streamdeck-command="${command}"]`)
+    await key.click()
+    await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+    if (command === 'logs') {
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+      await page.locator('.sd-knob').first().click()
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+    }
+  }
+
+  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'priority', 'logs'])
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toEqual([])
 })
 
-test('mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
+test('command mic activates on pointerdown and deactivates on pointerup', async ({ page }) => {
   await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
 
-  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
-  const box = await micSegment.boundingBox()
+  const micKey = page.locator('[data-streamdeck-command="mic"]')
+  await expect(micKey).toBeVisible()
+
+  await micKey.hover()
+  await page.mouse.down()
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  await page.mouse.up()
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
+})
+
+test('command mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
+  await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('[data-streamdeck-command="mic"]')
+  const box = await micKey.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
 
   await page.mouse.move(cx, cy)
   await page.mouse.down()
-  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 
   // Move outside the segment without releasing — simulates a drag-exit.
   await page.mouse.move(0, 0)
-  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
 
   await page.mouse.up()
+})
+
+test('command mic deactivates on pointercancel', async ({ page }) => {
+  await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('[data-streamdeck-command="mic"]')
+  await micKey.dispatchEvent('pointerdown')
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  await micKey.dispatchEvent('pointercancel')
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
 })
 
 test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
