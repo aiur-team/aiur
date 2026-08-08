@@ -36,6 +36,7 @@ from publication_live_graph import API_VERSION, MARKER, MARKER_NAME
 from publication_receipt_authority import ReceiptAuthority, load_receipt_authority
 from publication_rendering import (
     MARKER_KEYS,
+    authority_preamble,
     exact_commit,
     reject_legacy_grafts,
     render_approved_issue_content,
@@ -174,6 +175,9 @@ class Publisher:
         self.client, self.context, self.budget = client, context, Budget()
         self._guard_apply_mutations = False
         self._apply_mutation_count = 0
+        self._retired_mappings: dict[str, dict[str, Any]] = {}
+        self._retired_by_number: dict[int, tuple[str, str]] = {}
+        self._reapproval: dict[str, list[str]] = self._empty_reapproval()
 
     def dry_run(self) -> dict[str, Any]:
         self._check_authority()
@@ -194,6 +198,7 @@ class Publisher:
             "extension_edges": len(
                 self.context.expected_edges - self.context.core_edges
             ),
+            "reapproval": self._reapproval,
             "mutations": 0,
         }
 
@@ -203,6 +208,7 @@ class Publisher:
         missing = self._validate_label_inventory(labels)
         scan = self._scan_all()
         mappings = self._canonical_mappings(scan)
+        reapproval = self._reapproval
         self._guard_apply_mutations = True
         self._apply_mutation_count = 0
         try:
@@ -238,6 +244,7 @@ class Publisher:
                 spec.kind == "ticket" for spec in self.context.specs.values()
             ),
             "blocked_by_edges": len(self.context.expected_edges),
+            "reapproval": reapproval,
             **(
                 {"pending_comment": fresh["comment"]["url"]}
                 if fresh.get("comment") is not None else {}
@@ -569,8 +576,50 @@ class Publisher:
             output.append(copy)
         return output
 
+    @staticmethod
+    def _empty_reapproval() -> dict[str, list[str]]:
+        return {
+            "unchanged_members": [], "changed_members": [],
+            "new_members": [], "removed_members": [],
+        }
+
+    def _authority_conflict(
+        self, logical_id: str, observed: object, detail: str,
+    ) -> PublicationError:
+        return PublicationError(
+            f"logical identity {logical_id} has conflicting authority: {detail}; "
+            f"published approval {observed!r}; requested approval "
+            f"{self.context.approved}. Options: re-approve the updated planning pack "
+            "while retaining its canonical issue mapping, or resolve duplicate markers"
+        )
+
+    def _content_changed(self, raw: dict[str, Any], spec: IssueSpec, marker: dict[str, Any]) -> bool:
+        """Ignore only the approval preamble when classifying a re-approval diff."""
+        body = raw.get("body")
+        approved = marker.get("approved_planning_commit")
+        if not isinstance(body, str) or not isinstance(approved, str):
+            return True
+        old_preamble = authority_preamble(
+            self.context.repository, spec.logical_id, self.context.plan_version, approved,
+        )
+        current_preamble = authority_preamble(
+            self.context.repository, spec.logical_id, self.context.plan_version,
+            self.context.approved,
+        )
+        normalized = body.replace(old_preamble, current_preamble, 1)
+        return raw.get("title") != spec.title or normalized != spec.body
+
+    def _is_recorded_reapproval(self, marker: dict[str, Any]) -> bool:
+        """Accept only the prior receipt's approval as a re-approval source."""
+        observed = marker.get("approved_planning_commit")
+        prior = self.context.publication.get("approved_planning_commit")
+        return observed == self.context.approved or (
+            isinstance(prior, str) and observed == prior
+        )
+
     def _canonical_mappings(self, scan: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
         found: dict[str, list[dict[str, Any]]] = {key: [] for key in self.context.specs}
+        retired: dict[str, list[dict[str, Any]]] = {}
         protected = {
             int(value.rsplit("#", 1)[-1].rsplit("/", 1)[-1])
             for value in (
@@ -584,25 +633,81 @@ class Publisher:
             for marker in raw["_planning_markers"]:
                 logical_id = marker.get("logical_id")
                 if logical_id not in found:
+                    if (
+                        isinstance(logical_id, str)
+                        and marker.get("schema") == 2
+                        and marker.get("plan_version") == self.context.plan_version
+                        and self._is_recorded_reapproval(marker)
+                    ):
+                        retired.setdefault(logical_id, []).append(raw)
                     continue
                 if "pull_request" in raw:
                     raise PublicationError(f"logical identity {logical_id} collides with a pull request")
                 if (
                     marker.get("schema") != 2
                     or marker.get("plan_version") != self.context.plan_version
-                    or marker.get("approved_planning_commit") != self.context.approved
                 ):
-                    raise PublicationError(f"logical identity {logical_id} has conflicting authority")
+                    raise self._authority_conflict(
+                        logical_id, marker.get("approved_planning_commit"),
+                        "schema or plan version differs",
+                    )
+                if not isinstance(marker.get("approved_planning_commit"), str) or not SHA.fullmatch(
+                    marker["approved_planning_commit"]
+                ):
+                    raise self._authority_conflict(
+                        logical_id, marker.get("approved_planning_commit"),
+                        "published marker does not name an exact approval SHA",
+                    )
+                if not self._is_recorded_reapproval(marker):
+                    raise self._authority_conflict(
+                        logical_id, marker["approved_planning_commit"],
+                        "published marker does not match the current or recorded prior approval",
+                    )
                 found[logical_id].append(raw)
         mappings: dict[str, dict[str, Any]] = {}
+        reapproval = self._empty_reapproval()
         for logical_id, matches in found.items():
             if len(matches) > 1:
-                raise PublicationError(f"logical identity {logical_id} has multiple issue matches")
+                authorities = ", ".join(
+                    f"#{raw['number']} ({raw['_planning_markers'][0]['approved_planning_commit']})"
+                    for raw in matches
+                )
+                raise PublicationError(
+                    f"logical identity {logical_id} has multiple issue matches with conflicting authority across "
+                    f"published issues {authorities}; requested approval {self.context.approved}. "
+                    "Options: re-approve the updated planning pack while retaining one "
+                    "canonical issue mapping, or resolve duplicate markers"
+                )
             if matches:
                 raw = matches[0]
                 if raw["number"] in protected:
                     raise PublicationError(f"logical identity {logical_id} reuses protected issue #{raw['number']}")
                 mappings[logical_id] = self._mapping(raw)
+                if self._content_changed(raw, self.context.specs[logical_id], raw["_planning_markers"][0]):
+                    reapproval["changed_members"].append(logical_id)
+                else:
+                    reapproval["unchanged_members"].append(logical_id)
+            else:
+                reapproval["new_members"].append(logical_id)
+        self._retired_mappings = {}
+        for logical_id, matches in retired.items():
+            if len(matches) > 1:
+                raise PublicationError(
+                    f"removed logical identity {logical_id} has multiple published issue matches; "
+                    "resolve duplicate markers without recreating published issues"
+                )
+            raw = matches[0]
+            if "pull_request" in raw:
+                raise PublicationError(f"removed logical identity {logical_id} collides with a pull request")
+            self._retired_mappings[logical_id] = self._mapping(raw)
+            reapproval["removed_members"].append(logical_id)
+        self._retired_by_number = {
+            mapping["number"]: (logical_id, mapping["node_id"])
+            for logical_id, mapping in self._retired_mappings.items()
+        }
+        self._reapproval = {
+            key: sorted(value) for key, value in reapproval.items()
+        }
         numbers = [mapping["number"] for mapping in mappings.values()]
         nodes = [mapping["node_id"] for mapping in mappings.values()]
         if len(numbers) != len(set(numbers)) or len(nodes) != len(set(nodes)):
@@ -705,13 +810,19 @@ class Publisher:
             if observed_parents[logical_id] != expected_parent and observed_parents[logical_id] is not None:
                 raise PublicationError(f"{logical_id} already has a different parent")
             expected_children = member_ids if logical_id == self.context.root_id else set()
-            unexpected_children = observed_subissues[logical_id] - expected_children
+            unexpected_children = (
+                observed_subissues[logical_id] - expected_children
+                - set(self._retired_mappings)
+            )
             if unexpected_children:
                 raise PublicationError(
                     f"{logical_id} has unexpected existing subissues: "
                     + ", ".join(sorted(unexpected_children))
                 )
-            unexpected = observed_blockers[logical_id] - expected_by_blocked[logical_id]
+            unexpected = (
+                observed_blockers[logical_id] - expected_by_blocked[logical_id]
+                - set(self._retired_mappings)
+            )
             if unexpected:
                 raise PublicationError(
                     f"{logical_id} has unexpected existing blockers: "
@@ -724,6 +835,15 @@ class Publisher:
                 f"repos/{self.context.repository}/issues/{root['number']}/sub_issues",
                 {"sub_issue_id": self._database_id(mappings[logical_id])},
             )
+        for logical_id in sorted(
+            observed_subissues[self.context.root_id] & set(self._retired_mappings)
+        ):
+            self._mutate(
+                "DELETE",
+                f"repos/{self.context.repository}/issues/{root['number']}/sub_issues/"
+                f"{self._retired_mappings[logical_id]['number']}",
+                {},
+            )
         for blocked in sorted(mappings):
             for blocker in sorted(expected_by_blocked[blocked] - observed_blockers[blocked]):
                 self._mutate(
@@ -731,6 +851,13 @@ class Publisher:
                     f"repos/{self.context.repository}/issues/{mappings[blocked]['number']}"
                     "/dependencies/blocked_by",
                     {"issue_id": self._database_id(mappings[blocker])},
+                )
+            for blocker in sorted(observed_blockers[blocked] & set(self._retired_mappings)):
+                self._mutate(
+                    "DELETE",
+                    f"repos/{self.context.repository}/issues/{mappings[blocked]['number']}"
+                    f"/dependencies/blocked_by/{self._retired_mappings[blocker]['number']}",
+                    {},
                 )
 
     def _ensure_pending_comment(self, root: dict[str, Any]) -> dict[str, Any]:
@@ -746,10 +873,35 @@ class Publisher:
             and isinstance(item.get("body"), str)
             and f"<!-- {COMMENT_MARKER}" in item["body"]
         ]
-        if len(matches) > 1:
+        current: list[dict[str, Any]] = []
+        prior_matches: list[dict[str, Any]] = []
+        prior = self.context.publication.get("approved_planning_commit")
+        prior_body = (
+            render_pending_comment(
+                self.context.root_id, self.context.plan_version, prior,
+                self.context.repository,
+            )
+            if isinstance(prior, str) and SHA.fullmatch(prior) and prior != self.context.approved
+            else None
+        )
+        for comment in matches:
+            if comment.get("body") == body:
+                current.append(comment)
+                continue
+            if comment.get("body") == prior_body:
+                prior_matches.append(comment)
+                continue
+            raise PublicationError(
+                "existing reconciliation comment is malformed or not canonical pending"
+            )
+        if len(current) > 1:
             raise PublicationError("root has multiple reconciliation comments")
-        if matches:
-            comment = matches[0]
+        if len(prior_matches) > 1:
+            raise PublicationError("root has multiple reconciliation comments")
+        if current:
+            if prior_matches:
+                raise PublicationError("root has multiple reconciliation comments")
+            comment = current[0]
             report = Report()
             evidence = inspect_comment(
                 comment.get("body"), comment.get("html_url"), self.context.root_id,
@@ -761,6 +913,18 @@ class Publisher:
                     "existing reconciliation comment is malformed or not canonical pending"
                 )
             return comment
+        if prior_matches:
+            comment = prior_matches[0]
+            comment_id = comment.get("id")
+            if type(comment_id) is not int:
+                raise PublicationError("prior reconciliation comment lacks numeric identity")
+            self._mutate(
+                "PATCH", f"repos/{self.context.repository}/issues/comments/{comment_id}",
+                {"body": body},
+            )
+            return self._get(
+                f"repos/{self.context.repository}/issues/comments/{comment_id}"
+            )
         created = self._mutate(
             "POST", f"repos/{self.context.repository}/issues/{root['number']}/comments",
             {"body": body},
@@ -1040,6 +1204,8 @@ class Publisher:
         if not isinstance(raw, dict) or type(raw.get("number")) is not int:
             raise PublicationError(f"{label} returned invalid relationship identity")
         expected = by_number.get(raw["number"])
+        if expected is None:
+            expected = self._retired_by_number.get(raw["number"])
         if expected is None:
             raise PublicationError(f"{label} references an issue outside this publication")
         logical_id, expected_node = expected

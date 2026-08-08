@@ -188,6 +188,22 @@ Verify before declaring planning complete: with the daemon running, open the
 Build Order page and confirm the pack title and members render. This is a
 required verification rung, not a documentation-only check.
 
+## Approval freeze and re-approval
+
+Approval pins the planning SHA used to render and publish the pack. Do not edit
+planning documents and treat the old approval as covering the new content. In
+the window before promotion, those documents are still the source of truth: if
+they change, commit the edits and explicitly re-approve the new SHA before
+publication.
+
+Re-approval is a reconciliation, not a delete-and-recreate operation. Its
+report identifies unchanged, changed, added, and removed logical members;
+unchanged and changed members retain their existing GitHub issue identities,
+changed content is updated in place, and new members are added. Removed members
+are reported for operator follow-up and are never deleted or invalidated by the
+re-approval. After promotion, the separate transfer-of-authority rule below
+applies: make subsequent edits on the ticket, not in the planning document.
+
 ## Optional GitHub promotion
 
 Only the Executor promotes researched drafts, and only when the user explicitly
