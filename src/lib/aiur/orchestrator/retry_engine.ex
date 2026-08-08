@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{AgentPubSub, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
@@ -73,7 +73,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
             {:normal, false} ->
               Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
 
-              {_running_entry, state} = State.pop_running_entry(state, issue_id)
+              state =
+                if fallback_replacement?(running_entry) do
+                  park_failed_fallback_replacement(state, issue_id, running_entry)
+                else
+                  {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
+                  popped_state
+                end
 
               state
               |> complete_issue(issue_id)
@@ -89,9 +95,15 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
             {_reason, false} ->
               Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              {_running_entry, state} = State.pop_running_entry(state, issue_id)
               next_attempt = next_retry_attempt_from_running(running_entry)
+
+              state =
+                if fallback_replacement?(running_entry) do
+                  park_failed_fallback_replacement(state, issue_id, running_entry)
+                else
+                  {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
+                  popped_state
+                end
 
               schedule_issue_retry(state, issue_id, next_attempt, %{
                 identifier: running_entry.identifier,
@@ -153,6 +165,34 @@ defmodule Aiur.Orchestrator.RetryEngine do
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
+
+  # Fallback startup can fail after its Task is admitted (for example, a
+  # provider rejects a model). Keep the replacement entry parked with the
+  # original lifecycle fence, and put only its authoritative failed queue
+  # items back to pending before the retry. This prevents the replacement's
+  # failure from silently dropping the fenced rework packet.
+  defp park_failed_fallback_replacement(state, issue_id, running_entry) do
+    queue_store = restore_fenced_failed_items(state.queue_store, Map.get(running_entry, :lifecycle_fence))
+
+    parked_entry =
+      running_entry
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+      |> Map.update(:control, %{status: :completed}, &Map.put(&1, :status, :completed))
+
+    %{state | queue_store: queue_store, running: Map.put(state.running, issue_id, parked_entry)}
+  end
+
+  defp fallback_replacement?(running_entry), do: Map.get(running_entry, :rate_limit_fallback_replacement) == true
+
+  defp restore_fenced_failed_items(queue_store, %{pending_item_ids: %MapSet{} = item_ids}) do
+    Enum.reduce(item_ids, queue_store, fn item_id, store ->
+      {next_store, _item} = AgentQueueStore.restore_failed_pending(store, item_id)
+      next_store
+    end)
+  end
+
+  defp restore_fenced_failed_items(queue_store, _fence), do: queue_store
 
   @doc false
   @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term()) :: State.t()
