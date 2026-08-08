@@ -123,13 +123,27 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
 
 export const main = async (): Promise<void> => {
   const brightness = parseBrightness(process.env.AIUR_STREAMDECK_BRIGHTNESS);
+  const presentAtStart = deviceIsPresent();
+
+  if (!presentAtStart) {
+    console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
+  }
 
   await startRuntime({
     spawn,
     net,
     brightness,
-    devicePresentAtStart: deviceIsPresent(),
-    openBackend: async () => openUsbBackend(await openStreamDeckDevice(), { interfaceNumber: HID_INTERFACE }),
+    devicePresentAtStart: presentAtStart,
+    openBackend: async () => {
+      try {
+        return openUsbBackend(await openStreamDeckDevice(), { interfaceNumber: HID_INTERFACE });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("LIBUSB_ERROR_NO_DEVICE")) {
+          console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
+        }
+        throw error;
+      }
+    },
     registerSignals: (handler) => {
       process.on("SIGTERM", handler);
       process.on("SIGINT", handler);

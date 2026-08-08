@@ -1,0 +1,109 @@
+name: Stream Deck package
+
+on:
+  push:
+    branches:
+      - develop
+  release:
+    types:
+      - published
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.event_name == 'push' || startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/streamdeck
+    outputs:
+      commit: ${{ steps.metadata.outputs.commit }}
+      version: ${{ steps.metadata.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Set up Node
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.18.0"
+          cache: npm
+          cache-dependency-path: packages/streamdeck/package-lock.json
+      - name: Package metadata
+        id: metadata
+        run: |
+          echo "commit=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "source_date_epoch=$(git show -s --format=%ct HEAD)" >> "$GITHUB_OUTPUT"
+          if [ "${GITHUB_EVENT_NAME}" = release ]; then
+            echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=0.0.0-dev.${GITHUB_SHA::12}" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Install, build, and retain production runtime
+        run: |
+          npm ci
+          npm run build
+          npm prune --omit=dev
+      - name: Assemble self-contained archive
+        run: node scripts/build-package.mjs --output package-dist --commit "${{ steps.metadata.outputs.commit }}" --version "${{ steps.metadata.outputs.version }}" --source-date-epoch "${{ steps.metadata.outputs.source_date_epoch }}"
+      - name: Clean-install smoke test
+        run: npm run test:package
+      - name: Upload package artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: streamdeck-${{ steps.metadata.outputs.commit }}
+          path: packages/streamdeck/package-dist/*
+          if-no-files-found: error
+
+  publish-development-release:
+    if: github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: streamdeck-${{ needs.build.outputs.commit }}
+          path: package-dist
+      - name: Attach immutable commit asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+          COMMIT: ${{ needs.build.outputs.commit }}
+        run: |
+          asset=$(jq -r '.artifact' package-dist/*.json)
+          expected=$(jq -r '.sha256' package-dist/*.json)
+          if gh release view "streamdeck-${COMMIT}" >/dev/null 2>&1; then
+            verify_dir=$(mktemp -d)
+            gh release download "streamdeck-${COMMIT}" --pattern "$asset" --dir "$verify_dir"
+            actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
+            test "$actual" = "$expected"
+          else
+            gh release create "streamdeck-${COMMIT}" package-dist/* --target "$COMMIT" --prerelease --title "Stream Deck ${COMMIT}" --notes "Immutable Stream Deck sidecar package for ${COMMIT}."
+          fi
+
+  publish-release-asset:
+    if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download package artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: streamdeck-${{ needs.build.outputs.commit }}
+          path: package-dist
+      - name: Attach package to published release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name }}
+        run: |
+          asset=$(jq -r '.artifact' package-dist/*.json)
+          expected=$(jq -r '.sha256' package-dist/*.json)
+          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
+            verify_dir=$(mktemp -d)
+            gh release download "$TAG" --pattern "$asset" --dir "$verify_dir"
+            actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
+            test "$actual" = "$expected"
+          else
+            gh release upload "$TAG" package-dist/*
+          fi
