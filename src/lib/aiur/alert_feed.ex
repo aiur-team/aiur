@@ -1,8 +1,9 @@
 defmodule Aiur.AlertFeed do
   @moduledoc """
-  Reads persisted structured alert events from agent workspaces.
+  Reads persisted structured alert events from the project-scoped alert ledger.
   """
 
+  alias Aiur.AlertLedger
   alias Aiur.Config
   alias Aiur.Config.Paths
   alias Aiur.Jsonl
@@ -12,13 +13,33 @@ defmodule Aiur.AlertFeed do
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
-    workspace_alert_log_paths(opts)
-    |> Kernel.++(central_alert_log_paths(opts))
-    |> Enum.uniq()
+    opts
+    |> AlertLedger.paths()
     |> Enum.flat_map(&read_alerts/1)
     |> Enum.sort_by(&Map.get(&1, "timestamp", ""))
     |> resolve_attention_alerts()
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
+  end
+
+  @doc false
+  @spec backfill(keyword()) :: :ok
+  def backfill(opts \\ []) do
+    unless AlertLedger.backfilled?(opts) do
+      AlertLedger.with_lock(opts, fn ->
+        existing =
+          opts
+          |> AlertLedger.paths()
+          |> Enum.flat_map(&read_alerts/1)
+          |> MapSet.new(&alert_fingerprint/1)
+
+        case append_legacy_alerts(legacy_alert_log_paths(opts), existing, opts) do
+          :ok -> AlertLedger.mark_backfilled(opts)
+          {:error, _reason} -> :ok
+        end
+      end)
+    end
+
+    :ok
   end
 
   @doc "Returns active legacy attention alerts in the current project's Decision adapter shape."
@@ -55,10 +76,39 @@ defmodule Aiur.AlertFeed do
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
   end
 
-  defp workspace_alert_log_paths(opts) do
+  defp legacy_alert_log_paths(opts) do
     opts
-    |> roots()
+    |> backfill_roots()
     |> Enum.flat_map(&alert_log_paths/1)
+    |> Kernel.++(central_alert_log_paths(opts))
+    |> Enum.uniq()
+  end
+
+  defp backfill_roots(opts) do
+    if Keyword.has_key?(opts, :roots), do: roots(opts), else: configured_project_roots()
+  end
+
+  defp append_legacy_alerts(paths, existing, opts) do
+    paths
+    |> Enum.flat_map(&read_alerts/1)
+    |> Enum.reduce_while({:ok, existing}, fn alert, {:ok, seen} ->
+      fingerprint = alert_fingerprint(alert)
+
+      cond do
+        MapSet.member?(seen, fingerprint) ->
+          {:cont, {:ok, seen}}
+
+        true ->
+          case AlertLedger.append(alert, opts) do
+            :ok -> {:cont, {:ok, MapSet.put(seen, fingerprint)}}
+            {:error, reason} -> {:halt, {:error, reason}}
+          end
+      end
+    end)
+    |> case do
+      {:ok, _seen} -> :ok
+      {:error, _reason} = error -> error
+    end
   end
 
   defp roots(opts) do
@@ -153,7 +203,7 @@ defmodule Aiur.AlertFeed do
     _ -> []
   end
 
-  defp normalize_alert(alert, agent) do
+  defp normalize_alert(alert, path_agent) do
     topic = string_field(alert, "topic") || string_field(alert, "name") || ""
 
     reason =
@@ -162,7 +212,8 @@ defmodule Aiur.AlertFeed do
     message = normalize_legacy_role_copy(string_field(alert, "message") || reason)
 
     needs_attention = Map.get(alert, "needs_attention") == true
-    source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || agent
+    source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || path_agent
+    agent = string_field(alert, "agent") || path_agent
 
     %{
       "timestamp" => string_field(alert, "timestamp"),
@@ -270,6 +321,12 @@ defmodule Aiur.AlertFeed do
 
   defp default_severity(true), do: "warning"
   defp default_severity(false), do: "info"
+
+  defp alert_fingerprint(alert) do
+    alert
+    |> Map.take(~w(timestamp source_ticket_id agent topic reason message severity needs_attention))
+    |> Jason.encode!()
+  end
 
   # Persisted alerts keep their original bytes for audit/replay compatibility;
   # only the presentation projection adopts the current role terminology.

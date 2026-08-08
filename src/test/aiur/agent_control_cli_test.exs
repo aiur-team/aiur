@@ -1410,7 +1410,13 @@ defmodule Aiur.AgentControlCLITest do
       {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
       """)
 
-      output = capture_io(fn -> AgentControlCLI.alerts(needs_attention: true, roots: [workspace_root]) end)
+      ledger = Path.join(workspace_root, "ledger.ndjson")
+
+      File.write!(ledger, """
+      {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
+      """)
+
+      output = capture_io(fn -> AgentControlCLI.alerts(needs_attention: true, ledger_paths: [ledger]) end)
 
       assert output =~ "\"topic\":\"ticket.51.agent.paused\""
       assert output =~ "\"reason\":\"operator paused the agent\""
@@ -1646,11 +1652,10 @@ defmodule Aiur.AgentControlCLITest do
     end
 
     test "actionable section surfaces an unanswered operator-decision question", %{watch_root: root} do
-      log_dir = Path.join([root, "934", "logs"])
-      File.mkdir_p!(log_dir)
+      ledger = Path.join(root, "ledger.ndjson")
 
       File.write!(
-        Path.join(log_dir, "agent.ndjson"),
+        ledger,
         Jason.encode!(%{
           "event" => "alert",
           "name" => "ticket.934.agent.attention.scope-question",
@@ -1664,7 +1669,7 @@ defmodule Aiur.AgentControlCLITest do
         }) <> "\n"
       )
 
-      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, ledger_paths: [ledger]) end)
 
       assert output =~ "ACTIONABLE"
       assert output =~ "#934"
@@ -1672,8 +1677,7 @@ defmodule Aiur.AgentControlCLITest do
     end
 
     test "resolved operator decisions leave the actionable section", %{watch_root: root} do
-      log_dir = Path.join([root, "934", "logs"])
-      File.mkdir_p!(log_dir)
+      ledger = Path.join(root, "ledger.ndjson")
       initial_at = DateTime.utc_now() |> DateTime.to_iso8601()
       resolved_at = DateTime.utc_now() |> DateTime.add(1, :second) |> DateTime.to_iso8601()
 
@@ -1701,9 +1705,9 @@ defmodule Aiur.AgentControlCLITest do
         "timestamp" => resolved_at
       }
 
-      File.write!(Path.join(log_dir, "agent.ndjson"), Jason.encode!(attention) <> "\n" <> Jason.encode!(resolved) <> "\n")
+      File.write!(ledger, Jason.encode!(attention) <> "\n" <> Jason.encode!(resolved) <> "\n")
 
-      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, ledger_paths: [ledger]) end)
 
       refute output =~ "ACTIONABLE"
     end
