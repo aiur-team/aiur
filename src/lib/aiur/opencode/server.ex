@@ -4,6 +4,7 @@ defmodule Aiur.Opencode.Server do
   use GenServer
   require Logger
 
+  alias Aiur.AgentEnvironment
   alias Aiur.Opencode.{Config, Protocol}
 
   defstruct [:identifier, :workspace, :port, :host, :base_url, :port_ref, :stdout_buffer, :ready_waiters, :ready?]
@@ -22,7 +23,7 @@ defmodule Aiur.Opencode.Server do
     host = Map.get(opts, :host, "127.0.0.1")
     # Let opencode pick its own port (it announces `listening on http://host:port` on stdout).
     # Pre-allocating via gen_tcp.listen + close races against opencode's bind in TIME_WAIT.
-    command = Protocol.serve_command(0, host, Config.serve_args())
+    command = serve_command(host)
 
     # Non-login `-c`: a login shell reloads /etc/profile and drops the mise PATH the BEAM inherited.
     port_ref =
@@ -74,6 +75,23 @@ defmodule Aiur.Opencode.Server do
 
   def handle_call(:await_ready, from, state) do
     {:noreply, %{state | ready_waiters: [from | state.ready_waiters]}}
+  end
+
+  @doc false
+  # Build the `bash -c` launch command for opencode-serve. Routes the child
+  # through the shared `AgentEnvironment` scrub (the same contract the codex/
+  # claude app-server and prewarm use): release launcher vars (ROOTDIR, BINDIR,
+  # EMU, PROGNAME when release-owned), distribution/cookie vars, and release
+  # PATH entries are removed before `exec`, so the Node child and its tool
+  # subprocesses never inherit the release-local OTP (#1520). `Port.open`'s
+  # partial `:env` list is merged OVER the inherited environment, so it cannot
+  # replace release vars by itself — the command prefix is what scrubs them.
+  # `exec: true` keeps `bash -c "<scrub>; exec <serve>"` collapsing into the
+  # serve PID, so reaping still targets the opencode process directly.
+  @spec serve_command(String.t()) :: String.t()
+  def serve_command(host) do
+    Protocol.serve_command(0, host, Config.serve_args())
+    |> AgentEnvironment.scrub_shell_command(exec: true)
   end
 
   @impl true
