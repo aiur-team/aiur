@@ -1082,7 +1082,9 @@ defmodule Aiur.ExtensionsTest do
     assert html =~ "Live"
     assert html =~ "Offline"
     refute html =~ "Latest evidence"
-    assert html =~ "phx-click=\"show-agent-log\""
+    # The standalone read-agent-log row action moved into the chat modal, so the
+    # Units row no longer carries a show-agent-log button.
+    refute html =~ "phx-click=\"show-agent-log\""
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"
@@ -1139,10 +1141,9 @@ defmodule Aiur.ExtensionsTest do
 
     token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
-    log_html =
-      view
-      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
-      |> render_click()
+    # The Units row no longer has a standalone agent-log button (the chat modal
+    # carries the log now), so drive the AgentLogModal event handler directly.
+    log_html = render_hook(view, "show-agent-log", %{"unit" => token})
 
     assert log_html =~ "Logs"
     assert log_html =~ "1100"
@@ -1281,10 +1282,7 @@ defmodule Aiur.ExtensionsTest do
 
     token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
-    modal_html =
-      view
-      |> element(~s(button[phx-click="show-agent-log"][phx-value-unit="#{token}"]))
-      |> render_click()
+    modal_html = render_hook(view, "show-agent-log", %{"unit" => token})
 
     # The agent log modal still opens (reads work), but the composer and its
     # Send/Pause controls are gone — replaced by the read-only notice.
@@ -1633,7 +1631,13 @@ defmodule Aiur.ExtensionsTest do
   end
 
   defp without_occ_sections(payload) do
-    Map.drop(payload, ["decision_history", "recent_merges", "analytics", "capacity"])
+    Map.drop(payload, [
+      "decision_history",
+      "recent_merges",
+      "analytics",
+      "capacity",
+      "capacity_hold"
+    ])
   end
 
   defp wait_for_bound_port do

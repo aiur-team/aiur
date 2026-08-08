@@ -277,13 +277,28 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   defp valid_provider?(%{descendant_pids: pids}) when is_list(pids),
     do: Enum.any?(pids, &(is_integer(&1) and &1 > 0))
 
+  # An in-process session (an OpenAI-compatible HTTP agent) owns no OS process:
+  # it is a child of the runner and dies with it, so there is nothing to reap on
+  # owner death. Accept it so the workspace lease stays valid for its lifetime.
+  defp valid_provider?(%{in_process: true}), do: true
+
   defp valid_provider?(_provider), do: false
 
   # A provider can be reported more than once while its session is starting.
   # Each process-tree result is only a point-in-time observation, so narrowing
   # a later observation must not make an already observed descendant disposable.
+  # The `in_process` marker is session-level, not a point-in-time observation:
+  # once set it stays set across merges.
   defp merge_provider(previous, incoming) do
-    merged = Map.merge(previous, Map.take(incoming, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+    merged =
+      Map.merge(previous, Map.take(incoming, [:process_group_id, :root_pid, :remote, :descendant_pids]))
+
+    merged =
+      if Map.get(previous, :in_process) == true or Map.get(incoming, :in_process) == true do
+        Map.put(merged, :in_process, true)
+      else
+        merged
+      end
 
     if Map.has_key?(previous, :descendant_pids) or Map.has_key?(incoming, :descendant_pids) do
       descendants =
@@ -302,6 +317,23 @@ defmodule Aiur.Workspace.Ownership.Guardian do
       pids when is_list(pids) -> Enum.filter(pids, &(is_integer(&1) and &1 > 0))
       _ -> []
     end
+  end
+
+  # An `in_process` provider is only releasable without reaping while it has no
+  # OS identity at all. A later merge can pair the marker with a process group,
+  # root, remote host, or descendants; those must be reaped first.
+  defp in_process_only?(provider) do
+    Map.get(provider, :in_process) == true and
+      Map.get(provider, :process_group_id) == nil and
+      Map.get(provider, :root_pid) == nil and
+      Map.get(provider, :remote) == nil and
+      not has_positive_descendants?(provider)
+  end
+
+  defp has_positive_descendants?(provider) do
+    provider
+    |> Map.get(:descendant_pids, [])
+    |> Enum.any?(&(is_integer(&1) and &1 > 0))
   end
 
   # A live provider with no verified containment is deliberately fail-closed.
@@ -326,6 +358,21 @@ defmodule Aiur.Workspace.Ownership.Guardian do
   # retains the generation rather than allowing a retry to remove that cwd.
   defp maybe_release_or_reap(%{provider: %{remote: true}} = state),
     do: loop(update_phase(state, :reaping))
+
+  # An in-process session (an OpenAI-compatible HTTP agent) has no OS process to
+  # reap: it is a child of the runner and dies with it. Release the lease on
+  # owner death or a clean release, exactly as if the provider had been proven
+  # gone — there is nothing that could have survived the owner. If the provider
+  # later also reports an OS identity (a process group, root, remote host, or
+  # descendants), that containment takes precedence and normal reaping applies;
+  # strip the marker and re-enter so it is never released early.
+  defp maybe_release_or_reap(%{provider: %{in_process: true} = provider} = state) do
+    if in_process_only?(provider) do
+      release_guardian(state)
+    else
+      maybe_release_or_reap(%{state | provider: Map.delete(provider, :in_process)})
+    end
+  end
 
   defp maybe_release_or_reap(%{provider: %{process_group_id: group}} = state)
        when is_integer(group) and group > 0 do

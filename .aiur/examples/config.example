@@ -4,19 +4,27 @@
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
   active_states: [todo, in-progress, rework, merging]
-  terminal_states: [done, cancelled, canceled]
+  terminal_states: [done, closed, cancelled, canceled]
+  # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
 {{TRACKER_PROVIDER}}
   # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
-  # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur
-  # authenticates with; bot_account is the login Aiur recognizes as its own to suppress self-triggered
-  # comment/event loops. Prefer a dedicated bot account (e.g. its-applekid) when operators also comment
+  # bot_account is an IDENTITY, not a credential: the daemon authenticates with a
+  # GitHub App installation token when GITHUB_APP_ID/GITHUB_APP_INSTALLATION_ID and
+  # the App private key are set (preferred; see docs/security/daemon-token-posture.md),
+  # else the GITHUB_TOKEN PAT in .env. bot_account is the login Aiur recognizes as its
+  # own to suppress self-triggered comment/event loops. It must name the identity the
+  # daemon actually writes as: under GitHub App auth that is the App's bot user,
+  # `<app-slug>[bot]` — NOT the PAT account. A stale PAT login here silently disables
+  # self-loop suppression; the daemon alerts on the mismatch at startup
+  # (system.github_app_token.identity_mismatch). On the PAT path, prefer a dedicated bot
+  # account (e.g. its-applekid) when operators also comment
   # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
   # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
   # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
 
 # === Coding agents ===
 agent:
-  kind: {{AGENT_KIND}}                   # default backend: codex | claude
+  kind: {{AGENT_KIND}}                   # default registered backend (codex, claude, kimi, deepseek, openrouter)
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
@@ -28,6 +36,10 @@ agent:
   max_agent_duration_minutes: {{MAX_AGENT_DURATION}}  # safety checkpoint; 0 = never auto-pause
   # synthetic_load_process_cap: null     # per-agent cap for `yes`/`stress` load generators; null = cores/4, 0 = disabled
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
+  prior_work_continuation: true           # cold redispatch/backend switch continues from shared workspace context, never a cross-provider transcript
+  # backend_configs:                      # optional overrides keyed by registry instance
+  #   deepseek: {enabled: false}          # disabled by default; set true only when its balance meter is configured
+  #   openrouter: {model: moonshotai/kimi-k2.7-code} # explicit underlying model required
 {{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
@@ -44,6 +56,7 @@ agent:
     # thrash_window_seconds: 60
   # --- advanced agent tuning (defaults shown) ---
   # mix_scheduler_cap: 4                 # cap each agent Mix VM (and ExUnit's default max_cases)
+  # saturation_log_enabled: true         # saturation sentinel (#1429): record VM+host diagnostics once load crosses the escalation threshold
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)

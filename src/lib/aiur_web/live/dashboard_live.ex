@@ -736,6 +736,12 @@ defmodule AiurWeb.DashboardLive do
           <p id="units-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">
             {@units_announcement}
           </p>
+          <RunSummaryStrip.run_summary_compact
+            run={@run_summary}
+            usage={@usage_summary}
+            meters={@provider_meters_view}
+            now={@now}
+          />
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
@@ -747,6 +753,7 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <AgentLogModal.agent_log_modal
+        :if={is_nil(@conversation_drawer)}
         modal={@agent_log_modal}
         writable={@writable}
         drafts={@drafts}
@@ -763,6 +770,10 @@ defmodule AiurWeb.DashboardLive do
         :if={@conversation_drawer}
         id="units-conversation-drawer"
         view={@conversation_drawer}
+        composer={@agent_log_modal}
+        writable={@writable}
+        drafts={@drafts}
+        errors={@chat_errors}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
@@ -1680,6 +1691,8 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp open_conversation(socket, row, token, handle, snapshot) do
+    composer = agent_log_composer(socket.assigns.payload, row)
+
     socket
     |> replace_conversation_subscription(handle)
     |> assign(:conversation_handle, handle)
@@ -1688,6 +1701,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, "units-conversation-#{token}")
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, snapshot)
+    |> assign(:conversation_log, log_for_drawer(composer))
+    |> assign(:agent_log_modal, composer)
     |> present_conversation()
   end
 
@@ -1701,6 +1716,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, nil)
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, nil)
+    |> assign(:conversation_log, nil)
+    |> assign(:agent_log_modal, nil)
   end
 
   defp present_conversation(socket) do
@@ -1708,11 +1725,27 @@ defmodule AiurWeb.DashboardLive do
       ConversationPresenter.present(
         socket.assigns.conversation_row,
         socket.assigns.conversation_snapshot,
-        socket.assigns.conversation_lifecycle
+        socket.assigns.conversation_lifecycle,
+        socket.assigns.conversation_log
       )
 
     assign(socket, :conversation_drawer, view)
   end
+
+  # The chat modal carries the running agent's workspace log and the writable
+  # composer beneath the conversation. `agent_log_composer/2` builds the same
+  # AgentLogModal payload (target key, writable target, parsed transcript) so the
+  # existing composer handlers apply to the drawer; the drawer surfaces only the
+  # parsed transcript, never the local path.
+  defp agent_log_composer(payload, row) do
+    case AgentLogModal.find_running_entry(payload, Map.get(row, :identity)) do
+      %{} = entry -> AgentLogModal.build(entry, payload)
+      _none -> nil
+    end
+  end
+
+  defp log_for_drawer(%{messages: messages}) when is_list(messages), do: %{messages: messages}
+  defp log_for_drawer(_composer), do: nil
 
   # Replace only the pinned generation's snapshot. A change for any other handle
   # is ignored so a replacement worker never appears under the old heading.

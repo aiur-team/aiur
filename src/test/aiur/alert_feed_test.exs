@@ -67,6 +67,61 @@ defmodule Aiur.AlertFeedTest do
            ] = AlertFeed.list(roots: [root], log_roots: [log_root], needs_attention: true)
   end
 
+  test "a resolved system attention leaves the Executor feed", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"system.tracker.auth_preflight_failed","message":"Tracker auth failed","reason":"GitHub auth failed","severity":"warning","needs_attention":true,"source_ticket_id":null}
+    {"event":"alert","timestamp":"2026-08-02T01:01:00Z","topic":"system.tracker.auth_preflight_failed.resolved","message":"Tracker auth recovered","reason":"GitHub auth recovered","severity":"info","needs_attention":false,"source_ticket_id":null}
+    """)
+
+    refute Enum.any?(AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true), fn alert ->
+             alert["topic"] == "system.tracker.auth_preflight_failed"
+           end)
+  end
+
+  test "system attention probes never scan workspace transcript roots", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    central_root = Path.join(root, "central")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    File.mkdir_p!(central_root)
+
+    File.write!(workspace_log, """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"system.test.workspace_only","message":"workspace only","needs_attention":true}
+    """)
+
+    refute AlertFeed.active_system_attention?("system.test.workspace_only", roots: [Path.join(root, "workspace")], log_roots: [central_root])
+  end
+
+  test "ticket attention probes read only central alerts", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    central_root = Path.join(root, "central")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    File.mkdir_p!(central_root)
+
+    File.write!(workspace_log, """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"ticket.42.agent.attention.error","message":"workspace only","needs_attention":true}
+    """)
+
+    refute AlertFeed.active_ticket_attention?("ticket.42.agent.attention.error",
+             roots: [Path.join(root, "workspace")],
+             log_roots: [central_root]
+           )
+  end
+
+  test "a resolved tracker pause leaves the Executor feed", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"ticket.42.agent.paused","message":"Paused","needs_attention":true}
+    {"event":"alert","timestamp":"2026-08-02T01:01:00Z","topic":"ticket.42.agent.paused.resolved","message":"Resumed","needs_attention":false}
+    """)
+
+    refute Enum.any?(AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true), &(&1["topic"] == "ticket.42.agent.paused"))
+  end
+
   test "projects only active legacy decision attentions", %{root: root} do
     project_root = Path.join(root, "its-everdred/aiur")
     log = Path.join(project_root, "42/logs/agent.ndjson")

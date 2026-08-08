@@ -148,6 +148,7 @@ defmodule Aiur.Application do
       Aiur.ProcessReaper,
       Aiur.PauseContainment,
       Aiur.AgentResourceGuard,
+      Aiur.SaturationSentinel,
       Aiur.AppServer.ToolCallLedger,
       Aiur.Workspace.Ownership.Store,
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
@@ -156,6 +157,7 @@ defmodule Aiur.Application do
       Aiur.CoordinationTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
+      Aiur.GitHub.AppTokenRefresher,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
@@ -192,6 +194,7 @@ defmodule Aiur.Application do
       Aiur.OperatorWaitLog,
       Aiur.Orchestrator.TrackedSet,
       Aiur.Orchestrator.SnapshotStore,
+      Aiur.Orchestrator.SnapshotPublisher,
       Aiur.CurrentRunMembership.Store,
       # LiveConversation is projection-only: it never replays workspace logs
       # after restart, so a missing key truthfully reports :restart_unknown.

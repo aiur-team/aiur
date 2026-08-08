@@ -14,6 +14,37 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent saturation sentinel" do
+    test "defaults to enabled and accepts an explicit opt-out" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.saturation_log_enabled == true
+
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"saturation_log_enabled" => false}})
+      assert configured.agent.saturation_log_enabled == false
+    end
+  end
+
+  describe "host-pressure admission defaults" do
+    test "max_concurrent_agents defaults nil (derived from host capacity) and run_queue_threshold is opt-in" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.max_concurrent_agents == nil
+      assert defaults.agent.run_queue_threshold == nil
+    end
+
+    test "accepts explicit max_concurrent_agents and run_queue_threshold" do
+      assert {:ok, settings} =
+               Schema.parse(%{"agent" => %{"max_concurrent_agents" => 4, "run_queue_threshold" => 1.5}})
+
+      assert settings.agent.max_concurrent_agents == 4
+      assert settings.agent.run_queue_threshold == 1.5
+    end
+
+    test "rejects a non-positive run_queue_threshold" do
+      assert {:error, _} = Schema.parse(%{"agent" => %{"run_queue_threshold" => 0}})
+      assert {:error, _} = Schema.parse(%{"agent" => %{"run_queue_threshold" => -1.0}})
+    end
+  end
+
   describe "agent backend config sections" do
     test "retains an arbitrary registry-named backend section" do
       assert {:ok, settings} =
@@ -22,6 +53,33 @@ defmodule Aiur.Config.SchemaTest do
                })
 
       assert settings.agent.backend_configs["fake"] == %{"command" => "fake-agent --serve", "region" => "test"}
+    end
+
+    test "DeepSeek routing requires an explicit backend opt-in" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"routing" => %{"5" => "deepseek"}}})
+
+      assert message =~ "disabled backend"
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "agent" => %{
+                   "backend_configs" => %{"deepseek" => %{"enabled" => true}},
+                   "routing" => %{"5" => "deepseek"}
+                 }
+               })
+
+      assert settings.agent.routing[5] == "deepseek"
+    end
+  end
+
+  describe "prior-work continuation" do
+    test "defaults on for cold backend handoff and remains configurable" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.prior_work_continuation == true
+
+      assert {:ok, disabled} = Schema.parse(%{"agent" => %{"prior_work_continuation" => false}})
+      assert disabled.agent.prior_work_continuation == false
     end
   end
 

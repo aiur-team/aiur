@@ -64,6 +64,19 @@ defmodule Aiur.ProviderMeterProjectionTest do
     assert ProviderMeterProjection.provider_view(projection, :claude).observed_at == ~U[2026-07-27 11:59:00Z]
   end
 
+  test "provider-wide patches retain independently observed meter windows", %{projection: projection, pid: pid} do
+    first = %{snapshot(:deepseek, ~U[2026-07-27 11:58:00Z], %{"balance" => %{kind: :credit}}) | update_kind: :patch}
+    second = %{snapshot(:deepseek, ~U[2026-07-27 11:59:00Z], %{"concurrency" => %{kind: :rate_limit}}) | update_kind: :patch}
+
+    send(pid, {:provider_meter_changed, first})
+    send(pid, {:provider_meter_changed, second})
+
+    assert ProviderMeterProjection.provider_view(projection, :deepseek).windows == %{
+             "balance" => %{kind: :credit},
+             "concurrency" => %{kind: :rate_limit}
+           }
+  end
+
   test "the projection carries no account generation", %{projection: projection, pid: pid} do
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:59:00Z])})
 
@@ -129,7 +142,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
   end
 
   test "exposes its provider set and backend" do
-    assert ProviderMeterProjection.providers() == [:codex, :claude, :fake]
+    assert ProviderMeterProjection.providers() == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
     assert ProviderMeterProjection.backend() == :app_server
   end
 

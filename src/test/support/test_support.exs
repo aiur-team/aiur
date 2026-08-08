@@ -79,6 +79,7 @@ defmodule Aiur.TestSupport do
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
+        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -540,6 +541,7 @@ defmodule Aiur.TestSupport do
           build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
+          max_dispatches_per_ticket: nil,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           command: "codex app-server",
@@ -573,6 +575,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     tracker_base_branch = Keyword.get(config, :tracker_base_branch)
+    tracker_terminal_fence_grace_seconds = Keyword.get(config, :tracker_terminal_fence_grace_seconds)
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
@@ -591,6 +594,7 @@ defmodule Aiur.TestSupport do
     build_start_stagger_seconds = Keyword.get(config, :build_start_stagger_seconds)
     min_free_memory_mb = Keyword.get(config, :min_free_memory_mb)
     max_turns = Keyword.get(config, :max_turns)
+    max_dispatches_per_ticket = Keyword.get(config, :max_dispatches_per_ticket)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
     agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
@@ -639,6 +643,8 @@ defmodule Aiur.TestSupport do
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "  base_branch: #{yaml_value(tracker_base_branch)}",
+        tracker_terminal_fence_grace_seconds &&
+          "  terminal_fence_grace_seconds: #{yaml_value(tracker_terminal_fence_grace_seconds)}",
         tracker_github_yaml(tracker_kind, config),
         tracker_linear_yaml(tracker_kind, config)
       ]
@@ -654,6 +660,8 @@ defmodule Aiur.TestSupport do
         "  build_start_stagger_seconds: #{yaml_value(build_start_stagger_seconds)}",
         "  min_free_memory_mb: #{yaml_value(min_free_memory_mb)}",
         "  max_turns: #{yaml_value(max_turns)}",
+        max_dispatches_per_ticket &&
+          "  max_dispatches_per_ticket: #{yaml_value(max_dispatches_per_ticket)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
         "  routing: #{yaml_value(agent_routing)}",

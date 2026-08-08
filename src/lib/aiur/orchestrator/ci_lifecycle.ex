@@ -8,6 +8,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   alias Aiur.{CIApprovalStore, Config, Issue, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
+  alias Aiur.GitHub.{CIPollBatch, Client}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
@@ -31,8 +32,14 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
-      "github" -> do_poll_github_ci(state, opts)
-      _ -> state
+      # See `CommentPolling.poll_github_comments/2`: CI polling also keeps the
+      # configured cadence rather than widening on quiet, so CI detection
+      # latency is unchanged at the same polling interval.
+      "github" ->
+        do_poll_github_ci(state, opts)
+
+      _ ->
+        state
     end
   end
 
@@ -45,7 +52,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   def maybe_resume_for_ci_terminal(%State{} = state, identifier, outcome)
       when is_binary(identifier) and outcome in [:passed, :failed] do
     case State.find_running_by_identifier(state.running, identifier) do
-      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
+      %{control: %{status: status}, paused_reason: :ci_wait} = running_entry
+      when status in [:paused, :deactivated] ->
         revalidate_ci_terminal_wake(
           state,
           running_entry,
@@ -130,10 +138,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         state
         |> Reconciler.refresh_running_entry_issue(issue, running_entry)
         |> AgentTeardown.deactivate_running_issue(issue.id)
+        |> set_running_paused_reason(issue.id, :ci_wait)
         |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :deactivated}} = running_entry ->
-        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+        state
+        |> Reconciler.refresh_running_entry_issue(issue, Map.put(running_entry, :paused_reason, :ci_wait))
+        |> arm_ci_wait_rewake(issue)
 
       %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
         state
@@ -307,35 +318,69 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp do_poll_github_ci(%State{} = state, opts) do
-    issue_fetcher = Keyword.get(opts, :ci_issue_fetcher, &Tracker.fetch_issues_by_states/1)
     poller = Keyword.get(opts, :ci_poller, &GithubCIPoller.poll/2)
 
-    case issue_fetcher.(@ci_poll_states) do
-      {:ok, issues} when is_list(issues) ->
+    case fetch_ci_issues(state, opts) do
+      {:ok, issues, state} ->
         state
         |> prune_ci_lifecycle_state(issues)
         |> poll_github_ci_targets(issues, poller, opts)
 
-      {:error, reason} ->
+      {:error, reason, state} ->
         Logger.warning("GithubCIPoller target refresh skipped; reason=#{inspect(reason)}")
         TrackerHealth.note_github_connectivity_failure(state, :ci, reason)
-
-      other ->
-        Logger.warning("GithubCIPoller target refresh returned unexpected value=#{inspect(other)}")
-        state
     end
+  end
+
+  defp fetch_ci_issues(%State{} = state, opts) do
+    case Keyword.fetch(opts, :ci_issue_fetcher) do
+      {:ok, fetcher} ->
+        case fetcher.(@ci_poll_states) do
+          {:ok, issues} when is_list(issues) -> {:ok, issues, state}
+          {:error, reason} -> {:error, reason, state}
+          other -> {:error, {:unexpected_ci_targets, other}, state}
+        end
+
+      :error ->
+        case Client.fetch_issues_by_states_conditional(
+               @ci_poll_states,
+               issue_list_cache(state),
+               opts
+             ) do
+          {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
+          {:error, reason} -> {:error, reason, state}
+        end
+    end
+  end
+
+  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
+  end
+
+  defp put_issue_list_cache(%State{} = state, cache) do
+    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
   end
 
   defp poll_github_ci_targets(%State{} = state, issues, poller, opts) do
     issues_by_target = ci_issues_by_target(issues)
     targets = Map.keys(issues_by_target)
 
+    if targets == [] do
+      state
+    else
+      poll_github_ci_targets(state, issues_by_target, targets, poller, opts)
+    end
+  end
+
+  defp poll_github_ci_targets(state, issues_by_target, targets, poller, opts) do
     poll_opts =
       Keyword.put(
         opts,
         :base_repair_invalidations,
         Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
+
+    poll_opts = put_ci_batch(poll_opts, targets, issues_by_target)
 
     case poller.(targets, poll_opts) do
       {:ok, %{results: results, errors: errors}} when is_list(results) and is_list(errors) ->
@@ -355,6 +400,52 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         Logger.warning("GithubCIPoller returned unexpected value=#{inspect(other)}")
         state
     end
+  end
+
+  defp put_ci_batch(opts, targets, issues_by_target) when is_list(opts) do
+    if Keyword.has_key?(opts, :ci_poller), do: opts, else: put_ci_batch_fetch(opts, targets, issues_by_target)
+  end
+
+  defp put_ci_batch_fetch(opts, targets, issues_by_target) do
+    fetcher = Keyword.get(opts, :ci_batch_fetcher, &CIPollBatch.fetch/2)
+
+    opts =
+      opts
+      |> Keyword.put_new(:branch_names_by_target, ci_branch_names_by_target(issues_by_target))
+      |> Keyword.put_new(:titles_by_target, ci_titles_by_target(issues_by_target))
+
+    case fetcher.(targets, opts) do
+      {:ok, batch} when is_map(batch) ->
+        Keyword.put(opts, :ci_batch, batch)
+
+      {:error, reason} ->
+        Logger.warning("Github CI GraphQL batch failed; falling back to REST reads reason=#{inspect(reason)}")
+        opts
+
+      other ->
+        Logger.warning("Github CI GraphQL batch returned unexpected value; falling back to REST reads value=#{inspect(other)}")
+        opts
+    end
+  end
+
+  # GitHub issues have no branch name, so the batch derives the generated
+  # `aiur/<id>-<slug>` branch from the title the same way TicketBranch does when
+  # the branch is created.
+  defp ci_titles_by_target(issues_by_target) do
+    Enum.reduce(issues_by_target, %{}, fn
+      {target, %Issue{title: title}}, acc when is_binary(title) and title != "" -> Map.put(acc, target, title)
+      {_target, _issue}, acc -> acc
+    end)
+  end
+
+  defp ci_branch_names_by_target(issues_by_target) do
+    Enum.reduce(issues_by_target, %{}, fn
+      {target, %Issue{branch_name: branch_name}}, acc when is_binary(branch_name) and branch_name != "" ->
+        Map.put(acc, target, branch_name)
+
+      {_target, _issue}, acc ->
+        acc
+    end)
   end
 
   defp ci_issues_by_target(issues) do
@@ -778,7 +869,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
-    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(targets)
+    existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
+
+    poll_cache =
+      existing_poll_cache
+      |> Map.take(targets)
+      |> maybe_keep_issue_list_cache(existing_poll_cache)
 
     # Base repair invalidations intentionally survive while their ticket is in
     # rework (and therefore absent from this CI-only target list). The marker is
@@ -786,7 +882,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     if approved_heads == state.ci_lifecycle.approved_heads and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
-         poll_cache == Map.get(state.ci_lifecycle, :poll_cache, %{}) do
+         poll_cache == existing_poll_cache do
       state
     else
       ci_lifecycle =
@@ -796,6 +892,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         |> Map.put(:poll_cache, poll_cache)
 
       persist_ci_lifecycle_state(%{state | ci_lifecycle: ci_lifecycle})
+    end
+  end
+
+  defp maybe_keep_issue_list_cache(poll_cache, existing_poll_cache) do
+    case Map.fetch(existing_poll_cache, :issue_list_cache) do
+      {:ok, cache} -> Map.put(poll_cache, :issue_list_cache, cache)
+      :error -> poll_cache
     end
   end
 
@@ -834,23 +937,28 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp maybe_rewake_current_ci_wait(state, issue) do
     case Map.get(state.running, issue.id) do
-      %{control: %{status: :paused}, paused_reason: :ci_wait} = running_entry ->
-        cond do
-          not ci_wait_state?(issue.state) ->
-            state
-
-          Issue.paused?(issue) ->
-            Reconciler.refresh_running_entry_issue(state, issue, running_entry)
-
-          not DispatchPolicy.issue_routable_to_worker?(issue) ->
-            state
-
-          true ->
-            transition_ci_wait_fallback(state, issue)
-        end
+      %{control: %{status: status}, paused_reason: :ci_wait} = running_entry
+      when status in [:paused, :deactivated] ->
+        rewake_ci_wait_entry(state, issue, running_entry)
 
       _ ->
         state
+    end
+  end
+
+  defp rewake_ci_wait_entry(state, issue, running_entry) do
+    cond do
+      not ci_wait_state?(issue.state) ->
+        state
+
+      Issue.paused?(issue) ->
+        Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+
+      not DispatchPolicy.issue_routable_to_worker?(issue) ->
+        state
+
+      true ->
+        transition_ci_wait_fallback(state, issue)
     end
   end
 
@@ -914,16 +1022,24 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       %{issue: %Issue{} = issue, control: %{status: :paused}, paused_reason: :ci_wait} ->
         arm_ci_wait_rewake(state, issue)
 
+      %{issue: %Issue{} = issue, control: %{status: :deactivated}, paused_reason: :ci_wait} ->
+        arm_ci_wait_rewake(state, issue)
+
       _ ->
         state
     end
   end
 
   defp maybe_resume_ci_wait_runner(state, running_entry, identifier) do
-    if Issue.paused?(Map.get(running_entry, :issue)) do
+    issue = Map.get(running_entry, :issue)
+
+    if Issue.paused?(issue) do
       state
     else
-      resume_ci_wait_runner(state, running_entry, identifier)
+      case get_in(running_entry, [:control, :status]) do
+        :deactivated -> Reconciler.maybe_reactivate_or_refresh(state, issue)
+        _ -> resume_ci_wait_runner(state, running_entry, identifier)
+      end
     end
   end
 
@@ -997,6 +1113,13 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp ci_event_dedup_key(_target, _outcome, _head_sha), do: nil
+
+  defp set_running_paused_reason(state, issue_id, reason) do
+    case Map.get(state.running, issue_id) do
+      nil -> state
+      entry -> %{state | running: Map.put(state.running, issue_id, Map.put(entry, :paused_reason, reason))}
+    end
+  end
 
   defp ci_wait_rewakes(%State{} = state), do: Map.get(state.ci_lifecycle, :rewakes, %{})
 

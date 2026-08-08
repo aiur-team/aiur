@@ -788,7 +788,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       request_fun: request_fun
     ]
 
-    {:ok, first} = PackStatus.start_link(opts)
+    first = start_supervised!({PackStatus, opts})
     assert {:ok, [_written]} = PackStatus.refresh_sync(first)
     first_generation = PackStatus.health(first).generation
 
@@ -801,10 +801,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert {:ok, [_written]} = PackStatus.refresh_sync(first)
     last_generation = PackStatus.health(first).generation
     assert last_generation > second_generation
-    GenServer.stop(first)
+    assert :ok = stop_supervised(PackStatus)
 
-    {:ok, second} = PackStatus.start_link(name: nil, poll_on_start: false)
-    on_exit(fn -> if Process.alive?(second), do: GenServer.stop(second) end)
+    second = start_supervised!({PackStatus, name: nil, poll_on_start: false})
 
     assert PackStatus.health(second).generation > last_generation
   end

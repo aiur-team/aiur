@@ -1,6 +1,6 @@
 defmodule Aiur.ProviderMeterProjection do
   @moduledoc """
-  The consumer-facing read model for Codex and Claude meter facts.
+  The consumer-facing read model for registry-declared provider meter facts.
 
   Every meter observation is minted against an opaque account-generation
   binding, and those bindings live in the observing session's process
@@ -29,7 +29,6 @@ defmodule Aiur.ProviderMeterProjection do
   # Registry-derived at compile time (a literal list, so the `in @providers`
   # guards below still inline) — a new metered backend projects with no edit.
   @providers Aiur.CodingAgent.provider_families()
-  @backend :app_server
   @call_timeout 5_000
 
   @type provider :: atom()
@@ -86,7 +85,13 @@ defmodule Aiur.ProviderMeterProjection do
   """
   @spec provider_view(GenServer.server(), provider()) :: view()
   def provider_view(server \\ __MODULE__, provider) when provider in @providers do
-    server |> snapshot() |> Map.fetch!(provider)
+    if GenServer.whereis(server) do
+      GenServer.call(server, {:provider_view, provider}, @call_timeout)
+    else
+      unknown_view(provider)
+    end
+  catch
+    :exit, _reason -> unknown_view(provider)
   end
 
   @doc """
@@ -101,10 +106,10 @@ defmodule Aiur.ProviderMeterProjection do
     if GenServer.whereis(server) do
       GenServer.call(server, {:redacted_snapshot, provider}, @call_timeout)
     else
-      ProviderMeterSnapshot.unknown(provider, @backend)
+      ProviderMeterSnapshot.unknown(provider, backend(provider))
     end
   catch
-    :exit, _reason -> ProviderMeterSnapshot.unknown(provider, @backend)
+    :exit, _reason -> ProviderMeterSnapshot.unknown(provider, backend(provider))
   end
 
   @doc false
@@ -126,10 +131,14 @@ defmodule Aiur.ProviderMeterProjection do
     {:reply, views, state}
   end
 
+  def handle_call({:provider_view, provider}, _from, state) when provider in @providers do
+    {:reply, view(Map.get(state.observations, provider), provider, state.clock.()), state}
+  end
+
   def handle_call({:redacted_snapshot, provider}, _from, state) do
     reply =
       case Map.get(state.observations, provider) do
-        nil -> ProviderMeterSnapshot.unknown(provider, @backend)
+        nil -> ProviderMeterSnapshot.unknown(provider, backend(provider))
         snapshot -> %{snapshot | provider_account_generation: nil}
       end
 
@@ -156,10 +165,27 @@ defmodule Aiur.ProviderMeterProjection do
 
   defp put_if_newer(observations, provider, previous, snapshot, observed_at) do
     case previous.observed_at do
-      nil -> Map.put(observations, provider, snapshot)
-      prior -> if DateTime.compare(observed_at, prior) == :lt, do: observations, else: Map.put(observations, provider, snapshot)
+      nil ->
+        Map.put(observations, provider, snapshot)
+
+      prior ->
+        if DateTime.compare(observed_at, prior) == :lt do
+          observations
+        else
+          Map.put(observations, provider, merge_patch(previous, snapshot))
+        end
     end
   end
+
+  defp merge_patch(previous, %ProviderMeterSnapshot{update_kind: :patch} = incoming) do
+    %{
+      incoming
+      | windows: Map.merge(previous.windows, incoming.windows),
+        plan: incoming.plan || previous.plan
+    }
+  end
+
+  defp merge_patch(_previous, incoming), do: incoming
 
   defp view(nil, provider, _now), do: unknown_view(provider)
 
@@ -198,5 +224,9 @@ defmodule Aiur.ProviderMeterProjection do
 
   @doc false
   @spec backend() :: :app_server
-  def backend, do: @backend
+  def backend, do: :app_server
+
+  @doc false
+  @spec backend(provider()) :: atom()
+  def backend(provider), do: Aiur.CodingAgent.provider_meter_backend(provider)
 end

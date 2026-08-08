@@ -155,6 +155,11 @@ arbitrary copies under `docs/`:
   tickets/<ID>.md
 ```
 
+This state-node path is machine-local runtime storage, not a worktree path.
+Executor-authored findings and retros live in its sibling `meta/` directory;
+do not create build packs or operational notes under `docs/executor/` as a
+substitute for the canonical state node.
+
 The researched ticket document is the draft body, not a second status system.
 Every member in `build-order.json` uses the canonical runtime shape:
 
