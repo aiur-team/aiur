@@ -5,7 +5,7 @@ defmodule Aiur.AgentEnvironmentTest do
   # module's value (#1920).
   use ExUnit.Case, async: false
 
-  alias Aiur.AgentEnvironment
+  alias Aiur.{AgentEnvironment, BuildGate}
   alias Aiur.GitHub.Budget
 
   test "identifies inherited Erlang distribution environment names" do
@@ -391,12 +391,15 @@ defmodule Aiur.AgentEnvironmentTest do
     offenders =
       (Path.wildcard(Path.join(repo_root, "src/lib/**/*.ex")) ++
          Path.wildcard(Path.join(repo_root, ".claude/skills/**/*")))
-      |> Enum.filter(&File.regular?/1)
       |> Enum.filter(fn path ->
-        contents = File.read!(path)
+        if File.regular?(path) do
+          contents = File.read!(path)
 
-        String.contains?(contents, "gh") and
-          (String.contains?(contents, "--body ") or String.contains?(contents, "--body="))
+          String.contains?(contents, "gh") and
+            (String.contains?(contents, "--body ") or String.contains?(contents, "--body="))
+        else
+          false
+        end
       end)
 
     assert offenders == []
@@ -513,7 +516,10 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"ELIXIR_ERL_OPTIONS", options} = List.keyfind(env, ~c"ELIXIR_ERL_OPTIONS", 0)
       assert to_string(options) =~ "+S 4:4"
 
-      assert {~c"BASH_ENV", false} = List.keyfind(env, ~c"BASH_ENV", 0)
+      # The only permitted BASH_ENV is Aiur's immutable build-admission hook;
+      # an operator-provided value is replaced at the launch boundary.
+      assert {~c"BASH_ENV", build_gate_hook} = List.keyfind(env, ~c"BASH_ENV", 0)
+      assert to_string(build_gate_hook) == BuildGate.hook_path()
       assert {~c"ENV", false} = List.keyfind(env, ~c"ENV", 0)
       assert {~c"ZDOTDIR", ~c"/dev/null"} = List.keyfind(env, ~c"ZDOTDIR", 0)
 

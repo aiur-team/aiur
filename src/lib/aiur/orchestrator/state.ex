@@ -343,6 +343,7 @@ defmodule Aiur.Orchestrator.State do
           |> maybe_put_runtime_value(:repl_pane_id, info[:pane_id])
           |> maybe_put_runtime_value(:repl_os_pid, info[:os_pid])
           |> maybe_put_runtime_value(:headless_os_pid, info[:headless_os_pid])
+          |> maybe_put_runtime_value(:headless_process_group_id, info[:headless_process_group_id])
           |> maybe_put_runtime_value(:repl_rc_session_url, info[:session_url])
 
         {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}

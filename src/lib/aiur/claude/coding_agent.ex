@@ -194,6 +194,7 @@ defmodule Aiur.Claude.CodingAgent do
     case :erlang.port_info(port, :os_pid) do
       {:os_pid, os_pid} ->
         %{provider_pid: to_string(os_pid), claude_app_server_pid: to_string(os_pid)}
+        |> maybe_put_process_group(AppServerPort.process_group_for_pid(os_pid))
 
       _ ->
         %{}
