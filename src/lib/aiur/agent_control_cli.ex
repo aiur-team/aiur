@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase}
+  alias Aiur.{AgentChat, AlertFeed, Asks, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -24,8 +24,8 @@ defmodule Aiur.AgentControlCLI do
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
-  @spec status() :: :ok
-  def status do
+  @spec status(keyword()) :: :ok
+  def status(opts \\ []) do
     case Orchestrator.status() do
       statuses when is_list(statuses) ->
         case print_global_pause_banner() do
@@ -41,6 +41,7 @@ defmodule Aiur.AgentControlCLI do
             print_ci_readiness()
             print_build_gate_status()
             print_prewarm_status()
+            print_blocking_asks(opts)
             exit_marker(0)
 
           {:error, :unavailable} ->
@@ -96,9 +97,10 @@ defmodule Aiur.AgentControlCLI do
               |> Enum.sort_by(& &1.sort_key)
 
             alerts = latest_attention_alerts(opts)
+            blocking_asks = blocking_asks(opts)
             mode = Keyword.get(opts, :mode, :changes)
             {changed, removed} = update_watch_baseline(rows)
-            render_watch(rows, alerts, mode, changed, removed)
+            render_watch(rows, alerts, blocking_asks, mode, changed, removed)
             exit_marker(0)
 
           {:error, :unavailable} ->
@@ -1258,12 +1260,12 @@ defmodule Aiur.AgentControlCLI do
 
   @watch_header "TICKET  STATE         CX  AGE     DOING"
 
-  defp render_watch(rows, alerts, mode, changed, removed) do
+  defp render_watch(rows, alerts, blocking_asks, mode, changed, removed) do
     rows
     |> watch_rows_for_mode(mode, changed)
     |> print_watch_table(mode)
 
-    print_watch_actionable(rows, alerts, removed)
+    print_watch_actionable(rows, alerts, blocking_asks, removed)
   end
 
   defp watch_rows_for_mode(rows, :changes, changed) do
@@ -1304,9 +1306,10 @@ defmodule Aiur.AgentControlCLI do
   defp format_complexity(n) when is_integer(n), do: to_string(n)
   defp format_complexity(_n), do: "-"
 
-  defp print_watch_actionable(rows, alerts, removed) do
+  defp print_watch_actionable(rows, alerts, blocking_asks, removed) do
     lines =
       watch_alert_lines(alerts) ++
+        watch_ask_lines(blocking_asks) ++
         watch_stuck_lines(rows) ++
         watch_pr_ready_lines(rows) ++
         watch_removed_lines(removed)
@@ -1326,6 +1329,45 @@ defmodule Aiur.AgentControlCLI do
     Enum.map(alerts, fn alert ->
       "! ##{Map.get(alert, "ticket")} · #{Map.get(alert, "name")} · #{Map.get(alert, "reason")}"
     end)
+  end
+
+  defp watch_ask_lines(asks) do
+    Enum.map(asks, fn ask ->
+      "! BLOCKING ASK #{ask["id"]} · #{ask["urgency"]} · #{ask["created_at"]} · #{truncate(ask["title"], 56)}"
+    end)
+  end
+
+  defp print_blocking_asks(opts) do
+    case blocking_asks(opts) do
+      [] ->
+        :ok
+
+      asks ->
+        IO.puts("OPERATOR ASKS (blocking)")
+
+        Enum.each(asks, fn ask ->
+          IO.puts("! #{ask["id"]} · #{ask["urgency"]} · from #{ask["created_by"]} at #{ask["created_at"]} · #{ask["title"]}")
+        end)
+    end
+  end
+
+  defp blocking_asks(opts) do
+    case Keyword.fetch(opts, :blocking_asks) do
+      {:ok, asks} when is_list(asks) ->
+        asks
+
+      _ ->
+        case GitHubConfig.repo() do
+          repo when is_binary(repo) and repo != "" ->
+            case Asks.open(repo) do
+              {:ok, asks} -> Enum.filter(asks, &(&1["blocking"] == true))
+              {:error, _reason} -> []
+            end
+
+          _ ->
+            []
+        end
+    end
   end
 
   defp watch_stuck_lines(rows) do

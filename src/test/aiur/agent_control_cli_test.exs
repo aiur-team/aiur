@@ -1493,6 +1493,27 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "status and watch surface open blocking operator asks", %{watch_root: root} do
+      ask = %{
+        "id" => "ask_ci_readiness",
+        "title" => "Enable CI readiness inspection",
+        "urgency" => "high",
+        "blocking" => true,
+        "created_at" => "2026-08-08T12:00:00Z",
+        "created_by" => "executor"
+      }
+
+      status = capture_io(fn -> AgentControlCLI.status(blocking_asks: [ask]) end)
+      assert status =~ "OPERATOR ASKS (blocking)"
+      assert status =~ "ask_ci_readiness"
+      assert status =~ "from executor at 2026-08-08T12:00:00Z"
+
+      watch = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root], blocking_asks: [ask]) end)
+      assert watch =~ "ACTIONABLE"
+      assert watch =~ "BLOCKING ASK ask_ci_readiness"
+      assert watch =~ "Enable CI readiness inspection"
+    end
+
     test "empty board reports no active agents", %{watch_root: root} do
       output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
 

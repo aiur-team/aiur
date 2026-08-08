@@ -33,7 +33,16 @@ defmodule Aiur.CLI do
     scope: :string,
     record: :string,
     repo: :string,
-    digest: :boolean
+    digest: :boolean,
+    body: :string,
+    body_file: :string,
+    urgency: :string,
+    blocking: :boolean,
+    done: :string,
+    note: :string,
+    json: :boolean,
+    open: :boolean,
+    all: :boolean
   ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
@@ -72,6 +81,9 @@ defmodule Aiur.CLI do
       {:findings, opts} ->
         run_findings_command(opts)
 
+      {:asks, command} ->
+        run_asks_command(command)
+
       {:error, message} ->
         IO.puts(:stderr, message)
         Aiur.Shutdown.shutdown(1)
@@ -93,6 +105,13 @@ defmodule Aiur.CLI do
 
   defp run_findings_command(opts) do
     case Aiur.FindingsCLI.run(opts) do
+      0 -> :ok
+      exit_code -> System.halt(exit_code)
+    end
+  end
+
+  defp run_asks_command(command) do
+    case Aiur.AsksCLI.run(command) do
       0 -> :ok
       exit_code -> System.halt(exit_code)
     end
@@ -134,6 +153,7 @@ defmodule Aiur.CLI do
           | {:findings, %{unfiled: boolean(), slugs: boolean(), scope: String.t() | nil}}
           | {:findings, %{record: String.t(), repo: String.t()}}
           | {:findings, %{digest: true, scope: String.t() | nil}}
+          | {:asks, Aiur.AsksCLI.command()}
           | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
@@ -160,6 +180,8 @@ defmodule Aiur.CLI do
   end
 
   defp evaluate_standard(opts, ["findings" | rest], _deps), do: evaluate_findings(opts, rest)
+  defp evaluate_standard(opts, ["ask" | rest], _deps), do: evaluate_ask(opts, rest)
+  defp evaluate_standard(opts, ["asks" | rest], _deps), do: evaluate_asks(opts, rest)
 
   defp evaluate_standard(opts, [], deps) do
     evaluate_run(opts, Aiur.Workflow.detect_run_folder_config(), deps)
@@ -234,6 +256,63 @@ defmodule Aiur.CLI do
   defp parse_findings_scope(scope) when scope in ["aiur", "repo"], do: {:ok, scope}
   defp parse_findings_scope(_scope), do: :error
 
+  defp evaluate_ask(opts, positional) do
+    if Keyword.has_key?(opts, :done), do: evaluate_ask_done(opts, positional), else: evaluate_ask_create(opts, positional)
+  end
+
+  defp evaluate_ask_done(opts, positional) do
+    with true <- positional == [],
+         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:done, :note])),
+         [id] <- Keyword.get_values(opts, :done),
+         true <- String.trim(id) != "",
+         true <- single_option?(opts, :note) do
+      {:asks, {:done, %{id: id, note: Keyword.get(opts, :note)}}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_ask_create(opts, positional) do
+    with [title] <- positional,
+         true <- String.trim(title) != "",
+         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:body, :body_file, :urgency, :blocking])),
+         true <- single_option?(opts, :body),
+         true <- single_option?(opts, :body_file),
+         true <- not (Keyword.has_key?(opts, :body) and Keyword.has_key?(opts, :body_file)),
+         true <- single_option?(opts, :urgency),
+         {:ok, body} <- ask_body(opts),
+         {:ok, urgency} <- ask_urgency(opts) do
+      {:asks, {:create, %{title: title, body: body, urgency: urgency, blocking: Keyword.get(opts, :blocking, false)}}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_asks(opts, positional) do
+    with true <- positional == [],
+         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:open, :all, :json])),
+         true <- not (Keyword.get(opts, :open, false) and Keyword.get(opts, :all, false)) do
+      status = if Keyword.get(opts, :all, false), do: :all, else: :open
+      {:asks, {:list, %{status: status, json: Keyword.get(opts, :json, false)}}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp ask_body(opts) do
+    case Keyword.fetch(opts, :body_file) do
+      {:ok, path} -> File.read(path)
+      :error -> {:ok, Keyword.get(opts, :body)}
+    end
+  end
+
+  defp ask_urgency(opts) do
+    urgency = Keyword.get(opts, :urgency, "normal")
+    if urgency in ["low", "normal", "high"], do: {:ok, urgency}, else: :error
+  end
+
+  defp single_option?(opts, key), do: length(Keyword.get_values(opts, key)) <= 1
+
   defp evaluate_todo(opts, positional) do
     with true <- Keyword.get(opts, :todo, false),
          true <- Enum.all?(Keyword.keys(opts), &(&1 in [:todo, :only])),
@@ -287,7 +366,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]"
+    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]\n       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]\n       aiur ask --done <id> [--note <text>]\n       aiur asks [--open|--all] [--json]"
   end
 
   @spec runtime_deps() :: deps()

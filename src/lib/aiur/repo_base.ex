@@ -76,6 +76,11 @@ defmodule Aiur.RepoBase do
   def findings_path(repo_url) when is_binary(repo_url),
     do: Path.join(meta_path(repo_url), "findings.ndjson")
 
+  @doc "Absolute path of the append-only Executor-to-operator asks file for `repo_url`."
+  @spec asks_path(String.t()) :: Path.t()
+  def asks_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "asks.ndjson")
+
   @doc "Absolute path of per-boot executor retrospectives for `repo_url`."
   @spec retros_path(String.t()) :: Path.t()
   def retros_path(repo_url) when is_binary(repo_url),
@@ -96,12 +101,15 @@ defmodule Aiur.RepoBase do
 
   defp ensure_state_tree_at(node) do
     findings = Path.join([node, "meta", "findings.ndjson"])
+    asks = Path.join([node, "meta", "asks.ndjson"])
 
     with :ok <- ensure_state_node_safe(node),
          :ok <- File.mkdir_p(node),
          :ok <- create_state_directories(node),
          :ok <- ensure_state_path_safe(node, findings),
-         :ok <- File.touch(findings) do
+         :ok <- ensure_state_path_safe(node, asks),
+         :ok <- File.touch(findings),
+         :ok <- File.touch(asks) do
       :ok
     else
       {:error, reason} -> {:error, reason}
