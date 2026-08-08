@@ -80,6 +80,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
   const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
 
   await knob.hover()
+  const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
   // Scroll up → value should increase.
   await page.mouse.wheel(0, -100)
 
@@ -93,7 +94,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
 
   // Page must NOT have scrolled: the non-passive listener called preventDefault.
   const scrollY = await page.evaluate(() => window.scrollY)
-  expect(scrollY).toBe(0)
+  expect(scrollY).toBe(scrollBeforeWheel)
 })
 
 test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
@@ -613,9 +614,15 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
       rowGap: keysStyle.rowGap,
       keyRatio: keyBox.width / keyBox.height,
       states: Object.fromEntries(['running', 'paused', 'stuck', 'alert', 'queued'].map((state) => {
-        const key = keys.querySelector(`.st-${state}`)
-        const face = key.querySelector('.sd-key-face')
-        return [state, [getComputedStyle(key).backgroundImage, getComputedStyle(face).backgroundImage]]
+        const key = document.createElement('div')
+        const face = document.createElement('div')
+        key.className = `sd-key st-${state}`
+        face.className = 'sd-key-face'
+        key.appendChild(face)
+        document.body.appendChild(key)
+        const styles = [getComputedStyle(key).backgroundImage, getComputedStyle(face).backgroundImage]
+        key.remove()
+        return [state, styles]
       })),
       pressShadow: (() => {
         const knob = document.querySelector('.sd-knob')
