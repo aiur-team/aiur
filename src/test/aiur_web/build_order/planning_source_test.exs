@@ -295,7 +295,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert completed.lifecycle.state_reason == :completed
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
+    card = model |> BuildOrderGridModel.build() |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
     assert card.state == :merged
     assert card.progress == 100
     assert card.status_word == "merged"
@@ -322,7 +322,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert reopened.lifecycle.state_reason == :none
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
-    card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
+    card = model |> BuildOrderGridModel.build() |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
     refute card.state == :merged
     refute card.status_word == "merged"
   end
@@ -376,7 +376,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert promoted.lifecycle.state_reason == :unknown
     assert draft.lifecycle.state == :open
 
-    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build()
     assert grid.overall_pct == nil
     refute Enum.find(grid.cards, &(&1.id == "4101")).has_progress
   end
@@ -407,7 +407,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert missing.lifecycle.state == :unknown
     assert missing.lifecycle.state_reason == :unknown
 
-    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build()
     assert grid.overall_pct == nil
     assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
     assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
@@ -616,6 +616,31 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       Application.put_env(:aiur, :build_order_planning_pack, path)
 
       assert PlanningSource.catalog() == nil
+    end
+  end
+
+  test "maps live legacy provenance values into the planned baseline" do
+    path = Path.join(System.tmp_dir!(), "planning-source-legacy-provenance-#{System.unique_integer([:positive])}.json")
+    on_exit(fn -> File.rm(path) end)
+
+    for provenance <- ["capstone-finding", "ci-baseline-finding", "executor-finding"] do
+      pack =
+        String.replace(
+          @pack,
+          ~s("ticket": null, "doc": "tickets/T-1.md"),
+          ~s("ticket": null, "provenance": "#{provenance}", "doc": "tickets/T-1.md"),
+          global: false
+        )
+
+      File.write!(path, pack)
+      Application.put_env(:aiur, :build_order_planning_pack, path)
+
+      [root] = PlanningSource.catalog().data.entries
+      {:ok, snapshot} = PlanningSource.demand(root.identity)
+      [member | _rest] = snapshot.data.members
+
+      assert member.provenance == :planned
+      assert is_nil(member.added_at)
     end
   end
 

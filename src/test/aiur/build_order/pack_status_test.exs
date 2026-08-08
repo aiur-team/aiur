@@ -213,7 +213,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     [root] = snapshot.data.entries
     {:ok, selected} = PlanningSource.demand(root.identity)
-    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
+    grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build()
 
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
     assert Enum.find(grid.cards, &(&1.id == "4101")).progress == 100
@@ -684,7 +684,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     snapshot
     |> BuildOrderPresenter.present(:unavailable, :unavailable)
-    |> BuildOrderGridModel.build(nil)
+    |> BuildOrderGridModel.build()
   end
 
   defp overall_percent, do: grid().overall_pct

@@ -784,6 +784,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       "discovered" ->
         discovered_provenance(Map.get(attributes, "added_at"))
 
+      legacy when legacy in ["capstone-finding", "ci-baseline-finding", "executor-finding"] ->
+        {:ok, :planned, nil}
+
       _invalid ->
         :error
     end

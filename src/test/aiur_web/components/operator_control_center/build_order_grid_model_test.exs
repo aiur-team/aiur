@@ -97,7 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
           )
         ])
 
-      grid = BuildOrderGridModel.build(model, nil)
+      grid = BuildOrderGridModel.build(model)
       assert grid.overall_pct == nil
       assert hd(grid.columns).core?
       assert hd(grid.columns).pct == nil
