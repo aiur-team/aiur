@@ -49,6 +49,28 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "<dd>Pro</dd>"
   end
 
+  test "a stale card renders the observation age and failure state" do
+    snapshot =
+      healthy(:codex)
+      |> Map.put(:freshness, :stale)
+      |> Map.put(:health, %{
+        state: :stale,
+        failure: :port_closed,
+        last_observed_at: @observed,
+        last_attempt_at: DateTime.add(@observed, 60, :second),
+        consecutive_failures: 3,
+        age_seconds: 259_200
+      })
+
+    view = Presenter.present(authorized(), %{codex: snapshot})
+    html = render(view, Presenter.announcement(view))
+
+    assert html =~ "Stale meters."
+    assert html =~ "Observation age"
+    assert html =~ "3 days old"
+    assert html =~ "Last refresh port closed."
+  end
+
   test "the live-region announcement is polite and atomic" do
     view = Presenter.present(authorized(), %{codex: healthy(:codex)})
     html = render(view, Presenter.announcement(view))

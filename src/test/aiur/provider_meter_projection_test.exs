@@ -46,6 +46,38 @@ defmodule Aiur.ProviderMeterProjectionTest do
     assert view.age_seconds == 3_600
   end
 
+  test "a failed probe makes an old retained observation stale and records the attempt", %{
+    projection: projection,
+    pid: pid
+  } do
+    send(pid, {:provider_meter_changed, snapshot(:codex, ~U[2026-07-24 12:00:00Z], %{"primary" => %{used_percent: 100}})})
+
+    assert :ok =
+             ProviderMeterProjection.record_probe_result(
+               projection,
+               %{provider: :codex, observed?: false, reason: :port_closed},
+               @now
+             )
+
+    assert :ok =
+             ProviderMeterProjection.record_probe_result(
+               projection,
+               %{provider: :codex, observed?: false, reason: :port_closed},
+               DateTime.add(@now, 1, :second)
+             )
+
+    view = ProviderMeterProjection.provider_view(projection, :codex)
+
+    assert view.freshness == :stale
+    assert view.age_seconds == 259_200
+    assert view.health.state == :stale
+    assert view.health.failure == :port_closed
+    assert view.health.last_attempt_at == DateTime.add(@now, 1, :second)
+    assert view.health.consecutive_failures == 2
+    assert view.windows["primary"].used_percent == 100
+    assert view.windows["primary"].freshness == :stale
+  end
+
   test "providers project independently", %{projection: projection, pid: pid} do
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:59:00Z])})
 

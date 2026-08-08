@@ -69,6 +69,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         </div>
         <div><dt>Health</dt><dd>{@card.health.label}</dd></div>
         <div><dt>Freshness</dt><dd>{@card.freshness.label}</dd></div>
+        <div :if={@card.state == :stale && @card.health.age_label}>
+          <dt>Observation age</dt>
+          <dd>{@card.health.age_label}</dd>
+        </div>
         <div :if={@card.observed_at}>
           <dt>Last observation</dt>
           <dd><.timestamp value={@card.observed_at} /></dd>
@@ -97,6 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         <span>
           <b>Stale meters.</b>
           Showing the last known-good values for this account.
+          <span :if={@card.health.age_label}>Observation is {@card.health.age_label}.</span>
           <span :if={@card.health.failure_label}>Last refresh {String.downcase(@card.health.failure_label)}.</span>
         </span>
       </div>

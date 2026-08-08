@@ -50,6 +50,7 @@ defmodule Aiur.ProviderMeterProbe do
   def observe(target \\ :all, opts \\ [])
 
   def observe(:all, opts) do
+    opts = Keyword.put_new(opts, :attempted_at, Keyword.get(opts, :observed_at, DateTime.utc_now()))
     providers = CodingAgent.provider_families()
     opts = Keyword.put(opts, :dispatchable_provider_set, dispatchable_provider_set(opts))
 
@@ -61,17 +62,21 @@ defmodule Aiur.ProviderMeterProbe do
         on_timeout: :kill_task
       )
 
-    providers
-    |> Enum.zip(results)
-    |> Enum.map(fn
-      {_provider, {:ok, result}} -> result
-      {provider, {:exit, _reason}} -> outcome(provider, false, :probe_failed)
-    end)
+    outcomes =
+      providers
+      |> Enum.zip(results)
+      |> Enum.map(fn
+        {_provider, {:ok, result}} -> result
+        {provider, {:exit, _reason}} -> outcome(provider, false, :probe_failed)
+      end)
+
+    Enum.map(outcomes, &record_probe_result(&1, opts))
   end
 
   def observe(provider, opts) when is_atom(provider) do
+    opts = Keyword.put_new(opts, :attempted_at, Keyword.get(opts, :observed_at, DateTime.utc_now()))
     opts = Keyword.put(opts, :dispatchable_provider_set, dispatchable_provider_set(opts))
-    [observe_provider(provider, opts)]
+    [observe_provider(provider, opts) |> record_probe_result(opts)]
   end
 
   defp observe_provider(provider, opts) do
@@ -289,6 +294,17 @@ defmodule Aiur.ProviderMeterProbe do
   defp probe_agent(backend, opts), do: Keyword.get(opts, :probe_agent, CodingAgent.adapter(backend))
 
   defp outcome(provider, observed?, reason), do: %{provider: provider, observed?: observed?, reason: reason}
+
+  defp record_probe_result(result, opts) do
+    attempted_at = Keyword.get(opts, :attempted_at, Keyword.get(opts, :observed_at, DateTime.utc_now()))
+
+    _ = ProviderMeterProjection.record_probe_result(Keyword.get(opts, :projection, ProviderMeterProjection), result, attempted_at)
+    result
+  rescue
+    _error -> result
+  catch
+    _kind, _reason -> result
+  end
 
   defp probe_reason(reason) when is_atom(reason), do: reason
   defp probe_reason(_reason), do: :probe_failed
