@@ -328,6 +328,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ ~s(src="/aiur-logo.png")
+    assert html =~ ~r/<b>1<\/b> live · <b><\/b> left/
     assert html =~ "Build"
     assert html =~ "MORE AGENTS"
     assert length(Regex.scan(~r/data-pager-page=/, html)) == 3

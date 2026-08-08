@@ -377,10 +377,12 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp screen_descriptors(grid, usage, current_page) do
     [
-      %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: grid.total, remaining: nil, meters: []}
+      %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live_count(grid), remaining: nil, meters: []}
       | Enum.map(CodingAgent.provider_descriptors(), &provider_segment(&1, usage))
     ] ++ [%{kind: :pager, label: "MORE AGENTS", logo: "/aiur-logo.png", observed?: grid.windows > 1, pages: pager_pages(grid.windows), current_page: current_page, meters: []}]
   end
+
+  defp live_count(grid), do: Enum.count(grid.agents, &(&1.bucket == :running))
 
   defp provider_segment(descriptor, usage) do
     provider = Atom.to_string(descriptor.provider)
