@@ -62,74 +62,77 @@ defmodule Aiur.Orchestrator.RetryEngine do
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
-
-        state =
-          case {reason, State.completed_running_entry?(running_entry)} do
-            {:normal, true} ->
-              Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
-
-              park_completed_entry(state, issue_id, running_entry)
-
-            {:normal, false} ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              state =
-                if fallback_replacement?(running_entry) do
-                  park_failed_fallback_replacement(state, issue_id, running_entry)
-                else
-                  {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
-                  popped_state
-                end
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
-                priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
-                delay_type: :continuation,
-                prior_work: prior_work_for_retry?(running_entry),
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            {_reason, false} ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              state =
-                if fallback_replacement?(running_entry) do
-                  park_failed_fallback_replacement(state, issue_id, running_entry)
-                else
-                  {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
-                  popped_state
-                end
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
-                priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
-                error: "agent exited: #{inspect(reason)}",
-                # Structured failure reason retained so retry exhaustion can
-                # classify it as a transient infrastructure fault for the #1453
-                # automatic re-dispatch (the formatted `error` string cannot).
-                transient_reason: reason,
-                prior_work: prior_work_for_retry?(running_entry),
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            {_reason, true} ->
-              Logger.warning("Completed agent task exited abnormally for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; preserving completed boundary")
-
-              park_completed_entry(state, issue_id, running_entry)
-          end
+        state = handle_running_agent_down(state, issue_id, running_entry, reason, session_id)
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
         StatusReport.notify_dashboard(state)
         {:noreply, state}
     end
+  end
+
+  defp handle_running_agent_down(state, issue_id, running_entry, :normal, session_id) do
+    if State.completed_running_entry?(running_entry) do
+      Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
+      park_completed_entry(state, issue_id, running_entry)
+    else
+      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+      state
+      |> remove_stopped_running_entry(issue_id, running_entry)
+      |> complete_issue(issue_id)
+      |> schedule_issue_retry(issue_id, 1, continuation_retry_metadata(running_entry))
+    end
+  end
+
+  defp handle_running_agent_down(state, issue_id, running_entry, reason, session_id) do
+    if State.completed_running_entry?(running_entry) do
+      Logger.warning("Completed agent task exited abnormally for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; preserving completed boundary")
+      park_completed_entry(state, issue_id, running_entry)
+    else
+      Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+      state
+      |> remove_stopped_running_entry(issue_id, running_entry)
+      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), failure_retry_metadata(running_entry, reason))
+    end
+  end
+
+  defp remove_stopped_running_entry(state, issue_id, running_entry) do
+    if fallback_replacement?(running_entry) do
+      park_failed_fallback_replacement(state, issue_id, running_entry)
+    else
+      {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
+      popped_state
+    end
+  end
+
+  defp continuation_retry_metadata(running_entry) do
+    %{
+      identifier: running_entry.identifier,
+      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+      priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
+      delay_type: :continuation,
+      prior_work: prior_work_for_retry?(running_entry),
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    }
+  end
+
+  defp failure_retry_metadata(running_entry, reason) do
+    %{
+      identifier: running_entry.identifier,
+      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+      priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
+      error: "agent exited: #{inspect(reason)}",
+      # Structured failure reason retained so retry exhaustion can classify it
+      # as a transient infrastructure fault for the #1453 automatic
+      # re-dispatch (the formatted `error` string cannot).
+      transient_reason: reason,
+      prior_work: prior_work_for_retry?(running_entry),
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    }
   end
 
   defp expire_pending_control(state, running_entry, issue_id) do
