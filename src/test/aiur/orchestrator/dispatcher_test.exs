@@ -674,9 +674,30 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       {:ok, log_messages} = Agent.start_link(fn -> [] end)
       log_fun = fn message -> Agent.update(log_messages, &[message | &1]) end
+      ready = issue("prewarm-probe")
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 1_024,
+          memory_threshold_mb: 2_048,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 4,
+          load: :unavailable,
+          load_threshold: nil,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
 
       hold = fn acc ->
-        Dispatcher.dispatch_or_hold(acc, [], fn -> :building end, log_fun: log_fun)
+        Dispatcher.dispatch_or_hold(acc, [ready], fn -> :building end,
+          log_fun: log_fun,
+          admission_probes_fun: admission_probes
+        )
       end
 
       # 30 consecutive holds (ticks 1..30) log only on the first tick.
@@ -686,6 +707,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         end)
 
       assert state.prewarm_hold_ticks == @hold_log_interval
+      assert Enum.any?(state.dispatch_capacity_constraints, &(&1.kind == :memory))
 
       assert Agent.get(log_messages, fn messages ->
                Enum.count(messages, &String.contains?(&1, "aiur_perf prewarm_hold"))
@@ -706,6 +728,14 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert Agent.get(log_messages, fn messages ->
                Enum.count(messages, &String.contains?(&1, "aiur_perf prewarm_hold"))
              end) == 2
+    end
+
+    test "uses Logger by default for the hold observation" do
+      phase = {:default_logger, System.unique_integer([:positive])}
+
+      log = capture_log(fn -> Dispatcher.log_prewarm_hold(%State{}, phase) end)
+
+      assert log =~ "aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}"
     end
 
     test "fails open to a cold clone on a base-build error and resets the hold counter" do
