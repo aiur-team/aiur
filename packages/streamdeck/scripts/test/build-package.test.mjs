@@ -13,10 +13,11 @@ test("builds a self-contained archive with traceable provenance", async () => {
   const extract = await mkdtemp(join(fileURLToPath(packageRoot), ".package-extract-"));
   try {
     execFileSync(process.execPath, ["scripts/build-package.mjs", "--output", output, "--commit", fixtureCommit, "--version", "0.0.0-test", "--source-date-epoch", "0"], { cwd: packageRoot, stdio: "inherit" });
-    const archive = join(output, "aiur-streamdeck-0.0.0-test-linux-x64.tar.gz");
     const manifest = JSON.parse(await readFile(join(output, "aiur-streamdeck-0.0.0-test-linux-x64.json"), "utf8"));
+    const archive = join(output, manifest.artifact);
     assert.equal(manifest.commit, fixtureCommit);
-    assert.match(manifest.content_address, new RegExp(`^streamdeck/${fixtureCommit}/[a-f0-9]{64}/`));
+    assert.match(manifest.artifact, /-[a-f0-9]{64}\.tar\.gz$/);
+    assert.match(manifest.content_address, new RegExp(`^releases/download/streamdeck-${fixtureCommit}/aiur-streamdeck-.*-[a-f0-9]{64}\\.tar\\.gz$`));
     assert.equal(manifest.release_asset_path, `releases/download/streamdeck-${fixtureCommit}/${manifest.artifact}`);
     execFileSync("tar", ["-xzf", archive, "-C", extract]);
     const root = join(extract, "aiur-streamdeck-0.0.0-test-linux-x64");
@@ -29,9 +30,16 @@ test("builds a self-contained archive with traceable provenance", async () => {
       let output = "";
       child.stdout.on("data", (chunk) => (output += chunk));
       child.stderr.on("data", (chunk) => (output += chunk));
-      setTimeout(() => child.kill("SIGTERM"), 300);
+      let stoppedByTest = false;
+      setTimeout(() => {
+        if (child.exitCode !== null) {
+          reject(new Error("sidecar exited before the clean-install smoke test stopped it"));
+          return;
+        }
+        stoppedByTest = child.kill("SIGTERM");
+      }, 300);
       child.on("exit", (code, signal) => {
-        try { assert.match(output, /no Stream Deck \+ detected; waiting for hotplug/); assert.ok(signal === "SIGTERM" || code === 0); resolve(); } catch (error) { reject(error); }
+        try { assert.match(output, /no Stream Deck \+ detected; waiting for hotplug/); assert.ok(stoppedByTest); assert.equal(signal, null); assert.equal(code, 0); resolve(); } catch (error) { reject(error); }
       });
     });
   } finally {

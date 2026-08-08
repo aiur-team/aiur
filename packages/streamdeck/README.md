@@ -89,7 +89,7 @@ file. The credentials belong in the environment file, never in the unit:
 ```sh
 install -d -m755 ~/.local/share/aiur
 install -d -m755 ~/.local/share/aiur/streamdeck
-tar -xzf aiur-streamdeck-<version>-linux-x64.tar.gz \
+tar -xzf aiur-streamdeck-<version>-linux-x64-<sha256>.tar.gz \
   -C ~/.local/share/aiur/streamdeck --strip-components=1
 install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service \
   ~/.config/systemd/user/aiur-streamdeck.service

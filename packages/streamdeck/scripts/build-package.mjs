@@ -2,7 +2,7 @@
 
 import { chmod, cp, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { basename, dirname, join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
@@ -76,15 +76,17 @@ try {
   run("gzip", ["-n", "-f", tarPath]);
   await rename(`${tarPath}.gz`, archive);
   const digest = await sha256(archive);
+  const artifact = `${artifactBase}-${digest}.tar.gz`;
+  await rename(archive, join(output, artifact));
   const releaseTag = `streamdeck-${commit}`;
   const manifest = {
     version,
     commit,
     target,
     sha256: digest,
-    artifact: basename(archive),
-    content_address: `streamdeck/${commit}/${digest}/${basename(archive)}`,
-    release_asset_path: `releases/download/${releaseTag}/${basename(archive)}`,
+    artifact,
+    content_address: `releases/download/${releaseTag}/${artifact}`,
+    release_asset_path: `releases/download/${releaseTag}/${artifact}`,
   };
   await writeFile(join(output, `${artifactBase}.json`), `${JSON.stringify(manifest, null, 2)}\n`);
   process.stdout.write(`${archive}\n`);
