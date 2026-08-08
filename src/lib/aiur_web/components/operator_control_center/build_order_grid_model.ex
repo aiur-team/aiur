@@ -189,7 +189,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   # Weight is the card's complexity (points), defaulting to 1 when complexity is
   # unknown.
   defp wave_completion(cards), do: completion_by(cards, :phase)
-  end
 
   defp completion_by(cards, field) do
     cards

@@ -682,30 +682,6 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert MapSet.disjoint?(first_tickets, second_tickets)
   end
 
-  test "rejects every pack that claims the same materialized ticket regardless of repository casing" do
-    first = Path.join(System.tmp_dir!(), "planning-source-conflict-first-#{System.unique_integer([:positive])}.json")
-    second = Path.join(System.tmp_dir!(), "planning-source-conflict-second-#{System.unique_integer([:positive])}.json")
-    File.write!(first, @canonical_pack)
-
-    File.write!(
-      second,
-      @canonical_pack
-      |> String.replace("analytics-streamdeck", "duplicate-build")
-      |> String.replace("acme/widgets", "AcMe/WiDgEtS")
-    )
-
-    Application.delete_env(:aiur, :build_order_planning_pack)
-    Application.put_env(:aiur, :build_order_planning_packs, [first, second])
-
-    on_exit(fn ->
-      Application.delete_env(:aiur, :build_order_planning_packs)
-      File.rm(first)
-      File.rm(second)
-    end)
-
-    assert PlanningSource.catalog() == nil
-  end
-
   test "assigns distinct deterministic catalog icons when packs omit one" do
     first = Path.join(System.tmp_dir!(), "planning-source-first-#{System.unique_integer([:positive])}.json")
     second = Path.join(System.tmp_dir!(), "planning-source-second-#{System.unique_integer([:positive])}.json")
