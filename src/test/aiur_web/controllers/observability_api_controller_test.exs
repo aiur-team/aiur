@@ -5,6 +5,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   import Plug.Test
 
   alias Aiur.{Claude.HookEvents, DecisionStore, IssueLog}
+  alias Aiur.Orchestrator.SnapshotStore
 
   defmodule ControlOrchestrator do
     use GenServer
@@ -311,17 +312,43 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   end
 
   test "GET /api/v1/streamdeck/grid returns the grid projection" do
+    orchestrator = start_control_orchestrator()
+    configure_endpoint(orchestrator)
+
+    :ok =
+      SnapshotStore.publish(orchestrator, %{
+        running: [],
+        retrying: [],
+        idle: []
+      })
+
     conn = call(conn(:get, "/api/v1/streamdeck/grid"))
 
     assert conn.status == 200
 
-    payload = Jason.decode!(conn.resp_body)
+    assert %{
+             "agents" => [],
+             "agents_per_page" => 8,
+             "columns_per_page" => 4,
+             "max_column_offset" => 0,
+             "rows_per_column" => 2,
+             "snapshot_freshness" => %{"reason" => nil, "status" => "current"},
+             "total" => 0,
+             "windows" => 0
+           } = Jason.decode!(conn.resp_body)
+  end
 
-    assert is_list(payload["agents"])
-    assert is_integer(payload["total"])
-    assert payload["columns_per_page"] == 4
-    assert payload["rows_per_column"] == 2
-    assert payload["agents_per_page"] == 8
+  test "GET /api/v1/streamdeck/grid preserves the pre-first-snapshot error" do
+    orchestrator = start_control_orchestrator()
+    configure_endpoint(orchestrator)
+
+    conn = call(conn(:get, "/api/v1/streamdeck/grid"))
+
+    assert conn.status == 200
+
+    assert Jason.decode!(conn.resp_body) == %{
+             "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
+           }
   end
 
   test "GET /api/v1/streamdeck/grid uses the sibling read auth pipeline" do

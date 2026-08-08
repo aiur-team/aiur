@@ -160,7 +160,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       | key: :unknown,
         title: "Unknown activity",
         status_icon: %Icon{key: :status_blocking, text: "Blocked"},
-        card: %{known.card | identifier: "#2", progress: :unknown, status_text: "Blocked"}
+        card: %{
+          known.card
+          | identifier: "#2",
+            lifecycle: %{state: :unknown, state_reason: :unknown},
+            progress: :unknown,
+            status_text: "Blocked"
+        }
     }
 
     html =
@@ -180,11 +186,17 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Cx 3"
     assert html =~ ~s(class="bo-node-blocks")
     assert html =~ "width:60%"
+    assert html =~ ~s(class="bo-epic-count">unknown<)
 
-    # Unknown-progress card shows no percent but still renders a (0%) bar and its status word.
+    # Unknown-progress cards expose neither a false percentage nor a zero-width bar.
     assert html =~ ~s(data-bo-card="#2")
     assert html =~ "Blocked"
-    assert html =~ "width:0%"
+    assert html =~ ~s(class="bo-wave-seg-pct">unknown<)
+
+    {:ok, document} = Floki.parse_document(html)
+    [unknown_aria] = Floki.attribute(document, ~s([data-bo-card="#2"]), "aria-label")
+    refute unknown_aria =~ "0%"
+    assert Floki.find(document, ~s([data-bo-card="#2"] .bo-node-bar)) == []
   end
 
   test "renders delivery failure and supersession as explicit lifecycle overrides" do
@@ -411,7 +423,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     assert html =~ ~s(class="history-item" data-severity="good")
     assert html =~ "Answered"
-    assert html =~ "Dismissed — agent proceeds with best judgement"
+    assert html =~ "Acknowledged — closed without a recorded answer"
     refute html =~ ~s(class="decision-card)
   end
 
@@ -483,6 +495,25 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(phx-click="defer-decision")
     assert html =~ "Defer to Executor"
     assert html =~ ">Decision</button>"
+  end
+
+  test "free-form attention offers acknowledge-without-decision alongside the response form" do
+    decision = action_decision(options: [], recommendation: nil)
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ">Acknowledge</button>"
+    assert html =~ ~s(phx-submit="answer-decision")
+  end
+
+  test "optioned command does not offer acknowledge-without-decision" do
+    decision = action_decision([])
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    refute html =~ ~s(phx-click="dismiss-decision")
+    refute html =~ ">Acknowledge</button>"
   end
 
   test "dismissed historic card offers a change choice answer without another dismiss" do
@@ -667,7 +698,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert writable =~ "Original answer · preserved"
     assert writable =~ "Hold the rollout"
     assert writable =~ "No longer applicable"
-    assert writable =~ "does not claim earlier effects were rolled back"
+    assert writable =~ "Revise Command"
+    assert writable =~ "Revising sets new direction — it does not undo what already happened."
     assert writable =~ "Executor follow-up required"
     assert writable =~ ~s(phx-submit="revise-decision")
     assert writable =~ ~s(phx-submit="handle-revision-follow-up")

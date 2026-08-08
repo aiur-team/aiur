@@ -24,6 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           title: String.t(),
           progress: 0..100,
           has_progress: boolean(),
+          completion_known: boolean(),
           merged: boolean(),
           state: :merged | :working | :ready | :blocked | :plain | :planned,
           status_word: String.t(),
@@ -37,7 +38,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           lane: String.t(),
           label: String.t(),
           count: non_neg_integer(),
-          pct: 0..100
+          pct: 0..100 | nil,
+          core?: boolean()
         }
 
   @doc """
@@ -48,7 +50,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           waves: [map()],
           cards: [card()],
           edges: [map()],
-          overall_pct: 0..100,
+          overall_pct: 0..100 | nil,
           totals: %{baseline_total: non_neg_integer(), discovered_total: non_neg_integer(), total: non_neg_integer(), completed: non_neg_integer()},
           planning?: boolean()
         }
@@ -95,7 +97,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp core_card(%Node{} = node, true) do
     node
     |> core_card(false)
-    |> Map.merge(%{progress: 0, has_progress: false, merged: false, state: :planned, status_word: "planned"})
+    |> Map.merge(%{
+      progress: 0,
+      has_progress: false,
+      completion_known: true,
+      merged: false,
+      state: :planned,
+      status_word: "planned"
+    })
   end
 
   defp core_card(%Node{card: card} = node, false) do
@@ -114,6 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       title: title(node),
       progress: progress,
       has_progress: merged or is_integer(Map.get(card, :progress)),
+      completion_known: completion_known?(merged, Map.get(card, :progress), Map.get(card, :lifecycle)),
       merged: merged,
       state: core_state(status_key),
       status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
@@ -134,7 +144,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     order
     |> Enum.sort_by(&lane_order(&1, appearance))
     |> Enum.map(fn lane ->
-      %{lane: lane, label: BuildOrderEpicIcon.label(lane), count: Map.get(counts, lane, 0), pct: Map.get(completion, lane)}
+      %{
+        lane: lane,
+        label: BuildOrderEpicIcon.label(lane),
+        count: Map.get(counts, lane, 0),
+        pct: Map.get(completion, lane),
+        core?: true
+      }
     end)
   end
 
@@ -169,10 +185,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   # Complexity-weighted completion per wave, over all pack members. A merged card
   # contributes its full weight; an in-flight card contributes its progress
-  # fraction; an unknown-progress card contributes nothing. Weight is the card's
-  # complexity (points), defaulting to 1 when complexity is unknown.
-  defp wave_completion(cards) do
-    completion_by(cards, :phase)
+  # fraction. If any card's completion is unknown, the aggregate stays unknown.
+  # Weight is the card's complexity (points), defaulting to 1 when complexity is
+  # unknown.
+  defp wave_completion(cards), do: completion_by(cards, :phase)
   end
 
   defp completion_by(cards, field) do
@@ -182,18 +198,30 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   end
 
   defp completion_percent(cards) do
-    {weight, done} =
-      Enum.reduce(cards, {0, 0.0}, fn card, {w_acc, d_acc} ->
-        weight = card.complexity || 1
-        {w_acc + weight, d_acc + weight * completion_fraction(card)}
-      end)
+    cards
+    |> Enum.reduce_while({0, 0.0}, fn
+      %{completion_known: false}, _acc ->
+        {:halt, :unknown}
 
-    if weight > 0, do: round(done / weight * 100), else: 0
+      card, {weight_acc, done_acc} ->
+        weight = card.complexity || 1
+        {:cont, {weight_acc + weight, done_acc + weight * completion_fraction(card)}}
+    end)
+    |> case do
+      :unknown -> nil
+      {0, _done} -> 0
+      {weight, done} -> round(done / weight * 100)
+    end
   end
 
   defp completion_fraction(%{merged: true}), do: 1.0
   defp completion_fraction(%{has_progress: true, progress: progress}), do: progress / 100
   defp completion_fraction(_card), do: 0.0
+
+  defp completion_known?(true, _progress, _lifecycle), do: true
+  defp completion_known?(false, progress, _lifecycle) when is_integer(progress), do: true
+  defp completion_known?(false, _progress, %{state: state}) when state in [:open, :closed], do: true
+  defp completion_known?(_merged, _progress, _lifecycle), do: false
 
   defp wave_order(:unphased), do: {1, 0}
   defp wave_order(phase) when is_integer(phase), do: {0, phase}

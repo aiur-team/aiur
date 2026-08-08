@@ -39,6 +39,22 @@ defmodule Aiur.AlertFeed do
     |> Enum.sort_by(&{&1.identifier, &1.slug})
   end
 
+  @doc false
+  @spec active_system_attention?(String.t(), keyword()) :: boolean()
+  def active_system_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    opts = opts |> Keyword.put(:roots, []) |> Keyword.put_new(:log_roots, [Paths.log_root_dir()])
+
+    Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
+  end
+
+  @doc false
+  @spec active_ticket_attention?(String.t(), keyword()) :: boolean()
+  def active_ticket_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    opts = opts |> Keyword.put(:roots, []) |> Keyword.put_new(:log_roots, [Paths.log_root_dir()])
+
+    Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
+  end
+
   defp workspace_alert_log_paths(opts) do
     opts
     |> roots()
@@ -204,18 +220,34 @@ defmodule Aiur.AlertFeed do
         end
 
       _ ->
-        nil
+        resolved_ticket_agent_attention_key(rest)
+    end
+  end
+
+  defp resolved_attention_key(%{"topic" => "system." <> rest, "needs_attention" => false}) do
+    case String.trim_trailing(rest, ".resolved") do
+      ^rest -> nil
+      topic -> {:system, topic}
     end
   end
 
   defp resolved_attention_key(_alert), do: nil
 
+  defp resolved_ticket_agent_attention_key(rest) do
+    case String.trim_trailing(rest, ".resolved") do
+      ^rest -> nil
+      topic -> {:ticket, topic}
+    end
+  end
+
   defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
     case String.split(rest, ".agent.attention.", parts: 2) do
       [ticket, slug] -> {ticket, slug}
-      _ -> nil
+      _ -> {:ticket, rest}
     end
   end
+
+  defp attention_alert_key(%{"topic" => "system." <> rest}), do: {:system, rest}
 
   defp attention_alert_key(_alert), do: nil
 

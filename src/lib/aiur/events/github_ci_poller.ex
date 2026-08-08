@@ -81,6 +81,13 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target(target, opts) do
+    case ci_batch_value(opts, target) do
+      {:ok, batch} -> poll_batched_target(target, batch, opts)
+      :missing -> poll_target_from_rest(target, opts)
+    end
+  end
+
+  defp poll_target_from_rest(target, opts) do
     case Client.fetch_open_pull_request_for_branch(target, opts) do
       {:ok, nil} ->
         # A newly finalized PR can take a short time to appear in GitHub's
@@ -93,6 +100,51 @@ defmodule Aiur.Events.GithubCIPoller do
 
       {:error, reason} ->
         poll_error(target, {:pr_lookup, reason})
+    end
+  end
+
+  defp poll_batched_target(target, %{pull_request: nil}, _opts) do
+    %{target: target, decision: :pending, pending_reason: :open_pr_not_yet_visible}
+  end
+
+  defp poll_batched_target(target, %{pull_request: pr, check_runs: check_runs, commit_status: commit_status}, opts)
+       when is_map(pr) and is_list(check_runs) and is_map(commit_status) do
+    with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
+         {:ok, head_sha} <- head_sha(pr) do
+      expected_base = expected_base_branch(opts)
+
+      case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+        {:ok, :unchanged} ->
+          evaluate(check_runs, commit_status)
+          |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
+          |> log_classification()
+
+        {:ok, {:unchanged, recovered_invalidation}} ->
+          evaluate(check_runs, commit_status)
+          |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
+          |> log_classification()
+
+        {:ok, {:repaired, invalidation}} ->
+          base_branch_repaired(target, pr_number, invalidation, expected_base)
+
+        {:error, reason, invalidation} ->
+          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+      end
+    else
+      {:error, reason} -> poll_error(target, reason)
+    end
+  end
+
+  defp poll_batched_target(target, _batch, _opts), do: poll_error(target, :invalid_ci_poll_batch)
+
+  defp ci_batch_value(opts, target) do
+    with %{} = batch <- Keyword.get(opts, :ci_batch),
+         {:ok, value} <- Map.fetch(batch, target) do
+      {:ok, value}
+    else
+      _ -> :missing
     end
   end
 

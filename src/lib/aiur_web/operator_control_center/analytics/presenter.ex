@@ -8,15 +8,15 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   The same model serves two scopes. The live-session view passes
   `session: :current` and gets absolute timestamps over one daemon boot. The
-  Build Order view passes a member ticket set and `timeline: :active`, which
-  aggregates every session the build touched and reports elapsed *active* time
-  rather than calendar time — see `Aiur.RunTelemetry.Timeline` for why that
-  distinction is load-bearing. Both feed the same `Charts`, whose axis already
-  labels ticks as elapsed time.
+  Build Order view passes the selected member ticket set, `session: :current`,
+  and `timeline: :active`. That keeps its recurring refresh a bounded tail read;
+  cross-session reporting belongs to a materialized summary rather than a live
+  full-stream parse. Both feed the same `Charts`, whose axis already labels ticks
+  as elapsed time.
   """
 
   alias Aiur.RunTelemetry
-  alias Aiur.RunTelemetry.{Dataset, Timeline}
+  alias Aiur.RunTelemetry.{Dataset, Summaries, Timeline}
 
   @default_buckets 180
   @max_series_actors 8
@@ -43,8 +43,10 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
 
   Scope options:
 
-    * `:session` — `:current` narrows to one daemon boot, `:all` (default) keeps
-      every session in the stream.
+    * `:session` — `:current` narrows to one daemon boot, `:cross` reads the
+      current boot live from raw (bounded tail) and every prior boot from its
+      materialized run summary, `:all` (default) keeps every session in the
+      stream.
     * `:tickets` — a list or `MapSet` of bare ticket-number strings to scope to.
     * `:timeline` — `:absolute` (default) or `:active` to elide idle gaps.
     * `:scope_total` — burn-up denominator when the scope knows its own size
@@ -54,18 +56,50 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   def load(opts \\ []) do
     file = Keyword.get(opts, :telemetry_file) || RunTelemetry.telemetry_file()
 
-    dataset_opts =
+    result =
       case Keyword.get(opts, :session, :all) do
-        :current -> [session: :current, boot_id: current_boot_id()]
-        _other -> []
+        :current ->
+          Dataset.build(file, session: :current, boot_id: current_boot_id())
+
+        :cross ->
+          cross_session(file)
+
+        _other ->
+          Dataset.build(file, [])
       end
 
-    case Dataset.build(file, dataset_opts) do
+    case result do
       {:ok, dataset} -> dataset |> scope(opts) |> analyzable(opts)
       {:error, {:no_telemetry_files, _paths}} -> {:unavailable, :no_telemetry}
     end
   rescue
     _error -> {:unavailable, :error}
+  end
+
+  # Cross-session view: the current boot is read live from raw (bounded tail so
+  # it stays fresh on the 30 s tick); every prior boot is read from its
+  # materialized run summary instead of re-parsing the retained stream. When no
+  # summaries exist yet this falls back to the historical full raw parse so the
+  # Full-log view keeps working before the first materialization.
+  defp cross_session(file) do
+    current = current_boot_id()
+    prior = Summaries.load_prior_datasets(current)
+
+    if prior == [] do
+      Dataset.build(file, [])
+    else
+      case Dataset.build(file, session: :current, boot_id: current) do
+        {:ok, current_dataset} -> {:ok, merge_datasets([current_dataset | prior])}
+        {:error, _reason} -> {:ok, merge_datasets(prior)}
+      end
+    end
+  end
+
+  # `Dataset.merge/1` already unions provenance across the merged boots; only the
+  # producer label differs, so name this path rather than recomputing the union.
+  defp merge_datasets(datasets) do
+    merged = Dataset.merge(datasets)
+    Map.update!(merged, :provenance, &Map.put(&1, :generated_by, "presenter:cross"))
   end
 
   # A readable stream that contains nothing for this scope is "no telemetry", not
@@ -97,6 +131,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp session_boot_id(_dataset, :all), do: nil
+  defp session_boot_id(_dataset, :cross), do: nil
 
   # The current boot is the live session whenever the daemon is writing. When the
   # stream predates this boot — a dashboard opened before anything was recorded —
@@ -578,10 +613,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   end
 
   defp safe_cap do
-    case Aiur.Config.settings() do
-      {:ok, settings} -> Map.get(settings.agent, :max_concurrent_agents) || @default_cap
-      _ -> @default_cap
-    end
+    Aiur.Config.max_concurrent_agents()
   rescue
     _ -> @default_cap
   catch

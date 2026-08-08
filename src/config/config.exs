@@ -33,6 +33,9 @@ if config_env() == :test do
   # default, but this singleton must not poll across sequential test boundaries.
   config :aiur, :orchestrator_initial_poll?, false
 
+  # Likewise the pack status projection: it reads GitHub and writes status.json
+  # beside every discovered pack, so the shared app must stay idle.
+  config :aiur, :build_order_pack_status_poll?, false
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and
   # Aiur.Events.IdGenerator persists <log_root>/<repo>.event_id during

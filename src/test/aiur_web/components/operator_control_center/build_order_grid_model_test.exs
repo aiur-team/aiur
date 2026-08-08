@@ -84,6 +84,25 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       assert grid.totals == %{baseline_total: 1, discovered_total: 1, total: 2, completed: 1}
       assert %{lane: "runtime", discovered?: true, added_at: ~U[2026-08-01 12:00:00Z]} = Enum.find(grid.cards, & &1.discovered?)
     end
+
+    test "preserves unknown aggregate completion when any core card lacks progress" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 4),
+          node(:b, "B", "plan-graph", 1,
+            status: :status_unknown,
+            complexity: 1,
+            progress: :unknown,
+            lifecycle: %{state: :unknown, state_reason: :unknown}
+          )
+        ])
+
+      grid = BuildOrderGridModel.build(model, nil)
+      assert grid.overall_pct == nil
+      assert hd(grid.columns).core?
+      assert hd(grid.columns).pct == nil
+      assert hd(grid.waves).pct == nil
+    end
   end
 
   describe "build/1 edges" do
@@ -138,7 +157,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
         lane: lane,
         phase: phase,
         status_text: "status",
-        lifecycle: %{state: :open, state_reason: :none},
+        lifecycle: Keyword.get(opts, :lifecycle, %{state: :open, state_reason: :none}),
         execution_state: :idle,
         agent_stage: nil,
         progress: Keyword.get(opts, :progress, :unknown),

@@ -19,6 +19,8 @@ defmodule Aiur.Usage.Headless.Emitter do
 
   @spec observe(term(), String.t(), map(), keyword()) :: Normalizer.outcome() | :skip
   def observe(issue, backend, message, opts) when is_binary(backend) and is_map(message) and is_list(opts) do
+    opts = maybe_put_account_generation(opts, message)
+
     with {:ok, context} <- Context.build(issue, backend, opts),
          payload when is_map(payload) <- payload(message) do
       outcome = Normalizer.normalize(payload, raw(message), context, ingested_at(message, opts))
@@ -86,6 +88,14 @@ defmodule Aiur.Usage.Headless.Emitter do
   end
 
   defp payload(message), do: Map.get(message, :payload) || Map.get(message, "payload")
+
+  defp maybe_put_account_generation(opts, message) do
+    case Map.get(message, :account_generation) || Map.get(message, "account_generation") do
+      %{} = snapshot -> Keyword.put(opts, :account_generation, snapshot)
+      _ -> opts
+    end
+  end
+
   defp raw(message), do: raw_value(Map.get(message, :raw) || Map.get(message, "raw"))
   defp raw_value(value) when is_binary(value), do: value
   defp raw_value(_value), do: nil

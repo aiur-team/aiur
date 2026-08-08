@@ -227,6 +227,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       duration_minutes: Map.get(window, :duration_minutes),
       resets_at: datetime(Map.get(window, :resets_at)),
       expires_at: datetime(Map.get(window, :expires_at)),
+      observed_at: datetime(Map.get(window, :observed_at)),
       credits: credits(Map.get(window, :credits)),
       spend_control: spend_control(Map.get(window, :spend_control)),
       freshness: window_freshness,
@@ -303,6 +304,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp backend_label(%ProviderMeterSnapshot{backend: :app_server}), do: "App server"
+  defp backend_label(%ProviderMeterSnapshot{backend: :openai_compat}), do: "OpenAI-compatible API"
   defp backend_label(_snapshot), do: "Backend unknown"
 
   defp status_label(:loading), do: "Loading…"

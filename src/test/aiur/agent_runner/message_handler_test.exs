@@ -495,6 +495,27 @@ defmodule Aiur.AgentRunner.MessageHandlerTest do
     end
   end
 
+  describe "send_dispatch_committed/2" do
+    test "sends dispatch_committed to a pid recipient (lifetime commit signal)" do
+      issue = %Issue{id: "gid-dc-01"}
+
+      assert :ok = MessageHandler.send_dispatch_committed(self(), issue)
+      assert_receive {:dispatch_committed, "gid-dc-01"}, 2_000
+    end
+
+    test "no-ops for a nil recipient" do
+      issue = %Issue{id: "gid-dc-02"}
+      assert :ok = MessageHandler.send_dispatch_committed(nil, issue)
+      refute_receive {:dispatch_committed, _}, 100
+    end
+
+    test "no-ops for a non-binary issue id" do
+      issue = %Issue{id: nil, identifier: "DC-03"}
+      assert :ok = MessageHandler.send_dispatch_committed(self(), issue)
+      refute_receive {:dispatch_committed, _}, 100
+    end
+  end
+
   defp tracker_identity(identifier) do
     %TrackerIdentity{
       status: :joinable,

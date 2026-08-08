@@ -70,11 +70,11 @@ defmodule Aiur.Config do
     Map.get(
       config.agent.max_concurrent_agents_by_state,
       AgentValidation.normalize_issue_state(state_name),
-      config.agent.max_concurrent_agents
+      max_concurrent_agents()
     )
   end
 
-  def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
+  def max_concurrent_agents_for_state(_state_name), do: max_concurrent_agents()
 
   @spec tracker_kind() :: String.t() | nil
   def tracker_kind do
@@ -101,6 +101,10 @@ defmodule Aiur.Config do
     settings!().agent.backend_configs
     |> Map.get(backend, %{})
   end
+
+  @doc "Raw settings for all registry-named backends."
+  @spec agent_backend_configs() :: map()
+  def agent_backend_configs, do: settings!().agent.backend_configs || %{}
 
   @spec agent_routing() :: %{pos_integer() => String.t()}
   def agent_routing do
@@ -162,16 +166,17 @@ defmodule Aiur.Config do
 
   @doc """
   Whether a recycled re-dispatch that could not resume its thread gets
-  continuation guidance instead of the cold-start prompt. Defaults to false, so
-  the dispatch path is unchanged until an operator opts in.
+  continuation guidance instead of the cold-start prompt. Defaults to true so
+  a non-resumable backend switch picks up the shared workspace without claiming
+  cross-backend conversation continuity.
   """
   @spec agent_prior_work_continuation?() :: boolean()
   def agent_prior_work_continuation? do
     case settings() do
       # Map.get, not dot access, so a config cached before this field existed
-      # returns false rather than raising after a schema upgrade.
-      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation) || false
-      _ -> false
+      # uses the current default rather than raising after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation, true)
+      _ -> true
     end
   end
 
@@ -225,6 +230,18 @@ defmodule Aiur.Config do
   @spec terminal_states() :: [String.t()]
   def terminal_states do
     settings!().tracker.terminal_states
+  end
+
+  @doc """
+  How long a terminal tracker observation stays lifecycle-fenced while a queued
+  authoritative item is undelivered before the daemon finalizes the running
+  entry. Defaults to 30 seconds; raise it when provider turn-delivery latency is
+  longer (a queued authoritative input that lands after the grace expires is
+  dropped at teardown).
+  """
+  @spec terminal_fence_grace_seconds() :: pos_integer()
+  def terminal_fence_grace_seconds do
+    settings!().tracker.terminal_fence_grace_seconds
   end
 
   @spec poll_interval_seconds() :: pos_integer()
@@ -341,9 +358,48 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc """
+  Ceiling for new fleet admissions, derived from measured host capacity when the
+  workflow omits `max_concurrent_agents`. Explicit config always wins; see
+  `default_max_concurrent_agents/1` for the calibration.
+  """
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
-    settings!().agent.max_concurrent_agents
+    case settings!().agent.max_concurrent_agents do
+      n when is_integer(n) and n > 0 -> n
+      _other -> default_max_concurrent_agents()
+    end
+  end
+
+  @doc """
+  Default fleet admission ceiling calibrated from measured host capacity rather
+  than a hard-coded global agent count.
+
+  The 2026-07-31 capacity run found a 16-core host saturates near ~19-20
+  concurrent agents (load ~14 of 16), so the calibration is
+  `schedulers + schedulers / 4` (16 → 20), floored at 2. This is a ceiling the
+  load envelope adaptively backs off from under pressure, not a guaranteed
+  concurrency target.
+  """
+  @spec default_max_concurrent_agents() :: pos_integer()
+  @spec default_max_concurrent_agents(pos_integer()) :: pos_integer()
+  def default_max_concurrent_agents(schedulers \\ System.schedulers_online())
+
+  def default_max_concurrent_agents(schedulers)
+      when is_integer(schedulers) and schedulers > 0 do
+    max(schedulers + div(schedulers, 4), 2)
+  end
+
+  def default_max_concurrent_agents(_schedulers), do: 2
+
+  @doc """
+  Per-scheduler runnable-process ceiling for the instantaneous run-queue
+  dispatch gate (#1430). `nil` disables the gate; a positive value holds new
+  dispatch while `procs_running` strictly exceeds it times the scheduler count.
+  """
+  @spec run_queue_threshold() :: float() | nil
+  def run_queue_threshold do
+    settings!().agent.run_queue_threshold
   end
 
   @doc """
@@ -374,6 +430,16 @@ defmodule Aiur.Config do
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do
     settings!().agent.mix_scheduler_cap || 4
+  end
+
+  @doc """
+  Whether the saturation sentinel recorder is enabled. The sentinel appends
+  VM-internal + host diagnostics to `saturation.log` when 1-min load crosses
+  the escalation threshold, so a crash under saturation is interpretable.
+  """
+  @spec saturation_log_enabled?() :: boolean()
+  def saturation_log_enabled? do
+    settings!().agent.saturation_log_enabled
   end
 
   @doc """
@@ -580,7 +646,7 @@ defmodule Aiur.Config do
   @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
   @spec telemetry_enabled?() :: boolean()
   def telemetry_enabled? do
-    case settings() do
+    case settings_uncached() do
       {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
     end
@@ -752,7 +818,7 @@ defmodule Aiur.Config do
       settings.tracker.kind not in ["linear", "github", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
-      settings.agent.kind not in Aiur.CodingAgent.known_backends() ->
+      settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(settings.agent.backend_configs) ->
         {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->

@@ -52,7 +52,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <div class="bo-wave-seg">
           <div class="bo-wave-seg-top">
             <span class="bo-wave-seg-label">Overall</span>
-            <span class="bo-wave-seg-pct">{@overall_pct}%</span>
+            <span class="bo-wave-seg-pct">{completion_label(@overall_pct)}</span>
           </div>
           <span class="bo-wave-seg-note">{@totals.completed}/{@totals.total} complete<span :if={@totals.discovered_total > 0}> ({@totals.discovered_total} added after start)</span></span>
           <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(@overall_pct)}></i></span>
@@ -62,7 +62,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
           <div :for={wave <- @member_waves} class="bo-wave-seg">
             <div class="bo-wave-seg-top">
               <span class="bo-wave-seg-label">{wave.label}</span>
-              <span class="bo-wave-seg-pct">{wave.pct}%</span>
+              <span class="bo-wave-seg-pct">{completion_label(wave.pct)}</span>
             </div>
             <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(wave.pct)}></i></span>
           </div>
@@ -99,7 +99,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
                 <span class="bo-epic-label">{col.label}</span>
                 <span class="bo-epic-count">{col.count}</span>
-                <span :if={is_integer(col.pct) and not @planning?} class="bo-epic-count">{col.pct}%</span>
+                <span :if={col.core? and not @planning?} class="bo-epic-count">{completion_label(col.pct)}</span>
               </div>
             </div>
 
@@ -175,7 +175,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
         <span :if={@card.complexity} class="bo-node-cx">Cx {@card.complexity}</span>
         <span class="bo-node-word">{@card.status_word}</span>
       </div>
-      <span class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress || 0}%"}></i></span>
+      <span :if={@card.completion_known} class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress}%"}></i></span>
     </div>
     """
   end
@@ -222,6 +222,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   defp wave_meter_style(_pct), do: "width:0%"
 
+  defp completion_label(pct) when is_integer(pct), do: "#{pct}%"
+  defp completion_label(_pct), do: "unknown"
+
   # "Blocks" tag colour ramps green (blocks nothing) → red (blocks many): each
   # blocked ticket shifts the hue 20° toward red, clamped at 0° (red).
   defp blocks_style(blocks) when is_integer(blocks) do
@@ -252,11 +255,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
     provenance = if card.discovered?, do: ["added after start", added_at_label(card.added_at)], else: []
 
-    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word, blocks_title(card.blocks)] ++ provenance)
+    (prefix ++ [card.id, card.title, card_progress_label(card), card.status_word, blocks_title(card.blocks)] ++ provenance)
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
   end
 
   defp added_at_label(%DateTime{} = added_at), do: DateTime.to_iso8601(added_at)
   defp added_at_label(_added_at), do: "date unavailable"
+
+  defp card_progress_label(%{has_progress: true, progress: progress}), do: completion_label(progress)
+  defp card_progress_label(_card), do: nil
 end

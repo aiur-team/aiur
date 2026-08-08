@@ -27,7 +27,7 @@ defmodule Aiur.RunTelemetry.Writer do
   alias Aiur.Events.Exchange
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle
-  alias Aiur.RunTelemetry.Retention
+  alias Aiur.RunTelemetry.{Retention, Summaries}
 
   @external_event_patterns [
     "ticket.*.pr.opened",
@@ -148,6 +148,20 @@ defmodule Aiur.RunTelemetry.Writer do
 
   @impl true
   def handle_call(:flush, _from, state), do: {:reply, :ok, state}
+
+  # Best-effort shutdown materialization: write the final per-boot run summary
+  # and any build rollups so the dashboard can serve prior boots without a raw
+  # full-stream parse. Fails open (and is regenerable by analytics/reduce) when
+  # the reducer or state node is unavailable.
+  @impl true
+  def terminate(_reason, _state) do
+    case Summaries.materialize() do
+      {:ok, _output} -> :ok
+      {:error, reason} -> Logger.info("run_telemetry summary_shutdown_failed reason=#{inspect(reason)}")
+    end
+
+    :ok
+  end
 
   @impl true
   def handle_info({:event, event}, state) when is_map(event) do
@@ -294,6 +308,12 @@ defmodule Aiur.RunTelemetry.Writer do
         :ok -> :ok
         {:error, reason} -> Logger.warning("run_telemetry retention_failed path=#{rolled.path} reason=#{inspect(reason)}")
       end
+
+      # The segment boundary is the hook to materialize run summaries: the boot
+      # just rolled is complete up to this point, so its summary is a stable
+      # cache entry the dashboard can serve for prior-boot reads. Fire-and-forget;
+      # a regenerable cache must never block the writer's append path.
+      Summaries.materialize_async()
     end
 
     %{rolled | bytes_since_prune: 0}
