@@ -14,6 +14,7 @@ and underscored variants, values split over adjacent lines, and common
 Test files are assigned to partitions using the same sorted round-robin rule as
 `mix test --partitions 4`, so the report shows the CI coverage shard for each
 fixture hit. Non-test files are marked as not belonging to a test partition.
+Shared files under `src/test/support/` are marked as loaded by all partitions.
 
 Review each hit before changing it. Component hits can be real repository
 references, unrelated usernames or project names, synthetic fixtures, or

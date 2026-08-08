@@ -17,7 +17,7 @@ class RenamePreflightTest(unittest.TestCase):
                 "src/test/b_test.exs": 'owner: "old-owner"\nrepository: "old-name"\n',
                 "src/test/c_test.exs": '"old-owner-old-name"\n',
                 "src/test/d_test.exs": '"old-owner/"\n"old-name"\n',
-                "src/test/e_test.exs": 'owner = "old-owner"\n"#{owner}/#{name}"\n',
+                "src/test/e_test.exs": '"#{owner}/#{name}"\n',
                 "src/test/support/helpers.exs": 'owner: "old-owner"\n',
             }
             for relative, contents in files.items():
@@ -48,7 +48,7 @@ class RenamePreflightTest(unittest.TestCase):
             self.assertIn("src/test/b_test.exs:1 [partition 2] owner-component", output)
             self.assertIn("src/test/c_test.exs:1 [partition 3] separator-variant", output)
             self.assertIn("src/test/d_test.exs:1 [partition 4] split-across-adjacent-lines", output)
-            self.assertIn("src/test/e_test.exs:2 [partition 1] interpolation", output)
+            self.assertIn("src/test/e_test.exs:1 [partition 1] interpolation", output)
             self.assertIn("src/test/support/helpers.exs:1 [all test partitions] owner-component", output)
 
 

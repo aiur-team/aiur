@@ -56,7 +56,6 @@ def scan_file(text: str, owner: str, name: str, slug: str) -> tuple[int, list[tu
         r"#\{\s*(?:name|repo|repository|repo_name)\s*\}"
     )
     lines = text.splitlines()
-    interpolation_candidate = owner_re.search(text) or name_re.search(text)
     literal_count = sum(line.count(slug) for line in lines)
     hits: list[tuple[int, str]] = []
 
@@ -70,7 +69,7 @@ def scan_file(text: str, owner: str, name: str, slug: str) -> tuple[int, list[tu
                     kinds.append("owner-component")
                 if name_re.search(line):
                     kinds.append("name-component")
-            if interpolation_candidate and interpolation_re.search(line):
+            if interpolation_re.search(line):
                 kinds.append("interpolation")
             if kinds:
                 hits.append((index + 1, ", ".join(kinds)))
