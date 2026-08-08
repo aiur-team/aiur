@@ -27,8 +27,18 @@ class RenamePreflightTest(unittest.TestCase):
             subprocess.run(["git", "init", "-q"], cwd=root, check=True)
             subprocess.run(["git", "add", "."], cwd=root, check=True)
 
+            command = [
+                sys.executable,
+                str(Path(rename_preflight.__file__)),
+                "--root",
+                str(root),
+                "--old",
+                "old-owner/old-name",
+                "--new",
+                "new-owner/new-name",
+            ]
             output = subprocess.run(
-                [sys.executable, str(Path(rename_preflight.__file__)), "--root", str(root), "--old", "old-owner/old-name", "--new", "new-owner/new-name"],
+                command,
                 check=True,
                 text=True,
                 stdout=subprocess.PIPE,
