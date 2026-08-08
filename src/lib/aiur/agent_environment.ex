@@ -87,13 +87,9 @@ defmodule Aiur.AgentEnvironment do
         {String.to_charlist(name), false}
       end)
 
-    build_gate_env =
-      BuildGate.shell_env()
-      |> Enum.reject(fn {name, _value} -> name == "BASH_ENV" end)
-
     shell_startup_env =
       shell_startup_env()
-      |> Kernel.++(build_gate_env)
+      |> replace_bash_env(BuildGate.shell_env())
       |> Enum.map(fn
         {name, false} -> {String.to_charlist(name), false}
         {name, value} -> {String.to_charlist(name), String.to_charlist(value)}
@@ -135,6 +131,19 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env(_, _opts), do: []
+
+  # Build admission is the sole permitted BASH_ENV hook in an agent workspace:
+  # it is an Aiur-owned absolute path, replaces (rather than inherits) the
+  # operator value, and is only present when admission is enabled.
+  defp replace_bash_env(startup_env, build_gate_env) do
+    case List.keyfind(build_gate_env, "BASH_ENV", 0) do
+      {"BASH_ENV", _hook_path} ->
+        Enum.reject(startup_env, fn {name, _value} -> name == "BASH_ENV" end) ++ build_gate_env
+
+      nil ->
+        startup_env ++ build_gate_env
+    end
+  end
 
   @doc """
   Shell-export prefix for the same vars `workspace_env/1` injects into

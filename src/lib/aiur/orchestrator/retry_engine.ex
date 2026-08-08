@@ -14,6 +14,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
+    AgentTeardown,
     ControlLifecycle,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -54,6 +55,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         running_entry = Map.fetch!(running, issue_id)
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
+        state = maybe_reap_orphaned_agent_shell(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
 
         state =
@@ -106,6 +108,34 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
         StatusReport.notify_dashboard(state)
         {:noreply, state}
+    end
+  end
+
+  defp maybe_reap_orphaned_agent_shell(state, running_entry) do
+    if State.completed_running_entry?(running_entry) do
+      state
+    else
+      case AgentTeardown.reap_orphaned_agent_shell(running_entry) do
+        :reaped ->
+          count = Map.get(state, :orphaned_agent_reap_count, 0) + 1
+          identifier = Map.get(running_entry, :identifier)
+
+          _ =
+            Alerts.emit_custom(
+              "agent.orphan_reaped",
+              "Reaped orphaned agent shell for #{identifier}; orphaned_agent_reap_count=#{count}",
+              issue: Map.get(running_entry, :issue),
+              workspace: Map.get(running_entry, :workspace_path),
+              worker_host: Map.get(running_entry, :worker_host),
+              reason: "agent runner exited while its tracked shell process tree remained live",
+              needs_attention: true
+            )
+
+          %{state | orphaned_agent_reap_count: count}
+
+        :gone ->
+          state
+      end
     end
   end
 
