@@ -153,6 +153,60 @@ test('key click triggers is-flashing animation; rapid repeat restarts it', async
   await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
 })
 
+test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const key = page.locator('.sd-agent-key:not(.is-empty)').first()
+  const geometry = await key.evaluate((element) => {
+    const face = element.querySelector('.sd-key-face')
+    const icon = element.querySelector('.sd-ag-ic')
+    const vendor = element.querySelector('.sd-ag-vendor')
+    const bar = element.querySelector('.sd-ag-bar')
+    const fill = bar.querySelector('i')
+    const top = element.querySelector('.sd-agent-top')
+    const css = window.getComputedStyle
+
+    const faceBox = face.getBoundingClientRect()
+    const topChildrenFit = Array.from(top.children).every((child) => {
+      const box = child.getBoundingClientRect()
+      return box.left >= faceBox.left && box.right <= faceBox.right
+    })
+
+    return {
+      key: element.getBoundingClientRect().toJSON(),
+      faceRadius: css(face).borderRadius,
+      icon: { width: css(icon).width, height: css(icon).height },
+      vendor: { width: css(vendor).width, height: css(vendor).height },
+      barHeight: css(bar).height,
+      topChildrenFit,
+      progress: Number(bar.getAttribute('aria-valuenow')),
+      fill: css(fill).backgroundColor
+    }
+  })
+
+  expect(Math.abs(geometry.key.width - geometry.key.height)).toBeLessThan(1)
+  expect(geometry.faceRadius).toBe('12px')
+  expect(geometry.icon).toEqual({ width: '30px', height: '30px' })
+  expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
+  expect(geometry.barHeight).toBe('6px')
+  expect(geometry.topChildrenFit).toBe(true)
+
+  const hue = Math.round((geometry.progress / 100) * 125)
+  const expectedFill = await page.evaluate((h) => {
+    const sample = document.createElement('i')
+    sample.style.background = `hsl(${h} 72% 50%)`
+    document.body.append(sample)
+    const color = getComputedStyle(sample).backgroundColor
+    sample.remove()
+    return color
+  }, hue)
+
+  expect(geometry.fill).toBe(expectedFill)
+
+  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(219, 36, 36)')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(51, 219, 36)')
+})
+
 test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
   await openStreamdeck(page)
 

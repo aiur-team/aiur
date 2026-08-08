@@ -1628,8 +1628,8 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         write_feed_if_missing("1331")
 
         %{
-          running: [streamdeck_agent("1352", "Fixture running", "codex")],
-          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+          running: [streamdeck_agent("1352", "Fixture running", "codex", progress_percent: 0)],
+          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error, progress_percent: 100)],
           idle: [
             streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
             streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
