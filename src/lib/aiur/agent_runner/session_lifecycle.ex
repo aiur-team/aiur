@@ -564,7 +564,21 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     |> maybe_put_provider_group(process_group_id(session))
     |> maybe_put_remote_provider(worker_host)
     |> maybe_put_provider_processes(worker_host)
+    |> maybe_put_in_process_provider()
   end
+
+  # An in-process session (an OpenAI-compatible HTTP agent) has no OS process,
+  # process group, or remote host to contain. Mark it explicitly so the
+  # workspace guardian accepts it: such a session is a child of the runner and
+  # dies with it, so there is nothing to reap on owner death. Without this, the
+  # guardian's `valid_provider?` rejects the empty provider and every dispatch
+  # fails with `:workspace_ownership_lost` before the first turn. Only mark
+  # providers that carry no OS identity; a session that reports a root pid,
+  # process group, remote host, or descendants is reaped normally.
+  defp maybe_put_in_process_provider(%{} = provider) when map_size(provider) == 0,
+    do: Map.put(provider, :in_process, true)
+
+  defp maybe_put_in_process_provider(provider), do: provider
 
   defp maybe_put_provider_pid(provider, pid) when is_integer(pid) and pid > 0,
     do: Map.put(provider, :root_pid, pid)

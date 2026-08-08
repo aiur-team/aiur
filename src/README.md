@@ -118,7 +118,13 @@ walks:
 5. **GitHub token** — used to create labels and act as the bot account. With no
    `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
    failing.
-6. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
+6. **CI readiness** — for GitHub repositories, verifies the configured base
+   branch exists, a pull-request workflow targets it, branch protection or an
+   applicable ruleset requires a check, and that a workflow produces that check.
+   A gap stops setup with a clear error; when no pull-request workflow exists,
+   the wizard offers a minimal `ci.yml` scaffold with a stable aggregator check
+   name (`ci / required`).
+7. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
    complexity, model, and remote-control labels the orchestrator routes on.
    Each stage creates only the labels that are missing; when a group already exists it reports
    `<group> tags: created.` and skips the prompt.
@@ -153,6 +159,12 @@ Build Order planning reads use finite `github.planning_root_limit`,
 `github.planning_page_budget`, and `github.planning_call_budget` safeguards.
 They default to `100`, `4`, and `4`; all values must be positive and may not
 exceed those hard limits, so a provider generation never silently truncates.
+
+For local planning packs, the supervised PackStatus poller writes tracker
+lifecycle facts to the sibling `status.json` projection in batches of 50
+tickets. The projection survives run boundaries; failed or incomplete tracker
+reads retain the last-known-good file and mark Build Order health stale or
+unavailable until a later refresh succeeds.
 
 The optional root-level `build_order` section configures three supervised,
 in-memory configured-repository stores. Ticket detail defaults to a 30-second
@@ -218,7 +230,7 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state |
+| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
@@ -414,6 +426,24 @@ path parameter and is never browser-cacheable.
 ## Configuration notes
 
 - Path values support `~` for the home directory and `$VAR` for environment substitution.
+- Run credentials resolve in this order: exported environment, `~/.aiur/.env`,
+  then repository-local `./.env`. The native provider variables are
+  `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_KEY`;
+  OpenRouter credit polling additionally uses `OPENROUTER_MANAGEMENT_KEY`.
+  Keep values out of workflow YAML and Git.
+- `agent.kind` may name any registered backend, including `kimi`, `deepseek`,
+  and `openrouter`. Per-instance overrides live under
+  `agent.backend_configs.<name>`. DeepSeek is disabled for dispatch until its
+  entry sets `enabled: true`. OpenRouter requires an explicit underlying model
+  through a model label/routing rule or `backend_configs.openrouter.model`.
+  Kimi and DeepSeek have native default models.
+- OpenAI-compatible backends are local-only transports today: when SSH workers
+  are configured, their sessions remain on the orchestrator host. They are
+  deliberately non-resumable, so backend switches continue from shared
+  workspace state rather than a cross-provider transcript.
+- `agent.prior_work_continuation` defaults to `true`; a cold redispatch or
+  backend switch receives continuation guidance based on the existing shared
+  workspace instead of pretending the provider conversation was resumed.
 - Codex defaults to safer policies when omitted (`approval_policy` rejects unprompted
   approvals, `thread_sandbox` is `workspace-write`).
 - Setting `agent.codex.thread_sandbox: danger-full-access` also defaults Codex turns to
@@ -425,6 +455,10 @@ path parameter and is never browser-cacheable.
   unlabeled tickets continue to use `agent.max_turns`.
 - `agent.max_concurrent_agents` caps active workers only. Paused agents remain visible
   and can keep their panes open without consuming an active slot.
+- An explicit `aiur --max-agents N` launch value takes precedence over
+  `agent.max_concurrent_agents`, including when it is higher. Aiur warns when
+  the CLI value exceeds the configured value so the effective cap is visible; omit the flag or set it at
+  or below the configured value to silence the warning.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
   backends, for example `[claude, codex]`. It applies only when no explicit
   `model:` label or complexity-routing rule selected a backend, and only to new
@@ -455,9 +489,12 @@ path parameter and is never browser-cacheable.
   currently runs on the orchestrator host, so Aiur leaves Codex agents on SSH
   worker workspaces parked instead of moving them to an unrunnable backend.
 - `agent.target_load_average` enables the adaptive dispatch envelope (default `1.0`
-  per scheduler): capacity grows by `agent.load_ramp_step` below the target and
-  halves after high samples, no more often than `agent.load_cooldown_seconds`.
-  Set the target to `null` to use only the static cap and hard gate.
+  per scheduler): queued cold starts seed daemon capacity from active and
+  reserved ticket slots plus observed idle CPU headroom, bounded by the static
+  cap. That bootstrap seed is one-shot and never lowers a warmed envelope. Later
+  capacity grows by `agent.load_ramp_step` below the target, and high samples
+  halve it no more often than `agent.load_cooldown_seconds`. Set the target to
+  `null` to use only the static cap and hard gate.
 - `agent.max_load_average` remains the separate per-scheduler hard ceiling for
   new dispatch (default `1.5`); it holds work above the ceiling even when the
   adaptive envelope is enabled.

@@ -84,12 +84,23 @@ defmodule Aiur.Config.Schema.Agent do
     # max_turns recycle or completed-entry replacement) whose codex thread could
     # not be resumed gets continuation guidance instead of the cold-start prompt,
     # so it does not re-run brainstorm/plan over work that already exists.
-    field(:prior_work_continuation, :boolean, default: false)
+    field(:prior_work_continuation, :boolean, default: true)
     # Lifetime cap on (re)dispatches for one ticket. The per-window thrash
     # breaker resets whenever its window lapses, so a slowly-churning ticket is
     # never circuit-broken. 0 disables the latch.
     field(:max_dispatches_per_ticket, :integer, default: 0)
-    field(:max_concurrent_agents, :integer, default: 10)
+    # Ceiling for new fleet admissions. When omitted (nil), it derives from the
+    # measured host capacity (see `Config.default_max_concurrent_agents/1`):
+    # schedulers + 1/4 schedulers, which matches the measured ~19-20 concurrent
+    # agents on a 16-core host. Explicit config still wins. The load envelope
+    # reduces effective concurrency below this ceiling under host pressure.
+    field(:max_concurrent_agents, :integer)
+    # Per-scheduler runnable-process ceiling for the instantaneous run-queue
+    # dispatch gate. nil disables the gate (the 1-minute load gate and envelope
+    # still apply); a positive value holds new dispatch while `procs_running`
+    # strictly exceeds `run_queue_threshold * schedulers`, catching short CPU
+    # bursts the lagging load average smooths out.
+    field(:run_queue_threshold, :float)
     # Fleet-wide cap for agent-launched `mix compile` / `mix test` commands.
     # 0 deliberately disables the gate for Executors who need unrestricted
     # local verification.
@@ -152,6 +163,12 @@ defmodule Aiur.Config.Schema.Agent do
     # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
     # four bounds every agent test shape without relying on prompt compliance.
     field(:mix_scheduler_cap, :integer, default: 4)
+    # Saturation sentinel (#1429): a daemon-side recorder that appends
+    # VM-internal + host diagnostics to saturation.log once 1-min load crosses
+    # the escalation threshold, so a crash under saturation (the sparse
+    # `erl_child_setup` dump has no stack) is interpretable. Default on; set
+    # false to disable the recorder.
+    field(:saturation_log_enabled, :boolean, default: true)
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -168,6 +185,7 @@ defmodule Aiur.Config.Schema.Agent do
         :prior_work_continuation,
         :max_dispatches_per_ticket,
         :max_concurrent_agents,
+        :run_queue_threshold,
         :max_concurrent_builds,
         :build_start_stagger_seconds,
         :min_free_memory_mb,
@@ -191,11 +209,13 @@ defmodule Aiur.Config.Schema.Agent do
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
-        :mix_scheduler_cap
+        :mix_scheduler_cap,
+        :saturation_log_enabled
       ],
       empty_values: []
     )
     |> validate_number(:max_concurrent_agents, greater_than: 0)
+    |> validate_number(:run_queue_threshold, greater_than: 0)
     |> validate_number(:max_concurrent_builds, greater_than_or_equal_to: 0)
     |> validate_number(:build_start_stagger_seconds, greater_than_or_equal_to: 0)
     |> validate_number(:min_free_memory_mb, greater_than: 0)
@@ -217,6 +237,7 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_state_limits(:max_concurrent_agents_by_state)
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
+    |> validate_dispatch_selections()
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -240,6 +261,35 @@ defmodule Aiur.Config.Schema.Agent do
     |> AgentValidation.validate_max_turns_by_complexity(:max_turns_by_complexity)
     |> cast_embed(:claude, with: &Claude.changeset/2)
     |> cast_embed(:codex, with: &Codex.changeset/2)
+  end
+
+  defp validate_dispatch_selections(changeset) do
+    dispatchable = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+
+    changeset
+    |> reject_disabled_backend(:kind, Ecto.Changeset.get_field(changeset, :kind), dispatchable)
+    |> reject_disabled_backends(:switch_model_on_ratelimit, Ecto.Changeset.get_field(changeset, :switch_model_on_ratelimit), dispatchable)
+    |> reject_disabled_backend(:rate_limit_primary, Ecto.Changeset.get_field(changeset, :rate_limit_primary), dispatchable)
+    |> reject_disabled_backend(:rate_limit_fallback, Ecto.Changeset.get_field(changeset, :rate_limit_fallback), dispatchable)
+  end
+
+  defp reject_disabled_backends(changeset, field, values, dispatchable) when is_list(values) do
+    case Enum.find(values, &(&1 not in dispatchable)) do
+      nil -> changeset
+      backend -> Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; dispatchable backends: #{inspect(dispatchable)}")
+    end
+  end
+
+  defp reject_disabled_backends(changeset, _field, _values, _dispatchable), do: changeset
+
+  defp reject_disabled_backend(changeset, _field, backend, _dispatchable) when backend in [nil, ""], do: changeset
+
+  defp reject_disabled_backend(changeset, field, backend, dispatchable) do
+    if backend in Aiur.CodingAgent.known_backends() and backend not in dispatchable do
+      Ecto.Changeset.add_error(changeset, field, "backend #{inspect(backend)} is disabled; set agent.backend_configs.#{backend}.enabled: true to opt in")
+    else
+      changeset
+    end
   end
 
   # The fallback names a registered backend distinct from the primary, or "" to

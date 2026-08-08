@@ -1,6 +1,8 @@
 defmodule Aiur.CLITest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
   alias Aiur.CLI
 
   @ack_flag "--i-understand-that-this-will-be-running-without-the-usual-guardrails"
@@ -72,6 +74,27 @@ defmodule Aiur.CLITest do
     }
 
     assert :ok = CLI.evaluate([@ack_flag], deps)
+  end
+
+  test "parses the findings command and its filters without starting the app" do
+    assert {:findings, %{unfiled: true, slugs: true, scope: "aiur"}} =
+             CLI.evaluate(["findings", "--unfiled", "--slugs", "--scope", "aiur"], deps())
+
+    assert {:error, usage} = CLI.evaluate(["findings", "--scope", "host"], deps())
+    assert usage =~ "aiur findings"
+  end
+
+  test "parses validated findings writes and digest generation" do
+    record = Jason.encode!(%{"slug" => "dispatch-pressure"})
+
+    assert {:findings, %{record: ^record, repo: "aiur-team/aiur"}} =
+             CLI.evaluate(["findings", "--record", record, "--repo", "aiur-team/aiur"], deps())
+
+    assert {:findings, %{digest: true, scope: "aiur"}} =
+             CLI.evaluate(["findings", "--digest", "--scope", "aiur"], deps())
+
+    assert {:error, _usage} = CLI.evaluate(["findings", "--record", record], deps())
+    assert {:error, _usage} = CLI.evaluate(["findings", "--digest", "--unfiled"], deps())
   end
 
   test "uses an explicit workflow path override when provided" do
@@ -297,6 +320,22 @@ defmodule Aiur.CLITest do
     }
   end
 
+  defp configured_deps(max_agents) do
+    Map.put(passthrough_deps(), :configured_max_agents, fn -> max_agents end)
+  end
+
+  defp preserve_max_agents_override do
+    previous = Application.get_env(:aiur, :max_concurrent_agents_override)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :max_concurrent_agents_override),
+        else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
+    end)
+
+    Application.delete_env(:aiur, :max_concurrent_agents_override)
+  end
+
   test "enables headless mode when requested" do
     previous = Application.get_env(:aiur, :headless)
 
@@ -370,6 +409,54 @@ defmodule Aiur.CLITest do
 
     assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], passthrough_deps())
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == 4
+  end
+
+  test "--max-agents above the configured ceiling warns and documents CLI precedence" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "20", ".aiurconfig"], configured_deps(8))
+      end)
+
+    assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
+    assert stderr =~ "the explicit CLI value wins, so using 20"
+  end
+
+  test "duplicate --max-agents flags warn and apply the last value" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok =
+                 CLI.evaluate(
+                   [@ack_flag, "--max-agents", "4", "--max-agents", "20", ".aiurconfig"],
+                   configured_deps(8)
+                 )
+      end)
+
+    assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
+    assert Application.get_env(:aiur, :max_concurrent_agents_override) == 20
+  end
+
+  test "--max-agents at or below the configured ceiling is silent" do
+    preserve_max_agents_override()
+
+    stderr =
+      capture_io(:stderr, fn ->
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "8", ".aiurconfig"], configured_deps(8))
+        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "4", ".aiurconfig"], configured_deps(8))
+      end)
+
+    assert stderr == ""
+  end
+
+  test "an absent --max-agents flag is silent" do
+    preserve_max_agents_override()
+
+    stderr = capture_io(:stderr, fn -> assert :ok = CLI.evaluate([@ack_flag, ".aiurconfig"], configured_deps(8)) end)
+
+    assert stderr == ""
   end
 
   test "--max-agents rejects a non-positive value" do

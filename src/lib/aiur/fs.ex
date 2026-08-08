@@ -90,4 +90,30 @@ defmodule Aiur.Fs do
       {output, status} -> {:error, {:sync_failed, status, output}}
     end
   end
+
+  @doc """
+  Quarantines a corrupt file in place by renaming it to a timestamped sibling
+  (`path.corrupt-<epoch-ms>`) so its bytes are preserved for forensics while
+  the live path is freed for re-initialization. A missing file is already
+  absent, so that is not an error. Returns `{:error, reason}` when the rename
+  itself fails.
+
+  The suffix is a wall-clock millisecond timestamp rather than
+  `System.unique_integer/1` (which resets on daemon restart), so a forensic
+  archive written on an earlier boot is never overwritten by a later one.
+  """
+  @spec quarantine(Path.t()) :: :ok | {:error, term()}
+  def quarantine(path) do
+    case File.lstat(path) do
+      {:error, :enoent} ->
+        :ok
+
+      {:ok, _stat} ->
+        suffix = Integer.to_string(System.os_time(:millisecond))
+        File.rename(path, path <> ".corrupt-" <> suffix)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
 end

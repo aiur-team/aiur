@@ -327,6 +327,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
+       aiur findings --record <json> --repo <owner/repo>  append one validated finding
+       aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -357,15 +360,58 @@ run_init() {
   exec "${release_cmd[@]}"
 }
 
-# --- one-shot: --todo (distribution-free, no daemon/tmux) --------------------
+# --- one-shot: --todo (control RPC; requires a running daemon) ----------------
+
+parsed_todo_only=0
+
+parse_todo_args() {
+  parsed_targets=()
+  parsed_todo_only=0
+
+  local saw_todo=0 raw part parts
+  for raw in "$@"; do
+    case "$raw" in
+      --todo)
+        [ "$saw_todo" -eq 0 ] || return 1
+        saw_todo=1
+        ;;
+      --only)
+        parsed_todo_only=1
+        ;;
+      -*)
+        return 1
+        ;;
+      *)
+        IFS=',' read -ra parts <<<"$raw"
+        for part in "${parts[@]}"; do
+          part="$(trim "$part")"
+          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
+          while [ "${#part}" -gt 1 ] && [ "${part#0}" != "$part" ]; do
+            part="${part#0}"
+          done
+          parsed_targets+=("$part")
+        done
+        ;;
+    esac
+  done
+
+  [ "$saw_todo" -eq 1 ] && [ "${#parsed_targets[@]}" -gt 0 ]
+}
 
 run_todo() {
-  if ! validate_todo_args "$@"; then
+  if ! parse_todo_args "$@"; then
     echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
     exit 64
   fi
 
-  load_dotenv
+  local only_arg="false"
+  [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
+  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
+}
+
+# --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
+
+run_findings() {
   run_init "$@"
 }
 
@@ -374,11 +420,15 @@ run_todo() {
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load KEY=VALUE pairs from ./.env into the environment so the running release
-# (e.g. GITHUB_TOKEN, dashboard creds) sees what `aiur init` scaffolded there.
-# An already-exported variable always wins, so a shell export overrides the file.
+# Load operator/machine credentials before repo-local settings. Since each file
+# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
 load_dotenv() {
-  local file=".env" line key val
+  load_dotenv_file "$HOME/.aiur/.env"
+  load_dotenv_file ".env"
+}
+
+load_dotenv_file() {
+  local file="$1" line key val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
@@ -396,6 +446,13 @@ load_dotenv() {
     [ -n "${!key+x}" ] && continue
     export "$key=$val"
   done <"$file"
+}
+
+# The readiness token grants the one-shot `aiur init` assessment access that a
+# normal daemon and its child agents must never inherit. Keep dotenv loading
+# generic, then remove this run-only secret before any session process starts.
+scrub_run_only_env() {
+  unset AIUR_CI_READINESS_TOKEN
 }
 
 run_argv=()
@@ -468,6 +525,7 @@ run_session() {
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
+  scrub_run_only_env
 
   init_argv_file
 
@@ -564,6 +622,7 @@ run_session() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
+    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
@@ -1573,15 +1632,14 @@ $root
 }
 
 print_global_config_control_hint() {
+  [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ] || return 0
   [ "${AIUR_CONTROL_CALLER_ROOT_SOURCE:-}" = "cwd" ] || return 0
   [ "${AIUR_CONTROL_CURRENT_NODE_STATE:-}" = "down" ] || return 0
 
   echo "aiur: global-config control identity is keyed by cwd ${AIUR_CONTROL_CALLER_ROOT:-${AIUR_PROJECT_ROOT:-unknown}}" >&2
   echo "aiur: run control commands from the launch directory, or from a subdirectory of that launch directory" >&2
-  if [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ]; then
-    echo "aiur: live launch directory candidate(s):" >&2
-    printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
-  fi
+  echo "aiur: live launch directory candidate(s):" >&2
+  printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
 }
 
 control_rpc_timeout_seconds() {
@@ -1590,6 +1648,23 @@ control_rpc_timeout_seconds() {
     '' | *[!0-9]* | 0) seconds=10 ;;
   esac
   printf '%s' "$seconds"
+}
+
+print_not_running_message() {
+  echo "error: aiur is not running. Start it with \`aiurdev run\` (or \`aiurdev --bg\`), then retry." >&2
+}
+
+print_control_down_message() {
+  local crash_marker
+  crash_marker="$(aiur_crash_marker_path)"
+  if [ -f "$crash_marker" ]; then
+    echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
+    sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
+    echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
+  else
+    print_not_running_message
+    print_global_config_control_hint
+  fi
 }
 
 kill_control_rpc_process() {
@@ -1708,16 +1783,7 @@ run_control_rpc() {
     # down — in both of those cases surface the actual rpc output, never mask it.
     case "$(probe_node_liveness)" in
       down)
-        local crash_marker
-        crash_marker="$(aiur_crash_marker_path)"
-        if [ -f "$crash_marker" ]; then
-          echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
-          sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
-          echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
-        else
-          echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
-          print_global_config_control_hint
-        fi
+        print_control_down_message
         ;;
       up)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1760,6 +1826,10 @@ run_control_stream() {
   if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    print_control_down_message
+    return 1
+  fi
   exec "$release_bin" rpc "$expression"
 }
 
@@ -1801,31 +1871,6 @@ parse_issue_targets() {
   [ "${#parsed_targets[@]}" -gt 0 ]
 }
 
-validate_todo_args() {
-  local saw_todo=0 raw part parts target_count=0
-
-  for raw in "$@"; do
-    case "$raw" in
-      --todo)
-        [ "$saw_todo" -eq 0 ] || return 1
-        saw_todo=1
-        ;;
-      --only) ;;
-      -*) return 1 ;;
-      *)
-        IFS=',' read -ra parts <<<"$raw"
-        for part in "${parts[@]}"; do
-          part="$(trim "$part")"
-          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
-          target_count=$((target_count + 1))
-        done
-        ;;
-    esac
-  done
-
-  [ "$saw_todo" -eq 1 ] && [ "$target_count" -gt 0 ]
-}
-
 cmd_status() {
   [ "$#" -eq 0 ] || die "status does not accept arguments"
   run_control_rpc "Aiur.AgentControlCLI.status()"
@@ -1861,6 +1906,27 @@ cmd_pause_resume() {
     expression="Aiur.AgentControlCLI.${command}($(elixir_list_literal "${parsed_targets[@]}"))"
   fi
 
+  run_control_rpc "$expression"
+}
+
+# `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
+# more tickets (the supported exit from the #1453 latch; no JSON hand-editing).
+cmd_reset_budget() {
+  if ! parse_issue_targets "$@"; then
+    echo "aiur: reset-budget expects issue IDs (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  # --all is rejected (exit 64 with guidance) rather than silently no-opping:
+  # clearing every ticket's latch at once is not a documented operation and
+  # would mask which tickets are structurally stuck (#1453 review P2d).
+  if [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: reset-budget does not accept --all; name ticket IDs explicitly (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  local expression
+  expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
   run_control_rpc "$expression"
 }
 
@@ -2336,6 +2402,9 @@ aiur_engine_main() {
     init)
       run_init "$@"
       ;;
+    findings)
+      run_findings "$@"
+      ;;
     --bg)
       dispatch_run "$@"
       ;;
@@ -2386,6 +2455,10 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    reset-budget)
+      shift
+      cmd_reset_budget "$@"
       ;;
     message)
       shift

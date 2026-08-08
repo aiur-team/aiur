@@ -1,6 +1,7 @@
 defmodule AiurWeb.StreamDeckGridTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Orchestrator.SnapshotStore
   alias AiurWeb.StreamDeckGrid
 
   test "projects an empty fleet" do
@@ -19,13 +20,22 @@ defmodule AiurWeb.StreamDeckGridTest do
     assert StreamDeckGrid.project(%{}).agents == []
   end
 
-  test "projects unavailable and timed-out snapshots as API errors" do
+  test "projects unavailable snapshots as API errors" do
     assert StreamDeckGrid.payload(:missing_streamdeck_orchestrator, 1) == %{
              error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}
            }
+  end
 
-    server = :streamdeck_grid_timeout_server
-    start_supervised!({__MODULE__.TimeoutServer, name: server})
+  test "projects a completed snapshot from the read model" do
+    server = start_supervised!({__MODULE__.TimeoutServer, []})
+
+    :ok = SnapshotStore.publish(server, %{running: [], retrying: [], idle: []})
+
+    assert %{agents: [], snapshot_freshness: %{status: :current}} = StreamDeckGrid.payload(server, 1)
+  end
+
+  test "returns a hard error before the first snapshot" do
+    server = start_supervised!({__MODULE__.TimeoutServer, []})
 
     assert StreamDeckGrid.payload(server, 0) == %{
              error: %{code: "snapshot_timeout", message: "Snapshot timed out"}
@@ -145,9 +155,9 @@ defmodule AiurWeb.StreamDeckGridTest do
   defmodule TimeoutServer do
     use GenServer
 
-    def start_link(opts), do: GenServer.start_link(__MODULE__, :ok, opts)
+    def start_link(opts), do: GenServer.start_link(__MODULE__, :ok, Keyword.take(opts, [:name]))
 
-    def child_spec(opts), do: %{id: Keyword.fetch!(opts, :name), start: {__MODULE__, :start_link, [opts]}}
+    def child_spec(opts), do: %{id: {__MODULE__, Keyword.get(opts, :name, self())}, start: {__MODULE__, :start_link, [opts]}}
 
     @impl true
     def init(:ok), do: {:ok, :ok}

@@ -260,9 +260,21 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
           PauseResume.resume_paused_issue(current_state, entry, false)
         end)
 
-      staged_state = put_running_entry(state, get_in(running_entry, [:issue, Access.key(:id)]), cleared_entry)
+      # Resume from an entry that still carries `:paused_reason`. PauseResume
+      # reads it to emit the matching `agent.attention.paused-<cause>.resolved`
+      # and clears it itself; handing over the already-cleared entry made the
+      # cause look absent, so the pause attention stayed active forever.
+      resume_entry = Map.delete(cleared_entry, :rate_limit_fallback_revert_pending)
 
-      case resume.(staged_state, cleared_entry) do
+      resume_entry =
+        case Map.fetch(running_entry, :paused_reason) do
+          {:ok, reason} -> Map.put(resume_entry, :paused_reason, reason)
+          :error -> resume_entry
+        end
+
+      staged_state = put_running_entry(state, get_in(running_entry, [:issue, Access.key(:id)]), resume_entry)
+
+      case resume.(staged_state, resume_entry) do
         {{:ok, :resumed}, resumed_state} -> {resumed_state, true}
         _ -> {state, false}
       end

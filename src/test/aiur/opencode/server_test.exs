@@ -152,4 +152,53 @@ defmodule Aiur.Opencode.ServerTest do
       {name, value} -> System.put_env(name, value)
     end)
   end
+
+  describe "release environment scrub on the opencode launch" do
+    test "serve_command routes the launch through the shared scrub and execs opencode-serve" do
+      command = Server.serve_command("127.0.0.1")
+
+      assert command =~ "AIUR_RELEASE_DIR"
+      assert command =~ "RELEASE_NODE"
+      assert command =~ "RELEASE_COOKIE"
+      assert command =~ ~r/; exec opencode serve --port 0 --hostname 127\.0\.0\.1/
+    end
+
+    test "the opencode child env excludes release launcher and distribution variables" do
+      release_root = Path.join(System.tmp_dir!(), "aiur-opencode-release-#{System.unique_integer([:positive])}")
+      release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+      release_bin = Path.join(release_root, "bin")
+      File.mkdir_p!(release_erts_bin)
+      File.mkdir_p!(release_bin)
+      on_exit(fn -> File.rm_rf!(release_root) end)
+
+      command = Server.serve_command("127.0.0.1")
+
+      # `Port.open`'s partial :env list is merged OVER the inherited daemon env,
+      # so the release vars can only be cleared by the command prefix. Prove the
+      # exact launch shape clears them: reuse the server's scrubbed command but
+      # exec a probe that prints the child env instead of the opencode binary.
+      [scrub_prefix | _rest] = String.split(command, "; exec ")
+      refute scrub_prefix =~ "exec opencode"
+
+      probe =
+        scrub_prefix <>
+          "; exec sh -c 'env | grep -E \"^(ROOTDIR|BINDIR|EMU|PROGNAME|RELEASE_NODE|RELEASE_COOKIE)=\" | sort; true'"
+
+      {output, 0} =
+        System.cmd("bash", ["-c", probe],
+          env: [
+            {"AIUR_RELEASE_DIR", release_root},
+            {"ROOTDIR", release_root},
+            {"BINDIR", release_erts_bin},
+            {"EMU", "beam"},
+            {"PROGNAME", "erl"},
+            {"RELEASE_NODE", "aiur@test"},
+            {"RELEASE_COOKIE", "secret"},
+            {"PATH", Enum.join([release_erts_bin, release_bin, System.fetch_env!("PATH")], ":")}
+          ]
+        )
+
+      assert output == ""
+    end
+  end
 end

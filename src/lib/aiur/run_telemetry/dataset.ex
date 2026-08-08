@@ -79,9 +79,10 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   Options:
 
-    * `:boot_id` — keep only records written by that daemon boot. Externally
-      anchored GitHub records survive regardless: they carry no boot of their own
-      and dropping them would silently erase merges from a session's view.
+    * `:boot_id` — keep only records written by that daemon boot. Live external
+      GitHub anchors survive regardless: they carry no boot of their own. Historical
+      reconciliation anchors are the exception; they remain in full-log reporting
+      but are excluded from a boot-scoped view so they cannot inflate this session.
     * `:tickets` — a `MapSet` of bare ticket-number strings. Non-ticket actors
       (the daemon and executor baselines) are always retained; they are shared
       orchestration overhead, not per-ticket cost.
@@ -108,6 +109,53 @@ defmodule Aiur.RunTelemetry.Dataset do
     })
   end
 
+  @doc """
+  Reduces an already-normalized record list into the `{actors, tickets,
+  findings}` shape `build/2` derives from a stream. Used by `merge/1` to union
+  datasets across boots so a ticket or actor active in several boots keeps
+  every boot's samples/events, with intervals and profiles re-derived over the
+  union.
+  """
+  @spec reduce([map()], keyword()) :: {map(), map(), [map()]}
+  def reduce(records, opts \\ []) when is_list(records) do
+    {actors, _warnings} = reduce_actors(records, opts)
+    {tickets, findings} = reduce_tickets(records, opts)
+    {actors, tickets, findings}
+  end
+
+  @doc """
+  Unions already-reduced datasets into one dataset, keeping every boot's data
+  for tickets and actors that appear in several boots.
+
+  Records deduplicate by `record_id` — GitHub anchors are boot-agnostic and
+  appear in every per-boot summary, so a naive concatenation would duplicate
+  them — then resource samples and lifecycle events concatenate across boots
+  and intervals/profiles re-derive over the union. This is the same semantics
+  as the canonical Python `_rollup_build`: a multi-boot ticket keeps every
+  boot's intervals and an actor keeps every boot's samples, never collapsing to
+  a last-wins map merge.
+  """
+  @spec merge([dataset()]) :: dataset()
+  def merge(datasets) when is_list(datasets) do
+    records =
+      datasets
+      |> Enum.flat_map(& &1.records)
+      |> Enum.uniq_by(& &1.record_id)
+      |> Enum.sort_by(&record_sort_key/1)
+
+    {actors, tickets, findings} = reduce(records)
+
+    %{
+      records: records,
+      restarts: Enum.filter(records, &daemon_restart?/1),
+      actors: actors,
+      tickets: tickets,
+      findings: findings,
+      warnings: Enum.flat_map(datasets, & &1.warnings),
+      provenance: merge_provenance(datasets)
+    }
+  end
+
   @doc "Distinct daemon boots represented in a dataset, oldest first."
   @spec boot_ids(dataset()) :: [String.t()]
   def boot_ids(dataset) when is_map(dataset) do
@@ -120,15 +168,20 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp keep_record?(record, boot_id, tickets) do
-    in_boot?(record.boot_id, boot_id) and in_tickets?(Map.get(record.attributes, "ticket"), tickets)
+    in_boot?(record, boot_id) and in_tickets?(Map.get(record.attributes, "ticket"), tickets)
   end
 
   defp daemon_restart?(%{kind: "restart", attributes: %{"event" => "daemon_restart"}}), do: true
   defp daemon_restart?(_record), do: false
 
-  defp in_boot?(_record_boot, nil), do: true
-  defp in_boot?("github", _boot_id), do: true
-  defp in_boot?(record_boot, boot_id), do: record_boot == boot_id
+  defp in_boot?(_record, nil), do: true
+
+  # A reconciliation anchor is historical evidence. It remains available to
+  # full-log reporting, but must not inflate the daemon boot that reconciled it.
+  defp in_boot?(%{attributes: %{"source" => "github_reconciliation"}}, _boot_id), do: false
+  defp in_boot?(%{source: "github_reconciliation"}, _boot_id), do: false
+  defp in_boot?(%{boot_id: "github"}, _boot_id), do: true
+  defp in_boot?(%{boot_id: record_boot}, boot_id), do: record_boot == boot_id
 
   # A record with no ticket (a restart, a host-level warning) is scope-neutral.
   defp in_tickets?(nil, _tickets), do: true
@@ -176,9 +229,12 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp rescope_ticket(id, ticket, nil), do: [{id, ticket}]
 
   defp rescope_ticket(id, ticket, boot_id) do
-    case Enum.filter(Map.get(ticket, :events, []), &in_boot?(&1.boot_id, boot_id)) do
-      [] -> []
-      events -> [{id, Map.merge(ticket, %{events: events, intervals: lifecycle_intervals(events)})}]
+    case Enum.filter(Map.get(ticket, :events, []), &in_boot?(&1, boot_id)) do
+      [] ->
+        []
+
+      events ->
+        [{id, Map.merge(ticket, %{events: events, intervals: lifecycle_intervals(events)})}]
     end
   end
 
@@ -259,7 +315,13 @@ defmodule Aiur.RunTelemetry.Dataset do
                   device,
                   size,
                   "",
-                  %{boot_id: nil, lines: [], done?: false, segment_boundaries: 0, tail_line_too_large?: false},
+                  %{
+                    boot_id: nil,
+                    lines: [],
+                    done?: false,
+                    segment_boundaries: 0,
+                    tail_line_too_large?: false
+                  },
                   requested_boot_id
                 )
 
@@ -275,7 +337,10 @@ defmodule Aiur.RunTelemetry.Dataset do
 
               warnings =
                 if state.tail_line_too_large? do
-                  [%{type: :tail_line_too_large, path: file, max_bytes: @max_tail_line_bytes} | warnings]
+                  [
+                    %{type: :tail_line_too_large, path: file, max_bytes: @max_tail_line_bytes}
+                    | warnings
+                  ]
                 else
                   warnings
                 end
@@ -296,7 +361,8 @@ defmodule Aiur.RunTelemetry.Dataset do
     error -> {[], [%{type: :file_read_error, path: file, reason: exception_class(error)}]}
   end
 
-  defp read_tail_chunks(_device, _offset, _carry, %{done?: true} = state, _requested_boot_id), do: state
+  defp read_tail_chunks(_device, _offset, _carry, %{done?: true} = state, _requested_boot_id),
+    do: state
 
   defp read_tail_chunks(device, offset, carry, state, requested_boot_id) do
     bytes = min(offset, @tail_chunk_bytes)
@@ -358,9 +424,14 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp consume_tail_line(line, state, _requested_boot_id) do
     case boot_id_from_line(line) do
-      nil -> {:cont, %{state | lines: [line | state.lines]}}
-      boot_id when boot_id == state.boot_id -> continue_tail_line(line, %{state | lines: [line | state.lines]})
-      _other -> {:halt, %{state | done?: true}}
+      nil ->
+        {:cont, %{state | lines: [line | state.lines]}}
+
+      boot_id when boot_id == state.boot_id ->
+        continue_tail_line(line, %{state | lines: [line | state.lines]})
+
+      _other ->
+        {:halt, %{state | done?: true}}
     end
   end
 
@@ -606,8 +677,11 @@ defmodule Aiur.RunTelemetry.Dataset do
     {valid, warnings} =
       Enum.reduce(resources, {[], []}, fn record, {valid, warnings} ->
         case Map.get(record.attributes, "actor") do
-          actor when is_binary(actor) and actor != "" -> {[record | valid], warnings}
-          _other -> {valid, [%{type: :resource_actor_missing, record_id: record.record_id} | warnings]}
+          actor when is_binary(actor) and actor != "" ->
+            {[record | valid], warnings}
+
+          _other ->
+            {valid, [%{type: :resource_actor_missing, record_id: record.record_id} | warnings]}
         end
       end)
 
@@ -652,9 +726,14 @@ defmodule Aiur.RunTelemetry.Dataset do
     })
   end
 
-  defp resource_metric(attributes, "system_fd_used"), do: get_in(attributes, ["system_fd", "used"])
-  defp resource_metric(attributes, "system_fd_limit"), do: get_in(attributes, ["system_fd", "limit"])
-  defp resource_metric(attributes, "system_fd_available"), do: get_in(attributes, ["system_fd", "available"])
+  defp resource_metric(attributes, "system_fd_used"),
+    do: get_in(attributes, ["system_fd", "used"])
+
+  defp resource_metric(attributes, "system_fd_limit"),
+    do: get_in(attributes, ["system_fd", "limit"])
+
+  defp resource_metric(attributes, "system_fd_available"),
+    do: get_in(attributes, ["system_fd", "available"])
 
   defp resource_metric(attributes, "system_fd_headroom_ratio"),
     do: get_in(attributes, ["system_fd", "headroom_ratio"])
@@ -857,7 +936,8 @@ defmodule Aiur.RunTelemetry.Dataset do
     end
   end
 
-  defp retain_lifecycle_start(open, key, %{segment_continuation: "open"}) when is_map_key(open, key), do: open
+  defp retain_lifecycle_start(open, key, %{segment_continuation: "open"})
+       when is_map_key(open, key), do: open
 
   defp retain_lifecycle_start(open, key, event), do: Map.put(open, key, event)
 
@@ -1006,6 +1086,33 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp maybe_missing(missing, true, event), do: missing ++ [event]
   defp maybe_missing(missing, false, _event), do: missing
+
+  # Union of per-dataset provenance for `merge/1`: sources and schema versions
+  # deduplicate, record counts sum, and the time range spans every boot.
+  defp merge_provenance(datasets) do
+    provenances = Enum.map(datasets, & &1.provenance)
+
+    files = provenances |> Enum.flat_map(& &1.files) |> Enum.uniq()
+    inputs = provenances |> Enum.flat_map(& &1.inputs) |> Enum.uniq()
+    schema_versions = provenances |> Enum.flat_map(& &1.schema_versions) |> Enum.uniq() |> Enum.sort()
+    record_count = provenances |> Enum.reduce(0, &(&1.record_count + &2))
+
+    time_range =
+      case provenances |> Enum.map(& &1.time_range) |> Enum.reject(&is_nil/1) do
+        [] -> nil
+        ranges -> %{start: ranges |> Enum.map(& &1.start) |> Enum.min(), end: ranges |> Enum.map(& &1.end) |> Enum.max()}
+      end
+
+    %{
+      inputs: inputs,
+      files: files,
+      schema_versions: schema_versions,
+      time_range: time_range,
+      record_count: record_count,
+      enrich: Enum.any?(provenances, &Map.get(&1, :enrich, false)),
+      generated_by: "dataset:merge"
+    }
+  end
 
   defp provenance(inputs, files, records) do
     schema_versions = records |> Enum.map(& &1.schema_version) |> Enum.uniq() |> Enum.sort()
