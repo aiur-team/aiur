@@ -279,6 +279,8 @@
       this._micActive = false;
       this._knobState = null;
       this._keyHandlers = [];
+      this._flashingCommand = null;
+      this._flashTimer = null;
       this._micKey = null;
       this._onMicDown = null;
       this._onMicUp = null;
@@ -453,13 +455,19 @@
           return;
         }
 
-        var timer = null;
+        if (self._flashingCommand === command) key.classList.add("is-flashing");
         var handler = function () {
-          clearTimeout(timer);
+          clearTimeout(self._flashTimer);
+          self._flashingCommand = command;
           key.classList.remove("is-flashing");
           void key.offsetWidth;
           key.classList.add("is-flashing");
-          timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
+          self._flashTimer = setTimeout(function () {
+            var active = self.el.querySelector('[data-streamdeck-command="' + command + '"]');
+            if (active) active.classList.remove("is-flashing");
+            self._flashingCommand = null;
+            self._flashTimer = null;
+          }, 500);
           self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
           if (command === "logs") self._setMode("logs");
         };
@@ -470,7 +478,6 @@
 
     _unbindCommandKeys() {
       (this._commandHandlers || []).forEach(function (entry) {
-        clearTimeout(entry.timer());
         entry.el.removeEventListener("click", entry.handler);
       });
       this._commandHandlers = [];
