@@ -7792,9 +7792,21 @@ html[data-theme="light"] .sd-device {
     padding: 0.9rem 0.8rem;
   }
 
-  .sd-key-face {
+  .sd-key-face:not(.sd-agent) {
     padding: 0.32rem;
   }
+
+  .sd-ag-ic {
+    display: grid;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    place-items: center;
+  }
+
+  .sd-ag-ic svg { width: 17px; height: 17px; }
+
+  .sd-ag-id { font-size: 1rem; }
 
   .sd-screen {
     height: 82px;
