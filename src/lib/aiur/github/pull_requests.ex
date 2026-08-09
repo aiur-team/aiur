@@ -40,6 +40,25 @@ defmodule Aiur.GitHub.PullRequests do
   end
 
   @doc """
+  Fetches all review submissions for a pull request.
+
+  Returns a list of review objects, each containing `id`, `user`, `state`,
+  `body`, and `submitted_at`. Does not paginate beyond `per_page=100`; the
+  review count on any active PR is expected to be well under that limit.
+  """
+  @spec fetch_pull_request_reviews(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_pull_request_reviews(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
+
+      Transport.fetch_json_list(request_fun, token, url)
+    end
+  end
+
+  @doc """
   Fetches the open pull request whose legacy or readable Aiur head branch
   belongs to `issue_number`.
   """
