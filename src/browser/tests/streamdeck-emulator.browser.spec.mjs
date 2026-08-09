@@ -741,6 +741,13 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
     const keysStyle = getComputedStyle(keys)
     const keyBox = key.getBoundingClientRect()
     const wellStyle = getComputedStyle(document.querySelector('.sd-well'))
+    const agentKey = keys.querySelector('.sd-agent-key:not(.is-empty)')
+    const faceBox = agentKey.querySelector('.sd-key-face').getBoundingClientRect()
+    const agentElements = Array.from(agentKey.querySelectorAll('.sd-agent-top > *, .sd-ag-title, .sd-ag-foot'))
+    const agentFaceFits = agentElements.every((element) => {
+      const box = element.getBoundingClientRect()
+      return box.left >= faceBox.left && box.right <= faceBox.right && box.top >= faceBox.top && box.bottom <= faceBox.bottom
+    })
 
     return {
       paddingTop: style.paddingTop,
@@ -750,7 +757,8 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
       columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
       columnGap: keysStyle.columnGap,
       rowGap: keysStyle.rowGap,
-      keyRatio: keyBox.width / keyBox.height
+      keyRatio: keyBox.width / keyBox.height,
+      agentFaceFits
     }
   })
 
@@ -762,6 +770,7 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(mobileGeometry.columnGap).toBe('8.8px')
   expect(mobileGeometry.rowGap).toBe('8.8px')
   expect(mobileGeometry.keyRatio).toBeCloseTo(1, 2)
+  expect(mobileGeometry.agentFaceFits).toBe(true)
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile.png') })
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile-light.png') })

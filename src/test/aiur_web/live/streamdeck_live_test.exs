@@ -80,6 +80,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(class="sd-ag-tag blocked")
     # Every non-queued, non-empty key renders the status dot + progress footer.
     assert html =~ ~s(class="sd-ag-dot")
+    assert html =~ ~s(class="sr-only">Running</span>)
     assert html =~ ~s(class="sd-ag-bar")
   end
 

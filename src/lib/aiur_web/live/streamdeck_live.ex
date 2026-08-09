@@ -190,6 +190,7 @@ defmodule AiurWeb.StreamdeckLive do
                 </div>
                 <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
                   <span class="sd-ag-dot" aria-hidden="true"></span>
+                  <span class="sr-only">{key.label}</span>
                   <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%; background: hsl(#{key.progress_hue} 72% 50%)"}></i></span>
                 </div>
               </div>
@@ -345,7 +346,6 @@ defmodule AiurWeb.StreamdeckLive do
     key(
       slot,
       Atom.to_string(bucket),
-      Map.get(agent, :vendor, "unknown"),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
       bucket_label(bucket),
@@ -360,11 +360,10 @@ defmodule AiurWeb.StreamdeckLive do
     )
   end
 
-  defp key(slot, bucket, vendor, ticket, title, label, progress, opts) do
+  defp key(slot, bucket, ticket, title, label, progress, opts) do
     %{
       slot: slot,
       bucket: bucket,
-      vendor: vendor,
       ticket: ticket,
       title: title,
       label: label,

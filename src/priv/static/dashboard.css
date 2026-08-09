@@ -7549,14 +7549,6 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--sd-face);
 }
 
-.sd-key.st-stuck .sd-status-dot {
-  animation: sd-pulse 1.4s ease-in-out infinite;
-}
-
-.sd-key.st-alert .sd-status-dot {
-  animation: sd-pulse 1.6s ease-in-out infinite;
-}
-
 .sd-key.st-queued {
   --sd-accent: #9096a4;
   --sd-glow: linear-gradient(180deg, #3a3f47, #23262c);
