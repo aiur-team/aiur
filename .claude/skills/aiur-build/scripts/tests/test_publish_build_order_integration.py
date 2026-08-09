@@ -186,6 +186,9 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             self.assertEqual(1, len(materialized["github_reconciliation"]["dependency_edges"]))
             root_number = materialized["github_root"]["number"]
             self.assertEqual(2, len(client.children[root_number]))
+            discovery = root / ".aiur" / "build_orders" / "operator-dashboard.json"
+            self.assertEqual(build_path.read_text(encoding="utf-8"), discovery.read_text(encoding="utf-8"))
+            self.assertIn(str(discovery), result["files_written"])
 
 
 if __name__ == "__main__":
