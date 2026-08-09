@@ -95,6 +95,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
   @spec truncated?(source_set()) :: boolean()
   def truncated?(sources), do: Value.get(sources.membership, :truncated?) == true
 
+  @spec current_status?(source_set()) :: boolean()
+  def current_status?(sources) do
+    source_health(sources.status) in [:healthy, :available] and
+      freshness_status(sources.status) in [:fresh, :current]
+  end
+
   @spec descriptor(map() | term(), map() | term()) :: map()
   def descriptor(source, entry) do
     %{
@@ -147,6 +153,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
       %{status: status} -> status
       status when status in [:healthy, :available, :degraded, :unavailable, :unknown] -> status
       _status -> :unknown
+    end
+  end
+
+  defp freshness_status(source) do
+    case Value.get(source, :freshness) do
+      %{status: status} -> status
+      status when is_atom(status) -> status
+      _freshness -> :unknown
     end
   end
 end
