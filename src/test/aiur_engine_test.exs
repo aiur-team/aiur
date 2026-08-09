@@ -150,6 +150,11 @@ defmodule AiurEngineTest do
     {out, 0} = run_engine(["--help"], [])
     assert out =~ ~r/aiur init \[--force\]\s+scaffold/
     assert out =~ "aiur --todo <ids...> [--only]"
+    assert out =~ "aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
+    assert out =~ "aiur findings --record <json> --repo <owner/repo>"
+    assert out =~ "aiur findings --digest [--scope aiur|repo]"
+    assert out =~ "aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]"
+    assert out =~ "aiur asks [--open|--all] [--json]"
     assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
@@ -438,6 +443,52 @@ defmodule AiurEngineTest do
     assert out2 =~ "TOK=shell|"
   end
 
+  test "run-only environment scrub removes the operator readiness token" do
+    dir = Path.join(System.tmp_dir!(), "aiur-readiness-env-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    File.write!(Path.join(dir, ".env"), "AIUR_CI_READINESS_TOKEN=operator-only\n")
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    src =
+      "cd #{dir}; source #{@engine}; load_dotenv; " <>
+        "printf 'LOADED=%s|' \"$AIUR_CI_READINESS_TOKEN\"; " <>
+        "scrub_run_only_env; printf 'RUN=%s' \"${AIUR_CI_READINESS_TOKEN-unset}\""
+
+    {out, 0} =
+      System.cmd("bash", ["-c", src],
+        env: [{"AIUR_CI_READINESS_TOKEN", nil}],
+        stderr_to_stdout: true
+      )
+
+    assert out =~ "LOADED=operator-only|RUN=unset"
+
+    engine = File.read!(@engine)
+    assert engine =~ ~r/load_dotenv\s+scrub_run_only_env/
+    assert engine =~ "printf 'unset AIUR_CI_READINESS_TOKEN\\n'"
+  end
+
+  test "init intentionally retains the operator readiness token" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-init-token-#{System.unique_integer([:positive])}")
+    elixir = Path.join([rel, "releases", "0.1.1", "elixir"])
+
+    File.write!(elixir, "#!/usr/bin/env bash\nprintf 'CI_TOKEN=%s\\n' \"${AIUR_CI_READINESS_TOKEN-unset}\"\n")
+
+    on_exit(fn ->
+      File.rm_rf!(rel)
+      File.rm_rf!(state)
+    end)
+
+    {out, 0} =
+      run_engine(["init"], [
+        {"AIUR_RELEASE_DIR", rel},
+        {"AIUR_BG_STATE_DIR", state},
+        {"AIUR_CI_READINESS_TOKEN", "operator-only"}
+      ])
+
+    assert out =~ "CI_TOKEN=operator-only"
+  end
+
   test "an unknown command exits 64 with usage" do
     {out, code} = run_engine(["bogus-not-a-path"], [])
     assert code == 64
@@ -456,21 +507,135 @@ defmodule AiurEngineTest do
     refute out =~ "--cookie"
   end
 
-  test "todo boots distribution-free without requiring a running node" do
+  test "todo routes through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\nrun_todo --todo 11 012,13 --only|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
+  end
+
+  test "commands routes filters and encoded detail arguments through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_commands dec:42 --filter resolved --json --limit 10|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+  end
+
+  test "commands reports missing option values as usage errors" do
+    {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
+    assert out =~ "commands --filter requires a value"
+  end
+
+  test "analytics routes an explicit window through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_analytics --range full --since 2026-08-09T10:00:00Z --until 2026-08-09T11:00:00Z --build-order 1595 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
+    assert out =~ "since: Base.decode64!"
+    assert out =~ "build_order: Base.decode64!"
+  end
+
+  test "analytics rejects malformed launcher arguments before an RPC" do
+    for {argv, message} <- [
+          {~s|--range week|, "analytics --range accepts run or full"},
+          {~s|--build-order not-a-ticket|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--build-order ''|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--since|, "analytics --since requires a value"},
+          {~s|--unknown|, "analytics received an unknown option"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_analytics #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "todo control rpc propagates live success and semantic failure codes" do
+    for {rpc_output, expected_code} <- [
+          {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
+          {"queued 0 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:1", 1}
+        ] do
+      script = """
+      resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
+      prepare_distribution() { :; }
+      resolve_control_identity_from_records() { :; }
+      probe_node_liveness() { printf up; }
+      run_release_rpc_with_timeout() {
+        AIUR_CONTROL_RPC_OUTPUT='#{rpc_output}'
+        AIUR_CONTROL_RPC_TIMED_OUT=0
+        return 0
+      }
+      code=0
+      run_todo --todo 123 || code=$?
+      echo "CODE=$code"
+      """
+
+      {out, 0} = run_sourced_engine(script, [])
+
+      assert out =~ "CODE=#{expected_code}"
+      assert out =~ "queued"
+      refute out =~ "returned no exit marker"
+    end
+  end
+
+  test "streaming control rpc reports a stopped daemon" do
+    rel = fake_release()
+    state = tmp_state()
+
+    {out, 1} =
+      run_sourced_engine(
+        ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}]
+      )
+
+    assert out =~ "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
+    refute out =~ "GenServer"
+  end
+
+  test "streaming control rpc preserves an unexpected crash marker" do
+    marker = Path.join(System.tmp_dir!(), "aiur-stream-crash-#{System.unique_integer([:positive])}")
+    File.write!(marker, "reason=boom\n")
+
+    {out, 1} =
+      run_sourced_engine(
+        ~S|resolve_release() { release_bin="/bin/false"; RELEASE_NODE="aiur-test@127.0.0.1"; }; prepare_distribution() { :; }; resolve_control_identity_from_records() { :; }; probe_node_liveness() { printf down; }; aiur_crash_marker_path() { printf '%s' "$CRASH_MARKER"; }; run_control_stream 'Aiur.AgentControlCLI.executor_listen()'|,
+        [{"CRASH_MARKER", marker}]
+      )
+
+    assert out =~ "aiur: background daemon"
+    assert out =~ "reason=boom"
+    refute out =~ "error: aiur is not running"
+  end
+
+  test "findings boots distribution-free without requiring a running node" do
     rel = fake_release()
     state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
-    {out, _} =
-      run_engine(["--todo", "11", "12,13", "--only"], [
-        {"AIUR_RELEASE_DIR", rel},
-        {"AIUR_BG_STATE_DIR", state}
-      ])
+    {out, _} = run_engine(["findings", "--slugs"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
     assert out =~ "ELIXIR_ARGS:"
-    assert out =~ "--eval"
     assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
     refute out =~ "--name"
-    refute out =~ "--cookie"
+    refute out =~ "BIN:"
+  end
+
+  test "ask boots distribution-free without requiring a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["ask", "Enable CI readiness", "--blocking"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
     refute out =~ "BIN:"
   end
 
@@ -585,6 +750,25 @@ defmodule AiurEngineTest do
 
     {resumed, _} = run_engine_real(["resume", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
     assert resumed =~ "Aiur.AgentControlCLI.resume(:all)"
+  end
+
+  test "reset-budget --all exits 64 with guidance instead of silently no-opping" do
+    # #1453 review P2d: `parse_issue_targets` accepts `--all` (empty targets),
+    # and the original cmd_reset_budget proceeded to reset_budget([]) → exit 0
+    # no-op. The command must reject --all loudly so an operator never believes
+    # the whole board was reset.
+    rel = fake_release()
+    {out, code} = run_engine(["reset-budget", "--all"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert code == 64
+    assert out =~ "reset-budget does not accept --all"
+    assert out =~ "name ticket IDs explicitly"
+  end
+
+  test "reset-budget with non-numeric targets exits 64" do
+    rel = fake_release()
+    {out, code} = run_engine(["reset-budget", "not-an-id"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}])
+    assert code == 64
+    assert out =~ "reset-budget expects issue IDs"
   end
 
   test "usage RPCs the usage expression" do
@@ -708,7 +892,7 @@ defmodule AiurEngineTest do
     refute out =~ "no running aiur node"
   end
 
-  test "down global-config control RPC prints a cwd-keyed hint" do
+  test "down global-config control RPC prints the stopped-daemon error" do
     state = tmp_state()
     caller = Path.join(System.tmp_dir!(), "aiur-control-miss-#{System.unique_integer([:positive])}")
     File.mkdir_p!(caller)
@@ -728,15 +912,10 @@ defmodule AiurEngineTest do
     resolve_release() { release_bin="$RPC"; release_dir=/tmp/nonexistent-aiur-release; }
     prepare_distribution() { aiur_resolve_identity; RELEASE_NODE="$AIUR_RELEASE_NODE"; }
     probe_node_liveness() { printf down; }
-    if run_control_rpc "Aiur.AgentControlCLI.status()"; then
-      code=0
-    else
-      code=$?
-    fi
-    echo "CODE=$code"
+    run_control_rpc "Aiur.AgentControlCLI.status()"
     """
 
-    {out, 0} =
+    {out, 1} =
       run_sourced_engine(script, [
         {"AIUR_BG_STATE_DIR", state},
         {"CALLER", caller},
@@ -746,10 +925,8 @@ defmodule AiurEngineTest do
         {"AIUR_REPO_ROOT", nil}
       ])
 
-    assert out =~ "CODE=1"
-    assert out =~ "no running aiur node at aiur-"
-    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
-    assert out =~ "run control commands from the launch directory"
+    assert out ==
+             "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry.\n"
   end
 
   test "down control RPC with crash marker reports orphaned-agent guidance" do
@@ -1434,7 +1611,7 @@ defmodule AiurEngineTest do
 
     assert out =~ "CODE=1"
     assert out =~ "nothing stopped"
-    assert out =~ "global-config control identity is keyed by cwd #{realpath(caller)}"
+    refute out =~ "global-config control identity is keyed by cwd"
     assert out =~ "NO_SENTINEL"
     refute out =~ "KILL_BEAM:"
     refute out =~ "CWD_REAP:"

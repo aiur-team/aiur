@@ -1,0 +1,33 @@
+{
+  "schema_version": 1,
+  "build_order_id": "aiur-team/aiur:test-build",
+  "title": "Test build",
+  "repository": "aiur-team/aiur",
+  "root_number": 9001,
+  "tickets": [
+    {
+      "id": "TB-001",
+      "title": "Member one",
+      "lane": "lane-a",
+      "phase": 1,
+      "complexity": 2,
+      "ticket": 930
+    },
+    {
+      "id": "TB-002",
+      "title": "Member two",
+      "lane": "lane-a",
+      "phase": 2,
+      "complexity": 1,
+      "ticket": 931
+    },
+    {
+      "id": "TB-003",
+      "title": "Member three (never ran)",
+      "lane": "lane-b",
+      "phase": 3,
+      "complexity": 3,
+      "ticket": 999
+    }
+  ]
+}

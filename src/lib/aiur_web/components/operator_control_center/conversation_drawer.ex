@@ -20,6 +20,10 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   attr(:close_event, :any, default: nil)
   attr(:fallback_focus_id, :string, default: nil)
   attr(:origin_id, :string, default: nil)
+  attr(:composer, :map, default: nil)
+  attr(:writable, :boolean, default: false)
+  attr(:drafts, :map, default: %{})
+  attr(:errors, :map, default: %{})
 
   @spec conversation_drawer(map()) :: Phoenix.LiveView.Rendered.t()
   def conversation_drawer(%{view: nil} = assigns), do: ~H""
@@ -33,6 +37,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
       |> assign(:fallback_focus_id, safe_opaque(assigns.fallback_focus_id))
       |> assign(:origin_id, safe_opaque(assigns.origin_id))
       |> assign(:heading_id, "#{assigns.id}-title")
+      |> assign(:composer_writable, composer_writable?(assigns.composer) and assigns.writable)
+      |> assign(:composer_key, composer_key(assigns.composer))
 
     ~H"""
     <div class="modal-backdrop conversation-drawer-backdrop">
@@ -118,6 +124,27 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
                 </article>
               </li>
             </ol>
+            <section :if={@view.log} class="conversation-drawer-log" aria-label="Agent log">
+              <h3 class="conversation-drawer-log-heading">Agent log</h3>
+              <ol class="conversation-drawer-log-entries">
+                <li
+                  :for={entry <- @view.log}
+                  id={"#{@id}-log-#{entry.id}"}
+                  class={"conversation-message conversation-log-entry conversation-log-#{entry.role}"}
+                >
+                  <article>
+                    <header class="conversation-message-header">
+                      <span class="conversation-message-role">{entry.role_label}</span>
+                      <span :if={entry.title != entry.role_label} class="conversation-message-title">
+                        {entry.title}
+                      </span>
+                      <span class="conversation-message-time mono">{entry.timestamp}</span>
+                    </header>
+                    <p class="conversation-message-body">{entry.body}</p>
+                  </article>
+                </li>
+              </ol>
+            </section>
           </div>
           <button type="button" class="btn conversation-drawer-jump" data-conversation-jump hidden>
             Jump to latest
@@ -129,11 +156,36 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
             <div><dt>Last observation</dt><dd><.timestamp value={@view.observed_at} /></dd></div>
             <div><dt>Messages</dt><dd class="mono num">{@view.message_count}</dd></div>
           </dl>
+          <form :if={@composer_writable} class="agent-chat-composer" phx-change="composer-change" phx-submit="send-operator-message">
+            <p :if={error = @errors[@composer_key]} class="agent-chat-error">{error}</p>
+            <textarea
+              class="agent-chat-textarea"
+              name="message"
+              rows="2"
+              placeholder="Message agent…"
+              aria-label="Message agent"
+              enterkeyhint="send"
+            >{@drafts[@composer_key] || ""}</textarea>
+            <div class="agent-chat-actions">
+              <button class="btn danger" type="button" phx-click="pause-agent">Pause</button>
+              <button class="btn" type="submit">Send</button>
+            </div>
+          </form>
+          <p :if={!@writable} class="agent-chat-readonly">Read-only dashboard — use the TUI to message or pause this agent.</p>
+          <p :if={@writable and !@composer_writable} class="agent-chat-readonly">
+            Agent actions are unavailable because this display identifier is not a unique writable target.
+          </p>
         </footer>
       </section>
     </div>
     """
   end
+
+  defp composer_writable?(%{writable_target?: true}), do: true
+  defp composer_writable?(_composer), do: false
+
+  defp composer_key(%{target_key: key}) when is_binary(key), do: key
+  defp composer_key(_composer), do: "unavailable"
 
   attr(:value, :any, default: nil)
   attr(:class, :string, default: nil)

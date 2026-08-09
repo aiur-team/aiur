@@ -76,4 +76,13 @@ defmodule Aiur.AffectedTestsTest do
       assert reason =~ path
     end
   end
+
+  test ".aiur/ config paths are ignored and do not trigger full suite" do
+    assert AffectedTests.select([".aiur/config"], all_exist()) == {:scoped, []}
+  end
+
+  test ".aiur/ config paths alongside real source changes do not block scoped run" do
+    assert AffectedTests.select([".aiur/config", "src/lib/aiur/foo.ex"], all_exist()) ==
+             {:scoped, ["src/test/aiur/foo_test.exs"]}
+  end
 end

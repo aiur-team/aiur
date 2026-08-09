@@ -18,10 +18,23 @@ alerts, and events; planning documents preserve approved intent.
 - Capacity policy
 - Recovery ladder
 - Pull-request review loop
+- Merge mechanics
+- Ticket close-out
+- Hourly meta-analysis
 - Aiur bug-report policy
 - Decisions and handoff
 
 ## Establish the authority envelope
+
+Before consulting repository documentation, read
+`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live
+ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that
+cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been
+recorded. When replacing an Executor, rewrite it wholesale with the next
+Executor's ranked work and hazards; never append another dated checkpoint.
 
 Record these decisions before making the corresponding mutations. Reuse clear
 answers already present in the request or handoff instead of asking again.
@@ -38,6 +51,15 @@ Default to reversible operational actions within the stated scope. Escalate
 product changes, architecture changes, scope cuts, destructive actions, and
 anything outside the recorded authority. Never infer merge or issue-creation
 authority.
+
+Then act on that default. When a fix is reversible and its rollback is one line,
+execute and report; asking is the more expensive option here, not the safer one.
+Two instances in the 2026-07/08 run held a correct diagnosis while waiting for
+permission that was never required — one accumulated 229 minutes of zero-commit
+time, the other spent roughly eight hours issuing ~8 futile `resume` calls.
+Escalation is for the decisions that are genuinely the operator's: irreversible
+actions, spend, external publication, and product direction. It is not for the
+Executor's own reversible operational choices.
 
 ## Protect convergence
 
@@ -76,7 +98,10 @@ critical path.
 The Executor continuously:
 
 1. keeps every ready, independent ticket moving without violating hard
-   dependencies, conflicts, or the configured capacity limit;
+   dependencies, conflicts, or the configured capacity limit, and checks before
+   dispatch that a ticket's deliverable does not already exist — work shipped
+   months earlier or sitting in an open draft PR turns into agent busywork or a
+   worker that pauses repeatedly with nothing to do;
 2. watches agent state, activity age, alerts, host capacity, review state, and
    integration risk;
 3. diagnoses stuck or misbehaving agents and attempts the least invasive
@@ -137,10 +162,41 @@ count detached from ready work.
   ceiling, CPU/load, available memory, build serialization, provider quota,
   and review capacity. A below-target audit must name the limiting gate and
   trigger the highest-leverage in-scope scheduling or recovery action.
+- Know the host's measured ceiling instead of inferring one. A 16-core/31 GB
+  machine saturates at roughly 19-20 concurrent agents (load ~14, memory
+  10/31 GB, GitHub budget 4668/5000); CPU is the binding resource and memory and
+  API budget are not close at that concurrency. `max_load_average` is multiplied
+  by the scheduler count, so `1.5` on 16 cores means "hold at load ~18", not a
+  1.5 load cap.
+- The daemon's adaptive dispatch envelope resets to one slot on every start and
+  widens by `load_ramp_step` per below-target sample, so a restarted fleet takes
+  tens of minutes to reach a high ceiling. Do not read that ramp as idleness or
+  measure capacity immediately after a restart.
 - Prefer runtime overrides to editing committed configuration during a run.
+  Committed configuration can still win, though:
+  `agent.max_concurrent_agents` silently floors `--max-agents`.
 - Record material cap changes and their observed reason.
 
 ## Recovery ladder
+
+A fleet-wide quiet board is a blockage, not idleness, and none of its causes
+log anything. Clear the fleet-level gates before triaging any single agent: run
+bare `aiurdev resume` first, because the global pause switch survives daemon
+restarts and reboots while per-ticket `resume <id>` exits 0 with no effect;
+check `agent.max_concurrent_agents` against the requested ceiling; confirm the
+prewarm record `~/.aiur/repo/<owner>/<repo>/base-record.json` matches the
+`latest` clone's HEAD and prewarm-script hash, since a failed base build holds
+every dispatch tick silently (issue #1404); and allow for the post-restart
+dispatch ramp.
+
+Alerts persist across daemon restarts and tokens (#1231), so the actionable list
+keeps naming long-merged tickets. Check alert timestamps and trust the live
+state table over the alert list.
+
+Review feedback does not wake agents into rework (#1389). Tickets stay in
+`agent:human-review` with `CHANGES_REQUESTED` pull requests and nothing picks
+them up, which breaks the entire review-to-rework loop. After posting reviews,
+relabel `agent:human-review` to `agent:rework` by hand.
 
 For an agent with stale activity, ignored feedback, repeated retries, or a
 ticket it will not pick up:
@@ -226,21 +282,168 @@ bounded attempt does not materially converge, apply the takeover rule above
 instead of issuing the same directive indefinitely. Once all conditions hold:
 
 1. reserve or rebalance capacity for multiple independent background reviewers;
-2. use `ce-code-review` when Compound Engineering is available, adding the
+2. diff the pull request body's claims against the diff **first**. Any claim the
+   diff does not support is a P1, never a nitpick; this is the most common
+   defect class by a wide margin — a transport described as feature-complete
+   whose `sendFeatureReport` unconditionally throws, a design document whose
+   stated colour derivation is arithmetically impossible, a "fix" that never
+   reads the config it claims to. Six of the nine pull requests rejected in the
+   2026-07/08 run failed on exactly this, and every one of them would have
+   merged on a skim. A body edited *down* toward a thinner diff is the same
+   defect wearing a disguise: the capstone pull request was quietly retitled
+   from "driven by live fleet state" to "runbook and evidence framework" and
+   marked done while the page still rendered invented data;
+3. answer two questions about every new test, in this order — **does this test
+   execute at all**, and **would it still pass against a trivially wrong
+   implementation?** The first is the one reviewers skip, and it is not cheap to
+   skip: twenty tests sat outside the `vitest` include glob for 5.8 hours while
+   their pull request read as fully tested, because a test the runner never
+   collects reports no failure. Require the runner's own output naming the test
+   file, not the file's existence in the tree. For the second, the real examples
+   are `f(x) === f(x)` assertions, a test hand-poking the same
+   `:persistent_term` the broken wiring should have set, and tests asserting
+   against an inlined *copy* of the code under test that stayed green after the
+   real code was deleted;
+4. use `ce-code-review` when Compound Engineering is available, adding the
    relevant security, data, frontend, backend, or design lens for the change;
-3. reconcile duplicates and contradictions, classifying each finding under the
+5. reconcile duplicates and contradictions, classifying each finding under the
    convergence policy before routing it;
-4. return contained findings to the existing ticket as rework; create a new
+6. return contained findings to the existing ticket as rework; create a new
    ticket only for an independent P0/P1 feature blocker;
-5. confirm the event bus or tracker transition wakes the owning agent and that
-   it acknowledges the rework;
-6. require the worker to restore the same branch-freshness and CI gate after
+7. confirm the event bus or tracker transition wakes the owning agent and that
+   it acknowledges the rework. Submitting is not landing: re-read the observable
+   state after every mutation — `reviewDecision` for the review itself, the
+   label set for a transition, the thread's latest comment for a reply — because
+   a verdict issued as a turn ends can be lost with the request still in flight
+   and nothing reports the loss. Six review verdicts vanished this way in one
+   run;
+8. require the worker to restore the same branch-freshness and CI gate after
    fixes, rerun targeted review, then apply the recorded merge policy.
 
 If tooling or an explicit resource limit prevents parallel review, record the
 degraded review and compensate before merge. Do not equate green CI with
 feature acceptance. The integration/capstone owner must still produce the
 evidence named by the planning handoff.
+
+## Merge mechanics
+
+Branch protection measures the identity of the **pusher**, not the commit
+author, and `require_last_push_approval` evaluates that identity. An inline
+`git -c credential.helper=` override silently falls back to the cached `gh`
+credential, and adding a token-bearing remote URL later does not repair a branch
+whose last push already carries the wrong identity. Push with an explicit
+token-bearing URL from the first push, and open agent pull requests with the
+agent's own token: GitHub counts the PR **opener**, not the commit author, when
+deciding self-approval.
+
+The declaration requires every blocking CI job as required status checks,
+including `build`, `test`, and `workflow security`, with strict status checks
+enabled, and the gate is enforced once that declaration is applied to the live
+ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
+that declaration on every PR and merge, so a regressed gate fails CI visibly.
+The Executor must wait for the required checks and the review conditions before
+merging; never merge a pending, failing, or stale head.
+
+A solo operator cannot merge `develop` into `main` through the gate
+(issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
+and `require_last_push_approval`, the only in-gate path is a bot approval, which
+defeats the gate; `--admin` does not bypass it. Any approved maintenance window
+must change only the review-side rules while leaving the required-status-check
+rule active. Back up and re-read the ruleset to confirm the review-side change
+rather than trusting the write.
+
+## Ticket close-out
+
+Before closing a ticket, grep the codebase for deferred-work markers naming it:
+
+```bash
+git grep -n "Follow-up (#<N>)"
+```
+
+`Follow-up (#<N>)` is the house convention because `credo --strict` in
+`make lint` forbids `TODO` tags — the codebase has zero of them, so these
+markers are the only greppable record of work a ticket knowingly deferred. When
+one still names the ticket being closed, resolve it first: either the deferred
+work lands, or the marker is re-pointed at a successor ticket that is open.
+**Never close a ticket while live markers still name it.**
+
+The 2026-07/08 analytics-streamdeck run shows the cost. `streamdeck_live.ex`
+carried `Follow-up (#1350)` on a hardcoded fixture, `preview_key_descriptors/0`,
+which #1350's key-content model was meant to replace. #1350 closed; nobody wired
+it. Two days later the build order's capstone proof (#1358) failed: it required
+the emulator be "driven by live fleet state", and that was structurally
+impossible because the page still rendered invented data with no PubSub
+subscribe and no `handle_info/2`. The marker was correct, greppable, and named
+the exact ticket — there was simply no check that read it.
+
+The reviewer's tell arrived before the proof did: the capstone PR title had
+drifted from "driven by live fleet state" to "runbook and evidence framework".
+When a proof ticket's title slides from proving behavior to documenting it, the
+behavior is usually still missing.
+
+## Hourly meta-analysis
+
+The wake/outcome retrospective tunes monitoring cadence; this practice tunes
+the run. Every hour (established on the 2026-07 analytics-streamdeck run,
+where it repeatedly paid for itself):
+
+1. **Name THE single thing currently costing the most wall-clock**, quantified:
+   minutes lost, CI cycles burned, agents idle. Breadth summaries are
+   explicitly not the deliverable; the organizing question is "what is the
+   latest thing taking the most time, and how do we shrink it?" There is
+   always a next bottleneck — this check is never complete. When one falls,
+   the next entry names its successor.
+2. **Classify recurring problems, not incidents.** Ask what CLASS of failure
+   recurred this hour. Known classes worth pattern-matching against:
+   - silent failure with a misleading symptom — seven distinct faults in one
+     run all presented as "the fleet is idle" and none logged a reason;
+   - PR bodies claiming more than the diff delivers;
+   - tests that cannot fail;
+   - flaky-test families sharing one mechanism: shared globals, leaked
+     persistent state, silently-failed cache invalidation;
+   - identity/gate mechanics: pusher vs author, opener vs committer.
+3. **Reflect the pattern into higher-level solution tickets.** When the same
+   class recurs — rule of thumb: 3+ reproductions, or 2 with a shared root
+   cause — file ONE systemic ticket attacking the class rather than continuing
+   to patch instances: a consolidated test-isolation refactor instead of
+   per-test fixes, a shared-helper hardening instead of per-file migrations,
+   an alerting gap instead of another manual check. Record in the ticket the
+   reproductions that justify it. File at most 1-2 evidence-backed systemic
+   tickets per pattern, and never expand the active feature boundary with
+   them — process/infra tickets ride alongside the build order; feature
+   tickets need operator sign-off.
+4. **Write and file the entry** in the repository state node. The narrative
+   retrospective is `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`;
+   each actionable item is an append-only `meta/findings.ndjson` record with a
+   reusable slug, evidence references, and its filed ticket (or `ticket: null`).
+   Write it only through `aiurdev findings --record '<json>' --repo
+   <owner>/<repo>` so schema validation and the atomic size cap cannot be
+   bypassed.
+   `aiur init` creates the tree and `aiurdev findings --unfiled` makes a missing
+   ticket visible before a retrospective can be treated as complete. Raw records
+   remain host-local; periodically run `mkdir -p docs/executor && aiurdev
+   findings --digest > docs/executor/open-findings.md`, inspect the regenerated
+   file, and commit it. That generated digest is the deliberate git channel
+   between machines, not a sync of host paths or boot IDs.
+
+   The ledger contains one JSON object per line, hard-capped at 4 KiB so
+   `O_APPEND` remains atomic when two Executor instances share a host. Cite
+   evidence by reference - an issue number or a log path plus line - never a
+   pasted log dump.
+
+   ```json
+   {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":["#1442","~/.aiur/logs/agent-1442.log:8812"],"cost":"5.8h","ticket":1451,"status":"filed"}
+   ```
+
+   `slug` is a reusable kebab join key, so repeated observations group into a
+   recurrence count. `scope` is `aiur` when the finding reproduces on any
+   repository and `repo` when it names this repository's tests, CI, or code.
+   `status` moves `open` -> `filed` -> `resolved`. A record left at
+   `ticket: null` remains visible to the unfiled gate; it is not an accepted
+   completed finding.
+5. **Daily**, review the accumulated hourly notes and ask whether any Aiur
+   skill should change so the next run never rediscovers the lesson. Capture
+   that as a concrete skill-doc edit and land it as a small PR.
 
 ## Aiur bug-report policy
 
@@ -295,7 +498,9 @@ A resumable handoff contains:
 - unresolved decisions, incidents, and sanitized bug links;
 - integration/acceptance owner and remaining evidence;
 - the last deliberate capacity setting and why.
-- the deferred findings ledger and ticket-creation circuit-breaker state.
+- the deferred findings ledger and ticket-creation circuit-breaker state,
+  including the path to `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson` and
+  any record still sitting at `ticket: null`.
 - the stable monitoring run ID, hourly retrospective log location, last
   completed review, current adaptive cadence/trigger settings, and any repeated
   notification gap reserved for terminal synthesis. Preserve the ID only

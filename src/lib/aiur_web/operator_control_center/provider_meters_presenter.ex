@@ -20,14 +20,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   `empty_supported`), standing, freshness, and reset distinct.
   """
 
+  alias Aiur.CodingAgent
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.FinancialDataAccess
 
-  @providers [:codex, :claude]
   @real_failures [:authentication, :malformed, :timeout, :transport]
   @window_kind_order %{rate_limit: 0, credit: 1, spend_control: 2}
 
-  @type snapshots :: %{optional(:codex) => ProviderMeterSnapshot.t() | nil, optional(:claude) => ProviderMeterSnapshot.t() | nil}
+  @type snapshots :: %{optional(atom()) => ProviderMeterSnapshot.t() | nil}
   @type view :: map()
 
   @doc """
@@ -45,7 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
     %{
       state: :authorized,
       locked: nil,
-      cards: Enum.map(@providers, &card(&1, Map.get(snapshots, &1)))
+      cards: Enum.map(CodingAgent.provider_families(), &card(&1, Map.get(snapshots, &1)))
     }
   end
 
@@ -56,7 +56,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   @doc "A single bounded screen-reader announcement summarising the presented `view`."
   @spec announcement(view()) :: String.t()
   def announcement(%{state: :locked}) do
-    "Provider account meters are locked. Authentication is required to view Codex and Claude account meters."
+    "Provider account meters are locked. Authentication is required to view provider account meters."
   end
 
   def announcement(%{state: :authorized, cards: cards}) when is_list(cards) do
@@ -166,7 +166,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- health / freshness --------------------------------------------------
 
-  defp health(%ProviderMeterSnapshot{health: %{} = health}) do
+  defp health(%ProviderMeterSnapshot{health: %{} = health} = snapshot) do
     state = Map.get(health, :state, :unavailable)
     failure = Map.get(health, :failure)
 
@@ -175,11 +175,26 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       label: health_label(state),
       failure: failure,
       failure_label: failure_label(failure),
-      last_observed_at: datetime(Map.get(health, :last_observed_at))
+      last_observed_at: datetime(Map.get(health, :last_observed_at)),
+      last_attempt_at: datetime(Map.get(health, :last_attempt_at)),
+      consecutive_failures: Map.get(health, :consecutive_failures, 0),
+      age_seconds: snapshot.age_seconds,
+      age_label: age_label(snapshot.age_seconds)
     }
   end
 
-  defp health(_snapshot), do: %{state: :unavailable, label: health_label(:unavailable), failure: :no_observation, failure_label: failure_label(:no_observation), last_observed_at: nil}
+  defp health(_snapshot),
+    do: %{
+      state: :unavailable,
+      label: health_label(:unavailable),
+      failure: :no_observation,
+      failure_label: failure_label(:no_observation),
+      last_observed_at: nil,
+      last_attempt_at: nil,
+      consecutive_failures: 0,
+      age_seconds: nil,
+      age_label: nil
+    }
 
   defp freshness(%ProviderMeterSnapshot{freshness: freshness}) do
     %{status: freshness, label: freshness_label(freshness)}
@@ -227,6 +242,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       duration_minutes: Map.get(window, :duration_minutes),
       resets_at: datetime(Map.get(window, :resets_at)),
       expires_at: datetime(Map.get(window, :expires_at)),
+      observed_at: datetime(Map.get(window, :observed_at)),
       credits: credits(Map.get(window, :credits)),
       spend_control: spend_control(Map.get(window, :spend_control)),
       freshness: window_freshness,
@@ -295,11 +311,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- labels --------------------------------------------------------------
 
-  defp provider_label(:codex), do: "Codex"
-  defp provider_label(:claude), do: "Claude"
-  defp provider_label(other), do: other |> to_string() |> String.capitalize()
+  defp provider_label(provider) do
+    case CodingAgent.provider_descriptor(provider) do
+      %{label: label} -> label
+      _ -> provider |> to_string() |> String.capitalize()
+    end
+  end
 
   defp backend_label(%ProviderMeterSnapshot{backend: :app_server}), do: "App server"
+  defp backend_label(%ProviderMeterSnapshot{backend: :openai_compat}), do: "OpenAI-compatible API"
   defp backend_label(_snapshot), do: "Backend unknown"
 
   defp status_label(:loading), do: "Loading…"
@@ -356,6 +376,24 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp freshness_label(:partial), do: "Partial"
   defp freshness_label(:stale), do: "Stale"
   defp freshness_label(_status), do: "Unknown"
+
+  defp age_label(nil), do: nil
+  defp age_label(seconds) when seconds < 60, do: "#{seconds} #{pluralize(seconds, "second", "seconds")} old"
+
+  defp age_label(seconds) when seconds < 3_600 do
+    minutes = div(seconds, 60)
+    "#{minutes} #{pluralize(minutes, "minute", "minutes")} old"
+  end
+
+  defp age_label(seconds) when seconds < 86_400 do
+    hours = div(seconds, 3_600)
+    "#{hours} #{pluralize(hours, "hour", "hours")} old"
+  end
+
+  defp age_label(seconds) do
+    days = div(seconds, 86_400)
+    "#{days} #{pluralize(days, "day", "days")} old"
+  end
 
   defp window_freshness_label(:fresh), do: "Fresh"
   defp window_freshness_label(:stale), do: "Stale"

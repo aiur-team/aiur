@@ -36,6 +36,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "Inspect ticket"
     refute html =~ ~s(href="/decisions?ticket=1110")
     refute html =~ ">Agent log</button>"
+    # The standalone read-agent-log row action is gone: the chat modal now
+    # carries the agent log beneath the conversation.
+    refute html =~ "Read agent log"
+    refute html =~ ~s(phx-click="show-agent-log")
     assert html =~ ~s(phx-value-unit="#{token}")
     refute html =~ ~s(phx-value-issue="1110")
     refute html =~ ~r/<tr[^>]+phx-click=/
@@ -77,6 +81,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "example.com"
     refute html =~ "/private/workspace"
     refute html =~ "Agent log"
+  end
+
+  test "resolves string-backed registry families and backends" do
+    row = row() |> Map.put(:agent_family, "fake") |> Map.put(:backend, "fake")
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    assert html =~ ~s(class="u-pill u-agent is-fake")
+    assert html =~ ">Fake</span>"
+    assert html =~ "--provider-unit-color"
   end
 
   test "distinguishes unavailable, healthy-empty, filtered-empty, and stale catalog states" do

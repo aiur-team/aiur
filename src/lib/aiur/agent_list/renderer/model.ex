@@ -4,7 +4,7 @@ defmodule Aiur.AgentList.Renderer.Model do
   It isolates website-family presentation rules from frame composition.
   """
 
-  alias Aiur.AgentList.Renderer.{Style, Text}
+  alias Aiur.{AgentList.Renderer.Style, AgentList.Renderer.Text, CodingAgent}
 
   # Floor width for the MODEL column: holds the longest base name
   # ("Sonnet" = 6). The column reserves this much when shown and expands
@@ -112,13 +112,19 @@ defmodule Aiur.AgentList.Renderer.Model do
   end
 
   @spec family_from_backend(term()) :: term()
-  def family_from_backend(summary) do
-    case engine_word(summary) do
-      "codex" -> :codex
-      "claude" -> :claude
+  def family_from_backend(summary), do: summary |> Map.get(:backend) |> provider_for_backend()
+
+  defp provider_for_backend(backend) when is_binary(backend), do: backend |> CodingAgent.family_for() |> provider_for_family()
+  defp provider_for_backend(_backend), do: nil
+
+  defp provider_for_family(family) when is_binary(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{provider: provider} -> provider
       _ -> nil
     end
   end
+
+  defp provider_for_family(_family), do: nil
 
   @spec model_base(term()) :: term()
   def model_base(:opus), do: "Opus"
@@ -126,6 +132,14 @@ defmodule Aiur.AgentList.Renderer.Model do
   def model_base(:haiku), do: "Haiku"
   def model_base(:codex), do: "Codex"
   def model_base(:claude), do: "Claude"
+
+  def model_base(family) when is_atom(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{label: label} -> label
+      _ -> ""
+    end
+  end
+
   def model_base(_), do: ""
 
   # Full human-readable version string, or nil when no version is pinned.
@@ -141,6 +155,13 @@ defmodule Aiur.AgentList.Renderer.Model do
     case String.split(model, "-", parts: 2) do
       [_family] -> "Claude " <> model_base(family)
       [_family, version] -> "Claude " <> model_base(family) <> " " <> String.replace(version, "-", ".")
+    end
+  end
+
+  def model_full_name(family, model) when is_atom(family) and is_binary(model) do
+    case model_base(family) do
+      "" -> nil
+      label -> label <> " " <> model
     end
   end
 

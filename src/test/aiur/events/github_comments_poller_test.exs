@@ -64,6 +64,39 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     refute String.contains?(readable_pulls_url, "head=")
   end
 
+  test "keeps a per-target issue ETag when comments are unchanged" do
+    parent = self()
+
+    request_fun = fn request ->
+      send(parent, {:requested, request})
+
+      cond do
+        String.contains?(request.url, "/issues/42/comments?") ->
+          assert request.etag == ~s("previous-etag")
+          {:ok, %{status: 304, headers: [{"etag", ~s("previous-etag")}]}}
+
+        String.contains?(request.url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              count: 0,
+              errors: [],
+              etags: %{"42" => %{issue: ~s("previous-etag")}}
+            }} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               etags: %{"42" => %{issue: ~s("previous-etag")}},
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:requested, %{url: issue_comments_url}}
+    assert String.contains?(issue_comments_url, "/issues/42/comments?")
+  end
+
   test "polls issue comments directly and publishes issue.commented" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -174,6 +207,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
               }
             }
           ])
+
+        String.contains?(url, "/pulls/77/reviews") ->
+          {:ok, %{status: 200, body: []}}
       end
     end
 
@@ -228,6 +264,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
         String.contains?(url, "/graphql") ->
           empty_review_threads_response()
+
+        String.contains?(url, "/pulls/77/reviews") ->
+          {:ok, %{status: 200, body: []}}
       end
     end
 
@@ -281,6 +320,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
         String.contains?(url, "/graphql") ->
           empty_review_threads_response()
+
+        String.contains?(url, "/pulls/77/reviews") ->
+          {:ok, %{status: 200, body: []}}
       end
     end
 
@@ -337,6 +379,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
               }
             }
           ])
+
+        String.contains?(url, "/pulls/123/reviews") ->
+          {:ok, %{status: 200, body: []}}
       end
     end
 
@@ -395,6 +440,9 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
 
         String.contains?(url, "/graphql") ->
           empty_review_threads_response()
+
+        String.contains?(url, "/pulls/77/reviews") ->
+          {:ok, %{status: 200, body: []}}
       end
     end
 
@@ -573,7 +621,8 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              ]
            }}
 
-        String.contains?(url, "/pulls?") and not String.contains?(url, "aiur%2F43") and not String.contains?(url, "aiur/43") ->
+        String.contains?(url, "/pulls?") and not String.contains?(url, "aiur%2F43") and
+            not String.contains?(url, "aiur/43") ->
           {:ok, %{status: 200, body: []}}
 
         String.contains?(url, "/issues/43/comments?") ->
@@ -749,6 +798,375 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              )
   end
 
+  describe "PR review submission polling" do
+    test "publishes pr.review_comment for CHANGES_REQUESTED from a trusted reviewer" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_001, "its-everdred", "CHANGES_REQUESTED", "please rework this section")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        author_trusted?: true,
+                        source: :github,
+                        comment: %{
+                          "state" => "CHANGES_REQUESTED",
+                          "body" => "please rework this section"
+                        }
+                      }},
+                     500
+
+      stop_codeowners(codeowners)
+    end
+
+    test "publishes pr.review_comment for COMMENTED from a trusted reviewer" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_002, "its-everdred", "COMMENTED", "left some thoughts in review body")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        author_trusted?: true,
+                        source: :github,
+                        comment: %{"state" => "COMMENTED"}
+                      }},
+                     500
+
+      stop_codeowners(codeowners)
+    end
+
+    test "publishes pr.review_comment with author_trusted? false for untrusted reviewer" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_003, "outsider", "CHANGES_REQUESTED", "some feedback")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        author_trusted?: false
+                      }},
+                     500
+
+      stop_codeowners(codeowners)
+    end
+
+    test "does not publish pr.review_comment for APPROVED review" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_004, "its-everdred", "APPROVED", "lgtm")
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "does not publish pr.review_comment for DISMISSED review" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_005, "its-everdred", "DISMISSED", "")
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "publishes only the most recent review per reviewer when multiple exist" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      older = pr_review(9_006, "its-everdred", "COMMENTED", "first pass", "2026-06-24T10:00:00Z")
+
+      newer =
+        pr_review(
+          9_007,
+          "its-everdred",
+          "CHANGES_REQUESTED",
+          "second pass",
+          "2026-06-24T12:00:00Z"
+        )
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([older, newer])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        comment: %{"id" => 9_007, "state" => "CHANGES_REQUESTED"}
+                      }},
+                     500
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "does not publish pr.review_comment when reviewer's latest is APPROVED after CHANGES_REQUESTED" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      older =
+        pr_review(
+          9_010,
+          "its-everdred",
+          "CHANGES_REQUESTED",
+          "please fix",
+          "2026-06-24T10:00:00Z"
+        )
+
+      newer =
+        pr_review(9_011, "its-everdred", "APPROVED", "lgtm after fixes", "2026-06-24T14:00:00Z")
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([older, newer])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "a later blank-bodied COMMENTED container does not mask an earlier CHANGES_REQUESTED" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      changes_requested =
+        pr_review(
+          9_012,
+          "its-everdred",
+          "CHANGES_REQUESTED",
+          "please fix",
+          "2026-06-24T12:00:00Z"
+        )
+
+      # GitHub wraps a later inline-only comment in an empty-bodied COMMENTED
+      # review. It must be transparent, not the reviewer's "most recent".
+      inline_container = pr_review(9_013, "its-everdred", "COMMENTED", "", "2026-06-24T13:00:00Z")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([changes_requested, inline_container])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        comment: %{"id" => 9_012, "state" => "CHANGES_REQUESTED"}
+                      }},
+                     500
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "publishes one review per reviewer when multiple trusted reviewers" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred @other-reviewer\n")
+
+      review_a = pr_review(9_008, "its-everdred", "CHANGES_REQUESTED", "feedback from A")
+      review_b = pr_review(9_009, "other-reviewer", "CHANGES_REQUESTED", "feedback from B")
+
+      assert {:ok, %{count: 2, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review_a, review_b])
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_008}}},
+                     500
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_009}}},
+                     500
+
+      stop_codeowners(codeowners)
+    end
+
+    test "deduplicates PR review submissions on repeated polls" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_020, "its-everdred", "CHANGES_REQUESTED", "please rework")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_020}}},
+                     500
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "reports an error and zero count when PR reviews fetch fails" do
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/42/comments?") -> {:ok, %{status: 200, body: []}}
+          String.contains?(url, "/pulls?") -> {:ok, %{status: 200, body: [%{"number" => 77}]}}
+          String.contains?(url, "/issues/77/comments?") -> {:ok, %{status: 200, body: []}}
+          String.contains?(url, "/graphql") -> empty_review_threads_response()
+          String.contains?(url, "/pulls/77/reviews") -> {:error, :timeout}
+        end
+      end
+
+      assert {:ok, %{count: 0, errors: [{"42", {:pr_reviews, _}}]}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      stop_codeowners(codeowners)
+    end
+
+    test "a transient PR reviews failure does not stall the issue-comment watermark" do
+      # Regression for #1389 P0: if /reviews 403s, the issue-comment since must
+      # still advance. Previously errors == [] gated advance_since unconditionally.
+      :ok = Exchange.subscribe("ticket.42.issue.commented")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/issues/42/comments?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "id" => 99_001,
+                   "body" => "looks good to me",
+                   "updated_at" => "2026-06-24T12:00:00Z",
+                   "user" => %{"login" => "its-everdred"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/pulls?") ->
+            {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+          String.contains?(url, "/issues/77/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/graphql") ->
+            empty_review_threads_response()
+
+          String.contains?(url, "/pulls/77/reviews") ->
+            {:error, :timeout}
+        end
+      end
+
+      assert {:ok, %{since: %{"42" => since}, errors: [{"42", {:pr_reviews, _}}]}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      assert since > "2026-06-24T11:00:00Z", "since must advance past the new comment even when /reviews fails"
+      assert_receive {:event, %{topic: "ticket.42.issue.commented"}}, 500
+      stop_codeowners(codeowners)
+    end
+
+    test "blank-bodied COMMENTED reviews are not published (avoid double-wake for inline-only reviews)" do
+      # GitHub creates an empty COMMENTED review as the container for inline
+      # comments. Those inline comments are already published via review threads;
+      # publishing the blank container too would double-wake the agent.
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      blank_commented = pr_review(9_030, "its-everdred", "COMMENTED", "")
+
+      request_fun = request_fun_with_reviews([blank_commented])
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "COMMENTED review with a body is published" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      commented_with_body = pr_review(9_032, "its-everdred", "COMMENTED", "minor nit: fix the spacing")
+
+      request_fun = request_fun_with_reviews([commented_with_body])
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun
+               )
+
+      assert_receive {:event, %{topic: "ticket.42.pr.review_comment", comment: %{"id" => 9_032}}}, 500
+      stop_codeowners(codeowners)
+    end
+  end
+
   defp ensure_codeowners!(contents) do
     case Process.whereis(CodeOwners) do
       pid when is_pid(pid) ->
@@ -850,5 +1268,36 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       "url" => "https://github.test/discussion_r#{id}",
       "author" => %{"login" => login}
     }
+  end
+
+  defp pr_review(id, login, state, body, submitted_at \\ "2026-06-24T12:00:00Z") do
+    %{
+      "id" => id,
+      "state" => state,
+      "body" => body,
+      "submitted_at" => submitted_at,
+      "user" => %{"login" => login}
+    }
+  end
+
+  defp request_fun_with_reviews(reviews) do
+    fn %{url: url} ->
+      cond do
+        String.contains?(url, "/issues/42/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/pulls?") ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        String.contains?(url, "/issues/77/comments?") ->
+          {:ok, %{status: 200, body: []}}
+
+        String.contains?(url, "/graphql") ->
+          empty_review_threads_response()
+
+        String.contains?(url, "/pulls/77/reviews") ->
+          {:ok, %{status: 200, body: reviews}}
+      end
+    end
   end
 end

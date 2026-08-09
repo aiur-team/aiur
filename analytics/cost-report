@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+# Spend by model, agent family, and ticket — pure wiring over UsageAggregate +
+# PriceTable (an offline Elixir mix task; needs no new recording).
+set -euo pipefail
+caller_cwd="$PWD"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
+
+export AIUR_ANALYTICS_CALLER_CWD="$caller_cwd"
+cd "$repo_root/src"
+exec mise exec -- mix aiur.cost_report "$@"

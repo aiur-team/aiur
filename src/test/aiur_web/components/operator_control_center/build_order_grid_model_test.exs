@@ -52,6 +52,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       refute card.has_progress
       assert card.progress == 0
     end
+
+    test "renders a planned member alongside live members" do
+      model = model([node(:live, "A", "plan-graph", 1, status: :status_completed), node(:draft, "B", "plan-graph", 1, planned?: true)])
+
+      cards = BuildOrderGridModel.build(model, nil).cards
+
+      assert Enum.find(cards, &(&1.id == "A")).state == :merged
+      assert Enum.find(cards, &(&1.id == "B")).state == :planned
+    end
   end
 
   describe "build/2 wave completion" do
@@ -73,12 +82,28 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
     test "excludes Ad Hoc from wave completion" do
       model = model([node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 2)])
       adhoc = adhoc([%{adhoc_row("9", 1) | lifecycle: :open}])
-
       waves = BuildOrderGridModel.build(model, adhoc).waves
       w1 = Enum.find(waves, &(&1.phase == 1))
-
-      # Only the core merged card counts → 100%, ad hoc ignored.
       assert w1.pct == 100
+    end
+
+    test "preserves unknown aggregate completion when any core card lacks progress" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 4),
+          node(:b, "B", "plan-graph", 1,
+            status: :status_unknown,
+            complexity: 1,
+            progress: :unknown,
+            lifecycle: %{state: :unknown, state_reason: :unknown}
+          )
+        ])
+
+      grid = BuildOrderGridModel.build(model, nil)
+      assert grid.overall_pct == nil
+      assert hd(grid.columns).core?
+      assert hd(grid.columns).pct == nil
+      assert hd(grid.waves).pct == nil
     end
   end
 
@@ -94,6 +119,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
 
       assert %{source: "A", target: "B", state: "cleared"} in edges
       assert %{source: "B", target: "A", state: "blocking"} in edges
+    end
+
+    test "keeps edges planned when either mixed-pack endpoint is a draft" do
+      model =
+        model(
+          [node(:live, "A", "plan-graph", 1), node(:draft, "B", "plan-graph", 2, planned?: true)],
+          [edge(:live, :draft, :blocking)]
+        )
+
+      assert [%{source: "A", target: "B", state: "planned"}] = BuildOrderGridModel.build(model, nil).edges
     end
   end
 
@@ -124,10 +159,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
         lane: lane,
         phase: phase,
         status_text: "status",
-        lifecycle: %{state: :open, state_reason: :none},
+        lifecycle: Keyword.get(opts, :lifecycle, %{state: :open, state_reason: :none}),
         execution_state: :idle,
         agent_stage: nil,
-        progress: Keyword.get(opts, :progress, :unknown)
+        progress: Keyword.get(opts, :progress, :unknown),
+        planned?: Keyword.get(opts, :planned?, false)
       }
     }
   end

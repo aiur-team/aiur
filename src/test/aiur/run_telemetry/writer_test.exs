@@ -1,11 +1,14 @@
 defmodule Aiur.RunTelemetry.WriterTest do
   use ExUnit.Case, async: false
 
+  alias Aiur.Events.{Exchange, GithubFirehose}
   alias Aiur.RunTelemetry
   alias Aiur.RunTelemetry.{Dataset, Retention, Writer}
 
   setup do
-    root = Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
+    root =
+      Path.join(System.tmp_dir!(), "aiur-telemetry-writer-#{System.unique_integer([:positive])}")
+
     path = Path.join(root, "log/telemetry.ndjson")
     on_exit(fn -> File.rm_rf!(root) end)
     %{path: path, root: root}
@@ -29,7 +32,14 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.map(records, & &1["kind"]) == ["restart", "lifecycle", "restart", "resource"]
     assert Enum.map(records, & &1["boot_id"]) == ["boot-1", "boot-1", "boot-2", "boot-2"]
     assert Enum.map(records, & &1["sequence"]) == [1, 2, 1, 2]
-    assert Enum.map(records, & &1["record_id"]) == ["boot-1:1", "boot-1:2", "boot-2:1", "boot-2:2"]
+
+    assert Enum.map(records, & &1["record_id"]) == [
+             "boot-1:1",
+             "boot-1:2",
+             "boot-2:1",
+             "boot-2:2"
+           ]
+
     assert Enum.at(records, 1)["timestamp"] == "2026-07-11T12:00:00Z"
     assert Enum.at(records, 1)["attributes"] == %{"event" => "dispatch", "ticket" => "930"}
     assert Enum.at(records, 2)["attributes"]["existing_records"] == true
@@ -40,7 +50,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
     1..20
     |> Task.async_stream(
-      fn index -> Writer.record(writer, :resource, %{actor: "ticket:#{index}", rss_bytes: index}) end,
+      fn index ->
+        Writer.record(writer, :resource, %{actor: "ticket:#{index}", rss_bytes: index})
+      end,
       max_concurrency: 8,
       ordered: false
     )
@@ -76,14 +88,19 @@ defmodule Aiur.RunTelemetry.WriterTest do
            ]
   end
 
-  test "writer tolerates malformed caller values while retaining valid batch entries", %{path: path} do
+  test "writer tolerates malformed caller values while retaining valid batch entries", %{
+    path: path
+  } do
     name = {:global, {__MODULE__, System.unique_integer([:positive])}}
     {:ok, writer} = Writer.start_link(name: name, path: path, boot_id: "guarded")
 
     assert :ok = Writer.record(writer, :resource, :not_a_map, :not_options)
 
     assert :ok =
-             Writer.record_batch(writer, [{:resource, %{actor: "_daemon", rss_bytes: 42}}, :not_a_record])
+             Writer.record_batch(writer, [
+               {:resource, %{actor: "_daemon", rss_bytes: 42}},
+               :not_a_record
+             ])
 
     assert :ok = Writer.flush(writer)
     assert :ok = Writer.flush(:writer_that_does_not_exist)
@@ -92,13 +109,17 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert Enum.map(records, & &1["kind"]) == ["restart", "resource"]
   end
 
-  test "writer normalizes opaque batch values and ignores unrelated mailbox messages", %{path: path} do
+  test "writer normalizes opaque batch values and ignores unrelated mailbox messages", %{
+    path: path
+  } do
     {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "normalized")
 
     send(writer, {:event, %{}})
     send(writer, :unrelated)
 
-    assert :ok = Writer.record_batch(writer, [{42, %{actor: "_daemon"}}], timestamp: :not_a_timestamp)
+    assert :ok =
+             Writer.record_batch(writer, [{42, %{actor: "_daemon"}}], timestamp: :not_a_timestamp)
+
     assert :ok = Writer.flush(writer)
 
     records = read_records(path)
@@ -143,7 +164,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
       File.write(path, contents, [:append])
     end
 
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "bounded", write_fun: write_fun)
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "bounded", write_fun: write_fun)
+
     assert_receive {:write_started, 1, ^writer}, 2_000
 
     :atomics.put(blocked, 1, 1)
@@ -151,7 +174,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert_receive {:write_started, 2, ^writer}, 2_000
 
     1..5_000
-    |> Task.async_stream(fn index -> Writer.record(writer, :resource, %{actor: index}) end, max_concurrency: 16)
+    |> Task.async_stream(fn index -> Writer.record(writer, :resource, %{actor: index}) end,
+      max_concurrency: 16
+    )
     |> Enum.to_list()
 
     assert {:message_queue_len, queue_len} = Process.info(writer, :message_queue_len)
@@ -191,7 +216,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
       File.write(path, contents, [:append])
     end
 
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "overflow", write_fun: write_fun)
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "overflow", write_fun: write_fun)
 
     overload = fn dropped ->
       :atomics.put(blocked, 1, 1)
@@ -265,7 +291,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
 
   test "writer catches failures from the append function", %{path: path} do
     write_fun = fn _path, _contents -> throw(:writer_exploded) end
-    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "exception", write_fun: write_fun)
+
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "exception", write_fun: write_fun)
 
     assert :ok = Writer.record(writer, :resource, %{actor: "test"})
     assert :ok = Writer.flush(writer)
@@ -323,12 +351,16 @@ defmodule Aiur.RunTelemetry.WriterTest do
     two_boot_size = File.stat!(path).size
     retention = [max_bytes: two_boot_size - first_boot_size]
 
-    {:ok, third} = Writer.start_link(name: nil, path: path, boot_id: "boot-3", retention: retention)
+    {:ok, third} =
+      Writer.start_link(name: nil, path: path, boot_id: "boot-3", retention: retention)
+
     assert :ok = Writer.record(third, :resource, %{actor: "_daemon", rss_bytes: 3})
     assert :ok = Writer.flush(third)
     :ok = GenServer.stop(third)
 
-    {:ok, fourth} = Writer.start_link(name: nil, path: path, boot_id: "boot-4", retention: retention)
+    {:ok, fourth} =
+      Writer.start_link(name: nil, path: path, boot_id: "boot-4", retention: retention)
+
     assert :ok = Writer.record(fourth, :resource, %{actor: "_daemon", rss_bytes: 4})
     assert :ok = Writer.flush(fourth)
 
@@ -367,7 +399,9 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert :ok = Writer.flush(first)
     :ok = GenServer.stop(first)
 
-    {:ok, second} = Writer.start_link(name: nil, path: path, boot_id: "resumed", retention: [max_bytes: 1])
+    {:ok, second} =
+      Writer.start_link(name: nil, path: path, boot_id: "resumed", retention: [max_bytes: 1])
+
     assert :ok = Writer.flush(second)
 
     assert {:ok, dataset} = Dataset.build(path)
@@ -379,7 +413,8 @@ defmodule Aiur.RunTelemetry.WriterTest do
     old_clock = fn -> ~U[2026-07-01 12:00:00Z] end
     current_clock = fn -> ~U[2026-07-01 12:01:00Z] end
 
-    {:ok, first} = Writer.start_link(name: nil, path: path, boot_id: "oversized", clock: old_clock)
+    {:ok, first} =
+      Writer.start_link(name: nil, path: path, boot_id: "oversized", clock: old_clock)
 
     assert :ok =
              Writer.record(
@@ -397,7 +432,13 @@ defmodule Aiur.RunTelemetry.WriterTest do
     :ok = GenServer.stop(first)
 
     {:ok, second} =
-      Writer.start_link(name: nil, path: path, boot_id: "current", clock: current_clock, retention: [max_bytes: 1])
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "current",
+        clock: current_clock,
+        retention: [max_bytes: 1]
+      )
 
     assert :ok = Writer.flush(second)
     assert File.stat!(path).size > 1
@@ -407,33 +448,402 @@ defmodule Aiur.RunTelemetry.WriterTest do
     assert dataset.warnings == []
   end
 
+  test "size retention keeps a contiguous newest suffix", %{path: path} do
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old")
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    old_size = File.stat!(path).size
+
+    {:ok, middle} = Writer.start_link(name: nil, path: path, boot_id: "mid")
+
+    assert :ok =
+             Writer.record(middle, :resource, %{
+               actor: "_daemon",
+               detail: String.duplicate("x", 8_192),
+               rss_bytes: 1
+             })
+
+    assert :ok = Writer.flush(middle)
+    :ok = GenServer.stop(middle)
+
+    middle_size = File.stat!(path).size - old_size
+
+    {:ok, newest} = Writer.start_link(name: nil, path: path, boot_id: "new")
+    assert :ok = Writer.record(newest, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(newest)
+    :ok = GenServer.stop(newest)
+
+    newest_size = File.stat!(path).size - old_size - middle_size
+    assert :ok = Retention.prune(path, max_bytes: old_size + newest_size)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["new"]
+    assert dataset.warnings == []
+  end
+
+  test "periodic retention prunes accumulated old boots during a running session", %{path: path} do
+    {:ok, old} = Writer.start_link(name: nil, path: path, boot_id: "old-boot")
+    assert :ok = Writer.record(old, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(old)
+    :ok = GenServer.stop(old)
+
+    old_size = File.stat!(path).size
+
+    # max_bytes equals old_size so the old boot fits at startup, but the restart
+    # marker appended during init pushes the total over the cap. With
+    # prune_interval_bytes: 1 the threshold is crossed immediately, triggering a
+    # segment roll + prune that removes the old boot.
+    retention = [max_bytes: old_size, prune_interval_bytes: 1]
+
+    {:ok, current} =
+      Writer.start_link(name: nil, path: path, boot_id: "current", retention: retention)
+
+    assert :ok = Writer.flush(current)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert Dataset.boot_ids(dataset) == ["current"]
+    assert dataset.warnings == []
+  end
+
+  test "periodic retention bounds a single boot that exceeds the cap three times over", %{
+    path: path
+  } do
+    # Measure one restart + one resource record so we can set a deterministic cap.
+    {:ok, probe} = Writer.start_link(name: nil, path: path, boot_id: "probe")
+    assert :ok = Writer.record(probe, :resource, %{actor: "_daemon", rss_bytes: 1})
+    assert :ok = Writer.flush(probe)
+    :ok = GenServer.stop(probe)
+
+    one_boot_size = File.stat!(path).size
+    File.rm!(path)
+
+    # Cap = one boot's worth; prune fires after every record.
+    # Writing 6 records (3x cap) in a single boot must leave the file bounded.
+    retention = [max_bytes: one_boot_size, prune_interval_bytes: 1]
+
+    {:ok, writer} =
+      Writer.start_link(name: nil, path: path, boot_id: "big-boot", retention: retention)
+
+    for sample <- 1..6 do
+      assert :ok =
+               Writer.record(writer, :resource, %{actor: "_daemon", rss_bytes: 1, sample: sample})
+    end
+
+    assert :ok = Writer.flush(writer)
+
+    # File stays bounded: at most one full boot + one segment boundary per prune cycle.
+    assert File.stat!(path).size < one_boot_size * 3
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.warnings == []
+    assert Dataset.boot_ids(dataset) == ["big-boot"]
+
+    assert Enum.map(
+             Enum.filter(dataset.records, &(&1.kind == "resource")),
+             & &1.attributes["sample"]
+           ) == [6]
+
+    assert dataset.restarts == []
+
+    assert {:ok, current_dataset} = Dataset.build(path, session: :current)
+
+    assert Enum.map(
+             Enum.filter(current_dataset.records, &(&1.kind == "resource")),
+             & &1.attributes["sample"]
+           ) == [6]
+  end
+
+  test "a failed segment boundary skips periodic pruning", %{path: path} do
+    writes = :atomics.new(1, signed: false)
+
+    write_fun = fn target, contents ->
+      if :atomics.add_get(writes, 1, 1) == 2 do
+        {:error, :eio}
+      else
+        File.write(target, contents, [:append])
+      end
+    end
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "boundary-failure",
+        retention: [max_bytes: 1, prune_interval_bytes: 1],
+        write_fun: write_fun
+      )
+
+    assert Process.alive?(writer)
+    assert {:ok, dataset} = Dataset.build(path)
+    assert dataset.warnings == []
+    assert Dataset.boot_ids(dataset) == ["boundary-failure"]
+  end
+
+  test "segment rolls preserve lifecycle interval pairing", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    boundary_at = ~U[2026-07-11 12:00:01Z]
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "lifecycle-roll",
+        retention: retention,
+        clock: fn -> boundary_at end
+      )
+
+    start = %{
+      ticket: "1339",
+      attempt_id: "attempt",
+      event: "build_test",
+      boundary: "start",
+      operation_id: "build"
+    }
+
+    finish = %{
+      ticket: "1339",
+      attempt_id: "attempt",
+      event: "build_test",
+      boundary: "end",
+      operation_id: "build"
+    }
+
+    assert :ok = Writer.record(writer, :lifecycle, start, timestamp: ~U[2026-07-11 12:00:00Z])
+    assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: ~U[2026-07-11 12:00:02Z])
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed"}] = dataset.tickets["1339"].intervals
+    assert dataset.warnings == []
+  end
+
+  test "backward writer clocks cannot reorder queued lifecycle endpoints", %{path: path} do
+    {:ok, clock_state} =
+      Agent.start_link(fn ->
+        [
+          ~U[2026-07-11 12:00:00Z],
+          ~U[2026-07-11 12:00:00Z],
+          ~U[2026-07-11 12:00:00Z],
+          ~U[2026-07-11 12:00:00Z],
+          ~U[2020-01-01 00:00:00Z]
+        ]
+      end)
+
+    clock = fn -> Agent.get_and_update(clock_state, fn [timestamp | rest] -> {timestamp, rest} end) end
+
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "backward-clock", clock: clock)
+
+    start = %{ticket: "1341", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
+    finish = %{ticket: "1341", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+
+    assert :ok = Writer.record(writer, :lifecycle, start, timestamp: ~U[2026-07-11 12:00:00Z])
+    assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: ~U[2026-07-11 12:00:01Z])
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed"}] = dataset.tickets["1341"].intervals
+  end
+
+  test "malformed and historical lifecycle endpoints are validated and clamped", %{path: path} do
+    clock = fn -> ~U[2026-07-11 12:00:00Z] end
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "endpoint-guards", clock: clock)
+
+    start = %{ticket: "1342", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
+    finish = %{ticket: "1342", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+
+    assert :ok = Writer.record(writer, :lifecycle, start, timestamp: ~U[2026-07-11 12:00:00Z])
+    assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: "not-a-timestamp")
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed", duration_ms: 0, end_at: "2026-07-11T12:00:00Z"}] = dataset.tickets["1342"].intervals
+  end
+
+  test "invalid caller timestamps do not make segment boundaries unprunable", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    future_clock = fn -> ~U[2026-07-11 12:00:10Z] end
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "invalid-timestamp-roll",
+        clock: future_clock,
+        retention: retention
+      )
+
+    for sample <- 1..40 do
+      assert :ok = Writer.record(writer, :resource, %{sample: sample}, timestamp: "not-a-timestamp")
+    end
+
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    boundaries = Enum.filter(records, &(&1["kind"] == "restart" and &1["attributes"]["event"] == "segment_boundary"))
+
+    assert boundaries != []
+    assert Enum.all?(boundaries, &match?({:ok, _timestamp, 0}, DateTime.from_iso8601(&1["timestamp"])))
+    assert File.stat!(path).size < 10_000
+  end
+
+  test "old caller timestamps do not reorder lifecycle intervals or age boundaries", %{path: path} do
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+    future_clock = fn -> ~U[2026-07-11 12:00:10Z] end
+    start_timestamp = ~U[2020-01-01 00:00:00Z]
+    finish_timestamp = ~U[2020-01-01 00:00:01Z]
+
+    {:ok, writer} =
+      Writer.start_link(
+        name: nil,
+        path: path,
+        boot_id: "old-timestamp-roll",
+        clock: future_clock,
+        retention: retention
+      )
+
+    start = %{ticket: "1340", attempt_id: "attempt", event: "build_test", boundary: "start", operation_id: "build"}
+    finish = %{ticket: "1340", attempt_id: "attempt", event: "build_test", boundary: "end", operation_id: "build"}
+
+    assert :ok = Writer.record(writer, :lifecycle, start, timestamp: start_timestamp)
+    assert :ok = Writer.record(writer, :lifecycle, finish, timestamp: finish_timestamp)
+    assert :ok = Writer.flush(writer)
+
+    assert {:ok, dataset} = Dataset.build(path)
+    assert [%{status: "closed"}] = dataset.tickets["1340"].intervals
+    refute Enum.any?(dataset.tickets["1340"].intervals, &(&1.status in ["orphan_end", "open"]))
+
+    records = read_records(path)
+    boundaries = Enum.filter(records, &(&1["kind"] == "restart" and &1["attributes"]["event"] == "segment_boundary"))
+    assert Enum.all?(boundaries, &(&1["timestamp"] == "2026-07-11T12:00:10Z"))
+  end
+
+  test "periodic retention failure does not crash or stall the writer", %{path: _path, root: root} do
+    import ExUnit.CaptureLog
+
+    # The path reported to Retention.prune must be a directory so File.stream! raises
+    # EISDIR. The write_fun redirects actual appends to a separate file so writes succeed.
+    actual_file = Path.join(root, "actual.ndjson")
+    dir_path = Path.join(root, "dir-as-path")
+    File.mkdir_p!(dir_path)
+    write_fun = fn _path, data -> File.write(actual_file, data, [:append]) end
+    retention = [max_bytes: 1, prune_interval_bytes: 1]
+
+    log =
+      capture_log(fn ->
+        {:ok, w} =
+          Writer.start_link(
+            name: nil,
+            path: dir_path,
+            boot_id: "err-boot",
+            retention: retention,
+            write_fun: write_fun
+          )
+
+        assert :ok = Writer.record(w, :resource, %{actor: "_daemon", rss_bytes: 1})
+        assert :ok = Writer.flush(w)
+        assert Process.alive?(w)
+      end)
+
+    assert log =~ "retention_failed"
+  end
+
   test "retention treats absent or invalid targets as no-ops", %{path: path} do
     assert :ok = Retention.prune(path)
     assert :ok = Retention.prune(:not_a_path, :not_options)
   end
 
-  test "sanitizes subscribed GitHub anchors before appending", %{path: path} do
+  test "backfills a pre-boot merged PR as a telemetry lifecycle anchor", %{path: path} do
     {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "anchors")
+    :ok = Exchange.subscribe("ticket.930.pr.merged")
 
-    send(writer, {
-      :event,
-      %{
-        id: 99,
-        topic: "ticket.930.pr.opened",
-        source: :github,
-        pr: %{"number" => 77, "created_at" => "2026-07-11T13:00:00Z", "body" => "do not persist"}
+    firehose_event = %{
+      "id" => "merged-100",
+      "type" => "PullRequestEvent",
+      "created_at" => "2026-07-11T13:01:00Z",
+      "actor" => %{"login" => "merger"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "merged",
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/930-analytics", "sha" => "head-77"}
+        }
       }
-    })
+    }
+
+    assert {:ok, %{count: 0}} =
+             GithubFirehose.poll(
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, headers: [{"ETag", ~s("writer-merge")}], body: [firehose_event]}}
+               end,
+               recent_merge_fun: fn _merge -> {:ok, :stored} end,
+               boot_time: ~U[2026-07-11 13:03:00Z] |> DateTime.to_unix(),
+               telemetry_writer: writer
+             )
 
     assert :ok = Writer.flush(writer)
-    records = read_records(path)
-    anchor = List.last(records)
+    refute_receive {:event, %{topic: "ticket.930.pr.merged"}}
 
-    assert anchor["kind"] == "lifecycle"
-    assert anchor["timestamp"] == "2026-07-11T13:00:00Z"
-    assert anchor["attributes"]["event"] == "pr_opened"
-    assert anchor["attributes"]["pr_number"] == 77
-    refute inspect(anchor) =~ "do not persist"
+    records = read_records(path)
+    [merged] = Enum.take(records, -1)
+
+    assert merged["kind"] == "lifecycle"
+    assert merged["timestamp"] == "2026-07-11T13:01:00Z"
+    assert merged["attributes"]["event"] == "pr_merged"
+    assert merged["attributes"]["pr_number"] == 77
+    assert merged["attributes"]["source"] == "github_reconciliation"
+
+    # The anchor stays durable for full-log reconciliation, but a dashboard
+    # scoped to this daemon boot must not call a historical merge "this run".
+    assert {:ok, dataset} = Dataset.build(path, session: :current, boot_id: "anchors")
+    current = Dataset.filter(dataset, boot_id: "anchors")
+    refute Enum.any?(current.records, &(&1.attributes["event"] == "pr_merged"))
+    assert current.tickets == %{}
+  end
+
+  test "persists a live merged PR received through the firehose exchange", %{path: path} do
+    {:ok, writer} = Writer.start_link(name: nil, path: path, boot_id: "live-anchors")
+
+    firehose_event = %{
+      "id" => "live-merged-100",
+      "type" => "PullRequestEvent",
+      "created_at" => "2026-07-11T13:01:00Z",
+      "actor" => %{"login" => "merger"},
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "merged",
+        "pull_request" => %{
+          "number" => 77,
+          "head" => %{"ref" => "aiur/930-analytics", "sha" => "live-head-77"}
+        }
+      }
+    }
+
+    assert {:ok, %{count: 1}} =
+             GithubFirehose.poll(
+               request_fun: fn _request ->
+                 {:ok, %{status: 200, headers: [{"ETag", ~s("live-writer-merge")}], body: [firehose_event]}}
+               end,
+               recent_merge_fun: fn _merge -> {:ok, :stored} end,
+               boot_time: ~U[2026-07-11 13:00:00Z] |> DateTime.to_unix()
+             )
+
+    assert :ok = Writer.flush(writer)
+
+    records = read_records(path)
+    [merged] = Enum.take(records, -1)
+
+    assert merged["kind"] == "lifecycle"
+    assert merged["timestamp"] == "2026-07-11T13:01:00Z"
+    assert merged["attributes"]["event"] == "pr_merged"
+    assert merged["attributes"]["pr_number"] == 77
+    assert merged["attributes"]["source"] == "github"
+
+    assert {:ok, dataset} = Dataset.build(path, session: :current, boot_id: "live-anchors")
+    current = Dataset.filter(dataset, boot_id: "live-anchors")
+    assert Enum.any?(current.records, &(&1.attributes["event"] == "pr_merged"))
+    assert Map.has_key?(current.tickets, "930")
   end
 
   defp read_records(path) do

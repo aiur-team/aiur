@@ -9,8 +9,21 @@ defmodule AiurWeb.AnalyticsLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias Aiur.Usage.GroupedScopes
+  alias Aiur.Usage.GroupedScopes.Scope
+  alias Aiur.UsageAggregate
+  alias AiurWeb.{FinancialData, FinancialDataAccess}
+
+  alias AiurWeb.OperatorControlCenter.{
+    DashboardShell,
+    NavState,
+    RouteRegistry,
+    UsageSummaryPresenter
+  }
+
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
+
+  @usage_summary_max_age_ms 30_000
 
   @impl true
   def mount(_params, _session, socket) do
@@ -24,7 +37,13 @@ defmodule AiurWeb.AnalyticsLive do
      |> assign(:range, :run)
      |> assign(:sort, :cpu)
      |> assign(:time_domain, nil)
-     |> load_model()}
+     |> assign(:analytics_scope, :session)}
+  end
+
+  @impl true
+  def handle_params(params, _uri, socket) do
+    socket = socket |> assign(:analytics_scope, analytics_scope(Map.get(params, "build_order"))) |> load_model()
+    {:noreply, socket}
   end
 
   @impl true
@@ -41,7 +60,11 @@ defmodule AiurWeb.AnalyticsLive do
   end
 
   def handle_event("select_all", _params, socket) do
-    all = if socket.assigns.model, do: MapSet.new(socket.assigns.model.actors, & &1.key), else: MapSet.new()
+    all =
+      if socket.assigns.model,
+        do: MapSet.new(socket.assigns.model.actors, & &1.key),
+        else: MapSet.new()
+
     {:noreply, assign(socket, :selected, all)}
   end
 
@@ -57,7 +80,8 @@ defmodule AiurWeb.AnalyticsLive do
     {:noreply, socket |> assign(:range, range_atom(range)) |> assign(:time_domain, nil) |> load_model()}
   end
 
-  def handle_event("time-domain", params, %{assigns: %{model: model}} = socket) when not is_nil(model) do
+  def handle_event("time-domain", params, %{assigns: %{model: model}} = socket)
+      when not is_nil(model) do
     domain = Charts.normalize_time_domain(model, {Map.get(params, "t0"), Map.get(params, "t1")})
     {:noreply, assign_time_domain(socket, domain)}
   end
@@ -88,9 +112,9 @@ defmodule AiurWeb.AnalyticsLive do
 
         <div :if={!@unavailable} class="an-controls">
           <div>
-            <span class="an-scope">Scope: <b>this session</b></span>
+            <span class="an-scope">Scope: <b>{scope_label(@analytics_scope)}</b></span>
             <p class="an-scope-note">
-              The current live run only. For a whole Build Order's history across many sessions, open its Build Order page.
+              {scope_note(@analytics_scope)}
             </p>
           </div>
           <div class="an-seg" role="group" aria-label="Time range">
@@ -105,7 +129,7 @@ defmodule AiurWeb.AnalyticsLive do
         </div>
 
         <div :if={!@unavailable} class="an-kpis">
-          <div :for={k <- kpi_items(@model)} class={["an-kpi", k.tone]}>
+          <div :for={k <- kpi_items(@model, @provider_spend)} class={["an-kpi", k.tone]}>
             <span class="an-kpi-label">{k.label}</span>
             <span class="an-kpi-val">{k.val}</span>
             <span class="an-kpi-sub">{k.sub}</span>
@@ -217,22 +241,42 @@ defmodule AiurWeb.AnalyticsLive do
   defp load_model(socket) do
     now = DateTime.utc_now()
 
-    opts = [
-      range: socket.assigns.range,
-      session: :current,
-      telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
-    ]
+    # The Full-log range spans every boot: the current boot stays a live bounded
+    # tail read and prior boots come from materialized run summaries (falling
+    # back to a full parse before the first materialization).
+    session = if socket.assigns.range == :full, do: :cross, else: :current
+
+    opts =
+      [
+        range: socket.assigns.range,
+        session: session,
+        telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
+      ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
+
+    socket = assign(socket, :provider_spend, provider_spend(socket))
 
     case Presenter.load(opts) do
       {:ok, model} ->
         domain = Charts.normalize_time_domain(model, socket.assigns.time_domain)
 
         socket
-        |> assign(model: model, selected: MapSet.new(model.actors, & &1.key), unavailable: nil, now: now)
+        |> assign(
+          model: model,
+          selected: MapSet.new(model.actors, & &1.key),
+          unavailable: nil,
+          now: now
+        )
         |> assign_time_domain(domain)
 
       {:unavailable, reason} ->
-        assign(socket, model: nil, chart_model: nil, time_domain: nil, selected: MapSet.new(), unavailable: reason, now: now)
+        assign(socket,
+          model: nil,
+          chart_model: nil,
+          time_domain: nil,
+          selected: MapSet.new(),
+          unavailable: reason,
+          now: now
+        )
     end
   end
 
@@ -242,17 +286,137 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp assign_time_domain(socket, _domain), do: socket
 
-  defp kpi_items(model) do
+  defp kpi_items(model, provider_spend) do
     k = model.kpis
 
     [
-      %{label: "Peak concurrency", val: k.peak_conc, sub: "#{k.conc_now} now / #{k.cap} cap", tone: nil},
-      %{label: "Mean utilization", val: "#{k.mean_util_pct}%", sub: "of #{model.cores} cores", tone: nil},
-      %{label: "Memory headroom", val: "#{k.mem_headroom_pct}%", sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}", tone: nil},
+      %{
+        label: "Peak concurrency",
+        val: k.peak_conc,
+        sub: "#{k.conc_now} now / #{k.cap} cap",
+        tone: nil
+      },
+      %{
+        label: "Mean utilization",
+        val: "#{k.mean_util_pct}%",
+        sub: "of #{model.cores} cores",
+        tone: nil
+      },
+      %{
+        label: "Memory headroom",
+        val: "#{k.mem_headroom_pct}%",
+        sub: "#{gb(k.mem_now_bytes)} / #{gb(model.host_mem_bytes)}",
+        tone: nil
+      },
       %{label: "PRs merged", val: k.merged, sub: "this run", tone: nil},
-      %{label: "Tickets done", val: "#{k.done} / #{k.total}", sub: "#{k.done_pct}% complete", tone: nil},
-      %{label: "Wasted capacity", val: "#{k.wasted_slot_hours}h", sub: "idle unit-slots", tone: "block"}
+      %{
+        label: "Tickets done",
+        val: "#{k.done} / #{k.total}",
+        sub: "#{k.done_pct}% complete",
+        tone: nil
+      },
+      provider_spend_item(provider_spend),
+      %{
+        label: "Wasted capacity",
+        val: "#{k.wasted_slot_hours}h",
+        sub: "idle unit-slots",
+        tone: "block"
+      }
     ]
+  end
+
+  defp provider_spend_item(%{state: :available, amount: amount, source: source}),
+    do: %{label: "Provider spend", val: amount, sub: source, tone: nil}
+
+  defp provider_spend_item(%{state: :locked}),
+    do: %{label: "Provider spend", val: "Locked", sub: "financial access required", tone: nil}
+
+  defp provider_spend_item(_other),
+    do: %{label: "Provider spend", val: "—", sub: "not available", tone: nil}
+
+  # Financial data stays behind the same per-connection capability gate used by
+  # the Build Order usage summary. The analytics page receives a display-only
+  # provider estimate, never aggregate cells or an unscoped raw total.
+  defp provider_spend(socket) do
+    case {connected?(socket), authorized_context(socket)} do
+      {true, {:ok, context}} -> load_provider_spend(context, socket.assigns.analytics_scope)
+      {_connected, :locked} -> %{state: :locked}
+      {false, {:ok, _context}} -> %{state: :loading}
+    end
+  rescue
+    _error -> %{state: :unavailable}
+  catch
+    _kind, _reason -> %{state: :unavailable}
+  end
+
+  defp load_provider_spend(context, analytics_scope) do
+    usage_aggregate = usage_aggregate_source()
+
+    with {:ok, scope} <- ScopeResolver.usage_scope(analytics_scope),
+         {:ok, snapshot} <-
+           FinancialData.fetch_usage_grouping(
+             FinancialData,
+             context,
+             {Scope.public(scope), usage_aggregate_generation(usage_aggregate)},
+             @usage_summary_max_age_ms,
+             fn ->
+               usage_aggregate.cells_snapshot() |> GroupedScopes.project(scope, currency: "USD")
+             end
+           ) do
+      snapshot |> UsageSummaryPresenter.present() |> provider_spend_view()
+    else
+      _other -> %{state: :unavailable}
+    end
+  end
+
+  defp provider_spend_view(%{state: state, provider_reported: %{by_currency: entries}})
+       when state in [:ready, :partial, :stale] do
+    case entries do
+      [] ->
+        %{state: :unavailable}
+
+      _entries ->
+        %{
+          state: :available,
+          amount: Enum.map_join(entries, ", ", &"#{&1.amount} #{&1.currency}"),
+          source: "provider-reported estimate"
+        }
+    end
+  end
+
+  defp provider_spend_view(_view), do: %{state: :unavailable}
+
+  defp analytics_scope(root_number), do: ScopeResolver.resolve(root_number)
+
+  defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, this session"
+  defp scope_label(:session), do: "this session"
+  defp scope_label(:unavailable), do: "selected Build Order unavailable"
+
+  defp scope_note(%{kind: :build_order}), do: "Only the selected Build Order's typed members in this session."
+  defp scope_note(:session), do: "The current live run only. Add a Build Order selection to scope this page to its members."
+  defp scope_note(:unavailable), do: "The selected Build Order could not provide a valid member graph."
+
+  # The live route defaults to the daemon-owned aggregate. The configurable
+  # source exists only to keep the route's protected-query contract testable
+  # without mutating the process-global ledger projection.
+  defp usage_aggregate_source,
+    do: Application.get_env(:aiur, :analytics_usage_aggregate_source, UsageAggregate)
+
+  defp usage_aggregate_generation(usage_aggregate) do
+    usage_aggregate.snapshot().generation
+  rescue
+    _error -> :unknown
+  catch
+    _kind, _reason -> :unknown
+  end
+
+  defp authorized_context(socket) do
+    capability = Map.get(socket.assigns, :financial_data_capability, %{})
+
+    case {Map.get(capability, :state), FinancialDataAccess.context(socket)} do
+      {:authorized, %FinancialDataAccess.Context{} = context} -> {:ok, context}
+      _other -> :locked
+    end
   end
 
   defp toggle(set, key) do

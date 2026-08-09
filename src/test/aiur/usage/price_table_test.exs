@@ -18,9 +18,18 @@ defmodule Aiur.Usage.PriceTableTest do
     {"claude-sonnet-4-6", "3.00", "0.30", "3.75", "6.00", "15.00"},
     {"claude-haiku-4-5", "1.00", "0.10", "1.25", "2.00", "5.00"}
   ]
+  @openai_compat_rates [
+    {:kimi, "kimi-k2.7-code", "0.95", "0.19", "4.00"},
+    {:kimi, "kimi-k2.7-code-highspeed", "0.95", "0.19", "4.00"},
+    {:deepseek, "deepseek-v4-flash", "0.14", "0.0028", "0.28"},
+    {:openrouter, "deepseek/deepseek-v4-flash", "0.14", "0.0028", "0.28"},
+    {:openrouter, "moonshotai/kimi-k2.7-code", "0.95", "0.19", "4.00"},
+    {:openrouter, "anthropic/claude-sonnet-5", "2.00", "0.20", "10.00"},
+    {:openrouter, "anthropic/claude-opus-5", "5.00", "0.50", "25.00"}
+  ]
   test "resolves every reviewed model dimension on its inclusive boundary" do
     assert {:ok, catalog} = PriceTable.default()
-    assert length(catalog.entries) == 48
+    assert length(catalog.entries) == 76
 
     for {model, context_tier, input, cached, creation, output} <- @codex_rates,
         {dimension, expected} <- [
@@ -69,7 +78,53 @@ defmodule Aiur.Usage.PriceTableTest do
       assert price.price_revision == price_revision(:claude)
     end
 
+    for {provider, model, input, cached, output} <- @openai_compat_rates,
+        {dimension, expected} <- [
+          input: input,
+          cached_input: cached,
+          output: output,
+          reasoning_output: output
+        ] do
+      assert {:ok, price} =
+               PriceTable.lookup(
+                 catalog,
+                 query(provider, model, dimension, :not_applicable, :not_applicable)
+                 |> Map.put(:pricing_effective_date, ~D[2026-08-01])
+               )
+
+      assert Decimal.equal?(price.price, Decimal.new(expected))
+      assert price.effective_date == ~D[2026-08-01]
+      assert price.source_reviewed_at == ~D[2026-08-01]
+      assert price.context_tier == :not_applicable
+      assert price.cache_write_duration == :not_applicable
+    end
+
     assert catalog.revision == Data.catalog_revision()
+  end
+
+  test "accepts the test-only registry provider without a validator clause" do
+    fake =
+      entry(%{
+        provider: :fake,
+        resolved_model: "fake-1",
+        relationship_revision: "fake-app-server-1",
+        context_tier: :not_applicable,
+        cache_write_duration: :not_applicable
+      })
+
+    assert {:ok, catalog} = PriceTable.new("fake-registry-test", [fake])
+
+    assert {:ok, %{provider: :fake}} =
+             PriceTable.lookup(
+               catalog,
+               query(%{
+                 provider: :fake,
+                 resolved_model: "fake-1",
+                 relationship_revision: "fake-app-server-1",
+                 context_tier: :not_applicable,
+                 cache_write_duration: :not_applicable
+               })
+             )
   end
 
   test "selects old and new revisions solely from the occurrence date" do
@@ -251,6 +306,9 @@ defmodule Aiur.Usage.PriceTableTest do
 
   defp relationship_revision(:codex), do: "codex-app-server-2026-07"
   defp relationship_revision(:claude), do: "claude-remote-control-2026-07"
+  defp relationship_revision(:kimi), do: "kimi-request-usage-2026-08"
+  defp relationship_revision(:deepseek), do: "deepseek-request-usage-2026-08"
+  defp relationship_revision(:openrouter), do: "openrouter-request-usage-2026-08"
 
   defp price_revision(:codex), do: "openai-standard-global-2026-07-15"
   defp price_revision(:claude), do: "anthropic-standard-global-2026-07-15"

@@ -102,7 +102,8 @@ def context(tmp: Path) -> Context:
     }
     return Context(
         root=tmp, build_path=tmp / "build-order.json",
-        publication_path=tmp / "publication.json", approved=APPROVED,
+        publication_path=tmp / "publication.json",
+        discovery_path=tmp / ".aiur/build_orders/example.json", approved=APPROVED,
         authority=AUTHORITY, repository=REPOSITORY,
         trusted_ref="refs/heads/build-order-research", plan_version=1,
         root_id=ROOT, skill_id=SKILL, build=build, publication=publication,
@@ -234,12 +235,62 @@ class DryRunTests(unittest.TestCase):
         result = AuthorityFreePublisher(client, self.ctx).dry_run()
         self.assertEqual(result["canonical_issues_found"], 1)
 
-    def test_wrong_approval_marker_fails(self) -> None:
+    def test_reapproval_reuses_issue_and_reports_content_delta(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
         raw = issue(8, ROOT)
         raw["body"] = raw["body"].replace(APPROVED, "c" * 40)
         client = FakeClient(dry_responses(self.ctx, [raw]))
-        with self.assertRaisesRegex(PublicationError, "conflicting authority"):
+        result = AuthorityFreePublisher(client, self.ctx).dry_run()
+        self.assertEqual(result["canonical_issues_found"], 1)
+        self.assertEqual(result["issues_to_create"], 55)
+        self.assertEqual(result["reapproval"]["unchanged_members"], [ROOT])
+        self.assertEqual(result["reapproval"]["changed_members"], [])
+        self.assertEqual(result["reapproval"]["new_members"], sorted(
+            logical_id for logical_id in self.ctx.specs if logical_id != ROOT
+        ))
+
+    def test_duplicate_member_authority_names_member_shas_and_recovery(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        old = issue(8, ROOT)
+        old["body"] = old["body"].replace(APPROVED, "c" * 40)
+        current = issue(9, ROOT)
+        client = FakeClient(dry_responses(self.ctx, [old, current]))
+        with self.assertRaisesRegex(
+            PublicationError,
+            rf"{ROOT}.*{APPROVED}.*{'c' * 40}.*re-approve|{ROOT}.*{'c' * 40}.*{APPROVED}.*re-approve",
+        ):
             AuthorityFreePublisher(client, self.ctx).dry_run()
+
+    def test_reapproval_reports_removed_member_without_invalidating_it(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        removed = issue(8, "T-REMOVED")
+        removed["body"] = removed["body"].replace(APPROVED, "c" * 40)
+        result = AuthorityFreePublisher(
+            FakeClient(dry_responses(self.ctx, [removed])), self.ctx,
+        ).dry_run()
+        self.assertEqual(result["canonical_issues_found"], 0)
+        self.assertEqual(result["reapproval"]["removed_members"], ["T-REMOVED"])
+
+    def test_reapproval_reports_changed_member_content(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        raw = issue(8, ROOT)
+        raw["body"] = raw["body"].replace(APPROVED, "c" * 40) + "changed scope\n"
+        result = AuthorityFreePublisher(
+            FakeClient(dry_responses(self.ctx, [raw])), self.ctx,
+        ).dry_run()
+        self.assertEqual(result["reapproval"]["changed_members"], [ROOT])
+
+    def test_unrecorded_approval_names_both_shas_and_recovery(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        raw = issue(8, ROOT)
+        raw["body"] = raw["body"].replace(APPROVED, "d" * 40)
+        with self.assertRaisesRegex(
+            PublicationError,
+            rf"{ROOT}.*{'d' * 40}.*{APPROVED}.*Options",
+        ):
+            AuthorityFreePublisher(
+                FakeClient(dry_responses(self.ctx, [raw])), self.ctx,
+            ).dry_run()
 
     def test_duplicate_logical_marker_matches_fail(self) -> None:
         client = FakeClient(dry_responses(self.ctx, [issue(8, ROOT), issue(9, ROOT)]))
@@ -312,6 +363,59 @@ class ReconciliationTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temp.cleanup()
 
+    def test_reapproval_updates_existing_issue_in_place(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        spec = self.ctx.specs[ROOT]
+        raw = issue(11, ROOT)
+        raw["body"] = raw["body"].replace(APPROVED, "c" * 40)
+        raw["labels"] = [{"name": "build-order"}]
+        raw["_planning_markers"] = [{
+            "schema": 2,
+            "logical_id": ROOT,
+            "plan_version": 1,
+            "approved_planning_commit": "c" * 40,
+        }]
+        updated = copy.deepcopy(raw)
+        updated["body"] = spec.body
+        base = f"repos/{REPOSITORY}/issues/11"
+
+        class ReapprovalClient(FakeClient):
+            count = 0
+
+            def request(inner, method: str, path: str, payload=None, *, allow_404=False):
+                inner.calls.append((method, path, payload))
+                if method == "GET":
+                    inner.count += 1
+                    return copy.deepcopy(raw if inner.count == 1 else updated)
+                return {}
+
+        publisher = AuthorityFreePublisher(ReapprovalClient({}), self.ctx)
+        mapping = publisher._canonical_mappings([raw])[ROOT]
+        publisher._ensure_issue(spec, mapping)
+
+        self.assertIn(("PATCH", base, {"body": spec.body}), publisher.client.calls)
+
+    def test_persisted_reapproval_retains_mapping_and_reports_changed_member(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        raw = issue(11, ROOT)
+        raw["body"] = raw["body"].replace(APPROVED, "c" * 40) + "changed scope\n"
+        raw["_planning_markers"] = [{
+            "schema": 2,
+            "logical_id": ROOT,
+            "plan_version": 1,
+            "approved_planning_commit": "c" * 40,
+        }]
+        publisher = AuthorityFreePublisher(FakeClient({}), self.ctx)
+        self.ctx.build["github_root"] = publisher._receipt_mapping(
+            publisher._mapping(raw)
+        )
+
+        mappings = publisher._canonical_mappings([raw])
+
+        self.assertEqual(11, mappings[ROOT]["number"])
+        self.assertEqual([ROOT], publisher._reapproval["changed_members"])
+        publisher._validate_live_issue_identity(raw, self.ctx.specs[ROOT])
+
     def test_existing_issue_is_repaired_without_removing_unrelated_label(self) -> None:
         spec = self.ctx.specs[ROOT]
         raw = issue(11, ROOT)
@@ -330,8 +434,9 @@ class ReconciliationTests(unittest.TestCase):
                     self.assertEqual(payload["labels"], ["build-order"])
                 return {}
         client = RepairClient({})
-        mapping = AuthorityFreePublisher(client, self.ctx)._ensure_issue(
-            spec, {"number": 11},
+        publisher = AuthorityFreePublisher(client, self.ctx)
+        mapping = publisher._ensure_issue(
+            spec, publisher._receipt_mapping(publisher._mapping(raw)),
         )
         self.assertEqual(mapping["number"], 11)
         self.assertIn(("PATCH", base, {"title": spec.title}), client.calls)
@@ -341,9 +446,11 @@ class ReconciliationTests(unittest.TestCase):
         raw = issue(11, ROOT)
         raw["labels"] = [{"name": "agent:todo"}]
         client = FakeClient({("GET", f"repos/{REPOSITORY}/issues/11"): raw})
+        publisher = AuthorityFreePublisher(client, self.ctx)
         with self.assertRaisesRegex(PublicationError, "forbidden routing"):
-            AuthorityFreePublisher(client, self.ctx)._ensure_issue(
-                self.ctx.specs[ROOT], {"number": 11},
+            publisher._ensure_issue(
+                self.ctx.specs[ROOT],
+                publisher._receipt_mapping(publisher._mapping(raw)),
             )
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
@@ -396,6 +503,47 @@ class ReconciliationTests(unittest.TestCase):
             AuthorityFreePublisher(client, self.ctx)._ensure_relationships(mappings)
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
+    def test_reapproval_unlinks_retired_member_relationships(self) -> None:
+        ticket_id = next(
+            key for key, spec in self.ctx.specs.items() if spec.kind == "ticket"
+        )
+        self.ctx.specs = {
+            ROOT: self.ctx.specs[ROOT], ticket_id: self.ctx.specs[ticket_id],
+        }
+        self.ctx.expected_edges = set()
+        self.ctx.core_edges = set()
+        mappings = {
+            ROOT: {"number": 1, "node_id": "NODE_1", "_database_id": 101},
+            ticket_id: {"number": 2, "node_id": "NODE_2", "_database_id": 102},
+        }
+        retired = {"number": 3, "node_id": "NODE_3", "_database_id": 103}
+        publisher = AuthorityFreePublisher(FakeClient({}), self.ctx)
+        publisher._retired_mappings = {"T-REMOVED": retired}
+        publisher._retired_by_number = {3: ("T-REMOVED", "NODE_3")}
+        by_number = {1: mappings[ROOT], 2: mappings[ticket_id], 3: retired}
+
+        def relation(number: int) -> dict[str, Any]:
+            mapping = by_number[number]
+            return {
+                "number": number, "node_id": mapping["node_id"],
+                "html_url": f"https://github.com/{REPOSITORY}/issues/{number}",
+            }
+
+        base = f"repos/{REPOSITORY}/issues"
+        publisher.client.responses = {
+            ("GET", f"{base}/1/parent"): None,
+            ("GET", f"{base}/1/sub_issues?per_page=100&page=1"): [relation(2), relation(3)],
+            ("GET", f"{base}/1/dependencies/blocked_by?per_page=100&page=1"): [],
+            ("GET", f"{base}/2/parent"): relation(1),
+            ("GET", f"{base}/2/sub_issues?per_page=100&page=1"): [],
+            ("GET", f"{base}/2/dependencies/blocked_by?per_page=100&page=1"): [relation(3)],
+            ("DELETE", f"{base}/1/sub_issues/3"): {},
+            ("DELETE", f"{base}/2/dependencies/blocked_by/3"): {},
+        }
+        publisher._ensure_relationships(mappings)
+        self.assertIn(("DELETE", f"{base}/1/sub_issues/3", {}), publisher.client.calls)
+        self.assertIn(("DELETE", f"{base}/2/dependencies/blocked_by/3", {}), publisher.client.calls)
+
     def test_exact_pending_comment_is_reused_without_post(self) -> None:
         from publication_comment import render_pending_comment
         body = render_pending_comment(ROOT, 1, APPROVED, REPOSITORY)
@@ -412,6 +560,31 @@ class ReconciliationTests(unittest.TestCase):
         )
         self.assertEqual(found["id"], 44)
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
+
+    def test_reapproval_updates_prior_pending_comment_in_place(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        prior = {
+            "id": 44,
+            "html_url": f"https://github.com/{REPOSITORY}/issues/1#issuecomment-44",
+            "body": render_pending_comment(ROOT, 1, "c" * 40, REPOSITORY),
+        }
+        current = {
+            "id": 44,
+            "html_url": f"https://github.com/{REPOSITORY}/issues/1#issuecomment-44",
+            "body": render_pending_comment(ROOT, 1, APPROVED, REPOSITORY),
+        }
+        client = FakeClient({
+            ("GET", f"repos/{REPOSITORY}/issues/1/comments?per_page=100&page=1"): [prior],
+            ("PATCH", f"repos/{REPOSITORY}/issues/comments/44"): current,
+            ("GET", f"repos/{REPOSITORY}/issues/comments/44"): current,
+        })
+        publisher = AuthorityFreePublisher(client, self.ctx)
+        found = publisher._ensure_pending_comment({"number": 1})
+        self.assertEqual(found["id"], 44)
+        self.assertIn(
+            ("PATCH", f"repos/{REPOSITORY}/issues/comments/44", {"body": current["body"]}),
+            client.calls,
+        )
 
     def test_multiple_pending_markers_fail_without_mutation(self) -> None:
         from publication_comment import render_pending_comment
@@ -884,8 +1057,10 @@ class ApprovedRenderingTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as name:
             base = Path(name)
+            ctx.root = base
             ctx.build_path = base / "build-order.json"
             ctx.publication_path = base / "publication.json"
+            ctx.discovery_path = base / ".aiur/build_orders/example.json"
             ctx.root_document = base / "root-issue.md"
             ctx.additional_document = base / "skill-delivery.md"
             ctx.build_path.write_text(json.dumps(ctx.build), encoding="utf-8")
