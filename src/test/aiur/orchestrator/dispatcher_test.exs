@@ -854,6 +854,37 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "carries the current fallback fence rather than a stale redispatch snapshot" do
+      issue = %Issue{id: "fallback-retry", identifier: "repo#fallback-retry", state: "todo", selected_backend: "claude"}
+
+      current_fence = %{
+        generation: 9,
+        authoritative_state: "rework",
+        pending_item_ids: MapSet.new([872, 874, 887, 891, 999]),
+        opened_at: DateTime.utc_now()
+      }
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        running: %{
+          issue.id => %{
+            issue: issue,
+            identifier: issue.identifier,
+            control: %{status: :completed},
+            lifecycle_fence: current_fence,
+            redispatch_safety: %{workspace_path: "/workspaces/fallback"},
+            rate_limit_fallback_replacement: true
+          }
+        }
+      }
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, 1, nil, runner: fn _, _, _ -> :ok end)
+
+      assert next_state.running[issue.id].lifecycle_fence == current_fence
+      assert next_state.running[issue.id].workspace_path == "/workspaces/fallback"
+    end
+
     test "keeps local-only provider transports off configured SSH workers" do
       test_pid = self()
       write_workflow_file!(Workflow.workflow_file_path(), worker_ssh_hosts: ["worker-a"])
