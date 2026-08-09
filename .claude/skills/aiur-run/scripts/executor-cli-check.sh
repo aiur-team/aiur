@@ -57,16 +57,6 @@ json_lines() {
   fi
 }
 
-combined_output() {
-  local stdout_file="$1" stderr_file="$2"
-  if [ -s "$stdout_file" ]; then
-    cat "$stdout_file"
-    [ ! -s "$stderr_file" ] || cat "$stderr_file"
-  else
-    cat "$stderr_file"
-  fi
-}
-
 run_cli() {
   local name="$1" stdout_file="$2" stderr_file="$3" pid started now status timed_out=0
   started="$(now_ms)"
@@ -147,15 +137,6 @@ config_value() {
     max_concurrent_agents)
       awk '$1 == "max_concurrent_agents:" {print $2; exit}' "$config_file"
       ;;
-  esac
-}
-
-identity_value() {
-  local key="$1"
-  case "$key" in
-    AIUR_SESSION_PREFIX) printf '%s\n' "${AIUR_SESSION_PREFIX:-aiur}" ;;
-    AIUR_INSTANCE_KEY) printf '%s\n' "${AIUR_INSTANCE_KEY:-}" ;;
-    AIUR_RELEASE_NODE) printf '%s\n' "${AIUR_RELEASE_NODE:-}" ;;
   esac
 }
 
