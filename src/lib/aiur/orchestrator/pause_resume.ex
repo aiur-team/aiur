@@ -45,6 +45,84 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_agent(server, issue_identifier),
     do: control_api_call(server, {:resume_agent, issue_identifier})
 
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
+  def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
+
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
+  def reset_dispatch_budget(server, issue_identifier),
+    do: control_api_call(server, {:reset_dispatch_budget, issue_identifier})
+
+  @doc false
+  @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
+  def reset_dispatch_budget_call(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
+    case find_issue_id_by_identifier(state, issue_identifier) do
+      {:ok, issue_id} ->
+        issue = Map.get(state.last_polled_issues, issue_id)
+        was_latched? = match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue_id))
+        {state, reset_result} = Dispatcher.reset_lifetime_budget(state, issue_id)
+        reply_for_reset(state, issue, was_latched?, reset_result, issue_identifier)
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  defp reply_for_reset(state, issue, was_latched?, :ok, issue_identifier) do
+    case restore_latched_error_state(state, issue, was_latched?) do
+      {:ok, state} ->
+        Logger.info("Lifetime dispatch budget reset: issue_identifier=#{issue_identifier} issue_id=#{issue.id}")
+        {:reply, {:ok, :reset}, state}
+
+      {:error, reason} ->
+        Logger.error("Lifetime dispatch budget reset could not restore the ticket to a dispatchable state: issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
+
+        {:reply, {:error, {:state_restore_failed, reason}}, state}
+    end
+  end
+
+  defp reply_for_reset(state, _issue, _was_latched?, {:error, reason}, issue_identifier) do
+    Logger.error("Lifetime dispatch budget reset failed (durable store): issue_identifier=#{issue_identifier} reason=#{inspect(reason)}")
+
+    {:reply, {:error, {:budget_reset_failed, reason}}, state}
+  end
+
+  # A lifetime-latched ticket is durably moved to `agent:error` when it trips
+  # (`Dispatcher.persist_lifetime_trip/3`), and `error` is not an active state —
+  # so clearing the budget alone leaves the ticket undispatchable. Restore a
+  # latched error ticket to `rework` (the active state the latch most commonly
+  # trips from) so `reset-budget` actually returns it to dispatchable
+  # (#1453 review P2c). Non-error or non-latched tickets pass through untouched.
+  defp restore_latched_error_state(state, %Issue{state: tracker_state} = issue, true) do
+    if DispatchPolicy.normalize_issue_state(tracker_state) == "error" and is_binary(issue.identifier) do
+      case Tracker.update_issue_state(issue.identifier, "rework") do
+        :ok ->
+          refreshed = %{issue | state: "rework"}
+          {:ok, %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, refreshed)}}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, state}
+    end
+  end
+
+  defp restore_latched_error_state(state, _issue, _was_latched?), do: {:ok, state}
+
+  defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
+    case Enum.find(state.last_polled_issues, fn
+           {_id, %Issue{identifier: ^issue_identifier}} -> true
+           _ -> false
+         end) do
+      {issue_id, _issue} -> {:ok, issue_id}
+      nil -> {:error, :unknown_issue}
+    end
+  end
+
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
   def request_control(issue_identifier, action, request_id), do: request_control(Aiur.Orchestrator, issue_identifier, action, request_id)
 
@@ -76,6 +154,9 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec pause_agent_call(State.t(), String.t() | TrackerIdentity.t()) :: {:reply, term(), State.t()}
+  def pause_agent_call(%State{globally_paused: true} = state, _issue_identifier),
+    do: {:reply, {:error, :globally_paused}, state}
+
   def pause_agent_call(%State{} = state, issue_identifier) do
     {reply, state} = pause_agent_reply(state, issue_identifier)
     {:reply, reply, state}
@@ -83,11 +164,10 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec request_control_call(State.t(), String.t(), :pause | :resume, pos_integer()) ::
           {:reply, {:ok, pos_integer()} | {:error, term()}, State.t()}
-  # Global-hold-wins: block an individual resume while globally paused; a global
-  # unpause is the only way out. Pause requests still pass through so an operator
-  # can mark an agent to stay paused after the daemon unpauses.
-  def request_control_call(%State{globally_paused: true} = state, issue_identifier, :resume, request_id)
-      when is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
+  # Global-hold-wins: neither per-agent control can claim success while the
+  # daemon-wide switch masks its effect. A global unpause is the only way out.
+  def request_control_call(%State{globally_paused: true} = state, issue_identifier, action, request_id)
+      when action in [:pause, :resume] and is_binary(issue_identifier) and is_integer(request_id) and request_id > 0 do
     {:reply, {:error, :globally_paused}, state}
   end
 
@@ -244,7 +324,17 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec pause_issue_for_label_override(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_label_override(%State{} = state, %Issue{} = issue) do
-    case Map.get(state.running, issue.id) do
+    running_entry = Map.get(state.running, issue.id)
+
+    if pending_local_pause?(state, running_entry, issue.id) do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      apply_label_override(state, running_entry, issue)
+    end
+  end
+
+  defp apply_label_override(state, running_entry, issue) do
+    case running_entry do
       nil ->
         RetryEngine.release_issue_claim(state, issue.id)
 
@@ -258,12 +348,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         Reconciler.refresh_running_entry_issue(state, issue, running_entry)
 
       %{control: %{status: :paused}} = running_entry ->
-        running_entry =
-          running_entry
-          |> Map.put(:issue, issue)
-          |> Map.put(:paused_reason, :label_override)
-
-        transition_control_status(state, running_entry, :paused, "label_override")
+        apply_label_override_to_paused_issue(state, running_entry, issue)
 
       running_entry when is_map(running_entry) ->
         Logger.info("Issue pause override detected: #{State.issue_context(issue)}; pausing active agent")
@@ -272,6 +357,37 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       _ ->
         state
+    end
+  end
+
+  defp pending_local_pause?(state, running_entry, issue_id) when is_map(running_entry) do
+    pending_reason = Map.get(running_entry, :pending_pause_reason)
+    pending_request = ControlLifecycle.current_pending(state.control_lifecycle, issue_id)
+
+    case {pending_reason, pending_request} do
+      {%{request_id: request_id, reason: reason}, %{action: :pause, request_id: request_id}}
+      when reason != :label_override ->
+        true
+
+      _ ->
+        false
+    end
+  end
+
+  defp pending_local_pause?(_state, _running_entry, _issue_id), do: false
+
+  defp apply_label_override_to_paused_issue(state, running_entry, issue) do
+    pause_reason = Map.get(running_entry, :paused_reason)
+
+    if not is_nil(pause_reason) and pause_reason != :label_override do
+      Reconciler.refresh_running_entry_issue(state, issue, running_entry)
+    else
+      running_entry =
+        running_entry
+        |> Map.put(:issue, issue)
+        |> Map.put(:paused_reason, :label_override)
+
+      transition_control_status(state, running_entry, :paused, "label_override")
     end
   end
 
@@ -300,7 +416,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp pause_completed_issue_for_label_override(state, running_entry, issue) do
     if State.paused_running_entry?(running_entry) and
-         Map.get(running_entry, :paused_reason) == :label_override do
+         not is_nil(Map.get(running_entry, :paused_reason)) do
       Reconciler.refresh_running_entry_issue(state, issue, running_entry)
     else
       state = Reconciler.refresh_running_entry_issue(state, issue, running_entry)
@@ -520,6 +636,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp apply_worker_control_state(state, issue_id, running_entry, status, pause_payload, request) do
     previous_status = get_in(running_entry, [:control, :status]) || :working
+    previous_pause_reason = Map.get(running_entry, :paused_reason)
     pause_reason = worker_pause_reason(running_entry, pause_payload, request)
     transition_cause = control_transition_cause(request, status, pause_reason)
 
@@ -533,7 +650,13 @@ defmodule Aiur.Orchestrator.PauseResume do
 
     maybe_log_worker_pause(status, updated_running_entry, pause_reason)
     record_control_transition(updated_running_entry, previous_status, status, transition_cause)
-    OperatorMessages.maybe_emit_agent_control_alert(previous_status, status, updated_running_entry)
+
+    OperatorMessages.maybe_emit_agent_control_alert(
+      previous_status,
+      status,
+      updated_running_entry,
+      if(status == :working, do: previous_pause_reason, else: pause_reason)
+    )
 
     state = %{state | running: Map.put(state.running, issue_id, updated_running_entry)}
     state = finalize_applied_resume(state, issue_id, request)
@@ -713,6 +836,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec transition_control_status(State.t(), map(), atom(), String.t()) :: State.t()
   def transition_control_status(%State{} = state, running_entry, new_status, reason) do
+    previous_pause_reason = Map.get(running_entry, :paused_reason)
     running_entry = normalize_pause_context(running_entry, new_status)
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
@@ -733,7 +857,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       next_state = %{state | running: Map.put(state.running, issue_id, next_entry)}
       record_control_transition(next_entry, old_status, new_status, reason)
-      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry)
+      OperatorMessages.maybe_emit_agent_control_alert(old_status, new_status, next_entry, previous_pause_reason)
       StatusReport.notify_dashboard(next_state)
       next_state
     end
@@ -1038,7 +1162,13 @@ defmodule Aiur.Orchestrator.PauseResume do
         updated_entry = Map.get(state.running, issue_id, running_entry)
         resume_cause = if operator?, do: :operator_resume, else: :automatic_resume
         record_control_transition(updated_entry, previous_status, :working, resume_cause)
-        OperatorMessages.maybe_emit_agent_control_alert(previous_status, :working, updated_entry)
+
+        OperatorMessages.maybe_emit_agent_control_alert(
+          previous_status,
+          :working,
+          updated_entry,
+          Map.get(running_entry, :paused_reason)
+        )
 
         {{:ok, :resumed}, state}
 
@@ -1487,6 +1617,12 @@ defmodule Aiur.Orchestrator.PauseResume do
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
         {{:error, :max_concurrent_agents_reached}, state}
 
+      # A lifetime-latched ticket is not resume-clearable by design. Name the
+      # latch as the reason instead of letting the dispatch no-op silently and
+      # reporting `:dispatch_failed`, which reads as a transient hiccup (#1453).
+      match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id)) ->
+        {{:error, :lifetime_dispatch_latch}, state}
+
       not DispatchPolicy.dispatch_candidate?(
         issue,
         state,
@@ -1498,10 +1634,15 @@ defmodule Aiur.Orchestrator.PauseResume do
       true ->
         next_state = Dispatcher.dispatch_issue(state, issue)
 
-        if MapSet.member?(next_state.claimed, issue.id) do
-          {{:ok, :started}, next_state}
-        else
-          {{:error, :dispatch_failed}, next_state}
+        cond do
+          MapSet.member?(next_state.claimed, issue.id) ->
+            {{:ok, :started}, next_state}
+
+          match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
+            {{:error, :lifetime_dispatch_latch}, next_state}
+
+          true ->
+            {{:error, :dispatch_failed}, next_state}
         end
     end
   end

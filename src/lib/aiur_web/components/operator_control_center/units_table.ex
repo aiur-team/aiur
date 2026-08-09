@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   use Phoenix.Component
 
   alias Aiur.BuildOrder.Bounded
+  alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
 
@@ -96,7 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]}>{agent_label(agent_family(row))}</span>
+                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(agent_family(row))}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
@@ -130,16 +131,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
-                  <button
-                    :if={running?(row)}
-                    id={"units-agent-log-#{token}"}
-                    type="button"
-                    class="units-icon-action"
-                    phx-click="show-agent-log"
-                    phx-value-unit={token}
-                    aria-label={"Read agent log for #{identity_label(row.identity)}"}
-                    title="Read agent log"
-                  >{icon(:log)}</button>
                   <button
                     id={"units-conversation-#{token}"}
                     type="button"
@@ -244,13 +235,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp icon(:warning),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>))
 
-  defp icon(:log),
-    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M8 6h11M8 12h11M8 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>))
-
-  # A unit is running when its correlated fleet entry is in the running bucket;
-  # only then is there a live agent log to read.
-  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
-
   # Remote control deep-link, present only when the agent exposes one.
   defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) when is_binary(url) and url != "", do: url
   defp remote_control_url(%{remote_control_url: url}) when is_binary(url) and url != "", do: url
@@ -340,18 +324,59 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp id_number(_identity), do: "—"
 
-  defp agent_label(family) when is_atom(family) and not is_nil(family),
-    do: family |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
+  defp agent_label(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{label: label} -> label
+      _ -> "Agent"
+    end
+  end
 
-  defp agent_label(_family), do: "Agent"
+  # A row names its provider family via `:agent_family` (metering) or `:backend`
+  # (control), preferring the former. Both are matched against the registry's
+  # provider families rather than a hardcoded `[:claude, :codex]`, so a new
+  # backend's rows classify with no edit here.
+  defp agent_family(row) when is_map(row) do
+    cond do
+      family = provider_or_nil(Map.get(row, :agent_family)) -> family
+      backend = provider_or_nil(Map.get(row, :backend)) -> backend
+      true -> nil
+    end
+  end
 
-  defp agent_family(%{agent_family: family}) when family in [:claude, :codex], do: family
-  defp agent_family(%{backend: backend}) when backend in [:claude, :codex], do: backend
   defp agent_family(_row), do: nil
 
-  defp agent_class(:claude), do: "is-claude"
-  defp agent_class(:codex), do: "is-codex"
-  defp agent_class(_family), do: "is-generic"
+  defp provider_or_nil(value) when is_atom(value) do
+    case CodingAgent.provider_descriptor(value) do
+      %{provider: provider} -> provider
+      _ -> nil
+    end
+  end
+
+  defp provider_or_nil(value) when is_binary(value) do
+    case CodingAgent.provider_descriptor(value) do
+      %{provider: provider} -> provider
+      _ -> value |> CodingAgent.family_for() |> provider_or_nil()
+    end
+  end
+
+  defp provider_or_nil(_value), do: nil
+
+  defp agent_class(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{css_class: class} -> class
+      _ -> "is-generic"
+    end
+  end
+
+  defp agent_style(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{unit_color: color, unit_border: border, unit_background: background} ->
+        "--provider-unit-color: #{color}; --provider-unit-border: #{border}; --provider-unit-background: #{background}"
+
+      _ ->
+        nil
+    end
+  end
 
   defp model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
   defp model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model

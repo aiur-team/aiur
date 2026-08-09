@@ -1,0 +1,8 @@
+name: unsafe fixture
+
+on:
+  pull_request_target:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest

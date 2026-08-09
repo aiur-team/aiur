@@ -1,12 +1,13 @@
 defmodule Aiur.RunTelemetry do
   @moduledoc """
-  Debug-gated facade for daemon-owned run telemetry.
+  Facade for daemon-owned run telemetry.
 
   Callers use this module without coordinating with the telemetry supervisor.
-  When debug mode is off, or while the writer is unavailable, recording is a
+  When telemetry is disabled, or while the writer is unavailable, recording is a
   fail-open no-op so diagnostics can never become an orchestration dependency.
   """
 
+  alias Aiur.Config
   alias Aiur.LogFile
   alias Aiur.RunTelemetry.Writer
 
@@ -14,6 +15,7 @@ defmodule Aiur.RunTelemetry do
   # Version 2 adds the dispatch-time complexity estimate to lifecycle records.
   @schema_version 2
   @boot_state_key {__MODULE__, :boot_state}
+  @telemetry_enabled_key {__MODULE__, :telemetry_enabled}
 
   @doc "Current durable telemetry schema version."
   @spec schema_version() :: pos_integer()
@@ -22,8 +24,22 @@ defmodule Aiur.RunTelemetry do
   @doc false
   @spec start_boot() :: :ok
   def start_boot do
-    :persistent_term.put(@boot_state_key, new_boot_state())
+    enabled? = Config.telemetry_enabled?()
+    :persistent_term.put(@telemetry_enabled_key, enabled?)
+    if enabled?, do: :persistent_term.put(@boot_state_key, new_boot_state())
     :ok
+  end
+
+  @doc """
+  Whether telemetry recording is enabled.
+
+  The value is cached at boot via `start_boot/0` and does not reflect live
+  config changes — operators must restart the daemon to apply an
+  `observability.telemetry_enabled` change.
+  """
+  @spec telemetry_enabled?() :: boolean()
+  def telemetry_enabled? do
+    :persistent_term.get(@telemetry_enabled_key, true)
   end
 
   @doc "Delegates to `Aiur.Boot.run_id/0` so telemetry never reports a stale id after a test reboot."
@@ -53,7 +69,11 @@ defmodule Aiur.RunTelemetry do
   end
 
   @doc false
-  @spec telemetry_retention() :: [max_bytes: pos_integer(), max_age_days: pos_integer()]
+  @spec telemetry_retention() :: [
+          max_bytes: pos_integer(),
+          max_age_days: pos_integer(),
+          prune_interval_bytes: pos_integer()
+        ]
   def telemetry_retention, do: Aiur.Config.telemetry_retention()
 
   @doc "Best-effort append of one telemetry record."
@@ -64,7 +84,7 @@ defmodule Aiur.RunTelemetry do
   @spec record(atom() | String.t(), map(), keyword()) :: :ok
   def record(kind, attributes, opts)
       when (is_atom(kind) or is_binary(kind)) and is_map(attributes) and is_list(opts) do
-    if LogFile.debug_enabled?() do
+    if telemetry_enabled?() do
       writer = Keyword.get(opts, :writer, Writer)
       Writer.record(writer, kind, attributes, Keyword.delete(opts, :writer))
     end
@@ -83,7 +103,7 @@ defmodule Aiur.RunTelemetry do
   def record_batch(records, opts \\ [])
 
   def record_batch(records, opts) when is_list(records) and is_list(opts) do
-    if LogFile.debug_enabled?() do
+    if telemetry_enabled?() do
       writer = Keyword.get(opts, :writer, Writer)
       Writer.record_batch(writer, records, Keyword.delete(opts, :writer))
     end

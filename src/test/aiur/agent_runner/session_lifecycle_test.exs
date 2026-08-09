@@ -901,7 +901,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
             {"headless Claude", %{backend: "claude", metadata: %{claude_app_server_pid: "424242"}}, nil},
             {"Claude REPL", %{backend: "claude-repl", os_pid: 424_242}, nil},
             {"remote Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, "worker-a"},
-            {"local Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, nil}
+            {"local Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, nil},
+            {"in-process OpenAI-compatible", %{backend: "deepseek", session_pid: self()}, nil}
           ] do
         ticket = "session-no-pgid-#{System.unique_integer([:positive])}"
         assert {:ok, lease} = Ownership.claim(ticket)

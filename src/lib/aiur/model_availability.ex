@@ -9,7 +9,7 @@ defmodule Aiur.ModelAvailability do
   make a backend unavailable.
   """
 
-  alias Aiur.Workflow
+  alias Aiur.{CodingAgent, Workflow}
 
   @windows ~w(hourly weekly monthly)
   @unknown_reset_ttl_seconds 3_600
@@ -29,6 +29,7 @@ defmodule Aiur.ModelAvailability do
 
   @spec observe(String.t(), map() | nil, keyword()) :: :ok | {:error, term()}
   def observe(backend, limits, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
     path = Keyword.get(opts, :path, path())
     now = Keyword.get(opts, :now, DateTime.utc_now())
 
@@ -50,15 +51,20 @@ defmodule Aiur.ModelAvailability do
 
   @spec mark_limited(String.t(), String.t() | nil, keyword()) :: :ok | {:error, term()}
   def mark_limited(backend, reset_at \\ nil, opts \\ []) when is_binary(backend) do
-    observe(backend_key(backend), %{"limited" => true, "reset_at" => reset_at}, opts)
+    observe(backend, %{"limited" => true, "reset_at" => reset_at}, opts)
   end
 
   @spec backend_key(String.t()) :: String.t()
-  def backend_key("claude-repl"), do: "claude"
-  def backend_key(backend), do: backend
+  def backend_key(backend) do
+    case CodingAgent.family_for(backend) do
+      family when is_binary(family) -> family
+      _ -> backend
+    end
+  end
 
   @spec available?(String.t(), keyword()) :: boolean()
   def available?(backend, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
     now = Keyword.get(opts, :now, DateTime.utc_now())
     entry = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path()))) |> get_in(["backends", backend]) || %{}
 
@@ -68,6 +74,7 @@ defmodule Aiur.ModelAvailability do
   @doc "Whether availability is backed by a positive observation or a real elapsed reset."
   @spec recovery_confirmed?(String.t(), keyword()) :: boolean()
   def recovery_confirmed?(backend, opts \\ []) when is_binary(backend) do
+    backend = backend_key(backend)
     now = Keyword.get(opts, :now, DateTime.utc_now())
     state = Keyword.get(opts, :state, load(Keyword.get(opts, :path, path())))
     entry = get_in(state, ["backends", backend]) || %{}

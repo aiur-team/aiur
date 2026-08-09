@@ -34,8 +34,9 @@ defmodule Aiur.Orchestrator.TokenAccounting do
           |> apply_agent_token_delta(token_delta)
           |> apply_agent_rate_limits(update)
 
-        StatusReport.notify_dashboard(state)
-        {:noreply, %{state | running: Map.put(running, issue_id, updated_running_entry)}}
+        next_state = %{state | running: Map.put(running, issue_id, updated_running_entry)}
+        StatusReport.notify_dashboard(next_state)
+        {:noreply, next_state}
     end
   end
 

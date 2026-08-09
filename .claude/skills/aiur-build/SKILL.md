@@ -1,6 +1,6 @@
 ---
 name: aiur-build
-description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph leveled into barrier-safe parallel phases within an agreed depth budget, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes GitHub issue materialization; it never implements the feature or runs Aiur."
+description: "Research and decompose a large feature into a durable, reviewable Aiur planning pack: requirements, versioned design evidence, technical decisions, worker-ready ticket contracts, typed dependency/conflict graph leveled into barrier-safe parallel phases within an agreed depth budget, validation report, and Executor handoff. Use when asked to break a feature into Aiur tickets, plan an epic/build order, reproduce a large-feature planning process, or prepare work for a later aiur-run. This skill is planning-only unless the user separately authorizes Executor-owned GitHub ticket promotion; it never implements the feature or runs Aiur."
 ---
 
 # Build an Aiur Planning Pack
@@ -8,7 +8,8 @@ description: "Research and decompose a large feature into a durable, reviewable 
 Act as the **Feature Planner**: build the system of understanding that a later
 Executor can execute. Reserve “Executor” for the human or agent operating
 `aiur-run`. Do not implement tickets, run Aiur, review live implementation PRs,
-or merge product work under this skill.
+or merge product work under this skill. The Executor owns any promotion of
+researched ticket drafts into tracker issues.
 
 Read [the decomposition workflow](references/decomposition-workflow.md) before
 starting. Read [the planning contract](references/planning-contract.md) before
@@ -43,7 +44,7 @@ complete instructions before using it.
 3. Create a dedicated planning branch without disturbing unrelated work.
 4. Create `questions-or-commands.md` immediately. Ask concise questions in chat
    and record every unanswered item there so asynchronous work can continue.
-5. Record commit/push permission, GitHub issue-materialization permission, and
+5. Record commit/push permission, GitHub ticket-promotion permission, and
    the planning-only boundary. Never infer permission to create issues or merge.
 6. Allocate a stable `build_order_id`, logical ticket prefix, and `plan_version`
    before tickets receive GitHub numbers.
@@ -62,7 +63,7 @@ Declare precedence for the effort and record exceptions. The default is:
 1. current explicit operator decisions;
 2. captured/versioned design for intended UI behavior;
 3. accepted requirements and ADR/contracts;
-4. GitHub for materialized ticket facts, labels, relationships, and lifecycle;
+4. GitHub for promoted ticket facts, labels, relationships, and lifecycle;
 5. Aiur for runtime agent state, progress, alerts, and events;
 6. planning documents for approved intent, evidence, and the baseline graph.
 
@@ -80,7 +81,7 @@ Follow the detailed reference. At a glance:
 6. `ce-plan` synthesis of implementation units and candidate boundaries;
 7. worker-sized ticket contracts and typed scheduling graph;
 8. mechanical validation plus adversarial document review;
-9. optional GitHub materialization and post-publish reconciliation;
+9. optional Executor-owned GitHub promotion;
 10. durable runtime Executor handoff and stop.
 
 Use parallel researchers for independent evidence tracks, not for fragmented
@@ -139,146 +140,78 @@ Include an audit/ADR gate when ownership is uncertain and an explicit
 integration/feature-acceptance capstone from day one. Preserve planned versus
 discovered ticket provenance as `plan_version` evolves.
 
-## Validate before approval
+## Write one canonical runtime pack
 
-Write the canonical planning baseline as `build-order.json` using the planning
-contract and [validated example](references/build-order.example.json). Resolve
-the loaded skill directory, then run its validator. Common repo-local paths are
-`.claude/skills/aiur-build` and `.codex/skills/aiur-build`:
+The per-repository state node remains the durable runtime authority. Successful
+publication also writes a repository-local discovery mirror at
+`.aiur/build_orders/<slug>.json`; the dashboard discovers both and reconciles
+copies by the precedence documented below. It never reads planning branches or
+arbitrary copies under `docs/`:
 
-```bash
-python3 <loaded-skill-directory>/scripts/validate_build_order.py \
-  docs/build-orders/<slug>/build-order.json
+```text
+~/.aiur/repo/<owner>/<repo>/builds/<slug>/
+  build-order.json
+  status.json
+  tickets/<ID>.md
 ```
 
-After GitHub materialization, supply the repository and approved root-body
-template so the validator can derive body expectations with `git show` rather
-than trusting hashes copied into the receipt:
+This state-node path is machine-local runtime storage, not a worktree path.
+Executor-authored findings and retros live in its sibling `meta/` directory;
+do not create build packs or operational notes under `docs/executor/` as a
+substitute for the canonical state node.
 
-```bash
-python3 <loaded-skill-directory>/scripts/validate_build_order.py \
-  docs/build-orders/<slug>/build-order.json \
-  --repository-root . \
-  --root-document docs/build-orders/<slug>/root-issue.md
+The researched ticket document is the draft body, not a second status system.
+Every member in `build-order.json` uses the canonical runtime shape:
+
+```json
+{
+  "id": "AS-101",
+  "title": "Wire the stream",
+  "lane": "runtime",
+  "phase": 1,
+  "complexity": 2,
+  "depends_on": [],
+  "ticket": null,
+  "doc": "tickets/AS-101.md",
+  "icon": "bolt"
+}
 ```
 
-For a live start gate, also pass the exact receipt commit and the explicitly
-trusted repository branch recorded by the publication manifest:
+`ticket` is the authority pointer: `null` means the member is still a draft;
+an issue number means the tracker is authoritative. `doc` is relative to the
+build directory. A pack may set `icon` to choose its catalog icon; omitted icons
+receive a deterministic generic default, distinct from other build orders in
+the same repository list. Member icons remain presentation hints.
 
-```bash
-python3 <loaded-skill-directory>/scripts/validate_build_order.py \
-  docs/build-orders/<slug>/build-order.json \
-  --repository-root . \
-  --root-document docs/build-orders/<slug>/root-issue.md \
-  --receipt-commit <RECEIPT_SHA>
-```
+Do not ship converter code. Existing packs are one-time Executor hand-conversion
+work after the reader lands. Canonical planning artifacts under `docs/` remain
+version-control evidence, not discovery inputs. After materialization, the
+publisher writes the matching live discovery mirror to
+`.aiur/build_orders/<slug>.json`; Aiur reads that materialized mirror.
+When the same repository-qualified `build_order_id` appears in more than one
+discovery source, Aiur keeps exactly one copy by source precedence: workspace
+mirror, repository state, `AIUR_BUILD_ORDER_DIRS`, configured list, then the
+singular test/demo override. It logs whether the discarded copy was identical
+or divergent. Different build-order IDs are never reconciled merely because
+their root numbers collide; the catalog keeps both so deep links fail closed.
 
-The validator loads the complete immutable authority from `publication.json` at
-both approval and receipt commits: trusted ref, canonical root path, mutation
-repositories, reference-only issue URLs, and tracker lifecycle-label prefix. It
-does not accept caller-supplied authority, and `--root-document` must equal the
-frozen root path.
-Receipt-commit mode also requires an authenticated `gh` CLI. It performs two
-fresh read-only GitHub snapshots and requires exact agreement across every
-mapped issue, all-state marker matches, root membership, and native blockers
-before accepting the immutable v3 receipt. Every authority API request pins
-`--hostname github.com`, API version `2026-03-10`, an explicit read method, and
-a finite timeout. Collection uses explicit GETs capped at 100 pages and 10,000
-items per endpoint plus one shared budget across both snapshots; it never
-delegates an unbounded `--paginate --slurp` read. Receipt extraction also has
-file-count, per-file, aggregate-byte, and Git-operation timeout bounds.
+Verify before declaring planning complete: with the daemon running, open the
+Build Order page and confirm the pack title and members render. This is a
+required verification rung, not a documentation-only check.
 
-Materialized validation also freezes the current planning documents: every
-ticket document must remain byte-for-byte equal to its approved source, and the
-current root document may differ from its approved full template only through
-deterministic `<APPROVED_SHA>` substitution. Missing, unreadable, unsafe,
-symlinked, or drifted current sources fail closed; remote body expectations
-still come only from `git show` at the approved commit.
+## Optional GitHub promotion
 
-Graph validation covers unique IDs, design/decision references, worker-document
-shape, resolved edges, phase contradictions, dispositions, pickability,
-parallel-safety conflicts, capstone ownership, and any GitHub reconciliation
-receipt. Fix errors; explain and disposition warnings. The separate review
-report records whole-pack gates the command cannot prove. Generate human tables
-and diagrams from the same records rather than maintaining competing counts.
+Only the Executor promotes researched drafts, and only when the user explicitly
+asks to create tickets. Ask whenever the user wants tickets created; encourage
+creating every researched, ready-to-begin ticket together. Per-phase promotion
+is optional user complexity, never a hardcoded Aiur workflow.
 
-Run `ce-doc-review`, or an equivalent adversarial review when CE is unavailable,
-on requirements, decisions, the plan, ticket contracts, and handoff. Run at
-least one pass; repeat after any high-severity or boundary-changing finding.
-Planning is complete when a relevant pass adds neither and all gates pass.
+Promotion is deliberately not machinery: the Executor creates each issue with
+the corresponding `tickets/<ID>.md` content verbatim, records the returned
+issue number in that member's `ticket` field, and freezes the document. **After
+promotion, edits go to the ticket, never the doc.** This transfer of authority
+is the anti-duplication rule.
 
-## Optional GitHub materialization
-
-Only when explicitly authorized:
-
-Use the skill-owned publisher as the public entry point. It consumes the same
-canonical `build-order.json`, sibling `publication.json`, approved root
-template, and ticket documents enforced above; dry-run is the default and the
-two mutation stages remain explicit:
-
-```bash
-python3 <loaded-skill-directory>/scripts/publish_build_order.py \
-  --build docs/build-orders/<slug>/build-order.json \
-  --approved-sha <APPROVED_SHA> \
-  --green-authority-sha <GREEN_AUTHORITY_SHA>
-
-# only after the dry-run is reviewed and publication is explicitly authorized
-python3 <loaded-skill-directory>/scripts/publish_build_order.py --apply \
-  --build docs/build-orders/<slug>/build-order.json \
-  --approved-sha <APPROVED_SHA> \
-  --green-authority-sha <GREEN_AUTHORITY_SHA>
-```
-
-The default driver owns canonical root/ticket creation, approved H1/body
-rendering, marker deduplication, projected labels, native root membership,
-`depends_on` edges, bounded requery, and the core receipt. A pack may provide
-`scripts/publication_adapter.py` protocol version 1 only to declare extensions
-such as an additional non-member issue, external blocker edges, a bounded label
-creation allowlist, or reconciliation-comment policy. An adapter must export
-`publication_extension()` data; it must not replace the mutation driver.
-
-1. requery GitHub, deduplicate existing work, and freeze every reference-only
-   issue that the user did not authorize for mutation or reuse; treat a closed
-   logical-marker match as a conflict and never reopen it without separate
-   authority;
-   record the trusted ref, canonical root path, mutation repositories,
-   reference-only URLs, and actual tracker lifecycle-label prefix in the
-   immutable publication manifest;
-2. create/update the Build Order root and implementation issues;
-3. map stable logical IDs to returned repo-qualified issue identities;
-4. publish native membership and dependency relationships;
-5. generate each ticket body as the exact authority preamble plus its approved
-   ticket document verbatim, and generate the root from its approved full-body
-   template by replacing `<APPROVED_SHA>`; disable Git replace refs and reject
-   any legacy `info/grafts` entry in either the worktree Git directory or its
-   shared common directory for every approval and receipt read;
-6. preserve that same post-approval document freeze in the current pack;
-7. requery and validate the published graph, full labels, OPEN issue states,
-   and bodies rather than trusting mutation responses: every body has exactly
-   one schema-2 logical-ID/version/approval marker, exactly one approved-commit
-   link, and a SHA-256 equal to the independently rendered approved body;
-   record the full marker-query result set and require exactly one returned
-   issue mapping per logical ID;
-8. record the bounded reconciliation receipt defined by the planning contract;
-9. make GitHub canonical for the materialized ticket facts;
-10. immediately before publishing a successful live start gate, run
-    receipt-commit validation against the all-OPEN v3 publication snapshot.
-    Derive repository, root, plan version, approval, and root URL from the exact
-    receipt commit; require that commit to contain the complete materialized
-    pack and pass the trusted reconciliation validator before accepting the
-    same-repository commit URL.
-    Anchor the repository outside both receipt and caller data to the configured
-    GitHub origin. Query the exact target of the explicitly trusted
-    `refs/heads/...` repository branch and prove receipt and approval commits
-    are ancestors. Separately prove strict approval-to-receipt order in a fresh
-    graft-free clone of that GitHub branch and through GitHub's compare API;
-    object/API visibility alone is insufficient. Requery the ref after proof
-    and require the same tip. Any graft entry, including a nonregular or
-    uninspectable one, fails closed.
-
-The all-OPEN check is a publication-finalization snapshot, not a perpetual
-invariant. After authorized execution begins, current GitHub lifecycle is live
-truth; do not rerun publication validation to undo legitimate state changes.
 
 Do not assume issue-number adjacency. Keep prose dependency tables as generated
 human views, not a second source of truth.
@@ -292,5 +225,6 @@ ledger, backlog-growth circuit breaker, runtime terminal condition, and queries
 for fresh state. It tells the next agent to use `aiur-run` and to write a
 three-to-five-sentence goal summarizing its Executor role and authority.
 
-Stop after the reviewed pack and any separately authorized issue publication.
+Stop after the reviewed pack and any separately user-authorized Executor
+promotion.
 Do not start Aiur or implement the first ticket as a convenience.

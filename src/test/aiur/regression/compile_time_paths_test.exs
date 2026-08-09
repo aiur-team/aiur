@@ -32,7 +32,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
       "`priv/`, not the repo's `.claude` tree. (A runtime `__DIR__`-relative read",
-      "@skills_root Path.expand(\"../../../\#{@claude_skills_dir}\", __DIR__)",
+      "@skills_root Path.expand(\"../../../\#{@bundled_skills_dir}\", __DIR__)",
       "for path <- bundled_paths, do: @external_resource(path)"
     ],
     "aiur/init/templates.ex" => [
@@ -45,7 +45,9 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@alerts_macos_example_path Path.expand(\"../../../../.aiur/examples/alerts.macos.example\", __DIR__)",
       "@alerts_linux_example_path Path.expand(\"../../../../.aiur/examples/alerts.linux.example\", __DIR__)",
       "@external_resource @alerts_macos_example_path",
-      "@external_resource @alerts_linux_example_path"
+      "@external_resource @alerts_linux_example_path",
+      "@executor_handoff_example_path Path.expand(\"../../../../.aiur/examples/executor-handoff.md.example\", __DIR__)",
+      "@external_resource @executor_handoff_example_path"
     ],
     "aiur/prompt_builder.ex" => [
       "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",

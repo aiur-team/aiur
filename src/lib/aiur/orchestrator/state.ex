@@ -14,15 +14,29 @@ defmodule Aiur.Orchestrator.State do
 
   @type t :: %__MODULE__{
           poll_interval_ms: integer() | nil,
+          snapshot_key: GenServer.server() | nil,
+          snapshot_generation: reference() | nil,
+          snapshot_ready?: boolean(),
           max_concurrent_agents: integer() | nil,
           session_max_concurrent_agents: integer() | nil,
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
             last_decrease_ms: integer() | nil,
-            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
+            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
+            bootstrap_complete?: boolean()
           },
+          capacity_hold:
+            %{
+              signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
+              measured: term(),
+              threshold: term(),
+              held_since_ms: integer(),
+              alerted?: boolean()
+            }
+            | nil,
           next_poll_due_at_ms: integer() | nil,
           poll_check_in_progress: boolean() | nil,
+          poll_frozen: boolean() | nil,
           tick_timer_ref: reference() | nil,
           tick_token: reference() | nil,
           initial_dispatch_cycle: boolean() | nil,
@@ -36,6 +50,21 @@ defmodule Aiur.Orchestrator.State do
             rewakes: map()
           },
           todo_over_capacity_alert_active: boolean(),
+          prewarm_blocked_alert_active: boolean(),
+          prewarm_blocked_alert_resolution_emitted: boolean(),
+          tracker_preflight_alert_signature: String.t() | nil,
+          tracker_preflight_alert_resolution_emitted: boolean(),
+          capacity_starvation_resolution_emitted: boolean(),
+          observed_error_alerts: MapSet.t(),
+          active_attention_topics: MapSet.t(),
+          observed_error_alert_causes: %{optional(String.t()) => atom()},
+          dispatch_capacity_constraints: [map()],
+          capacity_starvation: %{
+            since_ms: %{optional(String.t()) => integer()},
+            alert_active: boolean(),
+            signature: [String.t()],
+            alerted: [String.t()]
+          },
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -44,6 +73,10 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
+          # Transient-caused pause/error tickets waiting a bounded backoff before
+          # automatic re-dispatch (#1453). Keyed by issue_id; see
+          # `Aiur.Orchestrator.AutoResume`.
+          auto_resume: %{String.t() => map()},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -52,13 +85,27 @@ defmodule Aiur.Orchestrator.State do
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
           github_comments_since: String.t() | map() | nil,
+          github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
           globally_paused: boolean(),
-          control_lifecycle: ControlLifecycle.t()
+          ci_readiness_checked: boolean() | nil,
+          ci_readiness_unavailable_alerted: boolean() | nil,
+          ci_readiness_check_pid: pid() | nil,
+          ci_readiness_check_token: reference() | nil,
+          ci_readiness_retry_at_ms: integer() | nil,
+          ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
+          ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
+          global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
+          control_lifecycle: ControlLifecycle.t(),
+          # Consecutive poll ticks the prewarm gate has held dispatch for a
+          # warming base. Drives the at-most-once-per-N-ticks hold log so a
+          # slow/stuck base build stays visible in the daemon log without
+          # spamming it (see Dispatcher.log_prewarm_hold/2).
+          prewarm_hold_ticks: non_neg_integer()
         }
 
   # The Orchestrator is the single owner of the correlated control lifecycle;
@@ -66,15 +113,26 @@ defmodule Aiur.Orchestrator.State do
   # credo:disable-for-next-line Credo.Check.Warning.StructFieldAmount
   defstruct [
     :poll_interval_ms,
+    :snapshot_key,
+    :snapshot_generation,
     :max_concurrent_agents,
     :session_max_concurrent_agents,
     :effective_concurrent_agents,
     :next_poll_due_at_ms,
     :poll_check_in_progress,
+    :poll_frozen,
     :tick_timer_ref,
     :tick_token,
     :initial_dispatch_cycle,
-    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+    :ci_readiness_checked,
+    :ci_readiness_unavailable_alerted,
+    :ci_readiness_check_pid,
+    :ci_readiness_check_token,
+    :ci_readiness_retry_at_ms,
+    :ci_readiness_scope,
+    :ci_readiness_result,
+    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
+    capacity_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{
@@ -85,11 +143,22 @@ defmodule Aiur.Orchestrator.State do
       rewakes: %{}
     },
     todo_over_capacity_alert_active: false,
+    prewarm_blocked_alert_active: false,
+    prewarm_blocked_alert_resolution_emitted: false,
+    tracker_preflight_alert_signature: nil,
+    tracker_preflight_alert_resolution_emitted: false,
+    capacity_starvation_resolution_emitted: false,
+    observed_error_alerts: MapSet.new(),
+    active_attention_topics: MapSet.new(),
+    observed_error_alert_causes: %{},
+    dispatch_capacity_constraints: [],
+    capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
+    auto_resume: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
@@ -98,13 +167,17 @@ defmodule Aiur.Orchestrator.State do
     events_etag: nil,
     events_last_id: nil,
     github_comments_since: nil,
+    github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
     globally_paused: false,
-    control_lifecycle: %ControlLifecycle{}
+    global_pause: %{paused_at: nil, source: nil},
+    snapshot_ready?: false,
+    control_lifecycle: %ControlLifecycle{},
+    prewarm_hold_ticks: 0
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

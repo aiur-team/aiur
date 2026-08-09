@@ -463,6 +463,14 @@ textarea:focus-visible,
   border-collapse: collapse;
 }
 
+.bo-catalog-table .bo-catalog-active {
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
+
+.bo-catalog-table .bo-catalog-completed {
+  opacity: .78;
+}
+
 .bo-catalog-table th:first-child,
 .bo-catalog-table td:first-child {
   white-space: nowrap;
@@ -510,6 +518,43 @@ textarea:focus-visible,
   color: var(--muted);
 }
 
+/* Partial resolution: the percentage is real but covers only part of the
+   pack, so the bar is striped and the coverage ratio rides alongside it. */
+.bo-catalog-progress-partial .bo-catalog-progress-track > i {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--accent),
+    var(--accent) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}
+
+.bo-catalog-progress-coverage {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.85;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0 0.35rem;
+}
+
+/* Unresolved: not a blank, not a zero bar. It reads as a word. */
+.bo-catalog-progress-unresolved {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warning, #d08a2a);
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
 .bo-catalog-table tbody tr {
   position: relative;
   cursor: pointer;
@@ -552,6 +597,15 @@ textarea:focus-visible,
   text-decoration: none;
   font-weight: 600;
   font-size: 0.88rem;
+}
+
+.bo-catalog-icon {
+  display: inline-flex;
+  width: 1.35rem;
+  justify-content: center;
+  margin-right: 0.35rem;
+  color: var(--accent);
+  font-size: 1rem;
 }
 
 .bo-catalog-link::after {
@@ -2262,14 +2316,9 @@ html[data-theme="light"] .toggle-icon .moon {
   border-color: var(--blocking-line);
 }
 
-.chip.cmd-agent.is-claude {
-  color: #f2a76b;
-  border-color: rgba(242, 167, 107, 0.4);
-}
-
-.chip.cmd-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
+.chip.cmd-agent {
+  color: var(--provider-command-color, var(--fg));
+  border-color: var(--provider-command-border, var(--line-strong));
 }
 
 .chip.faint {
@@ -3143,16 +3192,10 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
-.u-agent.is-claude {
-  color: #f0a878;
-  border-color: rgba(240, 168, 120, 0.4);
-  background: rgba(240, 168, 120, 0.12);
-}
-
-.u-agent.is-codex {
-  color: #8fbcff;
-  border-color: rgba(143, 188, 255, 0.4);
-  background: rgba(143, 188, 255, 0.12);
+.u-agent {
+  color: var(--provider-unit-color, var(--fg));
+  border-color: var(--provider-unit-border, var(--line-strong));
+  background: var(--provider-unit-background, var(--pill-bg));
 }
 
 .u-cx {
@@ -3412,12 +3455,8 @@ html[data-theme="light"] .toggle-icon .moon {
 /* ---- run summary / vendor usage strip (Units page top) ---- */
 .run-summary {
   display: grid;
-  grid-template-columns: minmax(170px, 0.92fr) 1fr 1fr;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 0.9rem;
-}
-
-.run-summary .rs-status {
-  order: -1;
 }
 
 .rs-block {
@@ -3430,6 +3469,15 @@ html[data-theme="light"] .toggle-icon .moon {
   border-radius: var(--radius-lg);
   background: var(--surface);
   box-shadow: var(--shadow-sm);
+}
+
+/* The compact run summary lives inside the Units pane (section-card), so it
+   embeds in that pane instead of drawing its own bordered box. */
+.rs-block.rs-summary-compact {
+  padding: 0.85rem 0 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 /* The stats cluster must be able to drop below the name and shrink: at the
@@ -3507,8 +3555,14 @@ html[data-theme="light"] .toggle-icon .moon {
   height: 1.05rem;
   flex: none;
   object-fit: contain;
-  margin: 0 0.15rem 0 0;
+  margin: 0 0 0 0.15rem;
   vertical-align: -0.15em;
+}
+
+/* An unknown token count keeps only the provider's token glyph, top right at
+   logo size, so the card keeps its footprint without a "Tokens N/A" row. */
+.rs-token-na {
+  align-self: flex-start;
 }
 
 .rs-limits {
@@ -3559,6 +3613,12 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--accent);
 }
 
+/* A meter that has reached 100% used is critical: the fill turns red so an
+   exhausted window is never mistaken for a healthy one. */
+.rs-meter > i.is-critical {
+  background: var(--blocking);
+}
+
 .rs-progress {
   margin-top: auto;
 }
@@ -3573,12 +3633,11 @@ html[data-theme="light"] .toggle-icon .moon {
   vertical-align: -2px;
 }
 
-/* Summary / Codex / Claude stay side by side down to phone widths: the three
-   are read as a set, and stacking them pushed the provider cards below the
-   fold on exactly the screens where headroom matters most. The cards carry a
-   name, one stat and a meter, so they survive a ~110px column; the head row
-   already wraps its stats. Only below 380px is there genuinely not enough
-   room, and they stack. */
+/* Provider cards stay side by side down to phone widths: the set is read
+   together, and stacking them pushed the cards below the fold on exactly the
+   screens where headroom matters most. The cards carry a name, one stat and a
+   meter, so they survive a ~110px column; the head row already wraps its
+   stats. Only below 380px is there genuinely not enough room, and they stack. */
 @media (max-width: 720px) {
   .run-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -5061,11 +5120,11 @@ html[data-theme="light"] .toggle-icon .moon {
     max-width: 26rem;
     margin-inline: auto;
     display: grid;
-    /* Four equal route cells plus one auto cell for the control cluster, so the
-       pause and theme toggles ride along in the nav instead of vanishing with
-       the hidden sidebar. `auto` keeps them at their natural icon width rather
-       than stealing a fifth of the row from the route labels. */
-    grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
+    /* Five equal route cells plus one auto cell for the control cluster, so the
+       pause toggle rides along in the nav instead of vanishing with the hidden
+       sidebar. `auto` keeps it at its natural icon width rather than stealing
+       space from the route labels. */
+    grid-template-columns: repeat(5, minmax(0, 1fr)) auto;
     gap: 0.2rem;
     padding: 0.3rem;
     border: 1px solid var(--line-strong);
@@ -5475,6 +5534,37 @@ html[data-theme="light"] .toggle-icon .moon {
   margin: 0;
   padding: 0;
   list-style: none;
+}
+
+.conversation-drawer-log {
+  margin-top: 0.75rem;
+  padding-top: 0.6rem;
+  border-top: 1px dashed var(--line);
+}
+
+.conversation-drawer-log-heading {
+  margin: 0 0 0.5rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.conversation-drawer-log-entries {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.conversation-log-system article {
+  border-left-color: var(--muted);
+}
+
+.conversation-log-tool article {
+  border-left-color: var(--accent, #3ba55d);
 }
 
 .conversation-message article {
@@ -7163,4 +7253,556 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .bo-edge-dot.is-cleared {
   fill: var(--good);
+}
+
+/* Stream Deck emulator. The device stays physically dark in either dashboard
+   theme; all legible copy still uses the dashboard's themed ink tokens. */
+.sd-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
+  min-width: 0;
+  padding: 1.2rem 0 0.4rem;
+}
+
+.sd-device {
+  --sd-wordmark: #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  gap: 1.15rem;
+  padding: 1.5rem 1.7rem 1.8rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 34px;
+  background: linear-gradient(180deg, #2a2b2e 0%, #201f22 55%, #161517 100%);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
+}
+
+.sd-brand {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.55rem;
+  padding-bottom: 0.15rem;
+  color: var(--sd-wordmark);
+}
+
+.sd-brand-logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+}
+
+.sd-brand-name {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
+}
+
+.sd-keys {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  column-gap: 1.9rem;
+  row-gap: 1rem;
+}
+
+.sd-key {
+  --sd-accent: #9fd0ff;
+  --sd-glow: #0c0d0f;
+  --sd-face: #0f151c;
+  position: relative;
+  aspect-ratio: 1 / 1;
+  min-width: 0;
+  overflow: hidden;
+  border: 0;
+  padding: 3px;
+  border-radius: 15px;
+  background: #0c0d0f;
+  cursor: pointer;
+  transition: transform 0.08s ease, filter 0.14s ease;
+}
+
+.sd-key-face {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  padding: 0.48rem;
+  border-radius: 12px;
+  background: #0f151c;
+  color: var(--fg);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+}
+
+.sd-key:hover { filter: brightness(1.07); }
+.sd-key:active { transform: translateY(1px) scale(0.98); }
+
+.sd-key-topline,
+.sd-key-footer {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 0.28rem;
+}
+
+.sd-key-topline {
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.sd-key-priority {
+  color: var(--attention-ink);
+  font-size: 0.62rem;
+}
+
+.sd-key-main {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 0.18rem;
+}
+
+.sd-key-ticket {
+  color: var(--sd-accent);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.58rem;
+  font-weight: 800;
+}
+
+.sd-key-title {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--fg);
+  font-size: clamp(0.58rem, 1.4vw, 0.72rem);
+  font-weight: 700;
+  line-height: 1.12;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.sd-key-footer {
+  color: var(--muted);
+  font-size: 0.5rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.sd-key-footer b {
+  margin-left: auto;
+  padding: 0.13rem 0.2rem;
+  border-radius: 999px;
+  background: var(--blocking-soft);
+  color: var(--blocking-ink);
+  font-size: 0.43rem;
+}
+
+.sd-status-dot {
+  width: 0.42rem;
+  height: 0.42rem;
+  flex: none;
+  border-radius: 50%;
+  background: var(--sd-accent);
+  box-shadow: 0 0 0.45rem var(--sd-accent);
+}
+
+.sd-progress {
+  display: block;
+  height: 0.22rem;
+  flex: 1;
+  min-width: 0.6rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sd-progress i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--sd-accent);
+}
+
+.sd-key.st-running {
+  --sd-accent: #9fd0ff;
+  --sd-glow: linear-gradient(180deg, #3f8bff, #7b4bf5);
+  --sd-face: linear-gradient(180deg, #18212d, #0f151d);
+}
+
+.sd-key.st-running .sd-key-face {
+  background: var(--sd-face);
+}
+
+.sd-key.st-paused {
+  --sd-accent: #c2c6cf;
+  --sd-glow: linear-gradient(180deg, #4a4d55, #33363d);
+  --sd-face: linear-gradient(180deg, #1e2025, #131419);
+}
+
+.sd-key.st-paused .sd-key-face {
+  background: var(--sd-face);
+}
+
+.sd-key.st-stuck {
+  --sd-accent: #ff9a90;
+  --sd-glow: linear-gradient(180deg, #ff6a5e, #c0392b);
+  --sd-face: linear-gradient(180deg, #271317, #160c0e);
+}
+
+.sd-key.st-stuck .sd-key-face {
+  background: var(--sd-face);
+}
+
+.sd-key.st-alert {
+  --sd-accent: #ffcf87;
+  --sd-glow: linear-gradient(180deg, #ffc061, #e08a1e);
+  --sd-face: linear-gradient(180deg, #241d0e, #15110a);
+}
+
+.sd-key.st-alert .sd-key-face {
+  background: var(--sd-face);
+}
+
+.sd-key.st-stuck .sd-status-dot {
+  animation: sd-pulse 1.4s ease-in-out infinite;
+}
+
+.sd-key.st-alert .sd-status-dot {
+  animation: sd-pulse 1.6s ease-in-out infinite;
+}
+
+.sd-key.st-queued {
+  --sd-accent: #9096a4;
+  --sd-glow: linear-gradient(180deg, #3a3f47, #23262c);
+  --sd-face: linear-gradient(180deg, #191b21, #111318);
+}
+
+.sd-key.st-queued .sd-key-face {
+  background: var(--sd-face);
+}
+
+.sd-key:is(.st-running, .st-paused, .st-stuck, .st-alert, .st-queued) {
+  background: var(--sd-glow);
+}
+
+.sd-key:is(.is-empty, .sd-empty) {
+  background: #0a0b0d;
+  cursor: default;
+  opacity: 0.55;
+}
+
+.sd-key:is(.is-empty, .sd-empty) .sd-key-face {
+  background: repeating-linear-gradient(135deg, #101114 0 7px, #0c0d10 7px 14px);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
+}
+
+.sd-key:is(.is-flashing, .flash) {
+  animation: sd-flash 0.45s ease;
+}
+
+.sd-screen {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  height: 88px;
+  gap: 4px;
+  padding: 6px;
+  overflow: hidden;
+  border-radius: 9px;
+  background: #060708;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 2px 10px rgba(0, 0, 0, 0.8);
+}
+
+.sd-screen-segment {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.18rem;
+  min-width: 0;
+  overflow: hidden;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 0.58rem;
+  font-weight: 700;
+  text-align: center;
+  transition: background 0.14s ease;
+}
+
+.sd-screen-icon {
+  color: var(--accent-ink);
+  font-size: 1rem;
+  line-height: 1;
+}
+
+.sd-screen-segment.is-live {
+  border-color: var(--good-line);
+  color: var(--fg);
+}
+
+.sd-screen-segment.is-live::after {
+  position: absolute;
+  top: 0.34rem;
+  right: 0.34rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--good);
+  box-shadow: 0 0 0.45rem var(--good);
+  content: "";
+  animation: sd-live-pulse 1.2s ease-in-out infinite;
+}
+
+.sd-mic {
+  position: absolute;
+  top: 0.34rem;
+  left: 0.34rem;
+  width: 0.32rem;
+  height: 0.32rem;
+  border-radius: 50%;
+  background: var(--super);
+  box-shadow: 0 0 0.45rem var(--super);
+  animation: sd-mic-pulse 1s ease-in-out infinite;
+}
+
+.sd-well {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 148px;
+  padding: 1.7rem 1.3rem;
+  border-radius: 20px;
+  background: linear-gradient(180deg, #131315, #0b0b0c);
+  box-shadow: inset 0 3px 14px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
+}
+
+.sd-knobs {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  justify-items: center;
+}
+
+.sd-knob-wrap {
+  display: grid;
+  justify-items: center;
+  gap: 0.5rem;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+}
+
+.sd-knob {
+  --a: 0deg;
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 68px;
+  height: 68px;
+  border: 0;
+  border-radius: 50%;
+  background:
+    repeating-conic-gradient(from 0deg, #3a3b3f 0deg 6deg, #232427 6deg 12deg),
+    radial-gradient(circle at 50% 42%, #45464a, #202124 70%);
+  background-blend-mode: soft-light, normal;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.14), inset 0 -4px 8px rgba(0, 0, 0, 0.55);
+  touch-action: none;
+  cursor: grab;
+}
+
+.sd-knob:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-knob:active {
+  cursor: grabbing;
+}
+
+.sd-knob.press {
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.5);
+}
+
+.sd-knob::before {
+  position: absolute;
+  inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #34353a, #17181b);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  content: "";
+}
+
+.sd-knob-marker {
+  position: absolute;
+  top: 8px;
+  left: calc(50% - 1px);
+  width: 2px;
+  height: 18px;
+  border-radius: 999px;
+  transform: rotate(var(--a));
+  transform-origin: 1px 26px;
+  background: var(--accent-ink);
+  box-shadow: 0 0 0.3rem var(--accent-ink);
+  z-index: 1;
+}
+
+.sd-knob-inner {
+  position: relative;
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+  z-index: 2;
+}
+
+@keyframes sd-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+@keyframes sd-flash {
+  0% { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7); }
+  100% { box-shadow: 0 0 0 0 transparent; }
+}
+
+@keyframes sd-mic-pulse {
+  0%, 100% { opacity: 0.5; transform: scale(0.85); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+@keyframes sd-live-pulse {
+  0%, 100% { opacity: 0.55; transform: scale(0.8); }
+  50% { opacity: 1; transform: scale(1.25); }
+}
+
+/* The device chassis is physically dark regardless of the dashboard theme.
+   Override the ink tokens inside the device so text stays legible on the
+   dark surface when the operator switches to light mode.
+
+   Every token the chassis paints ink with must be pinned back to its dark
+   `:root` value here. A token left unpinned inherits the light-theme root
+   override and lands dark-on-near-black over the `#060708` key face — the
+   "Blocked" dependency chip (`.sd-key-footer b`) measured roughly 2:1 that
+   way. `dashboard_css_theme_test.exs` asserts this list stays complete and
+   byte-identical to `:root`. */
+html[data-theme="light"] .sd-device {
+  --fg: #edeef0;
+  --muted: #969aa4;
+  --accent: #2f86ff;
+  --accent-ink: #8fbcff;
+  --attention-ink: #f1cf6f;
+  --blocking-ink: #ffa39c;
+  --blocking-soft: rgba(255, 123, 114, 0.14);
+  --good: #3fb950;
+  --super: #c69bff;
+}
+
+@media (max-width: 560px) {
+  .sd-device {
+    padding: 1.1rem 1.1rem 1.3rem;
+    border-radius: 24px;
+    gap: 1rem;
+  }
+
+  .sd-keys {
+    column-gap: 0.55rem;
+    row-gap: 0.55rem;
+  }
+
+  .sd-well {
+    padding: 0.9rem 0.8rem;
+  }
+
+  .sd-key-face {
+    padding: 0.32rem;
+  }
+
+  .sd-screen {
+    height: 82px;
+  }
+
+  .sd-knob {
+    width: 52px;
+    height: 52px;
+  }
+
+  .sd-knob-marker {
+    top: 6px;
+    height: 13px;
+    transform-origin: 1px 20px;
+  }
+}
+
+/* Mode-view visibility. The hook sets data-mode on .sd-device; each panel
+   carries data-mode-view matching one mode name. Hidden panels get
+   display:none so they take no space and are skipped by assistive tech. */
+.sd-cmd-view,
+.sd-logs-view {
+  display: none;
+}
+
+.sd-device[data-mode="cmd"] .sd-keys,
+.sd-device[data-mode="logs"] .sd-keys {
+  display: none;
+}
+
+.sd-device[data-mode="cmd"] .sd-cmd-view {
+  display: block;
+}
+
+.sd-device[data-mode="logs"] .sd-logs-view {
+  display: block;
+}
+
+.sd-mode-label {
+  margin: 0 0 0.5rem;
+  color: var(--muted);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.sd-cmd-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.sd-cmd-item {
+  padding: 0.4rem 0.6rem;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+  color: var(--fg);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.sd-cmd-item:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.sd-log-body {
+  max-height: 6rem;
+  overflow-y: auto;
+}
+
+.sd-log-line {
+  margin: 0;
+  color: var(--muted);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  line-height: 1.5;
 }

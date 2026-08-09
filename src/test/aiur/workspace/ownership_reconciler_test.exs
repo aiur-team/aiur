@@ -70,18 +70,28 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert :ok = Ownership.release(replacement, second_registry_name)
   end
 
-  test "a corrupt receipt store fails closed instead of discarding ownership" do
+  test "a corrupt receipt store is quarantined and re-initialized instead of blocking startup" do
     root = Path.join(System.tmp_dir!(), "ownership-corrupt-#{System.unique_integer([:positive])}")
     store_name = Module.concat(__MODULE__, :CorruptStore)
+    path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
 
     File.mkdir_p!(root)
-    File.write!(Path.join(root, "workspace-ownership.receipts"), :erlang.term_to_binary(:wrong_format))
-    Process.flag(:trap_exit, true)
+    corrupt = :erlang.term_to_binary(:wrong_format)
+    File.write!(path, corrupt)
 
-    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
-             Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
+    {:ok, store} = Store.start_link(name: store_name, state_dir: root, sync_fun: fn -> :ok end)
+
+    assert {:ok, %{}} = Store.all(store)
+
+    # the corrupt bytes are preserved for forensics under a .corrupt-* sibling
+    assert [quarantined] = Path.wildcard(path <> ".corrupt-*")
+    assert File.read!(quarantined) == corrupt
+
+    # and the live store is a fresh, writable store again
+    assert :ok = Store.put("ticket", %{phase: :active}, store)
+    assert {:ok, %{"ticket" => %{phase: :active}}} = Store.all(store)
   end
 
   test "a v1 receipt reloads in a fresh BEAM before receipt atoms are loaded" do
@@ -151,25 +161,96 @@ defmodule Aiur.Workspace.OwnershipReconcilerTest do
     assert output =~ "receipt-loaded"
   end
 
-  test "malformed bytes and unsupported receipt versions fail closed" do
+  test "malformed bytes are quarantined and re-initialized" do
     root = Path.join(System.tmp_dir!(), "ownership-invalid-#{System.unique_integer([:positive])}")
     path = Path.join(root, "workspace-ownership.receipts")
 
     on_exit(fn -> File.rm_rf(root) end)
 
     File.mkdir_p!(root)
-    Process.flag(:trap_exit, true)
-
     File.write!(path, <<131, 104>>)
 
-    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
+    {:ok, store} = Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+    assert {:ok, %{}} = Store.all(store)
+    assert [malformed_quarantined] = Path.wildcard(path <> ".corrupt-*")
+    assert File.read!(malformed_quarantined) == <<131, 104>>
+  end
+
+  test "a newer-version receipts file fails closed instead of being wiped" do
+    root = Path.join(System.tmp_dir!(), "ownership-newer-version-#{System.unique_integer([:positive])}")
+    path = Path.join(root, "workspace-ownership.receipts")
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    File.mkdir_p!(root)
+
+    # A validly-encoded file written by a hypothetical v2 store: decodes
+    # cleanly, carries live receipts, but uses a version we cannot read.
+    newer_version =
+      :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, %{"live-ticket" => %{phase: :active}}})
+
+    File.write!(path, newer_version)
+
+    # The store refuses to boot against a file it cannot decode rather than
+    # silently re-initializing empty on a downgrade. Trap exits: the linked
+    # store process exits non-normally when init fails.
+    Process.flag(:trap_exit, true)
+
+    assert {:error, {:workspace_ownership_store_unavailable, {:unsupported_receipt_version, 2}}} =
              Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
 
-    unsupported = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, %{}})
-    File.write!(path, unsupported)
+    # The file is untouched: not wiped, and no forensic archive was created.
+    assert File.read!(path) == newer_version
+    assert Path.wildcard(path <> ".corrupt-*") == []
+  end
 
-    assert {:error, {:workspace_ownership_store_unavailable, :invalid_receipt_store}} =
+  test "a newer-version receipts file carrying an unknown atom fails closed instead of being wiped" do
+    root =
+      Path.join(
+        System.tmp_dir!(),
+        "ownership-newer-version-new-atom-#{System.unique_integer([:positive])}"
+      )
+
+    path = Path.join(root, "workspace-ownership.receipts")
+
+    on_exit(fn -> File.rm_rf(root) end)
+
+    File.mkdir_p!(root)
+
+    # Build the v2 file in a separate BEAM so the receipts body carries an atom
+    # this test VM has never loaded. A `:safe` decode refuses to create that
+    # atom, which used to fold the whole file into the corruption path and
+    # quarantine + re-initialize empty — silently wiping live ownership data on
+    # a downgrade. The store must instead read the version from the outer header
+    # and fail closed.
+    build_code = """
+    root = System.fetch_env!("RECEIPT_DIR")
+    new_phase_atom = String.to_atom("phase_new_#{System.unique_integer([:positive])}")
+    receipts = %{"live-ticket" => %{phase: new_phase_atom}}
+    contents = :erlang.term_to_binary({:aiur_workspace_ownership_receipts, 2, receipts})
+    File.write!(Path.join(root, "workspace-ownership.receipts"), contents)
+    IO.puts("v2-with-new-atom-written")
+    """
+
+    assert {output, 0} = fresh_beam(build_code, root)
+    assert output =~ "v2-with-new-atom-written"
+
+    # The store refuses to boot against a newer-version file even though its
+    # body could not be decoded here: the unknown atom is intact live data, not
+    # corruption.
+    Process.flag(:trap_exit, true)
+
+    assert {:error, {:workspace_ownership_store_unavailable, {:unsupported_receipt_version, 2}}} =
              Store.start_link(name: nil, state_dir: root, sync_fun: fn -> :ok end)
+
+    # The file is untouched: not wiped, and no forensic archive was created.
+    assert {:ok, written} = File.read(path)
+
+    assert {:aiur_workspace_ownership_receipts, 2, %{"live-ticket" => %{phase: phase_atom}}} =
+             :erlang.binary_to_term(written)
+
+    assert phase_atom |> Atom.to_string() =~ "phase_new_"
+    assert Path.wildcard(path <> ".corrupt-*") == []
   end
 
   test "receipt operations report store loss instead of crashing callers" do

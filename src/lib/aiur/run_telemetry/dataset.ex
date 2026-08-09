@@ -59,7 +59,7 @@ defmodule Aiur.RunTelemetry.Dataset do
       {:ok,
        %{
          records: records,
-         restarts: Enum.filter(records, &(&1.kind == "restart")),
+         restarts: Enum.filter(records, &daemon_restart?/1),
          actors: actors,
          tickets: tickets,
          findings: findings,
@@ -79,9 +79,10 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   Options:
 
-    * `:boot_id` — keep only records written by that daemon boot. Externally
-      anchored GitHub records survive regardless: they carry no boot of their own
-      and dropping them would silently erase merges from a session's view.
+    * `:boot_id` — keep only records written by that daemon boot. Live external
+      GitHub anchors survive regardless: they carry no boot of their own. Historical
+      reconciliation anchors are the exception; they remain in full-log reporting
+      but are excluded from a boot-scoped view so they cannot inflate this session.
     * `:tickets` — a `MapSet` of bare ticket-number strings. Non-ticket actors
       (the daemon and executor baselines) are always retained; they are shared
       orchestration overhead, not per-ticket cost.
@@ -100,12 +101,59 @@ defmodule Aiur.RunTelemetry.Dataset do
 
     Map.merge(dataset, %{
       records: records,
-      restarts: Enum.filter(records, &(&1.kind == "restart")),
+      restarts: Enum.filter(records, &daemon_restart?/1),
       actors: actors,
       tickets: scoped_tickets,
       findings: dataset |> Map.get(:findings, []) |> Enum.filter(&Map.has_key?(scoped_tickets, &1.ticket)),
       provenance: rescope_provenance(Map.get(dataset, :provenance, %{}), records)
     })
+  end
+
+  @doc """
+  Reduces an already-normalized record list into the `{actors, tickets,
+  findings}` shape `build/2` derives from a stream. Used by `merge/1` to union
+  datasets across boots so a ticket or actor active in several boots keeps
+  every boot's samples/events, with intervals and profiles re-derived over the
+  union.
+  """
+  @spec reduce([map()], keyword()) :: {map(), map(), [map()]}
+  def reduce(records, opts \\ []) when is_list(records) do
+    {actors, _warnings} = reduce_actors(records, opts)
+    {tickets, findings} = reduce_tickets(records, opts)
+    {actors, tickets, findings}
+  end
+
+  @doc """
+  Unions already-reduced datasets into one dataset, keeping every boot's data
+  for tickets and actors that appear in several boots.
+
+  Records deduplicate by `record_id` — GitHub anchors are boot-agnostic and
+  appear in every per-boot summary, so a naive concatenation would duplicate
+  them — then resource samples and lifecycle events concatenate across boots
+  and intervals/profiles re-derive over the union. This is the same semantics
+  as the canonical Python `_rollup_build`: a multi-boot ticket keeps every
+  boot's intervals and an actor keeps every boot's samples, never collapsing to
+  a last-wins map merge.
+  """
+  @spec merge([dataset()]) :: dataset()
+  def merge(datasets) when is_list(datasets) do
+    records =
+      datasets
+      |> Enum.flat_map(& &1.records)
+      |> Enum.uniq_by(& &1.record_id)
+      |> Enum.sort_by(&record_sort_key/1)
+
+    {actors, tickets, findings} = reduce(records)
+
+    %{
+      records: records,
+      restarts: Enum.filter(records, &daemon_restart?/1),
+      actors: actors,
+      tickets: tickets,
+      findings: findings,
+      warnings: Enum.flat_map(datasets, & &1.warnings),
+      provenance: merge_provenance(datasets)
+    }
   end
 
   @doc "Distinct daemon boots represented in a dataset, oldest first."
@@ -120,12 +168,20 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp keep_record?(record, boot_id, tickets) do
-    in_boot?(record.boot_id, boot_id) and in_tickets?(Map.get(record.attributes, "ticket"), tickets)
+    in_boot?(record, boot_id) and in_tickets?(Map.get(record.attributes, "ticket"), tickets)
   end
 
-  defp in_boot?(_record_boot, nil), do: true
-  defp in_boot?("github", _boot_id), do: true
-  defp in_boot?(record_boot, boot_id), do: record_boot == boot_id
+  defp daemon_restart?(%{kind: "restart", attributes: %{"event" => "daemon_restart"}}), do: true
+  defp daemon_restart?(_record), do: false
+
+  defp in_boot?(_record, nil), do: true
+
+  # A reconciliation anchor is historical evidence. It remains available to
+  # full-log reporting, but must not inflate the daemon boot that reconciled it.
+  defp in_boot?(%{attributes: %{"source" => "github_reconciliation"}}, _boot_id), do: false
+  defp in_boot?(%{source: "github_reconciliation"}, _boot_id), do: false
+  defp in_boot?(%{boot_id: "github"}, _boot_id), do: true
+  defp in_boot?(%{boot_id: record_boot}, boot_id), do: record_boot == boot_id
 
   # A record with no ticket (a restart, a host-level warning) is scope-neutral.
   defp in_tickets?(nil, _tickets), do: true
@@ -173,9 +229,12 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp rescope_ticket(id, ticket, nil), do: [{id, ticket}]
 
   defp rescope_ticket(id, ticket, boot_id) do
-    case Enum.filter(Map.get(ticket, :events, []), &in_boot?(&1.boot_id, boot_id)) do
-      [] -> []
-      events -> [{id, Map.merge(ticket, %{events: events, intervals: lifecycle_intervals(events)})}]
+    case Enum.filter(Map.get(ticket, :events, []), &in_boot?(&1, boot_id)) do
+      [] ->
+        []
+
+      events ->
+        [{id, Map.merge(ticket, %{events: events, intervals: lifecycle_intervals(events)})}]
     end
   end
 
@@ -242,8 +301,9 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   # The current-session view is normally the tail boot. Read backward in bounded
-  # chunks until a different boot id appears, then feed only those lines through
-  # the ordinary validator/reducer. Historical boots are never decoded here.
+  # chunks until a different boot id or the prior segment boundary appears, then
+  # feed only those lines through the ordinary validator/reducer. Historical
+  # boots and earlier same-boot segments are never decoded here.
   defp read_current_file(file, requested_boot_id) do
     case File.open(file, [:read, :binary]) do
       {:ok, device} ->
@@ -255,7 +315,13 @@ defmodule Aiur.RunTelemetry.Dataset do
                   device,
                   size,
                   "",
-                  %{boot_id: nil, lines: [], done?: false, tail_line_too_large?: false},
+                  %{
+                    boot_id: nil,
+                    lines: [],
+                    done?: false,
+                    segment_boundaries: 0,
+                    tail_line_too_large?: false
+                  },
                   requested_boot_id
                 )
 
@@ -271,7 +337,10 @@ defmodule Aiur.RunTelemetry.Dataset do
 
               warnings =
                 if state.tail_line_too_large? do
-                  [%{type: :tail_line_too_large, path: file, max_bytes: @max_tail_line_bytes} | warnings]
+                  [
+                    %{type: :tail_line_too_large, path: file, max_bytes: @max_tail_line_bytes}
+                    | warnings
+                  ]
                 else
                   warnings
                 end
@@ -292,7 +361,8 @@ defmodule Aiur.RunTelemetry.Dataset do
     error -> {[], [%{type: :file_read_error, path: file, reason: exception_class(error)}]}
   end
 
-  defp read_tail_chunks(_device, _offset, _carry, %{done?: true} = state, _requested_boot_id), do: state
+  defp read_tail_chunks(_device, _offset, _carry, %{done?: true} = state, _requested_boot_id),
+    do: state
 
   defp read_tail_chunks(device, offset, carry, state, requested_boot_id) do
     bytes = min(offset, @tail_chunk_bytes)
@@ -349,15 +419,39 @@ defmodule Aiur.RunTelemetry.Dataset do
   defp consume_tail_line(line, %{boot_id: nil} = state, requested_boot_id) do
     boot_id = boot_id_from_line(line)
     chosen_boot_id = if boot_id == requested_boot_id, do: requested_boot_id, else: boot_id
-    {:cont, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]}}
+    continue_tail_line(line, %{state | boot_id: chosen_boot_id, lines: [line | state.lines]})
   end
 
   defp consume_tail_line(line, state, _requested_boot_id) do
     case boot_id_from_line(line) do
-      nil -> {:cont, %{state | lines: [line | state.lines]}}
-      boot_id when boot_id == state.boot_id -> {:cont, %{state | lines: [line | state.lines]}}
-      _other -> {:halt, %{state | done?: true}}
+      nil ->
+        {:cont, %{state | lines: [line | state.lines]}}
+
+      boot_id when boot_id == state.boot_id ->
+        continue_tail_line(line, %{state | lines: [line | state.lines]})
+
+      _other ->
+        {:halt, %{state | done?: true}}
     end
+  end
+
+  defp continue_tail_line(line, state) do
+    if segment_boundary_line?(line) do
+      state = %{state | segment_boundaries: state.segment_boundaries + 1}
+
+      if state.segment_boundaries >= 2,
+        do: {:halt, %{state | done?: true}},
+        else: {:cont, state}
+    else
+      {:cont, state}
+    end
+  end
+
+  defp segment_boundary_line?(line) do
+    match?(
+      {:ok, %{"kind" => "restart", "attributes" => %{"event" => "segment_boundary"}}},
+      Jason.decode(line)
+    )
   end
 
   defp boot_id_from_line(line) do
@@ -583,8 +677,11 @@ defmodule Aiur.RunTelemetry.Dataset do
     {valid, warnings} =
       Enum.reduce(resources, {[], []}, fn record, {valid, warnings} ->
         case Map.get(record.attributes, "actor") do
-          actor when is_binary(actor) and actor != "" -> {[record | valid], warnings}
-          _other -> {valid, [%{type: :resource_actor_missing, record_id: record.record_id} | warnings]}
+          actor when is_binary(actor) and actor != "" ->
+            {[record | valid], warnings}
+
+          _other ->
+            {valid, [%{type: :resource_actor_missing, record_id: record.record_id} | warnings]}
         end
       end)
 
@@ -629,9 +726,14 @@ defmodule Aiur.RunTelemetry.Dataset do
     })
   end
 
-  defp resource_metric(attributes, "system_fd_used"), do: get_in(attributes, ["system_fd", "used"])
-  defp resource_metric(attributes, "system_fd_limit"), do: get_in(attributes, ["system_fd", "limit"])
-  defp resource_metric(attributes, "system_fd_available"), do: get_in(attributes, ["system_fd", "available"])
+  defp resource_metric(attributes, "system_fd_used"),
+    do: get_in(attributes, ["system_fd", "used"])
+
+  defp resource_metric(attributes, "system_fd_limit"),
+    do: get_in(attributes, ["system_fd", "limit"])
+
+  defp resource_metric(attributes, "system_fd_available"),
+    do: get_in(attributes, ["system_fd", "available"])
 
   defp resource_metric(attributes, "system_fd_headroom_ratio"),
     do: get_in(attributes, ["system_fd", "headroom_ratio"])
@@ -724,11 +826,13 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp reduce_tickets(records, opts) do
+    # Caller timestamps describe when an event occurred, but lifecycle pairing
+    # must follow append order when a segment boundary is interleaved.
     events =
       records
       |> Enum.filter(&(&1.kind == "lifecycle"))
       |> Enum.flat_map(&lifecycle_event/1)
-      |> Enum.sort_by(&{&1.timestamp_ms, &1.boot_id, &1.sequence})
+      |> Enum.sort_by(&lifecycle_sort_key/1)
 
     events_by_ticket = Enum.group_by(events, & &1.ticket)
     findings = review_findings(events_by_ticket, opts)
@@ -768,17 +872,41 @@ defmodule Aiur.RunTelemetry.Dataset do
           complexity: normalize_complexity(Map.get(attributes, "complexity")),
           source: Map.get(attributes, "source"),
           source_id: Map.get(attributes, "source_id"),
+          segment_continuation: Map.get(attributes, "segment_continuation"),
           timestamp: record.timestamp_iso,
           timestamp_dt: record.timestamp,
           timestamp_ms: record.timestamp_ms,
+          recorded_at_ms: recorded_at_ms(record),
           boot_id: record.boot_id,
           sequence: record.sequence,
-          record_id: record.record_id
+          record_id: record.record_id,
+          source_path: record.source_path,
+          source_line: record.source_line
         }
       ]
     else
       _other -> []
     end
+  end
+
+  defp recorded_at_ms(%{recorded_at: recorded_at}) do
+    case parse_timestamp(recorded_at) do
+      {:ok, parsed} -> DateTime.to_unix(parsed, :millisecond)
+      :error -> nil
+    end
+  end
+
+  defp lifecycle_sort_key(event) do
+    chronological_sort_key(event)
+  end
+
+  defp chronological_sort_key(event) do
+    {
+      event.timestamp_ms,
+      event.source_path || "",
+      event.source_line || 0,
+      event.record_id
+    }
   end
 
   defp normalize_complexity(value) when is_integer(value) and value in 1..5, do: value
@@ -800,13 +928,22 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp lifecycle_intervals(events) do
+    events
+    |> Enum.group_by(&lifecycle_pair_key/1)
+    |> Enum.flat_map(fn {_key, pair_events} -> lifecycle_pair_intervals(pair_events) end)
+    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  end
+
+  defp lifecycle_pair_intervals(events) do
     {intervals, open} =
-      Enum.reduce(events, {[], %{}}, fn event, {intervals, open} ->
+      events
+      |> causal_pair_order()
+      |> Enum.reduce({[], %{}}, fn event, {intervals, open} ->
         key = lifecycle_pair_key(event)
 
         case event.boundary do
           "start" ->
-            {intervals, Map.put(open, key, event)}
+            {intervals, retain_lifecycle_start(open, key, event)}
 
           "end" ->
             close_lifecycle_interval(event, intervals, open, key)
@@ -816,31 +953,74 @@ defmodule Aiur.RunTelemetry.Dataset do
         end
       end)
 
-    open_intervals = Enum.map(open, fn {_key, event} -> open_interval(event) end)
+    intervals ++ Enum.map(open, fn {_key, event} -> open_interval(event) end)
+  end
 
-    (intervals ++ open_intervals)
-    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  # Lifecycle pairing depends on seeing a start before its matching finish, and
+  # timestamps alone cannot guarantee that: a segment roll can emit two records
+  # inside the same clock millisecond, so a purely chronological sort is free to
+  # invert a causally ordered pair and manufacture an `orphan_end`.
+  #
+  # When every event came from one persisted stream, append order is the ground
+  # truth and `source_line` reproduces it exactly, so sort by that instead.
+  # `record_id` only breaks ties within a line. Across several streams — or when
+  # any line number is missing, as with in-memory events — no shared append order
+  # exists, so fall back to the chronological key.
+  defp causal_pair_order(events) do
+    same_persisted_stream? =
+      events
+      |> Enum.map(& &1.source_path)
+      |> Enum.uniq()
+      |> then(fn paths ->
+        length(paths) == 1 and is_binary(hd(paths)) and
+          Enum.all?(events, &is_integer(&1.source_line))
+      end)
+
+    if same_persisted_stream? do
+      Enum.sort_by(events, &{&1.source_line, &1.record_id})
+    else
+      Enum.sort_by(events, &chronological_sort_key/1)
+    end
   end
 
   defp close_lifecycle_interval(event, intervals, open, key) do
-    case Map.pop(open, key) do
-      {nil, next_open} -> {[point_interval(event, "orphan_end") | intervals], next_open}
-      {started, next_open} -> {[closed_interval(started, event) | intervals], next_open}
+    if event.segment_continuation == "close" do
+      {intervals, open}
+    else
+      case Map.pop(open, key) do
+        {nil, next_open} -> {[point_interval(event, "orphan_end") | intervals], next_open}
+        {started, next_open} -> {[closed_interval(started, event) | intervals], next_open}
+      end
     end
   end
+
+  defp retain_lifecycle_start(open, key, %{segment_continuation: "open"})
+       when is_map_key(open, key), do: open
+
+  defp retain_lifecycle_start(open, key, event), do: Map.put(open, key, event)
 
   defp lifecycle_pair_key(event),
     do: {event.attempt_id, event.event, event.operation_id}
 
   defp closed_interval(started, finished) do
+    {end_at, end_ms} = causal_endpoints(started, finished)
+
     interval_base(started)
     |> Map.merge(%{
       status: "closed",
-      end_at: finished.timestamp,
-      end_ms: finished.timestamp_ms,
-      duration_ms: max(finished.timestamp_ms - started.timestamp_ms, 0),
+      end_at: end_at,
+      end_ms: end_ms,
+      duration_ms: end_ms - started.timestamp_ms,
       outcome: finished.outcome || started.outcome
     })
+  end
+
+  defp causal_endpoints(started, finished) do
+    if finished.timestamp_ms < started.timestamp_ms do
+      {started.timestamp, started.timestamp_ms}
+    else
+      {finished.timestamp, finished.timestamp_ms}
+    end
   end
 
   defp point_interval(event, status) do
@@ -974,6 +1154,33 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp maybe_missing(missing, true, event), do: missing ++ [event]
   defp maybe_missing(missing, false, _event), do: missing
+
+  # Union of per-dataset provenance for `merge/1`: sources and schema versions
+  # deduplicate, record counts sum, and the time range spans every boot.
+  defp merge_provenance(datasets) do
+    provenances = Enum.map(datasets, & &1.provenance)
+
+    files = provenances |> Enum.flat_map(& &1.files) |> Enum.uniq()
+    inputs = provenances |> Enum.flat_map(& &1.inputs) |> Enum.uniq()
+    schema_versions = provenances |> Enum.flat_map(& &1.schema_versions) |> Enum.uniq() |> Enum.sort()
+    record_count = provenances |> Enum.reduce(0, &(&1.record_count + &2))
+
+    time_range =
+      case provenances |> Enum.map(& &1.time_range) |> Enum.reject(&is_nil/1) do
+        [] -> nil
+        ranges -> %{start: ranges |> Enum.map(& &1.start) |> Enum.min(), end: ranges |> Enum.map(& &1.end) |> Enum.max()}
+      end
+
+    %{
+      inputs: inputs,
+      files: files,
+      schema_versions: schema_versions,
+      time_range: time_range,
+      record_count: record_count,
+      enrich: Enum.any?(provenances, &Map.get(&1, :enrich, false)),
+      generated_by: "dataset:merge"
+    }
+  end
 
   defp provenance(inputs, files, records) do
     schema_versions = records |> Enum.map(& &1.schema_version) |> Enum.uniq() |> Enum.sort()

@@ -179,9 +179,16 @@ defmodule AiurWeb.BuildOrder.UsageRuntime do
         |> schedule_refresh(:scope)
 
       true ->
-        # Member set changed for the same root: keep the last view until the
-        # scheduled re-read replaces it, so nothing flickers to zero.
-        schedule_refresh(socket, :scope)
+        # A changed member set is a new financial scope. Never retain the old
+        # member set's totals or drill rows while the protected re-read is
+        # queued; loading is truthful, whereas stale money would be attributed
+        # to the wrong build membership.
+        socket
+        |> assign(:bo_usage_source, nil)
+        |> assign(:bo_usage_drill, nil)
+        |> assign(:bo_usage_drill_trigger, nil)
+        |> assign_usage_view(loading_view())
+        |> schedule_refresh(:scope)
     end
   end
 

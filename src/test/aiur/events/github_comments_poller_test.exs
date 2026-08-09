@@ -64,6 +64,39 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     refute String.contains?(readable_pulls_url, "head=")
   end
 
+  test "keeps a per-target issue ETag when comments are unchanged" do
+    parent = self()
+
+    request_fun = fn request ->
+      send(parent, {:requested, request})
+
+      cond do
+        String.contains?(request.url, "/issues/42/comments?") ->
+          assert request.etag == ~s("previous-etag")
+          {:ok, %{status: 304, headers: [{"etag", ~s("previous-etag")}]}}
+
+        String.contains?(request.url, "/pulls?") ->
+          {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              count: 0,
+              errors: [],
+              etags: %{"42" => %{issue: ~s("previous-etag")}}
+            }} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               etags: %{"42" => %{issue: ~s("previous-etag")}},
+               repo: "owner/repo",
+               request_fun: request_fun
+             )
+
+    assert_receive {:requested, %{url: issue_comments_url}}
+    assert String.contains?(issue_comments_url, "/issues/42/comments?")
+  end
+
   test "polls issue comments directly and publishes issue.commented" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
     codeowners = ensure_codeowners!("* @its-everdred\n")
@@ -931,6 +964,41 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                  repo: "owner/repo",
                  request_fun: request_fun_with_reviews([older, newer])
                )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
+      stop_codeowners(codeowners)
+    end
+
+    test "a later blank-bodied COMMENTED container does not mask an earlier CHANGES_REQUESTED" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      changes_requested =
+        pr_review(
+          9_012,
+          "its-everdred",
+          "CHANGES_REQUESTED",
+          "please fix",
+          "2026-06-24T12:00:00Z"
+        )
+
+      # GitHub wraps a later inline-only comment in an empty-bodied COMMENTED
+      # review. It must be transparent, not the reviewer's "most recent".
+      inline_container = pr_review(9_013, "its-everdred", "COMMENTED", "", "2026-06-24T13:00:00Z")
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 request_fun: request_fun_with_reviews([changes_requested, inline_container])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        comment: %{"id" => 9_012, "state" => "CHANGES_REQUESTED"}
+                      }},
+                     500
 
       refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 100
       stop_codeowners(codeowners)

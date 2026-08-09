@@ -5,10 +5,61 @@ defmodule Aiur.Claude.Repl.CommandTest do
   alias Aiur.Claude.Repl.Command
 
   describe "build_command/7" do
-    test "produces cd <ws> && exec claude shape" do
+    test "composes cd, token scrub, environment export, and exec in one success chain" do
       cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
-      assert String.starts_with?(cmd, "cd '/ws/foo' && export ")
+      assert String.starts_with?(cmd, "cd '/ws/foo' && {")
+      assert cmd =~ "${HEX_HOME#\\~/}"
+      assert cmd =~ "AIUR_CI_READINESS_TOKEN"
+      assert cmd =~ "*_API_KEY) unset "
+      assert cmd =~ "export HEX_HOME"
       assert cmd =~ " && exec claude"
+
+      {scrub_pos, _len} = :binary.match(cmd, "unset ")
+      {exec_pos, _len} = :binary.match(cmd, "exec claude")
+      assert scrub_pos < exec_pos
+    end
+
+    test "a failed workspace cd cannot launch Claude or retain the operator token" do
+      root = Path.join(System.tmp_dir!(), "aiur-claude-command-#{System.unique_integer([:positive])}")
+      bin = Path.join(root, "bin")
+      missing_workspace = Path.join(root, "missing")
+      File.mkdir_p!(bin)
+
+      claude = Path.join(bin, "claude")
+
+      File.write!(
+        claude,
+        "#!/usr/bin/env bash\nprintf 'CLAUDE_RAN token=%s\\n' \"${AIUR_CI_READINESS_TOKEN-unset}\"\n"
+      )
+
+      File.chmod!(claude, 0o755)
+      on_exit(fn -> File.rm_rf!(root) end)
+
+      command = Command.build_command(missing_workspace, nil, nil, false, "rc-name", nil, nil)
+
+      {output, status} =
+        System.cmd("bash", ["-c", command],
+          env: [
+            {"PATH", bin <> ":" <> System.get_env("PATH", "")},
+            {"AIUR_CI_READINESS_TOKEN", "operator-only"}
+          ],
+          stderr_to_stdout: true
+        )
+
+      assert status != 0
+      refute output =~ "CLAUDE_RAN"
+      refute output =~ "operator-only"
+    end
+
+    test "scrubs inherited provider credentials before launching the agent" do
+      cmd = Command.build_command("/ws/foo", nil, nil, false, "rc-name", nil, nil)
+
+      assert cmd =~ "OPENROUTER_MANAGEMENT_KEY"
+      assert cmd =~ "*_API_KEY) unset "
+
+      {scrub_pos, _len} = :binary.match(cmd, "unset ")
+      {exec_pos, _len} = :binary.match(cmd, "exec claude")
+      assert scrub_pos < exec_pos
     end
 
     test "exports the authoritative base branch into the tmux-backed process" do

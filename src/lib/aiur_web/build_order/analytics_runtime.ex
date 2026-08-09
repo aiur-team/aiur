@@ -146,6 +146,10 @@ defmodule AiurWeb.BuildOrder.AnalyticsRuntime do
   defp load_opts(scope) do
     [
       telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file),
+      # A 30-second UI refresh must remain a bounded tail read. Cross-session
+      # reporting needs a materialized summary rather than synchronously
+      # reparsing every retained telemetry record on each tick.
+      session: :current,
       tickets: MapSet.to_list(scope.tickets),
       timeline: :active,
       scope_total: scope.total
