@@ -154,6 +154,7 @@ defmodule Aiur.Application do
       {Registry, keys: :unique, name: Aiur.Workspace.Ownership.Registry},
       Aiur.Workspace.Ownership.Reconciler,
       {Task.Supervisor, name: Aiur.TaskSupervisor},
+      Aiur.AlertFeed.Backfill,
       Aiur.CoordinationTasks,
       Aiur.WorkflowStore,
       Aiur.RepoBase,
