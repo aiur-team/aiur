@@ -387,12 +387,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term())) :: State.t()
   def dispatch_or_hold(%State{} = state, issues, trigger_fun)
       when is_list(issues) and is_function(trigger_fun, 0) do
+    dispatch_or_hold(state, issues, trigger_fun, [])
+  end
+
+  @doc false
+  @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term()), keyword()) :: State.t()
+  def dispatch_or_hold(%State{} = state, issues, trigger_fun, opts)
+      when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
     # Constraints are re-sampled every tick, so a stale gate never lingers in
     # `status` after the condition clears.
     state = %{state | dispatch_capacity_constraints: []}
 
     enabled? = Config.prewarm_enabled?()
     phase = if enabled?, do: trigger_fun.(), else: :ready
+    log_fun = Keyword.get(opts, :log_fun, &Logger.info/1)
+    admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
 
     case DispatchPolicy.prewarm_gate(enabled?, phase) do
       :dispatch ->
@@ -401,12 +410,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
         |> clear_prewarm_blocked_alert()
         |> Map.put(:prewarm_hold_ticks, 0)
-        |> maybe_choose_under_load(issues)
+        |> maybe_choose_under_load(issues, &maybe_choose/2, admission_probes_fun: admission_probes_fun)
 
       :hold ->
         state
-        |> maybe_sample_host_pressure_under_prewarm_hold(issues)
-        |> log_prewarm_hold(phase)
+        |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun)
+        |> log_prewarm_hold(phase, log_fun)
         |> emit_prewarm_blocked_alert(phase)
     end
   end
@@ -417,10 +426,11 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # of a gate that never actually cleared — suppressing the starvation alert for
   # as long as prewarm keeps oscillating. Only probe when ready work exists,
   # since that is the sole condition the starvation alert reports on.
-  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, []), do: state
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun), do: state
 
-  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues) when is_list(issues),
-    do: record_capacity_constraints(state, admission_probes())
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun)
+       when is_list(issues) and is_function(admission_probes_fun, 0),
+       do: record_capacity_constraints(state, admission_probes_fun.())
 
   @doc false
   @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
@@ -567,7 +577,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def maybe_choose_under_load(%State{} = state, issues, choose_fun, opts)
       when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
     now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
-    probes = admission_probes()
+    admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
+    probes = admission_probes_fun.()
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
@@ -1508,12 +1519,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # consecutive hold ticks and emit one `aiur_perf prewarm_hold` line at most
   # once per `@prewarm_hold_log_interval_ticks`; the counter resets as soon as
   # the gate lets a tick through, so the interval measures back-to-back holds.
-  defp log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase) do
+  @doc false
+  @spec log_prewarm_hold(State.t(), term()) :: State.t()
+  def log_prewarm_hold(%State{} = state, phase), do: log_prewarm_hold(state, phase, &Logger.info/1)
+
+  @doc false
+  @spec log_prewarm_hold(State.t(), term(), (String.t() -> term())) :: State.t()
+  def log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase, log_fun)
+      when is_function(log_fun, 1) do
     next_ticks = ticks + 1
     state = %{state | prewarm_hold_ticks: next_ticks}
 
     if rem(next_ticks, @prewarm_hold_log_interval_ticks) == 1 do
-      Logger.info("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
+      log_fun.("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
     end
 
     state

@@ -348,51 +348,42 @@ defmodule Aiur.Orchestrator.DispatcherTest do
         for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        max_load_average: 1.0,
-        min_free_memory_mb: 2_048
-      )
-
-      {:ok, memory_samples} =
+      {:ok, admission_samples} =
         Agent.start_link(fn ->
           [
-            "MemAvailable: 4096000 kB\n",
-            "MemAvailable: 1048576 kB\n",
-            "MemAvailable: 4096000 kB\n",
-            "MemAvailable: 4096000 kB\n"
+            %{memory_mb: 4_000, fd_sample: :unavailable},
+            %{memory_mb: 1_024, fd_sample: :unavailable},
+            %{memory_mb: 4_000, fd_sample: :exhausted},
+            %{memory_mb: 4_000, fd_sample: :unavailable}
           ]
         end)
 
-      {:ok, fd_samples} =
-        Agent.start_link(fn ->
-          [
-            :unavailable,
-            :unavailable,
-            # `:exhausted` holds unconditionally. A headroom-ratio sample would
-            # instead be compared against the configured FD threshold, making
-            # this assertion depend on the shared workflow file that other test
-            # modules rewrite concurrently.
-            :exhausted,
-            :unavailable
-          ]
-        end)
-
-      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "10000.0 0.0 0.0 1/1 1\n"} end)
-
-      Application.put_env(:aiur, :meminfo_source_override, fn ->
-        Agent.get_and_update(memory_samples, fn [sample | rest] -> {{:ok, sample}, rest} end)
-      end)
-
-      Application.put_env(:aiur, :file_descriptor_sample_override, fn ->
-        Agent.get_and_update(fd_samples, fn [sample | rest] -> {sample, rest} end)
-      end)
+      admission_probes = fn ->
+        Agent.get_and_update(admission_samples, fn [sample | rest] -> {sample, rest} end)
+        |> Map.merge(%{
+          memory_threshold_mb: 2_048,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 4,
+          load: 10_000.0,
+          load_threshold: 1.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: nil
+        })
+      end
 
       ready = issue("persistent-load")
 
       sample = fn state ->
         state
         |> Map.put(:dispatch_capacity_constraints, [])
-        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
+        |> Dispatcher.maybe_choose_under_load(
+          [ready],
+          fn sampled, _issues -> sampled end,
+          admission_probes_fun: admission_probes
+        )
       end
 
       waiting =
@@ -680,37 +671,71 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     test "logs the hold reason at most once per hold-log interval" do
       with_prewarm_enabled_config()
-      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
-      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
-      hold = fn acc -> Dispatcher.dispatch_or_hold(acc, [], fn -> :building end) end
+      {:ok, log_messages} = Agent.start_link(fn -> [] end)
+      log_fun = fn message -> Agent.update(log_messages, &[message | &1]) end
+      ready = issue("prewarm-probe")
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 1_024,
+          memory_threshold_mb: 2_048,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 4,
+          load: :unavailable,
+          load_threshold: nil,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      hold = fn acc ->
+        Dispatcher.dispatch_or_hold(acc, [ready], fn -> :building end,
+          log_fun: log_fun,
+          admission_probes_fun: admission_probes
+        )
+      end
 
       # 30 consecutive holds (ticks 1..30) log only on the first tick.
-      first_window =
-        capture_log(fn ->
-          state =
-            Enum.reduce(1..@hold_log_interval, %State{}, fn _i, acc ->
-              hold.(acc)
-            end)
-
-          assert state.prewarm_hold_ticks == @hold_log_interval
+      state =
+        Enum.reduce(1..@hold_log_interval, %State{}, fn _i, acc ->
+          hold.(acc)
         end)
 
-      assert count_substring(first_window, "aiur_perf prewarm_hold") == 1
-      assert first_window =~ "aiur_perf prewarm_hold surface=dispatch phase=:building"
+      assert state.prewarm_hold_ticks == @hold_log_interval
+      assert Enum.any?(state.dispatch_capacity_constraints, &(&1.kind == :memory))
+
+      assert Agent.get(log_messages, fn messages ->
+               Enum.count(messages, &String.contains?(&1, "aiur_perf prewarm_hold"))
+             end) == 1
+
+      assert Agent.get(log_messages, &hd/1) == "aiur_perf prewarm_hold surface=dispatch phase=:building"
+
+      Agent.update(log_messages, fn _messages -> [] end)
 
       # A second window (ticks 31..60) adds exactly one more line.
-      second_window =
-        capture_log(fn ->
-          state =
-            Enum.reduce(1..(@hold_log_interval * 2), %State{}, fn _i, acc ->
-              hold.(acc)
-            end)
-
-          assert state.prewarm_hold_ticks == @hold_log_interval * 2
+      state =
+        Enum.reduce(1..(@hold_log_interval * 2), %State{}, fn _i, acc ->
+          hold.(acc)
         end)
 
-      assert count_substring(second_window, "aiur_perf prewarm_hold") == 2
+      assert state.prewarm_hold_ticks == @hold_log_interval * 2
+
+      assert Agent.get(log_messages, fn messages ->
+               Enum.count(messages, &String.contains?(&1, "aiur_perf prewarm_hold"))
+             end) == 2
+    end
+
+    test "uses Logger by default for the hold observation" do
+      phase = {:default_logger, System.unique_integer([:positive])}
+
+      log = capture_log(fn -> Dispatcher.log_prewarm_hold(%State{}, phase) end)
+
+      assert log =~ "aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}"
     end
 
     test "fails open to a cold clone on a base-build error and resets the hold counter" do
@@ -1138,10 +1163,6 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
-
-  defp count_substring(haystack, needle) when is_binary(haystack) and is_binary(needle) do
-    haystack |> String.split(needle) |> length() |> Kernel.-(1)
-  end
 
   # Points the workflow config at a prewarm-enabled file for the duration of a
   # test. No `base_build` and a memory tracker keep RepoBase's own resolve/poll
