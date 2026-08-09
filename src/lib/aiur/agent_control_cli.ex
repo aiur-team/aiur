@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, Asks, BuildGate, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase, UnitsCLI}
+  alias Aiur.{AgentChat, AlertFeed, AnalyticsCLI, Asks, BuildGate, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase, UnitsCLI}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -130,6 +130,11 @@ defmodule Aiur.AgentControlCLI do
   @spec units(keyword()) :: :ok
   def units(opts \\ []) do
     UnitsCLI.run(opts) |> exit_marker()
+  end
+
+  @spec analytics(keyword()) :: :ok
+  def analytics(opts \\ []) do
+    AnalyticsCLI.run(opts) |> exit_marker()
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok

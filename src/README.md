@@ -232,6 +232,7 @@ on your `PATH`:
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
 | `aiurdev units [--scope live\|unfinished\|all\|none] [--condition active\|alert\|paused\|queued\|finished]... [--json]` | Render the dashboard's Units ticket view, including its filters and source freshness; `--json` emits the stable envelope |
+| `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
