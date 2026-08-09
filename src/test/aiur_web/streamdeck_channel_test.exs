@@ -276,7 +276,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
         "state" => "observed",
         "provider" => "codex",
         "auth_mode" => "subscription",
-        "freshness" => "fresh",
+        "freshness" => "stale",
         "observed_at" => "2026-07-30T12:00:00Z",
         "plan" => %{"tier" => "updated"}
       }

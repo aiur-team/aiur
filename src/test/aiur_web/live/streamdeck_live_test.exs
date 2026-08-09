@@ -395,15 +395,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
   test "renders provider percentages and refreshes them from the live meter event", %{meter_agent: meter_agent} do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "daily 30%"
-    assert html =~ "daily 50%"
+    assert html =~ "session 30%"
+    assert html =~ "session 50%"
 
     Agent.update(meter_agent, fn meters ->
       put_in(meters["claude"]["windows"]["daily"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "daily 60%"
+    assert render(view) =~ "session 60%"
   end
 
   test "renders the priority star, the mic indicator, and the live segment" do
@@ -487,8 +487,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   defp fixture_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"kind" => "rate_limit", "used_percent" => 30}}},
+      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"kind" => "rate_limit", "used_percent" => 50}}}
     }
   end
 
