@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.BuildOrder.Bounded
   alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -324,42 +324,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp id_number(_identity), do: "—"
 
-  defp agent_label(family) do
-    case CodingAgent.provider_descriptor(family) do
-      %{label: label} -> label
-      _ -> "Agent"
-    end
-  end
+  defp agent_label(family), do: UnitsPresentation.agent_label(family)
 
   # A row names its provider family via `:agent_family` (metering) or `:backend`
   # (control), preferring the former. Both are matched against the registry's
   # provider families rather than a hardcoded `[:claude, :codex]`, so a new
   # backend's rows classify with no edit here.
-  defp agent_family(row) when is_map(row) do
-    cond do
-      family = provider_or_nil(Map.get(row, :agent_family)) -> family
-      backend = provider_or_nil(Map.get(row, :backend)) -> backend
-      true -> nil
-    end
-  end
-
-  defp agent_family(_row), do: nil
-
-  defp provider_or_nil(value) when is_atom(value) do
-    case CodingAgent.provider_descriptor(value) do
-      %{provider: provider} -> provider
-      _ -> nil
-    end
-  end
-
-  defp provider_or_nil(value) when is_binary(value) do
-    case CodingAgent.provider_descriptor(value) do
-      %{provider: provider} -> provider
-      _ -> value |> CodingAgent.family_for() |> provider_or_nil()
-    end
-  end
-
-  defp provider_or_nil(_value), do: nil
+  defp agent_family(row), do: UnitsPresentation.agent_family(row)
 
   defp agent_class(family) do
     case CodingAgent.provider_descriptor(family) do
@@ -378,18 +349,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
-  defp model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
-  defp model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
-  defp model_label(_row), do: nil
-
-  defp priority_label(row), do: elem(priority(row), 0)
-  defp priority_class(row), do: elem(priority(row), 1)
-
-  defp priority(%{effort: :deep}), do: {"HIGH", "is-high"}
-  defp priority(%{complexity: complexity}) when is_integer(complexity) and complexity >= 4, do: {"HIGH", "is-high"}
-  defp priority(%{complexity: 3}), do: {"MED", "is-med"}
-  defp priority(%{effort: :standard}), do: {"MED", "is-med"}
-  defp priority(_row), do: {"LOW", "is-low"}
+  defp model_label(row), do: UnitsPresentation.model_label(row)
+  defp priority_label(row), do: row |> UnitsPresentation.priority() |> elem(0)
+  defp priority_class(row), do: row |> UnitsPresentation.priority() |> elem(1)
 
   defp lane_class(lane) when is_binary(lane) and lane != "", do: "is-lane-#{lane}"
   defp lane_class(_lane), do: nil

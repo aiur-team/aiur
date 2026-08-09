@@ -526,6 +526,17 @@ defmodule AiurEngineTest do
     assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
   end
 
+  test "units routes page-visible filters through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"dW5maW5pc2hlZA==\"), conditions: [Base.decode64!(\"cXVldWVk\"), Base.decode64!(\"YWxlcnQ=\")], json: true])"
+  end
+
   test "commands reports missing option values as usage errors" do
     {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
     assert out =~ "commands --filter requires a value"
