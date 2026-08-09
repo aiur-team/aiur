@@ -66,7 +66,9 @@ defmodule Aiur.CLI do
   defp dispatch({:findings, opts}), do: run_findings_command(opts)
   defp dispatch({:asks, command}), do: run_asks_command(command)
 
-  defp dispatch({:error, message}) do
+  defp dispatch({:error, message}), do: shutdown_with_error(message)
+
+  defp shutdown_with_error(message) do
     IO.puts(:stderr, message)
     Aiur.Shutdown.shutdown(1)
   end
@@ -74,7 +76,7 @@ defmodule Aiur.CLI do
   defp run_init_command(opts) do
     case Aiur.Init.run(opts) do
       :ok -> :ok
-      {:error, message} -> dispatch({:error, message})
+      {:error, message} -> shutdown_with_error(message)
     end
   end
 
