@@ -1,8 +1,8 @@
 defmodule Aiur.Init.RuntimeTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Init.Templates
   alias Aiur.Init.Runtime
+  alias Aiur.Init.Templates
   alias Aiur.RepoBase
 
   setup do

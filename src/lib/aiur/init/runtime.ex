@@ -5,6 +5,7 @@ defmodule Aiur.Init.Runtime do
 
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Codeowners
+  alias Aiur.Executor.Handoff
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Init.Alerts
   alias Aiur.Init.Format
@@ -13,7 +14,6 @@ defmodule Aiur.Init.Runtime do
   alias Aiur.Init.Scaffold
   alias Aiur.Init.Templates
   alias Aiur.Prewarm.Detect
-  alias Aiur.Executor.Handoff
   alias Aiur.RepoBase
 
   @type io :: %{
