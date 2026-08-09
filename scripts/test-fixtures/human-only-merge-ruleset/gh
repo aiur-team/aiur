@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ "$*" == *"/rulesets/123"* ]]; then
+  cat "$RULESET_FIXTURE"
+else
+  printf '[{"name":"human-only-merge-gate","id":123}]\n'
+fi
