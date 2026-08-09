@@ -46,25 +46,25 @@ defmodule Aiur.Init.Questions do
   end
 
   defp prompt_base_branch(io, api_default) do
-    case io.input.("Tracker base branch", api_default, "required; defaults to the repository default branch read from GitHub") do
-      branch when is_binary(branch) ->
-        case String.trim(branch) do
-          "" ->
-            io.puts.("Tracker base branch is required; Aiur will not guess one.")
-            prompt_base_branch(io, api_default)
+    io.input.("Tracker base branch", api_default, "required; defaults to the repository default branch read from GitHub")
+    |> normalize_base_branch()
+    |> accept_base_branch(io, api_default)
+  end
 
-          configured ->
-            if configured == api_default do
-              io.puts.("Using repository default branch from GitHub API: #{configured}")
-            end
+  defp normalize_base_branch(branch) when is_binary(branch), do: String.trim(branch)
+  defp normalize_base_branch(_missing), do: ""
 
-            configured
-        end
+  defp accept_base_branch("", io, api_default) do
+    io.puts.("Tracker base branch is required; Aiur will not guess one.")
+    prompt_base_branch(io, api_default)
+  end
 
-      _missing ->
-        io.puts.("Tracker base branch is required; Aiur will not guess one.")
-        prompt_base_branch(io, api_default)
+  defp accept_base_branch(configured, io, api_default) do
+    if configured == api_default do
+      io.puts.("Using repository default branch from GitHub API: #{configured}")
     end
+
+    configured
   end
 
   @spec prompt_agents(Aiur.Init.io()) :: [String.t()]

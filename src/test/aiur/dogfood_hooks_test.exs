@@ -93,6 +93,8 @@ defmodule Aiur.DogfoodHooksTest do
     original = Path.join(context.test_root, "original-ticket")
     File.mkdir_p!(original)
     assert_hook_ok!("after_create", original, context.origin)
+    git!(["-C", original, "config", "user.name", "Aiur Test"])
+    git!(["-C", original, "config", "user.email", "aiur@example.test"])
 
     File.write!(Path.join(original, "feature.txt"), "feature\n")
     git!(["-C", original, "add", "feature.txt"])

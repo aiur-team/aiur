@@ -43,15 +43,13 @@ defmodule Aiur.Workspace.Checkout do
 
     case fetch_remote_branch(workspace, branch_name) do
       :ok ->
-        with :ok <- checkout_fetched_branch(workspace, branch_name),
-             :ok <- record_branch_start(workspace, copied_base_head) do
-          :ok
+        with :ok <- checkout_fetched_branch(workspace, branch_name) do
+          record_branch_start(workspace, copied_base_head)
         end
 
       :no_remote ->
-        with :ok <- checkout_branch(workspace, branch_name, fresh_base_start_point(workspace)),
-             :ok <- record_branch_start(workspace, "HEAD") do
-          :ok
+        with :ok <- checkout_branch(workspace, branch_name, fresh_base_start_point(workspace)) do
+          record_branch_start(workspace, "HEAD")
         end
     end
   end
@@ -68,15 +66,13 @@ defmodule Aiur.Workspace.Checkout do
 
     case fetch_remote_branch(workspace, pr_head_ref) do
       :ok ->
-        with :ok <- checkout_fetched_branch(workspace, pr_head_ref),
-             :ok <- record_branch_start(workspace, copied_base_head) do
-          :ok
+        with :ok <- checkout_fetched_branch(workspace, pr_head_ref) do
+          record_branch_start(workspace, copied_base_head)
         end
 
       :no_remote ->
-        with :ok <- checkout_local_pr_branch(workspace, pr_head_ref),
-             :ok <- record_branch_start(workspace, "HEAD") do
-          :ok
+        with :ok <- checkout_local_pr_branch(workspace, pr_head_ref) do
+          record_branch_start(workspace, "HEAD")
         end
     end
   end
