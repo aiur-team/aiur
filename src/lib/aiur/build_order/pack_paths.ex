@@ -10,6 +10,19 @@ defmodule Aiur.BuildOrder.PackPaths do
   Both the read path (`AiurWeb.BuildOrder.PlanningSource`) and the write path
   (`Aiur.BuildOrder.PackStatus`) resolve packs here so they cannot drift. The
   planning-source application overrides remain authoritative when configured.
+
+  ## Catalog precedence
+
+  Discovery yields workspace mirrors, then state-node packs, then overrides, and
+  `discovered_sources/0` de-duplicates by path keeping the first occurrence — so
+  the order above *is* the precedence, not an incidental one. Workspace leads
+  because a pack the publisher just wrote is the freshest description of intent;
+  a state-node copy of the same slug is the daemon's older projection of it.
+
+  Unifying the two paths here is the point: when discovery lived separately on
+  each side, a freshly published workspace-only pack rendered in the catalog but
+  was never tracker-polled, so it never got a sibling `status.json` and its
+  promoted lifecycle, generation, and freshness stayed permanently unavailable.
   """
 
   alias Aiur.GitHub.Config
