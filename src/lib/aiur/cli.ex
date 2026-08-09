@@ -68,6 +68,7 @@ defmodule Aiur.CLI do
 
   defp dispatch({:error, message}), do: shutdown_with_error(message)
 
+  @spec shutdown_with_error(String.t()) :: no_return()
   defp shutdown_with_error(message) do
     IO.puts(:stderr, message)
     Aiur.Shutdown.shutdown(1)
