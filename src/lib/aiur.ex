@@ -60,7 +60,7 @@ defmodule Aiur.Application do
         )
 
       Supervisor.start_link(
-        children,
+        children ++ [supervision_health_child(children)],
         strategy: :one_for_one,
         name: Aiur.Supervisor
       )
@@ -238,6 +238,10 @@ defmodule Aiur.Application do
     ]
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
+  end
+
+  defp supervision_health_child(children) do
+    {Aiur.SupervisionHealth, supervisor: Aiur.Supervisor, expected_children: children}
   end
 
   defp remote_routing?(routing) when is_map(routing) do
