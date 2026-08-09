@@ -48,4 +48,25 @@ defmodule Aiur.GitHub.CycleFetchCacheTest do
     assert_received :fetched
     refute_received :fetched
   end
+
+  test "isolates cycles across processes during teardown" do
+    assert :ok = CycleFetchCache.start_cycle()
+
+    parent = self()
+
+    fetch_task =
+      Task.async(fn ->
+        assert {:ok, :value} =
+                 CycleFetchCache.fetch(:key, fn ->
+                   send(parent, :fetch_started)
+                   assert_receive :release
+                   {:ok, :value}
+                 end)
+      end)
+
+    assert_receive :fetch_started
+    assert :ok = Task.await(Task.async(fn -> CycleFetchCache.end_cycle() end))
+    send(fetch_task.pid, :release)
+    assert {:ok, :value} = Task.await(fetch_task)
+  end
 end
