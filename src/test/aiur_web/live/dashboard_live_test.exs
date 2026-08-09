@@ -908,6 +908,42 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Partial retained Command data"
   end
 
+  test "cannot render an empty Units body while the same payload reports current agents and Commands" do
+    identity = units_identity()
+    fleet_payload = Map.put(units_orchestrator_snapshot(identity), :generated_at, "2026-07-17T12:00:00Z")
+
+    payload =
+      ControlCenterPresenter.state_payload(
+        :unused,
+        1,
+        fleet_fun: fn -> fleet_payload end,
+        decisions_fun: fn -> [] end
+      )
+      |> Map.put(:retained_counts, %{
+        open: 3,
+        blocking: 0,
+        scope: %{kind: :retained, label: "All retained decisions"},
+        health: %{status: :healthy, partial?: false, label: "Retained Decision data"}
+      })
+      |> then(fn payload ->
+        Map.put(
+          payload,
+          :units,
+          UnitsPresenter.load(payload,
+            membership_fun: fn -> %{units_membership(identity) | members: []} end,
+            activity_fun: fn -> %{entries: []} end
+          )
+        )
+      end)
+
+    html = render_payload(fleet_payload, payload: payload)
+
+    assert html =~ "3 units awaiting commands"
+    assert html =~ ~s(id="units-rows")
+    assert html =~ "Responsive Units interface"
+    refute html =~ "No units have been observed in this run"
+  end
+
   test "does not report a missing Decision as absent when retained replay is partial" do
     fleet_payload = %{
       generated_at: "2026-07-12T12:00:00Z",
