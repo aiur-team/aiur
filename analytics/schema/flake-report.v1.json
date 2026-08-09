@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/aiur-team/aiur/analytics/schema/flake-report.v1.json",
+  "title": "Flake report",
+  "description": "Contract for the flake-report tool: tests ranked by failure count with a pass-after-retry ratio. NOT YET SHIPPED — there is no durable flake database today (CIApprovalStore keeps only current-session head-SHA sets; GithubCiPoller persists no history). This schema ships as the contract; the flake-report tool refuses to run until CI outcomes are durably recorded, per ticket #1459 ('do not ship a script over an empty file').",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "since", "tests"],
+  "properties": {
+    "schema_version": { "const": 1 },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "since": { "type": "string", "description": "Look-back window, e.g. '7d'." },
+    "source_files": { "type": "array", "items": { "type": "string" } },
+    "tests": {
+      "type": "array",
+      "description": "Tests ranked by failure count, descending.",
+      "items": {
+        "type": "object",
+        "required": ["name", "failures", "passes_after_retry"],
+        "properties": {
+          "name": { "type": "string", "description": "Test identifier, e.g. path:line or test module." },
+          "failures": { "type": "integer", "minimum": 0 },
+          "passes_after_retry": { "type": "integer", "minimum": 0 },
+          "last_failure_at": { "type": ["string", "null"], "format": "date-time" },
+          "suspected": { "type": "boolean", "description": "true when the pass-after-retry ratio suggests flakiness." }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

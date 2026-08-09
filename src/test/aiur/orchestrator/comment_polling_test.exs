@@ -57,7 +57,13 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       # review_issue_fetcher returns empty list so no targets are built
       opts = [review_issue_fetcher: fn _states -> {:ok, []} end, watch_pull_request_fetcher: fn _label -> {:ok, []} end]
       result = CommentPolling.poll_github_comments(state, opts)
-      assert result == state
+
+      # Nothing changes except the per-cycle conditional issue-list cache, which
+      # target discovery writes back before it finds an empty target set.
+      # Compared narrowly rather than blanking `ci_lifecycle` wholesale, so a
+      # regression touching e.g. `approved_heads` still fails here.
+      assert put_in(result.ci_lifecycle.poll_cache[:issue_list_cache], nil) ==
+               put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], nil)
     end
   end
 

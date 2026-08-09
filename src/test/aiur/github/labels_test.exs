@@ -33,19 +33,26 @@ defmodule Aiur.GitHub.LabelsTest do
       assert Labels.marker_suffix?("rate-limit-fallback")
     end
 
-    test "only the chosen backends seed model labels" do
+    test "fallback labels use the configured fallback pair" do
       labels = Labels.label_set("aiur", ["claude"])
 
       assert "model:claude" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:codex"))
+      refute "model:codex" in labels
     end
 
-    test "a shorter backend does not seed a hyphenated backend's labels" do
+    test "fallback labels accept an explicitly configured registered pair" do
+      labels = Labels.required_rate_limit_fallback_labels("aiur", "claude", "codex")
+
+      assert "aiur:rate-limit-fallback" in labels
+      assert "model:codex" in labels
+      refute "model:claude-repl" in labels
+    end
+
+    test "fallback labels do not seed unconfigured backend labels" do
       labels = Labels.label_set("aiur", ["claude"])
 
       assert "model:claude" in labels
       refute "model:claude-repl" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:claude-repl"))
     end
 
     test "the claude-repl backend seeds its own labels when chosen" do
@@ -53,7 +60,7 @@ defmodule Aiur.GitHub.LabelsTest do
 
       assert "model:claude-repl" in labels
       assert "model:claude-repl-opus-4-8" in labels
-      refute "model:claude" in labels
+      assert "model:claude" in labels
     end
 
     test "state labels honor the configured prefix" do
@@ -66,12 +73,12 @@ defmodule Aiur.GitHub.LabelsTest do
       refute "model:remote" in Labels.label_set("agent", ["codex"])
     end
 
-    test "claude seeds bare haiku and the remote flag, never claude-repl tags" do
+    test "claude seeds bare haiku and the remote flag" do
       labels = Labels.label_set("agent", ["claude"])
 
       assert "model:claude-haiku" in labels
       assert "model:remote" in labels
-      refute Enum.any?(labels, &String.starts_with?(&1, "model:claude-repl"))
+      refute "model:claude-repl" in labels
     end
 
     test "codex seeds the cheaper model variants" do

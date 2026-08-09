@@ -14,7 +14,7 @@ or hand-written handoff as a live ticket database.
 - Stage 5: Plan and ticket synthesis
 - Stage 6: Graph and scheduling
 - Stage 7: Mechanical and semantic validation
-- Stage 8: GitHub materialization
+- Stage 8: Executor-owned GitHub promotion
 - Stage 9: Handoff and stop
 - Scaling the workflow
 
@@ -33,7 +33,7 @@ or hand-written handoff as a live ticket database.
 
 Good Build Order identity is stable before GitHub numbers exist. Prefer a
 repository-scoped slug such as `owner/repo:feature-name`, plus an immutable root
-issue node ID after materialization.
+issue node ID after promotion.
 
 ## Stage 1: Research plan and grounding
 
@@ -332,74 +332,15 @@ Run the bundled validator, then check semantics it cannot prove:
 Commit a validation report with errors, warnings, reviewed SHA, artifact hashes,
 and any accepted exceptions.
 
-## Stage 8: GitHub materialization
+## Stage 8: Executor-owned GitHub promotion
 
-This stage requires explicit permission.
-
-- Requery and deduplicate against open/closed work. Stop on a closed canonical
-  marker match; never auto-reopen it.
-- Create or identify the Build Order root issue.
-- Create/update tickets from approved contracts.
-- Map logical IDs to returned node IDs and repo-qualified numbers.
-- Publish membership and native issue-dependency edges.
-- Render every expected body from files loaded with
-  `git show <approved-commit>:<path>` with Git replace refs disabled and any
-  legacy `info/grafts` entry rejected in both the worktree Git directory and
-  shared common directory; fail closed if the approved pack, root template, or
-  a ticket document is absent.
-- Freeze the current sources after approval: ticket documents remain
-  byte-for-byte equal to their approved versions, and the root document permits
-  only deterministic `<APPROVED_SHA>` substitution. Reject missing, unreadable,
-  out-of-repository, symlinked, or drifted sources.
-- Requery every relationship and logical-marker search. Require exactly one
-  issue match per logical ID and compare each parsed marker/link/hash record to
-  the independently rendered expected body; fail on missing, wrong, duplicate,
-  or truncated evidence.
-- Record v3 observed state for the root and every member and require exact
-  `OPEN` at publication.
-- Reject any returned mapping that reuses an existing issue recorded as
-  reference-only or otherwise outside the user's mutation authority.
-- Freeze that authority in `publication.json`: the trusted branch, canonical
-  root path, allowed mutation repositories, reference-only issue URLs, and
-  actual tracker lifecycle-label prefix must be identical at approval and
-  receipt.
-- If publication exposes a live reconciliation/start-gate comment, derive its
-  repository, root, plan version, approval, and root URL from the exact receipt
-  commit. Require that commit to contain the complete materialized pack and
-  pass the trusted reconciliation validator; resolving an arbitrary local
-  commit or accepting caller-supplied authority is insufficient. Bind the
-  repository to a trusted configured GitHub origin outside the receipt. Record
-  one explicit `trusted_repository_ref` as a full `refs/heads/...` branch in the
-  publication manifest, query its exact target from GitHub at gate time, and
-  prove both receipt and approval commits are ancestors. Prove strict
-  approval-to-receipt order separately in a fresh graft-free clone of that
-  branch and through GitHub's compare API. A fork-only PR commit can be
-  API-visible through the base repository without being authoritative. Requery
-  the ref after proof and require the same target; movement or deletion fails
-  closed. Any present, nonregular, or uninspectable graft entry fails closed.
-- Immediately before the successful gate mutation, run receipt-commit mode
-  with authenticated `gh`; require two identical bounded live snapshots of all
-  mappings, titles, bodies, labels, states, markers, members, and blockers.
-  Pin every API GET to `github.com`, API version `2026-03-10`, and a finite
-  timeout; request no more than 100 explicit pages or 10,000 items per endpoint,
-  and share the global request/item budget across both snapshots.
-- Bound receipt extraction by file count, per-file bytes, aggregate bytes, and
-  Git operation time; apply the common repository-path sanitizer throughout.
-- Apply projected and required routing labels, record full observed labels in
-  the receipt, and case-insensitively prove every forbidden dispatch/active-state
-  label under the manifest-declared tracker prefix and every
-  unprojected `human:*` routing label is absent. Keep the `build-order` label on
-  the root only. Record expected and observed issue-title maps, and compare both
-  with titles rendered from approved document H1s.
-
-For GitHub, a root issue with native sub-issues is a practical v1 membership
-model. GitHub supports up to 100 direct sub-issues per parent; larger programs
-need nested workstream umbrellas or a different index. Preserve logical IDs so
-hierarchy changes do not rewrite planning identity.
-
-Treat the all-OPEN proof as publication finalization only. Once authorized
-execution begins, use current GitHub lifecycle and explicit gate evidence; do
-not treat the receipt snapshot as a reason to reverse legitimate state changes.
+This stage requires explicit user permission and is not hardcoded machinery.
+The Executor asks whenever the user wants tickets created and encourages
+promotion of every researched, ready-to-begin ticket. For each selected member,
+create the tracker issue from `tickets/<ID>.md` verbatim, record its number in
+the pack's `ticket` field, and freeze the document. **After promotion, edits go
+to the ticket, never the doc.** Per-phase promotion is optional user complexity,
+not an Aiur-imposed workflow.
 
 ## Stage 9: Handoff and stop
 

@@ -7,13 +7,14 @@ defmodule Aiur.Orchestrator.RetryEngine do
   require Logger
   import Bitwise, only: [<<<: 2]
 
-  alias Aiur.{AgentPubSub, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workspace.Ownership
 
   alias Aiur.Orchestrator.{
+    AutoResume,
     ControlLifecycle,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -40,7 +41,13 @@ defmodule Aiur.Orchestrator.RetryEngine do
           {:noreply, state}
       end
 
-    StatusReport.notify_dashboard(state)
+    publish_final_retry_state(result)
+  end
+
+  @doc false
+  @spec publish_final_retry_state({:noreply, State.t()}) :: {:noreply, State.t()}
+  def publish_final_retry_state({:noreply, final_state} = result) do
+    StatusReport.notify_dashboard(final_state)
     result
   end
 
@@ -55,58 +62,77 @@ defmodule Aiur.Orchestrator.RetryEngine do
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
-
-        state =
-          case {reason, State.completed_running_entry?(running_entry)} do
-            {:normal, true} ->
-              Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
-
-              park_completed_entry(state, issue_id, running_entry)
-
-            {:normal, false} ->
-              Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
-
-              {_running_entry, state} = State.pop_running_entry(state, issue_id)
-
-              state
-              |> complete_issue(issue_id)
-              |> schedule_issue_retry(issue_id, 1, %{
-                identifier: running_entry.identifier,
-                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
-                priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
-                delay_type: :continuation,
-                prior_work: prior_work_for_retry?(running_entry),
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            {_reason, false} ->
-              Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
-
-              {_running_entry, state} = State.pop_running_entry(state, issue_id)
-              next_attempt = next_retry_attempt_from_running(running_entry)
-
-              schedule_issue_retry(state, issue_id, next_attempt, %{
-                identifier: running_entry.identifier,
-                tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
-                priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
-                error: "agent exited: #{inspect(reason)}",
-                prior_work: prior_work_for_retry?(running_entry),
-                worker_host: Map.get(running_entry, :worker_host),
-                workspace_path: Map.get(running_entry, :workspace_path)
-              })
-
-            {_reason, true} ->
-              Logger.warning("Completed agent task exited abnormally for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; preserving completed boundary")
-
-              park_completed_entry(state, issue_id, running_entry)
-          end
+        state = handle_running_agent_down(state, issue_id, running_entry, reason, session_id)
 
         Logger.info("Agent task finished for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}")
 
         StatusReport.notify_dashboard(state)
         {:noreply, state}
     end
+  end
+
+  defp handle_running_agent_down(state, issue_id, running_entry, :normal, session_id) do
+    if State.completed_running_entry?(running_entry) do
+      Logger.info("Completed agent task exited normally for issue_id=#{issue_id} session_id=#{session_id}; parking replaceable entry")
+      park_completed_entry(state, issue_id, running_entry)
+    else
+      Logger.info("Agent task completed for issue_id=#{issue_id} session_id=#{session_id}; scheduling active-state continuation check")
+
+      state
+      |> remove_stopped_running_entry(issue_id, running_entry)
+      |> complete_issue(issue_id)
+      |> schedule_issue_retry(issue_id, 1, continuation_retry_metadata(running_entry))
+    end
+  end
+
+  defp handle_running_agent_down(state, issue_id, running_entry, reason, session_id) do
+    if State.completed_running_entry?(running_entry) do
+      Logger.warning("Completed agent task exited abnormally for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; preserving completed boundary")
+      park_completed_entry(state, issue_id, running_entry)
+    else
+      Logger.warning("Agent task exited for issue_id=#{issue_id} session_id=#{session_id} reason=#{inspect(reason)}; scheduling retry")
+
+      state
+      |> remove_stopped_running_entry(issue_id, running_entry)
+      |> schedule_issue_retry(issue_id, next_retry_attempt_from_running(running_entry), failure_retry_metadata(running_entry, reason))
+    end
+  end
+
+  defp remove_stopped_running_entry(state, issue_id, running_entry) do
+    if fallback_replacement?(running_entry) do
+      park_failed_fallback_replacement(state, issue_id, running_entry)
+    else
+      {_running_entry, popped_state} = State.pop_running_entry(state, issue_id)
+      popped_state
+    end
+  end
+
+  defp continuation_retry_metadata(running_entry) do
+    %{
+      identifier: running_entry.identifier,
+      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+      priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
+      delay_type: :continuation,
+      prior_work: prior_work_for_retry?(running_entry),
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    }
+  end
+
+  defp failure_retry_metadata(running_entry, reason) do
+    %{
+      identifier: running_entry.identifier,
+      tracker_identity: Issue.tracker_identity(Map.get(running_entry, :issue)),
+      priority: Map.get(Map.get(running_entry, :issue) || %{}, :priority),
+      error: "agent exited: #{inspect(reason)}",
+      # Structured failure reason retained so retry exhaustion can classify it
+      # as a transient infrastructure fault for the #1453 automatic
+      # re-dispatch (the formatted `error` string cannot).
+      transient_reason: reason,
+      prior_work: prior_work_for_retry?(running_entry),
+      worker_host: Map.get(running_entry, :worker_host),
+      workspace_path: Map.get(running_entry, :workspace_path)
+    }
   end
 
   defp expire_pending_control(state, running_entry, issue_id) do
@@ -142,6 +168,34 @@ defmodule Aiur.Orchestrator.RetryEngine do
         retry_attempts: Map.delete(state.retry_attempts, issue_id)
     }
   end
+
+  # Fallback startup can fail after its Task is admitted (for example, a
+  # provider rejects a model). Keep the replacement entry parked with the
+  # original lifecycle fence, and put only its authoritative failed queue
+  # items back to pending before the retry. This prevents the replacement's
+  # failure from silently dropping the fenced rework packet.
+  defp park_failed_fallback_replacement(state, issue_id, running_entry) do
+    queue_store = restore_fenced_failed_items(state.queue_store, Map.get(running_entry, :lifecycle_fence))
+
+    parked_entry =
+      running_entry
+      |> Map.put(:pid, nil)
+      |> Map.put(:ref, nil)
+      |> Map.update(:control, %{status: :completed}, &Map.put(&1, :status, :completed))
+
+    %{state | queue_store: queue_store, running: Map.put(state.running, issue_id, parked_entry)}
+  end
+
+  defp fallback_replacement?(running_entry), do: Map.get(running_entry, :rate_limit_fallback_replacement) == true
+
+  defp restore_fenced_failed_items(queue_store, %{pending_item_ids: %MapSet{} = item_ids}) do
+    Enum.reduce(item_ids, queue_store, fn item_id, store ->
+      {next_store, _item} = AgentQueueStore.restore_failed_pending(store, item_id)
+      next_store
+    end)
+  end
+
+  defp restore_fenced_failed_items(queue_store, _fence), do: queue_store
 
   @doc false
   @spec wait_for_workspace_ownership(State.t(), String.t(), String.t(), term(), term()) :: State.t()
@@ -306,6 +360,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
     next_attempt = if is_integer(attempt), do: attempt, else: previous_retry.attempt + 1
     identifier = pick_retry_identifier(issue_id, previous_retry, metadata)
     error = pick_retry_error(previous_retry, metadata)
+    transient_reason = pick_retry_transient_reason(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
     tracker_identity = pick_retry_tracker_identity(previous_retry, metadata)
@@ -331,7 +386,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         severity: "warning"
       )
 
-      move_exhausted_issue_to_error_state(issue_id, identifier)
+      error_alert_emitted? = move_exhausted_issue_to_error_state(issue_id, identifier, error) == :alert_emitted
 
       # Release the claim so a later label-driven re-dispatch (Executor moves the
       # ticket from `error` back to an active state) is picked up without a full
@@ -350,8 +405,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # write parks the ticket in `error` on the next give-up — keeping the
       # ticket recoverable without a restart rather than stranding it in
       # `claimed`, which is the behaviour #699 is fixing.
+      #
+      # When the exhaustion cause is a transient infrastructure fault (tracker
+      # 403 / rate limit / provider timeout), also schedule a bounded automatic
+      # re-dispatch so the ticket recovers once the cause clears instead of
+      # parking until an operator notices (#1453). The structured transient
+      # reason wins when recorded; otherwise the formatted error string is the
+      # fallback (which `AutoResume.classify/1` treats as terminal).
       released = release_issue_claim(state, issue_id)
-      %{released | retry_attempts: Map.delete(released.retry_attempts, issue_id)}
+
+      released =
+        maybe_schedule_transient_auto_resume(
+          released,
+          issue_id,
+          effective_exhaustion_reason(transient_reason, error)
+        )
+
+      released
+      |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
+      |> maybe_mark_observed_error_alert(issue_id, error_alert_emitted?)
     else
       delay_ms = retry_delay(next_attempt, metadata)
       retry_token = make_ref()
@@ -383,6 +455,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
               due_at_ms: due_at_ms,
               identifier: identifier,
               error: error,
+              transient_reason: transient_reason,
               retry_poll_failures: retry_poll_failures,
               prior_work: prior_work?,
               worker_host: worker_host,
@@ -415,6 +488,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         metadata = %{
           identifier: Map.get(retry_entry, :identifier),
           error: Map.get(retry_entry, :error),
+          transient_reason: Map.get(retry_entry, :transient_reason),
           retry_poll_failures: Map.get(retry_entry, :retry_poll_failures),
           prior_work: Map.get(retry_entry, :prior_work, false),
           worker_host: Map.get(retry_entry, :worker_host),
@@ -442,7 +516,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
         Logger.warning("Retry poll skipped for issue_id=#{issue_id} issue_identifier=#{metadata[:identifier] || issue_id}: #{formatted}")
 
-        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, formatted)}
+        # Pass the structured reason (not the formatted string) so retry-poll
+        # exhaustion can classify a transient tracker fault for the #1453
+        # automatic re-dispatch.
+        {:noreply, handle_retry_poll_failure(state, issue_id, attempt, metadata, reason)}
     end
   end
 
@@ -538,12 +615,26 @@ defmodule Aiur.Orchestrator.RetryEngine do
   # `error` ("agent hit an error") is a valid state in neither the active nor
   # the terminal set, so it does not get auto-redispatched. Best-effort: a
   # failed tracker write must not crash the orchestrator.
-  defp move_exhausted_issue_to_error_state(issue_id, identifier) when is_binary(identifier) do
+  defp move_exhausted_issue_to_error_state(issue_id, identifier, error) when is_binary(identifier) do
     Logger.warning("Moving exhausted issue to error state: issue_id=#{issue_id} issue_identifier=#{identifier} reason=retry_exhausted caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state")
 
     case Tracker.update_issue_state(identifier, "error") do
       :ok ->
-        :ok
+        message =
+          "Agent entered error after retry exhaustion; automatic retry is no longer scheduled." <>
+            retry_exhausted_error_suffix(error)
+
+        Alerts.emit_custom("ticket.#{identifier}.agent.attention.error-retry_exhausted", message,
+          issue: identifier,
+          reason: message,
+          needs_attention: true,
+          severity: "warning",
+          # Must reach the central feed: IssueSync rediscovers the persisted
+          # error cause from there after a restart.
+          central: true
+        )
+
+        :alert_emitted
 
       {:error, reason} ->
         Logger.warning("Failed moving exhausted issue identifier=#{identifier} to error state: #{inspect(reason)}")
@@ -552,7 +643,20 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp move_exhausted_issue_to_error_state(_issue_id, _identifier), do: :ok
+  defp move_exhausted_issue_to_error_state(_issue_id, _identifier, _error), do: :ok
+
+  defp maybe_mark_observed_error_alert(state, issue_id, true) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, :retry_exhausted)
+    }
+  end
+
+  defp maybe_mark_observed_error_alert(state, _issue_id, false), do: state
+
+  defp retry_exhausted_error_suffix(error) when is_binary(error) and error != "", do: " Last error: #{error}"
+  defp retry_exhausted_error_suffix(_error), do: ""
 
   defp log_scheduled_retry(
          issue_id,
@@ -587,6 +691,25 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   def format_retry_preflight_error(reason), do: inspect(reason)
 
+  # Schedules a bounded automatic re-dispatch when an exhaustion cause is a
+  # classifiably transient infrastructure fault (#1453). Returns `state`
+  # unchanged for terminal causes, operator pauses, or when the latch is
+  # disabled/irrelevant — the ticket parks for normal (operator) recovery.
+  @doc false
+  @spec maybe_schedule_transient_auto_resume(State.t(), String.t(), term()) :: State.t()
+  def maybe_schedule_transient_auto_resume(%State{} = state, issue_id, reason)
+      when is_binary(issue_id) do
+    case AutoResume.classify(reason) do
+      nil ->
+        state
+
+      cause ->
+        Logger.info("Scheduling transient auto-resume issue_id=#{issue_id} cause=#{cause} reason=#{inspect(reason)}")
+
+        AutoResume.schedule(state, issue_id, cause)
+    end
+  end
+
   defp handle_retry_poll_failure(%State{} = state, issue_id, attempt, metadata, reason) do
     identifier = metadata[:identifier] || issue_id
     retry_poll_failures = normalize_retry_poll_failures(metadata[:retry_poll_failures]) + 1
@@ -597,7 +720,12 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
     if retry_poll_failures >= @max_retry_poll_failures and not metadata[:terminal_membership_pending?] do
       emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata)
+
+      # A transient tracker failure (403 / rate limit / provider timeout) that
+      # exhausted retry polling schedules a bounded automatic re-dispatch once
+      # the cause clears, instead of parking until an operator notices (#1453).
       release_issue_claim(state, issue_id)
+      |> maybe_schedule_transient_auto_resume(issue_id, reason)
     else
       schedule_issue_retry(
         state,
@@ -905,6 +1033,24 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp pick_retry_error(previous_retry, metadata) do
     metadata[:error] || Map.get(previous_retry, :error)
   end
+
+  # The structured (non-formatted) failure reason, retained so retry exhaustion
+  # can classify a transient infrastructure fault for the #1453 auto-resume.
+  defp pick_retry_transient_reason(previous_retry, metadata) do
+    if Map.has_key?(metadata, :transient_reason) do
+      Map.get(metadata, :transient_reason)
+    else
+      Map.get(previous_retry, :transient_reason)
+    end
+  end
+
+  # The cause passed to `AutoResume.classify/1` at retry exhaustion: the
+  # structured transient reason when one was recorded, else the formatted error
+  # string (which classifies as terminal, so an infra fault with no structured
+  # record still parks for operator recovery rather than auto-resuming on an
+  # unclassifiable cause).
+  defp effective_exhaustion_reason(nil, error), do: error
+  defp effective_exhaustion_reason(transient_reason, _error), do: transient_reason
 
   # The generic "retry budget exhausted" alert text alone forces the operator
   # to grep the daemon log to find the actual failure (e.g. a workspace

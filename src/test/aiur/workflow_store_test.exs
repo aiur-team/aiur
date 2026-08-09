@@ -27,5 +27,10 @@ defmodule Aiur.WorkflowStoreTest do
 
     assert :ok = WorkflowStore.force_reload()
     assert Config.workspace_root() == root_after_recovery
+
+    File.write!(Path.join(dir, "prewarm"), "echo rebuilt\n")
+
+    assert :ok = WorkflowStore.force_reload()
+    assert {:ok, %{prewarm: %{base_build: "echo rebuilt"}}} = Config.settings()
   end
 end

@@ -1,0 +1,236 @@
+defmodule Aiur.Findings do
+  @moduledoc """
+  Durable executor findings stored as bounded NDJSON records in repository state
+  nodes. Records are intentionally host-local; readers aggregate sibling nodes
+  only when asked, so there is no second global copy to reconcile.
+  """
+
+  alias Aiur.RepoBase
+
+  @max_record_bytes 4 * 1024
+  @scopes ~w(aiur repo)
+  @statuses ~w(open filed resolved)
+
+  @type record :: %{required(String.t()) => term()}
+
+  @doc "Appends one validated finding with `O_APPEND` semantics."
+  @spec append(String.t(), record()) :: :ok | {:error, term()}
+  def append(repo_url, finding) when is_binary(repo_url) and is_map(finding) do
+    with {:ok, encoded} <- encode(finding),
+         :ok <- RepoBase.ensure_state_tree(repo_url) do
+      append_line(RepoBase.findings_path(repo_url), encoded <> "\n")
+    end
+  end
+
+  @doc "Returns findings from all repository nodes on this host."
+  @spec all(keyword()) :: {:ok, [record()]} | {:error, term()}
+  def all(opts \\ []) do
+    scope = Keyword.get(opts, :scope)
+
+    case validate_scope_filter(scope) do
+      :ok -> read_all(scope)
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc "Returns sorted unique finding slugs across all repository nodes on this host."
+  @spec slugs(keyword()) :: {:ok, [String.t()]} | {:error, term()}
+  def slugs(opts \\ []) do
+    with {:ok, findings} <- all(opts) do
+      {:ok, findings |> Enum.map(& &1["slug"]) |> Enum.uniq() |> Enum.sort()}
+    end
+  end
+
+  @doc "Returns findings that have not been promoted to a ticket yet."
+  @spec unfiled(keyword()) :: {:ok, [record()]} | {:error, term()}
+  def unfiled(opts \\ []) do
+    with {:ok, findings} <- all(opts) do
+      {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""]))}
+    end
+  end
+
+  @doc "Returns the latest non-resolved finding for each reusable slug."
+  @spec open(keyword()) :: {:ok, [record()]} | {:error, term()}
+  def open(opts \\ []) do
+    with {:ok, findings} <- all(opts) do
+      {:ok,
+       findings
+       |> latest_by_slug()
+       |> Enum.reject(&(&1["status"] == "resolved"))
+       |> Enum.sort_by(& &1["slug"])}
+    end
+  end
+
+  @doc false
+  @spec validate(record()) :: :ok | {:error, String.t()}
+  def validate(finding) when is_map(finding) do
+    with :ok <- required_string(finding, "slug"),
+         :ok <- required_string(finding, "observed_at"),
+         :ok <- validate_observed_at(finding["observed_at"]),
+         :ok <- validate_scope(Map.get(finding, "scope")),
+         :ok <- required_string(finding, "observed_in"),
+         :ok <- required_string(finding, "instance"),
+         :ok <- required_string(finding, "summary"),
+         :ok <- validate_evidence(Map.get(finding, "evidence")),
+         :ok <- required_string(finding, "cost"),
+         :ok <- validate_ticket(Map.get(finding, "ticket")) do
+      validate_status_ticket(Map.get(finding, "status"), Map.get(finding, "ticket"))
+    end
+  end
+
+  def validate(_finding), do: {:error, "finding must be a JSON object"}
+
+  defp encode(finding) do
+    with :ok <- validate(finding),
+         {:ok, encoded} <- Jason.encode(finding),
+         :ok <- validate_size(encoded <> "\n") do
+      {:ok, encoded}
+    end
+  end
+
+  defp validate_size(line) when byte_size(line) <= @max_record_bytes, do: :ok
+
+  defp validate_size(line),
+    do: {:error, "finding exceeds the #{@max_record_bytes}-byte atomic append limit (got #{byte_size(line)} bytes)"}
+
+  defp append_line(path, line) do
+    case File.open(path, [:append, :binary]) do
+      {:ok, device} ->
+        try do
+          IO.binwrite(device, line)
+        after
+          File.close(device)
+        end
+
+      {:error, reason} ->
+        {:error, {:finding_append_open_failed, path, reason}}
+    end
+  end
+
+  defp read_file(path) do
+    case File.read(path) do
+      {:ok, contents} -> decode_records(contents, path)
+      {:error, reason} -> {:error, {:finding_read_failed, path, reason}}
+    end
+  end
+
+  defp read_all(scope) do
+    finding_paths()
+    |> Enum.reduce_while({:ok, []}, fn path, {:ok, findings} ->
+      case read_file(path) do
+        {:ok, records} -> {:cont, {:ok, Enum.reverse(filter_scope(records, scope)) ++ findings}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> reverse_findings()
+  end
+
+  defp reverse_findings({:ok, findings}), do: {:ok, Enum.reverse(findings)}
+  defp reverse_findings({:error, _reason} = error), do: error
+
+  defp finding_paths do
+    [RepoBase.repo_path("placeholder/placeholder"), "..", "..", "*", "*", "meta", "findings.ndjson"]
+    |> Path.join()
+    |> Path.expand()
+    |> Path.wildcard()
+    |> Enum.sort()
+  end
+
+  defp decode_line(line, path, line_number) do
+    case Jason.decode(String.trim_trailing(line, "\n")) do
+      {:ok, finding} when is_map(finding) ->
+        case validate(finding) do
+          :ok -> {:ok, finding}
+          {:error, reason} -> {:error, {:invalid_finding_record, path, line_number, reason}}
+        end
+
+      _ ->
+        {:error, {:invalid_finding_record, path, line_number, "invalid JSON"}}
+    end
+  end
+
+  defp decode_records(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
+      case decode_line(line, path, line_number) do
+        {:ok, finding} -> {:cont, {:ok, [finding | records]}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> reverse_findings()
+  end
+
+  defp filter_scope(records, nil), do: records
+  defp filter_scope(records, scope), do: Enum.filter(records, &(&1["scope"] == scope))
+
+  # Findings are append-only observations. A later record for the same reusable
+  # slug is its current state, so filing it must clear the unfiled gate without
+  # rewriting the original observation.
+  defp latest_by_slug(findings) do
+    findings
+    |> Enum.reduce(%{}, fn finding, latest ->
+      Map.update(latest, finding["slug"], finding, &latest_finding(&1, finding))
+    end)
+    |> Map.values()
+  end
+
+  defp latest_finding(current, finding) do
+    case DateTime.compare(observed_at!(finding), observed_at!(current)) do
+      :lt -> current
+      _ -> finding
+    end
+  end
+
+  defp observed_at!(finding) do
+    {:ok, observed_at, _offset} = DateTime.from_iso8601(finding["observed_at"])
+    observed_at
+  end
+
+  defp validate_scope_filter(nil), do: :ok
+  defp validate_scope_filter(scope), do: validate_scope(scope)
+
+  defp required_string(finding, key) do
+    case Map.get(finding, key) do
+      value when is_binary(value) ->
+        if byte_size(String.trim(value)) > 0, do: :ok, else: {:error, "finding requires non-empty #{key}"}
+
+      _ ->
+        {:error, "finding requires non-empty #{key}"}
+    end
+  end
+
+  defp validate_observed_at(observed_at) do
+    case DateTime.from_iso8601(observed_at) do
+      {:ok, _datetime, _offset} -> :ok
+      _ -> {:error, "finding observed_at must be an ISO-8601 timestamp"}
+    end
+  end
+
+  defp validate_scope(scope) when scope in @scopes, do: :ok
+  defp validate_scope(_scope), do: {:error, "finding scope must be one of: #{Enum.join(@scopes, ", ")}"}
+
+  defp validate_evidence(evidence) when is_list(evidence) and evidence != [] do
+    if Enum.all?(evidence, &(is_binary(&1) and String.trim(&1) != "")), do: :ok, else: {:error, "finding evidence must be non-empty string references"}
+  end
+
+  defp validate_evidence(_evidence), do: {:error, "finding requires non-empty evidence references"}
+
+  defp validate_ticket(nil), do: :ok
+  defp validate_ticket(ticket) when is_integer(ticket) and ticket > 0, do: :ok
+  defp validate_ticket(_ticket), do: {:error, "finding ticket must be a positive issue number or null"}
+
+  defp validate_status(status) when status in @statuses, do: :ok
+  defp validate_status(_status), do: {:error, "finding status must be one of: #{Enum.join(@statuses, ", ")}"}
+
+  defp validate_status_ticket(status, ticket) do
+    with :ok <- validate_status(status) do
+      case {status, ticket} do
+        {"open", nil} -> :ok
+        {status, ticket} when status in ["filed", "resolved"] and is_integer(ticket) and ticket > 0 -> :ok
+        _ -> {:error, "open findings require ticket null; filed and resolved findings require a ticket"}
+      end
+    end
+  end
+end
