@@ -321,6 +321,14 @@ from the Executor repo root or a dedicated isolated harness. Foreground startup
 prints the resolved tmux socket/session, which non-TTY drivers should use
 instead of hard-coded socket names.
 
+### GitHub CI handoff safety
+
+After CI passes, Aiur persists the approved PR head before handing the ticket
+back to its agent. A later CI observation for that exact SHA cannot return the
+ticket from human review to rework, even when the poll retained a stale
+`ci-wait` issue snapshot from before the handoff. A CI failure for a different
+SHA supersedes the approval and remains eligible for the normal rework path.
+
 ## Dashboard
 
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
