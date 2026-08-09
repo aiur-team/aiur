@@ -12,8 +12,9 @@ AIUR_BUILD_ORDER_DEMO=1 aiurdev --bg --debug
 
 That sets `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource`
 (see `config/config.exs`). Override the pack with
-`config :aiur, :build_order_planning_pack, "priv/build_orders/<file>.json"`
-(defaults to `croptracker-demo.json`).
+`config :aiur, :build_order_planning_pack, "priv/build_orders/<file>.json"`.
+The override is for focused demos and tests; normal catalogs discover only packs
+for the daemon's tracked repository.
 
 ## Pack format
 

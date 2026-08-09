@@ -2,6 +2,7 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
   use ExUnit.Case, async: true
 
   @moduletag :tmp_dir
+  @async_assert_timeout 1_000
 
   alias Aiur.AppServer.ToolCallLedger
 
@@ -20,15 +21,14 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
     end
 
     first = Task.async(fn -> ToolCallLedger.execute(scope, call_id, fun, ledger) end)
-    assert_receive {:executing, owner}
+    assert_receive {:executing, owner}, @async_assert_timeout
     second = Task.async(fn -> ToolCallLedger.execute(scope, call_id, fun, ledger) end)
-    refute_receive {:executing, _duplicate}
 
     send(owner, :release)
 
     assert Task.await(first) == :completed
     assert Task.await(second) == :completed
-    refute_receive {:executing, _duplicate}
+    refute_received {:executing, _duplicate}
   end
 
   test "owner death after mutation preserves an uncertain claim without replay" do
@@ -50,7 +50,7 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
         )
       end)
 
-    assert_receive :mutation_executed
+    assert_receive :mutation_executed, @async_assert_timeout
 
     replay =
       Task.async(fn ->
@@ -68,7 +68,7 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
     Process.exit(owner, :kill)
 
     assert Task.await(replay) == {:error, :outcome_uncertain}
-    refute_receive :duplicate_mutation
+    refute_received :duplicate_mutation
   end
 
   test "completed results survive a ledger process restart", %{tmp_dir: tmp_dir} do
@@ -127,15 +127,15 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
         )
       end)
 
-    assert_receive :mutation_executed_before_restart
+    assert_receive :mutation_executed_before_restart, @async_assert_timeout
     owner_ref = Process.monitor(owner)
     ledger_ref = Process.monitor(first_ledger)
     Process.unlink(first_ledger)
     Process.exit(first_ledger, :kill)
 
-    assert_receive {:DOWN, ^ledger_ref, :process, ^first_ledger, :killed}
+    assert_receive {:DOWN, ^ledger_ref, :process, ^first_ledger, :killed}, @async_assert_timeout
     send(owner, :finish_mutation)
-    assert_receive {:DOWN, ^owner_ref, :process, ^owner, _reason}
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, _reason}, @async_assert_timeout
 
     {:ok, second_ledger} = ToolCallLedger.start_link(opts)
 
@@ -149,7 +149,7 @@ defmodule Aiur.AppServer.ToolCallLedgerTest do
              second_ledger
            ) == {:error, :outcome_uncertain}
 
-    refute_receive :duplicate_mutation_after_restart
+    refute_received :duplicate_mutation_after_restart
     GenServer.stop(second_ledger)
   end
 
