@@ -92,8 +92,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"} = active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="cmd")
-    assert html =~ ~s(id="sd-cmd-view")
-    refute html =~ ~s(id="sd-keys")
+    assert html =~ ~s(id="sd-keys")
+    refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
 
     html = render_click(view, "command-press", %{"command" => "logs"})
@@ -101,7 +101,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="logs")
     assert html =~ ~s(id="sd-logs-view")
-    refute html =~ ~s(id="sd-cmd-view")
+    refute html =~ "data-streamdeck-command"
 
     html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
 
@@ -261,10 +261,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Pause selected"
 
     html = render_hook(view, "mic-hold", %{"active" => true})
-    assert command_key(html, "mic") =~ "mic-live"
+    assert html =~ "sd-mic-key mic-live"
 
     html = render_hook(view, "mic-hold", %{"active" => false})
-    refute command_key(html, "mic") =~ "mic-live"
+    refute html =~ "sd-mic-key mic-live"
   end
 
   test "initial mount creates one real PubSub transcript subscription" do

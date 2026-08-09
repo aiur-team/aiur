@@ -207,19 +207,24 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands">
-            <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
-            <ul id="sd-command-keys" class="sd-keys sd-cmd-keys" aria-label="Available commands">
-              <li :for={key <- command_keys(@grid.agents, @selected_identifier)} class={["sd-key", "sd-cmd-key", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
-                <button :if={!key.empty?} type="button" class={["sd-key-face", key.mic? && @mic_held? && "mic-live"]} data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
-                  <span class="sd-cmd-icon" aria-hidden="true">{key.icon}</span>
+          <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
+          <ul id="sd-keys" class="sd-keys sd-cmd-keys" aria-label="Available commands">
+            <li :for={key <- command_keys(@grid.agents, @selected_identifier)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
+              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
+                <span class="sd-cmd">
+                  <span class="sd-cmd-ic" aria-hidden="true">
+                    <svg :if={key.command == "pause"} viewBox="0 0 24 24" fill="none"><path d="M7 5v14M17 5v14"/></svg>
+                    <svg :if={key.command == "priority"} viewBox="0 0 24 24" fill="none"><path d="M12 19V5M7 10l5-5 5 5"/></svg>
+                    <svg :if={key.command == "logs"} viewBox="0 0 24 24" fill="none"><path d="M5 6h14M5 12h14M5 18h9"/></svg>
+                    <svg :if={key.command == "mic"} viewBox="0 0 24 24" fill="none"><rect x="8" y="3" width="8" height="12" rx="4"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg>
+                  </span>
                   <span class="sd-cmd-label">{key.label}</span>
                   <span class="sd-cmd-sub">{key.sub}</span>
-                </button>
-                <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
-              </li>
-            </ul>
-          </div>
+                </span>
+              </button>
+              <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
+            </li>
+          </ul>
           <% end %>
 
           <%= if @sd_mode == :logs do %>
@@ -434,10 +439,10 @@ defmodule AiurWeb.StreamdeckLive do
     prioritized? = Map.get(agent, :priority, false)
 
     [
-      command_key("pause", if(paused?, do: "▷", else: "Ⅱ"), if(paused?, do: "Play", else: "Pause"), if(paused?, do: "RESUME", else: "HOLD")),
-      command_key("priority", if(prioritized?, do: "↓", else: "↑"), if(prioritized?, do: "Deprioritize", else: "Prioritize"), if(prioritized?, do: "LOWER", else: "RAISE")),
-      command_key("logs", "▤", "Logs", "SCROLL"),
-      command_key("mic", "●", "Mic", "HOLD", mic?: true),
+      command_key("pause", if(paused?, do: "Play", else: "Pause"), if(paused?, do: "RESUME", else: "HOLD")),
+      command_key("priority", if(prioritized?, do: "Deprioritize", else: "Prioritize"), if(prioritized?, do: "LOWER", else: "RAISE")),
+      command_key("logs", "Logs", "SCROLL"),
+      command_key("mic", "Mic", "HOLD", mic?: true),
       empty_command_key(),
       empty_command_key(),
       empty_command_key(),
@@ -445,11 +450,11 @@ defmodule AiurWeb.StreamdeckLive do
     ]
   end
 
-  defp command_key(command, icon, label, sub, opts \\ []) do
-    %{command: command, icon: icon, label: label, sub: sub, mic?: Keyword.get(opts, :mic?, false), empty?: false}
+  defp command_key(command, label, sub, opts \\ []) do
+    %{command: command, label: label, sub: sub, mic?: Keyword.get(opts, :mic?, false), empty?: false}
   end
 
-  defp empty_command_key, do: %{empty?: true}
+  defp empty_command_key, do: %{empty?: true, mic?: false}
 
   defp command_label("pause"), do: "Pause"
   defp command_label("priority"), do: "Priority"
