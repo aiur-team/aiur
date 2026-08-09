@@ -1599,53 +1599,124 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp put_running_entry(state, _issue_id, _running_entry), do: state
 
   defp resume_queued_issue(%State{} = state, issue_identifier) do
-    issue =
-      state.last_polled_issues
-      |> Map.values()
-      |> Enum.find(fn
-        %Issue{identifier: ^issue_identifier} -> true
-        _ -> false
-      end)
-
-    cond do
-      is_nil(issue) ->
+    case find_issue_id_by_identifier(state, issue_identifier) do
+      {:error, :unknown_issue} ->
         {{:error, :no_running_agent}, state}
 
-      # Manual start (Executor pressed space on a queued ticket): paused
-      # agents are excluded from the cap so the Executor can fill a free
-      # active slot even when a paused agent is parked in `running`.
+      {:ok, issue_id} ->
+        cached_issue = Map.fetch!(state.last_polled_issues, issue_id)
+        refresh_queued_issue(state, cached_issue)
+    end
+  end
+
+  defp refresh_queued_issue(state, cached_issue) do
+    case Tracker.fetch_issue_states_by_ids([cached_issue.id]) do
+      {:ok, [%Issue{} = tracker_issue | _]} ->
+        state = put_in(state.last_polled_issues[tracker_issue.id], tracker_issue)
+        resume_refreshed_queued_issue(state, cached_issue, tracker_issue)
+
+      {:ok, []} ->
+        state = %{state | last_polled_issues: Map.delete(state.last_polled_issues, cached_issue.id)}
+        {{:error, :tracker_issue_not_found}, state}
+
+      {:error, reason} ->
+        {{:error, {:tracker_refresh_failed, reason}}, state}
+    end
+  end
+
+  defp resume_refreshed_queued_issue(state, cached_issue, tracker_issue) do
+    case queued_issue_resumability(state, tracker_issue) do
+      :ok ->
+        Dispatcher.dispatch_prevalidated_issue(state, tracker_issue)
+
+      {:error, reason} ->
+        {{:error, maybe_stale_tracker_reason(reason, cached_issue, tracker_issue)}, state}
+    end
+  end
+
+  defp queued_issue_resumability(state, issue) do
+    active_states = DispatchPolicy.active_state_set()
+    terminal_states = DispatchPolicy.terminal_state_set()
+    tracker_state = DispatchPolicy.normalize_issue_state(issue.state)
+
+    cond do
+      Issue.paused?(issue) ->
+        {:error, :tracker_paused}
+
+      not DispatchPolicy.issue_routable_to_worker?(issue) ->
+        {:error, :not_routable_to_worker}
+
+      not DispatchPolicy.issue_dispatch_authorized?(issue) ->
+        {:error, :dispatch_not_authorized}
+
+      not DispatchPolicy.active_issue_state?(issue.state, active_states) or
+          DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
+        {:error, {:tracker_state_not_resumable, tracker_state}}
+
+      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states) ->
+        {:error, :waiting_for_dependencies}
+
+      MapSet.member?(state.claimed, issue.id) ->
+        {:error, :already_claimed}
+
       State.active_running_count(state.running) >= Slots.max_concurrent_agent_limit(state) ->
-        {{:error, :max_concurrent_agents_reached}, state}
+        {:error, :max_concurrent_agents_reached}
 
       # A lifetime-latched ticket is not resume-clearable by design. Name the
       # latch as the reason instead of letting the dispatch no-op silently and
       # reporting `:dispatch_failed`, which reads as a transient hiccup (#1453).
       match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id)) ->
-        {{:error, :lifetime_dispatch_latch}, state}
+        {:error, :lifetime_dispatch_latch}
 
-      not DispatchPolicy.dispatch_candidate?(
-        issue,
-        state,
-        DispatchPolicy.active_state_set(),
-        DispatchPolicy.terminal_state_set()
-      ) ->
-        {{:error, :not_resumable}, state}
+      not DispatchPolicy.state_slots_available?(issue, state) ->
+        {:error, {:state_concurrency_limit_reached, tracker_state}}
+
+      not Slots.worker_slots_available?(state) ->
+        {:error, :no_worker_capacity}
 
       true ->
-        next_state = Dispatcher.dispatch_issue(state, issue)
-
-        cond do
-          MapSet.member?(next_state.claimed, issue.id) ->
-            {{:ok, :started}, next_state}
-
-          match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
-            {{:error, :lifetime_dispatch_latch}, next_state}
-
-          true ->
-            {{:error, :dispatch_failed}, next_state}
-        end
+        :ok
     end
   end
+
+  defp maybe_stale_tracker_reason(reason, cached_issue, tracker_issue) do
+    cached = dispatchability_fingerprint(cached_issue)
+    tracker = dispatchability_fingerprint(tracker_issue)
+    changed_fields = for {field, value} <- cached, Map.fetch!(tracker, field) != value, do: field
+
+    if changed_fields != [] do
+      details = %{
+        cached_state: cached.state,
+        tracker_state: tracker.state,
+        cached_paused: cached.paused,
+        tracker_paused: tracker.paused,
+        changed_fields: changed_fields
+      }
+
+      {:stale_tracker_state, reason, details}
+    else
+      reason
+    end
+  end
+
+  defp dispatchability_fingerprint(issue) do
+    %{
+      state: DispatchPolicy.normalize_issue_state(issue.state),
+      paused: Issue.paused?(issue),
+      routable: DispatchPolicy.issue_routable_to_worker?(issue),
+      authorized: DispatchPolicy.issue_dispatch_authorized?(issue),
+      blockers: blocker_states(issue.blocked_by)
+    }
+  end
+
+  defp blocker_states(blockers) when is_list(blockers) do
+    Enum.map(blockers, fn
+      %{state: state} -> DispatchPolicy.normalize_issue_state(state)
+      _ -> :unknown
+    end)
+  end
+
+  defp blocker_states(_blockers), do: [:unknown]
 
   defp clear_pause_override(%{issue: %Issue{} = issue} = running_entry) do
     case clear_pause_override(issue) do

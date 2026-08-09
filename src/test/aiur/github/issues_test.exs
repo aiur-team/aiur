@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.Issues
+  alias Aiur.{Issue, GitHub.Issues}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -184,6 +184,69 @@ defmodule Aiur.GitHub.IssuesTest do
                Enum.map(unconditional_issues, & &1.dispatch_authorized?)
 
       assert [true] = Enum.map(conditional_issues, & &1.dispatch_authorized?)
+    end
+  end
+
+  describe "fetch_candidate_issues/1" do
+    test "revalidates one authoritative list and reuses it only on 304" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_label_prefix: "sym",
+        tracker_active_states: ["Todo", "In Progress"]
+      )
+
+      issue = fn number, state ->
+        labels = if is_binary(state), do: [%{"name" => "sym:#{state}"}], else: []
+
+        %{
+          "number" => number,
+          "title" => "Mutable label",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => labels,
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      stale_page = [issue.(42, "in-progress"), issue.(43, "done"), issue.(44, nil)]
+      fresh_page = [issue.(42, "todo"), issue.(43, "done"), issue.(44, nil)]
+      {:ok, list_step} = Agent.start_link(fn -> 0 end)
+
+      request_fun = fn request ->
+        if String.ends_with?(request.url, "/timeline?per_page=100") do
+          {:ok, %{status: 200, headers: [], body: []}}
+        else
+          assert request.url == "https://api.github.com/repos/owner/repo/issues?state=open&per_page=100"
+
+          Agent.get_and_update(list_step, fn
+            0 ->
+              refute Map.has_key?(request, :etag)
+              {{:ok, %{status: 200, headers: [{"etag", "v1"}], body: stale_page}}, 1}
+
+            1 ->
+              assert request.etag == "v1"
+              {{:ok, %{status: 200, headers: [{"etag", "v2"}], body: fresh_page}}, 2}
+
+            2 ->
+              assert request.etag == "v2"
+              {{:ok, %{status: 304}}, 3}
+          end)
+        end
+      end
+
+      assert {:ok, [%Issue{id: "42", state: "in-progress"}], cache} =
+               Issues.fetch_candidate_issues_conditional(%{}, request_fun: request_fun)
+
+      assert {:ok, [%Issue{id: "42", state: "todo"}], cache} =
+               Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+
+      assert {:ok, [%Issue{id: "42", state: "todo"}], _cache} =
+               Issues.fetch_candidate_issues_conditional(cache, request_fun: request_fun)
+
+      assert Agent.get(list_step, & &1) == 3
     end
   end
 

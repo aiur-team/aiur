@@ -266,6 +266,20 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.should_dispatch_issue?(rework, state)
     end
 
+    test "an in-progress ticket without a running agent is recovered as dispatchable work" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework"]
+      )
+
+      stranded = issue("stranded-in-progress", state: "in-progress")
+      state = %State{max_concurrent_agents: 5, running: %{}}
+
+      assert DispatchPolicy.queued_dispatch_demand?([stranded], state)
+      assert DispatchPolicy.dispatch_candidate?(stranded, state)
+      assert DispatchPolicy.should_dispatch_issue?(stranded, state)
+    end
+
     test "ignores running, claimed, paused, blocked, and unroutable issues" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
 

@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State, StatusReport, TrackerHealth}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
@@ -195,6 +195,85 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     assert %State{ci_readiness_checked: true, ci_readiness_result: ^new_readiness} =
              Dispatcher.maybe_warn_ci_readiness(state)
+  end
+
+  test "GitHub candidate state is fetched authoritatively every configured poll interval" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_active_states: ["todo", "in-progress", "rework", "merging"],
+      poll_interval_seconds: 5
+    )
+
+    cached = %Issue{id: "42", identifier: "42", title: "Cached", state: "in-progress"}
+    fresh = %{cached | state: "todo", labels: ["agent:todo"]}
+
+    state = %State{
+      poll_interval_ms: 5_000,
+      candidate_snapshot_fresh?: false,
+      ci_lifecycle: %{
+        approved_heads: %{},
+        test_failure_heads: %{},
+        base_repair_invalidations: %{},
+        poll_cache: %{issue_list_cache: %{stale: cached}},
+        rewakes: %{}
+      }
+    }
+
+    {:ok, responses} = Agent.start_link(fn -> [{[cached], %{etag: "v1"}}, {[fresh], %{etag: "v2"}}] end)
+
+    fetch_fun = fn cache ->
+      Agent.get_and_update(responses, fn [{issues, updated_cache} | rest] ->
+        assert cache == if(issues == [cached], do: %{}, else: %{etag: "v1"})
+        {{:ok, issues, updated_cache}, rest}
+      end)
+    end
+
+    assert {:ok, [^cached], state} = Dispatcher.fetch_candidate_issues(state, fetch_fun: fetch_fun)
+    assert state.candidate_snapshot_fresh?
+    assert state.ci_lifecycle.poll_cache.candidate_list_cache == %{etag: "v1"}
+
+    assert {:ok, [^fresh], state} = Dispatcher.fetch_candidate_issues(state, fetch_fun: fetch_fun)
+    assert state.ci_lifecycle.poll_cache.candidate_list_cache == %{etag: "v2"}
+
+    assert TrackerHealth.next_poll_delay_ms(state) == 5_000
+  end
+
+  test "a failed GitHub candidate refresh hides stale idle labels but preserves recovery data" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_active_states: ["todo", "in-progress", "rework", "merging"]
+    )
+
+    stale = %Issue{id: "42", identifier: "42", title: "Stale", state: "in-progress"}
+
+    state = %State{
+      last_polled_issues: %{stale.id => stale},
+      snapshot_ready?: false,
+      ci_lifecycle: %{
+        %State{}.ci_lifecycle
+        | poll_cache: %{candidate_list_cache: %{pages: %{1 => %{etag: "v1"}}}}
+      }
+    }
+
+    reason = {:github, :timeout, %{reason: :timeout}}
+    fetch_fun = fn %{pages: %{1 => %{etag: "v1"}}} -> {:error, reason} end
+
+    assert {:error, ^reason, next} =
+             Dispatcher.fetch_candidate_issues(state, fetch_fun: fetch_fun)
+
+    assert next.last_polled_issues == state.last_polled_issues
+    assert next.snapshot_ready?
+    refute next.candidate_snapshot_fresh?
+    assert next.ci_lifecycle.poll_cache == state.ci_lifecycle.poll_cache
+    assert next.github_connectivity[:candidates] == {:timeout, 1}
+    assert next.github_poll_delays[:candidates] == 1_000
+
+    assert %{idle: [], polling: %{tracker_snapshot_fresh?: false}} =
+             StatusReport.snapshot_payload(next)
+
+    assert StatusReport.running_summaries(next) == []
   end
 
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget

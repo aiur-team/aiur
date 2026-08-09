@@ -50,6 +50,10 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   defp start_orchestrator(name) do
+    unless Process.whereis(Aiur.Supervisor) do
+      {:ok, _apps} = Application.ensure_all_started(:aiur)
+    end
+
     {:ok, pid} = Orchestrator.start_link(name: name)
     on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :normal) end)
     pid
@@ -298,6 +302,99 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       assert {:ok, :started} = Orchestrator.resume_agent(name, issue.identifier)
       assert MapSet.member?(:sys.get_state(pid).claimed, issue.id)
+    end
+
+    test "resume refreshes stale cached tracker state before deciding dispatchability" do
+      name = Module.concat(__MODULE__, :ResumeStaleCachedState)
+      pid = start_orchestrator(name)
+      tracker_issue = todo_issue("L11-STALE")
+      cached_issue = %{tracker_issue | state: "ci-wait"}
+      memory_tracker!([tracker_issue])
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | last_polled_issues: %{cached_issue.id => cached_issue},
+            candidate_snapshot_fresh?: false,
+            running: %{},
+            claimed: MapSet.new()
+        }
+      end)
+
+      assert {:ok, :started} = Orchestrator.resume_agent(name, tracker_issue.identifier)
+      state = :sys.get_state(pid)
+      assert state.last_polled_issues[tracker_issue.id].state == "todo"
+      assert MapSet.member?(state.claimed, tracker_issue.id)
+    end
+
+    test "resume names a stale-cache rejection with the tracker state" do
+      name = Module.concat(__MODULE__, :ResumeStaleRejection)
+      pid = start_orchestrator(name)
+      cached_issue = todo_issue("L11-REJECT")
+      tracker_issue = %{cached_issue | state: "ci-wait"}
+      memory_tracker!([tracker_issue])
+
+      :sys.replace_state(pid, fn state ->
+        %{state | last_polled_issues: %{cached_issue.id => cached_issue}, running: %{}, claimed: MapSet.new()}
+      end)
+
+      assert {:error, {:stale_tracker_state, {:tracker_state_not_resumable, "ci-wait"}, %{cached_state: "todo", tracker_state: "ci-wait"}}} =
+               Orchestrator.resume_agent(name, cached_issue.identifier)
+
+      assert :sys.get_state(pid).last_polled_issues[cached_issue.id].state == "ci-wait"
+    end
+
+    test "resume names stale blocker data even when the state label is unchanged" do
+      name = Module.concat(__MODULE__, :ResumeStaleBlockers)
+      pid = start_orchestrator(name)
+      cached_issue = todo_issue("L11-BLOCKED")
+      tracker_issue = %{cached_issue | blocked_by: [%{state: "todo"}]}
+      memory_tracker!([tracker_issue])
+
+      :sys.replace_state(pid, fn state ->
+        %{state | last_polled_issues: %{cached_issue.id => cached_issue}, running: %{}, claimed: MapSet.new()}
+      end)
+
+      assert {:error, {:stale_tracker_state, :waiting_for_dependencies, %{cached_state: "todo", tracker_state: "todo", changed_fields: [:blockers]}}} =
+               Orchestrator.resume_agent(name, cached_issue.identifier)
+    end
+  end
+
+  describe "poll recovery" do
+    test "a stranded in-progress ticket is dispatched and reported with tracker truth" do
+      previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
+
+      issue = %Issue{
+        id: "L11-ORPHAN",
+        identifier: "L11-ORPHAN",
+        state: "in-progress",
+        title: "Recover orphan"
+      }
+
+      memory_tracker!([issue])
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "memory",
+        tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"],
+        pre_warmed_sessions: 0
+      )
+
+      WorkflowStore.force_reload()
+
+      name = Module.concat(__MODULE__, :RecoverOrphanedInProgress)
+      pid = start_orchestrator(name)
+
+      send(pid, :run_poll_cycle)
+      state = :sys.get_state(pid, 15_000)
+
+      assert MapSet.member?(state.claimed, issue.id)
+      assert state.last_polled_issues[issue.id].state == "in-progress"
+
+      assert %{running: [%{identifier: "L11-ORPHAN", state: "in-progress"}]} =
+               Orchestrator.snapshot(name, 15_000)
     end
   end
 

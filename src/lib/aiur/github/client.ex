@@ -56,6 +56,11 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_candidate_issues(keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_candidate_issues(opts \\ []), do: Issues.fetch_candidate_issues(opts)
 
+  @spec fetch_candidate_issues_conditional(map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()}
+  def fetch_candidate_issues_conditional(cache, opts \\ []),
+    do: Issues.fetch_candidate_issues_conditional(cache, opts)
+
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names, opts \\ []), do: Issues.fetch_issues_by_states(state_names, opts)
 
