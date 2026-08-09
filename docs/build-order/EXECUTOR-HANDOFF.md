@@ -1,5 +1,10 @@
 # Build Order Executor Handoff
 
+> **Superseded:** the live, machine-local Executor handoff now belongs at
+> `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. This tracked document is
+> retained as historical context only; new handoffs must replace the state-node
+> document rather than append here.
+
 ## New-machine handoff — orangekid-opus (2026-07-18 ~22:40 PDT)
 
 Supersedes all checkpoints below. Run is post-54: 54/54 core merged long ago;
