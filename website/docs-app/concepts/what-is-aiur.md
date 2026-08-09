@@ -41,3 +41,16 @@ Implementation backends plug in behind Aiur's app-server protocol. A `model:<bac
 - `claude-repl` (the persistent interactive REPL that backs remote control)
 - `kimi`, `openrouter` (generic OpenAI-compatible instances, configurable by default)
 - `deepseek` (generic OpenAI-compatible instance; ships disabled and needs `agent.backend_configs.deepseek.enabled: true` to dispatch)
+
+Kimi, DeepSeek, and OpenRouter use the same OpenAI-compatible adapter, but are separate registered instances with provider credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that instance's default model. For example:
+
+```yaml
+agent:
+  routing:
+    "complexity:3": kimi
+  backend_configs:
+    deepseek:
+      enabled: true
+```
+
+The registry reads `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_KEY`; OpenRouter's balance meter additionally uses `OPENROUTER_MANAGEMENT_KEY`. DeepSeek is deliberately not dispatchable until the explicit `enabled: true` opt-in is present.

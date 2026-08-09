@@ -10,7 +10,7 @@ npm install -g aiur-cli
 
 ## Initialize
 
-Run `aiur init` in the repository you want Aiur to work on. It detects the available agent toolchains, scaffolds `.aiur/config`, `.aiur/hooks`, and `.aiur/prompt.md`, prepares the repository state node, and offers a pre-warmed base build. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN`; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
+Run `aiur init` in the repository you want Aiur to work on. It detects the available agent toolchains, scaffolds `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, and `.aiur/alerts`, prepares the repository state node, and offers a pre-warmed base build with a sibling `.aiur/prewarm` script. For GitHub setups it also writes `./.env` for `GITHUB_TOKEN`; the wizard explains how to provide the token rather than prompting for the secret directly. Use `aiur init --force` to recreate the config while preserving sibling scaffold files.
 
 The wizard asks for:
 
@@ -24,7 +24,7 @@ Add `agent:todo` to the issues you want worked.
 
 The bare `aiur` command discovers `.aiur/config` and starts a foreground run. `aiur run` is the explicit-verb equivalent.
 
-The launch output prints the dashboard URL. Open it to see the fleet and decision inbox. Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before binding beyond loopback or using writable dashboard controls. Continue with the [Executor Control Center](/guide/executor-control-center) guide.
+Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before the default writable dashboard can start, including on loopback. Alternatively set `observability.dashboard_writable: false` for an unauthenticated loopback dashboard. The launch output prints the dashboard URL only when the listener starts. Continue with the [Executor Control Center](/guide/executor-control-center) guide.
 
 ## Core subcommands
 

@@ -39,7 +39,7 @@ Use events for cross-ticket coordination that another agent may consume. Use ale
 
 ## GitHub listener automation
 
-Aiur observes GitHub through a narrow repository-events firehose and targeted polling. The firehose delivers issue and pull-request activity as it appears in GitHub's repository event feed. Ticket-branch pushes are polled separately with `git ls-remote`, because the GitHub firehose does not reliably publish those pushes. Comments and review threads are polled for trusted review-driven wakeups, and CI is polled while a ticket is in `agent:ci-wait`.
+Aiur observes GitHub through a narrow repository-events firehose and targeted polling. The firehose publishes default-branch pushes, opened pull requests, and merged pull requests. It drops issue events. Ticket-branch pushes are polled separately with `git ls-remote`; comments and review threads are polled for trusted review-driven wakeups; and CI is polled while a ticket is in `agent:ci-wait`.
 
 Comment commands and review-driven rework are accepted only from the configured trusted accounts or the resolved CODEOWNERS set. Aiur refreshes CODEOWNERS on the configured cadence and surfaces a safe degraded-trust alert if it cannot resolve the file. The bot identity is excluded to prevent self-triggered loops.
 
