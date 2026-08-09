@@ -83,6 +83,76 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Build emulator"
   end
 
+  test "models grid, command, and logs modes with the focused agent" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"} = active} = streamdeck_assigns(view)
+    assert html =~ ~s(data-mode="cmd")
+    assert html =~ ~s(id="sd-cmd-view")
+    refute html =~ ~s(id="sd-keys")
+    refute html =~ ~s(id="sd-logs-view")
+
+    html = render_click(view, "command-press", %{"command" => "logs"})
+
+    assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
+    assert html =~ ~s(data-mode="logs")
+    assert html =~ ~s(id="sd-logs-view")
+    refute html =~ ~s(id="sd-cmd-view")
+
+    html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+
+    assert %{sd_mode: :cmd, sd_active: ^active} = streamdeck_assigns(view)
+    assert html =~ ~s(data-mode="cmd")
+
+    html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+
+    assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
+    assert html =~ ~s(data-mode="grid")
+    assert html =~ ~s(id="sd-keys")
+  end
+
+  test "cycle-window enters logs only from command mode" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
+    assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
+
+    render_hook(view, "key-press", %{"identifier" => "1345"})
+    %{sd_active: active} = streamdeck_assigns(view)
+
+    html = render_hook(view, "dial-press", %{"index" => "3", "action" => "cycle-window"})
+
+    assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
+    assert html =~ ~s(data-mode="logs")
+  end
+
+  test "retains active mode focus across a fleet refresh", %{snapshot_agent: snapshot_agent} do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    enter_logs(view, "1352")
+
+    Agent.update(snapshot_agent, fn _ ->
+      %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]}
+    end)
+
+    send(view.pid, {:running_changed, []})
+    html = render(view)
+
+    assert %{sd_mode: :logs, selected_identifier: "1352", sd_active: %{identifier: "1352"}} =
+             streamdeck_assigns(view)
+
+    assert html =~ ~s(data-focused-identifier="1352")
+
+    render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+    html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+
+    assert %{sd_mode: :grid, selected_identifier: "1400", sd_active: nil} = streamdeck_assigns(view)
+    assert html =~ ~s(data-grid-selected-identifier="1400")
+  end
+
   test "renders grid keys in authoritative column-major order at zero and nonzero offsets" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
@@ -129,17 +199,40 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Live running"
   end
 
+  test "keeps same-rank key order stable when snapshot order changes", %{snapshot_agent: snapshot_agent} do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    snapshot = %{
+      running: [fixture_agent("10", "First raw", "codex"), fixture_agent("2", "Second raw", "codex")],
+      retrying: [],
+      idle: []
+    }
+
+    Agent.update(snapshot_agent, fn _ -> snapshot end)
+    send(view.pid, {:running_changed, []})
+    first_refresh = render(view) |> slot_identifiers()
+
+    Agent.update(snapshot_agent, fn _ -> %{snapshot | running: Enum.reverse(snapshot.running)} end)
+    send(view.pid, {:running_changed, []})
+    second_refresh = render(view) |> slot_identifiers()
+
+    assert first_refresh == ["2", "10"]
+    assert second_refresh == ["2", "10"]
+  end
+
   test "key presses request pause for running and resume for paused agents" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
     assert html =~ "Pause requested for #1352"
-    assert html =~ ~s(data-grid-selected-identifier="1352")
+    assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"}} = streamdeck_assigns(view)
     assert_receive {:streamdeck_pause, "1352"}
 
+    render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
     assert html =~ "Resume requested for #1345"
-    assert html =~ ~s(data-grid-selected-identifier="1345")
+    assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
     assert_receive {:streamdeck_resume, "1345"}
   end
 
@@ -169,7 +262,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     try do
       html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
-      assert html =~ ~s(data-focused-identifier="1345")
+      assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
       refute html =~ "Resume requested"
       refute_receive {:streamdeck_resume, "1345"}
     after
@@ -178,7 +271,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
   end
 
   test "scrolls bounded event and flattened transcript logs" do
-    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = enter_logs(view)
 
     # Events pane shows the eight newest event headers; the transcript pane is
     # the flattened sequence oldest-first, so its top two lines are the oldest.
@@ -209,7 +303,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         feed_event("assistant", "newest message", "turn-2")
       ])
 
-      {:ok, view, html} = live(build_conn(), "/streamdeck")
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = enter_logs(view)
 
       assert html =~ "[AGENT] newest message"
       assert html =~ "[EMIT] lib/example.ex"
@@ -230,7 +325,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
       write_feed("1352", [feed_event("assistant", "old focused entry", "old-turn")])
       write_feed("1345", [feed_event("assistant", "new focused entry", "new-turn")])
 
-      {:ok, view, html} = live(build_conn(), "/streamdeck")
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = enter_logs(view)
       assert html =~ "old focused entry"
 
       html = render_hook(view, "key-press", %{"identifier" => "1345"})
@@ -256,12 +352,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
       Endpoint.config_change(%{Endpoint => read_only_config}, [])
 
       try do
-        {:ok, view, html} = live(build_conn(), "/streamdeck")
-        assert html =~ ~s(data-grid-selected-identifier="1352")
+        {:ok, view, _html} = live(build_conn(), "/streamdeck")
+        html = enter_logs(view)
+        assert html =~ ~s(data-focused-identifier="1352")
         assert html =~ "old-agent-event"
 
         html = render_hook(view, "key-press", %{"identifier" => "1345"})
-        assert html =~ ~s(data-grid-selected-identifier="1345")
+        assert html =~ ~s(data-focused-identifier="1345")
         assert html =~ "new-agent-event"
         refute html =~ "old-agent-event"
         refute_receive {:streamdeck_pause, _identifier}
@@ -446,6 +543,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
       [pane | _] -> pane
       nil -> flunk("missing log pane ##{id}")
     end
+  end
+
+  defp streamdeck_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp enter_logs(view, identifier \\ "1352") do
+    render_hook(view, "key-press", %{"identifier" => identifier})
+    render_click(view, "command-press", %{"command" => "logs"})
   end
 
   defp slot_identifiers(html) do

@@ -316,6 +316,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
+       aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -330,6 +331,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
+       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
+       aiur ask --done <id> [--note <text>]  create or resolve an operator request
+       aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -412,6 +416,12 @@ run_todo() {
 # --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
 
 run_findings() {
+  run_init "$@"
+}
+
+# --- one-shot: ask / asks (distribution-free, no daemon/tmux) ----------------
+
+run_asks() {
   run_init "$@"
 }
 
@@ -1961,6 +1971,58 @@ cmd_agents() {
   run_control_rpc "Aiur.AgentControlCLI.agents()"
 }
 
+# `aiur commands` — read the dashboard's retained Decision projection without
+# exposing any dispatch or answer mutation path.
+cmd_commands() {
+  local filter="all" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --filter) [ "$#" -gt 1 ] || { echo "aiur: commands --filter requires a value" >&2; exit 64; }; shift; filter="$1" ;;
+      --filter=*) filter="${arg#--filter=}" ;;
+      --blocking) blocking=1 ;;
+      --ticket) [ "$#" -gt 1 ] || { echo "aiur: commands --ticket requires a value" >&2; exit 64; }; shift; ticket="$1" ;;
+      --ticket=*) ticket="${arg#--ticket=}" ;;
+      --search) [ "$#" -gt 1 ] || { echo "aiur: commands --search requires a value" >&2; exit 64; }; shift; search="$1" ;;
+      --search=*) search="${arg#--search=}" ;;
+      --cursor) [ "$#" -gt 1 ] || { echo "aiur: commands --cursor requires a value" >&2; exit 64; }; shift; cursor="$1" ;;
+      --cursor=*) cursor="${arg#--cursor=}" ;;
+      --limit) [ "$#" -gt 1 ] || { echo "aiur: commands --limit requires a value" >&2; exit 64; }; shift; limit="$1" ;;
+      --limit=*) limit="${arg#--limit=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: commands received an unknown option: $arg" >&2; exit 64 ;;
+      *)
+        if [ -n "$decision_id" ]; then
+          echo "aiur: commands accepts at most one decision ID" >&2
+          exit 64
+        fi
+        decision_id="$arg"
+        ;;
+    esac
+    shift
+  done
+
+  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
+  [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
+  [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
+  [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
+
+  local opts="filter: :$filter"
+  [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  [ -n "$limit" ] && opts="$opts, limit: $limit"
+  local key raw encoded
+  for key in decision_id ticket search cursor; do
+    raw="${!key}"
+    [ -n "$raw" ] || continue
+    encoded="$(printf '%s' "$raw" | base64 | tr -d '\n')"
+    opts="$opts, $key: Base.decode64!(\"$encoded\")"
+  done
+
+  run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
+}
+
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
@@ -2405,6 +2467,9 @@ aiur_engine_main() {
     findings)
       run_findings "$@"
       ;;
+    ask | asks)
+      run_asks "$@"
+      ;;
     --bg)
       dispatch_run "$@"
       ;;
@@ -2423,6 +2488,10 @@ aiur_engine_main() {
     agents)
       shift
       cmd_agents "$@"
+      ;;
+    commands)
+      shift
+      cmd_commands "$@"
       ;;
     alerts)
       shift

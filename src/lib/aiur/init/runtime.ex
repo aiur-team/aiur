@@ -5,6 +5,7 @@ defmodule Aiur.Init.Runtime do
 
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Codeowners
+  alias Aiur.Executor.Handoff
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Init.Alerts
   alias Aiur.Init.Format
@@ -141,7 +142,12 @@ defmodule Aiur.Init.Runtime do
 
   @spec setup_repo_state(map()) :: :ok | {:error, term()}
   def setup_repo_state(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "" do
-    RepoBase.setup_state("https://github.com/#{repo}.git", Codeowners.repo_root(File.cwd!()))
+    repo_url = "https://github.com/#{repo}.git"
+    source_root = Codeowners.repo_root(File.cwd!())
+
+    with :ok <- RepoBase.setup_state(repo_url, source_root) do
+      Handoff.ensure(repo_url, source_root)
+    end
   end
 
   def setup_repo_state(_tracker), do: :ok

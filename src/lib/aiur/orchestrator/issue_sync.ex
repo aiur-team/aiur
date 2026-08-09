@@ -901,7 +901,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp low_load?(_context), do: false
 
   defp sync_fleet_capacity_starvation(state, context, now_ms) do
-    starvation = state.fleet_capacity_starvation || %{}
+    starvation = state.fleet_capacity_starvation
 
     if is_integer(starvation[:effective_cap]) and starvation[:effective_cap] != context.effective_cap do
       put_fleet_capacity_starvation(state, now_ms, starvation[:alert_active] || false, context.effective_cap)
@@ -911,20 +911,24 @@ defmodule Aiur.Orchestrator.IssueSync do
       if starvation[:alert_active] or now_ms - since_ms < @capacity_starvation_alert_after_ms do
         put_fleet_capacity_starvation(state, since_ms, starvation[:alert_active] || false, context.effective_cap)
       else
-        case Alerts.emit_system("system.fleet.capacity.starved",
-               reason: fleet_capacity_starvation_reason(context),
-               needs_attention: true,
-               severity: "warning"
-             ) do
-          :ok ->
-            state
-            |> Map.put(:fleet_capacity_starvation_resolution_emitted, false)
-            |> put_fleet_capacity_starvation(since_ms, true, context.effective_cap)
-
-          {:error, _reason} ->
-            put_fleet_capacity_starvation(state, since_ms, false, context.effective_cap)
-        end
+        emit_fleet_capacity_starvation(state, context, since_ms)
       end
+    end
+  end
+
+  defp emit_fleet_capacity_starvation(state, context, since_ms) do
+    case Alerts.emit_system("system.fleet.capacity.starved",
+           reason: fleet_capacity_starvation_reason(context),
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        state
+        |> Map.put(:fleet_capacity_starvation_resolution_emitted, false)
+        |> put_fleet_capacity_starvation(since_ms, true, context.effective_cap)
+
+      {:error, _reason} ->
+        put_fleet_capacity_starvation(state, since_ms, false, context.effective_cap)
     end
   end
 
@@ -983,7 +987,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     do: put_fleet_capacity_starvation(state, nil, false, nil)
 
   defp clear_fleet_capacity_starvation(%State{} = state) do
-    starvation = state.fleet_capacity_starvation || %{}
+    starvation = state.fleet_capacity_starvation
 
     active? = starvation[:alert_active] or AlertFeed.active_system_attention?("system.fleet.capacity.starved")
 
