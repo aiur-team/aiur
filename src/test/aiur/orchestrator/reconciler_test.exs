@@ -561,6 +561,66 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
     }
   end
 
+  describe "refresh_running_issue_states/2" do
+    test "returns the same state when no running issue cache needs clearing" do
+      state = %State{}
+      assert Reconciler.refresh_running_issue_states(state) === state
+
+      stale = %{state | running_issue_cache: %{"stale" => %{etag: "old"}}}
+      assert Reconciler.refresh_running_issue_states(stale).running_issue_cache == %{}
+    end
+
+    test "retains the stable per-issue cache between reconciliation cycles" do
+      issue = %Issue{id: "issue-1", identifier: "repo#1", title: "current", state: "todo"}
+      parent = self()
+
+      issue_fetcher = fn issue_ids, cache ->
+        send(parent, {:running_issue_fetch, issue_ids, cache})
+
+        case cache do
+          %{} when map_size(cache) == 0 ->
+            {:ok, [issue], %{issue.id => %{etag: ~s("issue-1-v1"), issue: issue}}}
+
+          %{"issue-1" => %{issue: cached_issue}} ->
+            {:ok, [cached_issue], cache}
+        end
+      end
+
+      state = %State{
+        running: %{issue.id => %{pid: self(), identifier: issue.identifier, issue: issue}}
+      }
+
+      first = Reconciler.refresh_running_issue_states(state, issue_fetcher: issue_fetcher)
+      second = Reconciler.refresh_running_issue_states(first, issue_fetcher: issue_fetcher)
+
+      assert_received {:running_issue_fetch, ["issue-1"], %{}}
+
+      assert_received {:running_issue_fetch, ["issue-1"],
+                       %{
+                         "issue-1" => %{etag: ~s("issue-1-v1"), issue: ^issue}
+                       }}
+
+      assert second.running_issue_cache == first.running_issue_cache
+      assert second.running[issue.id].issue == issue
+    end
+
+    test "keeps partial cache progress when a later issue request fails" do
+      issue = %Issue{id: "issue-1", identifier: "repo#1", title: "current", state: "todo"}
+      updated_cache = %{issue.id => %{etag: ~s("issue-1-v2"), issue: issue}}
+
+      state = %State{
+        running: %{issue.id => %{pid: self(), identifier: issue.identifier, issue: issue}},
+        running_issue_cache: %{issue.id => %{etag: ~s("issue-1-v1"), issue: issue}}
+      }
+
+      issue_fetcher = fn ["issue-1"], _cache -> {:error, :tracker_down, updated_cache} end
+      next = Reconciler.refresh_running_issue_states(state, issue_fetcher: issue_fetcher)
+
+      assert next.running == state.running
+      assert next.running_issue_cache == updated_cache
+    end
+  end
+
   describe "refresh_running_issue_state/2" do
     test "updates the stored issue in the running entry" do
       old_issue = %Issue{id: "issue-1", identifier: "repo#1", title: "old", state: "todo"}

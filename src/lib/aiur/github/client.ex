@@ -69,6 +69,12 @@ defmodule Aiur.GitHub.Client do
           {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []), do: Issues.fetch_issue_states_by_ids(issue_ids, opts)
 
+  @spec fetch_issue_states_by_ids_conditional([String.t()], map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()} | {:error, term(), map()}
+  def fetch_issue_states_by_ids_conditional(issue_ids, cache, opts \\ []) do
+    Issues.fetch_issue_states_by_ids_conditional(issue_ids, cache, opts)
+  end
+
   @doc "Fetches a complete, bounded Build Order root catalog without tracker-polling semantics."
   @spec fetch_build_order_catalog(keyword()) ::
           {:ok, ProviderResult.t()} | {:error, ProviderResult.t()}

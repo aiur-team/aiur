@@ -11,6 +11,11 @@ defmodule Aiur.GitHub.TrackerTest do
     def fetch_issues_by_states(states), do: fetch_issues_by_states(states, [])
     def fetch_issues_by_states(states, _opts), do: {:ok, Enum.map(states, fn _ -> %Issue{id: "1"} end)}
     def fetch_issue_states_by_ids(ids), do: {:ok, Enum.map(ids, fn id -> %Issue{id: id} end)}
+
+    def fetch_issue_states_by_ids_conditional(ids, cache) do
+      {:ok, Enum.map(ids, fn id -> %Issue{id: id} end), Map.put(cache, :conditional?, true)}
+    end
+
     def create_comment(_id, _body), do: :ok
     def update_issue_state(_id, _state), do: :ok
   end
@@ -46,6 +51,13 @@ defmodule Aiur.GitHub.TrackerTest do
 
   test "fetch_issue_states_by_ids delegates to client" do
     assert {:ok, [issue]} = GitHubTracker.fetch_issue_states_by_ids(["42"])
+    assert issue.id == "42"
+  end
+
+  test "fetch_issue_states_by_ids_conditional delegates with the persistent cache" do
+    assert {:ok, [issue], %{existing: true, conditional?: true}} =
+             GitHubTracker.fetch_issue_states_by_ids_conditional(["42"], %{existing: true})
+
     assert issue.id == "42"
   end
 

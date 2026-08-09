@@ -9,6 +9,8 @@ defmodule Aiur.Tracker do
   @callback fetch_issues_by_states([String.t()]) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   @callback fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
+  @callback fetch_issue_states_by_ids_conditional([String.t()], map()) ::
+              {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
   @callback create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   @callback fetch_classified_issue_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
   @callback fetch_classified_pr_review_comments(String.t() | integer()) :: {:ok, [map()]} | {:error, term()}
@@ -21,7 +23,10 @@ defmodule Aiur.Tracker do
   @callback add_label(String.t(), String.t()) :: :ok | {:error, term()}
   @callback remove_label(String.t(), String.t()) :: :ok | {:error, term()}
 
-  @optional_callbacks update_issue_state: 3, add_label: 2, remove_label: 2
+  @optional_callbacks fetch_issue_states_by_ids_conditional: 2,
+                      update_issue_state: 3,
+                      add_label: 2,
+                      remove_label: 2
 
   @spec fetch_candidate_issues() :: {:ok, [term()]} | {:error, term()}
   def fetch_candidate_issues do
@@ -41,6 +46,20 @@ defmodule Aiur.Tracker do
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids) do
     adapter().fetch_issue_states_by_ids(issue_ids)
+  end
+
+  @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
+          {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
+  def fetch_issue_states_by_ids_conditional(issue_ids, cache) do
+    tracker_adapter = adapter()
+
+    if Code.ensure_loaded?(tracker_adapter) and
+         function_exported?(tracker_adapter, :fetch_issue_states_by_ids_conditional, 2) do
+      apply(tracker_adapter, :fetch_issue_states_by_ids_conditional, [issue_ids, cache])
+    else
+      with {:ok, issues} <- tracker_adapter.fetch_issue_states_by_ids(issue_ids),
+           do: {:ok, issues, cache}
+    end
   end
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}

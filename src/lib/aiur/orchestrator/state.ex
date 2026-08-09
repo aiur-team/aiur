@@ -66,6 +66,7 @@ defmodule Aiur.Orchestrator.State do
             alerted: [String.t()]
           },
           running: map(),
+          running_issue_cache: %{optional(String.t()) => %{etag: String.t() | nil, issue: Issue.t()}},
           completed: MapSet.t(),
           claimed: MapSet.t(),
           dispatch_recovery: %{
@@ -154,6 +155,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_constraints: [],
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     running: %{},
+    running_issue_cache: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,

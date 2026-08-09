@@ -68,6 +68,18 @@ defmodule Aiur.GitHub.Tracker do
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)
 
+  @spec fetch_issue_states_by_ids_conditional([String.t()], map()) ::
+          {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
+  def fetch_issue_states_by_ids_conditional(issue_ids, cache) do
+    client = client_module()
+
+    if Code.ensure_loaded?(client) and function_exported?(client, :fetch_issue_states_by_ids_conditional, 2) do
+      client.fetch_issue_states_by_ids_conditional(issue_ids, cache)
+    else
+      with {:ok, issues} <- client.fetch_issue_states_by_ids(issue_ids), do: {:ok, issues, cache}
+    end
+  end
+
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
   def create_comment(issue_id, body) when is_binary(issue_id) and is_binary(body) do
     client_module().create_comment(issue_id, body)

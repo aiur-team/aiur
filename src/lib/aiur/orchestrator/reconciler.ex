@@ -36,20 +36,37 @@ defmodule Aiur.Orchestrator.Reconciler do
 
   @spec refresh_running_issue_states(State.t()) :: State.t()
   def refresh_running_issue_states(%State{} = state) do
+    refresh_running_issue_states(state, [])
+  end
+
+  @doc false
+  @spec refresh_running_issue_states(State.t(), keyword()) :: State.t()
+  def refresh_running_issue_states(%State{} = state, opts) when is_list(opts) do
     running_ids = Map.keys(state.running)
 
     if running_ids == [] do
-      state
+      if map_size(state.running_issue_cache) == 0,
+        do: state,
+        else: %{state | running_issue_cache: %{}}
     else
-      case Tracker.fetch_issue_states_by_ids(running_ids) do
-        {:ok, issues} ->
-          issues
-          |> reconcile_running_issue_states(
-            state,
-            DispatchPolicy.active_state_set(),
-            DispatchPolicy.terminal_state_set()
-          )
-          |> reconcile_missing_running_issue_ids(running_ids, issues)
+      issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids_conditional/2)
+
+      case issue_fetcher.(running_ids, state.running_issue_cache) do
+        {:ok, issues, cache} ->
+          next_state =
+            issues
+            |> reconcile_running_issue_states(
+              state,
+              DispatchPolicy.active_state_set(),
+              DispatchPolicy.terminal_state_set()
+            )
+            |> reconcile_missing_running_issue_ids(running_ids, issues)
+
+          %{next_state | running_issue_cache: Map.take(cache, Map.keys(next_state.running))}
+
+        {:error, reason, cache} ->
+          Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
+          %{state | running_issue_cache: Map.take(cache, running_ids)}
 
         {:error, reason} ->
           Logger.debug("Failed to refresh running issue states: #{inspect(reason)}; keeping active workers")
