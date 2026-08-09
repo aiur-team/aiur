@@ -16,6 +16,21 @@ defmodule Aiur.Init.TemplatesTest do
     assert prompt =~ "explicit signal as readiness to consume"
     assert prompt =~ "latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref"
     assert prompt =~ "Never infer readiness from `branch.push` alone"
+
+    handoff = Templates.executor_handoff_template()
+
+    for section <- [
+          "Identity and credentials",
+          "Operator non-negotiables",
+          "Current state (packs, versions, dashboard)",
+          "Live work and PRs needing attention",
+          "Environment hazards measured this run",
+          "Known dispatch failure modes",
+          "What to do next, ranked"
+        ] do
+      assert handoff =~ "## " <> section
+    end
+
     assert Templates.env_content() == "GITHUB_TOKEN=\n"
   end
 

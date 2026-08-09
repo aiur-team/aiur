@@ -22,6 +22,7 @@ defmodule Aiur.RepoBase do
 
   alias Aiur.AgentEnvironment
   alias Aiur.AgentPubSub
+  alias Aiur.Asks
   alias Aiur.Config
   alias Aiur.Findings
   alias Aiur.Fs
@@ -30,9 +31,10 @@ defmodule Aiur.RepoBase do
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
-  @state_entries ["builds", "analytics", "meta"]
+  @state_entries ["builds", "analytics", "meta", "executor"]
   @migration_lease_suffix ".migration-lock.sqlite3"
   @findings_transfer_suffix ".migration-transfer"
+  @asks_transfer_suffix ".asks-migration-transfer"
   # Cache sidecar migrations copy potentially gigabytes of hex/mix/npm cache
   # under an exclusive transaction, so the busy-wait must outlast a slow copy
   # on the second of two hosts sharing one state root.
@@ -76,6 +78,11 @@ defmodule Aiur.RepoBase do
   def findings_path(repo_url) when is_binary(repo_url),
     do: Path.join(meta_path(repo_url), "findings.ndjson")
 
+  @doc "Absolute path of the append-only Executor-to-operator asks file for `repo_url`."
+  @spec asks_path(String.t()) :: Path.t()
+  def asks_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "asks.ndjson")
+
   @doc "Absolute path of per-boot executor retrospectives for `repo_url`."
   @spec retros_path(String.t()) :: Path.t()
   def retros_path(repo_url) when is_binary(repo_url),
@@ -85,6 +92,16 @@ defmodule Aiur.RepoBase do
   @spec analytics_path(String.t()) :: Path.t()
   def analytics_path(repo_url) when is_binary(repo_url),
     do: Path.join(repo_path(repo_url), "analytics")
+
+  @doc "Absolute path of replaceable Executor state for `repo_url`."
+  @spec executor_path(String.t()) :: Path.t()
+  def executor_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "executor")
+
+  @doc "Absolute path of the current Executor handoff for `repo_url`."
+  @spec handoff_path(String.t()) :: Path.t()
+  def handoff_path(repo_url) when is_binary(repo_url),
+    do: Path.join(executor_path(repo_url), "handoff.md")
 
   @doc "Creates the canonical repository state tree before any writer needs it."
   @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
@@ -96,12 +113,15 @@ defmodule Aiur.RepoBase do
 
   defp ensure_state_tree_at(node) do
     findings = Path.join([node, "meta", "findings.ndjson"])
+    asks = Path.join([node, "meta", "asks.ndjson"])
 
     with :ok <- ensure_state_node_safe(node),
          :ok <- File.mkdir_p(node),
          :ok <- create_state_directories(node),
          :ok <- ensure_state_path_safe(node, findings),
-         :ok <- File.touch(findings) do
+         :ok <- ensure_state_path_safe(node, asks),
+         :ok <- File.touch(findings),
+         :ok <- File.touch(asks) do
       :ok
     else
       {:error, reason} -> {:error, reason}
@@ -124,7 +144,8 @@ defmodule Aiur.RepoBase do
       Path.join(node, "builds"),
       Path.join(node, "analytics"),
       Path.join(node, "meta"),
-      Path.join([node, "meta", "retros"])
+      Path.join([node, "meta", "retros"]),
+      Path.join(node, "executor")
       | Enum.map(@cache_sidecars, &Path.join(node, &1))
     ]
     |> Enum.reduce_while(:ok, fn path, :ok ->
@@ -741,10 +762,13 @@ defmodule Aiur.RepoBase do
   defp finish_migration(temporary, node, base_path) do
     findings = Path.join([node, "meta", "findings.ndjson"])
     legacy_findings = Path.join([temporary, "meta", "findings.ndjson"])
+    asks = Path.join([node, "meta", "asks.ndjson"])
+    legacy_asks = Path.join([temporary, "meta", "asks.ndjson"])
 
     with :ok <- File.mkdir_p(node),
          :ok <- move_sidecars(temporary, node),
-         :ok <- recover_findings_transfer(findings, legacy_findings),
+         :ok <- recover_ledger_transfer(findings, legacy_findings, :findings),
+         :ok <- recover_ledger_transfer(asks, legacy_asks, :asks),
          :ok <- move_state_entries(temporary, node),
          :ok <- discard_legacy_build_metadata(temporary) do
       File.rename(temporary, base_path)
@@ -821,8 +845,8 @@ defmodule Aiur.RepoBase do
 
   # State directories can already exist in the destination after an interrupted
   # migration or a concurrent initializer. Merge their contents rather than
-  # leaving the legacy copy beneath `latest`; findings retain both append-only
-  # ledgers, while any other file collision is preserved under a unique name.
+  # leaving the legacy copy beneath `latest`; append-only ledgers retain both
+  # histories, while any other file collision is preserved under a unique name.
   # A state-shaped directory with any tracked descendant belongs to the
   # application. Preserve the whole mixed directory in the clone: ignored and
   # generated application files are not safe to reclassify as Aiur state.
@@ -915,10 +939,10 @@ defmodule Aiur.RepoBase do
   end
 
   defp move_existing_state_file(source, destination) do
-    if Path.basename(source) == "findings.ndjson" and Path.basename(destination) == "findings.ndjson" do
-      merge_findings(source, destination)
-    else
-      File.rename(source, destination <> ".migrated-" <> unique_suffix())
+    case {Path.basename(source), Path.basename(destination)} do
+      {"findings.ndjson", "findings.ndjson"} -> merge_findings(source, destination)
+      {"asks.ndjson", "asks.ndjson"} -> merge_asks(source, destination)
+      _ -> File.rename(source, destination <> ".migrated-" <> unique_suffix())
     end
   end
 
@@ -966,10 +990,13 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp merge_findings(source, destination) do
-    with :ok <- ensure_findings_paths_safe(destination),
-         :ok <- recover_findings_transfer(destination, source) do
-      write_findings_transfer(source, destination)
+  defp merge_findings(source, destination), do: merge_ledger(source, destination, :findings)
+  defp merge_asks(source, destination), do: merge_ledger(source, destination, :asks)
+
+  defp merge_ledger(source, destination, ledger) do
+    with :ok <- ensure_ledger_paths_safe(destination, ledger),
+         :ok <- recover_ledger_transfer(destination, source, ledger) do
+      write_ledger_transfer(source, destination, ledger)
     end
   end
 
@@ -978,38 +1005,39 @@ defmodule Aiur.RepoBase do
   # an explicit checksum checkpoint and atomically replace the destination.
   # Recovery can then distinguish a completed replacement from an unstarted
   # one without treating repeated, legitimate observations as duplicates.
-  defp write_findings_transfer(source, destination) do
+  defp write_ledger_transfer(source, destination, ledger) do
     with :ok <- ensure_regular_file(source),
          {:ok, destination_contents} <- File.read(destination),
-         :ok <- validate_findings_ledger(destination_contents, destination),
+         :ok <- validate_ledger(destination_contents, destination, ledger),
          {:ok, source_contents} <- File.read(source),
-         :ok <- validate_findings_ledger(source_contents, source),
+         :ok <- validate_ledger(source_contents, source, ledger),
          merged_contents <- destination_contents <> merged_findings_suffix(destination_contents, source_contents),
-         :ok <- write_findings_transfer_marker(source, destination, destination_contents, source_contents, merged_contents),
+         :ok <- validate_ledger(merged_contents, destination, ledger),
+         :ok <- write_ledger_transfer_marker(source, destination, destination_contents, source_contents, merged_contents, ledger),
          :ok <- replace_file(destination, merged_contents),
          :ok <- File.rm(source),
          :ok <- Fs.sync_filesystem(),
-         :ok <- File.rm(findings_transfer_marker(destination)) do
+         :ok <- File.rm(ledger_transfer_marker(destination, ledger)) do
       :ok
     else
       {:error, reason} -> {:error, reason}
     end
   end
 
-  defp recover_findings_transfer(destination, expected_source) do
-    marker = findings_transfer_marker(destination)
+  defp recover_ledger_transfer(destination, expected_source, ledger) do
+    marker = ledger_transfer_marker(destination, ledger)
 
-    with :ok <- ensure_findings_paths_safe(destination),
+    with :ok <- ensure_ledger_paths_safe(destination, ledger),
          :ok <- ensure_transfer_source_safe(expected_source) do
       case File.read(marker) do
         {:error, :enoent} ->
           :ok
 
         {:ok, contents} ->
-          recover_findings_transfer_contents(contents, destination, expected_source, marker)
+          recover_ledger_transfer_contents(contents, destination, expected_source, marker, ledger)
 
         {:error, reason} ->
-          {:error, {:findings_transfer_recovery_failed, destination, reason}}
+          {:error, {transfer_error_tag(ledger), destination, reason}}
       end
     end
   end
@@ -1019,19 +1047,19 @@ defmodule Aiur.RepoBase do
     ensure_state_path_safe(parked_clone, source)
   end
 
-  defp recover_findings_transfer_contents(contents, destination, expected_source, marker) do
+  defp recover_ledger_transfer_contents(contents, destination, expected_source, marker, ledger) do
     with {:ok, transfer} <- Jason.decode(contents),
-         :ok <- validate_findings_transfer(transfer, destination, expected_source),
+         :ok <- validate_ledger_transfer(transfer, destination, expected_source),
          {:ok, destination_contents} <- File.read(destination) do
       transfer
-      |> recover_findings_transfer_state(destination, destination_contents, marker)
-      |> wrap_findings_recovery_error(destination)
+      |> recover_ledger_transfer_state(destination, destination_contents, marker, ledger)
+      |> wrap_ledger_recovery_error(destination, ledger)
     else
-      {:error, reason} -> {:error, {:findings_transfer_recovery_failed, destination, reason}}
+      {:error, reason} -> {:error, {transfer_error_tag(ledger), destination, reason}}
     end
   end
 
-  defp recover_findings_transfer_state(transfer, destination, contents, marker) do
+  defp recover_ledger_transfer_state(transfer, destination, contents, marker, ledger) do
     source = transfer["source"]
 
     cond do
@@ -1045,16 +1073,16 @@ defmodule Aiur.RepoBase do
         File.rm(marker)
 
       true ->
-        {:error, {:findings_transfer_inconsistent, destination}}
+        {:error, {transfer_inconsistent_tag(ledger), destination}}
     end
   end
 
-  defp wrap_findings_recovery_error(:ok, _destination), do: :ok
+  defp wrap_ledger_recovery_error(:ok, _destination, _ledger), do: :ok
 
-  defp wrap_findings_recovery_error({:error, reason}, destination),
-    do: {:error, {:findings_transfer_recovery_failed, destination, reason}}
+  defp wrap_ledger_recovery_error({:error, reason}, destination, ledger),
+    do: {:error, {transfer_error_tag(ledger), destination, reason}}
 
-  defp validate_findings_transfer(transfer, destination, expected_source) when is_map(transfer) do
+  defp validate_ledger_transfer(transfer, destination, expected_source) when is_map(transfer) do
     required = ["source", "source_hash", "destination", "destination_hash", "merged_hash"]
 
     cond do
@@ -1072,7 +1100,7 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp validate_findings_transfer(_transfer, _destination, _expected_source), do: {:error, :invalid_marker}
+  defp validate_ledger_transfer(_transfer, _destination, _expected_source), do: {:error, :invalid_marker}
 
   defp remove_transfer_source(source, source_hash) do
     case File.lstat(source) do
@@ -1091,7 +1119,7 @@ defmodule Aiur.RepoBase do
 
   defp regular_file?(path), do: match?({:ok, %File.Stat{type: :regular}}, File.lstat(path))
 
-  defp write_findings_transfer_marker(source, destination, destination_contents, source_contents, merged_contents) do
+  defp write_ledger_transfer_marker(source, destination, destination_contents, source_contents, merged_contents, ledger) do
     marker_contents =
       Jason.encode!(%{
         "source" => source,
@@ -1101,13 +1129,18 @@ defmodule Aiur.RepoBase do
         "merged_hash" => digest(merged_contents)
       })
 
-    case Fs.atomic_write(findings_transfer_marker(destination), marker_contents, fsync: true) do
+    case Fs.atomic_write(ledger_transfer_marker(destination, ledger), marker_contents, fsync: true) do
       :ok -> Fs.sync_filesystem()
       {:error, _reason} = error -> error
     end
   end
 
-  defp findings_transfer_marker(destination), do: destination <> @findings_transfer_suffix
+  defp ledger_transfer_marker(destination, :findings), do: destination <> @findings_transfer_suffix
+  defp ledger_transfer_marker(destination, :asks), do: destination <> @asks_transfer_suffix
+  defp transfer_error_tag(:findings), do: :findings_transfer_recovery_failed
+  defp transfer_error_tag(:asks), do: :asks_transfer_recovery_failed
+  defp transfer_inconsistent_tag(:findings), do: :findings_transfer_inconsistent
+  defp transfer_inconsistent_tag(:asks), do: :asks_transfer_inconsistent
 
   defp replace_file(destination, contents) do
     case Fs.atomic_write(destination, contents, fsync: true) do
@@ -1116,11 +1149,11 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  defp ensure_findings_paths_safe(destination) do
+  defp ensure_ledger_paths_safe(destination, ledger) do
     node = destination |> Path.dirname() |> Path.dirname()
 
     case ensure_state_path_safe(node, destination) do
-      :ok -> ensure_state_path_safe(node, findings_transfer_marker(destination))
+      :ok -> ensure_state_path_safe(node, ledger_transfer_marker(destination, ledger))
       {:error, _reason} = error -> error
     end
   end
@@ -1198,6 +1231,34 @@ defmodule Aiur.RepoBase do
         _ -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
       end
     end)
+  end
+
+  defp validate_ledger(contents, path, :findings), do: validate_findings_ledger(contents, path)
+  defp validate_ledger(contents, path, :asks), do: validate_asks_ledger(contents, path)
+
+  defp validate_asks_ledger(contents, path) do
+    with {:ok, asks} <- decode_ask_ledger(contents, path) do
+      case Asks.validate_events(asks) do
+        :ok -> :ok
+        {:error, {line_number, _reason}} -> {:error, {:invalid_asks_ledger, path, line_number}}
+      end
+    end
+  end
+
+  defp decode_ask_ledger(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, asks} ->
+      case Jason.decode(line) do
+        {:ok, ask} when is_map(ask) -> {:cont, {:ok, [ask | asks]}}
+        _ -> {:halt, {:error, {:invalid_asks_ledger, path, line_number}}}
+      end
+    end)
+    |> case do
+      {:ok, asks} -> {:ok, Enum.reverse(asks)}
+      error -> error
+    end
   end
 
   defp validate_ledger_finding(finding, path, line_number) do

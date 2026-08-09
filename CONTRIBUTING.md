@@ -81,6 +81,18 @@ not fail a build on line count alone.
   error, log it with issue/session context (`docs/logging.md`), or propagate
   it. "Completed" is wrong if anything was skipped silently.
 
+## Repository renames
+
+Before a global identifier rename, run the report-only [rename preflight](docs/rename-preflight.md):
+
+```bash
+make rename-preflight OLD=old-owner/old-name NEW=new-owner/new-name
+```
+
+It finds component and near-miss forms that a joined-literal search misses and
+shows the owning coverage partition for test files. Review the output before
+rewriting; it is intentionally not an automatic replacement.
+
 ## Enforcement
 
 The gate is `make ci` from `src/` (build, `fmt-check`, `lint`, `coverage`,
