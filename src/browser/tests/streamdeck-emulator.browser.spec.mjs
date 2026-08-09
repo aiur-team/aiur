@@ -136,19 +136,20 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
 test('grid key press enters command mode and replaces grid keys', async ({ page }) => {
   await openStreamdeck(page)
 
-  const key = page.locator('.sd-key:not(.is-empty)').first()
+  const key = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   await expect(page.locator('#sd-cmd-view')).toBeVisible()
-  await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
+  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(0)
+  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(4)
 })
 
 test('command keys render real state-derived controls, flash on click, and emit events', async ({ page }) => {
   await openStreamdeck(page)
 
-  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
   const commands = page.locator('[data-streamdeck-command]')
   await expect(commands).toHaveCount(4)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
@@ -294,7 +295,7 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.getByText('View logs', { exact: true }).click()
+  await page.locator('[data-streamdeck-command="logs"]').click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
   await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
