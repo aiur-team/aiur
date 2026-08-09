@@ -124,6 +124,11 @@ defmodule Aiur.GitHub.Client do
   def fetch_pull_request_review_comments(pr_number, opts \\ []),
     do: PullRequests.fetch_pull_request_review_comments(pr_number, opts)
 
+  @spec fetch_pull_request_reviews(String.t() | integer(), keyword()) ::
+          {:ok, [map()]} | {:error, term()}
+  def fetch_pull_request_reviews(pr_number, opts \\ []),
+    do: PullRequests.fetch_pull_request_reviews(pr_number, opts)
+
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_number, opts \\ []),

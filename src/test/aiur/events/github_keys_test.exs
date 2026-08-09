@@ -54,6 +54,21 @@ defmodule Aiur.Events.GithubKeysTest do
       assert GithubKeys.review_thread_dedup_key("owner/repo", "61", "PRRT_kwDORkWEz86MGwBK") ==
                nil
     end
+
+    test "builds PR review submission dedup keys from review ids" do
+      assert GithubKeys.pr_review_dedup_key("owner/repo", 61, 9_999_001) ==
+               {"owner/repo", "pr_review:61", "9999001"}
+
+      assert GithubKeys.pr_review_dedup_key("owner/repo", 61, 9_999_002) !=
+               GithubKeys.pr_review_dedup_key("owner/repo", 61, 9_999_001)
+
+      assert GithubKeys.pr_review_dedup_key("owner/repo", 62, 9_999_001) !=
+               GithubKeys.pr_review_dedup_key("owner/repo", 61, 9_999_001)
+
+      assert GithubKeys.pr_review_dedup_key("owner/repo", "61", 9_999_001) == nil
+      assert GithubKeys.pr_review_dedup_key("owner/repo", 61, "9999001") == nil
+      assert GithubKeys.pr_review_dedup_key(nil, 61, 9_999_001) == nil
+    end
   end
 
   describe "boot cutoff" do
