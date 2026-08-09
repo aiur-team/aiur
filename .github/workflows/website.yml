@@ -6,6 +6,12 @@ on:
       - "website/**"
       - ".github/workflows/website.yml"
 
+# Initial PR runs share a stable group; reruns and every non-PR event get a
+# unique group so they cannot replace another pending or in-progress run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
+
 jobs:
   guards:
     runs-on: ubuntu-latest
