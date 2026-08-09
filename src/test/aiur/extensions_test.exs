@@ -926,6 +926,7 @@ defmodule Aiur.ExtensionsTest do
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
@@ -943,24 +944,36 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    provider_asset_conn = get(build_conn(), "/provider-assets/codex-color.svg")
-    assert response(provider_asset_conn, 200) =~ "<svg"
-    assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    for provider_asset <- AiurWeb.StaticAssets.provider_asset_paths() do
+      provider_asset_conn = get(build_conn(), "/provider-assets/#{provider_asset}")
+      assert response(provider_asset_conn, 200) =~ "<svg"
+      assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
 
     dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
+    conversation_drawer_hook_conn = get(build_conn(), "/conversation-drawer-hook.js")
+    assert response(conversation_drawer_hook_conn, 200) =~ "AiurConversationDrawerHook"
+    assert Plug.Conn.get_resp_header(conversation_drawer_hook_conn, "content-type") == ["text/javascript"]
+
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
     assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js"] do
+      hook_conn = get(build_conn(), "/#{hook}")
+      assert response(hook_conn, 200) != ""
+      assert Plug.Conn.get_resp_header(hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
 
     adapter_conn = get(build_conn(), "/aiur-dom-svg-layout-adapter.js")
     adapter = response(adapter_conn, 200)
     assert adapter =~ "createDomSvgLayoutHook"
     assert Plug.Conn.get_resp_header(adapter_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    for module <- ["lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
+    for module <- ["interaction-policy.js", "interaction.js", "lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
       conn = get(build_conn(), "/aiur-dom-svg-layout/#{module}")
       assert response(conn, 200) != ""
       assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -974,7 +987,11 @@ defmodule Aiur.ExtensionsTest do
 
     logo = get(build_conn(), "/aiur-logo.png")
     assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))
-    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png; charset=utf-8"]
+    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png"]
+
+    bungee = get(build_conn(), "/bungee.woff2")
+    assert response(bungee, 200) != ""
+    assert Plug.Conn.get_resp_header(bungee, "content-type") == ["font/woff2"]
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"

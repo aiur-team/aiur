@@ -4,6 +4,32 @@ import { assertNoDocumentOverflow, openFixture } from './support/browser-helpers
 import { dashboardCredentials } from './support/layout-worker.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
+test('dashboard page loads return no HTTP 404 responses', async ({ page }) => {
+  const notFound = []
+  const consoleErrors = []
+  const pageErrors = []
+
+  page.on('response', (response) => {
+    if (response.status() === 404) notFound.push(response.url())
+  })
+  page.on('console', (message) => {
+    if (message.type() === 'error') consoleErrors.push(message.text())
+  })
+  page.on('pageerror', (error) => pageErrors.push(error.message))
+
+  await openFixture(page)
+  await page.context().setHTTPCredentials(dashboardCredentials)
+
+  for (const path of ['/', '/decisions', '/build-orders', '/analytics']) {
+    await page.goto(path)
+    await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  }
+
+  expect(notFound).toEqual([])
+  expect(consoleErrors).toEqual([])
+  expect(pageErrors).toEqual([])
+})
+
 test('Build Order navigation returns to the production Units route', async ({ page }) => {
   await openFixture(page)
   await page.goto('/')
