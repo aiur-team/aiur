@@ -1232,7 +1232,7 @@ defmodule Aiur.AgentControlCLI do
   # concern per agent rather than replaying the whole log.
   defp latest_attention_alerts(opts) do
     [needs_attention: true]
-    |> Keyword.merge(Keyword.take(opts, [:roots, :log_roots]))
+    |> Keyword.merge(Keyword.take(opts, [:roots, :log_roots, :ledger_paths]))
     |> AlertFeed.list()
     |> Enum.group_by(&Map.get(&1, "ticket"))
     |> Enum.map(fn {_ticket, alerts} -> List.last(alerts) end)
