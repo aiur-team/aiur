@@ -64,6 +64,43 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Pager"
   end
 
+  test "opens and closes the Stream Deck installation modal without rendering credentials" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(id="streamdeck-install-control")
+    assert html =~ ~s(id="streamdeck-download-control")
+    assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+    refute html =~ ~s(id="streamdeck-install-modal")
+
+    html = render_click(view, "open-streamdeck-install")
+
+    assert html =~ ~s(id="streamdeck-install-modal")
+    assert html =~ "Install on your Stream Deck +"
+    assert html =~ "Linux with udev"
+    assert html =~ "Pair it with your daemon"
+    assert html =~ "Download the Stream Deck + package"
+    assert html =~ "Create the sidecar directory"
+    assert html =~ "--strip-components=1"
+    assert html =~ "Create the pairing directory"
+    assert html =~ "Create the pairing file"
+    assert html =~ "Restrict the pairing file"
+    assert html =~ "AIUR_PHOENIX_URL"
+    assert html =~ "Install the udev rule"
+    assert html =~ "Install the user unit"
+    assert html =~ "Reload user systemd"
+    assert html =~ "Enable the sidecar"
+    assert html =~ "Plug in the deck"
+    assert html =~ "What success looks like"
+    assert html =~ "0.0.0-dev.0098e3ac86a2"
+    assert html =~ "0098e3ac86a2e49e685e8e6ff67248373de43f1d"
+    refute html =~ "AIUR_DASHBOARD_PASSWORD="
+    refute html =~ "streamdeck-password"
+    refute html =~ "browser_fixture_password"
+
+    html = render_click(view, "close-streamdeck-install")
+    refute html =~ ~s(id="streamdeck-install-modal")
+  end
+
   test "renders the complete agent key face" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
