@@ -5,6 +5,19 @@ defmodule Aiur.TestSupport do
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
 
   @workflow_prompt "You are an agent for this repository."
+  @github_repository {"its-everdred", "aiur"}
+
+  @doc "The synthetic GitHub repository used by fixture tests."
+  @spec github_repository() :: String.t()
+  def github_repository, do: Enum.join(Tuple.to_list(@github_repository), "/")
+
+  @doc "The owner component of the synthetic fixture repository."
+  @spec github_owner() :: String.t()
+  def github_owner, do: elem(@github_repository, 0)
+
+  @doc "The repository-name component of the synthetic fixture repository."
+  @spec github_repository_name() :: String.t()
+  def github_repository_name, do: elem(@github_repository, 1)
 
   defmacro __using__(_opts) do
     quote do
