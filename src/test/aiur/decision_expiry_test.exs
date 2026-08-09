@@ -6,6 +6,7 @@ defmodule Aiur.DecisionExpiryTest do
   @ticket %{identifier: "979", title: "Expiry", url: nil}
   @source %{agent_id: "agent-1", session_id: "session-1", event_id: nil}
   @now ~U[2026-07-24 12:10:00Z]
+  @async_assert_timeout 1_000
 
   test "expires only old open Decisions whose ticket is no longer active" do
     test_pid = self()
@@ -29,9 +30,9 @@ defmodule Aiur.DecisionExpiryTest do
                end
              )
 
-    assert_receive {:expired, orphan_id, "agent_not_running", @now}
+    assert_received {:expired, orphan_id, "agent_not_running", @now}
     assert orphan_id == Enum.at(decisions, 1).decision_id
-    refute_receive {:expired, _decision_id, _reason, _occurred_at}
+    refute_received {:expired, _decision_id, _reason, _occurred_at}
   end
 
   test "fails closed when the orchestrator live set is unavailable" do
@@ -47,7 +48,7 @@ defmodule Aiur.DecisionExpiryTest do
                end
              )
 
-    refute_receive :expired
+    refute_received :expired
   end
 
   test "scheduled sweeps use the supplied sources" do
@@ -56,9 +57,15 @@ defmodule Aiur.DecisionExpiryTest do
     {:ok, pid} =
       DecisionExpiry.start_link(
         name: nil,
-        initial_delay_ms: 60_000,
+        initial_delay_ms: 0,
         interval_ms: 60_000,
-        active_identifiers_fun: fn -> {:ok, []} end,
+        active_identifiers_fun: fn ->
+          send(test_pid, :sweep_started)
+
+          receive do
+            :continue_sweep -> {:ok, []}
+          end
+        end,
         decisions_fun: fn -> {:ok, [decision("orphan", "DONE-1", DateTime.add(@now, -600, :second))]} end,
         expire_fun: fn decision_id, reason_class, occurred_at ->
           send(test_pid, {:expired, decision_id, reason_class, occurred_at})
@@ -70,8 +77,10 @@ defmodule Aiur.DecisionExpiryTest do
 
     on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
 
-    send(pid, :sweep)
-    assert_receive {:expired, _decision_id, "agent_not_running", @now}
+    assert_receive :sweep_started, @async_assert_timeout
+    send(pid, :continue_sweep)
+    :sys.get_state(pid)
+    assert_received {:expired, _decision_id, "agent_not_running", @now}
   end
 
   defp decision(source_id, ticket_identifier, created_at, status \\ :open) do
