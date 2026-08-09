@@ -943,6 +943,49 @@ class Publisher:
             raise PublicationError(f"{spec.logical_id} must be open and unlocked")
         if type(raw.get("id")) is not int or raw["id"] < 1:
             raise PublicationError(f"{spec.logical_id} lacks numeric relationship identity")
+        self._validate_live_issue_authority(raw, spec)
+
+    def _validate_live_issue_authority(self, raw: dict[str, Any], spec: IssueSpec) -> None:
+        """Prove the live issue carries this publication's planning marker.
+
+        Numeric identity alone does not establish ownership: a durable
+        pointer can name an unrelated issue (stale checkpoint, hand-edited
+        manifest, recycled number).  Every mutation target must independently
+        prove it belongs to this logical identity, plan version, and approved
+        authority, using the same schema-2 marker contract the remote scan
+        enforces in ``_canonical_mappings``.
+        """
+        body = raw.get("body")
+        if body is not None and not isinstance(body, str):
+            raise PublicationError(
+                f"{spec.logical_id} returned a non-text body"
+            )
+        text = body or ""
+        openings = text.count(f"<!-- {MARKER_NAME}")
+        matches = list(MARKER.finditer(text))
+        if openings != len(matches) or len(matches) != 1:
+            raise PublicationError(
+                f"{spec.logical_id} does not carry exactly one planning marker"
+            )
+        try:
+            payload = json.loads(matches[0].group("payload"))
+        except json.JSONDecodeError:
+            raise PublicationError(
+                f"{spec.logical_id} has a malformed planning marker"
+            ) from None
+        if not isinstance(payload, dict) or set(payload) != MARKER_KEYS:
+            raise PublicationError(
+                f"{spec.logical_id} has a malformed planning marker"
+            )
+        if (
+            payload.get("logical_id") != spec.logical_id
+            or payload.get("schema") != 2
+            or payload.get("plan_version") != self.context.plan_version
+            or payload.get("approved_planning_commit") != self.context.approved
+        ):
+            raise PublicationError(
+                f"{spec.logical_id} resolved to an issue owned by different authority"
+            )
 
     def _ensure_relationships(self, mappings: dict[str, dict[str, Any]]) -> None:
         root = mappings[self.context.root_id]
