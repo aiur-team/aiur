@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, BuildGate, RepoBase}
+  alias Aiur.{AgentControlCLI, Asks, BuildGate, RepoBase}
   alias Aiur.GitHub.CiReadiness
 
   defp capture_todo(ids, opts) do
@@ -1532,6 +1532,74 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
     end
 
+    test "status and watch surface persisted open blocking operator asks", %{watch_root: root} do
+      asks_root = Path.join(System.tmp_dir!(), "aiur-status-asks-#{System.unique_integer([:positive])}")
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      Application.put_env(:aiur, :repo_base_root, asks_root)
+
+      on_exit(fn ->
+        if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+        File.rm_rf!(asks_root)
+      end)
+
+      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+
+      assert {:ok, ask} =
+               Asks.create("owner/repo", %{
+                 title: "Enable CI readiness inspection",
+                 urgency: "high",
+                 blocking: true
+               })
+
+      status = capture_io(fn -> AgentControlCLI.status() end)
+      assert status =~ "OPERATOR ASKS (blocking)"
+      assert status =~ ask["id"]
+      assert status =~ "from executor at #{ask["created_at"]}"
+
+      watch = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert watch =~ "ACTIONABLE"
+      assert watch =~ "BLOCKING ASK #{ask["id"]}"
+      assert watch =~ "Enable CI readiness inspection"
+
+      assert {:ok, _} = Asks.resolve("owner/repo", ask["id"])
+      refute capture_io(fn -> AgentControlCLI.status() end) =~ ask["id"]
+      refute capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end) =~ ask["id"]
+    end
+
+    test "status and watch make an unreadable operator ask store actionable", %{watch_root: root} do
+      asks_root = Path.join(System.tmp_dir!(), "aiur-status-asks-#{System.unique_integer([:positive])}")
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      Application.put_env(:aiur, :repo_base_root, asks_root)
+
+      on_exit(fn ->
+        if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+        File.rm_rf!(asks_root)
+      end)
+
+      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      :ok = RepoBase.ensure_state_tree("owner/repo")
+
+      File.write!(
+        RepoBase.asks_path("owner/repo"),
+        Jason.encode!(%{
+          "id" => "ask_orphan",
+          "status" => "done",
+          "resolved_at" => "2026-08-08T12:00:00Z",
+          "resolved_by" => "executor",
+          "note" => nil
+        }) <> "\n"
+      )
+
+      status = capture_io(fn -> AgentControlCLI.status() end)
+      assert status =~ "OPERATOR ASKS (blocking) UNAVAILABLE"
+      assert status =~ "could not read durable ask record 1"
+      assert status =~ "orphan_done"
+
+      watch = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert watch =~ "ACTIONABLE"
+      assert watch =~ "BLOCKING ASKS UNAVAILABLE"
+    end
+
     test "empty board reports no active agents", %{watch_root: root} do
       output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
 
@@ -1742,7 +1810,7 @@ defmodule Aiur.AgentControlCLITest do
 
       File.write!(Path.join(log_dir, "agent.ndjson"), Jason.encode!(attention) <> "\n" <> Jason.encode!(resolved) <> "\n")
 
-      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root], blocking_asks: []) end)
 
       refute output =~ "ACTIONABLE"
     end

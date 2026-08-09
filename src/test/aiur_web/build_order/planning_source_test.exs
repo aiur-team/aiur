@@ -214,6 +214,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.identity.identifier == "9900"
     assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
     assert is_nil(root.progress)
+    assert root.progress_resolution == :unresolved
 
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
       {:ok, identity} =
@@ -228,6 +229,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [hydrated_root] = PlanningSource.catalog().data.entries
     assert is_nil(hydrated_root.progress)
+    assert hydrated_root.progress_resolution == :unresolved
 
     {:ok, hydrated} = PlanningSource.demand(root.identity)
     assert hydrated.generation > 8
@@ -271,6 +273,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert is_nil(root.progress)
+    assert root.progress_resolution == :unresolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [cancelled, _open] = snapshot.data.members
@@ -296,6 +299,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -317,6 +321,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [completed, _draft] = snapshot.data.members
@@ -344,6 +349,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 0
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [reopened, _draft] = snapshot.data.members
@@ -397,7 +403,12 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert snapshot.health.failure == :pack_status_unavailable
 
     [root] = snapshot.data.entries
-    assert root.progress == nil
+    # The draft resolves and the promoted member does not: a partial pack keeps
+    # the percentage it can defend and publishes its coverage alongside it.
+    assert root.progress == 0
+    assert root.progress_resolution == :partial
+    assert root.progress_resolved_count == 1
+    assert root.member_count == 2
     {:ok, selected} = PlanningSource.demand(root.identity)
     [promoted, draft] = selected.data.members
 
@@ -428,7 +439,13 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert snapshot.health.failure == :pack_status_incomplete
 
     [root] = snapshot.data.entries
-    assert root.progress == nil
+    # One of two resolved, and that one is complete. The percentage is the rate
+    # over resolved tickets — unknowns are excluded from the denominator, never
+    # counted as incomplete — and `progress_resolved_count` says what it is of.
+    assert root.progress == 100
+    assert root.progress_resolution == :partial
+    assert root.progress_resolved_count == 1
+    assert root.member_count == 2
     {:ok, selected} = PlanningSource.demand(root.identity)
     [completed, missing] = selected.data.members
 
@@ -548,6 +565,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     [root] = PlanningSource.catalog().data.entries
     assert root.icon == "bolt"
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -726,6 +744,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %Snapshot{data: %Catalog{entries: [root]}} = snapshot
     assert root.title == "Workspace copy"
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
     assert log =~ "discarded divergent duplicate"
     assert log =~ "workspace > state > environment > configured > explicit"
     assert log =~ "selected workspace"
