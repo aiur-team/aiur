@@ -17,15 +17,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-
-  alias AiurWeb.{
-    Endpoint,
-    StreamDeckGrid,
-    StreamdeckLogs,
-    StreamdeckProjection,
-    StreamdeckTranscriptRelay
-  }
-
+  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
@@ -38,6 +30,8 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:grid_page, 0)
       |> assign(:grid_column_offset, 0)
       |> assign(:grid_dial_value, 0)
+      |> assign(:sd_mode, :grid)
+      |> assign(:sd_active, nil)
       |> assign(:transcript_relay, nil)
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
@@ -98,6 +92,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("key-press", params, socket) do
     socket = select_agent_from_params(socket, params)
+    socket = enter_cmd(socket, params)
 
     if dashboard_writable?() do
       handle_key_press(params, socket)
@@ -106,8 +101,14 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
-  def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket),
-    do: {:noreply, socket}
+  def handle_event("command-press", %{"command" => "logs"}, socket), do: {:noreply, enter_logs(socket)}
+
+  def handle_event("dial-press", %{"action" => "back"}, socket), do: {:noreply, back(socket)}
+
+  def handle_event("dial-press", %{"action" => "cycle-window"}, socket),
+    do: {:noreply, enter_logs(socket)}
+
+  def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
 
   def handle_event("mic-hold", %{"active" => _active}, socket),
     do: {:noreply, socket}
@@ -129,8 +130,7 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, refresh_grid(socket)}
   end
 
-  def handle_info({:streamdeck_transcript, identifier, _event}, socket)
-      when is_binary(identifier) do
+  def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
       {:noreply, assign(socket, :logs, load_logs(identifier))}
     else
@@ -149,12 +149,17 @@ defmodule AiurWeb.StreamdeckLive do
       nav_collapsed={@nav_collapsed}
     >
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
-        <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode="grid">
+        <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
           <header class="sd-brand">
-            <span class="sd-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-            <span>STREAM DECK</span>
+            <svg class="sd-brand-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2" />
+              <path d="M15 12a3 3 0 1 0-3 3" stroke="#fff" stroke-width="2" fill="none" />
+              <circle cx="12" cy="12" r="2" fill="#fff" />
+            </svg>
+            <span class="sd-brand-name">STREAM DECK</span>
           </header>
 
+          <%= if @sd_mode == :grid do %>
           <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
             <li
               :for={key <- @keys}
@@ -192,19 +197,23 @@ defmodule AiurWeb.StreamdeckLive do
               aria-current={if page == @grid_page, do: "page", else: nil}
             >•</span>
           </div>
+          <% end %>
 
-          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands" aria-hidden="true">
+          <%= if @sd_mode == :cmd do %>
+          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands">
             <p class="sd-mode-label">Commands</p>
             <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
             <ul class="sd-cmd-list" aria-label="Available commands">
               <li class="sd-cmd-item">Run tests</li>
               <li class="sd-cmd-item">Deploy staging</li>
-              <li class="sd-cmd-item">View logs</li>
+              <li class="sd-cmd-item" phx-click="command-press" phx-value-command="logs">View logs</li>
               <li class="sd-cmd-item">Open PR</li>
             </ul>
           </div>
+          <% end %>
 
-          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" data-focused-identifier={@selected_identifier} role="log" aria-label="Agent logs" aria-hidden="true">
+          <%= if @sd_mode == :logs do %>
+          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" data-focused-identifier={@sd_active.identifier} role="log" aria-label="Agent logs">
             <p class="sd-mode-label">Logs</p>
             <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
@@ -219,6 +228,7 @@ defmodule AiurWeb.StreamdeckLive do
               <span id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             </div>
           </div>
+          <% end %>
 
           <div id="sd-screen" class="sd-screen" role="group" aria-label="Touch strip">
             <div :for={segment <- @screen} class={["sd-screen-segment", segment.live? && "is-live"]}>
@@ -276,8 +286,7 @@ defmodule AiurWeb.StreamdeckLive do
     {dial_value, column_offset} =
       case dial_value do
         nil ->
-          {dial_value_from_offset(column_offset, grid.total),
-           clamp_column_offset(column_offset, grid.total)}
+          {dial_value_from_offset(column_offset, grid.total), clamp_column_offset(column_offset, grid.total)}
 
         value ->
           value = clamp(value, 0, 100)
@@ -286,23 +295,22 @@ defmodule AiurWeb.StreamdeckLive do
 
     page = current_window(column_offset, grid.total)
     usage = usage || StreamdeckProjection.provider_meters()
-
-    visible_agents =
-      Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
+    visible_agents = Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
+    {selected_identifier, sd_active} = mode_focus(socket, grid, visible_agents)
 
     socket
     |> assign(:grid, grid)
     |> assign(:grid_page, page)
     |> assign(:grid_column_offset, column_offset)
     |> assign(:grid_dial_value, dial_value)
-    |> assign(:selected_identifier, selected_identifier(socket, grid, visible_agents))
+    |> assign(:selected_identifier, selected_identifier)
+    |> assign(:sd_active, sd_active)
     |> assign(:keys, key_descriptors(grid.agents, column_offset))
     |> assign(:screen, screen_descriptors(grid, usage))
     |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
   end
 
-  defp assign_grid_dial(socket, value),
-    do: assign_grid(socket, socket.assigns.grid, 0, nil, clamp(value, 0, 100))
+  defp assign_grid_dial(socket, value), do: assign_grid(socket, socket.assigns.grid, 0, nil, clamp(value, 0, 100))
 
   defp assign_grid_window(socket, page) do
     page = clamp_page(page, socket.assigns.grid.windows)
@@ -325,9 +333,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
-
-    dependency_ready =
-      if(bucket == :queued, do: Map.get(agent, :dependency_ready) === true, else: false)
+    dependency_ready = if(bucket == :queued, do: Map.get(agent, :dependency_ready) === true, else: false)
 
     key(
       slot,
@@ -442,18 +448,53 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp handle_key_press(_params, socket), do: {:noreply, socket}
 
-  defp select_agent_from_params(socket, %{"identifier" => identifier})
-       when is_binary(identifier) do
-    if Enum.any?(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
-      previous_identifier = socket.assigns.selected_identifier
-      socket = assign(socket, :selected_identifier, identifier)
-      focus_logs(socket, previous_identifier, identifier)
-    else
-      socket
+  defp select_agent_from_params(socket, %{"identifier" => identifier}) when is_binary(identifier) do
+    case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
+      nil ->
+        socket
+
+      agent ->
+        previous_identifier = socket.assigns.selected_identifier
+
+        socket
+        |> assign(:selected_identifier, identifier)
+        |> maybe_assign_active(agent)
+        |> focus_logs(previous_identifier, identifier)
     end
   end
 
   defp select_agent_from_params(socket, _params), do: socket
+
+  defp maybe_assign_active(%{assigns: %{sd_mode: :grid}} = socket, _agent), do: socket
+  defp maybe_assign_active(socket, agent), do: assign(socket, :sd_active, agent)
+
+  defp enter_cmd(socket, %{"identifier" => identifier}) when socket.assigns.sd_mode == :grid do
+    case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
+      nil -> socket
+      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent)
+    end
+  end
+
+  defp enter_cmd(socket, _params), do: socket
+
+  defp enter_logs(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active),
+    do: assign(socket, :sd_mode, :logs)
+
+  defp enter_logs(socket), do: socket
+
+  defp back(%{assigns: %{sd_mode: :logs}} = socket), do: assign(socket, :sd_mode, :cmd)
+
+  defp back(%{assigns: %{sd_mode: :cmd}} = socket) do
+    previous_identifier = socket.assigns.selected_identifier
+
+    socket
+    |> assign(:sd_mode, :grid)
+    |> assign(:sd_active, nil)
+    |> assign_grid(socket.assigns.grid, socket.assigns.grid_column_offset, nil, socket.assigns.grid_dial_value)
+    |> focus_logs(previous_identifier, socket.assigns.selected_identifier)
+  end
+
+  defp back(socket), do: socket
 
   defp update_logs(socket, axis, delta) do
     logs = socket.assigns.logs
@@ -511,16 +552,23 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
+  defp mode_focus(%{assigns: %{sd_mode: mode, sd_active: active}}, grid, _visible_agents)
+       when mode in [:cmd, :logs] and not is_nil(active) do
+    identifier = to_string(active.identifier)
+    refreshed_active = Enum.find(grid.agents, active, &(to_string(&1.identifier) == identifier))
+    {identifier, refreshed_active}
+  end
+
+  defp mode_focus(socket, grid, visible_agents) do
+    {selected_identifier(socket, grid, visible_agents), socket.assigns.sd_active}
+  end
+
   defp clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))
   defp clamp_page(_page, windows), do: clamp_page(0, windows)
 
   defp max_column_offset(agent_count), do: max(0, ceil(agent_count / 2) - 4)
-
-  defp clamp_column_offset(offset, agent_count),
-    do: clamp(offset, 0, max_column_offset(agent_count))
-
-  defp column_offset_from_dial(value, agent_count),
-    do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
+  defp clamp_column_offset(offset, agent_count), do: clamp(offset, 0, max_column_offset(agent_count))
+  defp column_offset_from_dial(value, agent_count), do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
 
   defp dial_value_from_offset(offset, agent_count) do
     max_offset = max_column_offset(agent_count)
@@ -670,9 +718,7 @@ defmodule AiurWeb.StreamdeckLive do
 
     relay =
       if connected?(socket) and is_binary(identifier) and previous_identifier != identifier do
-        {:ok, relay} =
-          StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
-
+        {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
         relay
       else
         socket.assigns[:transcript_relay]
@@ -681,8 +727,7 @@ defmodule AiurWeb.StreamdeckLive do
     assign(socket, :transcript_relay, relay)
   end
 
-  defp focus_logs(socket, previous_identifier, identifier)
-       when previous_identifier != identifier do
+  defp focus_logs(socket, previous_identifier, identifier) when previous_identifier != identifier do
     socket
     |> assign(:logs, load_logs(identifier))
     |> replace_transcript_relay(previous_identifier, identifier)
@@ -692,8 +737,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp transcript_flush_ms do
     Endpoint.config(:streamdeck_transcript_flush_ms) ||
-      Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) ||
-      250
+      Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
   end
 
   # Dial 0 presses BACK, dial 3 cycles the focused window. Labels convey this.

@@ -195,12 +195,8 @@ defmodule Aiur.Orchestrator.StatusReport do
     state.running
     |> Map.values()
     |> Enum.map(&Map.get(&1, :identifier))
-    |> Kernel.++(
-      Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end)
-    )
-    |> Kernel.++(
-      Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end)
-    )
+    |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
+    |> Kernel.++(Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end))
     |> Enum.filter(&is_binary/1)
     |> Enum.uniq()
   end
@@ -359,8 +355,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
       queue_depth: capabilities.queue_depth,
-      pending_operator_messages:
-        OM.pending_operator_messages_for_issue(state, metadata.identifier),
+      pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
       runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
@@ -369,8 +364,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
-      progress_percent:
-        progress_percent(Issue.tracker_identity(metadata.issue), activity_by_identity),
+      progress_percent: progress_percent(Issue.tracker_identity(metadata.issue), activity_by_identity),
       ci_result: cached_ci_result(state, metadata.identifier)
     }
     |> Map.merge(running_execution_facts(metadata))
@@ -755,8 +749,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
       last_codex_event: Map.get(entry, :last_codex_event),
-      reason:
-        if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
+      reason: if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
     }
   end
 

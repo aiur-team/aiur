@@ -31,13 +31,23 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   @spec project(map()) :: map()
-  def project(%{} = snapshot) do
+  @spec project(map(), (map() -> boolean())) :: map()
+  def project(snapshot), do: project(snapshot, nil)
+
+  def project(%{} = snapshot, dependency_ready?) do
     fleet = snapshot_agents(snapshot)
+
+    readiness_fun =
+      if is_function(dependency_ready?, 1),
+        do: dependency_ready?,
+        else: &dependency_ready?(&1, fleet)
 
     agents =
       fleet
-      |> Enum.map(&agent_payload(&1, fleet))
-      |> Enum.sort_by(&sort_key/1)
+      |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
+      |> Enum.filter(fn {_entry, bucket} -> Map.has_key?(@bucket_rank, bucket) end)
+      |> Enum.map(fn {entry, bucket} -> agent_payload(entry, bucket, readiness_fun) end)
+      |> stable_rank()
 
     total = length(agents)
 
@@ -53,35 +63,15 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   defp snapshot_agents(snapshot) do
-    for {source, entries} <- [
-          running: Map.get(snapshot, :running, []),
-          retrying: Map.get(snapshot, :retrying, []),
-          queued: Map.get(snapshot, :idle, [])
-        ],
+    for {source, entries} <- [running: Map.get(snapshot, :running, []), retrying: Map.get(snapshot, :retrying, []), queued: Map.get(snapshot, :idle, [])],
         entry <- entries,
         do: Map.put(entry, :streamdeck_source, source)
   end
 
-  @doc "Returns whether every explicit upstream dependency is complete in the fleet."
-  @spec dependency_ready?(map(), [map()]) :: boolean()
-  def dependency_ready?(agent, fleet) when is_map(agent) and is_list(fleet) do
-    case Map.fetch(agent, :blocked_by) do
-      {:ok, blockers} when is_list(blockers) ->
-        Enum.all?(blockers, &dependency_satisfied?(&1, fleet))
-
-      _ ->
-        false
-    end
-  end
-
-  def dependency_ready?(_agent, _fleet), do: false
-
-  defp agent_payload(entry, fleet) do
-    bucket = AgentEvents.streamdeck_bucket(entry)
-
+  defp agent_payload(entry, bucket, dependency_ready?) do
     entry
     |> base_agent_payload(bucket)
-    |> maybe_put_dependency_ready(entry, bucket, fleet)
+    |> maybe_put_dependency_ready(entry, bucket, dependency_ready?)
   end
 
   defp base_agent_payload(entry, bucket) do
@@ -95,16 +85,21 @@ defmodule AiurWeb.StreamDeckGrid do
     }
   end
 
-  defp maybe_put_dependency_ready(payload, entry, :queued, fleet),
-    do: Map.put(payload, :dependency_ready, dependency_ready?(entry, fleet))
+  defp maybe_put_dependency_ready(payload, entry, :queued, dependency_ready?),
+    do: Map.put(payload, :dependency_ready, dependency_ready?.(entry))
 
-  defp maybe_put_dependency_ready(payload, _entry, _bucket, _fleet), do: payload
+  defp maybe_put_dependency_ready(payload, _entry, _bucket, _dependency_ready?), do: payload
+
+  defp stable_rank(agents) do
+    agents
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {agent, index} -> {sort_key(agent), index} end)
+    |> Enum.map(&elem(&1, 0))
+  end
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
     dependency_ready = Map.get(agent, :dependency_ready)
-
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1),
-     Summaries.identifier_sort_key(identifier)}
+    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
   end
 
   defp vendor(entry) do
@@ -123,8 +118,18 @@ defmodule AiurWeb.StreamDeckGrid do
     end
   end
 
-  defp priority?(entry),
-    do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
+  defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
+
+  @doc "Returns whether every explicit upstream dependency is complete in the fleet."
+  @spec dependency_ready?(map(), [map()]) :: boolean()
+  def dependency_ready?(agent, fleet) when is_map(agent) and is_list(fleet) do
+    case Map.fetch(agent, :blocked_by) do
+      {:ok, blockers} when is_list(blockers) -> Enum.all?(blockers, &dependency_satisfied?(&1, fleet))
+      _ -> false
+    end
+  end
+
+  def dependency_ready?(_agent, _fleet), do: false
 
   defp dependency_satisfied?(blocker, fleet) do
     with blocker_id when not is_nil(blocker_id) <- blocker_identifier(blocker),
@@ -137,25 +142,16 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp blocker_identifier(%{id: id}) when not is_nil(id), do: id
   defp blocker_identifier(%{identifier: identifier}) when not is_nil(identifier), do: identifier
-
-  defp blocker_identifier(identifier) when is_binary(identifier) or is_integer(identifier),
-    do: identifier
-
+  defp blocker_identifier(identifier) when is_binary(identifier) or is_integer(identifier), do: identifier
   defp blocker_identifier(_blocker), do: nil
 
   defp fleet_entry?(entry, blocker_id) when is_map(entry) do
-    Enum.any?(
-      [Map.get(entry, :id), Map.get(entry, :issue_id), Map.get(entry, :identifier)],
-      &same_identifier?(&1, blocker_id)
-    )
+    Enum.any?([Map.get(entry, :id), Map.get(entry, :issue_id), Map.get(entry, :identifier)], &same_identifier?(&1, blocker_id))
   end
 
   defp fleet_entry?(_entry, _blocker_id), do: false
 
-  defp same_identifier?(left, right) when is_binary(left) or is_integer(left) do
-    to_string(left) == to_string(right)
-  end
-
+  defp same_identifier?(left, right) when is_binary(left) or is_integer(left), do: to_string(left) == to_string(right)
   defp same_identifier?(_left, _right), do: false
 
   defp complete?(entry) do
