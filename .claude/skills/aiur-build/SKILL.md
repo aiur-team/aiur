@@ -142,8 +142,11 @@ discovered ticket provenance as `plan_version` evolves.
 
 ## Write one canonical runtime pack
 
-The dashboard reads only the per-repository state node, never repository
-commits or planning branches:
+The per-repository state node remains the durable runtime authority. Successful
+publication also writes a repository-local discovery mirror at
+`.aiur/build_orders/<slug>.json`; the dashboard discovers both and reconciles
+copies by the precedence documented below. It never reads planning branches or
+arbitrary copies under `docs/`:
 
 ```text
 ~/.aiur/repo/<owner>/<repo>/builds/<slug>/
@@ -181,8 +184,16 @@ receive a deterministic generic default, distinct from other build orders in
 the same repository list. Member icons remain presentation hints.
 
 Do not ship converter code. Existing packs are one-time Executor hand-conversion
-work after the reader lands. Developers may copy planning artifacts into their
-repository for version control, but Aiur never reads those copies.
+work after the reader lands. Canonical planning artifacts under `docs/` remain
+version-control evidence, not discovery inputs. After materialization, the
+publisher writes the matching live discovery mirror to
+`.aiur/build_orders/<slug>.json`; Aiur reads that materialized mirror.
+When the same repository-qualified `build_order_id` appears in more than one
+discovery source, Aiur keeps exactly one copy by source precedence: workspace
+mirror, repository state, `AIUR_BUILD_ORDER_DIRS`, configured list, then the
+singular test/demo override. It logs whether the discarded copy was identical
+or divergent. Different build-order IDs are never reconciled merely because
+their root numbers collide; the catalog keeps both so deep links fail closed.
 
 Verify before declaring planning complete: with the daemon running, open the
 Build Order page and confirm the pack title and members render. This is a

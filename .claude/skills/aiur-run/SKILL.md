@@ -390,8 +390,28 @@ reporting tick merely to restore utilization.
 
 ### Hourly meta-analysis
 
-Alongside the wake/outcome retrospective above, run an hourly meta-analysis of
-the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
+**Set the timer at the start of the run, before dispatching anything.** The
+meta-check lives in the `aiur-meta` skill; arm a recurring one-hour trigger that
+invokes it so it fires whether or not you remember:
+
+- Claude Code: `/loop 1h /aiur-meta`
+- any harness with a scheduler: a cron or wakeup at 3600s invoking `/aiur-meta`
+- no scheduler available: fall back to `scripts/executor-retrospective.sh due`,
+  which keeps a durable run-scoped timer, and check it on every wake
+
+Do not rely on noticing that an hour has passed. An Executor deep in a merge
+queue does not notice, and the checks that get skipped are exactly the ones that
+would have caught the surface going quietly wrong — a provider meter frozen for
+3.6 days (#1564), a blocker card stale for 5 days (#1565), a Build Order page
+rendering an em-dash in every cell (#1616). None of those announced themselves.
+
+`aiur-meta` owns what to observe and how: the four dashboard pages captured and
+**looked at**, the interactive CLI timed and checked for empty responses, host
+load against the configured gate, and the PR backlog. It ends by naming one
+bottleneck and filing what is broken.
+
+Alongside that, the meta-analysis of the work itself (proven repeatedly in the
+2026-07 analytics-streamdeck run):
 
 1. name THE single thing currently costing the most wall-clock, quantified —
    minutes lost, CI cycles burned, agents idle. Breadth summaries are not the
