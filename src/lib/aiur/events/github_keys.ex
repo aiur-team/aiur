@@ -75,6 +75,21 @@ defmodule Aiur.Events.GithubKeys do
   def review_thread_dedup_key(_repo, _pr_number, _thread_id), do: nil
 
   @doc """
+  Returns the Publisher dedup key for PR review submission events.
+
+  GitHub review IDs are globally unique integers, so keying on review_id
+  ensures a new submission from the same reviewer always produces a new key,
+  while the same review is not republished within the dedup window.
+  """
+  @spec pr_review_dedup_key(term(), term(), term()) ::
+          {String.t(), String.t(), String.t()} | nil
+  def pr_review_dedup_key(repo, pr_number, review_id)
+      when is_binary(repo) and is_integer(pr_number) and is_integer(review_id),
+      do: {repo, "pr_review:#{pr_number}", Integer.to_string(review_id)}
+
+  def pr_review_dedup_key(_repo, _pr_number, _review_id), do: nil
+
+  @doc """
   Returns the GitHub event cutoff epoch for this boot window.
   """
   @spec boot_cutoff_epoch_seconds(keyword()) :: integer()
