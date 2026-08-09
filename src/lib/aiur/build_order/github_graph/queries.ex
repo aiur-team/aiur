@@ -17,7 +17,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
             pageInfo { hasNextPage endCursor }
             nodes {
               state stateReason
-              labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+              labels(first: 20) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
             }
           }
         }

@@ -59,11 +59,31 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
 
     assert entry.member_count == 2
-    assert is_integer(entry.epic_count)
-    assert is_integer(entry.phase_count)
+    assert entry.epic_count == 1
+    assert entry.phase_count == 1
     assert is_nil(entry.progress)
     assert entry.progress_resolution == :unresolved
     assert entry.progress_resolved_count == 0
+  end
+
+  test "leaves catalog counts unresolved when member labels are truncated" do
+    root = root(1)
+
+    member =
+      member(2, root)
+      |> Map.put("labels", connection(Enum.map(1..20, &%{"name" => "label-#{&1}"}), 21, has_next?: true, cursor: "more-labels"))
+
+    root = Map.put(root, "subIssues", connection([member], 1, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 1
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+    assert entry.progress == 100
+    assert entry.progress_resolution == :resolved
+    assert entry.progress_resolved_count == 1
   end
 
   test "reports catalog progress over the members whose lifecycle resolved" do
@@ -1237,6 +1257,10 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       catalog_request_fun = fn %{body: %{"query" => query}} ->
         refute query =~ "body"
         assert query =~ "subIssues(first: 100)"
+
+        assert String.replace(query, ~r/\s+/, " ") =~
+                 "subIssues(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { state stateReason labels(first: 20)"
+
         catalog_response([], 0)
       end
 

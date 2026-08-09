@@ -155,8 +155,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
 
     %{
       member_count: total,
-      epic_count: metadata |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
-      phase_count: metadata |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
+      epic_count: metric_count(metadata, & &1.lane),
+      phase_count: metric_count(metadata, & &1.phase),
       progress: progress,
       progress_resolution: progress_resolution,
       progress_resolved_count: resolved_count
@@ -178,8 +178,21 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
   defp connection_total(_connection), do: nil
 
   defp member_metadata(member) do
-    {labels, _diagnostic} = labels(member)
-    Metadata.parse(labels)
+    case labels(member) do
+      {labels, nil} -> {:ok, Metadata.parse(labels)}
+      {_labels, _diagnostic} -> :unresolved
+    end
+  end
+
+  defp metric_count(metadata, field) do
+    with true <- Enum.all?(metadata, &match?({:ok, _}, &1)) do
+      metadata
+      |> Enum.map(fn {:ok, member_metadata} -> field.(member_metadata) end)
+      |> Enum.uniq()
+      |> length()
+    else
+      false -> nil
+    end
   end
 
   defp validate_root_label(%{labels: labels} = root) do
