@@ -84,6 +84,17 @@ defmodule Aiur.AsksCLI do
     2
   end
 
+  defp format_error({:ask_not_found, id}), do: "ask #{id} was not found"
+  defp format_error({:ask_already_done, id}), do: "ask #{id} is already done"
+  defp format_error({:invalid_ask_transition, :duplicate_open}), do: "open ask must create a new id"
+  defp format_error({:invalid_ask_transition, :orphan_done}), do: "done ask must reference an open id"
+  defp format_error({:invalid_ask_transition, :duplicate_done}), do: "ask is already done"
+  defp format_error({:invalid_ask, :id}), do: "ask id is invalid"
+  defp format_error({:invalid_ask, :status}), do: "ask status must be open or done"
+  defp format_error({:invalid_ask, :urgency}), do: "ask urgency must be one of: low, normal, high"
+  defp format_error({:invalid_ask, :body_or_note}), do: "ask body and note must be text"
+  defp format_error({:invalid_ask, key}), do: "ask requires valid #{key}"
+  defp format_error({:ask_record_too_large, size, limit}), do: "ask exceeds the #{limit}-byte atomic append limit (got #{size} bytes)"
   defp format_error(reason) when is_binary(reason), do: reason
   defp format_error(reason), do: inspect(reason)
 end

@@ -3,7 +3,7 @@ defmodule Aiur.RepoBaseTest do
   # the phase-event test must not race other tests emitting on the same topic.
   use ExUnit.Case, async: false
 
-  alias Aiur.{Findings, RepoBase}
+  alias Aiur.{Asks, Findings, RepoBase}
 
   setup do
     tmp = Path.join(System.tmp_dir!(), "aiur_rb_#{System.unique_integer([:positive])}")
@@ -272,6 +272,8 @@ defmodule Aiur.RepoBaseTest do
       previous_root = Application.get_env(:aiur, :repo_base_root)
       current_finding = Jason.encode!(finding("current"))
       legacy_finding = Jason.encode!(finding("legacy"))
+      current_ask = Jason.encode!(operator_ask("ask_current", "Current operator request"))
+      legacy_ask = Jason.encode!(operator_ask("ask_legacy", "Legacy operator request"))
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(Path.join([parked, "builds", "legacy-pack"]))
@@ -282,6 +284,7 @@ defmodule Aiur.RepoBaseTest do
       File.write!(Path.join([parked, "analytics", "runs", "legacy", "summary.json"]), "legacy analytics\n")
       File.write!(Path.join([parked, "analytics", "runs", "current", "summary.json"]), "legacy collision\n")
       File.write!(Path.join([parked, "meta", "findings.ndjson"]), legacy_finding)
+      File.write!(Path.join([parked, "meta", "asks.ndjson"]), legacy_ask)
       File.write!(Path.join([parked, "meta", "retros", "legacy.md"]), "legacy retrospective\n")
 
       File.mkdir_p!(Path.join([node, "builds", "current-pack"]))
@@ -290,6 +293,7 @@ defmodule Aiur.RepoBaseTest do
       File.write!(Path.join([node, "builds", "current-pack", "pack.json"]), "current build\n")
       File.write!(Path.join([node, "analytics", "runs", "current", "summary.json"]), "current analytics\n")
       File.write!(Path.join([node, "meta", "findings.ndjson"]), current_finding)
+      File.write!(Path.join([node, "meta", "asks.ndjson"]), current_ask)
       File.write!(Path.join([node, "meta", "retros", "current.md"]), "current retrospective\n")
       Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
 
@@ -314,6 +318,63 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join([node, "meta", "findings.ndjson"])) == current_finding <> "\n" <> legacy_finding <> "\n"
       assert {:ok, [current, legacy]} = Findings.all()
       assert Enum.map([current, legacy], & &1["slug"]) == ["current", "legacy"]
+
+      assert {:ok, asks} = Asks.all("owner/project")
+      assert Enum.map(asks, & &1["id"]) == ["ask_current", "ask_legacy"]
+    end
+
+    test "rejects semantically invalid asks while merging a legacy ledger", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      destination = Path.join([node, "meta", "asks.ndjson"])
+      source = Path.join([parked, "meta", "asks.ndjson"])
+      current = Jason.encode!(operator_ask("ask_current", "Current ask")) <> "\n"
+      invalid = Jason.encode!(%{"id" => "ask_invalid", "status" => "open"}) <> "\n"
+
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.dirname(source))
+      File.mkdir_p!(Path.dirname(destination))
+      File.write!(source, invalid)
+      File.write!(destination, current)
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+      end)
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:invalid_asks_ledger, ^source, 1}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(source) == invalid
+      assert File.read!(destination) == current
+    end
+
+    test "rejects overlapping ask IDs while merging a legacy ledger", %{origin: origin, node: node, base: base, tmp: tmp} do
+      parked = node <> ".migrating-interrupted"
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      destination = Path.join([node, "meta", "asks.ndjson"])
+      source = Path.join([parked, "meta", "asks.ndjson"])
+      current = Jason.encode!(operator_ask("ask_duplicate", "Current ask")) <> "\n"
+      legacy = Jason.encode!(operator_ask("ask_duplicate", "Legacy ask")) <> "\n"
+
+      File.mkdir_p!(Path.dirname(node))
+      git!(["clone", "--quiet", origin, parked])
+      File.mkdir_p!(Path.dirname(source))
+      File.mkdir_p!(Path.dirname(destination))
+      File.write!(source, legacy)
+      File.write!(destination, current)
+      Application.put_env(:aiur, :repo_base_root, Path.join(tmp, "repo"))
+
+      on_exit(fn ->
+        if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+      end)
+
+      assert {:error, {:repo_base_migration_recovery_failed, {:invalid_asks_ledger, ^destination, 2}}} =
+               RepoBase.refresh(base, origin, "true")
+
+      assert File.read!(source) == legacy
+      assert File.read!(destination) == current
     end
 
     test "finishes a findings transfer once after a crash following its atomic replacement", %{origin: origin, node: node, base: base, tmp: tmp} do
@@ -397,7 +458,7 @@ defmodule Aiur.RepoBaseTest do
       refute File.exists?(marker)
     end
 
-    test "clears a findings checkpoint after source removal without another merge", %{origin: origin, node: node, base: base, tmp: tmp} do
+    test "clears findings and asks checkpoints after source removal without another merge", %{origin: origin, node: node, base: base, tmp: tmp} do
       parked = node <> ".migrating-interrupted"
       previous_root = Application.get_env(:aiur, :repo_base_root)
       current = Jason.encode!(finding("current")) <> "\n"
@@ -405,11 +466,17 @@ defmodule Aiur.RepoBaseTest do
       destination = Path.join([node, "meta", "findings.ndjson"])
       source = Path.join([parked, "meta", "findings.ndjson"])
       marker = destination <> ".migration-transfer"
+      asks_destination = Path.join([node, "meta", "asks.ndjson"])
+      asks_source = Path.join([parked, "meta", "asks.ndjson"])
+      asks_marker = asks_destination <> ".asks-migration-transfer"
+      current_ask = Jason.encode!(operator_ask("ask_current", "Current ask")) <> "\n"
+      legacy_ask = Jason.encode!(operator_ask("ask_legacy", "Legacy ask")) <> "\n"
       File.mkdir_p!(Path.dirname(node))
       git!(["clone", "--quiet", origin, parked])
       File.mkdir_p!(Path.dirname(source))
       File.mkdir_p!(Path.dirname(destination))
       File.write!(destination, current <> legacy)
+      File.write!(asks_destination, current_ask <> legacy_ask)
 
       File.write!(
         marker,
@@ -419,6 +486,17 @@ defmodule Aiur.RepoBaseTest do
           "destination" => destination,
           "destination_hash" => :crypto.hash(:sha256, current) |> Base.encode16(case: :lower),
           "merged_hash" => :crypto.hash(:sha256, current <> legacy) |> Base.encode16(case: :lower)
+        })
+      )
+
+      File.write!(
+        asks_marker,
+        Jason.encode!(%{
+          "source" => asks_source,
+          "source_hash" => :crypto.hash(:sha256, legacy_ask) |> Base.encode16(case: :lower),
+          "destination" => asks_destination,
+          "destination_hash" => :crypto.hash(:sha256, current_ask) |> Base.encode16(case: :lower),
+          "merged_hash" => :crypto.hash(:sha256, current_ask <> legacy_ask) |> Base.encode16(case: :lower)
         })
       )
 
@@ -433,7 +511,9 @@ defmodule Aiur.RepoBaseTest do
 
       assert {:ok, ^base} = RepoBase.refresh(base, origin, "true")
       assert File.read!(destination) == current <> legacy
+      assert File.read!(asks_destination) == current_ask <> legacy_ask
       refute File.exists?(marker)
+      refute File.exists?(asks_marker)
     end
 
     test "rejects a transfer marker whose source is outside the parked clone", %{
@@ -877,6 +957,19 @@ defmodule Aiur.RepoBaseTest do
       "cost" => "one hour",
       "ticket" => nil,
       "status" => "open"
+    }
+  end
+
+  defp operator_ask(id, title) do
+    %{
+      "id" => id,
+      "title" => title,
+      "body" => nil,
+      "urgency" => "normal",
+      "blocking" => false,
+      "status" => "open",
+      "created_at" => "2026-08-08T12:00:00Z",
+      "created_by" => "executor"
     }
   end
 

@@ -1331,44 +1331,55 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  defp watch_ask_lines(asks) do
+  defp watch_ask_lines({:ok, asks}) do
     Enum.map(asks, fn ask ->
       "! BLOCKING ASK #{ask["id"]} · #{ask["urgency"]} · #{ask["created_at"]} · #{truncate(ask["title"], 56)}"
     end)
   end
 
+  defp watch_ask_lines({:error, reason}), do: ["! BLOCKING ASKS UNAVAILABLE · #{format_ask_store_error(reason)}"]
+
   defp print_blocking_asks(opts) do
     case blocking_asks(opts) do
-      [] ->
+      {:ok, []} ->
         :ok
 
-      asks ->
+      {:ok, asks} ->
         IO.puts("OPERATOR ASKS (blocking)")
 
         Enum.each(asks, fn ask ->
           IO.puts("! #{ask["id"]} · #{ask["urgency"]} · from #{ask["created_by"]} at #{ask["created_at"]} · #{ask["title"]}")
         end)
+
+      {:error, reason} ->
+        IO.puts("OPERATOR ASKS (blocking) UNAVAILABLE")
+        IO.puts("! #{format_ask_store_error(reason)}")
     end
   end
 
   defp blocking_asks(opts) do
     case Keyword.fetch(opts, :blocking_asks) do
       {:ok, asks} when is_list(asks) ->
-        asks
+        {:ok, asks}
 
       _ ->
         case GitHubConfig.repo() do
           repo when is_binary(repo) and repo != "" ->
             case Asks.open(repo) do
-              {:ok, asks} -> Enum.filter(asks, &(&1["blocking"] == true))
-              {:error, _reason} -> []
+              {:ok, asks} -> {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
+              {:error, reason} -> {:error, reason}
             end
 
           _ ->
-            []
+            {:ok, []}
         end
     end
   end
+
+  defp format_ask_store_error({:invalid_ask_record, _path, line_number, reason}),
+    do: "could not read durable ask record #{line_number}: #{inspect(reason)}"
+
+  defp format_ask_store_error(_reason), do: "could not read the durable operator ask store"
 
   defp watch_stuck_lines(rows) do
     rows
