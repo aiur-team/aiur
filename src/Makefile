@@ -1,10 +1,10 @@
-.PHONY: help all setup deps build fmt fmt-check lint test coverage coverage-partition coverage-report ci dialyzer e2e regression
+.PHONY: help all setup deps build fmt fmt-check lint test coverage coverage-partition coverage-report ci dialyzer e2e regression rename-preflight
 
 MIX ?= mix
 TEST_PARTITIONS ?= 4
 
 help:
-	@echo "Targets: setup, deps, fmt, fmt-check, lint, test, coverage, coverage-partition, coverage-report, dialyzer, e2e, regression, ci"
+	@echo "Targets: setup, deps, fmt, fmt-check, lint, test, coverage, coverage-partition, coverage-report, dialyzer, e2e, regression, rename-preflight, ci"
 
 setup:
 	$(MIX) setup
@@ -47,6 +47,9 @@ e2e:
 # tmux is absent, so it is safe to run anywhere.
 regression:
 	bash test/regression/aiur-agent-reap.sh
+
+rename-preflight:
+	@python3 ../scripts/rename_preflight.py --root "$(CURDIR)/.." --old "$(OLD)" --new "$(NEW)" --partitions "$(TEST_PARTITIONS)"
 
 ci:
 	$(MAKE) setup
