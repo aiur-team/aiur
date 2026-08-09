@@ -44,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       assigns
       |> assign(:entries, entries)
       |> assign(:catalog, catalog)
+      |> assign(:search_paths, catalog.search_paths)
       |> assign(:catalog_notice, catalog_notice(snapshot))
 
     ~H"""
@@ -90,8 +91,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       </table>
 
       <div :if={@entries == []} class="bo-state-card">
-        <h3>No Build Orders</h3>
-        <p>The healthy catalog contains no roots.</p>
+        <h3>No Build Orders for this repository</h3>
+        <p>No packs matching this daemon's tracked repository were found.</p>
+        <p :if={@search_paths != []}>
+          Searched: {Enum.join(@search_paths, ", ")}
+        </p>
       </div>
 
       <ul :if={@catalog.diagnostics != []} class="bo-diagnostics" aria-label="Catalog diagnostics">
