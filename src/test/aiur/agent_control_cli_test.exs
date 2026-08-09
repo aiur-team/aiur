@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, BuildGate, RepoBase}
+  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, RepoBase}
   alias Aiur.GitHub.CiReadiness
 
   defp capture_todo(ids, opts) do
@@ -1395,6 +1395,30 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "alerts/1" do
+    test "alerts and watch use the default project ledger" do
+      log_root = Path.join(System.tmp_dir!(), "aiur-default-alert-ledger-#{System.unique_integer([:positive])}")
+      previous_log_file = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "daemon.log"))
+
+      on_exit(fn ->
+        if previous_log_file,
+          do: Application.put_env(:aiur, :log_file, previous_log_file),
+          else: Application.delete_env(:aiur, :log_file)
+
+        File.rm_rf!(log_root)
+      end)
+
+      ledger = AlertLedger.path()
+      File.mkdir_p!(Path.dirname(ledger))
+
+      File.write!(ledger, "{\"event\":\"alert\",\"topic\":\"ticket.51.agent.paused\",\"reason\":\"operator paused the agent\",\"needs_attention\":true,\"source_ticket_id\":\"51\",\"agent\":\"51\"}\n")
+
+      assert capture_io(fn -> AgentControlCLI.alerts(needs_attention: true) end) =~ "ticket.51.agent.paused"
+
+      assert capture_io(fn -> AgentControlCLI.watch(mode: :full, blocking_asks: []) end) =~
+               "#51"
+    end
+
     test "prints persisted alerts as JSON lines with optional attention filtering" do
       workspace_root =
         Path.join(System.tmp_dir!(), "aiur-control-alerts-#{System.unique_integer([:positive])}")
@@ -1410,7 +1434,13 @@ defmodule Aiur.AgentControlCLITest do
       {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
       """)
 
-      output = capture_io(fn -> AgentControlCLI.alerts(needs_attention: true, roots: [workspace_root]) end)
+      ledger = Path.join(workspace_root, "ledger.ndjson")
+
+      File.write!(ledger, """
+      {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.51.agent.paused","message":"paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"51"}
+      """)
+
+      output = capture_io(fn -> AgentControlCLI.alerts(needs_attention: true, ledger_paths: [ledger]) end)
 
       assert output =~ "\"topic\":\"ticket.51.agent.paused\""
       assert output =~ "\"reason\":\"operator paused the agent\""
@@ -1491,6 +1521,74 @@ defmodule Aiur.AgentControlCLITest do
       assert output =~ ~r/#44\s+in-progress\s+3\s/
       assert output =~ "running mix test"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+    end
+
+    test "status and watch surface persisted open blocking operator asks", %{watch_root: root} do
+      asks_root = Path.join(System.tmp_dir!(), "aiur-status-asks-#{System.unique_integer([:positive])}")
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      Application.put_env(:aiur, :repo_base_root, asks_root)
+
+      on_exit(fn ->
+        if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+        File.rm_rf!(asks_root)
+      end)
+
+      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+
+      assert {:ok, ask} =
+               Asks.create("owner/repo", %{
+                 title: "Enable CI readiness inspection",
+                 urgency: "high",
+                 blocking: true
+               })
+
+      status = capture_io(fn -> AgentControlCLI.status() end)
+      assert status =~ "OPERATOR ASKS (blocking)"
+      assert status =~ ask["id"]
+      assert status =~ "from executor at #{ask["created_at"]}"
+
+      watch = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert watch =~ "ACTIONABLE"
+      assert watch =~ "BLOCKING ASK #{ask["id"]}"
+      assert watch =~ "Enable CI readiness inspection"
+
+      assert {:ok, _} = Asks.resolve("owner/repo", ask["id"])
+      refute capture_io(fn -> AgentControlCLI.status() end) =~ ask["id"]
+      refute capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end) =~ ask["id"]
+    end
+
+    test "status and watch make an unreadable operator ask store actionable", %{watch_root: root} do
+      asks_root = Path.join(System.tmp_dir!(), "aiur-status-asks-#{System.unique_integer([:positive])}")
+      previous_root = Application.get_env(:aiur, :repo_base_root)
+      Application.put_env(:aiur, :repo_base_root, asks_root)
+
+      on_exit(fn ->
+        if previous_root, do: Application.put_env(:aiur, :repo_base_root, previous_root), else: Application.delete_env(:aiur, :repo_base_root)
+        File.rm_rf!(asks_root)
+      end)
+
+      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      :ok = RepoBase.ensure_state_tree("owner/repo")
+
+      File.write!(
+        RepoBase.asks_path("owner/repo"),
+        Jason.encode!(%{
+          "id" => "ask_orphan",
+          "status" => "done",
+          "resolved_at" => "2026-08-08T12:00:00Z",
+          "resolved_by" => "executor",
+          "note" => nil
+        }) <> "\n"
+      )
+
+      status = capture_io(fn -> AgentControlCLI.status() end)
+      assert status =~ "OPERATOR ASKS (blocking) UNAVAILABLE"
+      assert status =~ "could not read durable ask record 1"
+      assert status =~ "orphan_done"
+
+      watch = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      assert watch =~ "ACTIONABLE"
+      assert watch =~ "BLOCKING ASKS UNAVAILABLE"
     end
 
     test "empty board reports no active agents", %{watch_root: root} do
@@ -1646,11 +1744,10 @@ defmodule Aiur.AgentControlCLITest do
     end
 
     test "actionable section surfaces an unanswered operator-decision question", %{watch_root: root} do
-      log_dir = Path.join([root, "934", "logs"])
-      File.mkdir_p!(log_dir)
+      ledger = Path.join(root, "ledger.ndjson")
 
       File.write!(
-        Path.join(log_dir, "agent.ndjson"),
+        ledger,
         Jason.encode!(%{
           "event" => "alert",
           "name" => "ticket.934.agent.attention.scope-question",
@@ -1664,7 +1761,7 @@ defmodule Aiur.AgentControlCLITest do
         }) <> "\n"
       )
 
-      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, ledger_paths: [ledger]) end)
 
       assert output =~ "ACTIONABLE"
       assert output =~ "#934"
@@ -1672,8 +1769,7 @@ defmodule Aiur.AgentControlCLITest do
     end
 
     test "resolved operator decisions leave the actionable section", %{watch_root: root} do
-      log_dir = Path.join([root, "934", "logs"])
-      File.mkdir_p!(log_dir)
+      ledger = Path.join(root, "ledger.ndjson")
       initial_at = DateTime.utc_now() |> DateTime.to_iso8601()
       resolved_at = DateTime.utc_now() |> DateTime.add(1, :second) |> DateTime.to_iso8601()
 
@@ -1701,9 +1797,9 @@ defmodule Aiur.AgentControlCLITest do
         "timestamp" => resolved_at
       }
 
-      File.write!(Path.join(log_dir, "agent.ndjson"), Jason.encode!(attention) <> "\n" <> Jason.encode!(resolved) <> "\n")
+      File.write!(ledger, Jason.encode!(attention) <> "\n" <> Jason.encode!(resolved) <> "\n")
 
-      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, roots: [root], log_roots: [root]) end)
+      output = capture_io(fn -> AgentControlCLI.watch(mode: :full, ledger_paths: [ledger], blocking_asks: []) end)
 
       refute output =~ "ACTIONABLE"
     end

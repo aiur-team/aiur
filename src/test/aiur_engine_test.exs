@@ -153,6 +153,8 @@ defmodule AiurEngineTest do
     assert out =~ "aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
     assert out =~ "aiur findings --record <json> --repo <owner/repo>"
     assert out =~ "aiur findings --digest [--scope aiur|repo]"
+    assert out =~ "aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]"
+    assert out =~ "aiur asks [--open|--all] [--json]"
     assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
@@ -531,6 +533,31 @@ defmodule AiurEngineTest do
     assert out =~ "commands --filter requires a value"
   end
 
+  test "analytics routes an explicit window through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_analytics --range full --since 2026-08-09T10:00:00Z --until 2026-08-09T11:00:00Z --build-order 1595 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
+    assert out =~ "since: Base.decode64!"
+    assert out =~ "build_order: Base.decode64!"
+  end
+
+  test "analytics rejects malformed launcher arguments before an RPC" do
+    for {argv, message} <- [
+          {~s|--range week|, "analytics --range accepts run or full"},
+          {~s|--build-order not-a-ticket|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--build-order ''|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--since|, "analytics --since requires a value"},
+          {~s|--unknown|, "analytics received an unknown option"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_analytics #{argv}", [])
+      assert out =~ message
+    end
+  end
+
   test "todo control rpc propagates live success and semantic failure codes" do
     for {rpc_output, expected_code} <- [
           {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
@@ -593,6 +620,18 @@ defmodule AiurEngineTest do
     state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
     {out, _} = run_engine(["findings", "--slugs"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
+    refute out =~ "BIN:"
+  end
+
+  test "ask boots distribution-free without requiring a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["ask", "Enable CI readiness", "--blocking"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
     assert out =~ "ELIXIR_ARGS:"
     assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"

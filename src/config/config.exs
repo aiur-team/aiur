@@ -17,10 +17,10 @@ config :aiur, AiurWeb.Endpoint,
   check_origin: false,
   server: false
 
-# Build Order catalogs are materialized packs. Discovery includes fresh publisher
-# workspace mirrors and repository state-node manifests, including roots whose
-# GitHub labels have not caught up. Repositories without packs fall back to the
-# live GitHub projection.
+# Build Order catalogs union materialized packs with the live GitHub projection.
+# Discovery includes fresh publisher workspace mirrors and repository state-node
+# manifests, including roots whose GitHub labels have not caught up. A pack wins
+# when both sources describe the same repository-qualified root.
 config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource
 
 if config_env() == :test do

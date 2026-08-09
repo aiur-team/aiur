@@ -3,7 +3,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
@@ -60,6 +60,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     path = Path.join(System.tmp_dir!(), "planning-source-test-#{System.unique_integer([:positive])}.json")
     workspace_directory = Path.join(System.tmp_dir!(), "planning-source-workspace-#{System.unique_integer([:positive])}")
     previous_workspace_directory = Application.get_env(:aiur, :build_order_workspace_directory)
+    previous_live_catalog = Application.get_env(:aiur, :build_order_planning_live_catalog)
     File.write!(path, @pack)
     Application.put_env(:aiur, :build_order_planning_pack, path)
     Application.put_env(:aiur, :build_order_workspace_directory, workspace_directory)
@@ -73,6 +74,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
       Application.delete_env(:aiur, :build_order_planning_pack)
       Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
       Application.delete_env(:aiur, :build_order_pack_status_health_snapshot)
+
+      if previous_live_catalog,
+        do: Application.put_env(:aiur, :build_order_planning_live_catalog, previous_live_catalog),
+        else: Application.delete_env(:aiur, :build_order_planning_live_catalog)
 
       if previous_workspace_directory,
         do: Application.put_env(:aiur, :build_order_workspace_directory, previous_workspace_directory),
@@ -95,13 +100,60 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert PlanningSource.catalog() == DataSource.catalog()
   end
 
-  test "discovers five distinct tracked packs in the catalog", context do
+  test "keeps distinct tracked packs in the catalog", context do
     directory = context.workspace_directory
     isolate_pack_discovery(directory)
-    write_tracked_packs(directory, 5)
+    write_tracked_packs(directory, 2)
 
     assert %Snapshot{data: %Catalog{entries: entries}} = PlanningSource.catalog()
-    assert Enum.map(entries, & &1.title) |> Enum.sort() == Enum.map(1..5, &"Pack #{&1}")
+    assert Enum.map(entries, & &1.title) |> Enum.sort() == Enum.map(1..2, &"Pack #{&1}")
+  end
+
+  test "unions a packed root with a GitHub-only root", context do
+    directory = context.workspace_directory
+    isolate_pack_discovery(directory)
+    write_tracked_packs(directory, 1)
+
+    repository = repository_tuple()
+    live_identity = github_identity(repository, 42, "I_live_42")
+    packed_identity = github_identity(repository, 9901, "I_live_9901")
+
+    live_root =
+      RootSummary.new(%{
+        identity: live_identity,
+        title: "GitHub-only Build Order",
+        url: "https://github.com/#{live_identity.owner}/#{live_identity.repository}/issues/42",
+        state: "OPEN"
+      })
+
+    duplicate_live_root =
+      RootSummary.new(%{
+        identity: packed_identity,
+        title: "GitHub duplicate of Pack 1",
+        url: "https://github.com/#{packed_identity.owner}/#{packed_identity.repository}/issues/9901",
+        state: "OPEN"
+      })
+
+    Application.put_env(:aiur, :build_order_planning_live_catalog, fn ->
+      live_catalog_snapshot(repository, [live_root, duplicate_live_root])
+    end)
+
+    assert %Snapshot{data: %Catalog{entries: entries}} = PlanningSource.catalog()
+
+    assert Enum.map(entries, & &1.identity.identifier) |> Enum.sort() == ["42", "9901"]
+    assert Enum.find(entries, &(&1.identity.identifier == "42")).progress == nil
+    assert Enum.find(entries, &(&1.identity.identifier == "9901")).title == "Pack 1"
+  end
+
+  test "keeps packed roots visible when the live catalog is unavailable", context do
+    directory = context.workspace_directory
+    isolate_pack_discovery(directory)
+    write_tracked_packs(directory, 1)
+    Application.put_env(:aiur, :build_order_planning_live_catalog, fn -> :unavailable end)
+
+    assert %Snapshot{data: %Catalog{entries: [root], diagnostics: diagnostics}} = PlanningSource.catalog()
+    assert root.identity.identifier == "9901"
+    assert Enum.any?(diagnostics, &(&1.code == :provider_unavailable))
   end
 
   test "catalog exposes one selectable planning root" do
@@ -233,6 +285,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.identity.identifier == "9900"
     assert root.identity.provider_id == "BO_acme/widgets:analytics-streamdeck"
     assert is_nil(root.progress)
+    assert root.progress_resolution == :unresolved
 
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->
       {:ok, identity} =
@@ -247,6 +300,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [hydrated_root] = PlanningSource.catalog().data.entries
     assert is_nil(hydrated_root.progress)
+    assert hydrated_root.progress_resolution == :unresolved
 
     {:ok, hydrated} = PlanningSource.demand(root.identity)
     assert hydrated.generation > 8
@@ -290,6 +344,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert is_nil(root.progress)
+    assert root.progress_resolution == :unresolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [cancelled, _open] = snapshot.data.members
@@ -315,6 +370,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -336,6 +392,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [completed, _draft] = snapshot.data.members
@@ -363,6 +420,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     [root] = PlanningSource.catalog().data.entries
     assert root.progress == 0
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [reopened, _draft] = snapshot.data.members
@@ -416,7 +474,12 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert snapshot.health.failure == :pack_status_unavailable
 
     [root] = snapshot.data.entries
-    assert root.progress == nil
+    # The draft resolves and the promoted member does not: a partial pack keeps
+    # the percentage it can defend and publishes its coverage alongside it.
+    assert root.progress == 0
+    assert root.progress_resolution == :partial
+    assert root.progress_resolved_count == 1
+    assert root.member_count == 2
     {:ok, selected} = PlanningSource.demand(root.identity)
     [promoted, draft] = selected.data.members
 
@@ -447,7 +510,13 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert snapshot.health.failure == :pack_status_incomplete
 
     [root] = snapshot.data.entries
-    assert root.progress == nil
+    # One of two resolved, and that one is complete. The percentage is the rate
+    # over resolved tickets — unknowns are excluded from the denominator, never
+    # counted as incomplete — and `progress_resolved_count` says what it is of.
+    assert root.progress == 100
+    assert root.progress_resolution == :partial
+    assert root.progress_resolved_count == 1
+    assert root.member_count == 2
     {:ok, selected} = PlanningSource.demand(root.identity)
     [completed, missing] = selected.data.members
 
@@ -567,6 +636,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     [root] = PlanningSource.catalog().data.entries
     assert root.icon == "bolt"
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
 
     {:ok, snapshot} = PlanningSource.demand(root.identity)
     [created, draft] = snapshot.data.members
@@ -745,6 +815,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %Snapshot{data: %Catalog{entries: [root]}} = snapshot
     assert root.title == "Workspace copy"
     assert root.progress == 50
+    assert root.progress_resolution == :resolved
     assert log =~ "discarded divergent duplicate"
     assert log =~ "workspace > state > environment > configured > explicit"
     assert log =~ "selected workspace"
@@ -938,6 +1009,29 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
       File.write!(Path.join(directory, "pack-#{index}.json"), pack)
     end)
+  end
+
+  defp live_catalog_snapshot(repository, entries) do
+    health = ProviderHealth.new(1, :healthy, true, observed_at: ~U[2026-08-02 12:00:00Z])
+
+    %Snapshot{
+      scope: :catalog,
+      repository: repository,
+      generation: 1,
+      authority_epoch: 1,
+      data: Catalog.new(entries, health),
+      health: health
+    }
+  end
+
+  defp repository_tuple do
+    [owner, repository] = String.split(Config.repo(), "/", parts: 2)
+    {owner, repository}
+  end
+
+  defp github_identity(repository, number, node_id) do
+    {:ok, identity} = TrackerIdentity.from_github(%{"number" => number, "node_id" => node_id}, repository, repository)
+    identity
   end
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)

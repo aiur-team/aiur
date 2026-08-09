@@ -4,13 +4,14 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Reconciler, Slots, State}
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
+  @fleet_capacity_low_load_ratio 0.5
 
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
@@ -162,7 +163,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp active_attention_topics do
-    [roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true]
+    [log_roots: [Paths.log_root_dir()], needs_attention: true]
     |> AlertFeed.list()
     |> MapSet.new(& &1["topic"])
   end
@@ -846,6 +847,182 @@ defmodule Aiur.Orchestrator.IssueSync do
     do: sync_capacity_starvation_alert(state, issues, System.monotonic_time(:millisecond))
 
   def sync_capacity_starvation_alert(%State{} = state, _issues), do: state
+
+  @doc false
+  @spec sync_fleet_capacity_starved_alert(State.t(), list(), integer()) :: State.t()
+  def sync_fleet_capacity_starved_alert(%State{} = state, issues, now_ms)
+      when is_list(issues) and is_integer(now_ms) do
+    context = fleet_capacity_context(state, issues)
+
+    if fleet_capacity_starved?(context) do
+      sync_fleet_capacity_starvation(state, context, now_ms)
+    else
+      clear_fleet_capacity_starvation(state)
+    end
+  end
+
+  def sync_fleet_capacity_starved_alert(%State{} = state, _issues, _now_ms), do: state
+
+  @spec sync_fleet_capacity_starved_alert(State.t(), list()) :: State.t()
+  def sync_fleet_capacity_starved_alert(%State{} = state, issues) when is_list(issues),
+    do: sync_fleet_capacity_starved_alert(state, issues, System.monotonic_time(:millisecond))
+
+  def sync_fleet_capacity_starved_alert(%State{} = state, _issues), do: state
+
+  defp fleet_capacity_context(state, issues) do
+    sample = state.dispatch_capacity_sample
+    constraint_entries = capacity_constraint_entries(state, issues)
+    ready_issues = ready_dispatch_issues(state, issues)
+    live_count = State.active_running_count(state.running)
+    effective_cap = Slots.effective_concurrent_agent_limit(state)
+
+    %{
+      state: state,
+      ready_count: length(ready_issues),
+      live_count: live_count,
+      occupied_slots: Slots.used_slots(state),
+      effective_cap: effective_cap,
+      configured_cap: Slots.max_concurrent_agent_limit(state),
+      load: Map.get(sample, :load),
+      target: Map.get(sample, :target),
+      schedulers: Map.get(sample, :schedulers),
+      binding_constraint: selected_binding_constraint(state, constraint_entries, ready_issues)
+    }
+  end
+
+  defp fleet_capacity_starved?(context) do
+    not context.state.globally_paused and context.ready_count > context.live_count and low_load?(context)
+  end
+
+  defp low_load?(%{load: load, target: target, schedulers: schedulers})
+       when is_number(load) and is_number(target) and target > 0 and is_integer(schedulers) and schedulers > 0,
+       do: load < target * schedulers * @fleet_capacity_low_load_ratio
+
+  defp low_load?(_context), do: false
+
+  defp sync_fleet_capacity_starvation(state, context, now_ms) do
+    starvation = state.fleet_capacity_starvation
+
+    if is_integer(starvation[:effective_cap]) and starvation[:effective_cap] != context.effective_cap do
+      put_fleet_capacity_starvation(state, now_ms, starvation[:alert_active] || false, context.effective_cap)
+    else
+      since_ms = starvation[:since_ms] || now_ms
+
+      if starvation[:alert_active] or now_ms - since_ms < @capacity_starvation_alert_after_ms do
+        put_fleet_capacity_starvation(state, since_ms, starvation[:alert_active] || false, context.effective_cap)
+      else
+        emit_fleet_capacity_starvation(state, context, since_ms)
+      end
+    end
+  end
+
+  defp emit_fleet_capacity_starvation(state, context, since_ms) do
+    case Alerts.emit_system("system.fleet.capacity.starved",
+           reason: fleet_capacity_starvation_reason(context),
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        state
+        |> Map.put(:fleet_capacity_starvation_resolution_emitted, false)
+        |> put_fleet_capacity_starvation(since_ms, true, context.effective_cap)
+
+      {:error, _reason} ->
+        put_fleet_capacity_starvation(state, since_ms, false, context.effective_cap)
+    end
+  end
+
+  defp fleet_capacity_starvation_reason(context) do
+    "Ready tickets=#{context.ready_count}, live agents=#{context.live_count}, " <>
+      "load=#{context.load}/#{context.target * context.schedulers}, effective cap=#{context.effective_cap}, " <>
+      "configured cap=#{context.configured_cap}; binding constraint=#{fleet_capacity_constraint(context)}."
+  end
+
+  defp fleet_capacity_constraint(%{binding_constraint: constraint}) when is_binary(constraint), do: constraint
+
+  defp fleet_capacity_constraint(%{occupied_slots: occupied, live_count: live}) when occupied > live,
+    do: "paused agent reservations (occupied slots=#{occupied})"
+
+  defp fleet_capacity_constraint(%{effective_cap: effective, configured_cap: configured, live_count: live})
+       when effective <= live and effective < configured,
+       do: "load envelope (effective cap=#{effective})"
+
+  defp fleet_capacity_constraint(%{effective_cap: effective, configured_cap: configured, live_count: live})
+       when effective <= live and effective == configured,
+       do: "configured concurrency ceiling (cap=#{configured})"
+
+  defp fleet_capacity_constraint(_context), do: "no binding constraint identified"
+
+  defp selected_binding_constraint(%State{prewarm_blocked_alert_active: true}, entries, _ready_issues) do
+    entries |> Enum.find(&(&1.identity == "build")) |> then(&(&1 && &1.detail))
+  end
+
+  defp selected_binding_constraint(%State{capacity_hold: %{signal: signal}}, entries, _ready_issues) do
+    entries
+    |> Enum.find(&(&1.identity == capacity_hold_identity(signal)))
+    |> then(&(&1 && &1.detail))
+  end
+
+  defp selected_binding_constraint(state, entries, ready_issues) do
+    case Enum.filter(entries, &String.starts_with?(&1.identity, "per-state:")) do
+      [_ | _] = per_state_entries -> Enum.map_join(per_state_entries, "; ", & &1.detail)
+      _ -> model_fallback_constraint(state, ready_issues) || worker_capacity_constraint(state, ready_issues)
+    end
+  end
+
+  defp model_fallback_constraint(%State{model_fallback_waiting: waiting}, ready_issues) do
+    waiting_count = Enum.count(ready_issues, &MapSet.member?(waiting, &1.id))
+
+    if waiting_count > 0 do
+      "dispatch authorization denials (all fallback backends usage-limited for #{waiting_count} ready ticket(s))"
+    end
+  end
+
+  defp worker_capacity_constraint(state, ready_issues) do
+    if Enum.any?(ready_issues, &(CodingAgent.backend_for(&1) |> CodingAgent.remote_worker?())) and
+         not Slots.worker_slots_available?(state) do
+      "worker-host capacity (all SSH worker slots are occupied)"
+    end
+  end
+
+  defp capacity_hold_identity(:build), do: "build-queue"
+  defp capacity_hold_identity(:envelope), do: "load-envelope"
+  defp capacity_hold_identity(:file_descriptors), do: "fd"
+  defp capacity_hold_identity(:run_queue), do: "run-queue"
+  defp capacity_hold_identity(signal), do: to_string(signal)
+
+  defp clear_fleet_capacity_starvation(%State{fleet_capacity_starvation_resolution_emitted: true} = state),
+    do: put_fleet_capacity_starvation(state, nil, false, nil)
+
+  defp clear_fleet_capacity_starvation(%State{} = state) do
+    starvation = state.fleet_capacity_starvation
+
+    active? = starvation[:alert_active] or AlertFeed.active_system_attention?("system.fleet.capacity.starved")
+
+    if active? do
+      case Alerts.emit_system("system.fleet.capacity.starved.resolved",
+             reason: "Fleet capacity is no longer starved.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok ->
+          state
+          |> Map.put(:fleet_capacity_starvation_resolution_emitted, true)
+          |> put_fleet_capacity_starvation(nil, false, nil)
+
+        {:error, _reason} ->
+          state
+      end
+    else
+      state
+      |> Map.put(:fleet_capacity_starvation_resolution_emitted, true)
+      |> put_fleet_capacity_starvation(nil, false, nil)
+    end
+  end
+
+  defp put_fleet_capacity_starvation(state, since_ms, alert_active, effective_cap) do
+    %{state | fleet_capacity_starvation: %{since_ms: since_ms, alert_active: alert_active, effective_cap: effective_cap}}
+  end
 
   defp capacity_starvation_context(state, issues, constraint_entries) do
     %{

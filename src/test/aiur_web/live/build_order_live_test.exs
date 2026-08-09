@@ -194,33 +194,92 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Enum.any?(calls, &match?({:demand, _}, &1))
   end
 
-  test "renders unresolved catalog metrics distinctly from an empty build order", %{first: first, second: second} do
-    unresolved = root(first, "Unresolved root")
+  # The regression this guards is not "a number appears". It is that four
+  # different truths about progress used to render as the same glyph, so the
+  # page could not report its own failure. Each pair below must differ.
+  test "an unresolved pack renders differently from an empty pack in the same table", %{source: source} do
+    entries = [
+      progress_root(identity(51, "NODE-51"), "Pack that cannot resolve",
+        progress: nil,
+        progress_resolution: :unresolved,
+        member_count: 35
+      ),
+      progress_root(identity(52, "NODE-52"), "Pack that is genuinely empty",
+        progress: 0,
+        progress_resolution: :resolved,
+        member_count: 0
+      ),
+      progress_root(identity(53, "NODE-53"), "Pack that is partly resolved",
+        progress: 97,
+        progress_resolution: :partial,
+        progress_resolved_count: 34,
+        member_count: 35
+      ),
+      root(identity(54, "NODE-54"), "Pack with no progress reported")
+    ]
 
-    empty = %{
-      root(second, "Empty root")
-      | member_count: 0,
-        epic_count: 0,
-        phase_count: 0,
-        progress: 0
-    }
-
-    _source = install_source(catalog: catalog_snapshot([unresolved, empty], 1, :healthy))
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
 
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
     document = Floki.parse_document!(html)
 
-    unresolved_cells = catalog_cells(document, "Unresolved root")
-    empty_cells = catalog_cells(document, "Empty root")
+    unresolved = progress_cell(document, "Pack that cannot resolve")
+    empty = progress_cell(document, "Pack that is genuinely empty")
+    partial = progress_cell(document, "Pack that is partly resolved")
+    not_reported = progress_cell(document, "Pack with no progress reported")
 
-    assert [unresolved_title | unresolved_metrics] = unresolved_cells
-    assert unresolved_title =~ "Unresolved root"
-    assert unresolved_metrics == ["Unresolved", "Unresolved", "Unresolved", "Unresolved"]
+    assert progress_state(unresolved) == "unresolved"
+    assert progress_state(empty) == "resolved"
+    assert progress_state(partial) == "partial"
+    assert progress_state(not_reported) == "not-reported"
 
-    assert [empty_title | empty_metrics] = empty_cells
-    assert empty_title =~ "Empty root"
-    assert empty_metrics == ["0%", "0", "0", "0"]
-    refute html =~ "—"
+    # An operator reads a word, not a blank and not a zero.
+    assert Floki.text(unresolved) =~ "unknown"
+    refute Floki.text(unresolved) =~ "0%"
+    refute Floki.text(unresolved) =~ "—"
+
+    # The empty pack is a real, resolved zero.
+    assert Floki.text(empty) =~ "0%"
+    refute Floki.text(empty) =~ "unknown"
+
+    # Partial resolution keeps the number but never hides its coverage.
+    assert Floki.text(partial) =~ "97%"
+    assert Floki.text(partial) =~ "34/35"
+
+    # Every rendering is distinguishable from every other one.
+    rendered = Enum.map([unresolved, empty, partial, not_reported], &Floki.raw_html/1)
+    assert length(Enum.uniq(rendered)) == 4
+  end
+
+  defp progress_cell(document, title) do
+    document
+    |> Floki.find(".bo-catalog-table tbody tr")
+    |> Enum.find(fn row -> Floki.text(row) =~ title end)
+    |> then(fn row ->
+      assert row, "no catalog row for #{inspect(title)}"
+      Floki.find(row, "td.bo-catalog-progress-cell")
+    end)
+  end
+
+  defp progress_state(cell) do
+    cell
+    |> Floki.find("[data-progress-state]")
+    |> Floki.attribute("data-progress-state")
+    |> List.first()
+  end
+
+  defp progress_root(identity, title, attributes) do
+    RootSummary.new(
+      Map.merge(
+        %{
+          identity: identity,
+          title: title,
+          url: "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
+          state: "OPEN"
+        },
+        Map.new(attributes)
+      )
+    )
   end
 
   test "a UI-only tick re-derives from the display clock without polling providers" do
@@ -890,14 +949,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
       url: "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
       state: "OPEN"
     })
-  end
-
-  defp catalog_cells(document, title) do
-    document
-    |> Floki.find("tbody tr")
-    |> Enum.find(&(Floki.text(&1) =~ title))
-    |> Floki.find("td")
-    |> Enum.map(&(Floki.text(&1) |> String.trim()))
   end
 
   defp member(number) do

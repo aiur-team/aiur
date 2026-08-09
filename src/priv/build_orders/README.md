@@ -2,9 +2,9 @@
 
 The Build Order dashboard reads materialized JSON packs through
 `AiurWeb.BuildOrder.PlanningSource`. It discovers fresh publisher workspace
-mirrors before repository state-node manifests, and includes pre-ticket packs
-and roots whose GitHub labels have not caught up. Repositories with no
-materialized packs continue to use the live GitHub catalog.
+mirrors before repository state-node manifests, and unions those pre-ticket
+packs with live GitHub roots whose labels have not caught up. For a root that
+appears in both sources, the materialized pack supplies the definition.
 
 For a focused demo or test, override the discovered catalog with
 `config :aiur, :build_order_planning_pack, "priv/build_orders/<file>.json"`.

@@ -1,7 +1,7 @@
 defmodule Aiur.AlertsTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentLog, AlertFeed, Alerts, Orchestrator, TrackerIdentity}
+  alias Aiur.{AgentLog, AlertFeed, AlertLedger, Alerts, Orchestrator, TrackerIdentity}
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.IssueSync
 
@@ -51,8 +51,21 @@ defmodule Aiur.AlertsTest do
   test "emit_system persists a dynamic readiness alert without a configured topic" do
     root = Path.join(System.tmp_dir!(), "aiur-readiness-alert-#{System.unique_integer([:positive])}")
     workspace = Path.join([root, "project", "1474"])
+    log_root = Path.join(root, "log")
+    previous_log_file = Application.get_env(:aiur, :log_file)
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf!(root) end)
+
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if previous_log_file do
+        Application.put_env(:aiur, :log_file, previous_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(root)
+    end)
 
     assert :ok =
              Alerts.emit_system("system.ci_readiness.not_ready",
@@ -62,8 +75,9 @@ defmodule Aiur.AlertsTest do
                workspace: workspace
              )
 
-    assert [%{"topic" => "system.ci_readiness.not_ready", "needs_attention" => true}] =
-             AlertFeed.list(roots: [root], log_roots: [])
+    assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), fn alert ->
+             alert["topic"] == "system.ci_readiness.not_ready" and alert["needs_attention"]
+           end)
   end
 
   # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
@@ -219,6 +233,8 @@ defmodule Aiur.AlertsTest do
 
     assert File.read!(Path.join(workspace, "logs/agent.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(Path.join(log_root, "alerts.ndjson")) =~ "\"topic\":\"#{topic}\""
+    assert File.read!(AlertLedger.path()) =~ "\"topic\":\"#{topic}\""
+    assert [%{"topic" => ^topic}] = AlertFeed.list(needs_attention: true)
   end
 
   test "fleet dispatch alerts persist and appear in the Executor alert feed" do

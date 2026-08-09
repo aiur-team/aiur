@@ -518,6 +518,43 @@ textarea:focus-visible,
   color: var(--muted);
 }
 
+/* Partial resolution: the percentage is real but covers only part of the
+   pack, so the bar is striped and the coverage ratio rides alongside it. */
+.bo-catalog-progress-partial .bo-catalog-progress-track > i {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--accent),
+    var(--accent) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}
+
+.bo-catalog-progress-coverage {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.85;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0 0.35rem;
+}
+
+/* Unresolved: not a blank, not a zero bar. It reads as a word. */
+.bo-catalog-progress-unresolved {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warning, #d08a2a);
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
 .bo-catalog-table tbody tr {
   position: relative;
   cursor: pointer;
@@ -581,14 +618,8 @@ textarea:focus-visible,
   color: var(--accent-ink);
 }
 
-.bo-catalog-invalid,
-.bo-catalog-unresolved {
+.bo-catalog-invalid {
   color: var(--muted);
-}
-
-.bo-catalog-unresolved {
-  font-size: 0.68rem;
-  font-style: italic;
 }
 
 .bo-back-link {

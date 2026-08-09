@@ -1,8 +1,7 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, Config, Issue, TrackerIdentity, Workflow}
-  alias Aiur.Config.Paths
+  alias Aiur.{AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{IssueSync, State}
 
@@ -86,6 +85,272 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     rearmed = IssueSync.sync_capacity_starvation_alert(recovered, [ready], 200_000)
     _ = IssueSync.sync_capacity_starvation_alert(rearmed, [ready], 260_000)
     assert_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 500
+  end
+
+  test "emits a debounced fleet starvation alert for ready work below unused capacity" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("ready-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    waiting = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 1_000)
+    refute waiting.fleet_capacity_starvation.alert_active
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+
+    alerted = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 61_000)
+    assert alerted.fleet_capacity_starvation.alert_active
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["needs_attention"] == true
+    assert event["reason"] =~ "Ready tickets=8, live agents=3"
+    assert event["reason"] =~ "load=0.7/16.0"
+    assert event["reason"] =~ "effective cap=20, configured cap=20"
+    assert event["reason"] =~ "binding constraint=no binding constraint identified"
+  end
+
+  test "does not alert while a low-load fleet is normally ramping its envelope" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("ramp-#{id}", "todo")
+    sample = %{load: 0.7, target: 1.0, schedulers: 16}
+
+    starting = %State{max_concurrent_agents: 20, effective_concurrent_agents: 1, running: running_agents(1), dispatch_capacity_sample: sample}
+    first = IssueSync.sync_fleet_capacity_starved_alert(starting, ready, 1_000)
+
+    second =
+      %{first | effective_concurrent_agents: 2}
+      |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    _third =
+      %{second | effective_concurrent_agents: 3}
+      |> IssueSync.sync_fleet_capacity_starved_alert(ready, 121_000)
+
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+  end
+
+  test "reports a static load envelope as the binding constraint" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("envelope-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 3,
+      running: running_agents(3),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["reason"] =~ "binding constraint=load envelope (effective cap=3)"
+  end
+
+  test "reports a per-state ceiling as the binding constraint" do
+    write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents_by_state: %{"todo" => 3})
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("state-limit-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3, "todo"),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["reason"] =~ "binding constraint=per-state limit (todo=3/3)"
+  end
+
+  test "reports every saturated per-state ceiling" do
+    write_workflow_file!(
+      Workflow.workflow_file_path(),
+      tracker_active_states: ["todo", "in-progress"],
+      max_concurrent_agents_by_state: %{"todo" => 1, "in-progress" => 1}
+    )
+
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready =
+      for state <- ["todo", "in-progress"], id <- 1..4, do: issue("#{state}-limit-#{id}", state)
+
+    running = %{
+      "live-todo" => %{issue: issue("live-todo", "todo")},
+      "live-in-progress" => %{issue: issue("live-in-progress", "in-progress")}
+    }
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running,
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["reason"] =~ "per-state limit (in-progress=1/1)"
+    assert event["reason"] =~ "per-state limit (todo=1/1)"
+  end
+
+  test "reports the current run-queue hold as the binding constraint" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("run-queue-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3),
+      capacity_hold: %{signal: :run_queue},
+      dispatch_capacity_constraints: [%{kind: :run_queue, detail: "runnable=8 threshold=4"}],
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+    assert event["reason"] =~ "binding constraint=run-queue gate (runnable=8 threshold=4)"
+  end
+
+  test "reports all-provider dispatch authorization denials as the binding constraint" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("limited-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3),
+      model_fallback_waiting: MapSet.new(Enum.map(ready, & &1.id)),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+
+    assert event["reason"] =~
+             "binding constraint=dispatch authorization denials (all fallback backends usage-limited for 8 ready ticket(s))"
+  end
+
+  test "resolves and rearms fleet starvation after capacity recovers" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+    :ok = Exchange.subscribe("system.fleet.capacity.starved.resolved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("rearm-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    alerted =
+      state
+      |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+      |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 500
+
+    recovered = IssueSync.sync_fleet_capacity_starved_alert(alerted, [], 62_000)
+    assert recovered.fleet_capacity_starvation == %{since_ms: nil, alert_active: false, effective_cap: nil}
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved.resolved"}}, 500
+
+    rearmed = IssueSync.sync_fleet_capacity_starved_alert(recovered, ready, 100_000)
+    _ = IssueSync.sync_fleet_capacity_starved_alert(rearmed, ready, 160_000)
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 500
+  end
+
+  test "does not report deliberate global dispatch pauses as starvation" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("paused-#{id}", "todo")
+
+    state = %State{
+      globally_paused: true,
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    _ = IssueSync.sync_fleet_capacity_starved_alert(state, ready, 61_000)
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
   end
 
   test "alerts when the tracker adds or removes agent:paused" do
@@ -361,7 +626,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_receive {:event, %{topic: ^resolved_topic}}, 500
-    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -433,8 +698,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert_receive {:event, %{topic: ^topic}}, 500
 
-    assert Enum.any?(AlertFeed.list(roots: [Config.workspace_root()], log_roots: []), &(&1["topic"] == topic))
-    assert Enum.any?(AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()]), &(&1["topic"] == topic))
+    assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), &(&1["topic"] == topic))
 
     _restart_with_pause =
       IssueSync.sync_polled_issue_state(
@@ -461,7 +725,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_receive {:event, %{topic: ^resolved_topic}}, 500
-    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -851,8 +1115,15 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     }
   end
 
+  defp running_agents(count, issue_state \\ nil) do
+    for id <- 1..count, into: %{} do
+      entry = if issue_state, do: %{issue: issue("live-#{id}", issue_state)}, else: %{}
+      {"live-#{id}", entry}
+    end
+  end
+
   defp write_central_attention!(topic) do
-    log_path = Path.join(Paths.log_root_dir(), "alerts.ndjson")
+    log_path = AlertLedger.path()
     File.mkdir_p!(Path.dirname(log_path))
 
     File.write!(

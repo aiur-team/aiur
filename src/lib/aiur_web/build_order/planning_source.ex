@@ -27,7 +27,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   require Logger
 
-  alias Aiur.BuildOrder.{Catalog, Dependency, Member, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Dependency, Diagnostic, Member, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
   alias Aiur.GitHub.Config
@@ -48,9 +48,10 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def catalog do
     membership = membership_snapshot()
     packs = load_packs()
+    live_catalog = live_catalog()
 
-    if live_catalog_fallback?(packs) do
-      DataSource.catalog()
+    if packs == [] and no_catalog_override?() do
+      live_catalog
     else
       {provider_health, source_generation} = provider(membership, packs)
 
@@ -59,7 +60,12 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
         repository: catalog_repository(packs),
         generation: source_generation,
         authority_epoch: @epoch,
-        data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
+        data:
+          packs
+          |> Enum.map(&root_summary(&1, membership))
+          |> union_live_catalog(live_catalog)
+          |> Catalog.new(provider_health, search_paths: catalog_search_paths())
+          |> append_live_catalog_diagnostics(live_catalog),
         health: provider_health
       }
     end
@@ -150,6 +156,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp root_summary(pack, membership) do
     identity = root_identity(pack)
+    progress = progress(pack, membership)
 
     RootSummary.new(%{
       identity: identity,
@@ -160,32 +167,88 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       member_count: length(pack.tickets),
       epic_count: pack.tickets |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
       phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
-      progress: progress_percent(pack, membership),
+      progress: progress.percent,
+      progress_resolution: progress.resolution,
+      progress_resolved_count: progress.resolved_count,
       completed?: pack.completed
     })
   end
 
   defp pack_for(identity), do: Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity))
 
-  # A regular dashboard still supports repositories that have GitHub Build Order
-  # roots but no materialized planning packs. Explicit planning overrides stay
-  # fail-closed so an invalid focused fixture never silently reads live data.
-  defp live_catalog_fallback?([], []) do
-    is_nil(Application.get_env(:aiur, :build_order_planning_pack)) and
-      is_nil(Application.get_env(:aiur, :build_order_planning_packs))
+  # Completion is resolved per ticket and can fail for any subset of a pack.
+  # An empty pack is genuinely 0% of nothing; a pack where nothing resolves is
+  # `:unresolved` and must never be reported as a number. In between, the
+  # percentage is the completion rate over the tickets that *did* resolve, and
+  # `resolved_count` carries the coverage so the surface can say what the
+  # number is actually of. Unknown tickets are excluded from the denominator
+  # rather than counted as incomplete.
+  defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
+
+  defp progress(%{tickets: tickets} = pack, membership) do
+    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership))
+    resolved_count = length(resolved)
+    completed_count = Enum.count(resolved, &completed?(&1, pack, membership))
+
+    cond do
+      resolved_count == 0 ->
+        %{percent: nil, resolution: :unresolved, resolved_count: 0}
+
+      resolved_count == length(tickets) ->
+        %{percent: round(completed_count / resolved_count * 100), resolution: :resolved, resolved_count: resolved_count}
+
+      true ->
+        %{percent: round(completed_count / resolved_count * 100), resolution: :partial, resolved_count: resolved_count}
+    end
   end
 
-  defp live_catalog_fallback?(_packs, _sources), do: false
+  # The catalog is a union, not a fallback: an on-disk pack supplies the richer
+  # definition when it shares a root with GitHub, while a GitHub-only root stays
+  # visible until it is materialized. The numeric repository-qualified locator
+  # is deliberate because a pack can predate the root's opaque GitHub node id.
+  defp union_live_catalog(pack_entries, live_catalog) do
+    Enum.reduce(live_catalog_entries(live_catalog), pack_entries, fn live_entry, entries ->
+      if Enum.any?(entries, &same_catalog_root?(&1, live_entry)), do: entries, else: entries ++ [live_entry]
+    end)
+  end
 
-  defp live_catalog_fallback?(packs), do: live_catalog_fallback?(packs, discovered_packs())
+  defp live_catalog_entries(%Snapshot{data: %Catalog{entries: entries}}) do
+    Enum.filter(entries, &tracked_catalog_root?/1)
+  end
 
-  defp progress_percent(%{tickets: []}, _membership), do: 0
+  defp live_catalog_entries(_live_catalog), do: []
 
-  defp progress_percent(%{tickets: tickets} = pack, membership) do
-    if Enum.all?(tickets, &completion_known?(&1, pack, membership)) do
-      completed = Enum.count(tickets, &completed?(&1, pack, membership))
-      round(completed / length(tickets) * 100)
-    end
+  defp tracked_catalog_root?(%RootSummary{identity: %TrackerIdentity{} = identity}) do
+    same_repository?({identity.owner, identity.repository}, configured_repository_tuple())
+  end
+
+  defp tracked_catalog_root?(_entry), do: false
+
+  defp same_catalog_root?(%RootSummary{identity: left}, %RootSummary{identity: right}),
+    do: same_repository_number?(left, right)
+
+  defp same_catalog_root?(_left, _right), do: false
+
+  defp append_live_catalog_diagnostics(catalog, %Snapshot{data: %Catalog{diagnostics: diagnostics}, health: health}) do
+    diagnostics = if ProviderHealth.usable?(health), do: diagnostics, else: [Diagnostic.new(:provider_unavailable) | diagnostics]
+    %{catalog | diagnostics: Enum.uniq_by(catalog.diagnostics ++ diagnostics, & &1.code)}
+  end
+
+  defp append_live_catalog_diagnostics(catalog, _live_catalog) do
+    %{catalog | diagnostics: Enum.uniq_by([Diagnostic.new(:provider_unavailable) | catalog.diagnostics], & &1.code)}
+  end
+
+  defp live_catalog do
+    Application.get_env(:aiur, :build_order_planning_live_catalog, &DataSource.catalog/0).()
+  rescue
+    _error -> :unavailable
+  catch
+    _kind, _reason -> :unavailable
+  end
+
+  defp no_catalog_override? do
+    is_nil(Application.get_env(:aiur, :build_order_planning_pack)) and
+      is_nil(Application.get_env(:aiur, :build_order_planning_packs))
   end
 
   defp members(pack, membership) do
