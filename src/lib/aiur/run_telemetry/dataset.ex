@@ -956,6 +956,16 @@ defmodule Aiur.RunTelemetry.Dataset do
     intervals ++ Enum.map(open, fn {_key, event} -> open_interval(event) end)
   end
 
+  # Lifecycle pairing depends on seeing a start before its matching finish, and
+  # timestamps alone cannot guarantee that: a segment roll can emit two records
+  # inside the same clock millisecond, so a purely chronological sort is free to
+  # invert a causally ordered pair and manufacture an `orphan_end`.
+  #
+  # When every event came from one persisted stream, append order is the ground
+  # truth and `source_line` reproduces it exactly, so sort by that instead.
+  # `record_id` only breaks ties within a line. Across several streams — or when
+  # any line number is missing, as with in-memory events — no shared append order
+  # exists, so fall back to the chronological key.
   defp causal_pair_order(events) do
     same_persisted_stream? =
       events
