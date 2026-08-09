@@ -1,35 +1,53 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
   @moduledoc false
 
+  alias Aiur.CurrentRunMembership.Reconciler
   alias Aiur.LiveConversation.Source, as: LiveConversationSource
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.UnitsRow.{Fields, Sources, URL, Value}
 
   @spec rows(map(), map(), Sources.source_set()) :: [map()]
   def rows(membership, indexes, sources) do
-    membership
-    |> Sources.entries()
-    |> Enum.flat_map(&member_rows(&1, indexes, sources))
+    membership_members = Sources.entries(membership)
+
+    membership_members
+    |> add_current_status_members(indexes.status, sources)
+    |> Enum.flat_map(fn {origin, member} -> member_rows(origin, member, indexes, sources) end)
     |> Enum.sort_by(&Sources.key(&1.identity))
   end
 
-  defp member_rows(member, indexes, sources) do
+  defp add_current_status_members(members, status_index, sources) do
+    if Sources.current_status?(sources) do
+      membership_keys = MapSet.new(members, &(Sources.identity(&1) |> Sources.key()))
+
+      status_members =
+        for {key, status_row} <- status_index,
+            not MapSet.member?(membership_keys, key),
+            do: {:status, status_row}
+
+      Enum.map(members, &{:membership, &1}) ++ status_members
+    else
+      Enum.map(members, &{:membership, &1})
+    end
+  end
+
+  defp member_rows(origin, member, indexes, sources) do
     with %TrackerIdentity{} = identity <- Sources.identity(member),
          true <- TrackerIdentity.joinable?(identity) do
-      [row(member, identity, Sources.matching_rows(identity, indexes), sources)]
+      [row(origin, member, identity, Sources.matching_rows(identity, indexes), sources)]
     else
       _value -> []
     end
   end
 
-  defp row(member, identity, rows, sources) do
+  defp row(origin, member, identity, rows, sources) do
     status_row = rows.status
     activity_row = rows.activity
     decision_row = rows.decisions
     issue_fact = rows.issue
     replacement_boundary? = Fields.replacement_boundary?(status_row)
-    terminal? = Map.get(member, :terminal?) == true and not replacement_boundary?
-    {lifecycle, lifecycle_source} = lifecycle(member, replacement_boundary?)
+    {lifecycle, lifecycle_source} = lifecycle(origin, member, replacement_boundary?)
+    terminal? = terminal?(origin, member, lifecycle) and not replacement_boundary?
 
     {open_command_count, command_count_source} =
       Fields.command_count(decision_row, status_row, Sources.health(sources).decisions)
@@ -66,12 +84,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
           lifecycle_source,
           command_count_source
         ),
-      sources: source_descriptors(sources, member, rows)
+      sources: source_descriptors(sources, origin, member, rows)
     }
   end
 
-  defp lifecycle(_member, true), do: {:waiting, :status_report}
-  defp lifecycle(member, false), do: {Map.get(member, :lifecycle), :membership}
+  defp lifecycle(_origin, _member, true), do: {:waiting, :status_report}
+
+  defp lifecycle(:membership, member, false), do: {Map.get(member, :lifecycle), :membership}
+
+  defp lifecycle(:status, member, false) do
+    {Reconciler.lifecycle_for_status_row(Map.get(member, :bucket), member), :status_report}
+  end
+
+  defp terminal?(:membership, member, _lifecycle), do: Map.get(member, :terminal?) == true
+  defp terminal?(:status, _member, lifecycle), do: lifecycle in [:completed, :cancelled]
 
   defp live_conversation(%{} = status_row) do
     case Map.get(status_row, :live_conversation) do
@@ -183,9 +209,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Projection do
     }
   end
 
-  defp source_descriptors(sources, member, rows) do
+  defp source_descriptors(sources, origin, member, rows) do
+    membership_member = if origin == :membership, do: member
+
     %{
-      membership: Sources.descriptor(sources.membership, member),
+      membership: Sources.descriptor(sources.membership, membership_member),
       status: Sources.descriptor(sources.status, rows.status),
       activity: Sources.descriptor(sources.activity, rows.activity),
       decisions: Sources.descriptor(sources.decisions, rows.decisions),
