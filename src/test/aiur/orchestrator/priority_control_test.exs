@@ -75,6 +75,27 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
     refute_receive {:remove_label, "1577", "priority:3"}
   end
 
+  test "a failed old-priority removal rolls back the new tracker priority" do
+    state = state_for(issue(labels: ["agent:todo", "priority:3"], priority: 3))
+    test_pid = self()
+
+    assert {:reply, {:error, :forbidden}, ^state} =
+             PriorityControl.prioritize_agent_call(state, "1577",
+               add_label_fun: fn issue_id, label ->
+                 send(test_pid, {:add_label, issue_id, label})
+                 :ok
+               end,
+               remove_label_fun: fn issue_id, label ->
+                 send(test_pid, {:remove_label, issue_id, label})
+                 if label == "priority:3", do: {:error, :forbidden}, else: :ok
+               end
+             )
+
+    assert_receive {:add_label, "1577", "priority:1"}
+    assert_receive {:remove_label, "1577", "priority:3"}
+    assert_receive {:remove_label, "1577", "priority:1"}
+  end
+
   test "prioritizing immediately moves the agent ahead in dispatch order" do
     normal = issue(id: "normal", identifier: "normal", created_at: ~U[2026-08-08 00:00:00Z])
     selected = issue(id: "selected", identifier: "selected", created_at: ~U[2026-08-09 00:00:00Z])
