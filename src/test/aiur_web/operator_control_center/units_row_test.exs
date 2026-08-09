@@ -85,6 +85,34 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     refute row.sources.status.available?
   end
 
+  test "status-only rows preserve canonical lifecycle and terminal facts" do
+    paused = identity("acme", "alpha", "NODE-status-paused", "81")
+    waiting = identity("acme", "alpha", "NODE-status-waiting", "82")
+    allocated = identity("acme", "alpha", "NODE-status-allocated", "83")
+    completed = identity("acme", "alpha", "NODE-status-completed", "84")
+
+    snapshot =
+      UnitsRow.snapshot(%{
+        membership: membership([], :unavailable),
+        status: %{
+          health: :healthy,
+          freshness: %{status: :fresh},
+          running: [
+            status(paused, tracker_paused: true),
+            status(waiting, waiting_reason: :waiting_for_ci),
+            status(allocated, work_state: :allocated)
+          ],
+          retrying: [],
+          idle: [status(completed, lifecycle: :completed)]
+        }
+      })
+
+    assert {:ok, %{lifecycle: :paused, terminal?: false}} = UnitsRow.lookup(snapshot, paused)
+    assert {:ok, %{lifecycle: :waiting, terminal?: false}} = UnitsRow.lookup(snapshot, waiting)
+    assert {:ok, %{lifecycle: :allocated, terminal?: false}} = UnitsRow.lookup(snapshot, allocated)
+    assert {:ok, %{lifecycle: :completed, terminal?: true}} = UnitsRow.lookup(snapshot, completed)
+  end
+
   test "keeps a completed awaiting-dispatch runtime row nonterminal and queued" do
     ticket = identity("acme", "alpha", "NODE-replacement", "9")
 
@@ -434,6 +462,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       resolved_model: Keyword.get(attrs, :resolved_model),
       pause_reason: Keyword.get(attrs, :pause_reason),
       tracker_paused: Keyword.get(attrs, :tracker_paused, false),
+      lifecycle: Keyword.get(attrs, :lifecycle),
       open_decision_count: Keyword.get(attrs, :open_decision_count, 0),
       open_decision_count_health: Keyword.get(attrs, :open_decision_count_health, :available),
       live_conversation: Keyword.get(attrs, :live_conversation),
