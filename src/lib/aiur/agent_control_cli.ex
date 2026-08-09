@@ -1368,17 +1368,19 @@ defmodule Aiur.AgentControlCLI do
         {:ok, asks}
 
       _ ->
-        case GitHubConfig.repo() do
-          repo when is_binary(repo) and repo != "" ->
-            case Asks.open(repo) do
-              {:ok, asks} -> {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
-              {:error, reason} -> {:error, reason}
-            end
-
-          _ ->
-            {:ok, []}
-        end
+        blocking_asks_for_configured_repo()
     end
+  end
+
+  defp blocking_asks_for_configured_repo do
+    case GitHubConfig.repo() do
+      repo when is_binary(repo) and repo != "" -> blocking_asks_for_repo(repo)
+      _ -> {:ok, []}
+    end
+  end
+
+  defp blocking_asks_for_repo(repo) do
+    with {:ok, asks} <- Asks.open(repo), do: {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
   end
 
   defp format_ask_store_error({:invalid_ask_record, _path, line_number, reason}),

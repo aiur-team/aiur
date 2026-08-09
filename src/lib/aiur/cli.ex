@@ -57,36 +57,24 @@ defmodule Aiur.CLI do
         }
 
   @spec main([String.t()]) :: :ok | no_return()
-  def main(args) do
-    case evaluate(args) do
-      :ok ->
-        wait_for_shutdown()
+  def main(args), do: args |> evaluate() |> dispatch()
 
-      {:version, version} ->
-        IO.puts("aiur #{version} (#{@repo} #{@git_rev})")
+  defp dispatch(:ok), do: wait_for_shutdown()
+  defp dispatch({:version, version}), do: IO.puts("aiur #{version} (#{@repo} #{@git_rev})")
+  defp dispatch({:init, opts}), do: run_init_command(opts)
+  defp dispatch({:todo, issue_ids, opts}), do: run_todo_command(issue_ids, opts)
+  defp dispatch({:findings, opts}), do: run_findings_command(opts)
+  defp dispatch({:asks, command}), do: run_asks_command(command)
 
-      {:init, opts} ->
-        case Aiur.Init.run(opts) do
-          :ok ->
-            :ok
+  defp dispatch({:error, message}) do
+    IO.puts(:stderr, message)
+    Aiur.Shutdown.shutdown(1)
+  end
 
-          {:error, message} ->
-            IO.puts(:stderr, message)
-            Aiur.Shutdown.shutdown(1)
-        end
-
-      {:todo, issue_ids, opts} ->
-        run_todo_command(issue_ids, opts)
-
-      {:findings, opts} ->
-        run_findings_command(opts)
-
-      {:asks, command} ->
-        run_asks_command(command)
-
-      {:error, message} ->
-        IO.puts(:stderr, message)
-        Aiur.Shutdown.shutdown(1)
+  defp run_init_command(opts) do
+    case Aiur.Init.run(opts) do
+      :ok -> :ok
+      {:error, message} -> dispatch({:error, message})
     end
   end
 

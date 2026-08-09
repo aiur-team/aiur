@@ -38,23 +38,18 @@ defmodule Aiur.Asks do
   def resolve(repo, id, note \\ nil) when is_binary(repo) and is_binary(id) do
     with :ok <- validate_id(id),
          :ok <- validate_optional_body(note),
-         {:ok, ask} <-
-           Store.with_lock(repo, fn ->
-             with {:ok, asks} <- all_unlocked(repo),
-                  {:ok, open_ask} <- find_open(asks, id),
-                  resolution <- %{
-                    "id" => id,
-                    "status" => "done",
-                    "resolved_at" => now(),
-                    "resolved_by" => "executor",
-                    "note" => note
-                  },
-                  :ok <- validate_done(resolution),
-                  :ok <- Store.append(repo, resolution) do
-               {:ok, Map.merge(open_ask, resolution)}
-             end
-           end) do
-      {:ok, ask}
+         do: Store.with_lock(repo, fn -> resolve_locked(repo, id, note) end)
+  end
+
+  defp resolve_locked(repo, id, note) do
+    with {:ok, asks} <- all_unlocked(repo),
+         {:ok, open_ask} <- find_open(asks, id),
+         resolution <- resolution(id, note),
+         :ok <- validate_done(resolution) do
+      case Store.append(repo, resolution) do
+        :ok -> {:ok, Map.merge(open_ask, resolution)}
+        {:error, _reason} = error -> error
+      end
     end
   end
 
@@ -125,18 +120,21 @@ defmodule Aiur.Asks do
          :ok <- validate_optional_body(ask["body"]),
          :ok <- validate_urgency(ask["urgency"]),
          :ok <- validate_boolean(ask["blocking"], "blocking"),
-         :ok <- required_timestamp(ask, "created_at"),
-         :ok <- required_string(ask, "created_by"),
-         do: :ok
+         :ok <- required_timestamp(ask, "created_at") do
+      required_string(ask, "created_by")
+    end
   end
 
   defp validate_done(ask) do
     with :ok <- validate_id(ask["id"]),
          :ok <- required_timestamp(ask, "resolved_at"),
-         :ok <- required_string(ask, "resolved_by"),
-         :ok <- validate_optional_body(ask["note"]),
-         do: :ok
+         :ok <- required_string(ask, "resolved_by") do
+      validate_optional_body(ask["note"])
+    end
   end
+
+  defp resolution(id, note),
+    do: %{"id" => id, "status" => "done", "resolved_at" => now(), "resolved_by" => "executor", "note" => note}
 
   defp required_timestamp(ask, key) do
     with :ok <- required_string(ask, key),
