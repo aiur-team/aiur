@@ -32,7 +32,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   @spec project(map()) :: map()
   @spec project(map(), nil | (map() -> boolean())) :: map()
-  def project(snapshot), do: project(snapshot, nil)
+  def project(snapshot, dependency_ready? \\ nil)
 
   def project(%{} = snapshot, dependency_ready?) do
     fleet = snapshot_agents(snapshot)
