@@ -14,13 +14,16 @@ defmodule Aiur.BuildOrder.Catalog do
   @type t :: %__MODULE__{
           entries: [RootSummary.t()],
           provider: ProviderHealth.t(),
-          diagnostics: [Diagnostic.t()]
+          diagnostics: [Diagnostic.t()],
+          search_paths: [Path.t()]
         }
 
-  defstruct entries: [], provider: %ProviderHealth{}, diagnostics: []
+  defstruct entries: [], provider: %ProviderHealth{}, diagnostics: [], search_paths: []
 
-  @spec new(term(), term()) :: t()
-  def new(entries, provider) when is_list(entries) do
+  @spec new(term(), term(), keyword()) :: t()
+  def new(entries, provider, opts \\ [])
+
+  def new(entries, provider, opts) when is_list(entries) and is_list(opts) do
     overflow? = length(entries) > @max_entries
     entries = Enum.take(entries, @max_entries)
 
@@ -30,14 +33,16 @@ defmodule Aiur.BuildOrder.Catalog do
     %__MODULE__{
       entries: Enum.map(entries, &root_summary/1),
       provider: provider_health(provider),
-      diagnostics: diagnostics
+      diagnostics: diagnostics,
+      search_paths: search_paths(opts)
     }
   end
 
-  def new(_entries, provider),
+  def new(_entries, provider, opts) when is_list(opts),
     do: %__MODULE__{
       provider: provider_health(provider),
-      diagnostics: [Diagnostic.new(:catalog_overflow)]
+      diagnostics: [Diagnostic.new(:catalog_overflow)],
+      search_paths: search_paths(opts)
     }
 
   @spec select(t(), term()) :: selection()
@@ -67,6 +72,13 @@ defmodule Aiur.BuildOrder.Catalog do
 
   defp overflow_diagnostic(true), do: [Diagnostic.new(:catalog_overflow)]
   defp overflow_diagnostic(false), do: []
+
+  defp search_paths(opts) do
+    opts
+    |> Keyword.get(:search_paths, [])
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
 
   defp invalid_root_diagnostic(entries) do
     if Enum.all?(entries, &match?(%RootSummary{}, &1)), do: [], else: [Diagnostic.new(:invalid_root)]

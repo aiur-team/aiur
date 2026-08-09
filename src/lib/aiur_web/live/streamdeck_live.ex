@@ -142,8 +142,12 @@ defmodule AiurWeb.StreamdeckLive do
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode="grid">
           <header class="sd-brand">
-            <span class="sd-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-            <span>STREAM DECK</span>
+            <svg class="sd-brand-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2" />
+              <path d="M15 12a3 3 0 1 0-3 3" stroke="#fff" stroke-width="2" fill="none" />
+              <circle cx="12" cy="12" r="2" fill="#fff" />
+            </svg>
+            <span class="sd-brand-name">STREAM DECK</span>
           </header>
 
           <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
