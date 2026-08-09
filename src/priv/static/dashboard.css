@@ -7680,6 +7680,12 @@ html[data-theme="light"] .toggle-icon .moon {
   object-fit: contain;
 }
 
+.sd-strip-cmd-agent-icon {
+  color: var(--good);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
 .sd-strip-cmd-provider,
 .sd-strip-cmd-status {
   color: var(--accent-ink);

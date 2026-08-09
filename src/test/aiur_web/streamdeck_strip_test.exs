@@ -14,6 +14,7 @@ defmodule AiurWeb.StreamdeckStripTest do
       })
 
     assert command == %{
+             icon: "▶",
              number: "1582",
              provider: "codex",
              provider_logo: "/provider-assets/codex-color.svg",

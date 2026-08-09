@@ -61,7 +61,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Summary"
     assert html =~ "Claude"
     assert html =~ "Codex"
-    assert html =~ "Pager"
+    assert html =~ "MORE AGENTS"
   end
 
   test "opens and closes the Stream Deck installation modal without rendering credentials" do
@@ -160,6 +160,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(class="sd-screen sd-screen-cmd")
     assert html =~ ~s(class="sd-strip-cmd")
     assert html =~ "CONTROLLING #1352"
+    assert html =~ ~s(class="sd-strip-cmd-agent-icon")
     assert html =~ ~s(src="/provider-assets/codex-color.svg")
     assert html =~ ~s(aria-valuenow="50")
     assert html =~ "background: hsl(62.5, 72%, 50%)"

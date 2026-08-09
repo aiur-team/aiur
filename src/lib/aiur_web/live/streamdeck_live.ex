@@ -281,6 +281,7 @@ defmodule AiurWeb.StreamdeckLive do
             <div :if={@sd_mode == :cmd} class="sd-strip-cmd" data-mode-view="cmd-strip">
               <% command = StreamdeckStrip.command(@sd_active) %>
               <div class="sd-strip-cmd-heading">
+                <span class="sd-strip-cmd-agent-icon" aria-hidden="true">{command.icon}</span>
                 <img :if={command.provider_logo} class="sd-cmd-provider-logo" src={command.provider_logo} alt={command.provider} />
                 <span class="sd-strip-cmd-provider">{String.upcase(command.provider)}</span>
                 <span class="sd-strip-cmd-pager">CONTROLLING #{command.number}</span>
@@ -523,7 +524,7 @@ defmodule AiurWeb.StreamdeckLive do
       %{label: "Summary", icon: "▤", live?: grid.total > 0, value: "#{grid.total} agents"},
       provider_segment("Claude", "claude", "◒", usage),
       provider_segment("Codex", "codex", "◇", usage),
-      %{label: "Pager", icon: "›", live?: grid.windows > 1, value: "#{grid.windows} windows"}
+      %{label: "MORE AGENTS", icon: "›", live?: grid.windows > 1, value: "#{grid.windows} windows"}
     ]
   end
 

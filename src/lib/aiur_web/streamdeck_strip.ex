@@ -15,6 +15,7 @@ defmodule AiurWeb.StreamdeckStrip do
     percent = agent |> Map.get(:progress_percent, 0) |> percent()
 
     %{
+      icon: agent_icon(Map.get(agent, :bucket)),
       number: to_string(Map.get(agent, :identifier, "")),
       provider: Map.get(agent, :vendor, "unknown") |> to_string(),
       provider_logo: provider_logo(Map.get(agent, :vendor, "unknown")),
@@ -73,6 +74,13 @@ defmodule AiurWeb.StreamdeckStrip do
   defp status(:stuck), do: "STUCK"
   defp status(:alert), do: "ATTENTION"
   defp status(_bucket), do: "IDLE"
+
+  defp agent_icon(:running), do: "▶"
+  defp agent_icon(:paused), do: "Ⅱ"
+  defp agent_icon(:queued), do: "◌"
+  defp agent_icon(:stuck), do: "!"
+  defp agent_icon(:alert), do: "!"
+  defp agent_icon(_bucket), do: "●"
 
   defp provider_logo(provider) do
     case provider |> to_string() |> String.downcase() do
