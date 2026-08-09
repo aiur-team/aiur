@@ -7,7 +7,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
-  alias AiurWeb.BuildOrder.{PlanningSource, RouteState}
+  alias AiurWeb.BuildOrder.{DataSource, PlanningSource, RouteState}
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
@@ -83,6 +83,25 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     end)
 
     {:ok, workspace_directory: workspace_directory}
+  end
+
+  test "is the default Build Order dashboard source" do
+    assert Application.get_env(:aiur, :build_order_data_source) == PlanningSource
+  end
+
+  test "uses the live catalog when no materialized pack is discovered", context do
+    isolate_pack_discovery(context.workspace_directory)
+
+    assert PlanningSource.catalog() == DataSource.catalog()
+  end
+
+  test "discovers five distinct tracked packs in the catalog", context do
+    directory = context.workspace_directory
+    isolate_pack_discovery(directory)
+    write_tracked_packs(directory, 5)
+
+    assert %Snapshot{data: %Catalog{entries: entries}} = PlanningSource.catalog()
+    assert Enum.map(entries, & &1.title) |> Enum.sort() == Enum.map(1..5, &"Pack #{&1}")
   end
 
   test "catalog exposes one selectable planning root" do
@@ -888,6 +907,41 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(entries, & &1.title) == ["Demo Plan", "Recent completed", "Older completed"]
     assert Enum.map(entries, & &1.completed?) == [false, true, true]
   end
+
+  defp isolate_pack_discovery(workspace_directory) do
+    state_root = Path.join(System.tmp_dir!(), "planning-source-isolated-state-#{System.unique_integer([:positive])}")
+    previous_root = Application.get_env(:aiur, :repo_base_root)
+    previous_packs = Application.get_env(:aiur, :build_order_planning_packs)
+
+    Application.put_env(:aiur, :repo_base_root, state_root)
+    Application.delete_env(:aiur, :build_order_planning_pack)
+    Application.delete_env(:aiur, :build_order_planning_packs)
+
+    on_exit(fn ->
+      restore_application_env(:repo_base_root, previous_root)
+      restore_application_env(:build_order_planning_packs, previous_packs)
+      File.rm_rf(state_root)
+      File.rm_rf(workspace_directory)
+    end)
+  end
+
+  defp write_tracked_packs(directory, count) do
+    File.mkdir_p!(directory)
+
+    Enum.each(1..count, fn index ->
+      pack =
+        @canonical_pack
+        |> String.replace("acme/widgets", Config.repo())
+        |> String.replace("analytics-streamdeck", "pack-#{index}")
+        |> String.replace("Analytics Stream Deck", "Pack #{index}")
+        |> String.replace("\"root_number\": 9900", "\"root_number\": #{9900 + index}")
+
+      File.write!(Path.join(directory, "pack-#{index}.json"), pack)
+    end)
+  end
+
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 
   defp put_membership(number, lifecycle) do
     Application.put_env(:aiur, :build_order_planning_membership_snapshot, fn ->

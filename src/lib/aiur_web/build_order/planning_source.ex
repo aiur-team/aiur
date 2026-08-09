@@ -1,8 +1,9 @@
 defmodule AiurWeb.BuildOrder.PlanningSource do
   @moduledoc """
-  A pre-ticket Build Order data source: renders a build order in the spatial
-  dashboard directly from a local planning pack (JSON), before any GitHub issue
-  exists for the tickets.
+  The default Build Order data source. It renders the materialized planning packs
+  discovered for the daemon's tracked repository, including packs before any
+  GitHub issue exists for their tickets. Repositories with no discovered packs
+  keep the live GitHub catalog; unknown selected roots do the same.
 
   It implements the same `AiurWeb.BuildOrder.DataSource` behaviour as the live
   GitHub source and is selected via
@@ -13,8 +14,13 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   hydrated from the daemon's current-run membership projection; pre-ticket packs
   remain planning-only.
 
-  This is read-only demo/planning tooling — it never writes to GitHub. Point it
-  at a pack with `:build_order_planning_pack` (an app-relative priv path).
+  Discovery gives publisher workspace mirrors definition precedence over their
+  repository state-node copies because they are the freshest published intent;
+  matching state copies still supply daemon-owned status projections. This
+  source is read-only and never writes to GitHub. Ticket context continues to
+  use the live detail/history providers. Use
+  `:build_order_planning_pack` for a single focused demo/test pack or
+  `:build_order_planning_packs` for an explicit test catalog.
   """
 
   @behaviour AiurWeb.BuildOrder.DataSource
@@ -43,30 +49,38 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     membership = membership_snapshot()
     packs = load_packs()
 
-    {provider_health, source_generation} = provider(membership, packs)
+    if live_catalog_fallback?(packs) do
+      DataSource.catalog()
+    else
+      {provider_health, source_generation} = provider(membership, packs)
 
-    %Snapshot{
-      scope: :catalog,
-      repository: catalog_repository(packs),
-      generation: source_generation,
-      authority_epoch: @epoch,
-      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
-      health: provider_health
-    }
+      %Snapshot{
+        scope: :catalog,
+        repository: catalog_repository(packs),
+        generation: source_generation,
+        authority_epoch: @epoch,
+        data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
+        health: provider_health
+      }
+    end
   end
 
   # --- selected root ---------------------------------------------------------
 
   @impl true
-  def demand(%TrackerIdentity{} = identity), do: {:ok, selected_snapshot(identity)}
+  def demand(%TrackerIdentity{} = identity) do
+    if pack_for(identity), do: {:ok, selected_snapshot(identity)}, else: DataSource.demand(identity)
+  end
 
   @impl true
-  def selected(%TrackerIdentity{} = identity), do: {:ok, selected_snapshot(identity)}
+  def selected(%TrackerIdentity{} = identity) do
+    if pack_for(identity), do: {:ok, selected_snapshot(identity)}, else: DataSource.selected(identity)
+  end
 
   defp selected_snapshot(identity) do
     membership = membership_snapshot()
 
-    case Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity)) do
+    case pack_for(identity) do
       %{} = pack ->
         {provider_health, source_generation} = provider(membership, [pack])
 
@@ -103,20 +117,23 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def load_sources, do: DataSource.load_sources()
 
   @impl true
-  def load_context(_identity), do: %{detail: :unavailable, history: :unavailable}
+  def load_context(identity), do: DataSource.load_context(identity)
 
   # --- subscriptions ----------------------------------------------------------
 
   @impl true
-  def subscribe_catalog, do: :ok
+  def subscribe_catalog, do: DataSource.subscribe_catalog()
   @impl true
-  def unsubscribe_catalog(_repository), do: :ok
+  def unsubscribe_catalog(repository), do: DataSource.unsubscribe_catalog(repository)
   @impl true
-  def subscribe_selected(_identity), do: :ok
+  def subscribe_selected(identity) do
+    if pack_for(identity), do: :ok, else: DataSource.subscribe_selected(identity)
+  end
+
   @impl true
-  def unsubscribe_selected(_identity), do: :ok
+  def unsubscribe_selected(identity), do: DataSource.unsubscribe_selected(identity)
   @impl true
-  def release(_identity), do: :ok
+  def release(identity), do: DataSource.release(identity)
   @impl true
   def subscribe_sources do
     with :ok <- DataSource.subscribe_sources(),
@@ -125,9 +142,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   @impl true
-  def subscribe_context(_identity), do: :ok
+  def subscribe_context(identity), do: DataSource.subscribe_context(identity)
   @impl true
-  def unsubscribe_context(_identity), do: :ok
+  def unsubscribe_context(identity), do: DataSource.unsubscribe_context(identity)
 
   # --- pack -> structs -------------------------------------------------------
 
@@ -147,6 +164,20 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       completed?: pack.completed
     })
   end
+
+  defp pack_for(identity), do: Enum.find(load_packs(include_drafts?: true), &pack_root?(&1, identity))
+
+  # A regular dashboard still supports repositories that have GitHub Build Order
+  # roots but no materialized planning packs. Explicit planning overrides stay
+  # fail-closed so an invalid focused fixture never silently reads live data.
+  defp live_catalog_fallback?([], []) do
+    is_nil(Application.get_env(:aiur, :build_order_planning_pack)) and
+      is_nil(Application.get_env(:aiur, :build_order_planning_packs))
+  end
+
+  defp live_catalog_fallback?(_packs, _sources), do: false
+
+  defp live_catalog_fallback?(packs), do: live_catalog_fallback?(packs, discovered_packs())
 
   defp progress_percent(%{tickets: []}, _membership), do: 0
 

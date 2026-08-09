@@ -581,8 +581,14 @@ textarea:focus-visible,
   color: var(--accent-ink);
 }
 
-.bo-catalog-invalid {
+.bo-catalog-invalid,
+.bo-catalog-unresolved {
   color: var(--muted);
+}
+
+.bo-catalog-unresolved {
+  font-size: 0.68rem;
+  font-style: italic;
 }
 
 .bo-back-link {

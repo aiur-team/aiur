@@ -81,7 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
                 <span class="bo-catalog-progress-track"><i style={"width:#{entry.progress}%"}></i></span>
                 <span class="bo-catalog-progress-label mono num">{entry.progress}%</span>
               </div>
-              <span :if={is_nil(entry.progress)} class="bo-catalog-invalid">—</span>
+              <span :if={is_nil(entry.progress)} class="bo-catalog-unresolved">Unresolved</span>
             </td>
             <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
             <td class="bo-catalog-num mono num">{count_display(entry.epic_count)}</td>
@@ -117,7 +117,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
   end
 
   defp count_display(count) when is_integer(count), do: Integer.to_string(count)
-  defp count_display(_count), do: "—"
+  defp count_display(_count), do: "Unresolved"
 
   defp catalog_icon("bolt"), do: "ϟ"
   defp catalog_icon("cube"), do: "◆"

@@ -1,20 +1,14 @@
 # Planning packs (pre-ticket Build Orders)
 
-JSON packs in this directory can be rendered in the Build Order spatial
-dashboard **before any GitHub issue exists**, via
-`AiurWeb.BuildOrder.PlanningSource`.
+The Build Order dashboard reads materialized JSON packs through
+`AiurWeb.BuildOrder.PlanningSource`. It discovers fresh publisher workspace
+mirrors before repository state-node manifests, and includes pre-ticket packs
+and roots whose GitHub labels have not caught up. Repositories with no
+materialized packs continue to use the live GitHub catalog.
 
-Enable at build time and point the dashboard at a pack:
-
-```
-AIUR_BUILD_ORDER_DEMO=1 aiurdev --bg --debug
-```
-
-That sets `config :aiur, :build_order_data_source, AiurWeb.BuildOrder.PlanningSource`
-(see `config/config.exs`). Override the pack with
+For a focused demo or test, override the discovered catalog with
 `config :aiur, :build_order_planning_pack, "priv/build_orders/<file>.json"`.
-The override is for focused demos and tests; normal catalogs discover only packs
-for the daemon's tracked repository.
+Normal catalogs discover every pack for the daemon's tracked repository.
 
 ## Pack format
 
@@ -45,5 +39,5 @@ Generated from the sibling `../croptracker` repo's pre-ticket planning pack
 (`docs/build-order/build-order-phase-{1..9}.json` — the machine-readable phase
 membership, labels, and cross-phase edges — plus each ticket's markdown header
 for its title). This tracks plan v2: 116 tickets across 9 phases and 6 lanes.
-To delete the demo: remove this file and the `AIUR_BUILD_ORDER_DEMO` block in
-`config/config.exs`. `PlanningSource` itself is a general feature and can stay.
+To delete the demo: remove this file. `PlanningSource` will continue to
+discover the remaining materialized packs.

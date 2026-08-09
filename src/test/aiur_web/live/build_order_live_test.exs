@@ -194,6 +194,35 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Enum.any?(calls, &match?({:demand, _}, &1))
   end
 
+  test "renders unresolved catalog metrics distinctly from an empty build order", %{first: first, second: second} do
+    unresolved = root(first, "Unresolved root")
+
+    empty = %{
+      root(second, "Empty root")
+      | member_count: 0,
+        epic_count: 0,
+        phase_count: 0,
+        progress: 0
+    }
+
+    _source = install_source(catalog: catalog_snapshot([unresolved, empty], 1, :healthy))
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+
+    unresolved_cells = catalog_cells(document, "Unresolved root")
+    empty_cells = catalog_cells(document, "Empty root")
+
+    assert [unresolved_title | unresolved_metrics] = unresolved_cells
+    assert unresolved_title =~ "Unresolved root"
+    assert unresolved_metrics == ["Unresolved", "Unresolved", "Unresolved", "Unresolved"]
+
+    assert [empty_title | empty_metrics] = empty_cells
+    assert empty_title =~ "Empty root"
+    assert empty_metrics == ["0%", "0", "0", "0"]
+    refute html =~ "—"
+  end
+
   test "a UI-only tick re-derives from the display clock without polling providers" do
     observed_at = DateTime.utc_now() |> DateTime.truncate(:second)
     clock = start_supervised!({Agent, fn -> observed_at end})
@@ -861,6 +890,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
       url: "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
       state: "OPEN"
     })
+  end
+
+  defp catalog_cells(document, title) do
+    document
+    |> Floki.find("tbody tr")
+    |> Enum.find(&(Floki.text(&1) =~ title))
+    |> Floki.find("td")
+    |> Enum.map(&(Floki.text(&1) |> String.trim()))
   end
 
   defp member(number) do
