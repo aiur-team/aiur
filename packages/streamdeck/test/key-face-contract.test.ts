@@ -43,6 +43,11 @@ describe("key-face contract parity", () => {
     expect(directionBadgeColor(badge)).toBe(KEY_FACE_CONTRACT.direction_badges[badge].color);
   });
 
+  it("renders an agent with absent readiness as blocked", () => {
+    const key = layoutKeys([agent("queued")], 0)[0];
+    expect(key).toMatchObject({ kind: "agent", footer: { kind: "queued", unblocked: false, statusLabel: KEY_FACE_CONTRACT.footers.queued.blocked_label } });
+  });
+
   it("does not silently default an unhandled runtime state", () => {
     expect(() => layoutKeys([agent("unknown" as AgentInput["bucket"])], 0)).toThrow("unhandled Stream Deck key state");
     expect(() => bucketContract("unknown" as AgentInput["bucket"])).toThrow("unhandled Stream Deck key state");

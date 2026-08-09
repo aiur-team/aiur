@@ -334,8 +334,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
-    dependency_ready = Map.get(agent, :dependency_ready, true)
-    footer = StreamdeckKeyFaceContract.footer(bucket, dependency_ready)
+    footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
     state = StreamdeckKeyFaceContract.state!(bucket)
 
     key(

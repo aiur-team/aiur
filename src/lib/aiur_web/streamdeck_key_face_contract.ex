@@ -78,6 +78,9 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     end
   end
 
+  @spec footer_for_agent(atom() | String.t(), map()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil}
+  def footer_for_agent(bucket, agent) when is_map(agent), do: footer(bucket, Map.get(agent, :dependency_ready))
+
   @spec progress_color(number()) :: String.t()
   def progress_color(percent) when is_number(percent) do
     progress = @contract["progress"]
