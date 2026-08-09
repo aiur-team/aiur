@@ -77,7 +77,7 @@ defmodule Aiur.Workspace.Hooks do
         System.cmd("sh", ["-c", scrubbed_command],
           cd: workspace,
           stderr_to_stdout: true,
-          env: hook_env(issue_context) ++ Aiur.AgentEnvironment.shell_startup_env()
+          env: hook_env(issue_context) ++ Aiur.AgentEnvironment.system_shell_startup_env()
         )
       end)
 

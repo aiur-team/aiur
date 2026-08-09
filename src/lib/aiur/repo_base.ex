@@ -508,7 +508,7 @@ defmodule Aiur.RepoBase do
     {out, status} =
       System.cmd("sh", ["-c", scrubbed],
         cd: base_path,
-        env: base_env(base_path) ++ AgentEnvironment.shell_startup_env(),
+        env: base_env(base_path) ++ AgentEnvironment.system_shell_startup_env(),
         stderr_to_stdout: true
       )
 

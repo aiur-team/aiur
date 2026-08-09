@@ -41,6 +41,20 @@ defmodule Aiur.AgentEnvironment do
   @spec shell_startup_env() :: [{String.t(), String.t() | false}]
   def shell_startup_env, do: [{"BASH_ENV", false}, {"ENV", false}, {"ZDOTDIR", @neutral_zdotdir}]
 
+  @doc """
+  Same suppression as `shell_startup_env/0`, in the shape `System.cmd/3`
+  accepts. `System.cmd` spells "remove this variable" as `nil`; `Port.open`
+  and tmux spell it `false`. Passing `false` to `System.cmd` raises a
+  `FunctionClauseError` inside `System.validate_env/1`.
+  """
+  @spec system_shell_startup_env() :: [{String.t(), String.t() | nil}]
+  def system_shell_startup_env do
+    Enum.map(shell_startup_env(), fn
+      {name, false} -> {name, nil}
+      {name, value} -> {name, value}
+    end)
+  end
+
   @spec port_shell_startup_env() :: [{charlist(), charlist() | false}]
   def port_shell_startup_env do
     Enum.map(shell_startup_env(), fn
