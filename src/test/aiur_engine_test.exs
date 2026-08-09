@@ -516,6 +516,21 @@ defmodule AiurEngineTest do
              "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
   end
 
+  test "commands routes filters and encoded detail arguments through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_commands dec:42 --filter resolved --json --limit 10|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+  end
+
+  test "commands reports missing option values as usage errors" do
+    {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
+    assert out =~ "commands --filter requires a value"
+  end
+
   test "todo control rpc propagates live success and semantic failure codes" do
     for {rpc_output, expected_code} <- [
           {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
