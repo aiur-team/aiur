@@ -102,7 +102,8 @@ def context(tmp: Path) -> Context:
     }
     return Context(
         root=tmp, build_path=tmp / "build-order.json",
-        publication_path=tmp / "publication.json", approved=APPROVED,
+        publication_path=tmp / "publication.json",
+        discovery_path=tmp / ".aiur/build_orders/example.json", approved=APPROVED,
         authority=AUTHORITY, repository=REPOSITORY,
         trusted_ref="refs/heads/build-order-research", plan_version=1,
         root_id=ROOT, skill_id=SKILL, build=build, publication=publication,
@@ -394,6 +395,27 @@ class ReconciliationTests(unittest.TestCase):
 
         self.assertIn(("PATCH", base, {"body": spec.body}), publisher.client.calls)
 
+    def test_persisted_reapproval_retains_mapping_and_reports_changed_member(self) -> None:
+        self.ctx.publication["approved_planning_commit"] = "c" * 40
+        raw = issue(11, ROOT)
+        raw["body"] = raw["body"].replace(APPROVED, "c" * 40) + "changed scope\n"
+        raw["_planning_markers"] = [{
+            "schema": 2,
+            "logical_id": ROOT,
+            "plan_version": 1,
+            "approved_planning_commit": "c" * 40,
+        }]
+        publisher = AuthorityFreePublisher(FakeClient({}), self.ctx)
+        self.ctx.build["github_root"] = publisher._receipt_mapping(
+            publisher._mapping(raw)
+        )
+
+        mappings = publisher._canonical_mappings([raw])
+
+        self.assertEqual(11, mappings[ROOT]["number"])
+        self.assertEqual([ROOT], publisher._reapproval["changed_members"])
+        publisher._validate_live_issue_identity(raw, self.ctx.specs[ROOT])
+
     def test_existing_issue_is_repaired_without_removing_unrelated_label(self) -> None:
         spec = self.ctx.specs[ROOT]
         raw = issue(11, ROOT)
@@ -412,8 +434,9 @@ class ReconciliationTests(unittest.TestCase):
                     self.assertEqual(payload["labels"], ["build-order"])
                 return {}
         client = RepairClient({})
-        mapping = AuthorityFreePublisher(client, self.ctx)._ensure_issue(
-            spec, {"number": 11},
+        publisher = AuthorityFreePublisher(client, self.ctx)
+        mapping = publisher._ensure_issue(
+            spec, publisher._receipt_mapping(publisher._mapping(raw)),
         )
         self.assertEqual(mapping["number"], 11)
         self.assertIn(("PATCH", base, {"title": spec.title}), client.calls)
@@ -423,9 +446,11 @@ class ReconciliationTests(unittest.TestCase):
         raw = issue(11, ROOT)
         raw["labels"] = [{"name": "agent:todo"}]
         client = FakeClient({("GET", f"repos/{REPOSITORY}/issues/11"): raw})
+        publisher = AuthorityFreePublisher(client, self.ctx)
         with self.assertRaisesRegex(PublicationError, "forbidden routing"):
-            AuthorityFreePublisher(client, self.ctx)._ensure_issue(
-                self.ctx.specs[ROOT], {"number": 11},
+            publisher._ensure_issue(
+                self.ctx.specs[ROOT],
+                publisher._receipt_mapping(publisher._mapping(raw)),
             )
         self.assertTrue(all(call[0] == "GET" for call in client.calls))
 
@@ -1032,8 +1057,10 @@ class ApprovedRenderingTests(unittest.TestCase):
         )
         with tempfile.TemporaryDirectory() as name:
             base = Path(name)
+            ctx.root = base
             ctx.build_path = base / "build-order.json"
             ctx.publication_path = base / "publication.json"
+            ctx.discovery_path = base / ".aiur/build_orders/example.json"
             ctx.root_document = base / "root-issue.md"
             ctx.additional_document = base / "skill-delivery.md"
             ctx.build_path.write_text(json.dumps(ctx.build), encoding="utf-8")
