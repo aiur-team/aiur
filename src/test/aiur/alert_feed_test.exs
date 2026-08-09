@@ -35,18 +35,20 @@ defmodule Aiur.AlertFeedTest do
     assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
   end
 
-  test "does not open workspace transcripts during a normal ledger read", %{root: root, ledger: ledger} do
+  test "does not open workspace transcripts during a normal default-ledger read", %{root: root} do
     workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
     File.mkdir_p!(Path.dirname(workspace_log))
     assert {"", 0} = System.cmd("mkfifo", [workspace_log])
+
+    ledger = AlertLedger.path(log_roots: [root])
 
     write_ledger!(ledger, """
     {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.paused","message":"paused","needs_attention":true,"source_ticket_id":"42"}
     """)
 
-    task = Task.async(fn -> AlertFeed.list(roots: [root], ledger_paths: [ledger], needs_attention: true) end)
+    task = Task.async(fn -> AlertFeed.list(roots: [root], log_roots: [root], needs_attention: true) end)
 
-    case Task.yield(task, 200) do
+    case Task.yield(task, 1_000) do
       {:ok, [%{"topic" => "ticket.42.agent.paused"}]} ->
         :ok
 
@@ -74,18 +76,69 @@ defmodule Aiur.AlertFeedTest do
     assert 3 == ledger |> File.stream!() |> Enum.count()
   end
 
-  test "backfill does not duplicate alerts already written to the live ledger", %{root: root, ledger: ledger} do
+  test "backfill does not duplicate alerts mirrored in workspace and central logs", %{root: root, ledger: ledger} do
     legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    central = Path.join(root, "alerts.ndjson")
     File.mkdir_p!(Path.dirname(legacy))
 
     event =
       "{\"event\":\"alert\",\"timestamp\":\"2026-06-25T01:00:00Z\",\"topic\":\"ticket.42.agent.paused\",\"message\":\"paused\",\"reason\":\"paused\",\"severity\":\"warning\",\"needs_attention\":true,\"source_ticket_id\":\"42\",\"agent\":\"42\"}\n"
 
     File.write!(legacy, event)
-    write_ledger!(ledger, event)
+    File.write!(central, String.replace(event, ~s(,"agent":"42"), ""))
+
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [root], ledger_path: ledger)
+    assert 1 == ledger |> File.stream!() |> Enum.count()
+  end
+
+  test "backfill keeps legacy alert bytes while normalizing presentation", %{root: root, ledger: ledger} do
+    legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(legacy))
+
+    File.write!(legacy, "{\"event\":\"alert\",\"topic\":\"ticket.42.agent.attention.scope\",\"message\":\"Operator decision required\",\"needs_attention\":true}\n")
 
     assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
-    assert 1 == ledger |> File.stream!() |> Enum.count()
+    assert File.read!(ledger) =~ "Operator decision required"
+    assert [%{"message" => "Executor decision required"}] = AlertFeed.list(ledger_paths: [ledger])
+  end
+
+  test "missing resolution timestamps sort after timestamped opens", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","topic":"ticket.42.agent.attention.scope.resolved","needs_attention":false,"source_ticket_id":"42","timestamp":null}
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.scope","needs_attention":true,"source_ticket_id":"42"}
+    """)
+
+    assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
+  end
+
+  test "attention probes retain central-only scope", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","topic":"system.test.workspace_only","needs_attention":true,"agent":"42"}
+    {"event":"alert","topic":"system.test.central","needs_attention":true,"agent":"system"}
+    """)
+
+    refute AlertFeed.active_system_attention?("system.test.workspace_only", ledger_paths: [ledger])
+    assert AlertFeed.active_system_attention?("system.test.central", ledger_paths: [ledger])
+  end
+
+  test "backfill lock does not block ledger appends", %{ledger: ledger} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        AlertLedger.with_backfill_lock([ledger_path: ledger], fn ->
+          send(parent, :backfill_lock_acquired)
+
+          receive do
+            :release_backfill_lock -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :backfill_lock_acquired
+    assert :ok = AlertLedger.append(%{"topic" => "ticket.42.agent.paused"}, ledger_path: ledger)
+    send(task.pid, :release_backfill_lock)
+    assert :ok = Task.await(task)
   end
 
   test "backfill keeps a distinct marker for a custom ledger filename", %{root: root} do

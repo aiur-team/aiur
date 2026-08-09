@@ -5,6 +5,8 @@ defmodule Aiur.AlertLedger do
 
   @ledger_suffix ".alerts.ndjson"
   @backfill_suffix ".alerts.backfill"
+  @append_lock_timeout 1_000
+  @backfill_lock_timeout 60_000
 
   @spec append(map(), keyword()) :: :ok | {:error, term()}
   def append(alert, opts \\ []) when is_map(alert) do
@@ -62,19 +64,32 @@ defmodule Aiur.AlertLedger do
 
   @spec with_lock(keyword(), (-> term())) :: term()
   def with_lock(opts, fun) when is_list(opts) and is_function(fun, 0) do
-    name = {__MODULE__, Path.expand(path(opts))}
+    with_named_lock({:append, Path.expand(path(opts))}, Keyword.get(opts, :lock_timeout, @append_lock_timeout), fun)
+  end
+
+  @spec with_backfill_lock(keyword(), (-> term())) :: term()
+  def with_backfill_lock(opts, fun) when is_list(opts) and is_function(fun, 0) do
+    with_external_lock({:backfill, Path.expand(path(opts))}, Keyword.get(opts, :backfill_lock_timeout, @backfill_lock_timeout), fun)
+  end
+
+  defp with_named_lock(name, timeout, fun) when is_integer(timeout) and timeout >= 0 do
     lock_key = {__MODULE__, :lock_depth, name}
 
     case Process.get(lock_key) do
       nil ->
-        acquire_lock(name)
-        Process.put(lock_key, 1)
+        case acquire_lock(name, timeout) do
+          :ok ->
+            Process.put(lock_key, 1)
 
-        try do
-          fun.()
-        after
-          Process.delete(lock_key)
-          :ok = :global.unregister_name(name)
+            try do
+              fun.()
+            after
+              Process.delete(lock_key)
+              :ok = :global.unregister_name(name)
+            end
+
+          {:error, :lock_timeout} = error ->
+            error
         end
 
       depth ->
@@ -88,16 +103,77 @@ defmodule Aiur.AlertLedger do
     end
   end
 
+  defp with_named_lock(_name, _timeout, _fun), do: {:error, :invalid_lock_timeout}
+
+  defp with_external_lock(name, timeout, fun) when is_integer(timeout) and timeout >= 0 do
+    parent = self()
+    ref = make_ref()
+
+    holder =
+      spawn(fn ->
+        parent_monitor = Process.monitor(parent)
+
+        case acquire_lock(name, timeout) do
+          :ok ->
+            send(parent, {:external_lock_acquired, ref, self()})
+
+            receive do
+              {:release_external_lock, ^ref} -> :ok
+              {:DOWN, ^parent_monitor, :process, ^parent, _reason} -> :ok
+            end
+
+            :ok = :global.unregister_name(name)
+            send(parent, {:external_lock_released, ref})
+
+          {:error, :lock_timeout} = error ->
+            send(parent, {:external_lock_failed, ref, error})
+        end
+      end)
+
+    receive do
+      {:external_lock_acquired, ^ref, ^holder} ->
+        try do
+          fun.()
+        after
+          send(holder, {:release_external_lock, ref})
+
+          receive do
+            {:external_lock_released, ^ref} -> :ok
+          end
+        end
+
+      {:external_lock_failed, ^ref, error} ->
+        error
+    after
+      timeout + 50 ->
+        Process.exit(holder, :kill)
+        {:error, :lock_timeout}
+    end
+  end
+
+  defp with_external_lock(_name, _timeout, _fun), do: {:error, :invalid_lock_timeout}
+
   defp backfill_marker(opts), do: path(opts) <> @backfill_suffix
 
-  defp acquire_lock(name) do
+  defp acquire_lock(name, timeout) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    do_acquire_lock(name, deadline)
+  end
+
+  defp do_acquire_lock(name, deadline) do
     case :global.register_name(name, self()) do
       :yes ->
         :ok
 
       :no ->
-        Process.sleep(10)
-        acquire_lock(name)
+        remaining = deadline - System.monotonic_time(:millisecond)
+
+        if remaining > 0 do
+          Process.sleep(min(10, remaining))
+          do_acquire_lock(name, deadline)
+        else
+          {:error, :lock_timeout}
+        end
     end
   end
 

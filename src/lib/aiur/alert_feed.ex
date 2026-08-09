@@ -16,16 +16,17 @@ defmodule Aiur.AlertFeed do
     opts
     |> AlertLedger.paths()
     |> Enum.flat_map(&read_alerts/1)
-    |> Enum.sort_by(&Map.get(&1, "timestamp", ""))
+    |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
     |> resolve_attention_alerts()
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
+    |> maybe_filter_agents(Keyword.get(opts, :agents))
   end
 
   @doc false
   @spec backfill(keyword()) :: :ok
   def backfill(opts \\ []) do
     unless AlertLedger.backfilled?(opts) do
-      AlertLedger.with_lock(opts, fn -> backfill_locked(opts) end)
+      AlertLedger.with_backfill_lock(opts, fn -> backfill_locked(opts) end)
     end
 
     :ok
@@ -47,13 +48,6 @@ defmodule Aiur.AlertFeed do
   @doc "Returns active legacy attention alerts in the current project's Decision adapter shape."
   @spec list_decision_attentions(keyword()) :: [map()]
   def list_decision_attentions(opts \\ []) do
-    opts =
-      if Keyword.has_key?(opts, :roots) do
-        opts
-      else
-        Keyword.put(opts, :roots, configured_project_roots())
-      end
-
     opts
     |> Keyword.put(:needs_attention, true)
     |> list()
@@ -65,7 +59,7 @@ defmodule Aiur.AlertFeed do
   @doc false
   @spec active_system_attention?(String.t(), keyword()) :: boolean()
   def active_system_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
-    opts = opts |> Keyword.put(:roots, []) |> Keyword.put_new(:log_roots, [Paths.log_root_dir()])
+    opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
 
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
   end
@@ -73,7 +67,7 @@ defmodule Aiur.AlertFeed do
   @doc false
   @spec active_ticket_attention?(String.t(), keyword()) :: boolean()
   def active_ticket_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
-    opts = opts |> Keyword.put(:roots, []) |> Keyword.put_new(:log_roots, [Paths.log_root_dir()])
+    opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
 
     Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
   end
@@ -92,7 +86,7 @@ defmodule Aiur.AlertFeed do
 
   defp append_legacy_alerts(paths, existing, opts) do
     paths
-    |> Enum.flat_map(&read_alerts/1)
+    |> Enum.flat_map(&read_legacy_alerts/1)
     |> Enum.reduce_while({:ok, existing}, fn alert, {:ok, seen} ->
       case append_legacy_alert(alert, seen, opts) do
         {:ok, updated_seen} -> {:cont, {:ok, updated_seen}}
@@ -200,12 +194,19 @@ defmodule Aiur.AlertFeed do
   end
 
   defp read_alerts(path) do
-    agent = agent_from_path(path)
-
     path
     |> Jsonl.stream()
     |> Stream.filter(&(Map.get(&1, "event") == "alert"))
-    |> Enum.map(&normalize_alert(&1, agent))
+    |> Enum.map(&normalize_alert(&1, agent_from_path(path, &1)))
+  rescue
+    _ -> []
+  end
+
+  defp read_legacy_alerts(path) do
+    path
+    |> Jsonl.stream()
+    |> Stream.filter(&(Map.get(&1, "event") == "alert"))
+    |> Enum.to_list()
   rescue
     _ -> []
   end
@@ -238,6 +239,9 @@ defmodule Aiur.AlertFeed do
 
   defp maybe_filter_attention(alerts, true), do: Enum.filter(alerts, &(Map.get(&1, "needs_attention") == true))
   defp maybe_filter_attention(alerts, _), do: alerts
+
+  defp maybe_filter_agents(alerts, agents) when is_list(agents), do: Enum.filter(alerts, &(&1["agent"] in agents))
+  defp maybe_filter_agents(alerts, _agents), do: alerts
 
   defp resolve_attention_alerts(alerts) do
     Enum.reduce(alerts, [], fn alert, active_alerts ->
@@ -333,7 +337,7 @@ defmodule Aiur.AlertFeed do
 
   defp alert_fingerprint(alert) do
     alert
-    |> Map.take(~w(timestamp source_ticket_id agent topic reason message severity needs_attention))
+    |> Map.take(~w(timestamp source_ticket_id topic reason message severity needs_attention))
     |> Jason.encode!()
   end
 
@@ -400,18 +404,22 @@ defmodule Aiur.AlertFeed do
 
   defp parse_timestamp(_timestamp), do: nil
 
-  defp agent_from_path(path) do
+  defp agent_from_path(path, alert) do
     if Path.basename(path) == "alerts.ndjson" do
       "system"
     else
-      agent_from_workspace_path(path)
+      string_field(alert, "agent") || string_field(alert, "source_ticket_id") || agent_from_workspace_path(path)
     end
   end
 
   defp agent_from_workspace_path(path) do
-    path
-    |> Path.dirname()
-    |> Path.dirname()
-    |> Path.basename()
+    if String.ends_with?(Path.basename(path), ".alerts.ndjson") do
+      "system"
+    else
+      path
+      |> Path.dirname()
+      |> Path.dirname()
+      |> Path.basename()
+    end
   end
 end
