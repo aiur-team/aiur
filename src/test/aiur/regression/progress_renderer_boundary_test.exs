@@ -130,12 +130,14 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
       |> File.read!()
       |> String.split("\n")
       |> Enum.with_index(1)
-      |> Enum.flat_map(fn {line, number} ->
-        if String.contains?(line, ["progress_resolution", "progress_resolved_count"]),
-          do: ["#{relative}:#{number}: #{String.trim(line)}"],
-          else: []
-      end)
+      |> Enum.flat_map(&raw_resolution_offender(&1, relative))
     end)
+  end
+
+  defp raw_resolution_offender({line, number}, relative) do
+    if String.contains?(line, ["progress_resolution", "progress_resolved_count"]),
+      do: ["#{relative}:#{number}: #{String.trim(line)}"],
+      else: []
   end
 
   defp raw_progress_offenders(path) do
