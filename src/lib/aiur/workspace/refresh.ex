@@ -3,7 +3,7 @@ defmodule Aiur.Workspace.Refresh do
 
   require Logger
   alias Aiur.Config
-  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
+  alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, PushSafety, Reconstruction}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
   def run(workspace, issue_or_identifier, worker_host \\ nil) when is_binary(workspace) do
@@ -107,7 +107,8 @@ defmodule Aiur.Workspace.Refresh do
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
-    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
+    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host),
+         :ok <- PushSafety.install(workspace, worker_host) do
       BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
     end
   end

@@ -16,22 +16,20 @@ defmodule Aiur.GitHub.Config do
     case section_value("repo") do
       value when is_binary(value) ->
         case String.trim(value) do
-          "" -> Aiur.Git.origin_repo()
+          "" -> nil
           trimmed -> trimmed
         end
 
       _ ->
-        # No repo in config (e.g. the general global config) — auto-detect
-        # it from the current repo's git remote.
-        Aiur.Git.origin_repo()
+        nil
     end
   end
 
   @doc """
   Returns only the repository explicitly configured in `tracker.github.repo`.
 
-  Unlike `repo/0`, this never falls back to the current checkout's git remote;
-  callers using it are establishing a trusted cross-repository identity.
+  Callers use this parsed form when establishing a trusted cross-repository
+  identity.
   """
   @spec configured_repo() ::
           {:ok, {String.t(), String.t()}}
@@ -42,6 +40,19 @@ defmodule Aiur.GitHub.Config do
       _ -> {:error, :missing_configured_repository}
     end
   end
+
+  @doc false
+  @spec parse_configured_repo(term()) ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def parse_configured_repo(value) when is_binary(value) do
+    case String.split(String.trim(value), "/") do
+      [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
+      _ -> {:error, :invalid_configured_repository}
+    end
+  end
+
+  def parse_configured_repo(_value), do: {:error, :missing_configured_repository}
 
   @spec token() :: String.t() | nil
   def token do
@@ -291,14 +302,14 @@ defmodule Aiur.GitHub.Config do
   @impl Aiur.TrackerConfig
   def validate! do
     cond do
+      not match?({:ok, {_, _}}, configured_repo()) ->
+        {:error, "GitHub repo missing or invalid — set tracker.github.repo in .aiur/config"}
+
       AppCredentials.configured?() and !is_binary(token()) ->
         {:error, "GitHub App installation token unavailable — check GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and the App private key"}
 
       !AppCredentials.configured?() and !is_binary(token()) ->
         {:error, "GitHub token missing — set GITHUB_TOKEN env var"}
-
-      !is_binary(repo()) ->
-        {:error, "GitHub repo missing — set github.repo in .aiurconfig"}
 
       true ->
         :ok
@@ -330,13 +341,6 @@ defmodule Aiur.GitHub.Config do
     end
   catch
     :exit, _reason -> []
-  end
-
-  defp parse_configured_repo(value) do
-    case String.split(String.trim(value), "/") do
-      [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
-      _ -> {:error, :invalid_configured_repository}
-    end
   end
 
   # Query the gh keyring with the env tokens CLEARED so gh returns the stored

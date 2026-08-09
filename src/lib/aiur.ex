@@ -27,10 +27,22 @@ defmodule Aiur.Application do
 
   @impl true
   def start(_type, _args) do
+    case AiurConfig.boot_configuration() do
+      {:ok, boot_configuration} ->
+        start_validated(boot_configuration)
+
+      {:error, reason} ->
+        Logger.error("aiur_config invalid error=#{inspect(AiurConfig.format_error(reason))}")
+        {:error, {:invalid_configuration, reason}}
+    end
+  end
+
+  defp start_validated(boot_configuration) do
     :ok = Aiur.Boot.mark()
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
+    :ok = log_boot_configuration(boot_configuration)
     telemetry? = Aiur.Config.telemetry_enabled?()
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
@@ -63,6 +75,18 @@ defmodule Aiur.Application do
         name: Aiur.Supervisor
       )
     end
+  end
+
+  @doc false
+  @spec log_boot_configuration(%{path: Path.t(), repo: String.t(), base_branch: String.t()}) ::
+          :ok
+  def log_boot_configuration(configuration) do
+    Logger.info(
+      "aiur_config resolved path=#{inspect(configuration.path)} " <>
+        "repo=#{inspect(configuration.repo)} base_branch=#{inspect(configuration.base_branch)}"
+    )
+
+    :ok
   end
 
   @doc """

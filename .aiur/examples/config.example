@@ -3,6 +3,7 @@
 # === Issue tracker ===
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
+  base_branch: {{BASE_BRANCH}}           # required merge destination; never inferred from the repository default
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency

@@ -8,7 +8,7 @@ defmodule Aiur.WorkflowStore do
   use GenServer
   require Logger
 
-  alias Aiur.Workflow
+  alias Aiur.{Config, Workflow}
 
   @poll_interval_ms 1_000
   @reload_attempts 3
@@ -77,9 +77,9 @@ defmodule Aiur.WorkflowStore do
         GenServer.call(__MODULE__, :force_reload)
 
       _ ->
-        case Workflow.load() do
-          {:ok, _workflow} -> :ok
-          {:error, reason} -> {:error, reason}
+        with {:ok, workflow} <- Workflow.load(),
+             :ok <- Config.validate_workflow(workflow) do
+          :ok
         end
     end
   end
@@ -158,9 +158,7 @@ defmodule Aiur.WorkflowStore do
   defp reload_path(path, state) do
     case load_state(path) do
       {:ok, new_state} ->
-        new_state = advance_generation(new_state, state)
-        broadcast_configuration(new_state)
-        {:ok, new_state}
+        activate_loaded_state(new_state, state)
 
       {:error, reason} ->
         log_reload_error(path, reason)
@@ -185,9 +183,14 @@ defmodule Aiur.WorkflowStore do
   defp reload_changed_stamp(path, stamp, state) do
     case load_state(path) do
       {:ok, new_state} ->
-        new_state = advance_generation(new_state, state)
-        broadcast_configuration(new_state)
-        {:ok, new_state}
+        case activate_loaded_state(new_state, state) do
+          {:ok, activated_state} ->
+            {:ok, activated_state}
+
+          {:error, reason, _state} ->
+            if stamp != state.failed_stamp, do: log_reload_error(path, reason)
+            {:error, reason, %{state | failed_stamp: stamp}}
+        end
 
       {:error, reason} ->
         # Keep the prior stamp so the next poll retries: a transient load
@@ -202,6 +205,7 @@ defmodule Aiur.WorkflowStore do
 
   defp load_state(path, attempts \\ @reload_attempts) do
     with {:ok, workflow} <- Workflow.load(path),
+         :ok <- Config.validate_workflow(workflow),
          {:ok, stamp} <- current_stamp(path) do
       {:ok, %State{path: path, stamp: stamp, workflow: workflow}}
     else
@@ -263,7 +267,33 @@ defmodule Aiur.WorkflowStore do
   end
 
   defp log_reload_error(path, reason) do
-    Logger.error("Failed to reload workflow path=#{path} reason=#{inspect(reason)}; keeping last known good configuration")
+    Logger.error(
+      "Failed to reload workflow path=#{path} error=#{Config.format_error(reason)}; " <>
+        "keeping last known good configuration"
+    )
+  end
+
+  defp activate_loaded_state(new_state, state) do
+    with {:ok, old_identity} <- Config.workflow_identity(state.workflow),
+         {:ok, new_identity} <- Config.workflow_identity(new_state.workflow),
+         :ok <- require_same_identity(old_identity, new_identity) do
+      new_state = advance_generation(new_state, state)
+      broadcast_configuration(new_state)
+      {:ok, new_state}
+    else
+      {:error, reason} ->
+        {:error, reason, state}
+    end
+  end
+
+  defp require_same_identity(identity, identity), do: :ok
+
+  defp require_same_identity(old_identity, new_identity) do
+    if Application.get_env(:aiur, :allow_runtime_tracker_identity_changes, false) do
+      :ok
+    else
+      {:error, {:restart_required_configuration_change, old_identity, new_identity}}
+    end
   end
 
   defp advance_generation(new_state, state) do

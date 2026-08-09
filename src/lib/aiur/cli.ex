@@ -3,7 +3,7 @@ defmodule Aiur.CLI do
   Escript entrypoint for running Aiur with an explicit config-file path.
   """
 
-  alias Aiur.LogFile
+  alias Aiur.{Config, LogFile, Workflow}
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @repo "aiur-team/aiur"
@@ -53,6 +53,7 @@ defmodule Aiur.CLI do
           required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
           required(:set_server_host_override) => (String.t() | nil -> :ok | {:error, term()}),
           required(:ensure_all_started) => (-> ensure_started_result()),
+          optional(:discover_workflow_path) => (-> {:ok, Path.t()} | {:error, term()}),
           optional(:configured_max_agents) => (-> pos_integer())
         }
 
@@ -175,7 +176,8 @@ defmodule Aiur.CLI do
   defp evaluate_standard(opts, ["asks" | rest], _deps), do: evaluate_asks(opts, rest)
 
   defp evaluate_standard(opts, [], deps) do
-    evaluate_run(opts, Aiur.Workflow.detect_run_folder_config(), deps)
+    discover = Map.get(deps, :discover_workflow_path, &Workflow.discover_config_path/0)
+    evaluate_run(opts, discover.(), deps)
   end
 
   defp evaluate_standard(opts, [workflow_path], deps), do: evaluate_run(opts, workflow_path, deps)
@@ -191,9 +193,13 @@ defmodule Aiur.CLI do
          :ok <- maybe_set_headless(opts),
          :ok <- maybe_disable_dashboard(opts),
          :ok <- maybe_set_pause(opts) do
-      run(workflow_path, deps, opts)
+      run_discovered(workflow_path, deps, opts)
     end
   end
+
+  defp run_discovered({:ok, workflow_path}, deps, opts), do: run(workflow_path, deps, opts)
+  defp run_discovered({:error, reason}, _deps, _opts), do: {:error, Config.format_error(reason)}
+  defp run_discovered(workflow_path, deps, opts), do: run(workflow_path, deps, opts)
 
   defp todo_switch?(opts), do: Keyword.has_key?(opts, :todo) or Keyword.has_key?(opts, :only)
 
@@ -369,6 +375,7 @@ defmodule Aiur.CLI do
       set_server_port_override: &set_server_port_override/1,
       set_server_host_override: &set_server_host_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
+      discover_workflow_path: &Aiur.Workflow.discover_config_path/0,
       configured_max_agents: &Aiur.Config.max_concurrent_agents/0
     }
   end

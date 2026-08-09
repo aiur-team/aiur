@@ -1,6 +1,6 @@
 defmodule Aiur.RepoBase do
   @moduledoc """
-  Maintains one warm, pre-compiled base checkout of the target repo's base branch (`tracker.base_branch`, default `main`) at
+  Maintains one warm, pre-compiled base checkout of the target repo's configured base branch (`tracker.base_branch`) at
   `~/.aiur/repo/<owner>/<name>/latest` so per-issue workspaces materialize from it
   (copy-on-write) instead of cold-cloning + recompiling on every dispatch.
 

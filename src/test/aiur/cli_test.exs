@@ -63,6 +63,7 @@ defmodule Aiur.CLITest do
 
   test "defaults to .aiur/config when workflow path is missing" do
     deps = %{
+      discover_workflow_path: fn -> {:ok, Path.expand(".aiur/config")} end,
       file_regular?: fn path ->
         Path.basename(path) == "config" and Path.basename(Path.dirname(path)) == ".aiur"
       end,
@@ -74,6 +75,28 @@ defmodule Aiur.CLITest do
     }
 
     assert :ok = CLI.evaluate([@ack_flag], deps)
+  end
+
+  test "no-argument launch reports cwd and all searched config paths" do
+    cwd = Path.expand("nested/src")
+    searched = [Path.join(cwd, ".aiur/config"), Path.expand(".aiur/config")]
+
+    deps = %{
+      discover_workflow_path: fn ->
+        {:error, {:missing_workflow_file, %{cwd: cwd, searched_paths: searched}}}
+      end,
+      file_regular?: fn _path -> flunk("missing discovery must not probe one fallback path") end,
+      set_workflow_file_path: fn _path -> :ok end,
+      set_logs_root: fn _path -> :ok end,
+      set_server_port_override: fn _port -> :ok end,
+      set_server_host_override: fn _host -> :ok end,
+      ensure_all_started: fn -> {:ok, [:aiur]} end
+    }
+
+    assert {:error, message} = CLI.evaluate([@ack_flag], deps)
+    assert message =~ "Resolved working directory: #{cwd}"
+    assert message =~ Enum.at(searched, 0)
+    assert message =~ Enum.at(searched, 1)
   end
 
   test "parses the findings command and its filters without starting the app" do

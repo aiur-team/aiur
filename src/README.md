@@ -140,8 +140,11 @@ The config file (`.aiur/config`, or a legacy root `.aiurconfig`) is pure YAML fo
 adapters, credentials, and run policy. Optional `prompt_file:` and `hooks_file:` keys
 point at sibling files (`prompt.md`, `hooks`), resolved relative to the config's own
 directory; when `prompt_file:` is omitted, a built-in default prompt is used.
-Discovery precedence: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` →
-`~/.aiurconfig`. Supported adapters:
+Discovery starts at the resolved working directory and walks each ancestor to the
+filesystem root, checking `.aiur/config` before the legacy `.aiurconfig` at every
+level. Only then does it fall back to `~/.aiur/config` and `~/.aiurconfig`. Thus a
+daemon launched from a repository subdirectory resolves the same repository-owned
+config as one launched from its root. Supported adapters:
 
 - **Trackers**: `linear`, `github`, `memory`
 - **Agents**: `codex`, `claude`

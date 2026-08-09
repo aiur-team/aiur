@@ -1,6 +1,8 @@
 defmodule Aiur.ApplicationTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Application, as: AiurApp
 
   defmodule SuccessStubDistribution do
@@ -505,6 +507,105 @@ defmodule Aiur.ApplicationTest do
       Aiur.RunTelemetry.start_boot()
 
       assert Aiur.RunTelemetry.telemetry_enabled?() == false
+    end
+  end
+
+  test "logs the resolved config path, repository, and base branch in one info line" do
+    log =
+      capture_log([level: :info], fn ->
+        assert :ok =
+                 AiurApp.log_boot_configuration(%{
+                   path: "/work/repo/.aiur/config",
+                   repo: "owner/repo",
+                   base_branch: "develop"
+                 })
+      end)
+
+    line = ~s(aiur_config resolved path="/work/repo/.aiur/config" repo="owner/repo" base_branch="develop")
+    assert length(:binary.matches(log, line)) == 1
+  end
+
+  test "application callback fails before supervision when the selected config is missing" do
+    missing = Path.join(System.tmp_dir!(), "missing-aiur-config-#{System.unique_integer([:positive])}")
+
+    with_workflow_path(missing, fn ->
+      log =
+        capture_log(fn ->
+          assert {:error, {:invalid_configuration, {:missing_workflow_file, ^missing, :enoent}}} =
+                   AiurApp.start(:normal, [])
+        end)
+
+      assert log =~ missing
+      assert log =~ "Run `aiur init`"
+    end)
+  end
+
+  test "application callback reports the selected config when GitHub repo is missing" do
+    with_boot_config(
+      """
+      tracker:
+        kind: github
+        base_branch: develop
+        github: {}
+      """,
+      fn path ->
+        log =
+          capture_log(fn ->
+            assert {:error, {:invalid_configuration, {:invalid_boot_configuration, ^path, :missing_github_repo}}} =
+                     AiurApp.start(:normal, [])
+          end)
+
+        assert log =~ path
+        assert log =~ "tracker.github.repo"
+      end
+    )
+  end
+
+  test "application callback reports the selected config when base branch is missing" do
+    with_boot_config(
+      """
+      tracker:
+        kind: github
+        github:
+          repo: owner/repo
+      """,
+      fn path ->
+        log =
+          capture_log(fn ->
+            assert {:error, {:invalid_configuration, {:invalid_boot_configuration, ^path, :missing_base_branch}}} =
+                     AiurApp.start(:normal, [])
+          end)
+
+        assert log =~ path
+        assert log =~ "will not guess a merge destination"
+      end
+    )
+  end
+
+  defp with_boot_config(body, fun) do
+    root = Path.join(System.tmp_dir!(), "aiur-boot-config-#{System.unique_integer([:positive])}")
+    path = Path.join(root, ".aiurconfig")
+    File.mkdir_p!(root)
+    File.write!(path, body)
+
+    try do
+      with_workflow_path(path, fn -> fun.(path) end)
+    after
+      File.rm_rf!(root)
+    end
+  end
+
+  defp with_workflow_path(path, fun) do
+    original = Application.get_env(:aiur, :workflow_file_path)
+    Application.put_env(:aiur, :workflow_file_path, path)
+
+    try do
+      fun.()
+    after
+      case original do
+        nil -> Application.delete_env(:aiur, :workflow_file_path)
+        value -> Application.put_env(:aiur, :workflow_file_path, value)
+      end
     end
   end
 end

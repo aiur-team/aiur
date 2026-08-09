@@ -35,6 +35,11 @@ if config_env() == :test do
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
 
+  # TestSupport rewrites one shared workflow across tracker/base combinations.
+  # Production leaves this unset so repository/base identity remains
+  # restart-required; the focused WorkflowStore regression disables it.
+  config :aiur, :allow_runtime_tracker_identity_changes, true
+
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production
   # default, but this singleton must not poll across sequential test boundaries.

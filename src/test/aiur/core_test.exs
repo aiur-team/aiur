@@ -195,6 +195,55 @@ defmodule Aiur.CoreTest do
     end
   end
 
+  test "boot configuration requires an explicit GitHub repository and base branch" do
+    path = Workflow.workflow_file_path()
+
+    write_workflow_file!(path,
+      tracker_kind: "github",
+      tracker_repo: nil,
+      tracker_base_branch: "develop"
+    )
+
+    assert {:error, {:invalid_boot_configuration, ^path, :missing_github_repo}} = Config.boot_configuration()
+
+    write_workflow_file!(path,
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_base_branch: nil
+    )
+
+    assert {:error, {:invalid_boot_configuration, ^path, :missing_base_branch}} = Config.boot_configuration()
+  end
+
+  test "boot configuration returns the resolved path, repo, and base branch" do
+    path = Workflow.workflow_file_path()
+
+    write_workflow_file!(path,
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_base_branch: "develop"
+    )
+
+    assert {:ok,
+            %{
+              path: ^path,
+              repo: "owner/repo",
+              base_branch: "develop"
+            }} = Config.boot_configuration()
+  end
+
+  test "missing config errors identify the working directory and every searched path" do
+    reason =
+      {:missing_workflow_file, %{cwd: "/repo/src", searched_paths: ["/repo/src/.aiur/config", "/repo/.aiur/config", "/home/user/.aiur/config"]}}
+
+    message = Config.format_error(reason)
+
+    assert message =~ "Resolved working directory: /repo/src"
+    assert message =~ "/repo/src/.aiur/config"
+    assert message =~ "/repo/.aiur/config"
+    assert message =~ "/home/user/.aiur/config"
+  end
+
   test "production config treats GitHub closed as terminal so a fenced closed issue is finalized" do
     original_workflow_path = Workflow.workflow_file_path()
 

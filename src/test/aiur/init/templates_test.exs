@@ -59,7 +59,7 @@ defmodule Aiur.Init.TemplatesTest do
   test "build_fills and fill_template render a known token map" do
     fills =
       Templates.build_fills(%{
-        tracker: %{kind: "github", repo: "owner/repo"},
+        tracker: %{kind: "github", repo: "owner/repo", base_branch: "develop"},
         agents: ["codex", "claude", "codex"],
         routing: %{1 => "claude", 2 => "claude", 3 => "codex", 4 => "codex:gpt-5", 5 => "codex:gpt-5:high"},
         permission_mode: "bypassPermissions",
@@ -106,7 +106,7 @@ defmodule Aiur.Init.TemplatesTest do
     with_account =
       Templates.fill_template(
         "{{TRACKER_PROVIDER}}",
-        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: "its-applekid"}))
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: "its-applekid", base_branch: "develop"}))
       )
 
     assert with_account =~ "repo: owner/repo"
@@ -115,7 +115,7 @@ defmodule Aiur.Init.TemplatesTest do
     without_account =
       Templates.fill_template(
         "{{TRACKER_PROVIDER}}",
-        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: nil}))
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: nil, base_branch: "develop"}))
       )
 
     refute without_account =~ "bot_account:"
@@ -124,7 +124,7 @@ defmodule Aiur.Init.TemplatesTest do
   test "build_fills writes the ordered rate-limit fallback when selected" do
     fills =
       Templates.build_fills(%{
-        tracker: %{kind: "github", repo: "owner/repo"},
+        tracker: %{kind: "github", repo: "owner/repo", base_branch: "develop"},
         agents: ["claude", "codex"],
         routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
         rate_limit_fallback: ["codex", "claude"],

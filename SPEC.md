@@ -301,11 +301,15 @@ Fields:
 Config file path precedence:
 
 1. Explicit application/runtime setting (set by CLI startup path).
-2. Default: `.aiurconfig` in the current process working directory.
+2. Starting at the resolved process working directory, walk through each ancestor
+   to the filesystem root and check `.aiur/config` before `.aiurconfig` at each
+   level.
+3. User fallback: `~/.aiur/config`, then `~/.aiurconfig`.
 
 Loader behavior:
 
-- If the file cannot be read, return `missing_workflow_file` error.
+- If no file can be found, return `missing_workflow_file` with the resolved
+  working directory and every searched path.
 - The config file is expected to be repository-owned and version-controlled.
 
 ### 5.2 File Format

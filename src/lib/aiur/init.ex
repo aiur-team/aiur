@@ -72,19 +72,23 @@ defmodule Aiur.Init do
     case deps.load_config.(target) do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
-        Resume.print_saved_summary(io, config)
-        effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = Resume.tracker_from_config(deps, config)
 
-        case deps.setup_repo_state.(tracker) do
-          :ok ->
-            Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
-            Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
-            Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-            provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
+        with {:ok, tracker} <- Resume.tracker_from_config(config) do
+          Resume.print_saved_summary(io, config)
+          effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
 
-          {:error, reason} ->
-            {:error, "Failed to create repository state: #{inspect(reason)}"}
+          case deps.setup_repo_state.(tracker) do
+            :ok ->
+              Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+              Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
+              Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+              provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
+
+            {:error, reason} ->
+              {:error, "Failed to create repository state: #{inspect(reason)}"}
+          end
+        else
+          {:error, reason} -> {:error, Aiur.Config.format_error(reason)}
         end
 
       {:error, reason} ->
@@ -95,7 +99,7 @@ defmodule Aiur.Init do
   end
 
   defp fresh_setup(io, deps, location, target) do
-    tracker = Questions.prompt_tracker(io, deps, location)
+    tracker = Questions.prompt_tracker(io, deps)
     tracker = Aiur.Init.BotAccount.maybe_prompt(io, deps, tracker)
 
     case deps.setup_repo_state.(tracker) do

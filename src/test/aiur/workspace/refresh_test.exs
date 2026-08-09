@@ -47,6 +47,10 @@ defmodule Aiur.Workspace.RefreshTest do
 
     assert File.exists?(Path.join(workspace, "rebuilt"))
     assert File.read!(log_path) == "prior transcript\n"
+    assert git!(["-C", workspace, "config", "--local", "--get", "aiur.baseBranch"]) == "main\n"
+
+    hook_dir = String.trim(git!(["-C", workspace, "config", "--local", "--get", "core.hooksPath"]))
+    assert File.exists?(Path.join(hook_dir, "pre-push"))
   end
 
   test "run/3 refuses incomplete Git WIP before executing before_run", %{

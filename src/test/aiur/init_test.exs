@@ -259,6 +259,7 @@ defmodule Aiur.InitTest do
     File.write!(target, """
     tracker:
       kind: github
+      base_branch: main
       github:
         repo: octo/repo
     agent:
@@ -387,6 +388,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -412,6 +414,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -822,7 +825,7 @@ defmodule Aiur.InitTest do
       File.write!(target, "placeholder")
 
       config = %{
-        "tracker" => %{"kind" => "memory"},
+        "tracker" => %{"kind" => "memory", "base_branch" => "main"},
         "agent" => %{"kind" => "claude", "routing" => %{"5" => "claude-repl"}}
       }
 
@@ -868,7 +871,7 @@ defmodule Aiur.InitTest do
 
     test "resume migrates a legacy root config into .aiur/ when confirmed", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\nagent:\n  kind: claude\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\nagent:\n  kind: claude\n")
 
       answers = %{confirm: %{"Migrate them into .aiur/ now?" => true}}
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
@@ -878,7 +881,7 @@ defmodule Aiur.InitTest do
 
     test "resume leaves the legacy layout when migration is declined", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
 
       answers = %{confirm: %{"Migrate them into .aiur/ now?" => false}}
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
@@ -888,7 +891,7 @@ defmodule Aiur.InitTest do
 
     test "resume migration passes ignore: true when the gitignore opt-in is accepted", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
 
       answers = %{
         confirm: %{"Migrate them into .aiur/ now?" => true, "Also add .aiur/ to .gitignore?" => true}
@@ -905,6 +908,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -974,7 +978,7 @@ defmodule Aiur.InitTest do
 
   describe "resume backfill of new config sections (#411)" do
     # A config written before the prewarm block existed.
-    @legacy_yaml "tracker:\n  kind: github\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
+    @legacy_yaml "tracker:\n  kind: github\n  base_branch: main\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
 
     test "offers a missing registered section and appends it on opt-in", %{dir: dir, target: target} do
       File.write!(target, @legacy_yaml)
@@ -1287,11 +1291,12 @@ defmodule Aiur.InitTest do
     test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
-      assert_received {:repo_state, %{kind: "github", repo: "octo/repo"}}
+      assert_received {:repo_state, %{kind: "github", repo: "octo/repo", base_branch: "main"}}
 
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
       assert config["tracker"]["github"]["repo"] == "octo/repo"
+      assert config["tracker"]["base_branch"] == "main"
       # label_prefix is fixed (`agent`) and omitted from the written config.
       refute Map.has_key?(config["tracker"]["github"], "label_prefix")
       assert config["agent"]["kind"] == "claude"
@@ -1302,17 +1307,26 @@ defmodule Aiur.InitTest do
       assert routing |> Map.values() |> Enum.uniq() == ["claude"]
     end
 
-    test "the global config omits the repo (auto-detected at runtime)", %{dir: dir, target: target} do
+    test "github records the operator-selected base branch", %{dir: dir, target: target} do
+      answers = github_answers(%{input: %{"Base branch" => "develop"}})
+
+      assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
+
+      assert written_config(target)["tracker"]["base_branch"] == "develop"
+    end
+
+    test "the global config records the explicit repository", %{dir: dir, target: target} do
       answers = github_answers(%{select: %{@location_label => "global"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
-      refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
+      assert config["tracker"]["github"]["repo"] == "octo/repo"
+      assert config["tracker"]["base_branch"] == "main"
     end
 
-    test "global init checks the current repository without storing it", %{dir: dir, target: target} do
+    test "global init checks the explicitly selected repository", %{dir: dir, target: target} do
       answers = github_answers(%{select: %{@location_label => "global"}, confirm: %{"No pull-request CI workflow found — scaffold .github/workflows/ci.yml?" => false}})
 
       deps =
@@ -1326,8 +1340,8 @@ defmodule Aiur.InitTest do
         })
 
       assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
-      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
-      refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
+      assert_received {:readiness_tracker, %{repo: "octo/repo", base_branch: "main"}}
+      assert written_config(target)["tracker"]["github"]["repo"] == "octo/repo"
     end
 
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do

@@ -2,7 +2,7 @@
 timeout_ms: 600000
 after_create: |
   set -e
-  base_branch="${THIS_BASE_BRANCH:-develop}"
+  base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}"
   workspace_root="$(pwd -P)"
   git_toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$git_toplevel" ]; then
@@ -58,7 +58,7 @@ after_create: |
   fi
 before_run: |
   set -e
-  base_branch="${THIS_BASE_BRANCH:-develop}"
+  base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"

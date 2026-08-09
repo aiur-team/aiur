@@ -148,6 +148,9 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert canonical_git_dir in runtime_settings.turn_sandbox_policy["writableRoots"]
       assert Aiur.BuildGate.gate_dir() in runtime_settings.turn_sandbox_policy["writableRoots"]
 
+      {hook_dir, 0} = System.cmd("git", ["-C", workspace, "config", "--local", "--get", "core.hooksPath"])
+      assert File.exists?(Path.join(String.trim(hook_dir), "pre-push"))
+
       File.write!(codex_binary, """
       #!/bin/sh
       trace_file="#{trace_file}"

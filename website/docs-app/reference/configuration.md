@@ -1,6 +1,6 @@
 # Configuration reference
 
-Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accepted. `prompt_file:` and `hooks_file:` point at sibling files. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
+Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accepted. Aiur searches the working directory and each parent directory before checking the per-user configuration paths, so launching from a repository subdirectory still resolves the repository configuration. Startup fails with the resolved working directory and every searched path when no configuration exists. `prompt_file:` and `hooks_file:` point at sibling files. Supported secret and workspace-root fields resolve `~` and `$VAR` values; other path fields do not generally expand environment references.
 
 ## Top-level
 
@@ -18,11 +18,11 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `tracker.kind` | string | required | Selects `linear`, `github`, or `memory`. |
-| `tracker.base_branch` | string | repo default | Branch agents target with PRs. |
+| `tracker.base_branch` | string | required | Branch agents target with PRs. Startup fails rather than guessing a merge destination. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
-| `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. |
+| `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. A GitHub workflow cannot start without it. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |

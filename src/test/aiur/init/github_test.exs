@@ -38,6 +38,11 @@ defmodule Aiur.Init.GitHubTest do
   end
 
   describe "ensure_ci_readiness/3" do
+    test "check_ci_readiness refuses a missing base branch" do
+      assert {:error, :missing_base_branch} =
+               GitHub.check_ci_readiness(%{kind: "github", repo: "o/r"})
+    end
+
     test "keeps CI-readiness administration access separate from the daemon token" do
       io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
       deps = %{check_ci_readiness: fn _ -> {:error, {:github, :http, %{status: 403}}} end, detect_repo: fn -> "o/r" end}

@@ -23,17 +23,28 @@ defmodule Aiur.Workflow do
   end
 
   @doc """
-  Resolve the config path by precedence: repo-local `./.aiur/config`, else the
-  legacy repo-local `./.aiurconfig`, else the global `~/.aiur/config`, else the
-  legacy global `~/.aiurconfig`. When none exist, returns the repo-local
-  `./.aiur/config` (the new default) so the caller surfaces the "run aiur init"
-  not-found error pointing at the current layout. When a global config is used it
-  carries no repo — `Aiur.GitHub.Config.repo/0` auto-detects it from the cwd's
-  git remote.
+  Resolve the config path by walking from the current directory to the
+  filesystem root. At each level `.aiur/config` wins over the legacy
+  `.aiurconfig`; only after exhausting repository ancestors does discovery try
+  the two global paths. When none exist, returns the cwd-local `.aiur/config` so
+  path-only callers retain a useful scaffold destination. `load/0` reports the
+  complete searched-path set instead of attempting that absent destination.
   """
   @spec detect_run_folder_config() :: Path.t()
   def detect_run_folder_config do
     resolve_config_path(config_path_candidates())
+  end
+
+  @doc false
+  @spec discover_config_path() :: {:ok, Path.t()} | {:error, term()}
+  def discover_config_path do
+    cwd = File.cwd!()
+    candidates = config_path_candidates()
+
+    case Enum.find(candidates, &File.regular?/1) do
+      path when is_binary(path) -> {:ok, path}
+      nil -> {:error, {:missing_workflow_file, %{cwd: cwd, searched_paths: candidates}}}
+    end
   end
 
   @doc false
@@ -42,12 +53,30 @@ defmodule Aiur.Workflow do
     cwd = File.cwd!()
     home = home_dir()
 
-    [
-      Path.join([cwd, @aiur_dir, @config_basename]),
-      Path.join(cwd, @legacy_config_file_name),
+    cwd
+    |> ancestor_directories()
+    |> Enum.flat_map(fn dir ->
+      [
+        Path.join([dir, @aiur_dir, @config_basename]),
+        Path.join(dir, @legacy_config_file_name)
+      ]
+    end)
+    |> Kernel.++([
       Path.join([home, @aiur_dir, @config_basename]),
       Path.join(home, @legacy_config_file_name)
-    ]
+    ])
+    |> Enum.uniq()
+  end
+
+  defp ancestor_directories(path), do: ancestor_directories(Path.expand(path), [])
+
+  defp ancestor_directories(path, acc) do
+    parent = Path.dirname(path)
+    next = [path | acc]
+
+    if parent == path,
+      do: Enum.reverse(next),
+      else: ancestor_directories(parent, next)
   end
 
   # Read HOME at call time rather than via `Path.expand("~")`, which resolves
@@ -102,7 +131,36 @@ defmodule Aiur.Workflow do
 
   @spec load() :: {:ok, loaded_workflow()} | {:error, term()}
   def load do
-    load(workflow_file_path())
+    case load_with_path() do
+      {:ok, _path, workflow} -> {:ok, workflow}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec load_with_path() :: {:ok, Path.t(), loaded_workflow()} | {:error, term()}
+  def load_with_path do
+    case Application.get_env(:aiur, :workflow_file_path) do
+      path when is_binary(path) and path != "" ->
+        load_with_path(path)
+
+      _unset ->
+        load_discovered_config()
+    end
+  end
+
+  defp load_discovered_config do
+    case discover_config_path() do
+      {:ok, path} -> load_with_path(path)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp load_with_path(path) do
+    case load(path) do
+      {:ok, workflow} -> {:ok, path, workflow}
+      {:error, reason} -> {:error, reason}
+    end
   end
 
   @spec load(Path.t()) :: {:ok, loaded_workflow()} | {:error, term()}

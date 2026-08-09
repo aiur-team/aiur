@@ -60,24 +60,32 @@ defmodule Aiur.Init.ResumeTest do
   end
 
   test "tracker_from_config reads github, linear, and other trackers" do
-    deps = %{detect_repo: fn -> "detected/repo" end}
+    assert Resume.tracker_from_config(%{"tracker" => %{"kind" => "github"}}) ==
+             {:error, :missing_github_repo}
 
-    assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "github"}}) ==
-             %{kind: "github", repo: "detected/repo", label_prefix: "agent", base_branch: "main"}
-
-    assert Resume.tracker_from_config(deps, %{
+    assert Resume.tracker_from_config(%{
              "tracker" => %{
                "base_branch" => "develop",
                "kind" => "github",
                "github" => %{"repo" => "owner/repo", "label_prefix" => "team"}
              }
-           }) == %{kind: "github", repo: "owner/repo", label_prefix: "team", base_branch: "develop"}
+           }) ==
+             {:ok, %{kind: "github", repo: "owner/repo", label_prefix: "team", base_branch: "develop"}}
 
-    assert Resume.tracker_from_config(deps, %{
-             "tracker" => %{"kind" => "linear", "linear" => %{"api_key" => "key", "project_slug" => "slug"}}
-           }) == %{kind: "linear", api_key: "key", project_slug: "slug"}
+    assert Resume.tracker_from_config(%{
+             "tracker" => %{
+               "base_branch" => "release",
+               "kind" => "linear",
+               "linear" => %{"api_key" => "key", "project_slug" => "slug"}
+             }
+           }) ==
+             {:ok, %{kind: "linear", api_key: "key", project_slug: "slug", base_branch: "release"}}
 
-    assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "memory"}}) == %{kind: "memory"}
+    assert Resume.tracker_from_config(%{"tracker" => %{"kind" => "memory"}}) ==
+             {:error, :missing_base_branch}
+
+    assert Resume.tracker_from_config(%{"tracker" => %{"kind" => "memory", "base_branch" => "develop"}}) ==
+             {:ok, %{kind: "memory", base_branch: "develop"}}
   end
 
   test "agents_from_config includes routing backends, deduped and sorted" do

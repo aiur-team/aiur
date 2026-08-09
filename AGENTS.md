@@ -35,7 +35,9 @@ forming a verdict; the feature list does not imply them.
   over a legacy root `.aiurconfig` offers to migrate it in. This repo also tracks
   `.aiur/examples/*.example` — the annotated templates `aiur init` embeds at compile
   time (source-only; not copied into user repos).
-  Discovery: `./.aiur/config` → `./.aiurconfig` → `~/.aiur/config` → `~/.aiurconfig`.
+  Discovery walks from the resolved working directory through every ancestor,
+  checking `.aiur/config` before `.aiurconfig` at each level, then falls back to
+  `~/.aiur/config` and `~/.aiurconfig`.
 - `src/examples/workflows/` — portable example configs (Linear+Codex,
   GitHub+Codex, GitHub+Claude), each an `.aiurconfig` plus a `.prompt.md`
   template. Copy a pair when starting fresh.

@@ -329,16 +329,76 @@ defmodule Aiur.WorkflowTest do
     # resolves the home the VM captured at boot and ignores a later
     # `System.put_env`, which silently defeated the suite's HOME sandbox and let
     # discovery reach the developer's real `~/.aiur/config`.
-    test "config_path_candidates is the 4-step precedence list anchored at cwd and home", %{dir: dir} do
+    test "config_path_candidates walks from cwd to the filesystem root before global config", %{dir: dir} do
       home = System.get_env("HOME")
+      nested = Path.join([dir, "repo", "src", "nested"])
+      File.mkdir_p!(nested)
 
-      File.cd!(dir, fn ->
-        assert [repo_new, repo_legacy, global_new, global_legacy] = Workflow.config_path_candidates()
-        assert repo_new == Path.join([File.cwd!(), ".aiur", "config"])
-        assert repo_legacy == Path.join(File.cwd!(), ".aiurconfig")
+      File.cd!(nested, fn ->
+        candidates = Workflow.config_path_candidates()
+
+        assert Enum.take(candidates, 4) == [
+                 Path.join([nested, ".aiur", "config"]),
+                 Path.join(nested, ".aiurconfig"),
+                 Path.join([Path.dirname(nested), ".aiur", "config"]),
+                 Path.join(Path.dirname(nested), ".aiurconfig")
+               ]
+
+        assert [global_new, global_legacy] = Enum.take(candidates, -2)
         assert global_new == Path.join([home, ".aiur", "config"])
         assert global_legacy == Path.join(home, ".aiurconfig")
       end)
+    end
+
+    test "starting inside a repository subdirectory resolves the repository config before global config", %{
+      dir: dir
+    } do
+      repo = Path.join(dir, "repo")
+      nested = Path.join([repo, "src", "nested"])
+      repo_config = Path.join([repo, ".aiur", "config"])
+      home = Path.join(dir, "home")
+      global_config = Path.join([home, ".aiur", "config"])
+      previous_home = System.get_env("HOME")
+
+      File.mkdir_p!(nested)
+      File.mkdir_p!(Path.dirname(repo_config))
+      File.mkdir_p!(Path.dirname(global_config))
+      File.write!(repo_config, "tracker:\n  kind: memory\n  base_branch: develop\n")
+      File.write!(global_config, "tracker:\n  kind: memory\n  base_branch: main\n")
+      System.put_env("HOME", home)
+      Application.delete_env(:aiur, :workflow_file_path)
+
+      try do
+        File.cd!(nested, fn ->
+          assert Workflow.workflow_file_path() == repo_config
+          assert {:ok, loaded} = Workflow.load()
+          assert loaded.config["tracker"]["base_branch"] == "develop"
+        end)
+      after
+        if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME")
+      end
+    end
+
+    test "missing discovery reports the resolved cwd and every searched path", %{dir: dir} do
+      nested = Path.join([dir, "repo", "src"])
+      home = Path.join(dir, "home")
+      previous_home = System.get_env("HOME")
+      File.mkdir_p!(nested)
+      File.mkdir_p!(home)
+      System.put_env("HOME", home)
+      Application.delete_env(:aiur, :workflow_file_path)
+
+      try do
+        File.cd!(nested, fn ->
+          assert {:error, {:missing_workflow_file, %{cwd: ^nested, searched_paths: searched_paths}}} = Workflow.load()
+
+          assert searched_paths == Workflow.config_path_candidates()
+          assert Path.join([nested, ".aiur", "config"]) in searched_paths
+          assert Path.join([home, ".aiur", "config"]) in searched_paths
+        end)
+      after
+        if previous_home, do: System.put_env("HOME", previous_home), else: System.delete_env("HOME")
+      end
     end
 
     test "a runtime HOME change is honored, so the suite's sandbox actually holds", %{dir: dir} do
@@ -347,7 +407,10 @@ defmodule Aiur.WorkflowTest do
 
       try do
         File.cd!(dir, fn ->
-          assert [_repo_new, _repo_legacy, global_new, _global_legacy] = Workflow.config_path_candidates()
+          assert [global_new, _global_legacy] =
+                   Workflow.config_path_candidates()
+                   |> Enum.take(-2)
+
           assert global_new == "/tmp/aiur-home-probe/.aiur/config"
         end)
       after

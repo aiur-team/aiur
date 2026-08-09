@@ -31,14 +31,18 @@ defmodule Aiur.Init.GitHub do
 
   @doc "Checks that the target repository can merge an Aiur-created PR."
   @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
-  def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
-    opts = [repo: repo, base_branch: Map.get(tracker, :base_branch, "main")]
+  def check_ci_readiness(%{kind: "github", repo: repo, base_branch: base_branch})
+      when is_binary(repo) and is_binary(base_branch) do
+    opts = [repo: repo, base_branch: base_branch]
 
     case System.get_env(CiReadiness.operator_token_env()) do
       token when is_binary(token) and token != "" -> CiReadiness.check(Keyword.put(opts, :token, token))
       _ -> CiReadiness.check(Keyword.put(opts, :workflow_presence_only, true))
     end
   end
+
+  def check_ci_readiness(%{kind: "github", repo: repo}) when is_binary(repo),
+    do: {:error, :missing_base_branch}
 
   def check_ci_readiness(%{kind: "github"}), do: {:error, :missing_github_repo}
   def check_ci_readiness(_tracker), do: {:ok, %{ready?: true}}
@@ -87,7 +91,7 @@ defmodule Aiur.Init.GitHub do
       token when is_binary(token) and token != "" ->
         CiReadiness.persist_assessment(readiness,
           repo: tracker.repo,
-          base_branch: Map.get(tracker, :base_branch, "main"),
+          base_branch: Map.fetch!(tracker, :base_branch),
           config_path: Map.get(tracker, :config_path, Workflow.workflow_file_path())
         )
 

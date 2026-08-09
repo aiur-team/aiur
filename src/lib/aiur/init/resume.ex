@@ -69,33 +69,53 @@ defmodule Aiur.Init.Resume do
 
   def format_routing(_routing), do: ""
 
-  @spec tracker_from_config(Aiur.Init.deps(), map()) :: map()
-  def tracker_from_config(deps, config) do
+  @spec tracker_from_config(map()) :: {:ok, map()} | {:error, term()}
+  def tracker_from_config(config) do
     tracker = config["tracker"] || %{}
 
     case tracker["kind"] do
       "github" ->
-        repo = get_in(config, ["tracker", "github", "repo"]) || deps.detect_repo.()
+        repo = get_in(config, ["tracker", "github", "repo"])
         label_prefix = get_in(config, ["tracker", "github", "label_prefix"]) || "agent"
 
-        %{
-          kind: "github",
-          repo: repo,
-          label_prefix: label_prefix,
-          base_branch: tracker["base_branch"] || "main"
-        }
+        with :ok <- require_github_repo(repo),
+             {:ok, base_branch} <- require_base_branch(tracker["base_branch"]) do
+          {:ok, %{kind: "github", repo: repo, label_prefix: label_prefix, base_branch: base_branch}}
+        end
 
       "linear" ->
-        %{
-          kind: "linear",
-          api_key: get_in(config, ["tracker", "linear", "api_key"]),
-          project_slug: get_in(config, ["tracker", "linear", "project_slug"])
-        }
+        with {:ok, base_branch} <- require_base_branch(tracker["base_branch"]) do
+          {:ok,
+           %{
+             kind: "linear",
+             api_key: get_in(config, ["tracker", "linear", "api_key"]),
+             project_slug: get_in(config, ["tracker", "linear", "project_slug"]),
+             base_branch: base_branch
+           }}
+        end
 
       kind ->
-        %{kind: kind}
+        with {:ok, base_branch} <- require_base_branch(tracker["base_branch"]) do
+          {:ok, %{kind: kind, base_branch: base_branch}}
+        end
     end
   end
+
+  defp require_github_repo(repo) do
+    case Aiur.GitHub.Config.parse_configured_repo(repo) do
+      {:ok, _parsed} -> :ok
+      {:error, _reason} -> {:error, :missing_github_repo}
+    end
+  end
+
+  defp require_base_branch(base_branch) when is_binary(base_branch) do
+    case String.trim(base_branch) do
+      "" -> {:error, :missing_base_branch}
+      trimmed -> {:ok, trimmed}
+    end
+  end
+
+  defp require_base_branch(_base_branch), do: {:error, :missing_base_branch}
 
   # Backends to provision labels for: the default agent kind plus any backend
   # named in the routing table (e.g. `claude:sonnet` -> `claude`).

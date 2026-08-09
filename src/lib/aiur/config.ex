@@ -5,6 +5,7 @@ defmodule Aiur.Config do
   """
 
   alias Aiur.BuildGate
+  alias Aiur.Config.Boot
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
@@ -23,7 +24,6 @@ defmodule Aiur.Config do
   {% endif %}
   """
 
-  @default_base_branch "main"
   @default_telemetry_retention_max_bytes 64 * 1024 * 1024
   @default_telemetry_retention_max_age_days 30
   @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
@@ -59,7 +59,35 @@ defmodule Aiur.Config do
         settings
 
       {:error, reason} ->
-        raise ArgumentError, message: format_config_error(reason)
+        raise ArgumentError, message: format_error(reason)
+    end
+  end
+
+  @doc "Resolve and structurally validate the configuration required before supervision starts."
+  @spec boot_configuration() ::
+          {:ok, %{path: Path.t(), repo: String.t(), base_branch: String.t()}}
+          | {:error, term()}
+  def boot_configuration do
+    with {:ok, path, workflow} <- Workflow.load_with_path(),
+         {:ok, settings} <- settings_from({:ok, workflow}) do
+      Boot.resolve(path, settings)
+    end
+  end
+
+  @doc false
+  @spec validate_workflow(Workflow.loaded_workflow()) :: :ok | {:error, term()}
+  def validate_workflow(workflow) do
+    with {:ok, settings} <- settings_from({:ok, workflow}) do
+      Boot.validate(settings)
+    end
+  end
+
+  @doc false
+  @spec workflow_identity(Workflow.loaded_workflow()) ::
+          {:ok, %{repo: String.t(), base_branch: String.t()}} | {:error, term()}
+  def workflow_identity(workflow) do
+    with {:ok, settings} <- settings_from({:ok, workflow}) do
+      Boot.identity(settings)
     end
   end
 
@@ -81,12 +109,14 @@ defmodule Aiur.Config do
     settings!().tracker.kind
   end
 
-  @doc "The configured tracker integration branch, defaulting to `main`."
+  @doc "The explicitly configured tracker integration branch."
   @spec base_branch() :: String.t()
   def base_branch do
-    case settings() do
-      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
-      _ -> @default_base_branch
+    with {:ok, settings} <- settings(),
+         {:ok, base_branch} <- Boot.base_branch(settings) do
+      base_branch
+    else
+      {:error, reason} -> raise ArgumentError, message: format_error(reason)
     end
   end
 
@@ -722,7 +752,8 @@ defmodule Aiur.Config do
 
   @spec validate!() :: :ok | {:error, term()}
   def validate! do
-    with {:ok, settings} <- settings() do
+    with {:ok, settings} <- settings(),
+         :ok <- Boot.validate(settings) do
       validate_semantics(settings)
     end
   end
@@ -910,39 +941,7 @@ defmodule Aiur.Config do
     end
   end
 
-  defp format_config_error(reason) do
-    label = config_file_label()
-
-    case reason do
-      {:invalid_workflow_config, message} ->
-        "Invalid #{label} config: #{message}"
-
-      {:missing_workflow_file, path, raw_reason} ->
-        "Missing #{Path.basename(path)} at #{path}: #{inspect(raw_reason)}. Run `aiur init` to scaffold a .aiur/config."
-
-      {tag, path, raw_reason}
-      when tag in [:missing_prompt_file, :missing_hooks_file, :missing_prewarm_file] ->
-        "Missing #{missing_file_label(tag)} at #{path}: #{inspect(raw_reason)}"
-
-      {:invalid_hooks_file, path, raw_reason} ->
-        "Invalid hooks_file at #{path}: #{inspect(raw_reason)}"
-
-      {:workflow_parse_error, raw_reason} ->
-        "Failed to parse #{label}: #{inspect(raw_reason)}"
-
-      :workflow_front_matter_not_a_map ->
-        "Failed to parse #{label}: top-level YAML must be a map"
-
-      other ->
-        "Invalid #{label} config: #{inspect(other)}"
-    end
-  end
-
-  defp missing_file_label(:missing_prompt_file), do: "prompt_file"
-  defp missing_file_label(:missing_hooks_file), do: "hooks_file"
-  defp missing_file_label(:missing_prewarm_file), do: "prewarm base_build_file"
-
-  defp config_file_label do
-    Path.basename(Workflow.workflow_file_path())
-  end
+  @doc false
+  @spec format_error(term()) :: String.t()
+  defdelegate format_error(reason), to: Aiur.Config.Error, as: :format
 end

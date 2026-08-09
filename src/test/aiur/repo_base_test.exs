@@ -1089,11 +1089,24 @@ defmodule Aiur.RepoBaseTest do
       File.mkdir_p!(tmp)
       cfg = Path.join(tmp, "config")
       prev_path = Application.get_env(:aiur, :workflow_file_path)
+      store_running? = is_pid(Process.whereis(Aiur.WorkflowStore))
+
+      if store_running? do
+        assert :ok = Supervisor.terminate_child(Aiur.Supervisor, Aiur.WorkflowStore)
+      end
 
       on_exit(fn ->
         case prev_path do
           nil -> Aiur.Workflow.clear_workflow_file_path()
           p -> Aiur.Workflow.set_workflow_file_path(p)
+        end
+
+        if store_running? and Process.whereis(Aiur.Supervisor) do
+          case Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore) do
+            {:ok, _pid} -> :ok
+            {:ok, _pid, _info} -> :ok
+            {:error, :running} -> :ok
+          end
         end
 
         File.rm_rf!(tmp)
@@ -1102,11 +1115,11 @@ defmodule Aiur.RepoBaseTest do
       {:ok, cfg: cfg}
     end
 
-    test "defaults to main when tracker.base_branch is unset", %{cfg: cfg} do
+    test "refuses to guess when tracker.base_branch is unset", %{cfg: cfg} do
       File.write!(cfg, "tracker:\n  kind: memory\n")
       Aiur.Workflow.set_workflow_file_path(cfg)
 
-      assert RepoBase.base_branch() == "main"
+      assert_raise ArgumentError, ~r/tracker\.base_branch/, fn -> RepoBase.base_branch() end
     end
 
     test "returns the configured tracker.base_branch", %{cfg: cfg} do
@@ -1116,11 +1129,11 @@ defmodule Aiur.RepoBaseTest do
       assert RepoBase.base_branch() == "v2"
     end
 
-    test "falls back to main when tracker.base_branch is empty", %{cfg: cfg} do
+    test "refuses to guess when tracker.base_branch is empty", %{cfg: cfg} do
       File.write!(cfg, ~s(tracker:\n  kind: memory\n  base_branch: ""\n))
       Aiur.Workflow.set_workflow_file_path(cfg)
 
-      assert RepoBase.base_branch() == "main"
+      assert_raise ArgumentError, ~r/tracker\.base_branch/, fn -> RepoBase.base_branch() end
     end
   end
 

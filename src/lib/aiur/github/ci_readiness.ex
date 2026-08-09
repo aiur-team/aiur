@@ -41,9 +41,8 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec check(keyword()) :: {:ok, result()} | {:error, term()}
   def check(opts \\ []) do
     with {:ok, {owner, repo}} <- resolve_repo(Keyword.get(opts, :repo)),
+         {:ok, base_branch} <- resolve_base_branch(Keyword.get(opts, :base_branch)),
          {:ok, token} <- Transport.require_token(opts) do
-      base_branch = Keyword.get(opts, :base_branch, "main")
-
       request_fun =
         opts
         |> Keyword.get(:request_fun, &Transport.default_request_fun/1)
@@ -75,7 +74,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp check_workflow_presence(opts) do
     case check(Keyword.put(opts, :workflow_presence_only, true)) do
       {:error, :ci_readiness_operator_token_required} ->
-        {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
+        {:ok, unavailable(Keyword.fetch!(opts, :base_branch), :ci_readiness_operator_token_required)}
 
       result ->
         result
@@ -85,6 +84,15 @@ defmodule Aiur.GitHub.CiReadiness do
   @doc false
   @spec unavailable(String.t(), term()) :: result()
   def unavailable(base_branch, reason) when is_binary(base_branch), do: result(base_branch, [], [], [], [{:unavailable, reason}])
+
+  defp resolve_base_branch(base_branch) when is_binary(base_branch) do
+    case String.trim(base_branch) do
+      "" -> {:error, :missing_base_branch}
+      branch -> {:ok, branch}
+    end
+  end
+
+  defp resolve_base_branch(_base_branch), do: {:error, :missing_base_branch}
 
   @doc false
   @spec cache_result(result(), keyword()) :: :ok
@@ -160,7 +168,7 @@ defmodule Aiur.GitHub.CiReadiness do
     base_branch =
       Keyword.get(opts, :base_branch) ||
         (is_map(result) && Map.get(result, :base_branch)) ||
-        Config.base_branch() || "main"
+        Config.base_branch()
 
     {repo, base_branch, config_fingerprint(opts)}
   end

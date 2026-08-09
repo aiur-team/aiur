@@ -30,8 +30,8 @@ defmodule Aiur.DogfoodHooksTest do
     assert dogfood_base == "develop"
 
     hooks = dogfood_hooks!()
-    assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-develop}")
-    assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-develop}")
+    assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}")
+    assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}")
     refute File.read!(@hooks_path) =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     refute File.read!(@hooks_path) =~ "logs_backup="
     refute File.read!(@hooks_path) =~ "origin/v2"

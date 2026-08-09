@@ -5,7 +5,7 @@ defmodule Aiur.Workspace do
 
   require Logger
   alias Aiur.Alerts
-  alias Aiur.Workspace.{Checkout, Context, GitMetadata, Hooks, Layout, Provisioner, Reconstruction, Refresh, Remove}
+  alias Aiur.Workspace.{Checkout, Context, GitMetadata, Hooks, Layout, Provisioner, PushSafety, Reconstruction, Refresh, Remove}
 
   @type worker_host :: String.t() | nil
 
@@ -80,6 +80,7 @@ defmodule Aiur.Workspace do
          :ok <- Hooks.run_after_create(workspace, issue_context, bootstrap?, worker_host),
          :ok <- verify_logs_only_bootstrap(workspace, worker_host, verify_logs_only_bootstrap?),
          :ok <- GitMetadata.ensure_agent_logs_excluded(workspace, worker_host),
+         :ok <- PushSafety.install(workspace, worker_host),
          :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host),
          :ok <- Provisioner.maybe_install_agent_skills(workspace, worker_host),
          :ok <- Provisioner.mark_workspace_ready(workspace, worker_host) do
