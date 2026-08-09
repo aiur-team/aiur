@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   require Logger
 
-  alias Aiur.{CIApprovalStore, Config, Issue, Tracker}
+  alias Aiur.{Alerts, CIApprovalStore, Config, Issue, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client}
 
@@ -390,7 +390,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
           |> note_ci_poll_connectivity(targets, errors)
           |> log_ci_poll_errors(errors)
 
-        apply_ci_poll_results(state, results, issues_by_target)
+        apply_ci_poll_results(state, results, issues_by_target, opts)
 
       {:error, reason} ->
         Logger.warning("GithubCIPoller failed; reason=#{inspect(reason)}")
@@ -476,9 +476,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     state
   end
 
-  defp apply_ci_poll_results(state, results, issues_by_target) do
+  defp apply_ci_poll_results(state, results, issues_by_target, opts) do
     Enum.reduce(results, state, fn result, state_acc ->
-      apply_ci_poll_result_for_target(state_acc, result, issues_by_target)
+      apply_ci_poll_result_for_target(state_acc, result, issues_by_target, opts)
     end)
   end
 
@@ -500,17 +500,95 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end
   end
 
-  defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
+  defp apply_ci_poll_result_for_target(state, result, issues_by_target, opts) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
         state
         |> reconcile_base_repair_invalidation(issue, result)
+        |> reconcile_approved_draft_alert(issue, result, opts)
         |> stash_last_ci_result(issue, result)
         |> apply_ci_poll_result(issue, result)
 
       _ ->
         state
     end
+  end
+
+  defp reconcile_approved_draft_alert(%State{} = state, %Issue{} = issue, result, opts) do
+    target = ci_target_for_issue(issue)
+    active_alerts = Map.get(state.ci_lifecycle, :approved_draft_alerts, MapSet.new())
+
+    case approved_draft_state(result) do
+      :active when is_binary(target) ->
+        emit_approved_draft_alert(state, issue, result, target, active_alerts, opts)
+
+      :clear when is_binary(target) ->
+        resolve_approved_draft_alert(state, issue, result, target, active_alerts, opts)
+
+      _ ->
+        state
+    end
+  end
+
+  defp approved_draft_state(%{draft?: true, review_decision: "APPROVED"}), do: :active
+  defp approved_draft_state(%{draft?: false}), do: :clear
+  defp approved_draft_state(%{draft?: true, review_decision: _decision}), do: :clear
+  defp approved_draft_state(_result), do: :unknown
+
+  defp emit_approved_draft_alert(state, issue, result, target, active_alerts, opts) do
+    if MapSet.member?(active_alerts, target) do
+      state
+    else
+      topic = approved_draft_alert_topic(target)
+      pr_number = Map.get(result, :pr_number)
+
+      message =
+        "Pull request ##{pr_number} is approved but still draft; drafts cannot enter the merge queue or merge. Mark it ready and investigate the automated re-draft."
+
+      case alert_emitter(opts).(topic,
+             issue: issue,
+             central: true,
+             message: message,
+             reason: message,
+             needs_attention: true
+           ) do
+        :ok -> put_approved_draft_alerts(state, MapSet.put(active_alerts, target))
+        {:error, reason} -> log_approved_draft_alert_error(state, topic, reason)
+      end
+    end
+  end
+
+  defp resolve_approved_draft_alert(state, issue, result, target, active_alerts, opts) do
+    if MapSet.member?(active_alerts, target) do
+      topic = approved_draft_alert_topic(target) <> ".resolved"
+      pr_number = Map.get(result, :pr_number)
+      message = "Pull request ##{pr_number} is no longer both approved and draft."
+
+      case alert_emitter(opts).(topic,
+             issue: issue,
+             central: true,
+             message: message,
+             reason: message,
+             needs_attention: false
+           ) do
+        :ok -> put_approved_draft_alerts(state, MapSet.delete(active_alerts, target))
+        {:error, reason} -> log_approved_draft_alert_error(state, topic, reason)
+      end
+    else
+      state
+    end
+  end
+
+  defp approved_draft_alert_topic(target), do: "ticket.#{target}.pr.approved_draft"
+  defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+  defp put_approved_draft_alerts(%State{} = state, alerts) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :approved_draft_alerts, alerts)}
+  end
+
+  defp log_approved_draft_alert_error(state, topic, reason) do
+    Logger.warning("Approved draft alert emission failed: topic=#{topic} reason=#{inspect(reason)}")
+    state
   end
 
   # Read-only projection of the poll result for OCC-5's fleet-state row (PR
@@ -546,6 +624,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       pr_number: Map.get(result, :pr_number),
       head_sha: Map.get(result, :head_sha)
     }
+    |> maybe_put_projection(result, :draft?)
+    |> maybe_put_projection(result, :review_decision)
+  end
+
+  defp maybe_put_projection(projection, result, key) do
+    if Map.has_key?(result, key), do: Map.put(projection, key, Map.get(result, key)), else: projection
   end
 
   defp reconcile_base_repair_invalidation(
@@ -868,6 +952,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> Enum.filter(&is_binary/1)
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
+
+    approved_draft_alerts =
+      state.ci_lifecycle
+      |> Map.get(:approved_draft_alerts, MapSet.new())
+      |> MapSet.intersection(MapSet.new(targets))
+
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
 
@@ -881,6 +971,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     # cleared only when that ticket returns with a new head or post-repair CI.
 
     if approved_heads == state.ci_lifecycle.approved_heads and
+         approved_draft_alerts == Map.get(state.ci_lifecycle, :approved_draft_alerts, MapSet.new()) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
          poll_cache == existing_poll_cache do
       state
@@ -888,6 +979,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_lifecycle =
         state.ci_lifecycle
         |> Map.put(:approved_heads, approved_heads)
+        |> Map.put(:approved_draft_alerts, approved_draft_alerts)
         |> Map.put(:test_failure_heads, test_failure_heads)
         |> Map.put(:poll_cache, poll_cache)
 

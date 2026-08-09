@@ -125,6 +125,7 @@ defmodule Aiur.GitHub.CIPollBatch do
       pageInfo { hasNextPage }
       nodes {
         number state headRefName headRefOid baseRefName
+        isDraft reviewDecision
         commits(last: 1) {
           nodes {
             commit {
@@ -227,6 +228,8 @@ defmodule Aiur.GitHub.CIPollBatch do
       pull_request: %{
         "number" => Map.get(node, "number"),
         "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
+        "draft" => Map.get(node, "isDraft"),
+        "review_decision" => Map.get(node, "reviewDecision"),
         "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
         "base" => %{"ref" => Map.get(node, "baseRefName")}
       },

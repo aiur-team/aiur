@@ -369,6 +369,79 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                Map.delete(armed.ci_lifecycle, :poll_cache)
     end
 
+    test "an approved draft raises one alert until the condition resolves" do
+      identifier = unique_identifier("approved-draft")
+      issue = issue(identifier, "ci-wait")
+      topic = "ticket.#{identifier}.pr.approved_draft"
+
+      alert_emitter = fn emitted_topic, opts ->
+        send(self(), {:approved_draft_alert, emitted_topic, opts})
+        :ok
+      end
+
+      poll_opts = [
+        ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+        alert_emitter: alert_emitter
+      ]
+
+      poller = fn result ->
+        CiLifecycle.poll_github_ci(
+          %State{},
+          poll_opts ++
+            [
+              ci_poller: fn [^identifier], _opts ->
+                {:ok, %{results: [Map.put(result, :target, identifier)], errors: []}}
+              end
+            ]
+        )
+      end
+
+      approved_draft = %{
+        decision: :pending,
+        draft?: true,
+        review_decision: "APPROVED",
+        head_sha: "approved-head",
+        pr_number: 941
+      }
+
+      state = poller.(approved_draft)
+
+      assert_received {:approved_draft_alert, ^topic, alert_opts}
+      assert alert_opts[:needs_attention]
+      assert alert_opts[:issue] == issue
+      assert alert_opts[:reason] =~ "approved"
+      assert alert_opts[:reason] =~ "draft"
+
+      state =
+        CiLifecycle.poll_github_ci(
+          state,
+          poll_opts ++
+            [
+              ci_poller: fn [^identifier], _opts ->
+                {:ok, %{results: [Map.put(approved_draft, :target, identifier)], errors: []}}
+              end
+            ]
+        )
+
+      refute_received {:approved_draft_alert, ^topic, _opts}
+
+      _state =
+        CiLifecycle.poll_github_ci(
+          state,
+          poll_opts ++
+            [
+              ci_poller: fn [^identifier], _opts ->
+                result = %{approved_draft | draft?: false}
+                {:ok, %{results: [Map.put(result, :target, identifier)], errors: []}}
+              end
+            ]
+        )
+
+      assert_received {:approved_draft_alert, resolved_topic, resolved_opts}
+      assert resolved_topic == topic <> ".resolved"
+      refute resolved_opts[:needs_attention]
+    end
+
     test "a pre-existing operator pause does not arm the CI fallback" do
       identifier = unique_identifier("ci-operator-paused")
       recorder = start_recorder()

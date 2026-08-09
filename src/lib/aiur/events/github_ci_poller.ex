@@ -118,12 +118,14 @@ defmodule Aiur.Events.GithubCIPoller do
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
+          |> Map.merge(pull_request_review_state(pr))
           |> log_classification()
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           evaluate(check_runs, commit_status)
           |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
           |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
+          |> Map.merge(pull_request_review_state(pr))
           |> log_classification()
 
         {:ok, {:repaired, invalidation}} ->
@@ -138,6 +140,13 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_batched_target(target, _batch, _opts), do: poll_error(target, :invalid_ci_poll_batch)
+
+  defp pull_request_review_state(pr) do
+    %{
+      draft?: Map.get(pr, "draft") == true,
+      review_decision: Map.get(pr, "review_decision")
+    }
+  end
 
   defp ci_batch_value(opts, target) do
     with %{} = batch <- Keyword.get(opts, :ci_batch),

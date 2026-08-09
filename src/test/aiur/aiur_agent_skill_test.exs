@@ -327,6 +327,7 @@ defmodule Aiur.AiurAgentSkillTest do
     dev_loop = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/dev-loop.md")))
     turn_workflow = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/turn-workflow.md")))
     monitor = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md")))
+    shared_prompt = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
     repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
     example_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/examples/prompt.md.example")))
 
@@ -335,7 +336,12 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ "Do not loop"
     end
 
-    assert dev_loop =~ "keep the PR as a draft"
+    for source <- [dev_loop, shared_prompt, repo_prompt, example_prompt] do
+      assert source =~ "never convert it back to draft"
+      assert source =~ "DISMISSED"
+    end
+
+    assert dev_loop =~ "keep an unreviewed PR as a draft"
     assert dev_loop =~ "trust the delivered result without re-polling"
     assert dev_loop =~ "delivered failed-check names and excerpt"
     assert dev_loop =~ "run `gh pr checks` exactly once"

@@ -85,9 +85,17 @@ matching branch, and exits non-zero when no branch or more than one branch exist
 12. Recheck current-base ancestry after fixes. If the base moved, integrate it,
     rerun the scoped gate, and push before continuing.
 13. If you still believe the work is complete and correct and only CI remains,
-    keep the PR as a draft, add the `agent:ci-wait` label, and end the turn. Do
-    not loop on `gh pr checks` + sleep: the daemon polls CI centrally and
-    returns the dispatch slot while this runner is paused.
+    keep an unreviewed PR as a draft, add the `agent:ci-wait` label, and end the
+    turn. Once a PR has been ready for review, approved, or entered the merge
+    queue, never convert it back to draft. That invariant includes approval
+    history GitHub now reports as `DISMISSED`: push repair commits and leave the
+    PR ready while exact-head CI and branch rules block merging. Do not run
+    `gh pr ready --undo`, call `convertPullRequestToDraft`, or dismiss reviews.
+    If an exceptional draft transition is genuinely unavoidable, stop and
+    comment on the PR with the reason before asking the Executor to perform it;
+    never make the transition silently. Do not loop on `gh pr checks` + sleep:
+    the daemon polls CI centrally and returns the dispatch slot while this
+    runner is paused.
 14. On a delivered terminal CI event:
     - **Passed:** fetch the configured base once. If its current remote head is
       still an ancestor of the tested PR head, trust the delivered result without re-polling,

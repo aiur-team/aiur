@@ -44,6 +44,7 @@ defmodule Aiur.Orchestrator.State do
           last_polled_issues: map(),
           ci_lifecycle: %{
             approved_heads: map(),
+            approved_draft_alerts: MapSet.t(),
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
@@ -140,6 +141,7 @@ defmodule Aiur.Orchestrator.State do
     last_polled_issues: %{},
     ci_lifecycle: %{
       approved_heads: %{},
+      approved_draft_alerts: MapSet.new(),
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},
