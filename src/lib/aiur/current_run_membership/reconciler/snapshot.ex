@@ -47,13 +47,14 @@ defmodule Aiur.CurrentRunMembership.Reconciler.Snapshot do
 
   defp observe_joinable(identity, kind, row, observe_fun, terminal_states) do
     if TrackerIdentity.joinable?(identity) do
-      [observe_fun.(identity, lifecycle(kind, row, terminal_states))]
+      [observe_fun.(identity, lifecycle_for_row(kind, row, terminal_states))]
     else
       []
     end
   end
 
-  defp lifecycle(kind, row, terminal_states) do
+  @spec lifecycle_for_row(atom(), map(), MapSet.t()) :: atom()
+  def lifecycle_for_row(kind, row, terminal_states) do
     explicit_lifecycle(row) ||
       terminal_lifecycle_for(row, terminal_states) ||
       replaced_lifecycle(row) ||
