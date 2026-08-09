@@ -381,14 +381,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         terminal_states
       )
       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
-    issue_routable_to_worker?(issue) and
-      issue_dispatch_authorized?(issue) and
-      issue_not_paused?(issue) and
-      active_issue_state?(state_name, active_states) and
-      !terminal_issue_state?(state_name, terminal_states)
+    base_candidate_issue?(issue, active_states, terminal_states) and
+      issue_dispatch_authorized?(issue)
   end
 
   def candidate_issue?(_issue, _active_states, _terminal_states), do: false
+
+  @doc false
+  @spec ready_dispatch_demand?(Issue.t(), MapSet.t(), MapSet.t()) :: boolean()
+  def ready_dispatch_demand?(%Issue{} = issue, active_states, terminal_states) do
+    base_candidate_issue?(issue, active_states, terminal_states) and
+      !todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+  end
+
+  def ready_dispatch_demand?(_issue, _active_states, _terminal_states), do: false
 
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
@@ -411,6 +417,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       when is_boolean(authorized?), do: authorized?
 
   def issue_dispatch_authorized?(_issue), do: false
+
+  defp base_candidate_issue?(
+         %Issue{id: id, identifier: identifier, title: title, state: state_name} = issue,
+         active_states,
+         terminal_states
+       )
+       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
+    issue_routable_to_worker?(issue) and
+      issue_not_paused?(issue) and
+      active_issue_state?(state_name, active_states) and
+      !terminal_issue_state?(state_name, terminal_states)
+  end
+
+  defp base_candidate_issue?(_issue, _active_states, _terminal_states), do: false
 
   @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
   def todo_issue_blocked_by_non_terminal?(

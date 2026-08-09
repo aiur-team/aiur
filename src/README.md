@@ -448,6 +448,14 @@ path parameter and is never browser-cacheable.
 - `agent.max_load_average` remains the separate per-scheduler hard ceiling for
   new dispatch (default `1.5`); it holds work above the ceiling even when the
   adaptive envelope is enabled.
+- When dispatchable ready work continues to outnumber live agents while load is
+  below half of the adaptive target, Aiur emits `fleet.capacity.starved` after
+  three stable polls. Live-agent ramp and the zero-live halt case are excluded.
+  The needs-attention alert records ready/live counts, load and scheduler
+  capacity, configured/effective caps, authorization denials, and the best
+  identified binding constraint. Recovery emits
+  `fleet.capacity.starved.resolved`, clears the active feed entry, and rearms
+  detection for a later incident.
 - `agent.min_free_memory_mb` optionally sets a Linux `MemAvailable` floor for
   normal new-work dispatch and local agent `mix compile` / `mix test` commands.
   Omit it to disable memory admission. Values are whole MB derived from

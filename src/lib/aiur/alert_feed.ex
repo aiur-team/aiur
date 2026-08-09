@@ -9,6 +9,7 @@ defmodule Aiur.AlertFeed do
   alias Aiur.Workspace.Layout
 
   @decision_attention_prefix "Executor decision required: "
+  @fleet_starvation_topic "fleet.capacity.starved"
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
@@ -148,7 +149,7 @@ defmodule Aiur.AlertFeed do
     needs_attention = Map.get(alert, "needs_attention") == true
     source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || agent
 
-    %{
+    normalized = %{
       "timestamp" => string_field(alert, "timestamp"),
       "source_ticket_id" => source_ticket_id,
       "ticket" => source_ticket_id,
@@ -160,6 +161,11 @@ defmodule Aiur.AlertFeed do
       "severity" => string_field(alert, "severity") || default_severity(needs_attention),
       "needs_attention" => needs_attention
     }
+
+    case Map.get(alert, "details") do
+      %{} = details -> Map.put(normalized, "details", details)
+      _ -> normalized
+    end
   end
 
   defp maybe_filter_attention(alerts, true), do: Enum.filter(alerts, &(Map.get(&1, "needs_attention") == true))
@@ -195,6 +201,12 @@ defmodule Aiur.AlertFeed do
 
   defp collapse_repeated_attention(alert, active_alerts), do: [alert | active_alerts]
 
+  defp resolved_attention_key(%{
+         "topic" => @fleet_starvation_topic <> ".resolved",
+         "needs_attention" => false
+       }),
+       do: {:fleet, @fleet_starvation_topic}
+
   defp resolved_attention_key(%{"topic" => "ticket." <> rest, "needs_attention" => false}) do
     case String.split(rest, ".agent.attention.", parts: 2) do
       [ticket, slug_and_suffix] ->
@@ -209,6 +221,12 @@ defmodule Aiur.AlertFeed do
   end
 
   defp resolved_attention_key(_alert), do: nil
+
+  defp attention_alert_key(%{
+         "topic" => @fleet_starvation_topic,
+         "needs_attention" => true
+       }),
+       do: {:fleet, @fleet_starvation_topic}
 
   defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
     case String.split(rest, ".agent.attention.", parts: 2) do

@@ -14,7 +14,10 @@ defmodule Aiur.AlertsBroadcastTest do
     :ok = AgentPubSub.subscribe_agent("MT-ALERT-BC")
 
     assert :ok =
-             Alerts.emit_custom("demo.heads_up", "look here", identifier: "MT-ALERT-BC")
+             Alerts.emit_custom("demo.heads_up", "look here",
+               identifier: "MT-ALERT-BC",
+               details: %{"binding_constraint" => "prewarm_hold"}
+             )
 
     assert_receive {:alert,
                     %{
@@ -22,7 +25,8 @@ defmodule Aiur.AlertsBroadcastTest do
                       message: "look here",
                       reason: "look here",
                       severity: "info",
-                      needs_attention: false
+                      needs_attention: false,
+                      details: %{"binding_constraint" => "prewarm_hold"}
                     }},
                    500
   end

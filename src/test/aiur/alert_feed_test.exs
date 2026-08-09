@@ -67,6 +67,30 @@ defmodule Aiur.AlertFeedTest do
            ] = AlertFeed.list(roots: [root], log_roots: [log_root], needs_attention: true)
   end
 
+  test "preserves structured fleet capacity diagnostics", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"fleet.capacity.starved","message":"Fleet capacity starved","reason":"8 ready, 3 live","severity":"warning","needs_attention":true,"source_ticket_id":null,"details":{"ready_count":8,"live_agents":3,"binding_constraint":"none"}}
+    """)
+
+    assert [alert] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+    assert alert["details"] == %{"ready_count" => 8, "live_agents" => 3, "binding_constraint" => "none"}
+  end
+
+  test "removes recovered fleet starvation from needs-attention results", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"fleet.capacity.starved","message":"Fleet capacity starved","needs_attention":true}
+    {"event":"alert","timestamp":"2026-06-25T01:03:00Z","topic":"fleet.capacity.starved.resolved","message":"Fleet capacity starvation cleared","needs_attention":false}
+    """)
+
+    assert AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true) == []
+  end
+
   test "projects only active legacy decision attentions", %{root: root} do
     project_root = Path.join(root, "its-everdred/aiur")
     log = Path.join(project_root, "42/logs/agent.ndjson")

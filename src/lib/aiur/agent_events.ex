@@ -44,6 +44,7 @@ defmodule Aiur.AgentEvents do
           needs_attention: boolean(),
           sound: String.t() | nil,
           source_ticket_id: String.t() | nil,
+          details: map() | nil,
           timestamp: DateTime.t()
         }
 
@@ -141,6 +142,7 @@ defmodule Aiur.AgentEvents do
       needs_attention: Keyword.get(opts, :needs_attention) == true,
       sound: Keyword.get(opts, :sound),
       source_ticket_id: Keyword.get(opts, :source_ticket_id),
+      details: Keyword.get(opts, :details),
       timestamp: Keyword.get(opts, :timestamp) || DateTime.utc_now()
     }
   end

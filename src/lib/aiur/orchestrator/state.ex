@@ -36,6 +36,13 @@ defmodule Aiur.Orchestrator.State do
             rewakes: map()
           },
           todo_over_capacity_alert_active: boolean(),
+          capacity_starvation: %{
+            consecutive_cycles: non_neg_integer(),
+            alert_active?: boolean(),
+            provisioning_lag?: boolean(),
+            last_live_agents: non_neg_integer() | nil,
+            last_effective_cap: pos_integer() | nil
+          },
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -84,6 +91,13 @@ defmodule Aiur.Orchestrator.State do
       rewakes: %{}
     },
     todo_over_capacity_alert_active: false,
+    capacity_starvation: %{
+      consecutive_cycles: 0,
+      alert_active?: false,
+      provisioning_lag?: false,
+      last_live_agents: nil,
+      last_effective_cap: nil
+    },
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),

@@ -135,6 +135,32 @@ defmodule Aiur.AlertsTest do
     assert central_log =~ "\"needs_attention\":true"
   end
 
+  test "required central persistence reports a write failure" do
+    root = Path.join(System.tmp_dir!(), "aiur-alert-required-#{System.unique_integer([:positive])}")
+    blocker = Path.join(root, "not-a-directory")
+    File.mkdir_p!(root)
+    File.write!(blocker, "blocked")
+
+    original_log_file = Application.get_env(:aiur, :log_file)
+    Application.put_env(:aiur, :log_file, Path.join(blocker, "aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(root)
+    end)
+
+    assert {:error, _reason} =
+             Alerts.emit_system("fleet.capacity.starved", "Fleet capacity starved",
+               needs_attention: true,
+               require_persistence: true
+             )
+  end
+
   test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")

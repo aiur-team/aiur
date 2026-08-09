@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
+    CapacityStarvation,
     CiLifecycle,
     CommandScan,
     CommentPolling,
@@ -96,7 +97,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         maybe_choose_under_load(state, issues)
 
       :hold ->
-        state
+        observe_prewarm_hold(state, issues)
     end
   end
 
@@ -131,14 +132,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
         DispatchPolicy.queued_dispatch_demand?(issues, state)
       )
 
-    case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
-      :hold ->
-        log_memory_hold(available_memory_mb, memory_threshold_mb)
-        state
+    next_state =
+      case DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) do
+        :hold ->
+          log_memory_hold(available_memory_mb, memory_threshold_mb)
+          state
 
-      :dispatch ->
-        maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
-    end
+        :dispatch ->
+          maybe_choose_with_fd_headroom(state, issues, fd_sample, load, hard_threshold, schedulers, choose_fun)
+      end
+
+    CapacityStarvation.observe(next_state, issues, %{
+      load: load,
+      target: target,
+      schedulers: schedulers,
+      prewarm_hold?: false,
+      admission_constraint:
+        admission_constraint(
+          available_memory_mb,
+          memory_threshold_mb,
+          fd_sample,
+          load,
+          hard_threshold,
+          schedulers
+        )
+    })
   end
 
   @spec choose_issues(State.t(), [Issue.t()]) :: State.t()
@@ -606,6 +624,42 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_choose(state, issues) do
     if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
+  end
+
+  defp observe_prewarm_hold(state, issues) do
+    target = Config.target_load_average()
+    schedulers = System.schedulers_online()
+
+    CapacityStarvation.observe(state, issues, %{
+      load: DispatchPolicy.read_load(Config.max_load_average(), target),
+      target: target,
+      schedulers: schedulers,
+      prewarm_hold?: true,
+      admission_constraint: nil
+    })
+  end
+
+  defp admission_constraint(
+         available_memory_mb,
+         memory_threshold_mb,
+         fd_sample,
+         load,
+         hard_threshold,
+         schedulers
+       ) do
+    cond do
+      DispatchPolicy.memory_gate(available_memory_mb, memory_threshold_mb) == :hold ->
+        :memory_floor
+
+      DispatchPolicy.fd_gate(fd_sample) == :hold ->
+        :file_descriptor_headroom
+
+      DispatchPolicy.load_gate(load, hard_threshold, schedulers) == :hold ->
+        :hard_load_gate
+
+      true ->
+        nil
+    end
   end
 
   defp maybe_log_base_error({:error, reason}),

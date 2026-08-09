@@ -53,6 +53,7 @@ defmodule Aiur.Alerts do
     {"input_required", :needs_input},
     {".paused", :stuck},
     {"thrash", :stuck},
+    {"capacity.starved", :stuck},
     {"retry_exhausted", :stuck},
     {"tokens_exhausted", :stuck},
     {"pr.merged", :done},
@@ -104,6 +105,11 @@ defmodule Aiur.Alerts do
     do_emit(name, nil, Keyword.put(opts, :event_source, :system))
   end
 
+  @spec emit_system(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def emit_system(name, message, opts) when is_binary(name) and is_binary(message) and is_list(opts) do
+    do_emit(name, message, Keyword.put(opts, :event_source, :system))
+  end
+
   @spec emit_custom(String.t(), String.t()) :: :ok | {:error, term()}
   def emit_custom(name, message) when is_binary(name) and is_binary(message) do
     emit_custom(name, message, [])
@@ -131,17 +137,19 @@ defmodule Aiur.Alerts do
       settings = alert_settings()
       selected_sound = select_sound(topic, config, settings)
 
-      payload = %{
-        "event" => "alert",
-        "name" => topic,
-        "topic" => topic,
-        "message" => message,
-        "reason" => metadata.reason,
-        "severity" => metadata.severity,
-        "needs_attention" => metadata.needs_attention,
-        "source_ticket_id" => metadata.source_ticket_id,
-        "sound" => selected_sound
-      }
+      payload =
+        %{
+          "event" => "alert",
+          "name" => topic,
+          "topic" => topic,
+          "message" => message,
+          "reason" => metadata.reason,
+          "severity" => metadata.severity,
+          "needs_attention" => metadata.needs_attention,
+          "source_ticket_id" => metadata.source_ticket_id,
+          "sound" => selected_sound
+        }
+        |> maybe_put_details("details", metadata.details)
 
       workspace = Keyword.get(opts, :workspace) || resolve_workspace(Keyword.get(opts, :issue))
       worker_host = Keyword.get(opts, :worker_host)
@@ -150,27 +158,29 @@ defmodule Aiur.Alerts do
 
       timestamp = DateTime.utc_now()
 
-      alert_event = %{
-        event: :alert,
-        timestamp: timestamp,
-        name: topic,
-        topic: topic,
-        message: message,
-        reason: metadata.reason,
-        severity: metadata.severity,
-        needs_attention: metadata.needs_attention,
-        source_ticket_id: metadata.source_ticket_id,
-        sound: selected_sound,
-        raw: Jason.encode!(payload)
-      }
+      alert_event =
+        %{
+          event: :alert,
+          timestamp: timestamp,
+          name: topic,
+          topic: topic,
+          message: message,
+          reason: metadata.reason,
+          severity: metadata.severity,
+          needs_attention: metadata.needs_attention,
+          source_ticket_id: metadata.source_ticket_id,
+          sound: selected_sound,
+          raw: Jason.encode!(payload)
+        }
+        |> maybe_put_details(:details, metadata.details)
 
       AgentEventLog.write(workspace, worker_host, alert_event)
-      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host)
+      persistence_result = maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host)
 
       maybe_play_sound(selected_sound, settings, opts)
       broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
       ObservabilityPubSub.broadcast_update()
-      :ok
+      required_persistence_result(persistence_result, opts)
     end
   end
 
@@ -181,9 +191,26 @@ defmodule Aiur.Alerts do
       reason: alert_reason(message, opts),
       severity: alert_severity(needs_attention, opts),
       needs_attention: needs_attention,
-      source_ticket_id: issue_number_for(opts)
+      source_ticket_id: issue_number_for(opts),
+      details: alert_details(opts)
     }
   end
+
+  defp alert_details(opts) do
+    case Keyword.get(opts, :details) do
+      %{} = details -> details
+      _ -> nil
+    end
+  end
+
+  defp maybe_put_details(map, _key, nil), do: map
+  defp maybe_put_details(map, key, details), do: Map.put(map, key, details)
+
+  defp required_persistence_result({:error, _reason} = error, opts) do
+    if Keyword.get(opts, :require_persistence) == true, do: error, else: :ok
+  end
+
+  defp required_persistence_result(_result, _opts), do: :ok
 
   defp alert_reason(message, opts) do
     opts
@@ -228,12 +255,12 @@ defmodule Aiur.Alerts do
     else
       {:error, reason} ->
         Logger.debug("Failed writing central alert feed path=#{path} reason=#{inspect(reason)}")
-        :ok
+        {:error, reason}
     end
   rescue
     error ->
       Logger.debug("Failed writing central alert feed error=#{Exception.message(error)}")
-      :ok
+      {:error, error}
   end
 
   defp central_alert_json(alert_event) do
@@ -245,16 +272,18 @@ defmodule Aiur.Alerts do
   end
 
   defp publish_to_exchange(topic, message, metadata, opts) do
-    payload = %{
-      "message" => message || "",
-      "source" => "alert",
-      "reason" => metadata.reason,
-      "severity" => metadata.severity,
-      "needs_attention" => metadata.needs_attention,
-      "source_ticket_id" => metadata.source_ticket_id,
-      "topic" => topic,
-      source: Keyword.get(opts, :event_source, :system)
-    }
+    payload =
+      %{
+        "message" => message || "",
+        "source" => "alert",
+        "reason" => metadata.reason,
+        "severity" => metadata.severity,
+        "needs_attention" => metadata.needs_attention,
+        "source_ticket_id" => metadata.source_ticket_id,
+        "topic" => topic,
+        source: Keyword.get(opts, :event_source, :system)
+      }
+      |> maybe_put_details("details", metadata.details)
 
     Publisher.publish(topic, payload,
       issue_number: issue_number_for(opts),
@@ -288,7 +317,8 @@ defmodule Aiur.Alerts do
             severity: metadata.severity,
             needs_attention: metadata.needs_attention,
             source_ticket_id: metadata.source_ticket_id,
-            sound: selected_sound
+            sound: selected_sound,
+            details: metadata.details
           )
 
         AgentPubSub.broadcast_alert(identifier, event)

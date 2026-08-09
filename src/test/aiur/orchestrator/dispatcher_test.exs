@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.{AlertFeed}
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
@@ -75,6 +76,53 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert second.effective_concurrent_agents == 8
       assert map_size(second.running) == 8
       assert second.load_envelope_state.last_decrease_ms == nil
+    end
+  end
+
+  describe "fleet capacity starvation integration" do
+    test "persists a structured needs-attention alert after sustained idle dispatch cycles" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 20,
+        target_load_average: 1.0
+      )
+
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.7 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+      Application.put_env(:aiur, :proc_stat_source_override, fn -> :unavailable end)
+
+      log_root =
+        Path.join(System.tmp_dir!(), "aiur-capacity-starvation-#{System.unique_integer([:positive])}")
+
+      previous_log_file = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        restore_app_env(:log_file, previous_log_file)
+        File.rm_rf!(log_root)
+      end)
+
+      running = Map.new(1..3, fn index -> {"active-#{index}", running_entry("active-#{index}")} end)
+      ready = Enum.map(1..8, &issue("ready-#{&1}"))
+
+      state = %State{
+        max_concurrent_agents: 20,
+        effective_concurrent_agents: 20,
+        running: running
+      }
+
+      hold_dispatch = fn state, _issues -> state end
+
+      state = Dispatcher.maybe_choose_under_load(state, ready, hold_dispatch)
+      state = Dispatcher.maybe_choose_under_load(state, ready, hold_dispatch)
+      refute File.exists?(Path.join(log_root, "alerts.ndjson"))
+
+      _state = Dispatcher.maybe_choose_under_load(state, ready, hold_dispatch)
+
+      assert [alert] = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+      assert alert["topic"] == "fleet.capacity.starved"
+      assert alert["details"]["ready_count"] == 8
+      assert alert["details"]["live_agents"] == 3
+      assert alert["details"]["binding_constraint"] == "none"
     end
   end
 
