@@ -49,11 +49,7 @@ defmodule Aiur.SupervisionHealth do
   def format(%{expected: expected, healthy: healthy, missing: []}), do: "SUPERVISION #{healthy}/#{expected} healthy"
 
   def format(%{expected: expected, healthy: healthy, missing: missing}) do
-    details =
-      missing
-      |> Enum.map(&format_missing/1)
-      |> Enum.join(", ")
-
+    details = Enum.map_join(missing, ", ", &format_missing/1)
     "SUPERVISION #{healthy}/#{expected} — #{details}"
   end
 
@@ -177,7 +173,7 @@ defmodule Aiur.SupervisionHealth do
   defp emit_alert(snapshot, _missing_ids) do
     Alerts.emit_system("system.supervision.degraded",
       message: format(snapshot),
-      reason: snapshot.missing |> Enum.map(&format_missing/1) |> Enum.join(", "),
+      reason: Enum.map_join(snapshot.missing, ", ", &format_missing/1),
       needs_attention: true
     )
   end
@@ -203,26 +199,28 @@ defmodule Aiur.SupervisionHealth do
     children = Supervisor.which_children(supervisor) |> Map.new(&{elem(&1, 0), &1})
 
     Enum.reduce(expected_ids, {0, []}, fn id, {expected, missing} ->
-      case Map.get(children, id) do
-        {^id, pid, :supervisor, _modules} when is_pid(pid) ->
-          case nested[id] do
-            nil ->
-              {expected + 1, missing}
-
-            tree ->
-              {nested_expected, nested_missing} = check_tree(pid, tree, path ++ [id], last_terminations)
-              {expected + 1 + nested_expected, missing ++ nested_missing}
-          end
-
-        {^id, pid, _type, _modules} when is_pid(pid) ->
-          {expected + 1, missing}
-
-        _missing_child ->
-          down = %{id: id, path: path ++ [id], reason: Map.get(last_terminations, id)}
-          descendants = missing_descendants(nested[id], path ++ [id])
-          {expected + 1 + length(descendants), [down | descendants ++ missing]}
-      end
+      check_child({expected, missing}, Map.get(children, id), nested[id], id, path, last_terminations)
     end)
+  end
+
+  defp check_child({expected, missing}, {id, pid, :supervisor, _modules}, tree, id, path, last_terminations) when is_pid(pid) do
+    check_supervisor_child({expected, missing}, pid, tree, id, path, last_terminations)
+  end
+
+  defp check_child({expected, missing}, {id, pid, _type, _modules}, _tree, id, _path, _last_terminations) when is_pid(pid),
+    do: {expected + 1, missing}
+
+  defp check_child({expected, missing}, _child, tree, id, path, last_terminations) do
+    down = %{id: id, path: path ++ [id], reason: Map.get(last_terminations, id)}
+    descendants = missing_descendants(tree, path ++ [id])
+    {expected + 1 + length(descendants), [down | descendants ++ missing]}
+  end
+
+  defp check_supervisor_child({expected, missing}, _pid, nil, _id, _path, _last_terminations), do: {expected + 1, missing}
+
+  defp check_supervisor_child({expected, missing}, pid, tree, id, path, last_terminations) do
+    {nested_expected, nested_missing} = check_tree(pid, tree, path ++ [id], last_terminations)
+    {expected + 1 + nested_expected, missing ++ nested_missing}
   end
 
   defp missing_descendants(nil, _path), do: []
@@ -252,7 +250,10 @@ defmodule Aiur.SupervisionHealth do
   defp format_missing(%{id: id, path: path, reason: reason}),
     do: "#{display_path(path, id)} DOWN (last termination: #{inspect(reason)})"
 
-  defp display_path([_ | _] = path, _id), do: path |> Enum.map(&display_id/1) |> Enum.join("/")
+  defp format_missing(%{id: id, reason: nil}), do: "#{display_id(id)} DOWN"
+  defp format_missing(%{id: id, reason: reason}), do: "#{display_id(id)} DOWN (last termination: #{inspect(reason)})"
+
+  defp display_path([_ | _] = path, _id), do: Enum.map_join(path, "/", &display_id/1)
   defp display_path(_, id), do: display_id(id)
 
   defp display_id(id) when is_atom(id), do: id |> Module.split() |> Enum.join(".")

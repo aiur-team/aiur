@@ -14,10 +14,10 @@ defmodule Aiur.SupervisionHealthTest do
     use GenServer
 
     def start_link(_opts), do: GenServer.start_link(__MODULE__, :ok, name: __MODULE__)
-    def crash, do: GenServer.call(__MODULE__, :crash)
+    def crash, do: GenServer.cast(__MODULE__, :crash)
 
     def init(:ok), do: {:ok, nil}
-    def handle_call(:crash, _from, state), do: {:stop, :boom, :ok, state}
+    def handle_cast(:crash, state), do: {:stop, :boom, state}
   end
 
   defmodule CrashLoopSupervisor do
@@ -101,11 +101,9 @@ defmodule Aiur.SupervisionHealthTest do
     assert :ok = CrashWorker.crash()
     assert_eventually(fn -> Process.whereis(CrashWorker) not in [nil, first_pid] end)
 
-    Enum.each(1..4, fn _ ->
-      if Process.whereis(CrashWorker), do: CrashWorker.crash()
-    end)
+    assert :ok = CrashWorker.crash()
+    assert_eventually(fn -> Process.whereis(CrashLoopSupervisor) == nil end)
 
-    Process.sleep(100)
     assert {:ok, %{healthy: 0}} = SupervisionHealth.status(health)
 
     assert_receive {:supervision_alert, %{healthy: 0, missing: [%{id: CrashLoopSupervisor, reason: reason} | _]}},
