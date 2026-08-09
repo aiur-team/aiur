@@ -196,7 +196,7 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   expect(geometry.fill).toBe(expectedFill)
 
   await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(219, 36, 36)')
-  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(51, 219, 36)')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
 })
 
 test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
