@@ -522,7 +522,7 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await units.close()
 })
 
-test('logs mode scrolls classified feed events and flattened transcript panes within real bounds', async ({ page }) => {
+test('clicking a logs event key positions the flattened transcript at that event', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
@@ -531,22 +531,20 @@ test('logs mode scrolls classified feed events and flattened transcript panes wi
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
-  await expect(page.locator('#sd-log-events')).toContainText('event-1')
-  await dialD.hover()
-  await page.mouse.wheel(0, -100)
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-log-events')).toContainText('event-2')
+  const logKeys = page.locator('#sd-log-keys')
+  await expect(logKeys.locator('.sd-key')).toHaveCount(8)
+  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
+  await expect(logKeys.locator('[data-log-event-index="2"] .sd-log-dir')).toContainText('AGENT')
+  await expect(page.locator('#sd-screen')).toContainText('event-1')
 
-  const dialA = page.locator('.sd-knob').first()
-  await dialA.hover()
-  await page.mouse.wheel(0, -100)
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-max-offset', '18')
-  await expect(page.locator('#sd-log-transcript [data-log-kind="message"]')).toContainText('event-10')
+  await logKeys.locator('[data-log-event-index="2"]').click()
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
+  await expect(page.locator('#sd-log-transcript')).toContainText('event-2')
+  await expect(page.locator('#sd-screen')).toContainText('event-2')
+  await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
 
-  await page.mouse.wheel(0, 1000)
+  await logKeys.locator('[data-log-event-index="1"]').press('Enter')
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
-  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
@@ -574,10 +572,10 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
   await dragDialThroughAngles(page, dialD, [-90, 0, 90])
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '1')
 
   await dragDialThroughAngles(page, dialD, [90, 0, -90])
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '0')
 })
 
 test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
