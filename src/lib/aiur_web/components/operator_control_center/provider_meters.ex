@@ -69,9 +69,13 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         </div>
         <div><dt>Health</dt><dd>{@card.health.label}</dd></div>
         <div><dt>Freshness</dt><dd>{@card.freshness.label}</dd></div>
-        <div :if={@card.state == :stale && @card.health.age_label}>
+        <div :if={@card.state in [:stale, :error] && @card.health.age_label}>
           <dt>Observation age</dt>
           <dd>{@card.health.age_label}</dd>
+        </div>
+        <div :if={@card.state == :partial && @card.health.failure_label}>
+          <dt>Last refresh</dt>
+          <dd>{@card.health.failure_label}</dd>
         </div>
         <div :if={@card.observed_at}>
           <dt>Last observation</dt>
@@ -136,12 +140,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         aria-valuemin={@window.meter.min}
         aria-valuemax={@window.meter.max}
         aria-valuenow={@window.meter.now}
-        aria-label={"#{@window.name} usage"}
+        aria-label={window_meter_aria_label(@window)}
       >
         <span class="provider-meter-track" aria-hidden="true">
           <span class="provider-meter-fill" style={"width: #{@window.meter.now}%"}></span>
         </span>
-        <span class="provider-meter-value">{@window.meter.now}% used</span>
+        <span class="provider-meter-value">
+          {@window.meter.now}% used<span :if={@window.freshness == :stale}> (stale observation)</span>
+        </span>
       </div>
 
       <p :if={@window.coverage == :unsupported} class="provider-meter-coverage">
@@ -185,6 +191,9 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
     </li>
     """
   end
+
+  defp window_meter_aria_label(%{name: name, freshness: :stale}), do: "#{name} usage, stale observation"
+  defp window_meter_aria_label(%{name: name}), do: "#{name} usage"
 
   attr(:value, :any, default: nil)
   attr(:class, :string, default: nil)

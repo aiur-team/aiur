@@ -32,6 +32,7 @@ defmodule Aiur.ProviderMeterProjection do
   @call_timeout 5_000
   @default_probe_interval_seconds 300
   @stale_after_intervals 2
+  @stale_after_failures 2
 
   @type provider :: atom()
 
@@ -188,7 +189,7 @@ defmodule Aiur.ProviderMeterProjection do
     else
       snapshot = Map.get(state.observations, provider) || ProviderMeterSnapshot.unknown(provider, backend(provider))
       snapshot = project_snapshot(snapshot, provider, state.clock.(), status, state)
-      :ok = Events.broadcast(%{snapshot | provider_account_generation: nil})
+      :ok = Events.broadcast_from(self(), snapshot)
       {:reply, :ok, state}
     end
   end
@@ -273,16 +274,24 @@ defmodule Aiur.ProviderMeterProjection do
       | freshness: freshness,
         plan: project_plan(view.plan, freshness),
         windows: project_windows(view.windows, freshness),
-        health: projected_health(view.health, snapshot, freshness, probe_status, view.age_seconds)
+        health: projected_health(view.health, snapshot, freshness, probe_status)
     }
   end
 
   defp project_snapshot(snapshot, provider, now, probe_status, state) do
     age = age_seconds(snapshot.observed_at, now)
     freshness = observation_freshness(snapshot, age, state.probe_interval_seconds)
-    health = projected_health(snapshot.health, snapshot, freshness, probe_status, age)
+    health = projected_health(snapshot.health, snapshot, freshness, probe_status)
 
-    %{snapshot | provider: provider, freshness: freshness, health: health, windows: project_windows(snapshot.windows, freshness), plan: project_plan(snapshot.plan, freshness)}
+    %{
+      snapshot
+      | provider: provider,
+        age_seconds: age,
+        freshness: freshness,
+        health: health,
+        windows: project_windows(snapshot.windows, freshness),
+        plan: project_plan(snapshot.plan, freshness)
+    }
   end
 
   defp project_windows(windows, :stale) when is_map(windows) do
@@ -301,36 +310,63 @@ defmodule Aiur.ProviderMeterProjection do
        when is_integer(age_seconds) and age_seconds > interval_seconds * @stale_after_intervals,
        do: :stale
 
+  defp observation_freshness(%ProviderMeterSnapshot{freshness: freshness}, _age_seconds, _interval_seconds)
+       when freshness in [:partial, :stale],
+       do: freshness
+
   defp observation_freshness(%ProviderMeterSnapshot{}, _age_seconds, _interval_seconds), do: :fresh
 
-  defp projected_health(health, snapshot, freshness, probe_status, age_seconds) do
-    status_failure = if is_map(probe_status), do: Map.get(probe_status, :failure), else: nil
-    status_attempt = if is_map(probe_status), do: Map.get(probe_status, :last_attempt_at), else: nil
-    failure = if is_map(probe_status), do: status_failure, else: Map.get(health, :failure)
-    last_observed_at = Map.get(health, :last_observed_at) || if(snapshot, do: snapshot.observed_at)
-    last_attempt_at = status_attempt || Map.get(health, :last_attempt_at)
-
-    consecutive_failures =
-      if is_map(probe_status), do: Map.get(probe_status, :consecutive_failures, 0), else: Map.get(health, :consecutive_failures, 0)
-
-    state =
-      cond do
-        is_nil(snapshot) or is_nil(snapshot.observed_at) -> :unavailable
-        not is_nil(failure) -> :stale
-        freshness == :stale -> :stale
-        freshness == :fresh -> :healthy
-        true -> Map.get(health, :state, :unavailable)
-      end
+  defp projected_health(health, snapshot, freshness, probe_status) do
+    facts = probe_facts(health, probe_status)
+    state = health_state(snapshot, freshness, facts)
 
     Map.merge(health, %{
       state: state,
-      failure: failure,
-      last_observed_at: last_observed_at,
-      last_attempt_at: last_attempt_at,
-      consecutive_failures: consecutive_failures,
-      age_seconds: age_seconds
+      failure: facts.failure,
+      last_observed_at: Map.get(health, :last_observed_at) || observed_at(snapshot),
+      last_attempt_at: facts.last_attempt_at,
+      consecutive_failures: facts.consecutive_failures
     })
   end
+
+  defp probe_facts(health, nil) do
+    %{
+      failure: Map.get(health, :failure),
+      last_attempt_at: Map.get(health, :last_attempt_at),
+      consecutive_failures: Map.get(health, :consecutive_failures, 0),
+      probe_failure?: false,
+      adapter_failure?: not is_nil(Map.get(health, :failure))
+    }
+  end
+
+  defp probe_facts(health, status) do
+    status_failure = Map.get(status, :failure)
+
+    %{
+      failure: status_failure || Map.get(health, :failure),
+      last_attempt_at: Map.get(status, :last_attempt_at) || Map.get(health, :last_attempt_at),
+      consecutive_failures: Map.get(status, :consecutive_failures, 0),
+      probe_failure?: not is_nil(status_failure),
+      adapter_failure?: is_nil(status_failure) and not is_nil(Map.get(health, :failure))
+    }
+  end
+
+  defp health_state(nil, _freshness, _facts), do: :unavailable
+  defp health_state(%ProviderMeterSnapshot{observed_at: nil}, _freshness, _facts), do: :unavailable
+  defp health_state(_snapshot, :stale, _facts), do: :stale
+  defp health_state(_snapshot, _freshness, %{adapter_failure?: true}), do: :stale
+
+  defp health_state(_snapshot, _freshness, %{probe_failure?: true, consecutive_failures: count})
+       when count >= @stale_after_failures,
+       do: :stale
+
+  defp health_state(_snapshot, :partial, _facts), do: :partial
+  defp health_state(_snapshot, :fresh, %{probe_failure?: true}), do: :partial
+  defp health_state(_snapshot, :fresh, _facts), do: :healthy
+  defp health_state(_snapshot, _freshness, facts), do: Map.get(facts, :state, :unavailable)
+
+  defp observed_at(nil), do: nil
+  defp observed_at(snapshot), do: snapshot.observed_at
 
   defp recover_probe_status(statuses, provider, observed_at) do
     case {Map.get(statuses, provider), observed_at} do

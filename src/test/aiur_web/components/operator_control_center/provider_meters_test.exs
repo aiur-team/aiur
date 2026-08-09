@@ -53,13 +53,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     snapshot =
       healthy(:codex)
       |> Map.put(:freshness, :stale)
+      |> Map.put(:age_seconds, 259_200)
+      |> Map.update!(:windows, &Map.update!(&1, "primary", fn window -> Map.put(window, :freshness, :stale) end))
       |> Map.put(:health, %{
         state: :stale,
         failure: :port_closed,
         last_observed_at: @observed,
         last_attempt_at: DateTime.add(@observed, 60, :second),
-        consecutive_failures: 3,
-        age_seconds: 259_200
+        consecutive_failures: 3
       })
 
     view = Presenter.present(authorized(), %{codex: snapshot})
@@ -69,6 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersTest do
     assert html =~ "Observation age"
     assert html =~ "3 days old"
     assert html =~ "Last refresh port closed."
+    assert html =~ "stale observation"
   end
 
   test "the live-region announcement is polite and atomic" do

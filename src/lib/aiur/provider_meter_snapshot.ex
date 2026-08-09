@@ -10,12 +10,12 @@ defmodule Aiur.ProviderMeterSnapshot do
   @schema_version 1
 
   @type health :: %{
-          state: :healthy | :partial | :stale | :unavailable,
-          failure: atom() | nil,
-          last_observed_at: DateTime.t() | nil,
-          last_source_version: non_neg_integer() | nil,
-          last_attempt_at: DateTime.t() | nil,
-          consecutive_failures: non_neg_integer()
+          required(:state) => :healthy | :partial | :stale | :unavailable,
+          required(:failure) => atom() | nil,
+          required(:last_observed_at) => DateTime.t() | nil,
+          required(:last_source_version) => non_neg_integer() | nil,
+          optional(:last_attempt_at) => DateTime.t() | nil,
+          optional(:consecutive_failures) => non_neg_integer()
         }
 
   @type t :: %__MODULE__{
@@ -28,6 +28,7 @@ defmodule Aiur.ProviderMeterSnapshot do
           plan: map() | nil,
           update_kind: :snapshot | :patch | :tombstone | :unknown,
           observed_at: DateTime.t() | nil,
+          age_seconds: non_neg_integer() | nil,
           ingested_at: DateTime.t() | nil,
           source: atom() | nil,
           source_version: non_neg_integer(),
@@ -47,6 +48,7 @@ defmodule Aiur.ProviderMeterSnapshot do
             plan: nil,
             update_kind: :unknown,
             observed_at: nil,
+            age_seconds: nil,
             ingested_at: nil,
             source: nil,
             source_version: 0,

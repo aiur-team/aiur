@@ -208,7 +208,14 @@ defmodule Aiur.ProviderMeterProbe do
       source: :usage_api,
       update_kind: :snapshot,
       freshness: :fresh,
-      health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: nil},
+      health: %{
+        state: :healthy,
+        failure: nil,
+        last_observed_at: observed_at,
+        last_source_version: nil,
+        last_attempt_at: nil,
+        consecutive_failures: 0
+      },
       windows: %{
         reading.window => %{
           limit_id: reading.window,

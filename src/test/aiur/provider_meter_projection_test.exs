@@ -78,6 +78,45 @@ defmodule Aiur.ProviderMeterProjectionTest do
     assert view.windows["primary"].freshness == :stale
   end
 
+  test "a single recent probe failure is partial before the failure threshold", %{projection: projection, pid: pid} do
+    send(pid, {:provider_meter_changed, snapshot(:codex, DateTime.add(@now, -1, :second))})
+
+    assert :ok = ProviderMeterProjection.record_probe_result(projection, %{provider: :codex, observed?: false, reason: :timeout}, @now)
+
+    view = ProviderMeterProjection.provider_view(projection, :codex)
+    assert view.freshness == :fresh
+    assert view.health.state == :partial
+    assert view.health.failure == :timeout
+    assert view.health.consecutive_failures == 1
+  end
+
+  test "partial source freshness is not upgraded by a recent observation", %{projection: projection, pid: pid} do
+    partial = %{snapshot(:codex, DateTime.add(@now, -1, :second)) | freshness: :partial}
+    send(pid, {:provider_meter_changed, partial})
+
+    assert ProviderMeterProjection.provider_view(projection, :codex).freshness == :partial
+  end
+
+  test "a successful probe does not erase an adapter failure", %{projection: projection, pid: pid} do
+    failed = %{snapshot(:codex, DateTime.add(@now, -1, :second)) | health: %{state: :stale, failure: :transport, last_observed_at: DateTime.add(@now, -1, :second), last_source_version: 1}}
+    send(pid, {:provider_meter_changed, failed})
+
+    assert :ok = ProviderMeterProjection.record_probe_result(projection, %{provider: :codex, observed?: true, reason: nil}, @now)
+
+    view = ProviderMeterProjection.provider_view(projection, :codex)
+    assert view.health.failure == :transport
+    assert view.health.state == :stale
+  end
+
+  test "the configured probe interval controls staleness" do
+    name = :"projection_interval_#{System.unique_integer([:positive])}"
+    pid = start_supervised!({ProviderMeterProjection, [name: name, subscribe?: false, clock: fn -> @now end, probe_interval_seconds: 60]})
+
+    send(pid, {:provider_meter_changed, snapshot(:codex, DateTime.add(@now, -121, :second))})
+
+    assert ProviderMeterProjection.provider_view(name, :codex).freshness == :stale
+  end
+
   test "providers project independently", %{projection: projection, pid: pid} do
     send(pid, {:provider_meter_changed, snapshot(:claude, ~U[2026-07-27 11:59:00Z])})
 
@@ -129,6 +168,7 @@ defmodule Aiur.ProviderMeterProjectionTest do
     assert redacted.provider_account_generation == nil
     assert redacted.windows == %{"5h" => %{used_percent: 42}}
     assert redacted.observed_at == ~U[2026-07-27 11:58:00Z]
+    assert redacted.age_seconds == 120
   end
 
   test "the redacted snapshot of a never-observed provider is the explicit unknown", %{projection: projection} do

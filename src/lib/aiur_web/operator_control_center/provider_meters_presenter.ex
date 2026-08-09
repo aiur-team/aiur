@@ -166,7 +166,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- health / freshness --------------------------------------------------
 
-  defp health(%ProviderMeterSnapshot{health: %{} = health}) do
+  defp health(%ProviderMeterSnapshot{health: %{} = health} = snapshot) do
     state = Map.get(health, :state, :unavailable)
     failure = Map.get(health, :failure)
 
@@ -178,8 +178,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       last_observed_at: datetime(Map.get(health, :last_observed_at)),
       last_attempt_at: datetime(Map.get(health, :last_attempt_at)),
       consecutive_failures: Map.get(health, :consecutive_failures, 0),
-      age_seconds: Map.get(health, :age_seconds),
-      age_label: age_label(Map.get(health, :age_seconds))
+      age_seconds: snapshot.age_seconds,
+      age_label: age_label(snapshot.age_seconds)
     }
   end
 
@@ -378,10 +378,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp freshness_label(_status), do: "Unknown"
 
   defp age_label(nil), do: nil
-  defp age_label(seconds) when seconds < 60, do: "#{seconds} seconds old"
-  defp age_label(seconds) when seconds < 3_600, do: "#{div(seconds, 60)} minutes old"
-  defp age_label(seconds) when seconds < 86_400, do: "#{div(seconds, 3_600)} hours old"
-  defp age_label(seconds), do: "#{div(seconds, 86_400)} days old"
+  defp age_label(seconds) when seconds < 60, do: "#{seconds} #{pluralize(seconds, "second", "seconds")} old"
+
+  defp age_label(seconds) when seconds < 3_600 do
+    minutes = div(seconds, 60)
+    "#{minutes} #{pluralize(minutes, "minute", "minutes")} old"
+  end
+
+  defp age_label(seconds) when seconds < 86_400 do
+    hours = div(seconds, 3_600)
+    "#{hours} #{pluralize(hours, "hour", "hours")} old"
+  end
+
+  defp age_label(seconds) do
+    days = div(seconds, 86_400)
+    "#{days} #{pluralize(days, "day", "days")} old"
+  end
 
   defp window_freshness_label(:fresh), do: "Fresh"
   defp window_freshness_label(:stale), do: "Stale"
