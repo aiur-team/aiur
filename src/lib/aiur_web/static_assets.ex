@@ -82,6 +82,15 @@ defmodule AiurWeb.StaticAssets do
     |> Enum.sort()
   end
 
+  @spec served_path?([String.t()]) :: boolean()
+  def served_path?(["provider-assets", asset]), do: asset in provider_asset_paths()
+
+  def served_path?([asset | _segments]) do
+    asset in @revalidated_static_paths or asset in @long_lived_static_paths
+  end
+
+  def served_path?(_path), do: false
+
   @spec layout_asset_urls() :: %{engine: String.t(), worker: String.t(), client: String.t()}
   def layout_asset_urls do
     case layout_assets() do

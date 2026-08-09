@@ -944,7 +944,16 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    for provider_asset <- AiurWeb.StaticAssets.provider_asset_paths() do
+    provider_assets =
+      Aiur.CodingAgent.provider_descriptors()
+      |> Enum.flat_map(&[&1.logo, &1.token_icon])
+      |> Enum.map(&String.replace_prefix(&1, "/provider-assets/", ""))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert provider_assets == AiurWeb.StaticAssets.provider_asset_paths()
+
+    for provider_asset <- provider_assets do
       provider_asset_conn = get(build_conn(), "/provider-assets/#{provider_asset}")
       assert response(provider_asset_conn, 200) =~ "<svg"
       assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -1377,6 +1386,11 @@ defmodule Aiur.ExtensionsTest do
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
 
+    for asset_path <- ["/conversation-drawer-hook.js", "/provider-assets/codex-color.svg"] do
+      unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
+      assert unauthenticated_asset.status == 401
+    end
+
     response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
     assert response.status == 200
     assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
@@ -1384,6 +1398,14 @@ defmodule Aiur.ExtensionsTest do
     dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css", headers: [authorization])
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
+
+    conversation_drawer_hook = Req.get!("http://127.0.0.1:#{port}/conversation-drawer-hook.js", headers: [authorization])
+    assert conversation_drawer_hook.status == 200
+    assert conversation_drawer_hook.body =~ "AiurConversationDrawerHook"
+
+    provider_asset = Req.get!("http://127.0.0.1:#{port}/provider-assets/codex-color.svg", headers: [authorization])
+    assert provider_asset.status == 200
+    assert provider_asset.body =~ "<svg"
 
     phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js", headers: [authorization])
     assert phoenix_js.status == 200
