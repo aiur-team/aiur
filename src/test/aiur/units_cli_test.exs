@@ -85,6 +85,16 @@ defmodule Aiur.UnitsCLITest do
     assert message =~ "active, alert, paused, queued, or finished"
   end
 
+  test "rejects malformed options without coercing them into a Units selection" do
+    assert {:error, "expects units options"} = UnitsCLI.build(:invalid)
+
+    assert {:error, scope_message} = UnitsCLI.build(scope: 1)
+    assert scope_message =~ "accepts --scope live, unfinished, all, or none"
+
+    assert {:error, condition_message} = UnitsCLI.build(conditions: [:stuck])
+    assert condition_message =~ "accepts --condition active, alert, paused, queued, or finished"
+  end
+
   test "reports invalid scope errors through the CLI boundary" do
     error_output =
       capture_io(:stderr, fn ->
