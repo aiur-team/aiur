@@ -518,6 +518,43 @@ textarea:focus-visible,
   color: var(--muted);
 }
 
+/* Partial resolution: the percentage is real but covers only part of the
+   pack, so the bar is striped and the coverage ratio rides alongside it. */
+.bo-catalog-progress-partial .bo-catalog-progress-track > i {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--accent),
+    var(--accent) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+}
+
+.bo-catalog-progress-coverage {
+  flex: 0 0 auto;
+  font-size: 0.62rem;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  opacity: 0.85;
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0 0.35rem;
+}
+
+/* Unresolved: not a blank, not a zero bar. It reads as a word. */
+.bo-catalog-progress-unresolved {
+  display: inline-block;
+  font-size: 0.62rem;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--warning, #d08a2a);
+  border: 1px dashed currentColor;
+  border-radius: 999px;
+  padding: 0.05rem 0.45rem;
+}
+
 .bo-catalog-table tbody tr {
   position: relative;
   cursor: pointer;
@@ -7221,22 +7258,27 @@ html[data-theme="light"] .toggle-icon .moon {
 /* Stream Deck emulator. The device stays physically dark in either dashboard
    theme; all legible copy still uses the dashboard's themed ink tokens. */
 .sd-stage {
-  display: grid;
-  place-items: start center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.9rem;
   min-width: 0;
-  padding: 0.5rem 0 2rem;
+  padding: 1.2rem 0 0.4rem;
 }
 
 .sd-device {
-  display: grid;
-  width: min(100%, 620px);
+  --sd-wordmark: #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
   max-width: 620px;
+  box-sizing: border-box;
   gap: 1.15rem;
   padding: 1.5rem 1.7rem 1.8rem;
-  border: 1px solid #3a3b40;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 34px;
-  background: linear-gradient(180deg, #2a2b2e, #201f22 55%, #161517);
-  box-shadow: 0 28px 54px rgba(0, 0, 0, 0.42), inset 0 1px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(180deg, #2a2b2e 0%, #201f22 55%, #161517 100%);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.06);
 }
 
 .sd-brand {
@@ -7244,25 +7286,21 @@ html[data-theme="light"] .toggle-icon .moon {
   align-items: center;
   justify-content: center;
   gap: 0.55rem;
-  color: var(--fg);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.7rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
+  padding-bottom: 0.15rem;
+  color: var(--sd-wordmark);
 }
 
-.sd-brand-mark {
-  display: grid;
-  grid-template-columns: repeat(2, 4px);
-  gap: 2px;
+.sd-brand-logo {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
 }
 
-.sd-brand-mark i {
-  display: block;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--accent-ink);
+.sd-brand-name {
+  font-family: "Space Grotesk", system-ui, sans-serif;
+  font-size: 1.02rem;
+  font-weight: 700;
+  letter-spacing: 0.16em;
 }
 
 .sd-keys {
@@ -7273,11 +7311,15 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-key {
+  --sd-accent: #9fd0ff;
+  --sd-glow: #0c0d0f;
+  --sd-face: #0f151c;
+  position: relative;
   aspect-ratio: 1 / 1;
   min-width: 0;
-  padding: 3px;
   overflow: hidden;
   border: 0;
+  padding: 3px;
   border-radius: 15px;
   background: #0c0d0f;
   cursor: pointer;
@@ -7467,62 +7509,79 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .sd-key.st-running {
   --sd-accent: #9fd0ff;
-  background: linear-gradient(180deg, #3f8bff, #7b4bf5);
+  --sd-glow: linear-gradient(180deg, #3f8bff, #7b4bf5);
+  --sd-face: linear-gradient(180deg, #18212d, #0f151d);
 }
 
 .sd-key.st-running .sd-key-face {
-  background: linear-gradient(180deg, #18212d, #0f151d);
+  background: var(--sd-face);
 }
 
 .sd-key.st-paused {
   --sd-accent: #c2c6cf;
-  background: linear-gradient(180deg, #4a4d55, #33363d);
+  --sd-glow: linear-gradient(180deg, #4a4d55, #33363d);
+  --sd-face: linear-gradient(180deg, #1e2025, #131419);
 }
 
 .sd-key.st-paused .sd-key-face {
-  background: linear-gradient(180deg, #1e2025, #131419);
+  background: var(--sd-face);
 }
 
 .sd-key.st-stuck {
   --sd-accent: #ff9a90;
-  background: linear-gradient(180deg, #ff6a5e, #c0392b);
+  --sd-glow: linear-gradient(180deg, #ff6a5e, #c0392b);
+  --sd-face: linear-gradient(180deg, #271317, #160c0e);
 }
 
 .sd-key.st-stuck .sd-key-face {
-  background: linear-gradient(180deg, #271317, #160c0e);
+  background: var(--sd-face);
 }
 
 .sd-key.st-alert {
   --sd-accent: #ffcf87;
-  background: linear-gradient(180deg, #ffc061, #e08a1e);
+  --sd-glow: linear-gradient(180deg, #ffc061, #e08a1e);
+  --sd-face: linear-gradient(180deg, #241d0e, #15110a);
 }
 
 .sd-key.st-alert .sd-key-face {
-  background: linear-gradient(180deg, #241d0e, #15110a);
+  background: var(--sd-face);
+}
+
+.sd-key.st-stuck .sd-status-dot {
+  animation: sd-pulse 1.4s ease-in-out infinite;
+}
+
+.sd-key.st-alert .sd-status-dot {
+  animation: sd-pulse 1.6s ease-in-out infinite;
 }
 
 .sd-key.st-queued {
   --sd-accent: #9096a4;
-  background: linear-gradient(180deg, #3a3f47, #23262c);
+  --sd-glow: linear-gradient(180deg, #3a3f47, #23262c);
+  --sd-face: linear-gradient(180deg, #191b21, #111318);
 }
 
 .sd-key.st-queued .sd-key-face {
-  background: linear-gradient(180deg, #191b21, #111318);
+  background: var(--sd-face);
 }
 
-.sd-key.is-empty {
+.sd-key:is(.st-running, .st-paused, .st-stuck, .st-alert, .st-queued) {
+  background: var(--sd-glow);
+}
+
+.sd-key:is(.is-empty, .sd-empty) {
   background: #0a0b0d;
   cursor: default;
   opacity: 0.55;
 }
 
-.sd-key.is-empty .sd-key-face {
+.sd-key:is(.is-empty, .sd-empty) .sd-key-face {
   background: repeating-linear-gradient(135deg, #101114 0 7px, #0c0d10 7px 14px);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.03);
 }
 
-.sd-key.is-flashing {
-  animation: sd-flash 0.45s ease-out;
+.sd-key:is(.is-flashing, .flash) {
+  animation: sd-flash 0.45s ease;
 }
 
 .sd-screen {
@@ -7532,26 +7591,27 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 4px;
   padding: 6px;
   overflow: hidden;
-  border: 1px solid #303236;
   border-radius: 9px;
   background: #060708;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.05), inset 0 2px 10px rgba(0, 0, 0, 0.8);
 }
 
 .sd-screen-segment {
   position: relative;
-  display: grid;
-  place-content: center;
-  justify-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   gap: 0.18rem;
   min-width: 0;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.07);
   border-radius: 5px;
-  background: linear-gradient(145deg, #161b21, #0e1115);
+  background: rgba(255, 255, 255, 0.02);
   color: var(--muted);
   font-size: 0.58rem;
   font-weight: 700;
   text-align: center;
+  transition: background 0.14s ease;
 }
 
 .sd-screen-icon {
@@ -7591,20 +7651,20 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-well {
-  display: grid;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   min-height: 148px;
   padding: 1.7rem 1.3rem;
-  border: 1px solid #37393e;
   border-radius: 20px;
-  background: linear-gradient(145deg, #151518, #0a0a0c);
-  box-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.65), 0 1px rgba(255, 255, 255, 0.05);
+  background: linear-gradient(180deg, #131315, #0b0b0c);
+  box-shadow: inset 0 3px 14px rgba(0, 0, 0, 0.8), inset 0 -1px 0 rgba(255, 255, 255, 0.03);
 }
 
 .sd-knobs {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.5rem;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  justify-items: center;
 }
 
 .sd-knob-wrap {
@@ -7618,15 +7678,19 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-knob {
+  --a: 0deg;
   position: relative;
   display: grid;
   place-items: center;
   width: 68px;
   height: 68px;
-  border: 1px solid #4a4c52;
+  border: 0;
   border-radius: 50%;
-  background: radial-gradient(circle at 35% 28%, #4b4d53, #232428 53%, #101114 72%);
-  box-shadow: 0 5px 9px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.15);
+  background:
+    repeating-conic-gradient(from 0deg, #3a3b3f 0deg 6deg, #232427 6deg 12deg),
+    radial-gradient(circle at 50% 42%, #45464a, #202124 70%);
+  background-blend-mode: soft-light, normal;
+  box-shadow: 0 5px 12px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.14), inset 0 -4px 8px rgba(0, 0, 0, 0.55);
   touch-action: none;
   cursor: grab;
 }
@@ -7636,16 +7700,20 @@ html[data-theme="light"] .toggle-icon .moon {
   outline-offset: 3px;
 }
 
+.sd-knob:active {
+  cursor: grabbing;
+}
+
 .sd-knob.press {
-  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.55), inset 0 1px rgba(255, 255, 255, 0.15), 0 0 0 3px var(--accent-ink);
-  transition: box-shadow 80ms ease-in;
+  box-shadow: 0 3px 7px rgba(0, 0, 0, 0.6), inset 0 0 0 2px rgba(255, 255, 255, 0.5);
 }
 
 .sd-knob::before {
   position: absolute;
   inset: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 50%;
+  background: radial-gradient(circle at 50% 40%, #34353a, #17181b);
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.7), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   content: "";
 }
 
@@ -7660,6 +7728,7 @@ html[data-theme="light"] .toggle-icon .moon {
   transform-origin: 1px 26px;
   background: var(--accent-ink);
   box-shadow: 0 0 0.3rem var(--accent-ink);
+  z-index: 1;
 }
 
 .sd-knob-inner {
@@ -7668,16 +7737,17 @@ html[data-theme="light"] .toggle-icon .moon {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.68rem;
   font-weight: 800;
+  z-index: 2;
 }
 
 @keyframes sd-pulse {
-  0%, 100% { box-shadow: 0 0 14px var(--sd-glow), inset 0 1px rgba(255, 255, 255, 0.12); }
-  50% { box-shadow: 0 0 25px var(--sd-glow), inset 0 1px rgba(255, 255, 255, 0.2); }
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
 }
 
 @keyframes sd-flash {
-  0% { filter: brightness(2.1); transform: scale(0.97); }
-  100% { filter: brightness(1); transform: scale(1); }
+  0% { box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.7); }
+  100% { box-shadow: 0 0 0 0 transparent; }
 }
 
 @keyframes sd-mic-pulse {
@@ -7701,8 +7771,8 @@ html[data-theme="light"] .toggle-icon .moon {
    way. `dashboard_css_theme_test.exs` asserts this list stays complete and
    byte-identical to `:root`. */
 html[data-theme="light"] .sd-device {
-  --fg: rgba(255, 255, 255, 0.87);
-  --muted: rgba(255, 255, 255, 0.45);
+  --fg: #edeef0;
+  --muted: #969aa4;
   --accent: #2f86ff;
   --accent-ink: #8fbcff;
   --attention-ink: #f1cf6f;
@@ -7716,11 +7786,16 @@ html[data-theme="light"] .sd-device {
   .sd-device {
     padding: 1.1rem 1.1rem 1.3rem;
     border-radius: 24px;
+    gap: 1rem;
   }
 
   .sd-keys {
     column-gap: 0.55rem;
     row-gap: 0.55rem;
+  }
+
+  .sd-well {
+    padding: 0.9rem 0.8rem;
   }
 
   .sd-key-face {

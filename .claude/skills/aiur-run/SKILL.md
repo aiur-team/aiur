@@ -15,8 +15,11 @@ their run requests as this workflow.
 
 ## 1. Establish the run contract
 
-Identify the working repository and read its `AGENTS.md`, `CONTRIBUTING.md`,
-Aiur config, and Executor handoff. Record the authority envelope from the
+Identify the working repository and first read its machine-local Executor
+handoff at `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`, then read its
+`AGENTS.md`, `CONTRIBUTING.md`, and Aiur config. The handoff is the first
+source of truth for run-specific context, ahead of repository documentation;
+it does not replace GitHub or Aiur for live facts. Record the authority envelope from the
 Executor reference: scope, issue creation/comment, review, merge, self-fix,
 concurrency, cadence, debug mode, and terminal condition. Record external issue
 mutation authority separately from debug mode; one never implies the other.
@@ -24,6 +27,13 @@ mutation authority separately from debug mode; one never implies the other.
 The handoff must identify the finite feature boundary, critical path, required
 documentation/cleanup, required end-to-end proof, and deferred-findings ledger.
 If those are absent, establish them before launch.
+
+Keep `executor/handoff.md` current for the whole run. Write back whenever the
+operator supplies run-specific directions, request themes, non-derivable
+context, or a role/authority boundary. An operator directive that is not
+reflected in the handoff has not been recorded; chat transcripts are not a
+durable substitute. At an Executor handoff, rewrite the document wholesale for
+the incoming Executor. It is deliberately replaceable, not append-only.
 
 Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
@@ -390,8 +400,28 @@ reporting tick merely to restore utilization.
 
 ### Hourly meta-analysis
 
-Alongside the wake/outcome retrospective above, run an hourly meta-analysis of
-the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
+**Set the timer at the start of the run, before dispatching anything.** The
+meta-check lives in the `aiur-meta` skill; arm a recurring one-hour trigger that
+invokes it so it fires whether or not you remember:
+
+- Claude Code: `/loop 1h /aiur-meta`
+- any harness with a scheduler: a cron or wakeup at 3600s invoking `/aiur-meta`
+- no scheduler available: fall back to `scripts/executor-retrospective.sh due`,
+  which keeps a durable run-scoped timer, and check it on every wake
+
+Do not rely on noticing that an hour has passed. An Executor deep in a merge
+queue does not notice, and the checks that get skipped are exactly the ones that
+would have caught the surface going quietly wrong — a provider meter frozen for
+3.6 days (#1564), a blocker card stale for 5 days (#1565), a Build Order page
+rendering an em-dash in every cell (#1616). None of those announced themselves.
+
+`aiur-meta` owns what to observe and how: the four dashboard pages captured and
+**looked at**, the interactive CLI timed and checked for empty responses, host
+load against the configured gate, and the PR backlog. It ends by naming one
+bottleneck and filing what is broken.
+
+Alongside that, the meta-analysis of the work itself (proven repeatedly in the
+2026-07 analytics-streamdeck run):
 
 1. name THE single thing currently costing the most wall-clock, quantified —
    minutes lost, CI cycles burned, agents idle. Breadth summaries are not the

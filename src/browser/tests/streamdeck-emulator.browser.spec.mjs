@@ -80,6 +80,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
   const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
 
   await knob.hover()
+  const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
   // Scroll up → value should increase.
   await page.mouse.wheel(0, -100)
 
@@ -93,7 +94,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
 
   // Page must NOT have scrolled: the non-passive listener called preventDefault.
   const scrollY = await page.evaluate(() => window.scrollY)
-  expect(scrollY).toBe(0)
+  expect(scrollY).toBe(scrollBeforeWheel)
 })
 
 test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
@@ -132,25 +133,16 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
   await expect(knob).toHaveClass(/press/, { timeout: 500 })
 })
 
-test('key click triggers is-flashing animation; rapid repeat restarts it', async ({ page }) => {
+test('grid key press enters command mode and replaces grid keys', async ({ page }) => {
   await openStreamdeck(page)
 
   const key = page.locator('.sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
   await key.click()
-  await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
-
-  // Second rapid click: dispatch directly to exercise the remove+reflow+re-add
-  // branch. After the first click, mode shifted to cmd so the keys container is
-  // display:none — Playwright's click (even with force:true) refuses to target
-  // elements inside a hidden parent. page.evaluate dispatches without that check.
-  await page.evaluate(() => {
-    const k = document.querySelector('.sd-key:not(.is-empty)')
-    k.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-  })
-  // Still present (or re-added); the test confirms the branch ran without throwing.
-  await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('#sd-cmd-view')).toBeVisible()
+  await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
 })
 
 test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
@@ -296,6 +288,18 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   await page.mouse.up()
   await expect(device).toHaveAttribute('data-mode', 'grid')
   await expect(keysView).toBeVisible()
+})
+
+test('Logs command transitions from cmd to logs mode', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  await page.getByText('View logs', { exact: true }).click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  await expect(page.locator('#sd-logs-view')).toBeVisible()
+  await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
@@ -637,6 +641,130 @@ test('touch strip exposes provider percentages, not only window counts', async (
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
+})
+
+test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openStreamdeck(page)
+
+  const device = page.locator('.sd-device')
+  const keys = page.locator('.sd-keys')
+  const desktopGeometry = await page.evaluate(() => {
+    const device = document.querySelector('.sd-device')
+    const keys = document.querySelector('.sd-keys')
+    const key = keys.querySelector('.sd-key')
+    const deviceStyle = getComputedStyle(device)
+    const keysStyle = getComputedStyle(keys)
+    const keyBox = key.getBoundingClientRect()
+
+    return {
+      device: {
+        width: device.getBoundingClientRect().width,
+        maxWidth: deviceStyle.maxWidth,
+        borderRadius: deviceStyle.borderRadius,
+        backgroundImage: deviceStyle.backgroundImage,
+        borderColor: deviceStyle.borderColor,
+        boxShadow: deviceStyle.boxShadow
+      },
+      columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
+      columnGap: keysStyle.columnGap,
+      rowGap: keysStyle.rowGap,
+      keyRatio: keyBox.width / keyBox.height,
+      states: Object.fromEntries(['running', 'paused', 'stuck', 'alert', 'queued'].map((state) => {
+        const key = document.createElement('div')
+        const face = document.createElement('div')
+        key.className = `sd-key st-${state}`
+        face.className = 'sd-key-face'
+        key.appendChild(face)
+        document.body.appendChild(key)
+        const styles = [getComputedStyle(key).backgroundImage, getComputedStyle(face).backgroundImage]
+        key.remove()
+        return [state, styles]
+      })),
+      pressShadow: (() => {
+        const knob = document.querySelector('.sd-knob')
+        knob.classList.add('press')
+        const boxShadow = getComputedStyle(knob).boxShadow
+        knob.classList.remove('press')
+        return boxShadow
+      })()
+    }
+  })
+
+  expect(desktopGeometry.device.width).toBeCloseTo(620, 0)
+  expect(desktopGeometry.device.maxWidth).toBe('620px')
+  expect(desktopGeometry.device.borderRadius).toBe('34px')
+  expect(desktopGeometry.device.borderColor).toBe('rgba(255, 255, 255, 0.06)')
+  expect(desktopGeometry.device.backgroundImage).toContain('rgb(42, 43, 46)')
+  expect(desktopGeometry.device.backgroundImage).toContain('0%')
+  expect(desktopGeometry.device.backgroundImage).toContain('rgb(32, 31, 34) 55%')
+  expect(desktopGeometry.device.backgroundImage).toContain('rgb(22, 21, 23)')
+  expect(desktopGeometry.device.boxShadow).toContain('rgba(0, 0, 0, 0.5) 0px 30px 70px 0px')
+  expect(desktopGeometry.device.boxShadow).toContain('rgba(255, 255, 255, 0.06) 0px 1px 0px 0px inset')
+  expect(desktopGeometry.columns).toBe(4)
+  expect(desktopGeometry.columnGap).toBe('30.4px')
+  expect(desktopGeometry.rowGap).toBe('16px')
+  expect(desktopGeometry.keyRatio).toBeCloseTo(1, 2)
+  expect(desktopGeometry.states.running[0]).toContain('rgb(63, 139, 255)')
+  expect(desktopGeometry.states.running[1]).toContain('rgb(24, 33, 45)')
+  expect(desktopGeometry.states.paused[0]).toContain('rgb(74, 77, 85)')
+  expect(desktopGeometry.states.paused[1]).toContain('rgb(30, 32, 37)')
+  expect(desktopGeometry.states.stuck[0]).toContain('rgb(255, 106, 94)')
+  expect(desktopGeometry.states.stuck[1]).toContain('rgb(39, 19, 23)')
+  expect(desktopGeometry.states.alert[0]).toContain('rgb(255, 192, 97)')
+  expect(desktopGeometry.states.alert[1]).toContain('rgb(36, 29, 14)')
+  expect(desktopGeometry.states.queued[0]).toContain('rgb(58, 63, 71)')
+  expect(desktopGeometry.states.queued[1]).toContain('rgb(25, 27, 33)')
+  expect(desktopGeometry.pressShadow).toContain('rgba(0, 0, 0, 0.6) 0px 3px 7px 0px')
+  expect(desktopGeometry.pressShadow).toContain('rgba(255, 255, 255, 0.5) 0px 0px 0px 2px inset')
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop.png') })
+
+  const darkSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
+    const style = getComputedStyle(document.querySelector(selector))
+    return [selector, style.backgroundImage, style.borderColor, style.boxShadow]
+  }))
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  const lightSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
+    const style = getComputedStyle(document.querySelector(selector))
+    return [selector, style.backgroundImage, style.borderColor, style.boxShadow]
+  }))
+  expect(lightSurface).toEqual(darkSurface)
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop-light.png') })
+
+  await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'))
+  await page.setViewportSize({ width: 540, height: 900 })
+  const mobileGeometry = await page.evaluate(() => {
+    const device = document.querySelector('.sd-device')
+    const keys = document.querySelector('.sd-keys')
+    const key = keys.querySelector('.sd-key')
+    const style = getComputedStyle(device)
+    const keysStyle = getComputedStyle(keys)
+    const keyBox = key.getBoundingClientRect()
+    const wellStyle = getComputedStyle(document.querySelector('.sd-well'))
+
+    return {
+      paddingTop: style.paddingTop,
+      borderRadius: style.borderRadius,
+      gap: style.gap,
+      wellPadding: wellStyle.padding,
+      columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
+      columnGap: keysStyle.columnGap,
+      rowGap: keysStyle.rowGap,
+      keyRatio: keyBox.width / keyBox.height
+    }
+  })
+
+  expect(mobileGeometry.paddingTop).toBe('17.6px')
+  expect(mobileGeometry.borderRadius).toBe('24px')
+  expect(mobileGeometry.gap).toBe('16px')
+  expect(mobileGeometry.wellPadding).toBe('14.4px 12.8px')
+  expect(mobileGeometry.columns).toBe(4)
+  expect(mobileGeometry.columnGap).toBe('8.8px')
+  expect(mobileGeometry.rowGap).toBe('8.8px')
+  expect(mobileGeometry.keyRatio).toBeCloseTo(1, 2)
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile.png') })
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile-light.png') })
 })
 
 test('Stream Deck emulator passes automated accessibility checks', async ({ page }) => {

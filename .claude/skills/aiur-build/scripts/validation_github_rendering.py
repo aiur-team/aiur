@@ -8,6 +8,7 @@ import re
 from typing import Any
 
 from validation_common import SHA, Report, strict_object
+from publication_body_limits import MAX_ISSUE_BODY_CHARACTERS
 
 
 MARKER_NAME = "aiur-planning-issue"
@@ -86,6 +87,12 @@ def inspect_issue_body(
     if not isinstance(body, str):
         report.error(f"{label} must be UTF-8 text")
         return None
+    if len(body) > MAX_ISSUE_BODY_CHARACTERS:
+        report.warn(
+            f"{logical_id} rendered issue body is {len(body):,} characters, "
+            f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
+            f"issue body limit by {len(body) - MAX_ISSUE_BODY_CHARACTERS:,}"
+        )
     marker_count = body.count(f"<!-- {MARKER_NAME}")
     matches = list(MARKER.finditer(body))
     if marker_count != 1 or len(matches) != 1:

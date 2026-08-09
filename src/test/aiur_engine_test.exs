@@ -153,6 +153,8 @@ defmodule AiurEngineTest do
     assert out =~ "aiur findings [--unfiled] [--slugs] [--scope aiur|repo]"
     assert out =~ "aiur findings --record <json> --repo <owner/repo>"
     assert out =~ "aiur findings --digest [--scope aiur|repo]"
+    assert out =~ "aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]"
+    assert out =~ "aiur asks [--open|--all] [--json]"
     assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
     assert out =~ "aiur --bg [--no-dashboard] [--debug]"
     refute out =~ "sweep"
@@ -516,6 +518,21 @@ defmodule AiurEngineTest do
              "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
   end
 
+  test "commands routes filters and encoded detail arguments through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_commands dec:42 --filter resolved --json --limit 10|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
+  end
+
+  test "commands reports missing option values as usage errors" do
+    {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
+    assert out =~ "commands --filter requires a value"
+  end
+
   test "todo control rpc propagates live success and semantic failure codes" do
     for {rpc_output, expected_code} <- [
           {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},
@@ -578,6 +595,18 @@ defmodule AiurEngineTest do
     state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
 
     {out, _} = run_engine(["findings", "--slugs"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
+
+    assert out =~ "ELIXIR_ARGS:"
+    assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
+    refute out =~ "--name"
+    refute out =~ "BIN:"
+  end
+
+  test "ask boots distribution-free without requiring a running node" do
+    rel = fake_release()
+    state = Path.join(System.tmp_dir!(), "aiur-st-#{System.unique_integer([:positive])}")
+
+    {out, _} = run_engine(["ask", "Enable CI readiness", "--blocking"], [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}])
 
     assert out =~ "ELIXIR_ARGS:"
     assert out =~ "Aiur.CLI.main(Aiur.CLI.argv_from_file())"
