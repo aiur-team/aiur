@@ -267,6 +267,35 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "binding constraint=run-queue gate (runnable=8 threshold=4)"
   end
 
+  test "reports all-provider dispatch authorization denials as the binding constraint" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    :ok = Exchange.subscribe("system.fleet.capacity.starved")
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    ready = for id <- 1..8, do: issue("limited-#{id}", "todo")
+
+    state = %State{
+      max_concurrent_agents: 20,
+      effective_concurrent_agents: 20,
+      running: running_agents(3),
+      model_fallback_waiting: MapSet.new(Enum.map(ready, & &1.id)),
+      dispatch_capacity_sample: %{load: 0.7, target: 1.0, schedulers: 16}
+    }
+
+    state
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 1_000)
+    |> IssueSync.sync_fleet_capacity_starved_alert(ready, 61_000)
+
+    assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500
+
+    assert event["reason"] =~
+             "binding constraint=dispatch authorization denials (all fallback backends usage-limited for 8 ready ticket(s))"
+  end
+
   test "resolves and rearms fleet starvation after capacity recovers" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")

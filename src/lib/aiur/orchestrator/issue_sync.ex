@@ -966,7 +966,15 @@ defmodule Aiur.Orchestrator.IssueSync do
   defp selected_binding_constraint(state, entries, ready_issues) do
     case Enum.filter(entries, &String.starts_with?(&1.identity, "per-state:")) do
       [_ | _] = per_state_entries -> Enum.map_join(per_state_entries, "; ", & &1.detail)
-      _ -> worker_capacity_constraint(state, ready_issues)
+      _ -> model_fallback_constraint(state, ready_issues) || worker_capacity_constraint(state, ready_issues)
+    end
+  end
+
+  defp model_fallback_constraint(%State{model_fallback_waiting: waiting}, ready_issues) do
+    waiting_count = Enum.count(ready_issues, &MapSet.member?(waiting, &1.id))
+
+    if waiting_count > 0 do
+      "dispatch authorization denials (all fallback backends usage-limited for #{waiting_count} ready ticket(s))"
     end
   end
 
