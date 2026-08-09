@@ -191,6 +191,30 @@ defmodule Aiur.AgentQueueStore do
     end)
   end
 
+  @doc false
+  @spec restore_failed_pending(t(), integer()) :: {t(), AgentQueueItem.t() | nil}
+  def restore_failed_pending(%__MODULE__{} = store, item_id) when is_integer(item_id) do
+    case Map.get(store.items, item_id) do
+      %AgentQueueItem{target_issue_identifier: target, status: :failed} = item ->
+        restored =
+          item
+          |> Map.put(:status, :pending)
+          |> Map.put(:delivered_at, nil)
+          |> Map.put(:provider_delivered_at, nil)
+          |> Map.put(:provider_turn_id, nil)
+          |> Map.put(:failed_at, nil)
+          |> Map.put(:failure_reason, nil)
+
+        {store |> put_item(restored) |> append_pending_id(target, item_id), restored}
+
+      %AgentQueueItem{} = item ->
+        {store, item}
+
+      nil ->
+        {store, nil}
+    end
+  end
+
   @spec mark_provider_delivered(t(), integer(), map()) ::
           {t(), AgentQueueItem.t() | nil}
   def mark_provider_delivered(%__MODULE__{} = store, item_id, metadata)

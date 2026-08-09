@@ -46,6 +46,15 @@ defmodule Aiur.ProviderMeters.EventsTest do
     refute_receive {:provider_meter_changed, _snapshot}, 50
   end
 
+  test "broadcast_from excludes the publishing projection from both topics" do
+    :ok = Events.subscribe(:codex, :app_server, "gen-1")
+    :ok = Events.subscribe_observed()
+
+    :ok = Events.broadcast_from(self(), snapshot("gen-1"))
+
+    refute_receive {:provider_meter_changed, _snapshot}, 50
+  end
+
   test "topics are distinct and stable" do
     assert Events.topic(:codex, :app_server, "gen-1") == "provider_meters:codex:app_server:gen-1"
     assert Events.fanout_topic() == "provider_meters:observed"
