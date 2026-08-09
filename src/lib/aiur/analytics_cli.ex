@@ -90,7 +90,7 @@ defmodule Aiur.AnalyticsCLI do
          snapshot: %{captured_at: captured_at},
          request: request,
          sources: sources(scope, view, model, captured_at),
-         data: %{model: view, scope: scope_view(scope), range: rendered_range},
+         data: %{model: view, scope: scope_view(scope), range: Map.put(rendered_range, :applies_to, :time_charts)},
          auxiliary: %{provider_spend: %{source: unavailable_source(:financial_capability_required), data: nil}}
        }
        |> JSONSafe.normalize()}
@@ -105,7 +105,9 @@ defmodule Aiur.AnalyticsCLI do
     load = Keyword.get(opts, :presenter_load, &Presenter.load/1)
     session = if request.range == :full, do: :cross, else: :current
 
-    case load.([range: request.range, session: session, telemetry_file: Keyword.get(opts, :telemetry_file)] ++ ScopeResolver.telemetry_opts(scope)) do
+    telemetry_file = Keyword.get(opts, :telemetry_file, Application.get_env(:aiur, :analytics_telemetry_file))
+
+    case load.([range: request.range, session: session, telemetry_file: telemetry_file] ++ ScopeResolver.telemetry_opts(scope)) do
       {:ok, model} -> {:ok, model}
       {:unavailable, reason} -> {:unavailable, {reason, scope}}
     end
@@ -163,7 +165,7 @@ defmodule Aiur.AnalyticsCLI do
        snapshot: %{captured_at: captured_at},
        request: request,
        sources: scope_source(scope, unavailable_source(reason)),
-       data: %{model: nil, view: nil, scope: scope_view(scope), range: unavailable_range(request)},
+       data: %{model: nil, scope: scope_view(scope), range: unavailable_range(request)},
        auxiliary: %{provider_spend: %{source: unavailable_source(:financial_capability_required), data: nil}}
      }
      |> JSONSafe.normalize()}
@@ -186,9 +188,9 @@ defmodule Aiur.AnalyticsCLI do
 
   defp print_human(envelope) do
     IO.puts(["Analytics captured ", get_in(envelope, ["snapshot", "captured_at"])])
-    Enum.each(envelope["sources"], fn {name, source} -> IO.puts([name, ": ", source["state"], "; freshness ", source["freshness"]]) end)
+    Enum.each(envelope["sources"], fn {name, source} -> print_source(name, source) end)
     provider = get_in(envelope, ["auxiliary", "provider_spend", "source"])
-    IO.puts(["provider_spend: ", provider["state"], "; freshness ", provider["freshness"]])
+    print_source("provider_spend", provider)
 
     print_window(get_in(envelope, ["data", "range"]))
 
@@ -198,6 +200,7 @@ defmodule Aiur.AnalyticsCLI do
 
       model ->
         IO.puts(["Scope: ", scope_label(get_in(envelope, ["data", "scope"]))])
+        IO.puts("Page metrics for selected scope (run-scoped, as on /analytics):")
         metrics = get_in(envelope, ["data", "model", "kpis"])
         IO.puts(["Peak concurrency: ", to_string(metrics["peak_conc"]), "; mean utilization: ", to_string(metrics["mean_util_pct"]), "%"])
         IO.puts(["Memory headroom: ", to_string(metrics["mem_headroom_pct"]), "%"])
@@ -205,19 +208,52 @@ defmodule Aiur.AnalyticsCLI do
         IO.puts(["Tickets done: ", to_string(metrics["done"]), "/", to_string(metrics["total"])])
         IO.puts(["Wasted capacity: ", to_string(metrics["wasted_slot_hours"]), "h"])
         IO.puts("Complexity tiers:")
-        Enum.each(model["complexity_breakdown"], fn tier -> IO.puts(["  tier ", to_string(tier["tier"]), ": ", to_string(tier["count"]), " tickets"]) end)
+
+        Enum.each(model["complexity_breakdown"], fn tier ->
+          average = tier["average_wall_clock_ms"] |> elapsed() || "unknown"
+          IO.puts(["  tier ", to_string(tier["tier"]), ": ", to_string(tier["count"]), " tickets; average wall-clock ", average])
+        end)
     end
+  end
+
+  defp print_source(name, source) do
+    observed_at = source["observed_at"] || "unknown"
+    age = if is_integer(source["age_ms"]), do: "#{source["age_ms"]}ms", else: "unknown"
+
+    IO.puts([name, ": ", source["state"], "; freshness ", source["freshness"], "; observed ", observed_at, "; age ", age])
   end
 
   defp iso(ms) when is_integer(ms), do: ms |> DateTime.from_unix!(:millisecond) |> DateTime.to_iso8601()
   defp iso(value) when is_binary(value), do: value
   defp iso(_ms), do: "unknown"
 
+  defp elapsed(nil), do: nil
+  defp elapsed(ms) when ms <= 0, do: "0m"
+
+  defp elapsed(ms) when is_number(ms) do
+    total_min = ms |> Kernel./(1_000) |> round() |> div(60)
+    hours = div(total_min, 60)
+    minutes = rem(total_min, 60)
+
+    cond do
+      hours > 0 and minutes > 0 -> "#{hours}h #{minutes}m"
+      hours > 0 -> "#{hours}h"
+      true -> "#{total_min}m"
+    end
+  end
+
+  defp elapsed(_value), do: nil
+
   defp print_window(%{"state" => "unavailable", "mode" => mode, "start" => start, "end" => finish}) when is_binary(start) or is_binary(finish),
     do: IO.puts(["Window: unavailable; requested ", iso(start), " to ", iso(finish), " (", mode, ")"])
 
   defp print_window(%{"state" => "unavailable", "mode" => mode}), do: IO.puts(["Window: unavailable (", mode, ")"])
-  defp print_window(range), do: IO.puts(["Window: ", iso(range["start"]), " to ", iso(range["end"]), " (", range["mode"], ")"])
+
+  defp print_window(%{"state" => "empty", "mode" => mode, "start" => start, "end" => finish}) do
+    IO.puts(["Window: no telemetry in requested interval ", iso(start), " to ", iso(finish), " (", mode, ")"])
+  end
+
+  defp print_window(range), do: IO.puts(["Chart window: ", iso(range["start"]), " to ", iso(range["end"]), " (", range["mode"], ")"])
   defp scope_label(%{"kind" => "build_order", "root_number" => root}), do: "Build Order ##{root}"
   defp scope_label(_scope), do: "this session"
   defp maybe_put(map, _key, nil), do: map

@@ -2028,7 +2028,7 @@ cmd_commands() {
 # time window. This is read-only and obtains the same durable telemetry snapshot
 # the page uses through the running node.
 cmd_analytics() {
-  local range="run" json=0 since="" until="" build_order="" arg
+  local range="run" json=0 since="" until="" build_order="" has_build_order=0 arg
 
   while [ "$#" -gt 0 ]; do
     arg="$1"
@@ -2039,8 +2039,8 @@ cmd_analytics() {
       --since=*) since="${arg#--since=}" ;;
       --until) [ "$#" -gt 1 ] || { echo "aiur: analytics --until requires a value" >&2; exit 64; }; shift; until="$1" ;;
       --until=*) until="${arg#--until=}" ;;
-      --build-order) [ "$#" -gt 1 ] || { echo "aiur: analytics --build-order requires a value" >&2; exit 64; }; shift; build_order="$1" ;;
-      --build-order=*) build_order="${arg#--build-order=}" ;;
+      --build-order) [ "$#" -gt 1 ] || { echo "aiur: analytics --build-order requires a value" >&2; exit 64; }; shift; build_order="$1"; has_build_order=1 ;;
+      --build-order=*) build_order="${arg#--build-order=}"; has_build_order=1 ;;
       --json) json=1 ;;
       -*) echo "aiur: analytics received an unknown option: $arg" >&2; exit 64 ;;
       *) echo "aiur: analytics does not accept positional arguments" >&2; exit 64 ;;
@@ -2049,7 +2049,7 @@ cmd_analytics() {
   done
 
   case "$range" in run|full) ;; *) echo "aiur: analytics --range accepts run or full" >&2; exit 64 ;; esac
-  [ -z "$build_order" ] || [[ "$build_order" =~ ^[0-9]+$ ]] || { echo "aiur: analytics --build-order expects a numeric ticket ID" >&2; exit 64; }
+  [ "$has_build_order" -eq 0 ] || [[ "$build_order" =~ ^[0-9]+$ ]] || { echo "aiur: analytics --build-order expects a numeric ticket ID" >&2; exit 64; }
 
   local opts="range: :$range" key raw encoded
   [ "$json" -eq 1 ] && opts="$opts, json: true"

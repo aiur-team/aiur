@@ -549,6 +549,7 @@ defmodule AiurEngineTest do
     for {argv, message} <- [
           {~s|--range week|, "analytics --range accepts run or full"},
           {~s|--build-order not-a-ticket|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--build-order ''|, "analytics --build-order expects a numeric ticket ID"},
           {~s|--since|, "analytics --since requires a value"},
           {~s|--unknown|, "analytics received an unknown option"}
         ] do

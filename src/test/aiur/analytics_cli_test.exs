@@ -26,6 +26,7 @@ defmodule Aiur.AnalyticsCLITest do
     assert envelope["sources"]["telemetry"]["state"] == "available"
     assert envelope["data"]["range"]["start"] == DateTime.to_unix(@start, :millisecond)
     assert envelope["data"]["range"]["end"] == DateTime.to_unix(@finish, :millisecond)
+    assert envelope["data"]["range"]["applies_to"] == "time_charts"
     assert envelope["data"]["model"]["window"]["start_ms"] == DateTime.to_unix(@start, :millisecond)
     refute Map.has_key?(envelope["data"], "view")
     assert envelope["auxiliary"]["provider_spend"]["source"]["state"] == "unavailable"
@@ -46,6 +47,17 @@ defmodule Aiur.AnalyticsCLITest do
              "reasons" => [],
              "state" => "available"
            }
+  end
+
+  test "reports stale telemetry separately from an unknown observation time" do
+    assert {:ok, envelope} =
+             AnalyticsCLI.build(
+               now: DateTime.add(@finish, 31, :second),
+               presenter_load: fn _opts -> {:ok, model()} end
+             )
+
+    assert envelope["sources"]["telemetry"]["freshness"] == "stale"
+    assert envelope["sources"]["telemetry"]["age_ms"] == 31_000
   end
 
   test "honors an explicit ISO-8601 brush window and emits JSON" do
@@ -86,6 +98,22 @@ defmodule Aiur.AnalyticsCLITest do
     assert envelope["sources"]["telemetry"]["reasons"] == ["empty_window"]
     assert envelope["data"]["model"] == nil
     assert envelope["data"]["range"]["state"] == "empty"
+    refute Map.has_key?(envelope["data"], "view")
+  end
+
+  test "labels an empty requested interval as empty in human output" do
+    output =
+      capture_io(fn ->
+        assert 0 ==
+                 AnalyticsCLI.run(
+                   since: "2026-08-10T10:00:00Z",
+                   until: "2026-08-10T11:00:00Z",
+                   presenter_load: fn _opts -> {:ok, model()} end
+                 )
+      end)
+
+    assert output =~ "Window: no telemetry in requested interval 2026-08-10T10:00:00.000Z to 2026-08-10T11:00:00.000Z (run)"
+    refute output =~ "Chart window:"
   end
 
   test "does not widen a narrow explicit window to the brush's visual minimum" do
@@ -134,6 +162,7 @@ defmodule Aiur.AnalyticsCLITest do
 
     assert envelope["sources"]["planning_graph"]["state"] == "unavailable"
     assert envelope["sources"]["planning_graph"]["reasons"] == ["build_order_unavailable"]
+    refute Map.has_key?(envelope["data"], "view")
   end
 
   test "renders every dashboard KPI in human output" do
@@ -145,6 +174,11 @@ defmodule Aiur.AnalyticsCLITest do
     assert output =~ "Memory headroom:"
     assert output =~ "PRs merged:"
     assert output =~ "Wasted capacity:"
+    assert output =~ "telemetry: available; freshness current; observed 2026-08-09T11:00:00Z; age 0ms"
+    assert output =~ "provider_spend: unavailable; freshness unknown; observed unknown; age unknown"
+    assert output =~ "Chart window: 2026-08-09T10:00:00.000Z to 2026-08-09T11:00:00.000Z (run)"
+    assert output =~ "Page metrics for selected scope (run-scoped, as on /analytics):"
+    assert output =~ "tier 1: 1 tickets; average wall-clock 1m"
   end
 
   test "passes the resolved Build Order ticket set to the dashboard presenter" do
