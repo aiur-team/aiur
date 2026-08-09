@@ -76,8 +76,8 @@ defmodule AiurWeb.StreamdeckStrip do
 
   defp provider_logo(provider) do
     case provider |> to_string() |> String.downcase() do
-      "claude" -> "/claude-symbol.svg"
-      "codex" -> "/codex-color.svg"
+      "claude" -> "/provider-assets/claude-symbol.svg"
+      "codex" -> "/provider-assets/codex-color.svg"
       _ -> nil
     end
   end

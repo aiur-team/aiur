@@ -16,7 +16,7 @@ defmodule AiurWeb.StreamdeckStripTest do
     assert command == %{
              number: "1582",
              provider: "codex",
-             provider_logo: "/codex-color.svg",
+             provider_logo: "/provider-assets/codex-color.svg",
              title: "Render the logs strip",
              status: "RUNNING",
              percent: 50,
