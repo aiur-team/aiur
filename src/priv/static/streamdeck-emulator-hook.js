@@ -415,13 +415,29 @@
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
 
+          var logEventIndex = key.getAttribute("data-log-event-index");
+
+          // Log keys index the flattened transcript instead of selecting an
+          // agent. The server owns the resulting transcript offset.
+          if (self._mode === "logs" && logEventIndex !== null) {
+            self.pushEvent("log-key-select", { index: Number(logEventIndex) });
+            return;
+          }
+
           var identifier = key.getAttribute("data-streamdeck-identifier");
           if (identifier) {
             self.pushEvent("key-press", { identifier: identifier });
           }
         };
+        var keydownHandler = function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handler();
+          }
+        };
         key.addEventListener("click", handler);
-        self._keyHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
+        key.addEventListener("keydown", keydownHandler);
+        self._keyHandlers.push({ el: key, handler: handler, keydownHandler: keydownHandler, timer: function () { return timer; } });
       });
     },
 
@@ -429,6 +445,7 @@
       (this._keyHandlers || []).forEach(function (entry) {
         clearTimeout(entry.timer());
         entry.el.removeEventListener("click", entry.handler);
+        entry.el.removeEventListener("keydown", entry.keydownHandler);
       });
       this._keyHandlers = [];
     },
