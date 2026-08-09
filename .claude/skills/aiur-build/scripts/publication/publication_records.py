@@ -72,7 +72,12 @@ def manifest_tickets(
             report.error(f"duplicate logical ID {ticket_id}")
         else:
             found[ticket_id] = validated
-        _ticket_fields(ticket_id, validated, base, gates, report)
+        _ticket_fields(
+            ticket_id, validated, base, gates, report,
+            repository=repository,
+            plan_version=data.get("plan_version"),
+            approved=data.get("researched_at_commit"),
+        )
         validated["_github"] = github_mapping(
             ticket.get("github"), f"{ticket_id}.github", repository, report
         )
@@ -81,7 +86,8 @@ def manifest_tickets(
 
 
 def _ticket_fields(
-    ticket_id: str, ticket: dict[str, Any], base: Path, gates: set[str], report: Report
+    ticket_id: str, ticket: dict[str, Any], base: Path, gates: set[str], report: Report,
+    *, repository: str, plan_version: object, approved: object,
 ) -> None:
     if not valid_issue_title(ticket.get("title")):
         report.error(f"{ticket_id}.title must be a trimmed single-line GitHub issue title")
@@ -111,7 +117,12 @@ def _ticket_fields(
     for gate_id in gate_ids:
         if gate_id not in gates:
             report.error(f"{ticket_id}.external_gates references unknown gate {gate_id}")
-    validate_document(ticket, base, report)
+    validate_document(
+        ticket, base, report,
+        repository=repository,
+        plan_version=plan_version if type(plan_version) is int else None,
+        approved=approved if isinstance(approved, str) else None,
+    )
 
 
 def validate_graph(tickets: dict[str, dict[str, Any]], report: Report) -> None:

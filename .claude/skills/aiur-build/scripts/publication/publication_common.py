@@ -10,6 +10,8 @@ from pathlib import Path
 from typing import Any
 
 from publication_paths import resolved_document
+from publication_body_limits import MAX_ISSUE_BODY_CHARACTERS
+from validation_github_rendering import authority_preamble
 
 
 DASH_ID = re.compile(r"^DASH-[0-9]{3,}$", re.ASCII)
@@ -170,16 +172,37 @@ def github_mapping(
     return mapping
 
 
-def validate_document(ticket: dict[str, Any], base: Path, report: Report) -> None:
+def validate_document(
+    ticket: dict[str, Any], base: Path, report: Report,
+    *, repository: str | None = None, plan_version: int | None = None,
+    approved: str | None = None,
+) -> None:
     ticket_id, value = ticket.get("id"), ticket.get("document")
     path = resolved_document(base, value, f"{ticket_id}.document", report)
     if path is None:
         return
     try:
-        text = path.read_text(encoding="utf-8")
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            text = stream.read()
     except (OSError, UnicodeError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")
         return
+    rendered_length = len(text)
+    if (
+        isinstance(repository, str) and repository
+        and type(plan_version) is int
+        and isinstance(approved, str) and approved
+    ):
+        rendered_length = len(
+            authority_preamble(repository, str(ticket_id), plan_version, approved)
+            + text
+        )
+    if rendered_length > MAX_ISSUE_BODY_CHARACTERS:
+        report.warn(
+            f"{ticket_id}.document renders to {rendered_length:,} characters, "
+            f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
+            f"issue body limit by {rendered_length - MAX_ISSUE_BODY_CHARACTERS:,}"
+        )
     expected_heading = f"# BO: {ticket_id} — {ticket.get('title')}"
     if not text.splitlines() or text.splitlines()[0] != expected_heading:
         report.error(
