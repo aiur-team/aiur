@@ -138,6 +138,28 @@ defmodule Aiur.UnitsCLITest do
     end
   end
 
+  test "normalizes serialized freshness timestamps without overstating unknown data" do
+    current_catalog =
+      ready_catalog()
+      |> put_in([:snapshot, :freshness, :membership, :status], :current)
+      |> put_in([:snapshot, :freshness, :membership, :observed_at], "2026-08-09T12:00:00Z")
+
+    assert {:ok, current} =
+             UnitsCLI.build(payload_fun: fn -> %{units: current_catalog} end, now: ~U[2026-08-09 12:05:00Z])
+
+    assert current["sources"]["units_catalog"] |> Map.take(["freshness", "observed_at", "age_ms"]) == %{
+             "age_ms" => 300_000,
+             "freshness" => "current",
+             "observed_at" => "2026-08-09T12:00:00Z"
+           }
+
+    invalid_catalog = put_in(current_catalog, [:snapshot, :freshness, :membership, :observed_at], "not-a-timestamp")
+
+    assert {:ok, invalid} = UnitsCLI.build(payload_fun: fn -> %{units: invalid_catalog} end)
+    assert invalid["sources"]["units_catalog"]["freshness"] == "unknown"
+    assert invalid["sources"]["units_catalog"]["observed_at"] == nil
+  end
+
   test "distinguishes observed empty and partial catalog states" do
     assert {:ok, empty} = UnitsCLI.build(payload_fun: fn -> %{units: empty_catalog()} end)
     assert empty["sources"]["units_catalog"]["state"] == "empty"
