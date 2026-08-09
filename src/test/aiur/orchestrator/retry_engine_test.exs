@@ -1,9 +1,9 @@
 defmodule Aiur.Orchestrator.RetryEngineTest do
   use Aiur.TestSupport
 
+  alias Aiur.{AgentQueue, AgentQueueStore, CodingAgent, Issue, TrackerIdentity}
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.{AgentQueue, AgentQueueStore, CodingAgent, Issue, TrackerIdentity}
   alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, SnapshotStore, State}
   alias Aiur.Workspace.Ownership
 
