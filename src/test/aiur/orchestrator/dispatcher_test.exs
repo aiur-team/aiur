@@ -738,6 +738,43 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       assert log =~ "aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}"
     end
 
+    test "records ready-work prewarm samples for fleet starvation detection" do
+      with_prewarm_enabled_config()
+
+      ready = Enum.map(1..8, &issue("prewarm-fleet-#{&1}"))
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 4_000,
+          memory_threshold_mb: 2_048,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.7,
+          load_threshold: 1.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: 1.0
+        }
+      end
+
+      state = %State{
+        max_concurrent_agents: 20,
+        effective_concurrent_agents: 20,
+        running: Map.new(1..3, fn id -> {"live-#{id}", running_entry("live-#{id}")} end)
+      }
+
+      held =
+        Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
+
+      assert held.dispatch_capacity_sample == %{load: 0.7, target: 1.0, schedulers: 16}
+
+      waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
+      assert waiting.fleet_capacity_starvation.since_ms == 1_000
+    end
+
     test "fails open to a cold clone on a base-build error and resets the hold counter" do
       with_prewarm_enabled_config()
       Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)

@@ -870,7 +870,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   def sync_fleet_capacity_starved_alert(%State{} = state, _issues), do: state
 
   defp fleet_capacity_context(state, issues) do
-    sample = state.dispatch_capacity_sample || %{}
+    sample = state.dispatch_capacity_sample
     constraint_entries = capacity_constraint_entries(state, issues)
     ready_issues = ready_dispatch_issues(state, issues)
     live_count = State.active_running_count(state.running)
