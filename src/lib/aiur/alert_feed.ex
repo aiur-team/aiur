@@ -25,21 +25,23 @@ defmodule Aiur.AlertFeed do
   @spec backfill(keyword()) :: :ok
   def backfill(opts \\ []) do
     unless AlertLedger.backfilled?(opts) do
-      AlertLedger.with_lock(opts, fn ->
-        existing =
-          opts
-          |> AlertLedger.paths()
-          |> Enum.flat_map(&read_alerts/1)
-          |> MapSet.new(&alert_fingerprint/1)
-
-        case append_legacy_alerts(legacy_alert_log_paths(opts), existing, opts) do
-          :ok -> AlertLedger.mark_backfilled(opts)
-          {:error, _reason} -> :ok
-        end
-      end)
+      AlertLedger.with_lock(opts, fn -> backfill_locked(opts) end)
     end
 
     :ok
+  end
+
+  defp backfill_locked(opts) do
+    existing =
+      opts
+      |> AlertLedger.paths()
+      |> Enum.flat_map(&read_alerts/1)
+      |> MapSet.new(&alert_fingerprint/1)
+
+    case append_legacy_alerts(legacy_alert_log_paths(opts), existing, opts) do
+      :ok -> AlertLedger.mark_backfilled(opts)
+      {:error, _reason} -> :ok
+    end
   end
 
   @doc "Returns active legacy attention alerts in the current project's Decision adapter shape."
@@ -92,22 +94,27 @@ defmodule Aiur.AlertFeed do
     paths
     |> Enum.flat_map(&read_alerts/1)
     |> Enum.reduce_while({:ok, existing}, fn alert, {:ok, seen} ->
-      fingerprint = alert_fingerprint(alert)
-
-      cond do
-        MapSet.member?(seen, fingerprint) ->
-          {:cont, {:ok, seen}}
-
-        true ->
-          case AlertLedger.append(alert, opts) do
-            :ok -> {:cont, {:ok, MapSet.put(seen, fingerprint)}}
-            {:error, reason} -> {:halt, {:error, reason}}
-          end
+      case append_legacy_alert(alert, seen, opts) do
+        {:ok, updated_seen} -> {:cont, {:ok, updated_seen}}
+        {:error, reason} -> {:halt, {:error, reason}}
       end
     end)
     |> case do
       {:ok, _seen} -> :ok
       {:error, _reason} = error -> error
+    end
+  end
+
+  defp append_legacy_alert(alert, seen, opts) do
+    fingerprint = alert_fingerprint(alert)
+
+    if MapSet.member?(seen, fingerprint) do
+      {:ok, seen}
+    else
+      case AlertLedger.append(alert, opts) do
+        :ok -> {:ok, MapSet.put(seen, fingerprint)}
+        {:error, reason} -> {:error, reason}
+      end
     end
   end
 
@@ -213,7 +220,7 @@ defmodule Aiur.AlertFeed do
 
     needs_attention = Map.get(alert, "needs_attention") == true
     source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || path_agent
-    agent = string_field(alert, "agent") || path_agent
+    agent = alert_agent(alert, path_agent)
 
     %{
       "timestamp" => string_field(alert, "timestamp"),
@@ -321,6 +328,8 @@ defmodule Aiur.AlertFeed do
 
   defp default_severity(true), do: "warning"
   defp default_severity(false), do: "info"
+
+  defp alert_agent(alert, path_agent), do: string_field(alert, "agent") || path_agent
 
   defp alert_fingerprint(alert) do
     alert

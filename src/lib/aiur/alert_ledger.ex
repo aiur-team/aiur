@@ -12,9 +12,9 @@ defmodule Aiur.AlertLedger do
       path = path(opts)
       encoded = alert |> Map.put_new("event", "alert") |> Jason.encode!()
 
-      with :ok <- File.mkdir_p(Path.dirname(path)),
-           :ok <- File.write(path, encoded <> "\n", [:append]) do
-        :ok
+      case File.mkdir_p(Path.dirname(path)) do
+        :ok -> File.write(path, encoded <> "\n", [:append])
+        {:error, _reason} = error -> error
       end
     end)
   rescue
