@@ -17,7 +17,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
@@ -149,7 +149,8 @@ defmodule AiurWeb.StreamdeckLive do
           <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
             <li
               :for={key <- @keys}
-              class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
+              class={["sd-key", key.empty? && "is-empty", key.pulse? && "is-pulsing"]}
+              style={key.style}
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
               data-streamdeck-identifier={key.identifier}
@@ -199,7 +200,7 @@ defmodule AiurWeb.StreamdeckLive do
             <p class="sd-mode-label">Logs</p>
             <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-              <p :for={event <- @logs.events_visible} class="sd-log-line">{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
+              <p :for={event <- @logs.events_visible} class={["sd-log-line", "sd-log-badge"]} style={log_badge_style(event.badge)}>{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
               <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
               <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
             </div>
@@ -313,6 +314,8 @@ defmodule AiurWeb.StreamdeckLive do
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
     dependency_ready = Map.get(agent, :dependency_ready, true)
+    footer = StreamdeckKeyFaceContract.footer(bucket, dependency_ready)
+    state = StreamdeckKeyFaceContract.state!(bucket)
 
     key(
       slot,
@@ -320,12 +323,14 @@ defmodule AiurWeb.StreamdeckLive do
       Map.get(agent, :vendor, "unknown"),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
-      bucket_label(bucket),
+      footer.label,
       Map.get(agent, :progress_percent, 0),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
-      dependency: if(bucket == :queued and not dependency_ready, do: "Blocked")
+      dependency: footer.dependency,
+      pulse?: is_number(state["pulse_seconds"]),
+      style: key_style(state, Map.get(agent, :progress_percent, 0))
     )
   end
 
@@ -342,12 +347,14 @@ defmodule AiurWeb.StreamdeckLive do
       dependency: Keyword.get(opts, :dependency),
       identifier: Keyword.get(opts, :identifier, ticket),
       control_action: Keyword.get(opts, :control_action),
+      pulse?: Keyword.get(opts, :pulse?, false),
+      style: Keyword.fetch!(opts, :style),
       empty?: false
     }
   end
 
   defp empty_key(slot),
-    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
+    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, pulse?: false, style: nil, empty?: true}
 
   defp screen_descriptors(grid, usage) do
     [
@@ -387,11 +394,11 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp provider_value(_meter), do: "Unavailable"
 
-  defp bucket_label(:alert), do: "Alert"
-  defp bucket_label(:stuck), do: "Stuck"
-  defp bucket_label(:running), do: "Running"
-  defp bucket_label(:paused), do: "Paused"
-  defp bucket_label(:queued), do: "Queued"
+  defp key_style(state, progress),
+    do:
+      "--sd-accent: #{state["accent"]}; --sd-glow: #{state["glow"]}; --sd-face: #{state["face"]}; --sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}; --sd-pulse: #{state["pulse_seconds"] || 0}s"
+
+  defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 
   defp control_action(:running), do: "pause"
   defp control_action(:paused), do: "resume"

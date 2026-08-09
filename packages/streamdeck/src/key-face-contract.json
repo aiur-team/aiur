@@ -1,0 +1,65 @@
+{
+  "states": {
+    "alert": {
+      "rank": 0,
+      "glow": "linear-gradient(180deg,#ffc061,#e08a1e)",
+      "face": "linear-gradient(180deg,#241d0e,#15110a)",
+      "accent": "#ffcf87",
+      "label": "Needs input",
+      "pulse_seconds": 1.6
+    },
+    "stuck": {
+      "rank": 1,
+      "glow": "linear-gradient(180deg,#ff6a5e,#c0392b)",
+      "face": "linear-gradient(180deg,#271317,#160c0e)",
+      "accent": "#ff9a90",
+      "label": "Stuck",
+      "pulse_seconds": 1.4
+    },
+    "running": {
+      "rank": 2,
+      "glow": "linear-gradient(180deg,#3f8bff,#7b4bf5)",
+      "face": "linear-gradient(180deg,#18212d,#0f151d)",
+      "accent": "#9fd0ff",
+      "label": "Running"
+    },
+    "paused": {
+      "rank": 3,
+      "glow": "linear-gradient(180deg,#4a4d55,#33363d)",
+      "face": "linear-gradient(180deg,#1e2025,#131419)",
+      "accent": "#c2c6cf",
+      "label": "Paused"
+    },
+    "queued": {
+      "rank": 4,
+      "glow": "linear-gradient(180deg,#3a3f47,#23262c)",
+      "face": "linear-gradient(180deg,#191b21,#111318)",
+      "accent": "#9096a4",
+      "label": "Unstarted"
+    }
+  },
+  "progress": {
+    "minimum": 0,
+    "maximum": 100,
+    "hue_start": 0,
+    "hue_end": 125,
+    "round_decimals": 0,
+    "saturation": 72,
+    "lightness": 50
+  },
+  "direction_badges": {
+    "EMIT": { "color": "#9fd0ff" },
+    "CONSUME": { "color": "#88e0a6" },
+    "AGENT": { "color": "#9fd0ff" },
+    "SYSTEM": { "color": "#ffcf87" },
+    "INFO": { "color": "#c2c6cf" }
+  },
+  "footers": {
+    "progress": { "kind": "progress" },
+    "queued": {
+      "kind": "queued",
+      "ready_label": "Unblocked",
+      "blocked_label": "Blocked"
+    }
+  }
+}

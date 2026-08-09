@@ -10,11 +10,11 @@ defmodule AiurWeb.StreamDeckGrid do
   """
 
   alias Aiur.{AgentEvents, AgentList.Summaries, CodingAgent, Orchestrator}
+  alias AiurWeb.StreamdeckKeyFaceContract
 
   @columns_per_page 4
   @rows_per_column 2
   @agents_per_page @columns_per_page * @rows_per_column
-  @bucket_rank %{alert: 0, stuck: 1, running: 2, paused: 3, queued: 4}
 
   @spec payload(GenServer.name(), timeout()) :: map()
   def payload(orchestrator, snapshot_timeout_ms) do
@@ -83,7 +83,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
+    {StreamdeckKeyFaceContract.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
   end
 
   defp vendor(entry) do

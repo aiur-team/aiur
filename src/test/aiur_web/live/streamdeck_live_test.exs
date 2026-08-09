@@ -74,6 +74,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(class="sd-progress")
   end
 
+  test "renders contract-derived state, progress, and log badge styles" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "--sd-accent: #9fd0ff"
+    assert html =~ "--sd-face: linear-gradient(180deg,#18212d,#0f151d)"
+    assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
+    assert html =~ "--sd-log-badge: #9fd0ff"
+  end
+
   test "renders the live grid projection instead of preview descriptors" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
