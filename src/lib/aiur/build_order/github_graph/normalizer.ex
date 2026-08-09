@@ -185,13 +185,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
   end
 
   defp metric_count(metadata, field) do
-    with true <- Enum.all?(metadata, &match?({:ok, _}, &1)) do
+    if Enum.all?(metadata, &match?({:ok, _}, &1)) do
       metadata
       |> Enum.map(fn {:ok, member_metadata} -> field.(member_metadata) end)
       |> Enum.uniq()
       |> length()
     else
-      false -> nil
+      nil
     end
   end
 
