@@ -17,7 +17,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
@@ -333,7 +333,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
-    dependency_ready = if(bucket == :queued, do: Map.get(agent, :dependency_ready) === true, else: false)
+    footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
 
     key(
       slot,
@@ -341,12 +341,12 @@ defmodule AiurWeb.StreamdeckLive do
       Map.get(agent, :vendor, "unknown"),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
-      bucket_label(bucket),
+      footer.label,
       Map.get(agent, :progress_percent, 0),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
-      dependency: if(bucket == :queued and not dependency_ready, do: "Blocked")
+      dependency: footer.dependency
     )
   end
 
@@ -407,12 +407,6 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp provider_value(_meter), do: "Unavailable"
-
-  defp bucket_label(:alert), do: "Alert"
-  defp bucket_label(:stuck), do: "Stuck"
-  defp bucket_label(:running), do: "Running"
-  defp bucket_label(:paused), do: "Paused"
-  defp bucket_label(:queued), do: "Queued"
 
   defp control_action(:running), do: "pause"
   defp control_action(:paused), do: "resume"
