@@ -2,7 +2,7 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Issue
-  alias Aiur.Orchestrator.{PriorityControl, State}
+  alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State}
 
   test "prioritizing persists priority:1 and updates the dispatch snapshot" do
     state = state_for(issue(labels: ["agent:todo", "priority:3"], priority: 3))
@@ -55,6 +55,23 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
              PriorityControl.prioritize_agent_call(state, "1577", add_label_fun: fn _, _ -> {:error, :forbidden} end)
   end
 
+  test "prioritizing immediately moves the agent ahead in dispatch order" do
+    normal = issue(id: "normal", identifier: "normal", created_at: ~U[2026-08-08 00:00:00Z])
+    selected = issue(id: "selected", identifier: "selected", created_at: ~U[2026-08-09 00:00:00Z])
+
+    assert {:reply, {:ok, :prioritized}, updated_state} =
+             PriorityControl.prioritize_agent_call(state_for_issues([normal, selected]), "selected",
+               add_label_fun: fn _issue_id, _label -> :ok end,
+               notify_dashboard_fun: fn _ -> :ok end
+             )
+
+    assert ["selected", "normal"] =
+             updated_state.last_polled_issues
+             |> Map.values()
+             |> DispatchPolicy.sort_issues_for_dispatch()
+             |> Enum.map(& &1.id)
+  end
+
   test "unknown agents never call the tracker" do
     state = state_for(issue())
 
@@ -67,6 +84,14 @@ defmodule Aiur.Orchestrator.PriorityControlTest do
       last_polled_issues: %{issue.id => issue},
       running: %{issue.id => %{identifier: issue.identifier, issue: issue}},
       retry_attempts: %{issue.id => %{identifier: issue.identifier, priority: issue.priority}}
+    }
+  end
+
+  defp state_for_issues(issues) do
+    %State{
+      last_polled_issues: Map.new(issues, &{&1.id, &1}),
+      running: Map.new(issues, &{&1.id, %{identifier: &1.identifier, issue: &1}}),
+      retry_attempts: Map.new(issues, &{&1.id, %{identifier: &1.identifier, priority: &1.priority}})
     }
   end
 
