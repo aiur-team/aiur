@@ -34,6 +34,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "fleet.capacity.starved":
+    message: Fleet capacity is under-utilised
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "fleet.capacity.starved.resolved":
+    message: Fleet capacity starvation recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:

@@ -80,6 +80,12 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "fleet.capacity.starved":
+    message: Fleet capacity is under-utilised
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "fleet.capacity.starved.resolved":
+    message: Fleet capacity starvation recovered
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":

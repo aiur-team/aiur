@@ -34,6 +34,14 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "/System/Library/Sounds/Basso.aiff"
+  "fleet.capacity.starved":
+    message: Fleet capacity is under-utilised
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "fleet.capacity.starved.resolved":
+    message: Fleet capacity starvation recovered
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
   "ticket.*.agent.error.tokens_exhausted":
     message: Agent ran out of tokens
     sound:
