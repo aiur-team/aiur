@@ -212,23 +212,19 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   config never touches a Linux-specific probe.
   """
   @spec admission_gate(map()) :: :dispatch | {:hold, admission_reason()}
-  def admission_gate(
-        %{
-          memory_mb: memory_mb,
-          memory_threshold_mb: memory_threshold_mb,
-          fd_sample: fd_sample,
-          runnable: runnable,
-          run_queue_threshold: run_queue_threshold,
-          schedulers: schedulers,
-          load: load,
-          load_threshold: load_threshold,
-          build_status: build_status,
-          provider_backends: provider_backends,
-          queued_demand?: queued_demand?
-        } = probes
-      ) do
+  def admission_gate(%{} = probes) do
     github_quota = Map.get(probes, :github_quota, :available)
 
+    case resource_admission_gate(probes, github_quota) do
+      :dispatch -> workload_admission_gate(probes)
+      hold -> hold
+    end
+  end
+
+  defp resource_admission_gate(
+         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample},
+         github_quota
+       ) do
     cond do
       memory_gate(memory_mb, memory_threshold_mb) == :hold ->
         {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
@@ -239,6 +235,22 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       github_quota_gate(github_quota) == :hold ->
         {:hold, %{signal: :github_quota, measured: elem(github_quota, 1), threshold: :ten_percent_remaining}}
 
+      true ->
+        :dispatch
+    end
+  end
+
+  defp workload_admission_gate(%{
+         runnable: runnable,
+         run_queue_threshold: run_queue_threshold,
+         schedulers: schedulers,
+         load: load,
+         load_threshold: load_threshold,
+         build_status: build_status,
+         provider_backends: provider_backends,
+         queued_demand?: queued_demand?
+       }) do
+    cond do
       run_queue_gate(runnable, schedulers, run_queue_threshold) == :hold ->
         {:hold, %{signal: :run_queue, measured: runnable, threshold: run_queue_threshold * schedulers}}
 

@@ -19,14 +19,13 @@ defmodule Aiur.Workspace.Provisioner do
   # support files through one idempotent SSH script.
   @spec maybe_install_agent_support(Path.t(), String.t() | nil) :: :ok | {:error, term()}
   def maybe_install_agent_support(workspace, nil) do
-    with :ok <- Aiur.AgentSkills.install(workspace),
-         :ok <- Aiur.AgentGitHubGuard.install(workspace) do
-      :ok
+    with :ok <- Aiur.AgentSkills.install(workspace) do
+      Aiur.AgentGitHubGuard.install(workspace)
     end
   end
 
   def maybe_install_agent_support(workspace, worker_host) when is_binary(worker_host) do
-    maybe_install_agent_support(workspace, worker_host, &Remote.run_remote_command/3)
+    maybe_install_agent_support(workspace, worker_host, &Remote.run_remote_script/3)
   end
 
   @doc false
@@ -34,7 +33,7 @@ defmodule Aiur.Workspace.Provisioner do
           :ok | {:error, term()}
   def maybe_install_agent_support(workspace, worker_host, runner)
       when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
-    script = Aiur.AgentSkills.remote_install_script(workspace) <> "\n" <> Aiur.AgentGitHubGuard.remote_install_script(workspace)
+    script = remote_agent_support_script(workspace)
 
     case runner.(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} ->
@@ -44,6 +43,11 @@ defmodule Aiur.Workspace.Provisioner do
         Logger.warning("remote agent support install failed worker_host=#{worker_host} result=#{inspect(result)}")
         {:error, {:remote_agent_support_install_failed, result}}
     end
+  end
+
+  defp remote_agent_support_script(workspace) do
+    Aiur.AgentSkills.remote_install_script(workspace) <>
+      "\n" <> Aiur.AgentGitHubGuard.remote_install_script(workspace)
   end
 
   @type worker_host :: String.t() | nil

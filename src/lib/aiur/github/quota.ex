@@ -11,6 +11,7 @@ defmodule Aiur.GitHub.Quota do
   use GenServer
 
   alias Aiur.{Alerts, Config}
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
@@ -351,8 +352,8 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp refresh_from_github do
-    with token when is_binary(token) and token != "" <- Aiur.GitHub.Config.token() do
-      Aiur.GitHub.Transport.default_request_fun(%{
+    with token when is_binary(token) and token != "" <- GitHubConfig.token() do
+      Transport.default_request_fun(%{
         method: :get,
         url: "https://api.github.com/rate_limit",
         token: token,
