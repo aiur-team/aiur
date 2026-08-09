@@ -266,7 +266,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
   defp safe_rows(_fleet, _bucket), do: []
 
-  defp catalog_status(%{health: %{membership: :unavailable}}), do: :unavailable
+  defp catalog_status(%{health: %{membership: :unavailable}, rows: []}), do: :unavailable
+  defp catalog_status(%{health: %{membership: :unavailable}}), do: :stale
   defp catalog_status(%{health: %{membership: :degraded}}), do: :stale
 
   defp catalog_status(%{health: %{membership: status}, rows: []})
@@ -293,6 +294,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
     do: Map.get(membership, :health_message) || "Units catalog is unavailable."
 
   defp count_status(%{status: :unavailable}), do: :unavailable
+  defp count_status(%{status: :stale}), do: :partial
   defp count_status(%{truncated?: true}), do: :partial
   defp count_status(%{snapshot: %{truncated?: true}}), do: :partial
   defp count_status(_catalog), do: :exact
