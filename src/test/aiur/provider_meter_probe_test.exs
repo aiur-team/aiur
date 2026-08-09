@@ -153,6 +153,20 @@ defmodule Aiur.ProviderMeterProbeTest do
     refute_received {:session_stopped, _session}
   end
 
+  test "a failed probe records its result on the consumer projection", ctx do
+    send(ctx.pid, {:provider_meter_changed, snapshot(:codex, ~U[2026-07-24 12:00:00Z])})
+    Process.put(:probe_start_result, {:error, :port_closed})
+
+    assert [%{provider: :codex, observed?: false, reason: :port_closed}] =
+             ProviderMeterProbe.observe(:codex, opts(ctx, observed_at: ~U[2026-07-27 12:00:00Z]))
+
+    view = ProviderMeterProjection.provider_view(ctx.projection, :codex)
+    assert view.freshness == :stale
+    assert view.health.failure == :port_closed
+    assert view.health.last_attempt_at == ~U[2026-07-27 12:00:00Z]
+    assert view.health.consecutive_failures == 1
+  end
+
   test "a raising session start is contained", ctx do
     Process.put(:probe_start_result, :raise)
 
@@ -394,5 +408,18 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert workspace == expected
     assert String.starts_with?(workspace, Aiur.Config.workspace_root())
     assert File.dir?(workspace)
+  end
+
+  defp snapshot(provider, observed_at) do
+    %ProviderMeterSnapshot{
+      provider: provider,
+      backend: :app_server,
+      provider_account_generation: "gen-secret-1",
+      observed_at: observed_at,
+      auth_mode: :subscription,
+      freshness: :fresh,
+      health: %{state: :healthy, failure: nil, last_observed_at: observed_at, last_source_version: 1},
+      windows: %{}
+    }
   end
 end

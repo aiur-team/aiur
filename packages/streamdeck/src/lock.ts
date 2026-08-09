@@ -20,7 +20,7 @@
  */
 
 /** Default abstract-socket name for the sidecar's single-instance lock. */
-export const DEFAULT_LOCK_NAME = "aiur-streamdeck";
+export const DEFAULT_LOCK_NAME = "streamdeck-sidecar";
 
 /** A held lock; releasing it frees the name for another instance. */
 export interface LockHandle {
@@ -39,7 +39,7 @@ export interface LockBinding {
 export class LockHeldError extends Error {
   constructor(name: string) {
     super(
-      `Another Aiur Stream Deck sidecar is already running (advisory lock "${name}" is held). ` +
+      `Another Stream Deck sidecar is already running (advisory lock "${name}" is held). ` +
         `Stop the other instance — check "systemctl --user status aiur-streamdeck" and "fuser /dev/hidraw*" — then start exactly one.`,
     );
     this.name = "LockHeldError";

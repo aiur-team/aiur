@@ -26,6 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
   @type model :: %{
           available?: boolean(),
           window: %{start_ms: integer(), end_ms: integer(), buckets: pos_integer()},
+          source_observed_at: String.t() | nil,
           cap: non_neg_integer(),
           cores: pos_integer(),
           cpu_ceiling: number(),
@@ -202,6 +203,7 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Presenter do
     %{
       available?: true,
       window: %{start_ms: axis0, end_ms: axis1, buckets: buckets},
+      source_observed_at: get_in(dataset, [:provenance, :time_range, :end]),
       cap: cap,
       cores: cores,
       cpu_ceiling: cores * 100,

@@ -166,7 +166,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
 
   # --- health / freshness --------------------------------------------------
 
-  defp health(%ProviderMeterSnapshot{health: %{} = health}) do
+  defp health(%ProviderMeterSnapshot{health: %{} = health} = snapshot) do
     state = Map.get(health, :state, :unavailable)
     failure = Map.get(health, :failure)
 
@@ -175,11 +175,26 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
       label: health_label(state),
       failure: failure,
       failure_label: failure_label(failure),
-      last_observed_at: datetime(Map.get(health, :last_observed_at))
+      last_observed_at: datetime(Map.get(health, :last_observed_at)),
+      last_attempt_at: datetime(Map.get(health, :last_attempt_at)),
+      consecutive_failures: Map.get(health, :consecutive_failures, 0),
+      age_seconds: snapshot.age_seconds,
+      age_label: age_label(snapshot.age_seconds)
     }
   end
 
-  defp health(_snapshot), do: %{state: :unavailable, label: health_label(:unavailable), failure: :no_observation, failure_label: failure_label(:no_observation), last_observed_at: nil}
+  defp health(_snapshot),
+    do: %{
+      state: :unavailable,
+      label: health_label(:unavailable),
+      failure: :no_observation,
+      failure_label: failure_label(:no_observation),
+      last_observed_at: nil,
+      last_attempt_at: nil,
+      consecutive_failures: 0,
+      age_seconds: nil,
+      age_label: nil
+    }
 
   defp freshness(%ProviderMeterSnapshot{freshness: freshness}) do
     %{status: freshness, label: freshness_label(freshness)}
@@ -361,6 +376,24 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp freshness_label(:partial), do: "Partial"
   defp freshness_label(:stale), do: "Stale"
   defp freshness_label(_status), do: "Unknown"
+
+  defp age_label(nil), do: nil
+  defp age_label(seconds) when seconds < 60, do: "#{seconds} #{pluralize(seconds, "second", "seconds")} old"
+
+  defp age_label(seconds) when seconds < 3_600 do
+    minutes = div(seconds, 60)
+    "#{minutes} #{pluralize(minutes, "minute", "minutes")} old"
+  end
+
+  defp age_label(seconds) when seconds < 86_400 do
+    hours = div(seconds, 3_600)
+    "#{hours} #{pluralize(hours, "hour", "hours")} old"
+  end
+
+  defp age_label(seconds) do
+    days = div(seconds, 86_400)
+    "#{days} #{pluralize(days, "day", "days")} old"
+  end
 
   defp window_freshness_label(:fresh), do: "Fresh"
   defp window_freshness_label(:stale), do: "Stale"
