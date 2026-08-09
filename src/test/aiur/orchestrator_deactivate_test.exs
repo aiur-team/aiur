@@ -3434,6 +3434,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
           String.contains?(url, "/issues/61/comments?") ->
             {:ok, %{status: 200, body: []}}
 
+          String.contains?(url, "/pulls/61/reviews") ->
+            {:ok, %{status: 200, body: []}}
+
           String.contains?(url, "/graphql") ->
             review_threads_response([
               %{
@@ -3580,6 +3583,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/issues/61/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls/61/reviews") ->
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/graphql") ->
@@ -3792,6 +3798,9 @@ defmodule Aiur.OrchestratorDeactivateTest do
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/pulls/61/comments?") ->
+            {:ok, %{status: 200, body: []}}
+
+          String.contains?(url, "/pulls/61/reviews") ->
             {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/graphql") ->
@@ -4237,6 +4246,98 @@ defmodule Aiur.OrchestratorDeactivateTest do
       # (leaked from another suite test) can't masquerade as a self-trigger.
       refute_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}, 100
       assert log =~ ":benign_review_pass_comment"
+    end
+
+    test "a trusted CHANGES_REQUESTED review wakes a fully-idle human-review ticket into rework" do
+      # Regression coverage for #1389: a CHANGES_REQUESTED review posted while the
+      # agent entry is fully torn down (no running entry) must still transition to
+      # rework. This is the exact shape of the four reproductions from BO #1363.
+      issue_identifier = "76"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{
+          id: issue_identifier,
+          identifier: issue_identifier,
+          state: "human-review",
+          title: "PR awaiting review",
+          description: "",
+          labels: []
+        }
+      ])
+
+      {:noreply, _next} =
+        Orchestrator.handle_info(
+          {:event,
+           %{
+             topic: "ticket.#{issue_identifier}.pr.review_comment",
+             author_trusted?: true,
+             comment: %{
+               "state" => "CHANGES_REQUESTED",
+               "body" => "Please rename the helper before merge",
+               "user" => %{"login" => "its-everdred"},
+               "submitted_at" => "2026-07-30T16:24:00Z"
+             }
+           }},
+          empty_orchestrator_state()
+        )
+
+      assert_receive {:memory_tracker_state_update, ^issue_identifier, "rework"}
+    end
+
+    test "a trusted CHANGES_REQUESTED review wakes a :deactivated human-review entry into rework" do
+      # Regression coverage for #1389: a review comment must also reactivate an
+      # entry still present in state.running but marked :deactivated (human-review
+      # paused). This path goes through reactivate_if_deactivated.
+      issue_identifier = "77"
+      issue_id = "issue-#{issue_identifier}"
+
+      Application.put_env(:aiur, :memory_tracker_issues, [
+        %Issue{
+          id: issue_id,
+          identifier: issue_identifier,
+          state: "rework",
+          title: "PR changes requested",
+          description: "",
+          labels: []
+        }
+      ])
+
+      state = %Orchestrator.State{
+        running: %{
+          issue_id => %{
+            pid: nil,
+            ref: nil,
+            identifier: issue_identifier,
+            issue: %Issue{id: issue_id, state: "human-review", identifier: issue_identifier},
+            started_at: DateTime.utc_now(),
+            control: %{status: :deactivated}
+          }
+        },
+        claimed: MapSet.new([issue_id]),
+        codex_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        retry_attempts: %{},
+        max_concurrent_agents: 6
+      }
+
+      {:noreply, next} =
+        Orchestrator.handle_info(
+          {:event,
+           %{
+             topic: "ticket.#{issue_identifier}.pr.review_comment",
+             author_trusted?: true,
+             comment: %{
+               "state" => "CHANGES_REQUESTED",
+               "body" => "Please rename the helper before merge",
+               "user" => %{"login" => "its-everdred"},
+               "submitted_at" => "2026-07-30T16:24:00Z"
+             }
+           }},
+          state
+        )
+
+      assert_receive {:memory_tracker_state_update, ^issue_id, "rework"}
+      entry = Map.fetch!(next.running, issue_id)
+      refute get_in(entry, [:control, :status]) == :deactivated
     end
   end
 
