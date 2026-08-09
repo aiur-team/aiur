@@ -411,6 +411,35 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status makes degraded supervision explicit" do
+    Application.put_env(:aiur, :supervision_health_status_fun, fn ->
+      {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :supervision_health_status_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "SUPERVISION 1/2 — Aiur.Events.IdGenerator DOWN (last termination: :killed)"
+    refute output =~ "SUPERVISION 2/2 healthy"
+  end
+
+  test "status prints healthy and unavailable supervision states" do
+    Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
+
+    healthy_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert healthy_output =~ "SUPERVISION 2/2 healthy"
+    assert healthy_output =~ "__AIUR_CONTROL_EXIT__:0"
+
+    Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:error, :unavailable} end)
+
+    unavailable_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert unavailable_output =~ "SUPERVISION unavailable"
+    assert unavailable_output =~ "__AIUR_CONTROL_EXIT__:0"
+
+    on_exit(fn -> Application.delete_env(:aiur, :supervision_health_status_fun) end)
+  end
+
   test "status names awaiting dispatch and transient retry causes", %{orchestrator: pid} do
     idle = %Issue{id: "issue-17", identifier: "repo#17", state: "todo", title: "Awaiting dispatch"}
     retry = %Issue{id: "issue-18", identifier: "repo#18", state: "todo", title: "Retrying", labels: ["agent:todo", "agent:paused"], paused: true}
