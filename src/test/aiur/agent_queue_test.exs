@@ -172,6 +172,21 @@ defmodule Aiur.AgentQueueTest do
     assert superseded.status == :superseded
   end
 
+  test "restores a specifically fenced failed item to pending" do
+    {store, item} =
+      AgentQueue.operator_message("MT-301", "authoritative rework")
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    {store, _delivered} = AgentQueueStore.claim_next_deliverable(store, "MT-301")
+    {store, failed} = AgentQueueStore.mark_failed(store, item.id, :unsupported_model)
+
+    {store, restored} = AgentQueueStore.restore_failed_pending(store, failed.id)
+
+    assert restored.status == :pending
+    assert restored.failure_reason == nil
+    assert Enum.map(AgentQueueStore.list_pending(store, "MT-301"), & &1.id) == [item.id]
+  end
+
   test "dedupe repeated blocker events by superseding the pending predecessor" do
     store = AgentQueueStore.new()
 

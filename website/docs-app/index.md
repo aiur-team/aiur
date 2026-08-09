@@ -17,5 +17,7 @@ hero:
 
 - [Install and start Aiur](/guide/quick-start)
 - [Configure your workflow](/reference/configuration)
+- [Run and control Aiur](/reference/cli)
+- [Understand state nodes and Build Orders](/concepts/state-and-build-orders)
 - [Understand the ticket lifecycle](/concepts/ticket-lifecycle)
 - [Choose and use agent skills](/skills)
