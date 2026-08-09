@@ -66,6 +66,14 @@ alerts:
     message: Fleet dispatch capacity recovered
     sound:
       - "/System/Library/Sounds/Pop.aiff"
+  "system.fleet.capacity.starved":
+    message: Fleet capacity is under-utilised
+    sound:
+      - "/System/Library/Sounds/Basso.aiff"
+  "system.fleet.capacity.starved.resolved":
+    message: Fleet capacity starvation recovered
+    sound:
+      - "/System/Library/Sounds/Pop.aiff"
   "system.tracker.auth_preflight_failed":
     message: Tracker authentication is blocking fleet dispatch
     sound:
