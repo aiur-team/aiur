@@ -11,6 +11,10 @@ import {
 } from "../src/lock.js";
 
 describe("acquireLock", () => {
+  it("uses a product-neutral default lock name", () => {
+    expect(DEFAULT_LOCK_NAME).toBe("streamdeck-sidecar");
+  });
+
   it("acquires via the injected binding using the abstract address", async () => {
     const handle = { release: vi.fn() };
     const binding: LockBinding = { listen: vi.fn(async () => handle) };

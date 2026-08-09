@@ -50,7 +50,9 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
         state: :healthy,
         failure: nil,
         last_observed_at: observed_at,
-        last_source_version: source_version
+        last_source_version: source_version,
+        last_attempt_at: nil,
+        consecutive_failures: 0
       },
       windows: Map.new(windows, &{&1.limit_id, Map.delete(&1, :limit_id)})
     })
