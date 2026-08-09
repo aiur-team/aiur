@@ -85,6 +85,36 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "3 units"
   end
 
+  test "renders GitHub core and GraphQL quota with reset and coarse ownership" do
+    github_quota = %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 3750, limit: 5000, used_percent: 25.0, reset_at: DateTime.add(@now, 30, :minute)},
+        "graphql" => %{resource: "graphql", remaining: 500, limit: 5000, used_percent: 90.0, reset_at: DateTime.add(@now, 45, :minute)}
+      },
+      attribution: [
+        %{consumer: "ticket:1670", reads: 8, writes: 2, total: 10},
+        %{consumer: "unattributed", reads: 1, writes: 0, total: 1}
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        github_quota: github_quota,
+        now: @now
+      })
+
+    assert html =~ "GitHub API"
+    assert html =~ "3750/5000 left · resets in 30m"
+    assert html =~ "500/5000 left · resets in 45m"
+    assert html =~ "9R / 2W"
+    assert html =~ "ticket:1670 · 10 requests"
+    assert html =~ ~s(class="is-warning" style="width:90.0%")
+  end
+
   test "names unavailable values instead of presenting synthetic zeroes" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
@@ -288,8 +318,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       assert html =~ "$7.25"
       refute html =~ "0% consumed"
       # Only the credit row renders: the idle concurrency gauge is dropped, so
-      # exactly one limit row survives instead of two.
-      assert length(Regex.scan(~r/<div class="rs-limit">/, html)) == 1
+      # exactly one provider limit row survives instead of two. The GitHub
+      # quota card has its own row earlier in the strip.
+      [_before_provider, provider_html] = String.split(html, "DeepSeek", parts: 2)
+      assert length(Regex.scan(~r/<div class="rs-limit">/, provider_html)) == 1
       refute html =~ "concurrency"
     end)
   end

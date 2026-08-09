@@ -159,6 +159,7 @@ defmodule Aiur.Application do
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
+      Aiur.GitHub.Quota,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,

@@ -16,6 +16,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
+  alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.LiveConversation
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
@@ -61,6 +62,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  @github_quota_tick_ms 15_000
   @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
   @usage_summary_max_age_ms 30_000
@@ -92,6 +94,7 @@ defmodule AiurWeb.DashboardLive do
       socket
       |> assign(:payload, payload)
       |> assign(:now, DateTime.utc_now())
+      |> assign(:github_quota, github_quota_snapshot())
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
@@ -134,7 +137,10 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> PayloadLoader.mark_loaded()
 
-    if connected, do: schedule_runtime_tick()
+    if connected do
+      schedule_runtime_tick()
+      schedule_github_quota_tick()
+    end
 
     {:ok, socket}
   end
@@ -157,6 +163,11 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(:runtime_tick, socket) do
     schedule_runtime_tick()
     {:noreply, assign(socket, :now, DateTime.utc_now())}
+  end
+
+  def handle_info(:github_quota_tick, socket) do
+    schedule_github_quota_tick()
+    {:noreply, assign(socket, :github_quota, github_quota_snapshot())}
   end
 
   @impl true
@@ -659,6 +670,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:usage_summary_drill_trigger, nil)
       |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
       |> Map.put_new(:provider_meters_announcement, nil)
+      |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: []})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -729,6 +741,7 @@ defmodule AiurWeb.DashboardLive do
           run={@run_summary}
           usage={@usage_summary}
           meters={@provider_meters_view}
+          github_quota={@github_quota}
           now={@now}
         />
 
@@ -1977,6 +1990,9 @@ defmodule AiurWeb.DashboardLive do
   defp agent_kind, do: to_string(Aiur.Config.agent_kind())
 
   defp schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+  defp schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
+
+  defp github_quota_snapshot, do: GitHubQuota.snapshot()
 
   defp clear_chat_state(socket, identifier) do
     socket

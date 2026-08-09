@@ -3,7 +3,7 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{BuildGate, Config, RepoBase}
+  alias Aiur.{AgentGitHubGuard, BuildGate, Config, RepoBase}
   alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -46,7 +46,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
       "done; " <>
-      release_launcher_scrub_prefix()
+      release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
   end
 
   defp release_launcher_scrub_prefix do
@@ -95,6 +95,15 @@ defmodule Aiur.AgentEnvironment do
     """)
   end
 
+  defp agent_bin_scrub_prefix do
+    String.trim(~S"""
+    if [ -n "${AIUR_AGENT_BIN:-}" ]; then
+      PATH="$AIUR_AGENT_BIN:$PATH"
+      export PATH
+    fi
+    """)
+  end
+
   @spec parent_log_env_name?(String.t()) :: boolean()
   def parent_log_env_name?(name) when is_binary(name), do: name in @parent_log_env_names
 
@@ -124,6 +133,7 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = sidecar_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
+    real_gh = System.find_executable("gh")
 
     unset_inherited_env =
       Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names(), fn name ->
@@ -136,6 +146,9 @@ defmodule Aiur.AgentEnvironment do
         {~c"MIX_HOME", String.to_charlist(mix)},
         {~c"npm_config_cache", String.to_charlist(npm_cache)},
         {~c"AIUR_REPO_STATE_PATH", String.to_charlist(state_path)},
+        {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> Path.join(".aiur-runtime/github-quota") |> String.to_charlist()},
+        {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
+        {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
@@ -183,6 +196,7 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
     state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
+    agent_bin = AgentGitHubGuard.bin_dir(workspace)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -202,7 +216,10 @@ defmodule Aiur.AgentEnvironment do
         |> Enum.join("\n")
       end)
 
-    "{\n#{sidecar_exports}\n{ #{scrub_shell_prefix()}; } && " <>
+    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\nexport AIUR_REAL_GH\n" <>
+      "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
+      "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
+      "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}\n}"
   end

@@ -4,6 +4,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   """
 
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
 
   @cpu_headroom_ramp_max 3
@@ -72,6 +73,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec read_provider_backends() :: [String.t()]
   def read_provider_backends do
     Config.agent_backend_configs() |> CodingAgent.dispatchable_backends()
+  end
+
+  @doc false
+  @spec read_github_quota() :: :available | {:hold, map()}
+  def read_github_quota do
+    case Application.get_env(:aiur, :github_quota_status_override) do
+      :available -> :available
+      {:hold, %{} = hold} -> {:hold, hold}
+      fun when is_function(fun, 0) -> fun.()
+      _other -> Quota.dispatch_status()
+    end
   end
 
   @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
@@ -178,8 +190,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def provider_gate(_backends), do: :dispatch
 
+  @doc false
+  @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
+  def github_quota_gate({:hold, %{resource: resource}}) when resource in ["core", "graphql"], do: :hold
+  def github_quota_gate(_status), do: :dispatch
+
   @type admission_reason :: %{
-          signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider,
+          signal: :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
           measured: term(),
           threshold: term()
         }
@@ -189,30 +206,38 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
   (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, run queue, load, build, provider.
+  priority order is memory, file descriptors, GitHub quota, run queue, load,
+  build, provider.
   Every signal fails open when disabled or unavailable, so an explicit-disable
   config never touches a Linux-specific probe.
   """
   @spec admission_gate(map()) :: :dispatch | {:hold, admission_reason()}
-  def admission_gate(%{
-        memory_mb: memory_mb,
-        memory_threshold_mb: memory_threshold_mb,
-        fd_sample: fd_sample,
-        runnable: runnable,
-        run_queue_threshold: run_queue_threshold,
-        schedulers: schedulers,
-        load: load,
-        load_threshold: load_threshold,
-        build_status: build_status,
-        provider_backends: provider_backends,
-        queued_demand?: queued_demand?
-      }) do
+  def admission_gate(
+        %{
+          memory_mb: memory_mb,
+          memory_threshold_mb: memory_threshold_mb,
+          fd_sample: fd_sample,
+          runnable: runnable,
+          run_queue_threshold: run_queue_threshold,
+          schedulers: schedulers,
+          load: load,
+          load_threshold: load_threshold,
+          build_status: build_status,
+          provider_backends: provider_backends,
+          queued_demand?: queued_demand?
+        } = probes
+      ) do
+    github_quota = Map.get(probes, :github_quota, :available)
+
     cond do
       memory_gate(memory_mb, memory_threshold_mb) == :hold ->
         {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
 
       fd_gate(fd_sample) == :hold ->
         {:hold, %{signal: :file_descriptors, measured: fd_sample, threshold: fd_headroom_threshold(fd_sample)}}
+
+      github_quota_gate(github_quota) == :hold ->
+        {:hold, %{signal: :github_quota, measured: elem(github_quota, 1), threshold: :ten_percent_remaining}}
 
       run_queue_gate(runnable, schedulers, run_queue_threshold) == :hold ->
         {:hold, %{signal: :run_queue, measured: runnable, threshold: run_queue_threshold * schedulers}}

@@ -255,6 +255,18 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "GitHub quota authority starts before the orchestrator in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        quota = Enum.find_index(mods, &(&1 == Aiur.GitHub.Quota))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        assert quota < orchestrator
+      end
+    end
+
     test "the shared test orchestrator starts without a poll cycle" do
       specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
 
