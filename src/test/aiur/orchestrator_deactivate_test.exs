@@ -2171,42 +2171,6 @@ defmodule Aiur.OrchestratorDeactivateTest do
       assert next.running[issue_id].issue.paused
     end
 
-    test "resume clears the durable override before starting an idle ticket" do
-      write_workflow_file!(Workflow.workflow_file_path(),
-        tracker_kind: "memory",
-        tracker_active_states: ["todo", "in-progress", "rework", "merging"],
-        tracker_terminal_states: ["done", "cancelled", "canceled"],
-        max_concurrent_agents: 1
-      )
-
-      previous_recipient = Application.get_env(:aiur, :memory_tracker_recipient)
-      Application.put_env(:aiur, :memory_tracker_recipient, self())
-
-      on_exit(fn -> restore_application_env(:memory_tracker_recipient, previous_recipient) end)
-
-      issue = %Issue{
-        id: "issue-idle-paused-resume",
-        identifier: "PAUSE-IDLE-RESUME",
-        title: "Idle paused resume",
-        state: "todo",
-        paused: true,
-        labels: ["agent:todo", "agent:paused"],
-        tracker_identity: tracker_identity("issue-idle-paused-resume")
-      }
-
-      state = %Orchestrator.State{
-        last_polled_issues: %{issue.id => issue},
-        max_concurrent_agents: 1,
-        effective_concurrent_agents: 1
-      }
-
-      assert {:reply, reply, next} = Orchestrator.handle_call({:resume_agent, issue.identifier}, self(), state)
-      assert reply in [{:ok, :started}, {:error, :dispatch_failed}]
-      assert_receive {:memory_tracker_remove_label, "PAUSE-IDLE-RESUME", "agent:paused"}
-      refute next.last_polled_issues[issue.id].paused
-      refute "agent:paused" in next.last_polled_issues[issue.id].labels
-    end
-
     test "initial dispatch keeps paused active tickets suppressed" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",

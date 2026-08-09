@@ -688,7 +688,7 @@ defmodule Aiur.AgentControlCLI do
     canonical = canonical_identifier(status)
 
     case resume_agent(canonical) do
-      {:ok, result} when result in [:started, :resumed] ->
+      {:ok, result} when result in [:started, :resumed, :reactivated] ->
         IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
         :ok
 
@@ -1491,7 +1491,8 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp result_verb(result), do: Map.fetch!(%{resumed: "resumed", started: "started"}, result)
+  defp result_verb(result),
+    do: Map.fetch!(%{resumed: "resumed", started: "started", reactivated: "reactivated"}, result)
 
   defp format_reason(reason) do
     Map.get(

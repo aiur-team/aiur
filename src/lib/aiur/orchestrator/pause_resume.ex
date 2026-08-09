@@ -221,13 +221,34 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_running_from_global(%State{} = state) do
     state.running
     |> Enum.filter(fn {_id, entry} -> globally_held?(state, entry) end)
-    |> Enum.map(fn {_id, entry} -> Map.get(entry, :identifier) end)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(state, fn identifier, state ->
-      {_reply, state} = resume_issue(state, identifier)
-      state
+    |> Enum.reduce(state, fn {_id, entry}, state ->
+      if tracker_pause_override?(entry) do
+        preserve_tracker_pause_after_global_hold(state, entry)
+      else
+        {_reply, state} = resume_issue(state, Map.get(entry, :identifier))
+        state
+      end
     end)
   end
+
+  defp tracker_pause_override?(%{issue: %Issue{} = issue}), do: Issue.paused?(issue)
+  defp tracker_pause_override?(_entry), do: false
+
+  defp preserve_tracker_pause_after_global_hold(state, entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+
+    entry =
+      entry
+      |> Map.put(:paused_reason, :label_override)
+      |> update_pending_global_pause_reason()
+
+    put_running_entry(state, issue_id, entry)
+  end
+
+  defp update_pending_global_pause_reason(%{pending_pause_reason: %{reason: @global_pause_reason} = pending} = entry),
+    do: %{entry | pending_pause_reason: %{pending | reason: :label_override}}
+
+  defp update_pending_global_pause_reason(entry), do: entry
 
   defp globally_pausable?(state, entry) do
     not State.paused_running_entry?(entry) and
@@ -1626,13 +1647,7 @@ defmodule Aiur.Orchestrator.PauseResume do
         {{:error, :no_running_agent}, state}
 
       %Issue{} = issue ->
-        case clear_tracker_pause_override(state, issue) do
-          {:ok, state, issue} ->
-            resume_queued_issue(state, issue)
-
-          {:error, reason} ->
-            {{:error, {:pause_override_clear_failed, reason}}, state}
-        end
+        resume_queued_issue(state, issue)
     end
   end
 
@@ -1650,6 +1665,23 @@ defmodule Aiur.Orchestrator.PauseResume do
       match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id)) ->
         {{:error, :lifetime_dispatch_latch}, state}
 
+      true ->
+        clear_and_resume_queued_issue(state, issue)
+    end
+  end
+
+  defp clear_and_resume_queued_issue(state, issue) do
+    case clear_tracker_pause_override(state, issue) do
+      {:ok, state, issue} ->
+        dispatch_resumed_queued_issue(state, issue)
+
+      {:error, reason} ->
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
+
+  defp dispatch_resumed_queued_issue(state, issue) do
+    cond do
       not DispatchPolicy.dispatch_candidate?(
         issue,
         state,

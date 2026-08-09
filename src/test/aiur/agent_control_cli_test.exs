@@ -1016,6 +1016,21 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "resume reports a reactivated agent as success", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, :reactivated} end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+
+    assert output =~ "aiur: reactivated #44 (was: paused)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
   test "idle resume starts queued issues", %{orchestrator: pid} do
     Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#47" -> {:ok, :started} end)
 
