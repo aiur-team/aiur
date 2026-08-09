@@ -2,6 +2,12 @@ name: ci
 
 on:
   pull_request:
+  # Required for GitHub's merge queue: the queue builds each candidate on a
+  # `gh-readonly-queue/<base>/pr-<n>-<sha>` ref and waits for the required
+  # checks to report against it. Without this trigger no workflow runs there,
+  # the required checks never appear, and every queued PR is ejected when the
+  # queue's check timeout expires. See #1381.
+  merge_group:
   push:
     branches:
       - main
