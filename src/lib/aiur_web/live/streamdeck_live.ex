@@ -208,7 +208,7 @@ defmodule AiurWeb.StreamdeckLive do
 
           <%= if @sd_mode == :cmd do %>
           <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
-          <ul id="sd-keys" class="sd-keys sd-cmd-keys" aria-label="Available commands">
+          <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
             <li :for={key <- command_keys(@grid.agents, @selected_identifier)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
               <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
                 <span class="sd-cmd">

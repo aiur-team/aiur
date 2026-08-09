@@ -237,8 +237,8 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   await openStreamdeck(page)
 
   const device = page.locator('.sd-device')
-  const keysView = page.locator('[data-mode-view="grid"]')
-  const cmdView = page.locator('[data-mode-view="cmd"]')
+  const keysView = page.locator('#sd-keys[data-mode-view="grid"]')
+  const cmdView = page.locator('#sd-keys[data-mode-view="cmd"]')
   const logsView = page.locator('[data-mode-view="logs"]')
 
   // Initial state: grid mode, keys visible, cmd and logs hidden.
