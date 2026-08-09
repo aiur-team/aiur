@@ -270,21 +270,27 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  test "scrolls bounded event and flattened transcript logs" do
+  test "renders LIVE plus log event keys and positions the flattened transcript when one is selected" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     html = enter_logs(view)
 
-    # Events pane shows the eight newest event headers; the transcript pane is
-    # the flattened sequence oldest-first, so its top two lines are the oldest.
-    assert log_pane(html, "sd-log-events") =~ "event-1"
-    assert log_pane(html, "sd-log-transcript") =~ "event-10"
+    assert html =~ ~s(id="sd-log-keys")
+    assert html =~ ~s(data-log-event-index="0")
+    assert length(Regex.scan(~r/class="sd-key sd-log-key/, html)) == 8
+    assert log_pane(html, "sd-log-transcript") =~ "event-1"
     assert html =~ ~s(data-log-kind="event_header")
     assert html =~ ~s(data-log-kind="message")
 
-    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "1"})
-    assert html =~ ~r{id="sd-log-events"[^>]*data-offset="1"}
-    refute log_pane(html, "sd-log-events") =~ "event-1"
-    assert log_pane(html, "sd-log-events") =~ "event-2"
+    html = render_hook(view, "log-key-select", %{"index" => "2"})
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
+    assert log_pane(html, "sd-log-transcript") =~ "event-2"
+    assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
+    assert log_pane(html, "sd-screen") =~ "event-2"
+
+    send(view.pid, {:streamdeck_transcript, "1352", %{}})
+    html = render(view)
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
+    assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
 
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
     assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="18"[^>]*data-max-offset="18"}
@@ -307,15 +313,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = enter_logs(view)
 
       assert html =~ "[AGENT] newest message"
-      assert html =~ "[EMIT] lib/example.ex"
-      assert html =~ "[assistant] older message"
+      assert html =~ ~s(class="sd-log-dir" style="color:#9fd0ff">EMIT)
+      assert html =~ "lib/example.ex"
       assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="3"}
 
-      html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "1"})
-      assert html =~ "[diff] lib/example.ex +1 -1 new"
-
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-      assert html =~ "newest message"
+      assert html =~ "older message"
       assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
     end)
   end
