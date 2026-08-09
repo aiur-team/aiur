@@ -85,6 +85,15 @@ defmodule Aiur.UnitsCLITest do
     assert message =~ "active, alert, paused, queued, or finished"
   end
 
+  test "reports invalid scope errors through the CLI boundary" do
+    error_output =
+      capture_io(:stderr, fn ->
+        assert 1 == UnitsCLI.run(scope: "invalid")
+      end)
+
+    assert error_output =~ "aiur: units accepts --scope live, unfinished, all, or none"
+  end
+
   test "matches every page scope and visible condition" do
     opts = [payload_fun: fn -> %{units: mixed_catalog()} end]
 
