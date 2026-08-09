@@ -1,13 +1,14 @@
 defmodule Aiur.GitHub.CycleFetchCache do
   @moduledoc false
 
-  @table __MODULE__
+  @process_key {__MODULE__, :table}
 
   @spec start_cycle() :: :ok
   def start_cycle do
-    case :ets.whereis(@table) do
-      :undefined ->
-        :ets.new(@table, [:named_table, :public, :set, read_concurrency: true])
+    case cycle_table() do
+      nil ->
+        table = :ets.new(__MODULE__, [:private, :set, read_concurrency: true])
+        Process.put(@process_key, table)
 
       table ->
         :ets.delete_all_objects(table)
@@ -18,9 +19,14 @@ defmodule Aiur.GitHub.CycleFetchCache do
 
   @spec end_cycle() :: :ok
   def end_cycle do
-    case :ets.whereis(@table) do
-      :undefined -> :ok
-      table -> :ets.delete(table)
+    case Process.delete(@process_key) do
+      nil ->
+        :ok
+
+      table ->
+        if :ets.info(table) != :undefined do
+          :ets.delete(table)
+        end
     end
 
     :ok
@@ -34,8 +40,8 @@ defmodule Aiur.GitHub.CycleFetchCache do
 
   @spec fetch(term(), (-> result())) :: result()
   def fetch(key, fetcher) when is_function(fetcher, 0) do
-    case :ets.whereis(@table) do
-      :undefined -> fetcher.()
+    case cycle_table() do
+      nil -> fetcher.()
       table -> fetch_cached(table, key, fetcher)
     end
   end
@@ -43,7 +49,7 @@ defmodule Aiur.GitHub.CycleFetchCache do
   defp fetch_cached(table, key, fetcher) do
     case :ets.lookup(table, key) do
       [{^key, result}] -> result
-      [] -> :global.trans({__MODULE__, key}, fn -> fetch_and_store(table, key, fetcher) end)
+      [] -> fetch_and_store(table, key, fetcher)
     end
   end
 
@@ -67,4 +73,11 @@ defmodule Aiur.GitHub.CycleFetchCache do
   defp cacheable_result?({:ok, _value, _etag}), do: true
   defp cacheable_result?({:not_modified, _etag}), do: true
   defp cacheable_result?(_result), do: false
+
+  defp cycle_table do
+    case Process.get(@process_key) do
+      nil -> nil
+      table -> if :ets.info(table) == :undefined, do: nil, else: table
+    end
+  end
 end
