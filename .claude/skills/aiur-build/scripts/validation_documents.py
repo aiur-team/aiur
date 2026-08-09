@@ -13,6 +13,8 @@ from validation_common import (
     resolve_regular_file,
     safe_list,
 )
+from publication_body_limits import MAX_ISSUE_BODY_CHARACTERS
+from validation_github_rendering import authority_preamble
 
 
 REQUIRED_HEADINGS = (
@@ -44,11 +46,34 @@ def validate_document(
     if path is None:
         return
     try:
-        text = path.read_text(encoding="utf-8")
+        with path.open("r", encoding="utf-8", newline="") as stream:
+            text = stream.read()
         first_line = text.splitlines()[0]
     except (OSError, UnicodeError, IndexError) as exc:
         report.error(f"{ticket_id}.document cannot be read: {exc}")
         return
+    repository = data.get("repository")
+    plan_version = data.get("plan_version")
+    approved = data.get("researched_at_commit")
+    if (
+        isinstance(repository, str) and repository
+        and type(plan_version) is int
+        and isinstance(approved, str) and approved
+    ):
+        rendered_length = len(
+            authority_preamble(repository, ticket_id, plan_version, approved)
+            + text
+        )
+    else:
+        # Keep validation useful for malformed/incomplete documents, while
+        # the normal planning path measures the exact GitHub body.
+        rendered_length = len(text)
+    if rendered_length > MAX_ISSUE_BODY_CHARACTERS:
+        report.warn(
+            f"{ticket_id}.document renders to {rendered_length:,} characters, "
+            f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
+            f"issue body limit by {rendered_length - MAX_ISSUE_BODY_CHARACTERS:,}"
+        )
     if not re.match(
         rf"^#\s+(?:BO:\s+)?{re.escape(ticket_id)}(?:\s|\u2014|-)",
         first_line,
