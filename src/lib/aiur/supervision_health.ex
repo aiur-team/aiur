@@ -60,6 +60,8 @@ defmodule Aiur.SupervisionHealth do
       specs: Keyword.fetch!(opts, :expected_children),
       tree: nil,
       last_terminations: %{},
+      termination_times: %{},
+      termination_timestamps: %{},
       monitors: %{},
       missing: MapSet.new(),
       timer: nil,
@@ -92,9 +94,15 @@ defmodule Aiur.SupervisionHealth do
       {nil, _monitors} ->
         {:noreply, state}
 
-      {id, monitors} ->
+      {%{path: path}, monitors} ->
         Process.send_after(self(), :check, state.restart_grace)
-        {:noreply, %{state | monitors: monitors, last_terminations: Map.put(state.last_terminations, id, reason)}}
+
+        state =
+          %{state | monitors: monitors}
+          |> record_termination(path, reason)
+          |> mark_restart_intensity_exhaustion()
+
+        {:noreply, state}
     end
   end
 
@@ -142,21 +150,12 @@ defmodule Aiur.SupervisionHealth do
   end
 
   defp reconcile_monitors(state) do
-    child_pids =
-      state.supervisor
-      |> Supervisor.which_children()
-      |> Map.new(fn {id, pid, _type, _modules} -> {id, pid} end)
-
-    monitored_ids = Map.values(state.monitors) |> MapSet.new()
+    monitored_paths = Map.values(state.monitors) |> Enum.map(& &1.path) |> MapSet.new()
 
     new_monitors =
-      state.specs
-      |> Enum.map(&child_id/1)
-      |> Enum.reduce(state.monitors, fn id, acc ->
-        case {Map.get(child_pids, id), MapSet.member?(monitored_ids, id)} do
-          {pid, false} when is_pid(pid) -> Map.put(acc, Process.monitor(pid), id)
-          _ -> acc
-        end
+      monitored_children(state.supervisor, state.tree, [])
+      |> Enum.reduce(state.monitors, fn %{path: path, pid: pid} = child, acc ->
+        if MapSet.member?(monitored_paths, path), do: acc, else: Map.put(acc, Process.monitor(pid), child)
       end)
 
     %{state | monitors: new_monitors}
@@ -211,8 +210,9 @@ defmodule Aiur.SupervisionHealth do
     do: {expected + 1, missing}
 
   defp check_child({expected, missing}, _child, tree, id, path, last_terminations) do
-    down = %{id: id, path: path ++ [id], reason: Map.get(last_terminations, id)}
-    descendants = missing_descendants(tree, path ++ [id])
+    child_path = path ++ [id]
+    down = %{id: id, path: child_path, reason: termination_reason(last_terminations, child_path, id)}
+    descendants = missing_descendants(tree, child_path)
     {expected + 1 + length(descendants), [down | descendants ++ missing]}
   end
 
@@ -245,7 +245,84 @@ defmodule Aiur.SupervisionHealth do
 
   defp child_id(spec), do: spec |> Supervisor.child_spec([]) |> Map.fetch!(:id)
 
+  defp monitored_children(supervisor, %{ids: ids, nested: nested}, path) do
+    children = Supervisor.which_children(supervisor) |> Map.new(&{elem(&1, 0), &1})
+
+    Enum.flat_map(ids, fn id ->
+      monitored_child(Map.get(children, id), nested[id], path, id)
+    end)
+  end
+
+  defp monitored_child({id, pid, type, _modules}, tree, path, id) when is_pid(pid) do
+    child = %{path: path ++ [id], pid: pid, type: type}
+    [child | monitored_descendants(child, tree)]
+  end
+
+  defp monitored_child(_child, _tree, _path, _id), do: []
+
+  defp monitored_descendants(%{pid: pid, type: :supervisor, path: path}, tree) when not is_nil(tree),
+    do: monitored_children(pid, tree, path)
+
+  defp monitored_descendants(_child, _tree), do: []
+
+  defp record_termination(state, path, reason) do
+    now = System.monotonic_time(:millisecond)
+    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
+
+    %{
+      state
+      | last_terminations: Map.put(state.last_terminations, path, reason),
+        termination_times: Map.put(state.termination_times, path, now),
+        termination_timestamps: Map.put(state.termination_timestamps, path, timestamp)
+    }
+  end
+
+  defp mark_restart_intensity_exhaustion(state) do
+    Enum.reduce(supervisor_paths(state.tree), state, fn path, state ->
+      case {Map.get(state.last_terminations, path), recent_descendant_termination(state, path)} do
+        {:shutdown, {child_path, child_reason}} ->
+          reason =
+            {:restart_intensity_exceeded, child_path, child_reason, Map.get(state.termination_timestamps, child_path)}
+
+          %{state | last_terminations: Map.put(state.last_terminations, path, reason)}
+
+        _other ->
+          state
+      end
+    end)
+  end
+
+  defp supervisor_paths(%{ids: ids, nested: nested}), do: supervisor_paths(ids, nested, [])
+
+  defp supervisor_paths(ids, nested, path) do
+    Enum.flat_map(ids, fn id ->
+      case nested[id] do
+        nil -> []
+        tree -> [path ++ [id] | supervisor_paths(tree.ids, tree.nested, path ++ [id])]
+      end
+    end)
+  end
+
+  defp recent_descendant_termination(state, parent_path) do
+    cutoff = System.monotonic_time(:millisecond) - 1_000
+
+    state.termination_times
+    |> Enum.filter(fn {path, time} -> path != parent_path and starts_with_path?(path, parent_path) and time >= cutoff end)
+    |> Enum.max_by(fn {_path, time} -> time end, fn -> nil end)
+    |> case do
+      {path, _time} -> {path, Map.fetch!(state.last_terminations, path)}
+      nil -> nil
+    end
+  end
+
+  defp starts_with_path?(path, prefix), do: Enum.take(path, length(prefix)) == prefix
+
+  defp termination_reason(last_terminations, path, id), do: Map.get(last_terminations, path) || Map.get(last_terminations, id)
+
   defp format_missing(%{id: id, path: path, reason: nil}), do: "#{display_path(path, id)} DOWN"
+
+  defp format_missing(%{id: id, path: path, reason: {:restart_intensity_exceeded, child_path, child_reason, timestamp}}),
+    do: "#{display_path(path, id)} DOWN (restart intensity exceeded at #{timestamp}; #{display_path(child_path, id)} last termination: #{inspect(child_reason)})"
 
   defp format_missing(%{id: id, path: path, reason: reason}),
     do: "#{display_path(path, id)} DOWN (last termination: #{inspect(reason)})"

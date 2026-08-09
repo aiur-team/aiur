@@ -106,12 +106,12 @@ defmodule Aiur.SupervisionHealthTest do
 
     assert {:ok, %{healthy: 0}} = SupervisionHealth.status(health)
 
-    assert_receive {:supervision_alert, %{healthy: 0, missing: [%{id: CrashLoopSupervisor, reason: reason} | _]}},
-                   1_000
+    assert_receive {:supervision_alert, %{healthy: 0, missing: [%{id: CrashLoopSupervisor, reason: reason} | _]}}, 1_000
 
-    assert reason in [:shutdown, :boom]
+    assert {:restart_intensity_exceeded, [CrashLoopSupervisor, CrashWorker], :boom, timestamp} = reason
+    assert timestamp =~ "T"
     assert {:ok, snapshot} = SupervisionHealth.status(health)
-    assert SupervisionHealth.format(snapshot) =~ "CrashLoopSupervisor DOWN"
+    assert SupervisionHealth.format(snapshot) =~ "CrashLoopSupervisor DOWN (restart intensity exceeded"
   end
 
   test "walks fixed children of nested supervisors" do

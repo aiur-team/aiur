@@ -108,6 +108,9 @@ defmodule Aiur.AgentControlCLITest do
   setup do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
+    original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
+
+    Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
 
     :sys.replace_state(pid, fn state ->
       %{state | running: %{}, last_polled_issues: %{}, session_max_concurrent_agents: nil}
@@ -116,6 +119,12 @@ defmodule Aiur.AgentControlCLITest do
     on_exit(fn ->
       if Process.alive?(pid) do
         :sys.replace_state(pid, fn _state -> original_state end)
+      end
+
+      if original_health_status_fun do
+        Application.put_env(:aiur, :supervision_health_status_fun, original_health_status_fun)
+      else
+        Application.delete_env(:aiur, :supervision_health_status_fun)
       end
     end)
 
@@ -422,6 +431,7 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "SUPERVISION 1/2 — Aiur.Events.IdGenerator DOWN (last termination: :killed)"
     refute output =~ "SUPERVISION 2/2 healthy"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
   test "status prints healthy and unavailable supervision states" do
@@ -435,7 +445,7 @@ defmodule Aiur.AgentControlCLITest do
 
     unavailable_output = capture_io(fn -> AgentControlCLI.status() end)
     assert unavailable_output =~ "SUPERVISION unavailable"
-    assert unavailable_output =~ "__AIUR_CONTROL_EXIT__:0"
+    assert unavailable_output =~ "__AIUR_CONTROL_EXIT__:1"
 
     on_exit(fn -> Application.delete_env(:aiur, :supervision_health_status_fun) end)
   end

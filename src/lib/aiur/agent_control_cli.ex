@@ -38,11 +38,11 @@ defmodule Aiur.AgentControlCLI do
 
             print_capacity_status(Orchestrator.max_concurrent_agents())
 
-            print_supervision_health()
+            supervision_exit_code = print_supervision_health()
             print_ci_readiness()
             print_build_gate_status()
             print_prewarm_status()
-            exit_marker(0)
+            exit_marker(supervision_exit_code)
 
           {:error, :unavailable} ->
             exit_marker(1)
@@ -968,8 +968,17 @@ defmodule Aiur.AgentControlCLI do
     health_status = Application.get_env(:aiur, :supervision_health_status_fun, &SupervisionHealth.status/0)
 
     case health_status.() do
-      {:ok, snapshot} -> IO.puts(SupervisionHealth.format(snapshot))
-      {:error, :unavailable} -> IO.puts("SUPERVISION unavailable")
+      {:ok, %{missing: []} = snapshot} ->
+        IO.puts(SupervisionHealth.format(snapshot))
+        0
+
+      {:ok, snapshot} ->
+        IO.puts(SupervisionHealth.format(snapshot))
+        1
+
+      {:error, :unavailable} ->
+        IO.puts("SUPERVISION unavailable")
+        1
     end
   end
 
