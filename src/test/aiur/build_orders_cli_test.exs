@@ -188,6 +188,23 @@ defmodule Aiur.BuildOrdersCLITest do
     assert {:error, "accepts one non-empty Build Order root"} = BuildOrdersCLI.build(root: "", source: Source)
   end
 
+  test "reports invalid command input and unavailable catalog reads" do
+    assert {:error, "expects command options"} = BuildOrdersCLI.build(:invalid)
+
+    error = capture_io(:stderr, fn -> assert 1 == BuildOrdersCLI.run(root: "", source: Source) end)
+    assert error =~ "aiur: build-orders accepts one non-empty Build Order root"
+
+    Process.put(:build_orders_catalog, nil)
+    assert {:error, "could not read the Build Order catalog"} = BuildOrdersCLI.build(source: Source)
+  end
+
+  test "reports missing and unavailable selected Build Orders" do
+    assert {:error, "could not find Build Order \"missing\""} = BuildOrdersCLI.build(root: "missing", source: Source)
+
+    Process.put(:build_orders_selected, {:error, :unavailable})
+    assert {:error, :unavailable} = BuildOrdersCLI.build(root: "100", source: Source)
+  end
+
   test "prints an invalid catalog entry without assuming it has an identity" do
     Process.put(
       :build_orders_catalog,
