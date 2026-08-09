@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, Asks, BuildGate, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase}
+  alias Aiur.{AgentChat, AlertFeed, AnalyticsCLI, Asks, BuildGate, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -125,6 +125,11 @@ defmodule Aiur.AgentControlCLI do
   @spec commands(keyword()) :: :ok
   def commands(opts \\ []) do
     CommandsCLI.run(opts) |> exit_marker()
+  end
+
+  @spec analytics(keyword()) :: :ok
+  def analytics(opts \\ []) do
+    AnalyticsCLI.run(opts) |> exit_marker()
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
@@ -1234,7 +1239,7 @@ defmodule Aiur.AgentControlCLI do
   # concern per agent rather than replaying the whole log.
   defp latest_attention_alerts(opts) do
     [needs_attention: true]
-    |> Keyword.merge(Keyword.take(opts, [:roots, :log_roots]))
+    |> Keyword.merge(Keyword.take(opts, [:roots, :log_roots, :ledger_paths]))
     |> AlertFeed.list()
     |> Enum.group_by(&Map.get(&1, "ticket"))
     |> Enum.map(fn {_ticket, alerts} -> List.last(alerts) end)

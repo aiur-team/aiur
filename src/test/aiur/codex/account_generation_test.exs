@@ -267,7 +267,16 @@ defmodule Aiur.Codex.AccountGenerationTest do
     refute_receive {:rate_limits, "codex", _}
 
     snapshot = Store.snapshot(meter_store, :codex, :app_server, session.account_generation_binding)
-    assert snapshot.health == %{state: :stale, failure: :malformed, last_observed_at: snapshot.health.last_observed_at, last_source_version: nil}
+
+    assert snapshot.health == %{
+             state: :stale,
+             failure: :malformed,
+             last_attempt_at: nil,
+             last_observed_at: snapshot.health.last_observed_at,
+             consecutive_failures: 0,
+             last_source_version: nil
+           }
+
     assert snapshot.windows["default:primary"].used_percent == 100
   end
 

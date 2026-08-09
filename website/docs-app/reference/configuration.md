@@ -11,20 +11,26 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `max_log_history_mb` | integer | 1000 | Caps persistent log history in MB. |
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
 | `debug` | boolean | false | Enables file logging without the CLI debug flag. |
-| `hooks_file` | file pointer | — | Sibling YAML file merged as the `hooks:` block. |
+| `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
 
 ## tracker
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `tracker.kind` | string | — | Selects `linear`, `github`, or `memory`. |
+| `tracker.kind` | string | required | Selects `linear`, `github`, or `memory`. |
 | `tracker.base_branch` | string | repo default | Branch agents target with PRs. |
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
-| `tracker.github.repo` | string | — | GitHub owner/name used by Aiur. |
+| `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
+| `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
+| `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
+| `tracker.github.human_mergers` | array | `[]` | GitHub logins allowed to perform human merge actions. |
+| `tracker.github.planning_root_limit` | integer | 4 | Maximum Build Order planning roots fetched in one cycle. |
+| `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub planning pages fetched in one cycle. |
+| `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub planning calls fetched in one cycle. |
 | `tracker.linear.api_key` | string | env fallback | Linear API key; `$VAR` resolves from the environment. |
 | `tracker.linear.project_slug` | string | nil | Linear project polled by Aiur. |
 | `tracker.linear.endpoint` | string | `https://api.linear.app/graphql` | Linear GraphQL endpoint. |
@@ -35,6 +41,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `polling.interval_seconds` | integer | 30 | Seconds between tracker polls. |
+| `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
 
 ## workspace
 
@@ -55,8 +62,10 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.kind` | string | claude | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
+| `agent.kind` | string | `codex` | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `codex`. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
+| `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
+| `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
 | `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
 | `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). |
 | `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
@@ -79,7 +88,11 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
-| `agent.mix_scheduler_cap` | integer or nil | nil | Caps schedulers in agent-launched Mix BEAMs; nil leaves them uncapped. |
+| `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including enablement and credentials for OpenAI-compatible backends. |
+| `agent.rate_limit_primary` | string | default backend | Primary backend watched for automatic rate-limit recovery. |
+| `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
+| `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
+| `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
 
 Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
 also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
@@ -110,7 +123,7 @@ unreadable (e.g. non-Linux hosts):
   **configured provider limits** (when every dispatchable backend reports usage-limited)
   each defer new dispatch while saturated.
 - **Recovery is automatic and bounded**: gates fail open the moment pressure clears, and
-  the AIMD envelope re-ramps within its cooldown window — no permanent cap reduction, no
+  the AIMD envelope re-ramps within its cooldown window. There is no permanent cap reduction or
   starvation.
 
 While a hold is active the fleet surfaces the binding signal and threshold: idle
@@ -118,7 +131,7 @@ dispatchable rows read `backing off`, the dashboard/status carry a `capacity_hol
 naming the measured signal and threshold, telemetry records `capacity_hold` /
 `capacity_resumed`, and a debounced `system.fleet.capacity.backoff` alert fires so an
 Executor can tell capacity backoff apart from an idle or broken fleet. This limits only
-**new** admissions — running agents and agent-spawned sub-agents are never terminated.
+**new** admissions. Running agents and agent-spawned sub-agents are never terminated.
 
 ## agent.claude
 
@@ -133,7 +146,7 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `agent.codex.command` | string | `codex app-server` | Command launching the Codex app server. |
-| `agent.codex.approval_policy` | string | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
+| `agent.codex.approval_policy` | string or map | `untrusted` | Runtime policy: `untrusted`, `on-failure`, `on-request`, `granular`, or `never`. |
 | `agent.codex.thread_sandbox` | string | `workspace-write` | Thread sandbox mode. |
 | `agent.codex.turn_sandbox_policy` | map or nil | nil | Explicit per-turn sandbox policy. |
 | `agent.codex.read_timeout_ms` | integer | 5000 | Codex app-server read timeout. |
@@ -155,8 +168,8 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `prewarm.enabled` | boolean | false | Opts into one warm base checkout. |
-| `prewarm.base_build` | string | — | One-time base build command. |
-| `prewarm.base_build_file` | string | — | Sibling script loaded into `base_build`. |
+| `prewarm.base_build` | string | none | One-time base build command. |
+| `prewarm.base_build_file` | string | none | Sibling script loaded into `base_build`. |
 | `prewarm.poll_seconds` | integer | 0 | Base-refresh interval; 0 disables polling. |
 
 ## pr_watch
@@ -189,11 +202,15 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; use the launch-time `--no-dashboard` flag to suppress the listener in foreground or background mode. |
-| `observability.dashboard_writable` | boolean | false | Enables dashboard write paths. |
+| `observability.dashboard_writable` | boolean | true | Enables dashboard write paths. The listener refuses to start without both dashboard basic-auth environment variables. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
+| `observability.telemetry_enabled` | boolean | true | Records run telemetry for analytics. |
+| `observability.telemetry_retention_max_bytes` | integer | 67108864 | Maximum retained telemetry bytes. |
+| `observability.telemetry_retention_max_age_days` | integer | 30 | Maximum retained telemetry age. |
+| `observability.telemetry_retention_prune_interval_bytes` | integer or nil | nil | Bytes between retention-prune checks. |
 
-`dashboard_writable` is an authorization gate, not an authentication mechanism. Writable or non-loopback dashboards also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
+`dashboard_writable` is an authorization gate, not an authentication mechanism. Writable dashboards, including the default loopback dashboard, require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`; a read-only loopback dashboard does not. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
 
 ## decisions
 
@@ -221,6 +238,23 @@ These policy keys never grant transport access by themselves. The supervisor API
 | `opencode.serve_args` | array | `[]` | Extra `opencode serve` arguments. |
 | `opencode.model_prefix` | string | `aiur` | Prefix for registered synthetic models. |
 | `opencode.prewarm_disabled` | boolean | false | Disables opencode session pre-warming. |
+
+## build_order
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `build_order.ticket_detail_freshness_ms` | integer | 30000 | Freshness window for cached ticket detail. |
+| `build_order.ticket_detail_max_entries` | integer | 32 | Maximum cached ticket-detail entries. |
+| `build_order.ticket_detail_max_description_bytes` | integer | 16384 | Maximum cached ticket-description size. |
+| `build_order.ticket_history_limit` | integer | 50 | Maximum ticket history records per view. |
+| `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
+| `build_order.ticket_history_stale_after_ms` | integer | 60000 | Age after which ticket history is stale. |
+| `build_order.graph_catalog_refresh_ms` | integer | 60000 | Catalog refresh cadence. |
+| `build_order.graph_selected_refresh_ms` | integer | 15000 | Selected Build Order refresh cadence. |
+| `build_order.graph_demand_refresh_ms` | integer | 5000 | Demand-driven selected-graph refresh cadence. |
+| `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |
+| `build_order.graph_max_selected_roots` | integer | 32 | Maximum selected Build Order roots. |
+| `build_order.graph_max_inflight` | integer | 4 | Maximum concurrent graph refreshes. |
 
 ## Resolution & validation notes
 
