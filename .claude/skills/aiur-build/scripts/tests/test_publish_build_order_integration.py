@@ -106,6 +106,164 @@ class FakeGitHub:
         }
 
 
+class FailOnceGitHub(FakeGitHub):
+    """Fail the second create so the retry must resume from a checkpoint."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fail_once = True
+
+    def request(self, method, path, payload=None, *, allow_404=False):
+        if method == "POST" and path.endswith("/issues") and self.issues and self.fail_once:
+            self.fail_once = False
+            raise RuntimeError("simulated mid-loop create failure")
+        return super().request(method, path, payload, allow_404=allow_404)
+
+
+class RecordingGitHub(FakeGitHub):
+    """Record every mutation so a fail-closed guard can be proven."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.mutations: list[tuple[str, str]] = []
+
+    def request(self, method, path, payload=None, *, allow_404=False):
+        if method != "GET":
+            self.mutations.append((method, path))
+        return super().request(method, path, payload, allow_404=allow_404)
+
+
+def prepare_example_pack(root: Path) -> tuple[Path, Path, dict, str]:
+    """Materialize the reference pack on an approved commit and return it."""
+    pack = root / "docs/build-orders/example"
+    (pack / "example-tickets").mkdir(parents=True)
+    build = json.loads(
+        (REFERENCES / "build-order.example.json").read_text(encoding="utf-8")
+    )
+    publication = json.loads(
+        (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
+    )
+    publication["mutation_repositories"] = [build["repository"]]
+    build_path = pack / "build-order.json"
+    publication_path = pack / "publication.json"
+    build_path.write_text(json.dumps(build), encoding="utf-8")
+    publication_path.write_text(json.dumps(publication), encoding="utf-8")
+    for ticket in build["tickets"]:
+        (pack / ticket["document"]).write_text(
+            (REFERENCES / ticket["document"]).read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    (pack / "example-design-evidence.md").write_text(
+        (REFERENCES / "example-design-evidence.md").read_text(encoding="utf-8"),
+        encoding="utf-8",
+    )
+    root_document = pack / "root-issue.md"
+    template = (
+        "# BO: Example Build Order\n\n"
+        "[`<APPROVED_SHA>`](https://github.com/example/repo/commit/<APPROVED_SHA>)\n\n"
+        "<!-- aiur-planning-issue\n"
+        '{"schema":2,"logical_id":"example/repo:operator-dashboard",'
+        '"plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}\n'
+        "-->\n"
+    )
+    root_document.write_text(template, encoding="utf-8")
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    subprocess.run(
+        ["git", "-C", str(root), "config", "user.email", "test@example.com"], check=True,
+    )
+    subprocess.run(["git", "-C", str(root), "config", "user.name", "Test"], check=True)
+    subprocess.run(["git", "-C", str(root), "add", "docs"], check=True)
+    subprocess.run(["git", "-C", str(root), "commit", "-qm", "approved"], check=True)
+    approved = subprocess.run(
+        ["git", "-C", str(root), "rev-parse", "HEAD"],
+        check=True, capture_output=True, text=True,
+    ).stdout.strip()
+    root_document.write_text(
+        template.replace("<APPROVED_SHA>", approved), encoding="utf-8",
+    )
+    return build_path, publication_path, build, approved
+
+
+class PersistedPointerOwnershipTests(unittest.TestCase):
+    """A durable pointer must prove marker authority before any mutation."""
+
+    def _seed_unrelated_issue(self, client: FakeGitHub, body: str) -> dict:
+        number = client.next_number
+        client.next_number += 1
+        raw = {
+            "id": 1000 + number,
+            "number": number,
+            "node_id": f"NODE_{number}",
+            "html_url": f"https://github.com/{client.repository}/issues/{number}",
+            "title": "Unrelated tracker issue",
+            "body": body,
+            "labels": [],
+            "state": "open",
+            "locked": False,
+            "updated_at": "2026-07-13T00:00:00Z",
+        }
+        client.issues[number] = raw
+        client.parents[number] = None
+        client.children[number] = set()
+        client.blockers[number] = set()
+        return raw
+
+    def _assert_hijack_fails_closed(self, body: str, expected: str) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            build_path, publication_path, build, approved = prepare_example_pack(root)
+            driver = load_driver(build_path, publication_path, approved, approved)
+            labels = {
+                label for spec in driver.context.specs.values() for label in spec.labels
+            }
+            client = RecordingGitHub(build["repository"], approved, labels)
+            victim = self._seed_unrelated_issue(client, body)
+
+            # A durable pointer that names a real, open, unlocked issue whose
+            # number/node/url all agree — every check that existed before this
+            # guard passes, yet the issue belongs to someone else.
+            hijacked = json.loads(build_path.read_text(encoding="utf-8"))
+            hijacked["tickets"][0]["github"] = {
+                "repository": build["repository"],
+                "number": victim["number"],
+                "node_id": victim["node_id"],
+                "url": victim["html_url"],
+            }
+            build_path.write_text(json.dumps(hijacked), encoding="utf-8")
+
+            hijacked_driver = load_driver(
+                build_path, publication_path, approved, approved,
+            )
+            hijacked_driver.client = client
+            with self.assertRaisesRegex(Exception, expected):
+                hijacked_driver.apply()
+
+            self.assertEqual([], client.mutations)
+            self.assertEqual(
+                "Unrelated tracker issue", client.issues[victim["number"]]["title"],
+            )
+            self.assertEqual(body, client.issues[victim["number"]]["body"])
+
+    def test_pointer_to_unmarked_issue_fails_before_any_mutation(self) -> None:
+        self._assert_hijack_fails_closed(
+            "Someone else's issue. No planning marker here.",
+            "does not carry exactly one planning marker",
+        )
+
+    def test_pointer_to_foreign_marker_issue_fails_before_any_mutation(self) -> None:
+        foreign = (
+            "Another build order's root.\n\n"
+            "<!-- aiur-planning-issue\n"
+            '{"schema":2,"logical_id":"example/repo:some-other-plan",'
+            '"plan_version":1,"approved_planning_commit":'
+            '"1111111111111111111111111111111111111111"}\n'
+            "-->\n"
+        )
+        self._assert_hijack_fails_closed(
+            foreign, "owned by different authority",
+        )
+
+
 class CanonicalPublicationIntegrationTests(unittest.TestCase):
     def test_example_structure_materializes_and_reconciles_without_pack_modules(self) -> None:
         with tempfile.TemporaryDirectory() as name:
@@ -189,6 +347,91 @@ class CanonicalPublicationIntegrationTests(unittest.TestCase):
             discovery = root / ".aiur" / "build_orders" / "operator-dashboard.json"
             self.assertEqual(build_path.read_text(encoding="utf-8"), discovery.read_text(encoding="utf-8"))
             self.assertIn(str(discovery), result["files_written"])
+
+    def test_partial_issue_creation_persists_mapping_and_retry_skips_it(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            pack = root / "docs/build-orders/example"
+            tickets = pack / "example-tickets"
+            tickets.mkdir(parents=True)
+            build = json.loads(
+                (REFERENCES / "build-order.example.json").read_text(encoding="utf-8")
+            )
+            publication = json.loads(
+                (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
+            )
+            publication["mutation_repositories"] = [build["repository"]]
+            build_path = pack / "build-order.json"
+            publication_path = pack / "publication.json"
+            build_path.write_text(json.dumps(build), encoding="utf-8")
+            publication_path.write_text(json.dumps(publication), encoding="utf-8")
+            for ticket in build["tickets"]:
+                source = REFERENCES / ticket["document"]
+                (pack / ticket["document"]).write_text(
+                    source.read_text(encoding="utf-8"), encoding="utf-8",
+                )
+            (pack / "example-design-evidence.md").write_text(
+                (REFERENCES / "example-design-evidence.md").read_text(
+                    encoding="utf-8"
+                ),
+                encoding="utf-8",
+            )
+            root_document = pack / "root-issue.md"
+            template = (
+                "# BO: Example Build Order\n\n"
+                "[`<APPROVED_SHA>`](https://github.com/example/repo/commit/<APPROVED_SHA>)\n\n"
+                "<!-- aiur-planning-issue\n"
+                '{"schema":2,"logical_id":"example/repo:operator-dashboard",'
+                '"plan_version":1,"approved_planning_commit":"<APPROVED_SHA>"}\n'
+                "-->\n"
+            )
+            root_document.write_text(template, encoding="utf-8")
+            subprocess.run(["git", "init", "-q", str(root)], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.email", "test@example.com"],
+                check=True,
+            )
+            subprocess.run(
+                ["git", "-C", str(root), "config", "user.name", "Test"],
+                check=True,
+            )
+            subprocess.run(["git", "-C", str(root), "add", "docs"], check=True)
+            subprocess.run(
+                ["git", "-C", str(root), "commit", "-qm", "approved"], check=True,
+            )
+            approved = subprocess.run(
+                ["git", "-C", str(root), "rev-parse", "HEAD"],
+                check=True, capture_output=True, text=True,
+            ).stdout.strip()
+            root_document.write_text(
+                template.replace("<APPROVED_SHA>", approved), encoding="utf-8",
+            )
+            driver = load_driver(
+                build_path, publication_path, approved, approved,
+            )
+            labels = {
+                label for spec in driver.context.specs.values()
+                for label in spec.labels
+            }
+            client = FailOnceGitHub(build["repository"], approved, labels)
+            driver.client = client
+            with self.assertRaisesRegex(RuntimeError, "mid-loop"):
+                driver.apply()
+            partial = json.loads(build_path.read_text(encoding="utf-8"))
+            self.assertIsNotNone(partial["tickets"][0]["github"])
+            self.assertIsNone(partial["tickets"][1]["github"])
+
+            fresh_driver = load_driver(
+                build_path, publication_path, approved, approved,
+            )
+            self.assertEqual(
+                partial["tickets"][0]["github"],
+                fresh_driver.context.build["tickets"][0]["github"],
+            )
+            fresh_driver.client = client
+            result = fresh_driver.apply()
+            self.assertEqual("apply-pending", result["mode"])
+            self.assertEqual(3, len(client.issues))
 
 
 if __name__ == "__main__":

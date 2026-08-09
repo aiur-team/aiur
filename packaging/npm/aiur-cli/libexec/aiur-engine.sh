@@ -332,6 +332,9 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
+       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
+       aiur ask --done <id> [--note <text>]  create or resolve an operator request
+       aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -414,6 +417,12 @@ run_todo() {
 # --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
 
 run_findings() {
+  run_init "$@"
+}
+
+# --- one-shot: ask / asks (distribution-free, no daemon/tmux) ----------------
+
+run_asks() {
   run_init "$@"
 }
 
@@ -2497,6 +2506,9 @@ aiur_engine_main() {
       ;;
     findings)
       run_findings "$@"
+      ;;
+    ask | asks)
+      run_asks "$@"
       ;;
     --bg)
       dispatch_run "$@"
