@@ -206,7 +206,7 @@ defmodule AiurWeb.StreamdeckLive do
             </div>
           </div>
 
-          <div id="sd-screen" class="sd-screen" role="group" aria-label="Touch strip">
+          <div id="sd-screen" class="sd-screen" style={"--sd-screen-segments: #{length(@screen)}"} role="group" aria-label="Touch strip">
             <div :for={segment <- @screen} class={["sd-screen-segment", "sd-seg", "sd-seg-info", segment.observed? && "is-live"]} data-segment={segment.kind}>
               <div class="sd-info-hd">
                 <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
@@ -219,27 +219,32 @@ defmodule AiurWeb.StreamdeckLive do
               </div>
 
               <div :if={segment.kind == :summary} class="sd-mini" data-meter="build" data-observed="false">
-                <span class="sd-mini-label">Build</span>
-                <span class="sd-mini-stat"></span>
-                <span class="sd-mini-bar" aria-label="Build progress unavailable"><i></i></span>
+                <span class="sd-mini-top">
+                  <span class="sd-mini-lbl">Build</span>
+                  <span class="sd-mini-r"></span>
+                </span>
+                <span class="sd-mini-bar" role="img" aria-label="Build progress unavailable"><i></i></span>
               </div>
 
               <div
                 :for={meter <- segment.meters}
                 :if={segment.kind == :provider}
-                class={["sd-mini", meter.observed? && "is-observed"]}
+                class={["sd-mini", meter.observed? && "is-observed", meter.stale? && "is-stale"]}
                 data-provider={segment.provider}
                 data-meter={meter.key}
                 data-percent={meter.percent}
                 data-observed={to_string(meter.observed?)}
+                data-freshness={meter.freshness}
               >
-                <span class="sd-mini-label">{meter.label}</span>
-                <span :if={meter.observed?} class="sd-mini-stat">{meter.percent}%<span :if={meter.metadata}> · {meter.metadata}</span></span>
-                <span :if={!meter.observed?} class="sd-mini-stat"></span>
-                <span class="sd-mini-bar" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} style={"width: #{meter.percent}%"}></i></span>
+                <span class="sd-mini-top">
+                  <span class="sd-mini-lbl">{meter.label}</span>
+                  <span :if={meter.observed?} class="sd-mini-r">{meter.percent}%<span :if={meter.metadata}> · {meter.metadata}</span></span>
+                  <span :if={!meter.observed?} class="sd-mini-r"></span>
+                </span>
+                <span class="sd-mini-bar" role="img" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} style={"width: #{meter.percent}%"}></i></span>
               </div>
 
-              <div :if={segment.kind == :pager} class="sd-pager" aria-label="Agent pages">
+              <div :if={segment.kind == :pager} class="sd-pager" role="group" aria-label="Agent pages">
                 <span
                   :for={page <- segment.pages}
                   class={["sd-pager-dot", page == segment.current_page && "is-active"]}
@@ -380,8 +385,10 @@ defmodule AiurWeb.StreamdeckLive do
     do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
 
   defp screen_descriptors(grid, usage, current_page) do
+    live = live_count(grid)
+
     [
-      %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live_count(grid), remaining: nil, meters: []}
+      %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live, remaining: max(grid.total - live, 0), meters: []}
       | Enum.map(CodingAgent.provider_descriptors(), &provider_segment(&1, usage))
     ] ++ [%{kind: :pager, label: "MORE AGENTS", logo: "/aiur-logo.png", observed?: grid.windows > 1, pages: pager_pages(grid.windows), current_page: current_page, meters: []}]
   end
@@ -405,8 +412,17 @@ defmodule AiurWeb.StreamdeckLive do
   defp provider_meter(key, label, meter) do
     window = if observed_provider?(meter), do: meter |> get_value("windows", %{}) |> get_value(key), else: nil
     percent = window_percentage(window)
+    freshness = window_freshness(window)
 
-    %{key: key, label: label, percent: percent, metadata: window_metadata(window), observed?: is_integer(percent)}
+    %{
+      key: key,
+      label: label,
+      percent: percent,
+      metadata: meter_metadata(window, freshness),
+      observed?: is_integer(percent),
+      freshness: freshness,
+      stale?: freshness == "stale"
+    }
   end
 
   defp observed_provider?(%{} = meter), do: get_value(meter, "state") in [:observed, "observed"]
@@ -420,6 +436,25 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp window_metadata(_window), do: nil
+
+  defp window_freshness(window) when is_map(window) do
+    case get_value(window, "freshness") do
+      freshness when freshness in [:fresh, "fresh", :partial, "partial", :stale, "stale"] -> to_string(freshness)
+      _ -> "unknown"
+    end
+  end
+
+  defp window_freshness(_window), do: "unknown"
+
+  defp meter_metadata(window, freshness) do
+    [window_metadata(window), if(freshness == "stale", do: "stale")]
+    |> Enum.reject(&is_nil/1)
+    |> Enum.join(" · ")
+    |> case do
+      "" -> nil
+      metadata -> metadata
+    end
+  end
 
   defp reset_label(%DateTime{} = reset), do: "#{weekday(reset)} #{hour_label(reset)}"
 

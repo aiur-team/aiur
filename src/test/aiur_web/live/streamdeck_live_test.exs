@@ -4,7 +4,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{AgentEvents, AgentPubSub, IssueLog}
+  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, IssueLog}
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -51,11 +51,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
+    segment_count = length(CodingAgent.provider_descriptors()) + 2
 
     assert html =~ "Streamdeck+"
     assert html =~ "Stream Deck + control surface"
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
+    assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
     assert html =~ "SUMMARY"
@@ -345,11 +347,23 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(data-provider="claude" data-meter="session" data-percent="0")
   end
 
+  test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
+    Agent.update(meter_agent, fn meters ->
+      put_in(meters["claude"]["windows"]["weekly"]["freshness"], "stale")
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
+    assert html =~ "47% · Thu 6PM · stale"
+    assert html =~ "Weekly · 47% · Thu 6PM · stale"
+  end
+
   test "renders summary build space and pager dots inside touch-strip segments" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ ~s(src="/aiur-logo.png")
-    assert html =~ ~r/<b>1<\/b> live · <b><\/b> left/
+    assert html =~ ~r/<b>1<\/b> live · <b>16<\/b> left/
     assert html =~ "Build"
     assert html =~ "MORE AGENTS"
     assert length(Regex.scan(~r/data-pager-page=/, html)) == 3
@@ -440,15 +454,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
       "claude" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"used_percent" => 30, "remaining" => "22m"},
-          "weekly" => %{"used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z"}
+          "session" => %{"used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
         }
       },
       "codex" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"used_percent" => 50, "remaining" => "1h"},
-          "weekly" => %{"used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z"}
+          "session" => %{"used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
         }
       }
     }

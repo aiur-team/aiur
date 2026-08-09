@@ -7473,7 +7473,7 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .sd-screen {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--sd-screen-segments, 4), minmax(0, 1fr));
   height: 88px;
   gap: 4px;
   padding: 6px;
@@ -7523,6 +7523,121 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: 0 0 0.45rem var(--good);
   content: "";
   animation: sd-live-pulse 1.2s ease-in-out infinite;
+}
+
+/* The touch strip carries compact status information rather than glyphs. */
+.sd-screen-segment.sd-seg {
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: default;
+}
+
+.sd-screen-segment.sd-seg.is-live::after {
+  display: none;
+}
+
+.sd-screen-segment.sd-seg-info {
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.24rem;
+  padding: 0.32rem 0.5rem;
+}
+
+.sd-info-hd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sd-hd-logo {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.sd-info-live {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.sd-info-live b {
+  color: #fff;
+  font-weight: 700;
+}
+
+.sd-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sd-mini-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.5rem;
+}
+
+.sd-mini-lbl {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sd-mini-r {
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sd-mini-bar {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sd-mini-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3f8bff, #8fbcff);
+}
+
+.sd-mini.is-stale .sd-mini-r {
+  color: #ffbb6e;
+}
+
+.sd-mini.is-stale .sd-mini-bar > i {
+  background: repeating-linear-gradient(135deg, #bd7a29 0 3px, #ffbb6e 3px 6px);
+}
+
+.sd-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.sd-pager-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 0.14s ease, transform 0.14s ease;
+}
+
+.sd-pager-dot.is-active {
+  background: #fff;
+  transform: scale(1.25);
 }
 
 .sd-mic {
