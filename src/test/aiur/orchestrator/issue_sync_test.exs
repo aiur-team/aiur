@@ -1,8 +1,7 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, Config, Issue, TrackerIdentity, Workflow}
-  alias Aiur.Config.Paths
+  alias Aiur.{AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.Orchestrator.{IssueSync, State}
 
@@ -627,7 +626,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_receive {:event, %{topic: ^resolved_topic}}, 500
-    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -699,8 +698,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
     assert_receive {:event, %{topic: ^topic}}, 500
 
-    assert Enum.any?(AlertFeed.list(roots: [Config.workspace_root()], log_roots: []), &(&1["topic"] == topic))
-    assert Enum.any?(AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()]), &(&1["topic"] == topic))
+    assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), &(&1["topic"] == topic))
 
     _restart_with_pause =
       IssueSync.sync_polled_issue_state(
@@ -727,7 +725,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       )
 
     assert_receive {:event, %{topic: ^resolved_topic}}, 500
-    assert AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true) == []
+    assert AlertFeed.list(ledger_paths: [AlertLedger.path()], needs_attention: true) == []
 
     _ =
       IssueSync.sync_polled_issue_state(
@@ -1125,7 +1123,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
   end
 
   defp write_central_attention!(topic) do
-    log_path = Path.join(Paths.log_root_dir(), "alerts.ndjson")
+    log_path = AlertLedger.path()
     File.mkdir_p!(Path.dirname(log_path))
 
     File.write!(
