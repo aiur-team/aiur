@@ -54,7 +54,8 @@ defmodule Aiur.AgentEnvironment do
   @doc """
   Same suppression as `shell_startup_env/0`, in the shape `System.cmd/3`
   accepts. `System.cmd` spells "remove this variable" as `nil`; `Port.open`
-  and tmux spell it `false`.
+  and tmux spell it `false`. Passing `false` to `System.cmd` raises a
+  `FunctionClauseError` inside `System.validate_env/1`.
   """
   @spec system_shell_startup_env() :: [{String.t(), String.t() | nil}]
   def system_shell_startup_env do

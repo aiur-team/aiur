@@ -385,6 +385,19 @@ defmodule Aiur.AgentEnvironmentTest do
     assert AgentEnvironment.shell_startup_prefix() == "unset BASH_ENV ENV; export ZDOTDIR='/dev/null'"
   end
 
+  test "System.cmd startup suppression uses nil, not false, and survives System.cmd" do
+    assert AgentEnvironment.system_shell_startup_env() ==
+             [{"BASH_ENV", nil}, {"ENV", nil}, {"ZDOTDIR", "/dev/null"}]
+
+    # System.validate_env/1 raises FunctionClauseError on a `false` value, so
+    # this asserts the shape is actually accepted by the call sites that use it.
+    assert {"/dev/null\n", 0} =
+             System.cmd("sh", ["-c", "printf '%s\\n' \"${ZDOTDIR:-unset}\""],
+               env: AgentEnvironment.system_shell_startup_env(),
+               stderr_to_stdout: true
+             )
+  end
+
   test "Aiur source never passes gh message bodies inline" do
     repo_root = Path.expand("../../..", __DIR__)
 

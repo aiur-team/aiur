@@ -78,7 +78,7 @@ defmodule Aiur.Workspace.BootstrapImage do
       Task.async(fn ->
         System.cmd("sh", ["-c", bootstrap_image_script(workspace, image, pull?)],
           cd: workspace,
-          env: Aiur.AgentEnvironment.shell_startup_env(),
+          env: Aiur.AgentEnvironment.system_shell_startup_env(),
           stderr_to_stdout: true
         )
       end)
