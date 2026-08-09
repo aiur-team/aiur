@@ -245,10 +245,15 @@ defmodule AiurWeb.AnalyticsLive do
   defp load_model(socket) do
     now = DateTime.utc_now()
 
+    # The Full-log range spans every boot: the current boot stays a live bounded
+    # tail read and prior boots come from materialized run summaries (falling
+    # back to a full parse before the first materialization).
+    session = if socket.assigns.range == :full, do: :cross, else: :current
+
     opts =
       [
         range: socket.assigns.range,
-        session: :current,
+        session: session,
         telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
       ] ++ telemetry_scope_opts(socket.assigns.analytics_scope)
 

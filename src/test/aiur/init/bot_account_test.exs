@@ -66,6 +66,30 @@ defmodule Aiur.Init.BotAccountTest do
     end
   end
 
+  # Under GitHub App auth the correct bot_account is the App bot login. If the
+  # wizard rejected it, an operator following the App setup would be re-prompted
+  # forever, and a non-interactive run would silently skip bot_account entirely.
+  test "accepts a GitHub App bot login" do
+    {io, _pid} = io(["Aiur-Daemon[bot]"])
+    tracker = BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})
+    assert tracker.bot_account == "aiur-daemon[bot]"
+  end
+
+  test "accepts a 39-char App slug plus the [bot] suffix" do
+    slug = String.duplicate("a", 39)
+    {io, _pid} = io([slug <> "[bot]"])
+    tracker = BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})
+    assert tracker.bot_account == slug <> "[bot]"
+  end
+
+  test "still rejects malformed bracket suffixes" do
+    for bad <- ["bot[bot", "bot]bot[", "bot[bot]x", "[bot]"] do
+      {io, _pid} = io([bad, "good-bot"])
+      tracker = BotAccount.maybe_prompt(io, deps(nil), %{kind: "github", repo: "o/r"})
+      assert tracker.bot_account == "good-bot", "expected #{inspect(bad)} to be rejected"
+    end
+  end
+
   test "accepts a 39-char login at the length boundary" do
     login = String.duplicate("a", 39)
     {io, _pid} = io([login])

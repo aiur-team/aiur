@@ -980,7 +980,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         lifecycle: :active,
         runtime: runtime(:running, :working, :active, 4_200),
         progress: %{status: :known, percent: 50, source: :checkin, freshness: :fresh},
-        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}}
+        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}},
+        live_conversation: %{
+          generation_handle: "conversation:" <> String.duplicate("a", 43),
+          state: :live,
+          health: :healthy,
+          freshness: :current
+        }
       }),
       row(identity("NODE-1111", "1111"), %{
         title: "Paused provider follow-up",

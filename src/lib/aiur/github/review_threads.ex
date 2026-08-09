@@ -175,10 +175,14 @@ defmodule Aiur.GitHub.ReviewThreads do
     end
   end
 
-  defp unaddressed_thread_comments(threads, opts) when is_list(threads) do
+  @doc false
+  @spec unaddressed_thread_comments([map()], keyword()) :: [map()]
+  def unaddressed_thread_comments(threads, opts) when is_list(threads) do
     threads
     |> Enum.flat_map(&unaddressed_thread_comment(&1, opts))
   end
+
+  def unaddressed_thread_comments(_threads, _opts), do: []
 
   defp unaddressed_thread_comment(%{"isResolved" => false} = thread, opts) do
     thread

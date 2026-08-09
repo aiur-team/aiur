@@ -138,10 +138,12 @@ defmodule Aiur.Workspace.Hooks do
       |> Enum.reject(&(&1 == ""))
       |> Enum.join("\n")
 
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+
     if prefix == "" do
-      "cd #{Aiur.Shell.escape(workspace)} && #{command}"
+      "cd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
     else
-      "#{prefix}\ncd #{Aiur.Shell.escape(workspace)} && #{command}"
+      "#{prefix}\ncd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
     end
   end
 

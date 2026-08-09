@@ -152,4 +152,28 @@ defmodule Aiur.Orchestrator.LifecycleFenceTest do
 
     assert {:fenced, ^state} = LifecycleFence.reconcile_observed_state(state, issue)
   end
+
+  test "a completed cached error does not restore over the first observed rework state" do
+    issue_id = "issue-completed-error"
+    identifier = "LF-3"
+
+    state = %State{
+      running: %{
+        issue_id => %{
+          identifier: identifier,
+          completed_provenance: true,
+          issue: %Issue{id: issue_id, identifier: identifier, state: "error"},
+          control: %{status: :completed}
+        }
+      }
+    }
+
+    item = %Aiur.AgentQueueItem{id: 73, category: :operator_message, target_issue_identifier: identifier}
+    fenced = LifecycleFence.protect_queued_item(state, identifier, item)
+
+    observed = %Issue{id: issue_id, identifier: identifier, state: "rework"}
+    assert {:fenced, reconciled} = LifecycleFence.reconcile_observed_state(fenced, observed)
+    assert reconciled.running[issue_id].issue.state == "rework"
+    assert reconciled.running[issue_id].lifecycle_fence.authoritative_state == "rework"
+  end
 end

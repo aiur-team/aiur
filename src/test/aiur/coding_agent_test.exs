@@ -39,11 +39,13 @@ defmodule Aiur.CodingAgentTest do
       codex = CodingAgent.provider_descriptor(:codex)
       assert codex.label == "Codex"
       assert codex.logo == "/provider-assets/codex-color.svg"
-      assert codex.token_icon == "/provider-assets/codex-token.svg"
+      assert codex.token_icon == "/provider-assets/claude-token.svg"
       assert codex.css_class == "is-codex"
 
       claude = CodingAgent.provider_descriptor(:claude)
       assert claude.label == "Claude"
+      assert claude.logo == "/provider-assets/claude-symbol.svg"
+      assert claude.token_icon == "/provider-assets/codex-token.svg"
       assert claude.css_class == "is-claude"
 
       assert CodingAgent.provider_descriptor(:kimi).label == "Kimi"
