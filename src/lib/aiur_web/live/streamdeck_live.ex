@@ -296,13 +296,15 @@ defmodule AiurWeb.StreamdeckLive do
     page = current_window(column_offset, grid.total)
     usage = usage || StreamdeckProjection.provider_meters()
     visible_agents = Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
+    {selected_identifier, sd_active} = mode_focus(socket, grid, visible_agents)
 
     socket
     |> assign(:grid, grid)
     |> assign(:grid_page, page)
     |> assign(:grid_column_offset, column_offset)
     |> assign(:grid_dial_value, dial_value)
-    |> assign(:selected_identifier, selected_identifier(socket, grid, visible_agents))
+    |> assign(:selected_identifier, selected_identifier)
+    |> assign(:sd_active, sd_active)
     |> assign(:keys, key_descriptors(grid.agents, column_offset))
     |> assign(:screen, screen_descriptors(grid, usage))
     |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
@@ -482,8 +484,15 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp back(%{assigns: %{sd_mode: :logs}} = socket), do: assign(socket, :sd_mode, :cmd)
 
-  defp back(%{assigns: %{sd_mode: :cmd}} = socket),
-    do: socket |> assign(:sd_mode, :grid) |> assign(:sd_active, nil)
+  defp back(%{assigns: %{sd_mode: :cmd}} = socket) do
+    previous_identifier = socket.assigns.selected_identifier
+
+    socket
+    |> assign(:sd_mode, :grid)
+    |> assign(:sd_active, nil)
+    |> assign_grid(socket.assigns.grid, socket.assigns.grid_column_offset, nil, socket.assigns.grid_dial_value)
+    |> focus_logs(previous_identifier, socket.assigns.selected_identifier)
+  end
 
   defp back(socket), do: socket
 
@@ -541,6 +550,17 @@ defmodule AiurWeb.StreamdeckLive do
       visible_agents != [] -> to_string(hd(visible_agents).identifier)
       true -> nil
     end
+  end
+
+  defp mode_focus(%{assigns: %{sd_mode: mode, sd_active: active}}, grid, _visible_agents)
+       when mode in [:cmd, :logs] and not is_nil(active) do
+    identifier = to_string(active.identifier)
+    refreshed_active = Enum.find(grid.agents, active, &(to_string(&1.identifier) == identifier))
+    {identifier, refreshed_active}
+  end
+
+  defp mode_focus(socket, grid, visible_agents) do
+    {selected_identifier(socket, grid, visible_agents), socket.assigns.sd_active}
   end
 
   defp clamp_page(page, windows) when is_integer(page), do: clamp(page, 0, max(windows - 1, 0))

@@ -130,6 +130,29 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-mode="logs")
   end
 
+  test "retains active mode focus across a fleet refresh", %{snapshot_agent: snapshot_agent} do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    enter_logs(view, "1352")
+
+    Agent.update(snapshot_agent, fn _ ->
+      %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]}
+    end)
+
+    send(view.pid, {:running_changed, []})
+    html = render(view)
+
+    assert %{sd_mode: :logs, selected_identifier: "1352", sd_active: %{identifier: "1352"}} =
+             streamdeck_assigns(view)
+
+    assert html =~ ~s(data-focused-identifier="1352")
+
+    render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+    html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+
+    assert %{sd_mode: :grid, selected_identifier: "1400", sd_active: nil} = streamdeck_assigns(view)
+    assert html =~ ~s(data-grid-selected-identifier="1400")
+  end
+
   test "renders grid keys in authoritative column-major order at zero and nonzero offsets" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
