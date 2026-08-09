@@ -7,7 +7,7 @@ set -euo pipefail
 
 cli_command="${AIUR_CMD:-aiur}"
 repo_root="${AIUR_EXECUTOR_REPO_ROOT:-${AIUR_REPO_ROOT:-}}"
-timeout_seconds="${AIUR_META_CLI_TIMEOUT_SECONDS:-12}"
+timeout_seconds="${AIUR_META_CLI_TIMEOUT_SECONDS:-10}"
 slow_ms="${AIUR_META_CLI_SLOW_MS:-8000}"
 config_file="${AIUR_EXECUTOR_CONFIG:-}"
 tmux_bin="${AIUR_EXECUTOR_TMUX:-tmux}"
@@ -83,7 +83,7 @@ run_cli() {
     status=$?
   fi
   now="$(now_ms)"
-  printf '%s\n' "$started" "$now" "$status" "$timed_out"
+  printf '%s\t%s\t%s\t%s\n' "$started" "$now" "$status" "$timed_out"
 }
 
 well_formed() {
@@ -163,11 +163,8 @@ findings_json='[]'
 for name in status agents alerts; do
   stdout_file="$tmp_dir/$name.out"
   stderr_file="$tmp_dir/$name.err"
-  mapfile -t run_result < <(run_cli "$name" "$stdout_file" "$stderr_file")
-  started="${run_result[0]}"
-  finished="${run_result[1]}"
-  exit_code="${run_result[2]}"
-  timed_out="${run_result[3]}"
+  IFS=$'\t' read -r started finished exit_code timed_out < <(run_cli "$name" "$stdout_file" "$stderr_file")
+  if [ "$exit_code" -eq 124 ]; then timed_out=1; fi
   elapsed_ms=$((finished - started))
   if [ "$timed_out" -eq 1 ] || [ "$exit_code" -eq 124 ]; then
     answered=0
