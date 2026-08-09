@@ -31,7 +31,7 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   @spec project(map()) :: map()
-  @spec project(map(), (map() -> boolean())) :: map()
+  @spec project(map(), nil | (map() -> boolean())) :: map()
   def project(snapshot), do: project(snapshot, nil)
 
   def project(%{} = snapshot, dependency_ready?) do
