@@ -4,6 +4,23 @@
 **Project:** Aiur
 **Feature:** Browser-based voice interface for the Aiur orchestrator
 **Primary access:** Aiur dashboard on desktop or mobile over Tailscale
+**Implementation status:** none. This document is parked for tracking and
+citation. No voice code exists in the repo, and no ticket is decomposed from
+this spec yet.
+
+**Dependency note (2026-08-09):** two sections were written as forward
+references to work that was in flight at the time. Both have since landed, so
+neither is an open unknown:
+
+* Section 13 (status snapshot) depended on daemon-side lifecycle and resource
+  telemetry, tracked in #930, now closed as completed.
+* Section 8 Phase 1 (dashboard/orchestrator bridge) depended on the Operator
+  Control Center machine-readable interface, tracked in #971, now closed.
+
+Those closures do not invalidate anything below. They mean the two phases this
+spec was least certain about can now be specified against surfaces that exist,
+which is the natural starting point when this is picked up for research and
+decomposition.
 
 ---
 
