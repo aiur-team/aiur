@@ -77,6 +77,46 @@ defmodule Aiur.BuildOrdersCLITest do
     [root] = envelope["data"]["catalog"]["entries"]
     assert root["title"] == "Build Order"
     assert root["progress"] == nil
+    assert root["progress_resolution"] == "unknown"
+  end
+
+  test "preserves each catalog completion resolution in JSON and human output" do
+    health = ProviderHealth.new(7, :healthy, true, observed_at: @observed_at)
+
+    entries = [
+      RootSummary.new(%{identity: identity(101), title: "Resolved", member_count: 35, progress: 60, progress_resolution: :resolved, progress_resolved_count: 35}),
+      RootSummary.new(%{identity: identity(102), title: "Partial", member_count: 35, progress: 60, progress_resolution: :partial, progress_resolved_count: 21}),
+      RootSummary.new(%{identity: identity(103), title: "Unresolved", member_count: 35, progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0}),
+      RootSummary.new(%{identity: identity(104), title: "Not reported", member_count: 35})
+    ]
+
+    Process.put(
+      :build_orders_catalog,
+      %Snapshot{scope: :catalog, repository: @repository, generation: 7, data: Catalog.new(entries, health), health: health}
+    )
+
+    assert {:ok, envelope} = BuildOrdersCLI.build(source: Source, now: @captured_at)
+
+    resolutions =
+      envelope["data"]["catalog"]["entries"]
+      |> Map.new(&{&1["title"], {&1["progress"], &1["progress_resolution"], &1["progress_resolved_count"]}})
+
+    assert resolutions == %{
+             "Resolved" => {60, "resolved", 35},
+             "Partial" => {60, "partial", 21},
+             "Unresolved" => {nil, "unresolved", 0},
+             "Not reported" => {nil, "unknown", nil}
+           }
+
+    output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(source: Source, now: @captured_at) end)
+    assert output =~ "completion 60%"
+    assert output =~ "completion 60% (of 21/35 resolved)"
+    assert output =~ "completion unknown"
+    assert output =~ "completion not reported"
+
+    json = capture_io(fn -> assert 0 == BuildOrdersCLI.run(json: true, source: Source, now: @captured_at) end)
+    [partial | _] = Jason.decode!(json)["data"]["catalog"]["entries"] |> Enum.filter(&(&1["title"] == "Partial"))
+    assert Map.take(partial, ["progress", "progress_resolution", "progress_resolved_count"]) == %{"progress" => 60, "progress_resolution" => "partial", "progress_resolved_count" => 21}
   end
 
   test "reports an unavailable catalog as unavailable instead of manufacturing an empty pack list" do
@@ -128,6 +168,7 @@ defmodule Aiur.BuildOrdersCLITest do
     assert members["2"]["completion"] == 0
     assert members["3"]["completion"] == nil
     assert members["3"]["completion_state"] == "unresolved"
+    assert members["2"]["completion_state"] == "resolved"
     assert members["3"]["blocked_by"] == [%{"from" => "2", "state" => "blocking"}]
 
     assert envelope["data"]["graph"]["edges"] == [
@@ -136,7 +177,7 @@ defmodule Aiur.BuildOrdersCLITest do
            ]
 
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", source: Source, now: @captured_at) end)
-    assert output =~ "Completion: unresolved"
+    assert output =~ "Completion: unknown"
     assert output =~ "blocked by 2 (blocking)"
 
     json = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", json: true, source: Source, now: @captured_at) end)

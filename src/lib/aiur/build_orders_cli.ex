@@ -122,7 +122,6 @@ defmodule Aiur.BuildOrdersCLI do
 
     Enum.map(grid.cards, fn card ->
       node = Map.get(nodes, card.key)
-      completion_known? = card.completion_known
 
       %{
         id: card.id,
@@ -133,8 +132,8 @@ defmodule Aiur.BuildOrdersCLI do
         state: node && node.plan.lifecycle.state,
         display_state: card.status_word,
         lifecycle: node && node.plan.lifecycle,
-        completion: if(completion_known?, do: card.progress, else: nil),
-        completion_state: if(completion_known?, do: :known, else: :unresolved),
+        completion: if(card.completion_known, do: card.progress, else: nil),
+        completion_state: if(card.completion_known, do: :resolved, else: :unresolved),
         blocked_by: incoming |> Map.get(card.id, []) |> Enum.map(&%{from: &1.source, state: &1.state})
       }
     end)
@@ -214,12 +213,14 @@ defmodule Aiur.BuildOrdersCLI do
 
       Enum.each(entries, fn entry ->
         IO.puts(
-          "#{get_in(entry, ["identity", "identifier"]) || "unknown"}  #{entry["title"]}  #{completion(entry["progress"])}  #{entry["member_count"] || "unresolved"}  #{entry["epic_count"] || "unresolved"}  #{entry["phase_count"] || "unresolved"}"
+          "#{get_in(entry, ["identity", "identifier"]) || "unknown"}  #{entry["title"]}  #{completion(entry["progress"], entry["progress_resolution"], entry["progress_resolved_count"], entry["member_count"])}  #{entry["member_count"] || "unresolved"}  #{entry["epic_count"] || "unresolved"}  #{entry["phase_count"] || "unresolved"}"
         )
       end)
     else
       Enum.each(entries, fn entry ->
-        IO.puts("#{get_in(entry, ["identity", "identifier"]) || "unknown"}: #{entry["title"]} (completion #{completion(entry["progress"])}, members #{entry["member_count"] || "unresolved"})")
+        IO.puts(
+          "#{get_in(entry, ["identity", "identifier"]) || "unknown"}: #{entry["title"]} (completion #{completion(entry["progress"], entry["progress_resolution"], entry["progress_resolved_count"], entry["member_count"])}, members #{entry["member_count"] || "unresolved"})"
+        )
       end)
     end
   end
@@ -241,12 +242,30 @@ defmodule Aiur.BuildOrdersCLI do
 
       IO.puts("#{member["id"]}: #{member["title"]}")
       IO.puts("  Lane: #{member["lane"]}; Phase: #{member["phase"]}; Complexity: #{member["complexity"] || "unresolved"}; State: #{member["state"]}; Display state: #{member["display_state"]}")
-      IO.puts("  Completion: #{completion(member["completion"])}; blocked by #{blockers}")
+      IO.puts("  Completion: #{completion(member["completion"], member["completion_state"])}; blocked by #{blockers}")
     end)
   end
 
-  defp completion(value) when is_integer(value), do: "#{value}%"
-  defp completion(_value), do: "unresolved"
+  defp completion(value, resolution, resolved_count \\ nil, member_count \\ nil)
+
+  defp completion(value, resolution, _resolved_count, _member_count) when resolution in [:resolved, "resolved"] and is_integer(value),
+    do: "#{value}%"
+
+  defp completion(value, resolution, resolved_count, member_count)
+       when resolution in [:partial, "partial"] and is_integer(value) and is_integer(resolved_count) and is_integer(member_count),
+       do: "#{value}% (of #{resolved_count}/#{member_count} resolved)"
+
+  defp completion(value, resolution, resolved_count, _member_count)
+       when resolution in [:partial, "partial"] and is_integer(value) and is_integer(resolved_count),
+       do: "#{value}% (of #{resolved_count} resolved)"
+
+  defp completion(value, resolution, _resolved_count, _member_count) when resolution in [:partial, "partial"] and is_integer(value),
+    do: "#{value}% (partial; coverage unavailable)"
+
+  defp completion(_value, resolution, _resolved_count, _member_count) when resolution in [:resolved, "resolved", :partial, "partial", :unresolved, "unresolved"],
+    do: "unknown"
+
+  defp completion(_value, _resolution, _resolved_count, _member_count), do: "not reported"
 
   defp plain(%DateTime{} = value), do: value
   defp plain(%{__struct__: _} = value), do: value |> Map.from_struct() |> plain()
