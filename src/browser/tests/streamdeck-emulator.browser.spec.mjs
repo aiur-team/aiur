@@ -132,25 +132,16 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
   await expect(knob).toHaveClass(/press/, { timeout: 500 })
 })
 
-test('key click triggers is-flashing animation; rapid repeat restarts it', async ({ page }) => {
+test('grid key press enters command mode and replaces grid keys', async ({ page }) => {
   await openStreamdeck(page)
 
   const key = page.locator('.sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
   await key.click()
-  await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
-
-  // Second rapid click: dispatch directly to exercise the remove+reflow+re-add
-  // branch. After the first click, mode shifted to cmd so the keys container is
-  // display:none — Playwright's click (even with force:true) refuses to target
-  // elements inside a hidden parent. page.evaluate dispatches without that check.
-  await page.evaluate(() => {
-    const k = document.querySelector('.sd-key:not(.is-empty)')
-    k.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
-  })
-  // Still present (or re-added); the test confirms the branch ran without throwing.
-  await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('#sd-cmd-view')).toBeVisible()
+  await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
 })
 
 test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
@@ -242,6 +233,18 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   await page.mouse.up()
   await expect(device).toHaveAttribute('data-mode', 'grid')
   await expect(keysView).toBeVisible()
+})
+
+test('Logs command transitions from cmd to logs mode', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  await page.getByText('View logs', { exact: true }).click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  await expect(page.locator('#sd-logs-view')).toBeVisible()
+  await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
