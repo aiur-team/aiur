@@ -162,7 +162,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   end
 
   defp active_attention_topics do
-    [roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true]
+    [log_roots: [Paths.log_root_dir()], needs_attention: true]
     |> AlertFeed.list()
     |> MapSet.new(& &1["topic"])
   end

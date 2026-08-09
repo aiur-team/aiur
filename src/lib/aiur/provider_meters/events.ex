@@ -30,19 +30,28 @@ defmodule Aiur.ProviderMeters.Events do
   def subscribe_observed, do: subscribe_topic(@fanout_topic)
 
   @spec broadcast(Aiur.ProviderMeterSnapshot.t()) :: :ok
-  def broadcast(snapshot) do
+  def broadcast(snapshot), do: do_broadcast(nil, snapshot)
+
+  @doc "Broadcast without delivering the event back to the publishing process."
+  @spec broadcast_from(pid(), Aiur.ProviderMeterSnapshot.t()) :: :ok
+  def broadcast_from(from, snapshot), do: do_broadcast(from, snapshot)
+
+  defp do_broadcast(from, snapshot) do
     case Process.whereis(@pubsub) do
       pid when is_pid(pid) ->
         message = {:provider_meter_changed, snapshot}
         generation_topic = topic(snapshot.provider, snapshot.backend, snapshot.provider_account_generation)
 
-        Phoenix.PubSub.broadcast(@pubsub, generation_topic, message)
-        Phoenix.PubSub.broadcast(@pubsub, @fanout_topic, message)
+        publish(from, generation_topic, message)
+        publish(from, @fanout_topic, message)
 
       _ ->
         :ok
     end
   end
+
+  defp publish(nil, topic, message), do: Phoenix.PubSub.broadcast(@pubsub, topic, message)
+  defp publish(from, topic, message), do: Phoenix.PubSub.broadcast_from(@pubsub, from, topic, message)
 
   defp subscribe_topic(topic) do
     case Process.whereis(@pubsub) do
