@@ -4,9 +4,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   alias Aiur.CodingAgent
   alias AiurWeb.OperatorControlCenter.UnitsControlPolicy
 
-  @spec present(map()) :: %{unit: map(), command: map()}
-  def present(row) when is_map(row), do: %{unit: unit(row), command: command(row)}
-  def present(_row), do: %{unit: unit(%{}), command: command(%{})}
+  @spec present(map(), DateTime.t() | nil) :: %{unit: map(), latest: map(), command: map()}
+  def present(row, now \\ nil)
+  def present(row, now) when is_map(row), do: %{unit: unit(row), latest: latest(row, now), command: command(row)}
+  def present(_row, now), do: %{unit: unit(%{}), latest: latest(%{}, now), command: command(%{})}
 
   @spec unit(map()) :: map()
   def unit(row) when is_map(row) do
@@ -24,6 +25,34 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   end
 
   def unit(_row), do: unit(%{})
+
+  @spec latest(map(), DateTime.t() | nil) :: map()
+  def latest(row, now) when is_map(row) do
+    %{
+      text: latest_text(row),
+      progress: progress_label(row),
+      runtime: runtime_label(row, now)
+    }
+  end
+
+  def latest(_row, now), do: latest(%{}, now)
+
+  @spec latest_text(map()) :: String.t()
+  def latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
+  def latest_text(_row), do: "No recent activity"
+
+  @spec runtime_label(map(), DateTime.t() | nil) :: String.t()
+  def runtime_label(%{runtime: %{runtime_seconds: seconds}}, _now) when is_integer(seconds) and seconds >= 0,
+    do: format_duration(seconds)
+
+  def runtime_label(%{timestamps: %{started_at: started_at}}, %DateTime{} = now) when is_binary(started_at) do
+    case DateTime.from_iso8601(started_at) do
+      {:ok, datetime, _offset} -> format_duration(max(DateTime.diff(now, datetime, :second), 0))
+      _error -> "Unavailable"
+    end
+  end
+
+  def runtime_label(_row, _now), do: "Unavailable"
 
   @spec command(map()) :: map()
   def command(row) when is_map(row) do
@@ -102,6 +131,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   end
 
   defp provider_or_nil(_value), do: nil
+
+  defp progress_label(%{progress: %{status: :known, percent: percent}}) when is_integer(percent) and percent in 0..100,
+    do: "#{percent}%"
+
+  defp progress_label(_row), do: "—"
+
+  defp format_duration(seconds) do
+    hours = div(seconds, 3_600)
+    minutes = div(rem(seconds, 3_600), 60)
+    if hours > 0, do: "#{hours}h #{minutes}m", else: "#{minutes}m"
+  end
 
   defp verb(:pause), do: "Pause"
   defp verb(:resume), do: "Resume"

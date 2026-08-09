@@ -34,7 +34,7 @@ defmodule Aiur.UnitsCLI do
          snapshot: %{captured_at: captured_at},
          request: request(selection),
          sources: %{units_catalog: source(catalog, captured_at)},
-         data: %{catalog: public_catalog(catalog), view: public_view(view)},
+         data: %{catalog: public_catalog(catalog), view: public_view(view, captured_at)},
          auxiliary: %{}
        }
        |> JSONSafe.normalize()}
@@ -93,7 +93,7 @@ defmodule Aiur.UnitsCLI do
 
   defp normalize_condition(_condition), do: nil
 
-  defp visible_conditions, do: UnitsPolicy.conditions() |> Enum.reject(&(&1 == :stuck))
+  defp visible_conditions, do: UnitsPolicy.visible_conditions()
 
   defp catalog(opts) do
     payload_fun = Keyword.get(opts, :payload_fun, fn -> PayloadLoader.load(:fresh) end)
@@ -190,14 +190,14 @@ defmodule Aiur.UnitsCLI do
     end
   end
 
-  defp public_view(view) do
+  defp public_view(view, captured_at) do
     view
-    |> Map.update(:rows, [], fn rows -> Enum.map(rows, &present_row/1) end)
+    |> Map.update(:rows, [], fn rows -> Enum.map(rows, &present_row(&1, captured_at)) end)
     |> Map.drop([:snapshot])
     |> then(fn view -> if Map.get(view, :status) == :unavailable, do: Map.put(view, :rows, nil), else: view end)
   end
 
-  defp present_row(row), do: Map.put(row, :presentation, UnitsPresentation.present(row))
+  defp present_row(row, captured_at), do: Map.put(row, :presentation, UnitsPresentation.present(row, captured_at))
 
   defp print_human(envelope) do
     captured_at = get_in(envelope, ["snapshot", "captured_at"])
@@ -272,17 +272,9 @@ defmodule Aiur.UnitsCLI do
   end
 
   defp latest_label(row) do
-    progress = get_in(row, ["progress", "percent"])
-    evidence = get_in(row, ["latest_evidence", "source"]) || "evidence unknown"
-    runtime = get_in(row, ["runtime", "runtime_seconds"])
-    "#{evidence}; #{progress_label(progress)}; #{runtime_label(runtime)}"
+    latest = row["presentation"]["latest"]
+    "#{latest["text"]}; #{latest["progress"]}; #{latest["runtime"]}"
   end
-
-  defp progress_label(progress) when is_integer(progress), do: "#{progress}%"
-  defp progress_label(_progress), do: "progress unknown"
-
-  defp runtime_label(runtime) when is_integer(runtime), do: "#{runtime}s"
-  defp runtime_label(_runtime), do: "runtime unknown"
 
   defp command_label(row) do
     command = row["presentation"]["command"]

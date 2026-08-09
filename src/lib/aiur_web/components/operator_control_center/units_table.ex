@@ -283,23 +283,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle), do: handle
   defp conversation_handle(_row), do: nil
 
-  defp runtime(%{runtime: %{runtime_seconds: seconds}}, _now) when is_integer(seconds) and seconds >= 0,
-    do: format_duration(seconds)
-
-  defp runtime(%{timestamps: %{started_at: started_at}}, %DateTime{} = now) when is_binary(started_at) do
-    case DateTime.from_iso8601(started_at) do
-      {:ok, datetime, _offset} -> format_duration(max(DateTime.diff(now, datetime, :second), 0))
-      _error -> "Unavailable"
-    end
-  end
-
-  defp runtime(_row, _now), do: "Unavailable"
-
-  defp format_duration(seconds) do
-    hours = div(seconds, 3_600)
-    minutes = div(rem(seconds, 3_600), 60)
-    if hours > 0, do: "#{hours}h #{minutes}m", else: "#{minutes}m"
-  end
+  defp runtime(row, now), do: UnitsPresentation.runtime_label(row, now)
 
   defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
@@ -366,8 +350,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp evidence_kind_emoji(:queue), do: "⏳"
   defp evidence_kind_emoji(_kind), do: "•"
 
-  defp latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
-  defp latest_text(_row), do: "No recent activity"
+  defp latest_text(row), do: UnitsPresentation.latest_text(row)
 
   defp progress_width(progress), do: known_percent(progress) || 0
 

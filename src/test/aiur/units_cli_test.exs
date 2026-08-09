@@ -75,13 +75,30 @@ defmodule Aiur.UnitsCLITest do
     assert human_output =~ "ID: 1594"
     assert human_output =~ "Unit: Codex · Cx:3 · gpt-5.6 · MED"
     assert human_output =~ "Ticket: Visible but not running (meta)"
-    assert human_output =~ "Latest: agent_event; 60%; runtime unknown"
+    assert human_output =~ "Latest: Awaiting dispatch; 60%; 5m"
     assert human_output =~ "Command: Unit is retrying; chat unavailable; remote control unavailable; read-only"
   end
 
   test "rejects policy-only conditions that the Units page does not expose" do
+    assert {:ok, _envelope} = UnitsCLI.build(payload_fun: fn -> %{units: ready_catalog()} end, conditions: "active,alert,paused,queued,finished")
     assert {:error, message} = UnitsCLI.build(conditions: ["stuck"])
     assert message =~ "active, alert, paused, queued, or finished"
+  end
+
+  test "matches every page scope and visible condition" do
+    opts = [payload_fun: fn -> %{units: mixed_catalog()} end]
+
+    assert ids(opts ++ [scope: :live]) == ["1600", "1601", "1602"]
+    assert ids(opts ++ [scope: :unfinished]) == ["1600", "1601", "1602", "1603"]
+    assert ids(opts ++ [scope: :all]) == ["1600", "1601", "1602", "1603", "1604"]
+    assert ids(opts ++ [scope: :none]) == []
+
+    assert ids(opts ++ [scope: :all, conditions: ["active"]]) == ["1600", "1601"]
+    assert ids(opts ++ [scope: :all, conditions: ["alert"]]) == ["1601"]
+    assert ids(opts ++ [scope: :all, conditions: ["paused"]]) == ["1602"]
+    assert ids(opts ++ [scope: :all, conditions: ["queued"]]) == ["1603"]
+    assert ids(opts ++ [scope: :all, conditions: ["finished"]]) == ["1604"]
+    assert ids(opts ++ [scope: :none, conditions: ["queued"]]) == []
   end
 
   test "keeps an unavailable catalog unobserved instead of serializing a confident empty row set" do
@@ -130,6 +147,48 @@ defmodule Aiur.UnitsCLITest do
     }
   end
 
+  test "reports stale and stale-partial catalogs without claiming current data" do
+    assert {:ok, stale} = UnitsCLI.build(payload_fun: fn -> %{units: stale_catalog(false)} end, now: ~U[2026-08-09 12:05:00Z])
+
+    assert stale["sources"]["units_catalog"] == %{
+             "age_ms" => 300_000,
+             "freshness" => "stale",
+             "observed_at" => "2026-08-09T12:00:00Z",
+             "partial" => false,
+             "reasons" => ["catalog_stale"],
+             "state" => "stale"
+           }
+
+    assert {:ok, stale_partial} = UnitsCLI.build(payload_fun: fn -> %{units: stale_catalog(true)} end, now: ~U[2026-08-09 12:05:00Z])
+
+    assert stale_partial["sources"]["units_catalog"] == %{
+             "age_ms" => 300_000,
+             "freshness" => "stale",
+             "observed_at" => "2026-08-09T12:00:00Z",
+             "partial" => true,
+             "reasons" => ["catalog_stale", "catalog_partial"],
+             "state" => "stale"
+           }
+  end
+
+  defp mixed_catalog do
+    %{
+      status: :ready,
+      message: nil,
+      truncated?: false,
+      snapshot: %{
+        freshness: %{membership: %{status: :fresh, observed_at: ~U[2026-08-09 12:00:00Z]}},
+        rows: [
+          row("1600", lifecycle: :running, runtime: %{bucket: :running, work_state: :working}),
+          row("1601", lifecycle: :running, runtime: %{bucket: :running, work_state: :working}, reasons: %{alert: :needs_attention}),
+          row("1602", lifecycle: :running, runtime: %{bucket: :running, work_state: :paused}, reasons: %{pause: :operator}),
+          row("1603", lifecycle: :queued, runtime: %{bucket: :retrying, work_state: :waiting, waiting_reason: :awaiting_dispatch}),
+          row("1604", lifecycle: :finished, terminal?: true, runtime: %{bucket: :finished, work_state: :completed})
+        ]
+      }
+    }
+  end
+
   defp unavailable_catalog do
     %{
       status: :unavailable,
@@ -157,6 +216,18 @@ defmodule Aiur.UnitsCLITest do
     }
   end
 
+  defp stale_catalog(truncated?) do
+    %{
+      status: :stale,
+      message: "Units catalog is stale.",
+      truncated?: truncated?,
+      snapshot: %{
+        freshness: %{membership: %{status: :stale, observed_at: ~U[2026-08-09 12:00:00Z]}},
+        rows: [queued_row()]
+      }
+    }
+  end
+
   defp queued_row do
     %{
       identity: @identity,
@@ -174,8 +245,23 @@ defmodule Aiur.UnitsCLITest do
       build_lane: "meta",
       reasons: %{alert: nil, blocking: nil, pause: nil, stuck: nil, waiting: :awaiting_dispatch},
       runtime: %{bucket: :retrying, work_state: :waiting, waiting_reason: :awaiting_dispatch, runtime_seconds: nil},
+      timestamps: %{started_at: "2026-08-09T12:00:00Z"},
       progress: %{status: :known, percent: 60},
-      latest_evidence: %{status: :known, source: :agent_event}
+      latest_evidence: %{status: :known, source: %{kind: :queue, name: "Awaiting dispatch"}}
     }
+  end
+
+  defp ids(opts) do
+    assert {:ok, envelope} = UnitsCLI.build(opts)
+    Enum.map(envelope["data"]["view"]["rows"], & &1["identity"]["identifier"])
+  end
+
+  defp row(identifier, changes) do
+    queued_row()
+    |> Map.put(:reasons, %{alert: nil, blocking: nil, pause: nil, stuck: nil, waiting: nil})
+    |> Map.merge(Map.new(changes))
+    |> Map.put(:identity, %{@identity | identifier: identifier, provider_id: "node-#{identifier}"})
+    |> Map.put(:title, "Unit #{identifier}")
+    |> Map.update!(:reasons, &Map.merge(%{alert: nil, blocking: nil, pause: nil, stuck: nil, waiting: nil}, &1))
   end
 end
