@@ -2,8 +2,10 @@
 set -euo pipefail
 
 script="$(cd "$(dirname "$0")/.." && pwd)/executor-retrospective.sh"
+visual_test="$(cd "$(dirname "$0")/../../../aiur-meta/scripts/tests" && pwd)/capture-dashboard_test.mjs"
 state_root="$(mktemp -d)"
 export AIUR_EXECUTOR_RETRO_FILE="$state_root/test-retros.md"
+export AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=0
 trap 'rm -rf "$state_root"' EXIT
 
 fail() {
@@ -17,6 +19,8 @@ run() {
     AIUR_EXECUTOR_RETROSPECTIVE_SECONDS="${2:-3600}" \
     "$script" "${@:3}"
 }
+
+node --test "$visual_test"
 
 process_start_identity() {
   local pid="$1" identity stat rest
@@ -194,6 +198,32 @@ wait "$second_pid"
 recorded="$(jq -s '[.[] | select(.type == "hourly_retrospective")] | length' "$state_root/first.out" "$state_root/second.out")"
 skipped="$(jq -s '[.[] | select(.recorded == false and .reason == "not_due")] | length' "$state_root/first.out" "$state_root/second.out")"
 [ "$recorded" -eq 1 ] && [ "$skipped" -eq 1 ] || fail "concurrent record was not serialized"
+
+# Dashboard evidence is stored beside the run retrospective and its short
+# verdict is appended to the narrative. A fake browser command keeps this
+# shell-level contract independent of a locally installed Chromium.
+fake_capture="$state_root/fake-dashboard-capture.mjs"
+cat > "$fake_capture" <<'EOF'
+import { writeFileSync } from 'node:fs'
+
+const out = process.argv[2]
+writeFileSync(`${out}/report.json`, '{"verdict":"attention","pages":[]}\n')
+writeFileSync(`${out}/verdict.md`, '# Dashboard visual check\n\n- build-orders: **attention** — metric-column-missing: Tickets is — for all 4 rows.\n\nOverall: **attention**.\n')
+writeFileSync(`${out}/build-orders.png`, 'fake png evidence\n')
+EOF
+
+visual_retro="$state_root/visual-retrospective.md"
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=visual \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$visual_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
+  "$script" record "visual check" unchanged > "$state_root/visual.out"
+jq -e '.type == "hourly_retrospective"' "$state_root/visual.out" >/dev/null || fail "record did not preserve its hourly report"
+grep -q 'metric-column-missing' "$visual_retro" || fail "visual verdict was not appended to retrospective"
+visual_evidence_dir="$visual_retro.d"
+find "$visual_evidence_dir" -name build-orders.png -print -quit | grep -q . || fail "visual capture was not retained beside retrospective"
 
 signal_bin="$state_root/signal-bin"
 signal_marker="$state_root/signal-date.started"

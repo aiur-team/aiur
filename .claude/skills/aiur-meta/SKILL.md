@@ -53,6 +53,21 @@ rediscovered each run:
 Credentials live in the daemon's environment as `AIUR_DASHBOARD_USERNAME` /
 `AIUR_DASHBOARD_PASSWORD`.
 
+Use the durable helper rather than starting a one-off browser session. It writes
+full-page PNGs, `report.json`, and a short `verdict.md` beside the run's
+retrospective, then appends that verdict to the narrative log:
+
+```bash
+AIUR_DASHBOARD_URL="http://127.0.0.1:4099" \
+.claude/skills/aiur-run/scripts/executor-retrospective.sh visual-check
+```
+
+Pass `AIUR_META_EXPECTED_CAPACITY` when the configured cap is known; it catches
+a page reporting a stale cap as well as a peak greater than the displayed cap.
+`AIUR_META_KNOWN_NOISE` accepts a JSON array of narrow `{kind, status, path}`
+rules for a confirmed recurring browser error. The default only ignores the
+known missing `conversation-drawer-hook.js`; never baseline all 404s.
+
 Then **look at the screenshots**. Reading extracted text is not the same as
 seeing the page; a table of em-dashes reads as "empty" in text and as "broken" on
 sight.

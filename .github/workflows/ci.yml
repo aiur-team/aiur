@@ -31,6 +31,8 @@ jobs:
         run: bash scripts/test-human-only-merge-ruleset-live.sh
       - name: Test rename preflight
         run: make test-rename-preflight
+      - name: Test hourly retrospective visual check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
 
   merge-ruleset-drift:
     name: merge ruleset drift
