@@ -24,7 +24,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
     etags_by_target = normalize_etags(Keyword.get(opts, :etags), targets)
 
     if targets == [] do
-      {:ok, %{since: since_by_target, etags: etags_by_target, count: 0, errors: []}}
+      {:ok, %{since: since_by_target, etags: etags_by_target, count: 0, errors: [], pr_review_seen_at: %{}}}
     else
       do_poll(targets, since_by_target, etags_by_target, opts)
     end
@@ -70,7 +70,22 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
     count = Enum.reduce(results, 0, &(&1.count + &2))
 
-    {:ok, %{since: next_since, etags: next_etags, count: count, errors: errors}}
+    pr_review_seen_at =
+      results
+      |> Enum.flat_map(fn
+        %{target: target, review_seen_at: ts} when is_binary(ts) -> [{target, ts}]
+        _ -> []
+      end)
+      |> Map.new()
+
+    {:ok,
+     %{
+       since: next_since,
+       etags: next_etags,
+       count: count,
+       errors: errors,
+       pr_review_seen_at: pr_review_seen_at
+     }}
   end
 
   defp target_task_results(targets, since_by_target, etags_by_target, repo, opts) do
@@ -112,7 +127,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp failed_target_result(target, since, etags, reason) do
-    %{target: target, count: 0, since: since, etags: etags, errors: [reason]}
+    %{target: target, count: 0, since: since, etags: etags, errors: [reason], review_seen_at: nil}
   end
 
   defp normalize_since(%{} = since_by_target, targets, opts) do
@@ -139,20 +154,28 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp normalize_etags(_etags, targets), do: Map.new(targets, &{&1, %{}})
 
   defp poll_target(target, since, etags, repo, opts) do
+    opts = Keyword.put(opts, :current_target_since, since)
+
     {issue_count, issue_newest, issue_result, issue_etag} =
       poll_issue_comments(target, since, Map.get(etags, :issue), repo, opts)
 
-    {pr_count, pr_newest, pr_results, pr_etags} = poll_pr_comments(target, since, etags, repo, opts)
+    {pr_count, pr_newest, pr_results, pr_etags, review_seen_at} =
+      poll_pr_comments(target, since, etags, repo, opts)
+
     results = [issue_result | pr_results]
     errors = collect_errors(results)
+    # Reviews failures are reported but do not stall the issue-comment watermark.
+    # A transient 403 on /reviews must not freeze comment ingestion for the ticket.
+    watermark_errors = Enum.reject(errors, &match?({:pr_reviews, _}, &1))
     newest_seen_at = max_datetime(issue_newest, pr_newest)
 
     %{
       target: target,
       count: issue_count + pr_count,
-      since: if(errors == [], do: advance_since(since, newest_seen_at), else: since),
+      since: if(watermark_errors == [], do: advance_since(since, newest_seen_at), else: since),
       etags: etags |> Map.put(:issue, issue_etag) |> Map.merge(pr_etags),
-      errors: errors
+      errors: errors,
+      review_seen_at: review_seen_at
     }
   end
 
@@ -209,7 +232,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller PR lookup/comments failed: issue=#{target} reason=#{inspect(reason)}")
 
-            {0, nil, [{:error, {:pr_lookup, reason}}], %{}}
+            {0, nil, [{:error, {:pr_lookup, reason}}], %{}, nil}
         end
     end
   end
@@ -237,20 +260,26 @@ defmodule Aiur.Events.GithubCommentsPoller do
         {thread_count, thread_result} =
           poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
 
+        {review_count, review_result, review_seen_at} =
+          if review_submission_enabled?(target, opts),
+            do: poll_pr_review_submissions(target, pr_number, repo, opts),
+            else: {0, :ok, nil}
+
         {
-          conversation_count + thread_count,
+          conversation_count + thread_count + review_count,
           conversation_newest,
-          [conversation_result, thread_result],
-          %{{:pr_issue, pr_number} => conversation_etag}
+          [conversation_result, thread_result, review_result],
+          %{{:pr_issue, pr_number} => conversation_etag},
+          review_seen_at
         }
 
       nil ->
-        {0, nil, [:ok], %{}}
+        {0, nil, [:ok], %{}, nil}
     end
   end
 
   defp poll_pr_comments_for_open_pull_request(_target, nil, _since, _etags, _repo, _opts),
-    do: {0, nil, [:ok], %{}}
+    do: {0, nil, [:ok], %{}, nil}
 
   defp poll_pr_issue_comments(target, pr_number, since, etag, repo, opts) do
     case batch_value(opts, target, :pr_issue_comments) do
@@ -314,6 +343,109 @@ defmodule Aiur.Events.GithubCommentsPoller do
     else
       _ -> :missing
     end
+  end
+
+  defp poll_pr_review_submissions(target, pr_number, repo, opts) do
+    since = Map.get(Keyword.get(opts, :pr_review_seen_at, %{}), to_string(target))
+    # Fall back to the issue-comment cursor so reviews submitted before it are
+    # treated as already processed — mirrors the ?since= filter used for comments
+    # and prevents restart-replay of old CHANGES_REQUESTED on resolved PRs.
+    issue_since = Keyword.get(opts, :current_target_since)
+    cutoff = since || issue_since || GithubKeys.boot_cutoff_iso8601(opts)
+
+    case Client.fetch_pull_request_reviews(pr_number, opts) do
+      {:ok, reviews} ->
+        actionable =
+          reviews
+          |> Enum.filter(&review_after_cutoff?(&1, cutoff))
+          |> most_recent_actionable_per_reviewer()
+
+        count =
+          actionable
+          |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo))
+          |> Enum.count(&match?({:ok, _, _}, &1))
+
+        max_seen = reviews |> Enum.map(&Map.get(&1, "submitted_at")) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
+
+        {count, :ok, max_seen}
+
+      {:error, reason} ->
+        Logger.warning("GithubCommentsPoller PR reviews failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
+
+        {0, {:error, {:pr_reviews, reason}}, nil}
+    end
+  end
+
+  defp review_after_cutoff?(%{"submitted_at" => submitted_at}, cutoff)
+       when is_binary(submitted_at) and is_binary(cutoff),
+       do: submitted_at > cutoff
+
+  defp review_after_cutoff?(_review, _cutoff), do: true
+
+  # CHANGES_REQUESTED always requires rework. COMMENTED only when the reviewer
+  # included a body — GitHub creates an empty-bodied COMMENTED review as the
+  # container for inline-only comments, which are already published via
+  # poll_unaddressed_pr_review_threads; filtering blanks avoids a double wake.
+  defp actionable_review?(%{"state" => "CHANGES_REQUESTED"}), do: true
+  defp actionable_review?(%{"state" => "COMMENTED", "body" => body}) when is_binary(body) and body != "", do: true
+  defp actionable_review?(_review), do: false
+
+  # A later APPROVED (or DISMISSED) review supersedes that reviewer's earlier
+  # CHANGES_REQUESTED, so it suppresses the wake. Reviews that are neither
+  # actionable nor suppressing — most importantly the empty-bodied COMMENTED
+  # container GitHub creates for inline-only comments — are transparent: they
+  # must not mask an earlier unresolved CHANGES_REQUESTED from the same
+  # reviewer, which is why the actionable filter runs per reviewer here rather
+  # than after a plain most-recent pick.
+  defp most_recent_actionable_per_reviewer(reviews) do
+    reviews
+    |> Enum.filter(&(get_in(&1, ["user", "login"]) != nil))
+    |> Enum.group_by(&get_in(&1, ["user", "login"]))
+    |> Enum.flat_map(fn {_login, reviewer_reviews} -> latest_actionable_review(reviewer_reviews) end)
+  end
+
+  defp latest_actionable_review(reviews) do
+    reviews
+    |> Enum.sort_by(&submitted_at_key/1, :desc)
+    |> Enum.find(&(actionable_review?(&1) or suppressing_review?(&1)))
+    |> case do
+      nil -> []
+      review -> if actionable_review?(review), do: [review], else: []
+    end
+  end
+
+  defp submitted_at_key(review) do
+    case Map.get(review, "submitted_at") do
+      submitted_at when is_binary(submitted_at) -> submitted_at
+      _other -> ""
+    end
+  end
+
+  defp suppressing_review?(%{"state" => state}) when state in ["APPROVED", "DISMISSED"], do: true
+  defp suppressing_review?(_review), do: false
+
+  # Limits /reviews fetches to targets whose issue is in a review-awaiting state
+  # (human-review). This avoids polling the endpoint for every active PR each cycle,
+  # which would consume ~48% of the 5,000 req/hr GitHub budget at 20 agents.
+  defp review_submission_enabled?(target, opts) do
+    case Keyword.get(opts, :review_submission_targets) do
+      nil -> true
+      targets -> MapSet.member?(targets, to_string(target))
+    end
+  end
+
+  defp publish_pr_review_submission(target, pr_number, review, repo) when is_map(review) do
+    actor = get_in(review, ["user", "login"])
+    review_id = Map.get(review, "id")
+    dedup_key = GithubKeys.pr_review_dedup_key(repo, pr_number, review_id)
+
+    publish_comment(
+      "ticket.#{target}.pr.review_comment",
+      %{issue_number: target, comment: review},
+      actor,
+      issue_number: target,
+      dedup_key: dedup_key
+    )
   end
 
   defp publish_issue_comment(target, comment, repo) when is_map(comment) do
