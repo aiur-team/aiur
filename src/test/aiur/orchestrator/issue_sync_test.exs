@@ -87,7 +87,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert_receive {:event, %{topic: "system.dispatch.capacity_starved"}}, 500
   end
 
-  test "emits a debounced fleet starvation alert for ready work below unused capacity" do
+  test "emits a fleet starvation alert after one configured poll interval" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.fleet.capacity.starved")
 
@@ -99,6 +99,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     ready = for id <- 1..8, do: issue("ready-#{id}", "todo")
 
     state = %State{
+      poll_interval_ms: 5_000,
       max_concurrent_agents: 20,
       effective_concurrent_agents: 20,
       running: running_agents(3),
@@ -109,7 +110,11 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute waiting.fleet_capacity_starvation.alert_active
     refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
 
-    alerted = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 61_000)
+    almost_due = IssueSync.sync_fleet_capacity_starved_alert(waiting, ready, 5_999)
+    refute almost_due.fleet_capacity_starvation.alert_active
+    refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
+
+    alerted = IssueSync.sync_fleet_capacity_starved_alert(almost_due, ready, 6_000)
     assert alerted.fleet_capacity_starvation.alert_active
 
     assert_receive {:event, %{topic: "system.fleet.capacity.starved"} = event}, 500

@@ -908,13 +908,19 @@ defmodule Aiur.Orchestrator.IssueSync do
     else
       since_ms = starvation[:since_ms] || now_ms
 
-      if starvation[:alert_active] or now_ms - since_ms < @capacity_starvation_alert_after_ms do
+      if starvation[:alert_active] or now_ms - since_ms < fleet_capacity_starvation_alert_after_ms(state) do
         put_fleet_capacity_starvation(state, since_ms, starvation[:alert_active] || false, context.effective_cap)
       else
         emit_fleet_capacity_starvation(state, context, since_ms)
       end
     end
   end
+
+  defp fleet_capacity_starvation_alert_after_ms(%State{poll_interval_ms: poll_interval_ms})
+       when is_integer(poll_interval_ms) and poll_interval_ms > 0,
+       do: poll_interval_ms
+
+  defp fleet_capacity_starvation_alert_after_ms(_state), do: @capacity_starvation_alert_after_ms
 
   defp emit_fleet_capacity_starvation(state, context, since_ms) do
     case Alerts.emit_system("system.fleet.capacity.starved",
