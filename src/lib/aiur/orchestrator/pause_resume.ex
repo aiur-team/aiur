@@ -1681,28 +1681,26 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   defp dispatch_resumed_queued_issue(state, issue) do
-    cond do
-      not DispatchPolicy.dispatch_candidate?(
-        issue,
-        state,
-        DispatchPolicy.active_state_set(),
-        DispatchPolicy.terminal_state_set()
-      ) ->
-        {{:error, :not_resumable}, state}
+    if DispatchPolicy.dispatch_candidate?(
+         issue,
+         state,
+         DispatchPolicy.active_state_set(),
+         DispatchPolicy.terminal_state_set()
+       ) do
+      next_state = Dispatcher.dispatch_issue(state, issue)
 
-      true ->
-        next_state = Dispatcher.dispatch_issue(state, issue)
+      cond do
+        MapSet.member?(next_state.claimed, issue.id) ->
+          {{:ok, :started}, next_state}
 
-        cond do
-          MapSet.member?(next_state.claimed, issue.id) ->
-            {{:ok, :started}, next_state}
+        match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
+          {{:error, :lifetime_dispatch_latch}, next_state}
 
-          match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
-            {{:error, :lifetime_dispatch_latch}, next_state}
-
-          true ->
-            {{:error, :dispatch_failed}, next_state}
-        end
+        true ->
+          {{:error, :dispatch_failed}, next_state}
+      end
+    else
+      {{:error, :not_resumable}, state}
     end
   end
 
