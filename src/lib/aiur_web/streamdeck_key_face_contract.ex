@@ -41,6 +41,10 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     raise "Stream Deck direction badge contract is malformed"
   end
 
+  unless is_boolean(@contract["footers"]["queued"]["ready_when"]) do
+    raise "Stream Deck queued footer readiness contract is malformed"
+  end
+
   @spec state!(atom() | String.t()) :: map()
   def state!(bucket) when is_atom(bucket), do: state!(Atom.to_string(bucket))
 
@@ -62,13 +66,13 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   @spec bucket_rank!(atom() | String.t()) :: non_neg_integer()
   def bucket_rank!(bucket), do: state!(bucket)["rank"]
 
-  @spec footer(atom() | String.t(), boolean()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil}
+  @spec footer(atom() | String.t(), term()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil}
   def footer(bucket, dependency_ready) do
     state = state!(bucket)
 
     if bucket == :queued or bucket == "queued" do
       queued = @contract["footers"]["queued"]
-      %{kind: queued["kind"], label: state["label"], dependency: if(dependency_ready, do: queued["ready_label"], else: queued["blocked_label"])}
+      %{kind: queued["kind"], label: state["label"], dependency: if(dependency_ready == queued["ready_when"], do: queued["ready_label"], else: queued["blocked_label"])}
     else
       %{kind: @contract["footers"]["progress"]["kind"], label: state["label"], dependency: nil}
     end

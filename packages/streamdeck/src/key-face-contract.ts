@@ -27,6 +27,8 @@ export interface ProgressContract {
 
 export interface QueuedFooterContract {
   readonly kind: "queued";
+  /** The only readiness value that paints the queued footer as unblocked. */
+  readonly ready_when: boolean;
   readonly ready_label: string;
   readonly blocked_label: string;
 }
@@ -85,6 +87,7 @@ export function assertKeyFaceContract(candidate: KeyFaceContract = KEY_FACE_CONT
   for (const badge of BADGE_IDS) assertNonEmptyString(candidate.direction_badges[badge].color, `direction badge ${badge} color`);
   assertNonEmptyString(candidate.footers.progress.kind, "progress footer kind");
   assertNonEmptyString(candidate.footers.queued.kind, "queued footer kind");
+  if (typeof candidate.footers.queued.ready_when !== "boolean") throw new Error("queued footer ready_when must be a boolean");
   assertNonEmptyString(candidate.footers.queued.ready_label, "queued footer ready_label");
   assertNonEmptyString(candidate.footers.queued.blocked_label, "queued footer blocked_label");
 }

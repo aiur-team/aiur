@@ -58,6 +58,7 @@
     "progress": { "kind": "progress" },
     "queued": {
       "kind": "queued",
+      "ready_when": true,
       "ready_label": "Unblocked",
       "blocked_label": "Blocked"
     }

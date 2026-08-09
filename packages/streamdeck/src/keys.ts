@@ -94,8 +94,8 @@ function clampPercent(percent: number): number {
 
 function buildFooter(agent: AgentInput): Footer {
   if (agent.bucket === "queued") {
-    const unblocked = agent.dependency_ready === true;
     const footer = KEY_FACE_CONTRACT.footers.queued;
+    const unblocked = agent.dependency_ready === footer.ready_when;
 
     return {
       kind: footer.kind,

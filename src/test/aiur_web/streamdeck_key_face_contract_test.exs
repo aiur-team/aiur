@@ -34,6 +34,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
     assert StreamdeckKeyFaceContract.footer(:running, false) == %{kind: "progress", label: "Running", dependency: nil}
     assert StreamdeckKeyFaceContract.footer(:queued, true) == %{kind: "queued", label: "Unstarted", dependency: "Unblocked"}
     assert StreamdeckKeyFaceContract.footer(:queued, false) == %{kind: "queued", label: "Unstarted", dependency: "Blocked"}
+    assert StreamdeckKeyFaceContract.footer(:queued, nil) == %{kind: "queued", label: "Unstarted", dependency: "Blocked"}
   end
 
   test "direction badges are exhaustive and unknown values fail closed" do

@@ -60,6 +60,7 @@ describe("key-face contract parity", () => {
     const infiniteRank = { ...KEY_FACE_CONTRACT, states: { ...KEY_FACE_CONTRACT.states, running: { ...KEY_FACE_CONTRACT.states.running, rank: Infinity } } };
     const zeroRange = { ...KEY_FACE_CONTRACT, progress: { ...KEY_FACE_CONTRACT.progress, maximum: 0 } };
     const invalidPrecision = { ...KEY_FACE_CONTRACT, progress: { ...KEY_FACE_CONTRACT.progress, round_decimals: -1 } };
+    const invalidReadyWhen = { ...KEY_FACE_CONTRACT, footers: { ...KEY_FACE_CONTRACT.footers, queued: { ...KEY_FACE_CONTRACT.footers.queued, ready_when: "true" } } };
 
     expect(() => assertKeyFaceContract(missingState as typeof KEY_FACE_CONTRACT)).toThrow("key-face states must handle exactly");
     expect(() => assertKeyFaceContract(missingBadge as typeof KEY_FACE_CONTRACT)).toThrow("key-face direction badges must handle exactly");
@@ -68,5 +69,6 @@ describe("key-face contract parity", () => {
     expect(() => assertKeyFaceContract(infiniteRank as typeof KEY_FACE_CONTRACT)).toThrow("state running rank must be a finite number");
     expect(() => assertKeyFaceContract(zeroRange as typeof KEY_FACE_CONTRACT)).toThrow("progress maximum must exceed minimum");
     expect(() => assertKeyFaceContract(invalidPrecision as typeof KEY_FACE_CONTRACT)).toThrow("progress round_decimals must be a non-negative integer");
+    expect(() => assertKeyFaceContract(invalidReadyWhen as unknown as typeof KEY_FACE_CONTRACT)).toThrow("queued footer ready_when must be a boolean");
   });
 });
