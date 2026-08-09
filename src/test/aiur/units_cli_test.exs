@@ -127,6 +127,17 @@ defmodule Aiur.UnitsCLITest do
     assert envelope["data"]["view"]["total_count"] == nil
   end
 
+  test "accepts serialized catalog payloads and fails closed when loading fails" do
+    assert {:ok, serialized} = UnitsCLI.build(payload_fun: fn -> %{"units" => ready_catalog()} end)
+    assert serialized["sources"]["units_catalog"]["state"] == "available"
+
+    for payload_fun <- [fn -> %{} end, fn -> raise "payload unavailable" end, fn -> throw(:payload_unavailable) end] do
+      assert {:ok, envelope} = UnitsCLI.build(payload_fun: payload_fun)
+      assert envelope["sources"]["units_catalog"]["state"] == "unavailable"
+      assert envelope["data"]["view"]["rows"] == nil
+    end
+  end
+
   test "distinguishes observed empty and partial catalog states" do
     assert {:ok, empty} = UnitsCLI.build(payload_fun: fn -> %{units: empty_catalog()} end)
     assert empty["sources"]["units_catalog"]["state"] == "empty"
@@ -178,6 +189,34 @@ defmodule Aiur.UnitsCLITest do
              "reasons" => ["catalog_stale", "catalog_partial"],
              "state" => "stale"
            }
+  end
+
+  test "renders stale, unobserved, and zero-result states truthfully for human output" do
+    stale_output =
+      capture_io(fn ->
+        assert 0 ==
+                 UnitsCLI.run(
+                   payload_fun: fn -> %{units: stale_catalog(true)} end,
+                   now: ~U[2026-08-09 12:05:00Z]
+                 )
+      end)
+
+    assert stale_output =~ "units_catalog: stale; freshness stale; age 300000ms"
+    assert stale_output =~ "Warning: catalog_stale, catalog_partial"
+
+    unavailable_output =
+      capture_io(fn ->
+        assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: unavailable_catalog()} end)
+      end)
+
+    assert unavailable_output =~ "Units catalog unavailable; units have not been observed."
+
+    zero_result_output =
+      capture_io(fn ->
+        assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: ready_catalog()} end, scope: :none)
+      end)
+
+    assert zero_result_output =~ "No units match this valid scope and condition selection."
   end
 
   defp mixed_catalog do
