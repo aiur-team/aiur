@@ -539,6 +539,16 @@ defmodule AiurEngineTest do
              "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"dW5maW5pc2hlZA==\"), conditions: [Base.decode64!(\"cXVldWVk\"), Base.decode64!(\"YWxlcnQ=\")], json: true])"
   end
 
+  test "bare units invocation routes an empty condition list" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"
+  end
+
   test "commands reports missing option values as usage errors" do
     {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
     assert out =~ "commands --filter requires a value"

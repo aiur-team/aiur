@@ -2044,9 +2044,9 @@ cmd_units() {
     shift
   done
 
-  for condition in "${conditions[@]}"; do
+  for condition in "${conditions[@]+"${conditions[@]}"}"; do
     IFS=',' read -r -a condition_values <<< "$condition"
-    for condition_value in "${condition_values[@]}"; do
+    for condition_value in "${condition_values[@]+"${condition_values[@]}"}"; do
       if [ -n "$conditions_literal" ]; then conditions_literal="$conditions_literal, "; fi
       condition_encoded="$(printf '%s' "$condition_value" | base64 | tr -d '\n')"
       conditions_literal="${conditions_literal}Base.decode64!(\"${condition_encoded}\")"

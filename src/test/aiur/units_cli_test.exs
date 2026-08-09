@@ -81,6 +81,8 @@ defmodule Aiur.UnitsCLITest do
 
   test "rejects policy-only conditions that the Units page does not expose" do
     assert {:ok, _envelope} = UnitsCLI.build(payload_fun: fn -> %{units: ready_catalog()} end, conditions: "active,alert,paused,queued,finished")
+    assert {:ok, envelope} = UnitsCLI.build(payload_fun: fn -> %{units: ready_catalog()} end, conditions: "queued,queued")
+    assert envelope["request"]["conditions"] == ["queued"]
     assert {:error, message} = UnitsCLI.build(conditions: ["stuck"])
     assert message =~ "active, alert, paused, queued, or finished"
   end

@@ -70,13 +70,11 @@ defmodule Aiur.UnitsCLI do
     normalized =
       conditions
       |> Enum.map(&normalize_condition/1)
-      |> Enum.reject(&is_nil/1)
-      |> Enum.uniq()
 
-    if length(normalized) == length(conditions) do
-      {:ok, normalized}
-    else
+    if Enum.any?(normalized, &is_nil/1) do
       {:error, "accepts --condition active, alert, paused, queued, or finished"}
+    else
+      {:ok, Enum.uniq(normalized)}
     end
   end
 
