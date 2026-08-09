@@ -165,7 +165,7 @@ defmodule Aiur.Alerts do
       }
 
       AgentEventLog.write(workspace, worker_host, alert_event)
-      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host)
+      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts)
 
       maybe_play_sound(selected_sound, settings, opts)
       broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
@@ -206,8 +206,8 @@ defmodule Aiur.Alerts do
     end
   end
 
-  defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host) do
-    if is_binary(workspace) and worker_host == nil do
+  defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts) do
+    if is_binary(workspace) and worker_host == nil and not Keyword.get(opts, :central, false) do
       :ok
     else
       write_central_alert_feed_entry(alert_event)

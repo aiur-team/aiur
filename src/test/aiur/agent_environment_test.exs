@@ -32,7 +32,7 @@ defmodule Aiur.AgentEnvironmentTest do
   test "scrub_shell_command clears Erlang distribution environment before exec" do
     command =
       AgentEnvironment.scrub_shell_command(
-        "env | grep -E '^(ERL_AFLAGS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|OTHER_COOKIE)=' | sort"
+        "env | grep -E '^(ERL_AFLAGS|RELEASE_NODE|RELEASE_COOKIE|AIUR_NODE_NAME|AIUR_AGENT_NODE_NAME|AIUR_COOKIE|AIUR_ERLANG_COOKIE|AIUR_RELEASE_NODE|AIUR_INSTANCE_KEY|AIUR_REPO_ROOT|ROOTDIR|BINDIR|EMU|PROGNAME|OTHER_COOKIE)=' | sort"
       )
 
     {output, 0} =
@@ -49,11 +49,224 @@ defmodule Aiur.AgentEnvironmentTest do
           {"AIUR_RELEASE_NODE", "aiur-kevin-abc1230000@127.0.0.1"},
           {"AIUR_INSTANCE_KEY", "abc1230000"},
           {"AIUR_REPO_ROOT", "/outer/repo"},
+          {"AIUR_RELEASE_DIR", "/outer/release"},
+          {"ROOTDIR", "/outer/release"},
+          {"BINDIR", "/outer/release/erts-16.4/bin"},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
           {"OTHER_COOKIE", "keep"}
         ]
       )
 
     assert output == "OTHER_COOKIE=keep\n"
+  end
+
+  test "scrubbed toolchain probe resolves OTP from mise, not the release" do
+    release_root = Path.join(System.tmp_dir!(), "aiur-release-#{System.unique_integer([:positive])}")
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    expected_inets = :inets |> :code.lib_dir() |> to_string()
+    File.mkdir_p!(release_erts_bin)
+    File.mkdir_p!(release_bin)
+    File.write!(Path.join(release_erts_bin, "erl"), "#!/bin/sh\necho poisoned-release-erl\nexit 86\n")
+    File.chmod!(Path.join(release_erts_bin, "erl"), 0o755)
+    on_exit(fn -> File.rm_rf!(release_root) end)
+
+    command =
+      AgentEnvironment.scrub_shell_command("mise exec -- elixir -e 'IO.puts(:code.lib_dir(:inets)); IO.inspect(Application.ensure_all_started(:inets))'")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin, release_bin, System.fetch_env!("PATH")], ":")}
+        ]
+      )
+
+    assert output =~ expected_inets
+    assert output =~ "{:ok, [:inets]}"
+    refute output =~ release_root
+  end
+
+  test "scrub_shell_command preserves unrelated launcher variables and PATH entries" do
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    unrelated_path = "/opt/user-otp/bin:/usr/local/bin:/usr/bin"
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", "/opt/aiur/release"},
+          {"ROOTDIR", "/opt/user-otp"},
+          {"BINDIR", "/opt/user-otp/bin"},
+          {"EMU", "custom-beam"},
+          {"PROGNAME", "custom-erl"},
+          {"PATH", unrelated_path}
+        ]
+      )
+
+    assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
+             String.split(output, "\n")
+
+    assert String.starts_with?(path, unrelated_path)
+  end
+
+  test "scrub_shell_command tracks mixed launcher ownership independently" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    user_bin = "/opt/user-otp/bin"
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", user_bin},
+          {"EMU", "custom-beam"},
+          {"PROGNAME", "custom-erl"},
+          {"PATH", Enum.join([release_erts_bin, user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    assert ["", ^user_bin, "custom-beam", "custom-erl", path] = String.split(output, "\n")
+    refute path =~ release_erts_bin
+    assert path =~ user_bin
+  end
+
+  test "scrub_shell_command removes release PATH entries without owned root or bindir" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_root = "/opt/user-otp"
+    user_bin = Path.join(user_root, "bin")
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", user_root},
+          {"BINDIR", user_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    # ROOTDIR/BINDIR are user values here, so EMU/PROGNAME (`beam`/`erl`) are
+    # NOT release-owned either and must survive — only the PATH cleanup is
+    # unconditional once AIUR_RELEASE_DIR establishes the boundary.
+    assert [^user_root, ^user_bin, "beam", "erl", path] = String.split(output, "\n")
+    refute path =~ release_root
+    assert path =~ user_bin
+  end
+
+  test "scrub_shell_command scrubs EMU/PROGNAME only when the release launcher owns them" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME"))
+
+    # EMU=beam/PROGNAME=erl are generic values; with unrelated ROOTDIR/BINDIR
+    # they are user values and must survive the scrub.
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", "/opt/user-otp"},
+          {"BINDIR", "/opt/user-otp/bin"},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"}
+        ]
+      )
+
+    assert output == "/opt/user-otp\n/opt/user-otp/bin\nbeam\nerl"
+
+    # Once ROOTDIR or BINDIR is release-owned, EMU/PROGNAME at the canonical
+    # values belong to the release and are scrubbed.
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"}
+        ]
+      )
+
+    assert output == "\n\n\n"
+  end
+
+  test "scrub_shell_command removes trailing-slash release BINDIR and PATH entries" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_bin = "/opt/user-otp/bin"
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin <> "/"},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin <> "/", release_bin <> "/", user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    # BINDIR with a trailing slash is still release-owned; trailing-slash PATH
+    # entries still get filtered, while unrelated user entries are preserved.
+    assert ["", "", "", "", path] = String.split(output, "\n")
+    refute path =~ release_root
+    assert path =~ user_bin
+    assert path =~ "/usr/bin"
+  end
+
+  test "release launcher scrub runs under a POSIX sh interpreter" do
+    release_root = "/opt/aiur/release"
+    release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+    release_bin = Path.join(release_root, "bin")
+    user_bin = "/opt/user-otp/bin"
+
+    # The release launcher block must stay POSIX-sh portable (dash on Debian
+    # CI); `dash` is not installed on every host, so fall back to the system
+    # POSIX sh.
+    interpreter = System.find_executable("dash") || System.find_executable("sh") || "sh"
+
+    command =
+      AgentEnvironment.scrub_shell_command(~s(printf '%s\n%s\n%s\n%s\n%s' "$ROOTDIR" "$BINDIR" "$EMU" "$PROGNAME" "$PATH"))
+
+    {output, 0} =
+      System.cmd(interpreter, ["-c", command],
+        env: [
+          {"AIUR_RELEASE_DIR", release_root},
+          {"ROOTDIR", release_root},
+          {"BINDIR", release_erts_bin},
+          {"EMU", "beam"},
+          {"PROGNAME", "erl"},
+          {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, "/usr/bin"], ":")}
+        ]
+      )
+
+    assert ["", "", "", "", path] = String.split(output, "\n")
+    refute path =~ release_root
+    assert path =~ user_bin
   end
 
   test "scrub_shell_command clears parent log environment before exec" do

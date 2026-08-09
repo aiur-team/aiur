@@ -725,6 +725,92 @@ defmodule Aiur.RepoBaseTest do
       assert File.read!(Path.join(base, "trust_path")) =~ base
     end
 
+    test "prewarm build starts mise OTP and Hex with release launcher environment", %{
+      tmp: tmp,
+      origin: origin,
+      node: node,
+      base: base
+    } do
+      release_root = Path.join(tmp, "release")
+      release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
+      release_bin = Path.join(release_root, "bin")
+      user_bin = Path.join(tmp, "toolchain/bin")
+      expected_erl = System.find_executable("erl")
+      File.mkdir_p!(release_erts_bin)
+      File.mkdir_p!(release_bin)
+      File.mkdir_p!(user_bin)
+      File.write!(Path.join(release_erts_bin, "erl"), "#!/bin/sh\necho poisoned-release-erl\nexit 86\n")
+      File.chmod!(Path.join(release_erts_bin, "erl"), 0o755)
+
+      File.write!(
+        Path.join(origin, "mix.exs"),
+        """
+        defmodule PrewarmFixture.MixProject do
+          use Mix.Project
+
+          def project, do: [app: :prewarm_fixture, version: "0.1.0"]
+          def application, do: [extra_applications: [:inets]]
+        end
+        """
+      )
+
+      File.cp!(Path.expand("../../../mise.toml", __DIR__), Path.join(origin, "mise.toml"))
+
+      git!(["-C", origin, "add", "mix.exs", "mise.toml"])
+      git!(["-C", origin, "commit", "--quiet", "-m", "add prewarm fixture"])
+
+      hex_archive =
+        Mix.path_for(:archives)
+        |> File.ls!()
+        |> Enum.find(&String.starts_with?(&1, "hex-"))
+
+      assert is_binary(hex_archive), "expected the test toolchain to provide a Hex archive"
+
+      archive_dir = Path.join([node, ".aiur-mix", "archives"])
+      File.mkdir_p!(archive_dir)
+
+      File.cp_r!(
+        Path.join(Mix.path_for(:archives), hex_archive),
+        Path.join(archive_dir, hex_archive)
+      )
+
+      release_env = [
+        {"AIUR_RELEASE_DIR", release_root},
+        {"ROOTDIR", release_root},
+        {"BINDIR", release_erts_bin},
+        {"EMU", "beam"},
+        {"PROGNAME", "erl"},
+        {"PATH", Enum.join([release_erts_bin, release_bin, user_bin, System.fetch_env!("PATH")], ":")}
+      ]
+
+      previous_env =
+        Map.new(release_env, fn {name, _value} ->
+          {name, System.get_env(name)}
+        end)
+
+      Enum.each(release_env, fn {name, value} -> System.put_env(name, value) end)
+
+      on_exit(fn ->
+        Enum.each(previous_env, fn {name, value} ->
+          if value, do: System.put_env(name, value), else: System.delete_env(name)
+        end)
+      end)
+
+      assert {:ok, ^base} =
+               RepoBase.refresh(
+                 base,
+                 origin,
+                 ~S"""
+                 mise exec -- mix hex.config >/dev/null && mise exec -- mix run --no-start -e '{:ok, _} = Application.ensure_all_started(:inets); erl = System.find_executable("erl"); inets = :code.lib_dir(:inets); if not is_binary(erl) or not is_list(inets), do: System.halt(41); File.write!("release_env_scrubbed", IO.iodata_to_binary([erl, "\n", inets, "\nhex-started"]))'
+                 """
+               )
+
+      proof = File.read!(Path.join(base, "release_env_scrubbed"))
+      assert proof =~ to_string(:code.lib_dir(:inets))
+      assert [erl_path, _inets_path, "hex-started"] = String.split(proof, "\n")
+      assert erl_path == expected_erl
+    end
+
     test "keeps package-manager caches beside latest rather than in the clone", %{origin: origin, node: node, base: base} do
       command = ~s(mkdir -p "$HEX_HOME" "$MIX_HOME" "$npm_config_cache"; touch "$HEX_HOME/hex" "$MIX_HOME/mix" "$npm_config_cache/npm")
 
