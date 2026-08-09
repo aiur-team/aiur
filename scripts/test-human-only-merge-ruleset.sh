@@ -78,9 +78,14 @@ expect_rejected \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) = []' \
   "ruleset must require every blocking GitHub Actions status check"
 
+# Inverted when the merge queue was adopted (#1381): the queue builds each
+# candidate merged with the base and runs the required checks against that
+# result, which is a stronger guarantee than strict's "up to date at merge
+# time". A strict-true live ruleset is now the drift. See the reasoning block
+# in test-human-only-merge-ruleset-live.sh.
 expect_rejected \
-  "non-strict-required-checks" \
-  '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = false' \
+  "strict-required-checks" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = true' \
   "ruleset must require every blocking GitHub Actions status check"
 expect_rejected \
   "missing-workflow-security-check" \
