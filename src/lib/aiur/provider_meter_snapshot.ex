@@ -10,10 +10,12 @@ defmodule Aiur.ProviderMeterSnapshot do
   @schema_version 1
 
   @type health :: %{
-          state: :healthy | :partial | :stale | :unavailable,
-          failure: atom() | nil,
-          last_observed_at: DateTime.t() | nil,
-          last_source_version: non_neg_integer() | nil
+          required(:state) => :healthy | :partial | :stale | :unavailable,
+          required(:failure) => atom() | nil,
+          required(:last_observed_at) => DateTime.t() | nil,
+          required(:last_source_version) => non_neg_integer() | nil,
+          optional(:last_attempt_at) => DateTime.t() | nil,
+          optional(:consecutive_failures) => non_neg_integer()
         }
 
   @type t :: %__MODULE__{
@@ -26,6 +28,7 @@ defmodule Aiur.ProviderMeterSnapshot do
           plan: map() | nil,
           update_kind: :snapshot | :patch | :tombstone | :unknown,
           observed_at: DateTime.t() | nil,
+          age_seconds: non_neg_integer() | nil,
           ingested_at: DateTime.t() | nil,
           source: atom() | nil,
           source_version: non_neg_integer(),
@@ -45,13 +48,21 @@ defmodule Aiur.ProviderMeterSnapshot do
             plan: nil,
             update_kind: :unknown,
             observed_at: nil,
+            age_seconds: nil,
             ingested_at: nil,
             source: nil,
             source_version: 0,
             full_snapshot_observed_at: nil,
             window_tombstones: %{},
             freshness: :unknown,
-            health: %{state: :unavailable, failure: :no_observation, last_observed_at: nil, last_source_version: nil},
+            health: %{
+              state: :unavailable,
+              failure: :no_observation,
+              last_observed_at: nil,
+              last_source_version: nil,
+              last_attempt_at: nil,
+              consecutive_failures: 0
+            },
             windows: %{}
 
   @spec empty(atom(), atom(), String.t()) :: t()
@@ -60,7 +71,7 @@ defmodule Aiur.ProviderMeterSnapshot do
       provider: provider,
       backend: backend,
       provider_account_generation: generation,
-      health: %{state: :unavailable, failure: :no_observation, last_observed_at: nil, last_source_version: nil}
+      health: health(:no_observation)
     }
   end
 
@@ -73,8 +84,21 @@ defmodule Aiur.ProviderMeterSnapshot do
         state: :unavailable,
         failure: :unknown_account_generation,
         last_observed_at: nil,
-        last_source_version: nil
+        last_source_version: nil,
+        last_attempt_at: nil,
+        consecutive_failures: 0
       }
+    }
+  end
+
+  defp health(failure) do
+    %{
+      state: :unavailable,
+      failure: failure,
+      last_observed_at: nil,
+      last_source_version: nil,
+      last_attempt_at: nil,
+      consecutive_failures: 0
     }
   end
 end

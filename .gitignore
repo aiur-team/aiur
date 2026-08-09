@@ -52,5 +52,13 @@ __pycache__/
 /.cache/
 /.local/
 
+# Home-directory noise created when a workspace runs with HOME set to the repo
+# root: npm debug logs and its update-notifier stamp, Chromium crash reports
+# from the VitePress/Playwright docs build, and Playwright's run marker. All of
+# these were committed by a docs branch (#1505) before being ignored here.
+/.npm/
+/.config/
+/website/test-results/
+
 # Runtime build-gate lock namespace created by agent-launched Mix verification.
 .aiur/build-gate.locks/
