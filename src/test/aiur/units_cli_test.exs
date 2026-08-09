@@ -95,6 +95,17 @@ defmodule Aiur.UnitsCLITest do
     assert condition_message =~ "accepts --condition active, alert, paused, queued, or finished"
   end
 
+  test "normalizes textual scopes and typed visible conditions" do
+    assert {:ok, envelope} =
+             UnitsCLI.build(
+               payload_fun: fn -> %{units: ready_catalog()} end,
+               scope: " ALL ",
+               conditions: [:queued]
+             )
+
+    assert envelope["request"] == %{"conditions" => ["queued"], "scope" => "all"}
+  end
+
   test "reports invalid scope errors through the CLI boundary" do
     error_output =
       capture_io(:stderr, fn ->
