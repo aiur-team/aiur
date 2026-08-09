@@ -465,8 +465,13 @@
             self._flashingCommand = null;
             self._flashTimer = null;
           }, 500);
-          self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
-          if (command === "logs") self._setMode("logs");
+          var push = function () {
+            self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
+          };
+          // Logs replaces the command keys, so leave its flash visible before
+          // asking the server-authoritative mode machine to enter logs.
+          if (command === "logs") setTimeout(push, 500);
+          else push();
         };
         key.addEventListener("click", handler);
         self._commandHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });

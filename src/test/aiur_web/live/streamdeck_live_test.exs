@@ -239,6 +239,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
   test "renders state-derived command keys with four disabled blank slots" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
+    refute html =~ "data-streamdeck-command"
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "priority") =~ "Deprioritize"
     assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 4
@@ -252,6 +255,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "command presses report intent and mic-hold state persists through patches" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
 
     html = render_hook(view, "command-press", %{"command" => "pause", "identifier" => "1352"})
     assert html =~ "Pause selected"
