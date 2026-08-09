@@ -350,9 +350,17 @@
       // Use _restoringMic flag to suppress the redundant server pushEvent —
       // the server already knows mic is active.
       if (this._pendingMicActive) {
-        this._restoringMic = true;
-        this._setMic(true);
-        this._restoringMic = false;
+        if (this._micKey) {
+          this._restoringMic = true;
+          this._setMic(true);
+          this._restoringMic = false;
+        } else {
+          // A mode transition removed the held Mic key. Its eventual pointerup
+          // cannot reach the detached node, so clear the server state now
+          // rather than restoring a hold that can no longer be released.
+          this._micActive = false;
+          this.pushEvent("mic-hold", { active: false });
+        }
         this._pendingMicActive = false;
       }
     },
@@ -474,7 +482,7 @@
           else push();
         };
         key.addEventListener("click", handler);
-        self._commandHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
+        self._commandHandlers.push({ el: key, handler: handler });
       });
     },
 

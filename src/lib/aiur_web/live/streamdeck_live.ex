@@ -209,7 +209,7 @@ defmodule AiurWeb.StreamdeckLive do
           <%= if @sd_mode == :cmd do %>
           <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
           <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
-            <li :for={key <- command_keys(@grid.agents, @selected_identifier)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
+            <li :for={key <- command_keys(@sd_active)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
               <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
                 <span class="sd-cmd">
                   <span class="sd-cmd-ic" aria-hidden="true">
@@ -433,8 +433,8 @@ defmodule AiurWeb.StreamdeckLive do
   defp control_action(:paused), do: "resume"
   defp control_action(_bucket), do: nil
 
-  defp command_keys(agents, selected_identifier) do
-    agent = Enum.find(agents, &(to_string(&1.identifier) == selected_identifier)) || %{}
+  defp command_keys(agent) do
+    agent = agent || %{}
     paused? = Map.get(agent, :bucket) == :paused
     prioritized? = Map.get(agent, :priority, false)
 

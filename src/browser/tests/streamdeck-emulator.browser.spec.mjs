@@ -233,6 +233,24 @@ test('command mic deactivates on pointercancel', async ({ page }) => {
   await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
 })
 
+test('command mic deactivates when a mode transition removes the held key', async ({ page }) => {
+  await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  await micButton.dispatchEvent('pointerdown')
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  const dial = page.locator('.sd-knob').nth(3)
+  await dial.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await page.locator('.sd-knob').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('.sd-mic-key')).not.toHaveClass(/mic-live/, { timeout: 500 })
+})
+
 test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
   await openStreamdeck(page)
 
