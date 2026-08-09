@@ -342,6 +342,13 @@ font files use long-lived caching, and provider icons derive from the coding-age
 registry. Content-addressed layout vendor files remain on their verified router
 paths; vendor manifests, provenance, sources, and licenses are not exposed.
 
+The Units catalog reconciles retained current-run membership with the latest
+fresh orchestrator snapshot. After a daemon generation change, current agents
+remain visible while membership catches up; counts are marked partial if that
+membership source is unavailable. A periodic reconciliation also recovers
+agents that existed without a dispatch notification, so an unknown catalog is
+never presented as an exact zero.
+
 ### Supervisor Decision API
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
