@@ -429,27 +429,15 @@ defmodule Aiur.GitHub.Issues do
         {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
 
       {:not_modified, retained_etag} ->
-        case Map.get(cached_entry, :issue) do
-          %Issue{} = issue ->
-            issue =
-              authorize_issue(
-                issue,
-                ctx.request_fun,
-                ctx.token,
-                ctx.owner,
-                ctx.repo,
-                ctx.prefix
-              )
-
-            entry = %{cached_entry | etag: retained_etag, issue: issue}
-            {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
-
-          _missing_materialized_issue when not retried_without_cache? ->
-            fetch_conditional_issue(ctx, issue_id, issues, Map.delete(cache, issue_id), true)
-
-          _missing_materialized_issue ->
-            {:halt, {:error, :github_issue_not_modified_without_cached_value, cache}}
-        end
+        materialize_not_modified_issue(
+          ctx,
+          issue_id,
+          issues,
+          cache,
+          cached_entry,
+          retained_etag,
+          retried_without_cache?
+        )
 
       {:http_error, %{status: 404}} ->
         {:cont, {:ok, issues, Map.delete(cache, issue_id)}}
@@ -462,6 +450,38 @@ defmodule Aiur.GitHub.Issues do
 
       {:ok, _body, _retained_etag, response} ->
         {:halt, {:error, Errors.github_status_error(response), cache}}
+    end
+  end
+
+  defp materialize_not_modified_issue(
+         ctx,
+         issue_id,
+         issues,
+         cache,
+         cached_entry,
+         retained_etag,
+         retried_without_cache?
+       ) do
+    case Map.get(cached_entry, :issue) do
+      %Issue{} = issue ->
+        issue =
+          authorize_issue(
+            issue,
+            ctx.request_fun,
+            ctx.token,
+            ctx.owner,
+            ctx.repo,
+            ctx.prefix
+          )
+
+        entry = %{cached_entry | etag: retained_etag, issue: issue}
+        {:cont, {:ok, [issue | issues], Map.put(cache, issue_id, entry)}}
+
+      _missing_materialized_issue when not retried_without_cache? ->
+        fetch_conditional_issue(ctx, issue_id, issues, Map.delete(cache, issue_id), true)
+
+      _missing_materialized_issue ->
+        {:halt, {:error, :github_issue_not_modified_without_cached_value, cache}}
     end
   end
 

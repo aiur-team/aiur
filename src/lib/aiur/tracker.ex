@@ -55,7 +55,8 @@ defmodule Aiur.Tracker do
 
     if Code.ensure_loaded?(tracker_adapter) and
          function_exported?(tracker_adapter, :fetch_issue_states_by_ids_conditional, 2) do
-      apply(tracker_adapter, :fetch_issue_states_by_ids_conditional, [issue_ids, cache])
+      fetch_conditional = Function.capture(tracker_adapter, :fetch_issue_states_by_ids_conditional, 2)
+      fetch_conditional.(issue_ids, cache)
     else
       with {:ok, issues} <- tracker_adapter.fetch_issue_states_by_ids(issue_ids),
            do: {:ok, issues, cache}
