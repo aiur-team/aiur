@@ -1,17 +1,18 @@
 // Stream Deck emulator interaction hook.
 //
-// Authority model: dial gestures are local-first, while fleet page and log
-// offsets are server-authoritative. The hook pushes one coarse event per
-// gesture step and LiveView clamps the resulting state to real bounds.
+// Authority model: dial gestures are local-first, while fleet page, log
+// offsets, and screen mode are server-authoritative. The hook pushes one
+// coarse event per gesture step and LiveView clamps the resulting state to
+// real bounds.
 //
 // Patch-survival pattern follows #1306: state is captured in beforeUpdate and
 // restored in updated, so LiveView re-renders cannot revert local interaction.
 // Key/mic event bindings are torn down in beforeUpdate and rebuilt in updated
 // to avoid duplicate-listener accumulation across patches.
 //
-// Mode machine (local-first, no server round-trip):
+// Mode machine (server-authoritative):
 //   grid → (key click) → cmd → (cycle-window) → logs
-//   any → (back) → previous mode in history stack
+//   logs → (back) → cmd → (back) → grid
 (function () {
   "use strict";
 
@@ -21,9 +22,6 @@
   var KEY_STEP = 4;
   // 270-degree physical sweep maps to full [0..100] range.
   var DRAG_DIVISOR = 2.7;
-
-  // Mode cycle order. cycle-window advances forward; back retreats via history.
-  var MODES = ["grid", "cmd", "logs"];
 
   // Index → server-side press action. Dials 1 and 2 have no press action.
   var PRESS_ACTIONS = { 0: "back", 3: "cycle-window" };
@@ -332,11 +330,15 @@
           this._knobs[3]._setLogicalValue(this._pendingPageDialValue);
         }
       }
-      // Restore mode state only if it did not change during the patch window.
-      // A mid-patch user action (e.g. a second back press) increments _modeVersion;
-      // if the version drifted, respect the user's more-recent intent.
+      // Keep the server-rendered mode authoritative after every patch. A command
+      // click initiated by LiveView can advance the mode independently.
       if (this._pendingMode) {
-        if (this._modeVersion === this._pendingModeVersion) {
+        var device = this.el.querySelector(".sd-device");
+        var serverMode = device && device.getAttribute("data-mode");
+        if (serverMode && serverMode !== this._pendingMode) {
+          this._modeHistory = [];
+          this._setMode(serverMode, false);
+        } else if (this._modeVersion === this._pendingModeVersion) {
           this._modeHistory = this._pendingModeHistory || [];
           this._setMode(this._pendingMode, false);
         }
@@ -414,11 +416,6 @@
           void key.offsetWidth;
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
-
-          // Key click in grid mode transitions to cmd view.
-          if (self._mode === "grid") {
-            self._setMode("cmd");
-          }
 
           var identifier = key.getAttribute("data-streamdeck-identifier");
           if (identifier) {
@@ -509,20 +506,11 @@
       }
     },
 
-    // Advance or retreat the mode machine. Called from key click handlers and
-    // Knob._press() for local transitions before the server event is pushed.
+    // Grid page cycling remains optimistic; all mode transitions wait for the
+    // server-rendered data-mode so the active panel is never temporarily absent.
     _handleLocalDialPress(action) {
-      if (action === "back") {
-        var prev = this._modeHistory.pop();
-        this._setMode(prev !== undefined ? prev : "grid", false);
-      } else if (action === "cycle-window") {
-        if (this._mode === "grid") {
-          this._requestGridWindowCycle();
-          return;
-        }
-        var idx = MODES.indexOf(this._mode);
-        var next = MODES[(idx + 1) % MODES.length];
-        this._setMode(next);
+      if (action === "cycle-window" && this._mode === "grid") {
+        this._requestGridWindowCycle();
       }
     },
 
