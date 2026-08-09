@@ -133,6 +133,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp root_summary(pack, membership) do
     identity = root_identity(pack)
+    progress = progress(pack, membership)
 
     RootSummary.new(%{
       identity: identity,
@@ -143,17 +144,36 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       member_count: length(pack.tickets),
       epic_count: pack.tickets |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
       phase_count: pack.tickets |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
-      progress: progress_percent(pack, membership),
+      progress: progress.percent,
+      progress_resolution: progress.resolution,
+      progress_resolved_count: progress.resolved_count,
       completed?: pack.completed
     })
   end
 
-  defp progress_percent(%{tickets: []}, _membership), do: 0
+  # Completion is resolved per ticket and can fail for any subset of a pack.
+  # An empty pack is genuinely 0% of nothing; a pack where nothing resolves is
+  # `:unresolved` and must never be reported as a number. In between, the
+  # percentage is the completion rate over the tickets that *did* resolve, and
+  # `resolved_count` carries the coverage so the surface can say what the
+  # number is actually of. Unknown tickets are excluded from the denominator
+  # rather than counted as incomplete.
+  defp progress(%{tickets: []}, _membership), do: %{percent: 0, resolution: :resolved, resolved_count: 0}
 
-  defp progress_percent(%{tickets: tickets} = pack, membership) do
-    if Enum.all?(tickets, &completion_known?(&1, pack, membership)) do
-      completed = Enum.count(tickets, &completed?(&1, pack, membership))
-      round(completed / length(tickets) * 100)
+  defp progress(%{tickets: tickets} = pack, membership) do
+    resolved = Enum.filter(tickets, &completion_known?(&1, pack, membership))
+    resolved_count = length(resolved)
+    completed_count = Enum.count(resolved, &completed?(&1, pack, membership))
+
+    cond do
+      resolved_count == 0 ->
+        %{percent: nil, resolution: :unresolved, resolved_count: 0}
+
+      resolved_count == length(tickets) ->
+        %{percent: round(completed_count / resolved_count * 100), resolution: :resolved, resolved_count: resolved_count}
+
+      true ->
+        %{percent: round(completed_count / resolved_count * 100), resolution: :partial, resolved_count: resolved_count}
     end
   end
 
