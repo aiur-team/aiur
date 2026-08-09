@@ -48,6 +48,7 @@ defmodule Aiur.ModelAvailabilityTest do
     past = DateTime.add(DateTime.utc_now(), -1, :second) |> DateTime.to_iso8601()
     assert :ok = ModelAvailability.mark_limited("claude", past, path: path)
     assert ModelAvailability.available?("claude", path: path)
+    assert ModelAvailability.recovery_confirmed?("claude", path: path)
   end
 
   test "chooses the first available backend in configured priority", %{path: path} do
@@ -60,9 +61,22 @@ defmodule Aiur.ModelAvailabilityTest do
     assert ModelAvailability.backend_key("claude-repl") == "claude"
     assert ModelAvailability.backend_key("claude") == "claude"
 
-    future = DateTime.add(DateTime.utc_now(), 3_600, :second) |> DateTime.to_iso8601()
-    assert :ok = ModelAvailability.mark_limited("claude-repl", future, path: path)
-    refute ModelAvailability.available?("claude", path: path)
+    now = ~U[2026-07-31 12:00:00Z]
+    future = DateTime.add(now, 3_600, :second) |> DateTime.to_iso8601()
+    assert :ok = ModelAvailability.mark_limited("claude-repl", future, path: path, now: now)
+    refute ModelAvailability.available?("claude", path: path, now: now)
+    refute ModelAvailability.available?("claude-repl", path: path, now: now)
+
+    past = DateTime.add(now, -1, :second) |> DateTime.to_iso8601()
+    observed_at = DateTime.add(now, 1, :second)
+
+    assert :ok =
+             ModelAvailability.observe("claude", %{primary: %{usedPercent: 0, windowDurationMins: 60, resetsAt: past}},
+               path: path,
+               now: observed_at
+             )
+
+    assert ModelAvailability.recovery_confirmed?("claude-repl", path: path, now: observed_at)
   end
 
   test "validates fallback backend configuration" do
@@ -105,6 +119,7 @@ defmodule Aiur.ModelAvailabilityTest do
              )
 
     assert ModelAvailability.available?("codex", path: path)
+    assert ModelAvailability.recovery_confirmed?("codex", path: path)
   end
 
   test "merges partial observations without losing a limited window", %{path: path} do
@@ -119,6 +134,71 @@ defmodule Aiur.ModelAvailabilityTest do
     old = DateTime.add(DateTime.utc_now(), -3_601, :second)
     assert :ok = ModelAvailability.mark_limited("codex", nil, path: path, now: old)
     assert ModelAvailability.available?("codex", path: path)
+    refute ModelAvailability.recovery_confirmed?("codex", path: path)
+  end
+
+  test "a positive observation from before an unknown limit cannot confirm recovery", %{path: path} do
+    available_at = DateTime.add(DateTime.utc_now(), -7_202, :second)
+    limited_at = DateTime.add(available_at, 1, :second)
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{hourly: %{used: 1, limit: 10}},
+               path: path,
+               now: available_at
+             )
+
+    assert :ok = ModelAvailability.mark_limited("codex", nil, path: path, now: limited_at)
+    assert ModelAvailability.available?("codex", path: path)
+    refute ModelAvailability.recovery_confirmed?("codex", path: path)
+  end
+
+  test "a limit at the same timestamp supersedes a positive observation", %{path: path} do
+    observed_at = DateTime.add(DateTime.utc_now(), -3_601, :second)
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{hourly: %{used: 1, limit: 10}},
+               path: path,
+               now: observed_at
+             )
+
+    assert :ok = ModelAvailability.mark_limited("codex", nil, path: path, now: observed_at)
+    assert ModelAvailability.available?("codex", path: path)
+    refute ModelAvailability.recovery_confirmed?("codex", path: path)
+  end
+
+  test "confirms recovery after a positive observation newer than the limit", %{path: path} do
+    now = DateTime.utc_now()
+    assert :ok = ModelAvailability.mark_limited("codex", nil, path: path, now: now)
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{hourly: %{used: 1, limit: 10}},
+               path: path,
+               now: DateTime.add(now, 1, :second)
+             )
+
+    assert ModelAvailability.recovery_confirmed?("codex", path: path)
+  end
+
+  test "does not treat an estimated window reset as confirmed recovery", %{path: path} do
+    observed_at = DateTime.utc_now()
+
+    assert :ok =
+             ModelAvailability.observe(
+               "codex",
+               %{hourly: %{used: 10, limit: 10}},
+               path: path,
+               now: observed_at
+             )
+
+    after_estimate = DateTime.add(observed_at, 3_601, :second)
+    assert ModelAvailability.available?("codex", path: path, now: after_estimate)
+    refute ModelAvailability.recovery_confirmed?("codex", path: path, now: after_estimate)
   end
 
   test "uses percentage units when both percentage and count fields are present", %{path: path} do

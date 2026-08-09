@@ -33,9 +33,10 @@ defmodule Aiur.AgentRunner.EventsDigest do
 
     # Drop GitHub-sourced events from non-CODEOWNERS authors before
     # they reach the agent prompt. The events stay in the per-issue
-    # log and dashboard panel (operator visibility preserved) — only
-    # the digest delivered to the agent is filtered. Non-github events
-    # (orchestrator-emitted, agent-emitted, system-source) pass through.
+    # log and dashboard panel (Executor visibility preserved) — only
+    # the digest delivered to the agent is filtered. Known internal
+    # (orchestrator, agent, system) events pass through; unknown sources
+    # fail closed because they may carry user content.
     trusted = Enum.filter(events, &author_trusted_for_digest?/1)
     debounced = debounce_block_state_events(trusted)
     rendered = Enum.map_join(debounced, "\n", &render_event_line/1)
@@ -57,25 +58,27 @@ defmodule Aiur.AgentRunner.EventsDigest do
   # events constructed and sanitized by the orchestrator from GitHub's
   # check API. They have no human author, must wake a paused agent on
   # failure, and remain wrapped as external GitHub data below. The
-  # operator still sees every other filtered event in the per-issue log +
-  # dashboard. Non-github events (agent emissions, orchestrator events)
-  # pass through; they are not user-content channels and don't need the
-  # CODEOWNERS gate.
+  # Executor still sees every other filtered event in the per-issue log +
+  # dashboard. Only known internal non-GitHub sources (agent, orchestrator,
+  # and system) pass through; any unknown source may carry user content and
+  # is excluded until it has an explicit trust policy.
   defp author_trusted_for_digest?(event) when is_map(event) do
-    if ci_lifecycle_event?(event_field(event, :topic)) do
+    if ci_lifecycle_event?(event_field(event, :topic), event_field(event, :source)) or
+         internal_digest_source?(event_field(event, :source), event_field(event, :digest_source)) do
       true
     else
       case event_field(event, :source) do
         :github -> event_field(event, :author_trusted?) == true
         "github" -> event_field(event, :author_trusted?) == true
-        _ -> true
+        source when source in [:agent, :orchestrator, :system, "agent", "orchestrator", "system"] -> true
+        _ -> false
       end
     end
   end
 
-  defp author_trusted_for_digest?(_), do: true
+  defp author_trusted_for_digest?(_), do: false
 
-  defp ci_lifecycle_event?(topic) when is_binary(topic) do
+  defp ci_lifecycle_event?(topic, source) when is_binary(topic) and source in [:github, "github"] do
     case String.split(topic, ".") do
       ["ticket", identifier, "ci", outcome]
       when identifier != "" and outcome in ["passed", "failed"] ->
@@ -86,7 +89,19 @@ defmodule Aiur.AgentRunner.EventsDigest do
     end
   end
 
-  defp ci_lifecycle_event?(_), do: false
+  defp ci_lifecycle_event?(_, _), do: false
+
+  # Some orchestrator payloads (notably decision lifecycle events) own a
+  # domain `source` map. Publisher sets this separate, reserved provenance
+  # marker after dropping any payload-supplied value, so those events retain
+  # their schema without a topic-only exception that could admit a future
+  # untrusted tracker source. GitHub remains external even if a malformed
+  # event carries an internal marker.
+  defp internal_digest_source?(source, digest_source)
+       when source not in [:github, "github"] and digest_source in [:agent, :orchestrator, :system],
+       do: true
+
+  defp internal_digest_source?(_, _), do: false
 
   # Coalesce block/unblock oscillation: group by (ticket_id, kind); within the
   # configured debounce window (default 10s), only the latest survives in

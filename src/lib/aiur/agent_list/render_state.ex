@@ -4,7 +4,7 @@ defmodule Aiur.AgentList.RenderState do
   """
 
   alias Aiur.AgentList.Summaries
-  alias Aiur.{Config, HttpServer, Tracker}
+  alias Aiur.{Config, HttpServer, ProviderMeterProjection, Tracker}
 
   @spec build(map()) :: map()
   def build(state) do
@@ -19,6 +19,7 @@ defmodule Aiur.AgentList.RenderState do
     |> Map.put(:rows, rows)
     |> Map.put(:project_label, project_label())
     |> Map.put(:dashboard_url, dashboard_url())
+    |> Map.put(:provider_usage, provider_usage())
     |> Map.put(:agent_kind, agent_kind())
     |> Map.put(:agent_count, Summaries.active_agent_count(state.summaries))
     |> Map.put(:max_agents, max_agents_from_state(state))
@@ -36,6 +37,10 @@ defmodule Aiur.AgentList.RenderState do
     |> Map.put(:phase_by_identifier, Map.get(state, :phase_by_identifier, %{}))
     |> Map.put(:open_attentions_by_id, Map.get(state, :open_attentions_by_id, %{}))
     |> Map.put(:progress_by_id, Map.get(state, :progress_by_id, %{}))
+    |> Map.put(
+      :activity_status_by_identifier,
+      Map.get(state, :activity_status_by_identifier, %{})
+    )
     |> Map.put(
       :warm_status_dark_mode?,
       Map.get(state, :warm_status_dark_mode?, true)
@@ -82,15 +87,21 @@ defmodule Aiur.AgentList.RenderState do
     end
   end
 
-  defp dashboard_url do
-    host = safe_call(fn -> Config.server_host() end)
-    port = safe_call(fn -> HttpServer.bound_port() end) || safe_call(fn -> Config.server_port() end)
+  @doc false
+  @spec dashboard_url((-> String.t() | nil)) :: String.t() | nil
+  def dashboard_url(base_url_fun \\ &HttpServer.base_url/0) do
+    case safe_call(base_url_fun) do
+      url when is_binary(url) -> url <> "/"
+      _ -> nil
+    end
+  end
 
-    cond do
-      not is_integer(port) -> nil
-      port <= 0 -> nil
-      is_binary(host) and host != "" -> "http://#{host}:#{port}/"
-      true -> "http://127.0.0.1:#{port}/"
+  # The projection already degrades to unknown views when it is not running, so
+  # the header renders "n/a" rather than the TUI failing to draw a frame.
+  defp provider_usage do
+    case safe_call(&ProviderMeterProjection.snapshot/0) do
+      usage when is_map(usage) -> usage
+      _unavailable -> %{}
     end
   end
 

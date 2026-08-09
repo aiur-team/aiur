@@ -4,20 +4,21 @@ defmodule Aiur.Codex.CodingAgent do
   @behaviour Aiur.CodingAgent.Backend
   @behaviour Aiur.AppServer.Adapter
 
-  require Logger
-  alias Aiur.AppServer.{Adapter, Rpc}
+  alias Aiur.AppServer.{Adapter, InterruptHandshake, Messages, ProviderTurnLedger, Rpc}
 
   alias Aiur.Codex.{
+    AccountGeneration,
     AppServerPort,
     EventNormalizer,
     Handshake,
     Interrupts,
     OperatorDelivery,
+    SessionLifecycle,
     TurnEvents,
     TurnLoop
   }
 
-  alias Aiur.{Config, ModelAvailability, PauseContainment}
+  alias Aiur.Config
 
   @type session :: %{
           port: port(),
@@ -28,7 +29,10 @@ defmodule Aiur.Codex.CodingAgent do
           turn_sandbox_policy: map(),
           thread_id: String.t(),
           resumed: boolean(),
-          workspace: Path.t()
+          workspace: Path.t(),
+          account_generation_binding: reference(),
+          account_generation_topic: String.t(),
+          provider_turn_store: pid()
         }
   @dialyzer {:nowarn_function, run: 4}
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
@@ -52,26 +56,66 @@ defmodule Aiur.Codex.CodingAgent do
     model = Keyword.get(opts, :model)
     effort = Keyword.get(opts, :effort)
     resume_thread_id = Keyword.get(opts, :resume_thread_id)
-
+    on_process_group_started = Keyword.get(opts, :on_process_group_started, fn _process_group_id -> :ok end)
+    on_provider_started = Keyword.get(opts, :on_provider_started, fn _provider -> :ok end)
     identifier = Keyword.get(opts, :identifier)
+    on_message = Keyword.get(opts, :on_message, &Messages.default_on_message/1)
+    account_generation_server = Keyword.get(opts, :account_generation_server, Aiur.ProviderAccountGeneration)
 
     with {:ok, expanded_workspace} <- AppServerPort.validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- AppServerPort.start_port(expanded_workspace, worker_host, model, effort) do
+         {:ok, port} <-
+           AppServerPort.start_port(
+             expanded_workspace,
+             worker_host,
+             model,
+             effort,
+             on_process_group_started,
+             on_provider_started
+           ) do
       metadata = AppServerPort.port_metadata(port, worker_host)
-      containment = register_pause_containment(identifier, metadata, expanded_workspace)
+      containment = SessionLifecycle.register_pause_containment(identifier, metadata, expanded_workspace)
 
-      # Local spawns run bash -lc "codex … app-server"; a remote spawn's
-      # local pid is the ssh client, so the cmdline guard expects that.
+      account_generation = AccountGeneration.new_binding(account_generation_server)
+
+      lifecycle_session = %{
+        port: port,
+        metadata: metadata,
+        account_generation_binding: account_generation.binding,
+        account_generation_authority: account_generation.authority,
+        account_generation_context: account_generation.context,
+        account_generation_topic: account_generation.topic,
+        account_generation_server: account_generation_server
+      }
+
+      notification_handler = SessionLifecycle.notification_handler(lifecycle_session, on_message)
+      handshake_opts = [on_notification: notification_handler]
+
+      # Local spawns wrap Codex in bash; remote spawns expose ssh as the local pid.
       reaper_comm = if is_binary(worker_host), do: "ssh", else: "codex"
-      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]}, comm: reaper_comm)
+
+      Aiur.ProcessReaper.register(:agent, {:os_pid, metadata[:codex_app_server_pid]},
+        comm: reaper_comm,
+        ticket: identifier,
+        backend: "codex",
+        worker_host: worker_host,
+        remote: is_binary(worker_host)
+      )
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
-           {:ok, thread_id, resumed?, rate_limits_supported?} <-
-             Handshake.establish_with_rate_limits(port, expanded_workspace, session_policies, resume_thread_id) do
-        maybe_observe_rate_limits(port, rate_limits_supported?)
+           {:ok, thread_id, resumed?, supports_account_reads?} <-
+             Handshake.establish_with_rate_limits(
+               port,
+               expanded_workspace,
+               session_policies,
+               resume_thread_id,
+               handshake_opts
+             ),
+           {:ok, provider_turn_store} <- ProviderTurnLedger.start_store() do
+        SessionLifecycle.observe_startup(port, supports_account_reads?, lifecycle_session, handshake_opts)
 
         {:ok,
-         %{
+         lifecycle_session
+         |> Map.merge(%{
            port: port,
            metadata: metadata,
            approval_policy: session_policies.approval_policy,
@@ -83,12 +127,14 @@ defmodule Aiur.Codex.CodingAgent do
            workspace: expanded_workspace,
            containment: containment,
            worker_host: worker_host,
-           model: model
-         }}
+           model: model,
+           account_generation_notification_handler: notification_handler,
+           provider_turn_store: provider_turn_store
+         })}
       else
         {:error, reason} ->
-          AppServerPort.stop_port(port)
-          PauseContainment.unregister(containment)
+          AccountGeneration.process_stopped(lifecycle_session)
+          SessionLifecycle.cleanup_port(port, containment)
           {:error, reason}
       end
     end
@@ -106,13 +152,20 @@ defmodule Aiur.Codex.CodingAgent do
         opts \\ []
       )
       when is_boolean(auto_approve_requests) and is_binary(thread_id) and is_binary(workspace) do
+    on_message = Keyword.get(opts, :on_message, &Messages.default_on_message/1)
+    session = Map.put(session, :account_generation_notification_handler, SessionLifecycle.notification_handler(session, on_message))
     Adapter.run_turn(__MODULE__, session, prompt, issue, opts)
   end
 
   @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port} = session) when is_port(port) do
-    AppServerPort.stop_port(port)
-    PauseContainment.unregister(Map.get(session, :containment))
+    AccountGeneration.process_stopped(session)
+  after
+    try do
+      SessionLifecycle.cleanup_port(port, Map.get(session, :containment))
+    after
+      ProviderTurnLedger.stop_store(Map.get(session, :provider_turn_store))
+    end
   end
 
   @impl Aiur.CodingAgent.Backend
@@ -123,19 +176,6 @@ defmodule Aiur.Codex.CodingAgent do
   defp session_policies(workspace, nil), do: Config.codex_runtime_settings(workspace)
   defp session_policies(workspace, worker_host) when is_binary(worker_host), do: Config.codex_runtime_settings(workspace, remote: true)
 
-  # This is deliberately fail-open: an unavailable account endpoint must not
-  # prevent a configured backend from starting. A successful read seeds the
-  # same durable ledger that rolling rate-limit notifications update later.
-  defp observe_rate_limits(port) do
-    case Handshake.read_rate_limits(port) do
-      {:ok, rate_limits} -> ModelAvailability.observe("codex", rate_limits)
-      {:error, reason} -> Logger.debug("Codex account/rateLimits/read unavailable: #{inspect(reason)}")
-    end
-  end
-
-  defp maybe_observe_rate_limits(port, true), do: observe_rate_limits(port)
-  defp maybe_observe_rate_limits(_port, false), do: :ok
-
   @impl Aiur.AppServer.Adapter
   @doc false
   def start_turn(session, prompt, issue), do: Handshake.start_turn(session, prompt, issue)
@@ -144,7 +184,13 @@ defmodule Aiur.Codex.CodingAgent do
   def backend_label, do: "Codex"
   @impl Aiur.AppServer.Adapter
   @doc false
-  def loop_state_extras(session), do: %{auto_approve_requests: session.auto_approve_requests, turn_started?: false}
+  def loop_state_extras(session) do
+    Map.get(session, :provider_turn_store)
+    |> ProviderTurnLedger.start_turn()
+    |> Map.merge(InterruptHandshake.initial_state())
+    |> Map.merge(%{auto_approve_requests: session.auto_approve_requests, turn_started?: false})
+  end
+
   @impl Aiur.AppServer.Adapter
   @doc false
   def handle_interrupt_error(state, error), do: Interrupts.handle_interrupt_error(state, error)
@@ -167,20 +213,4 @@ defmodule Aiur.Codex.CodingAgent do
   rescue
     ArgumentError -> {:error, :port_closed}
   end
-
-  defp register_pause_containment(identifier, metadata, workspace) when is_binary(identifier) do
-    with pid when is_binary(pid) <- metadata[:codex_app_server_pid],
-         group when is_binary(group) <- metadata[:agent_process_group_id],
-         {root_pid, ""} <- Integer.parse(pid),
-         {process_group_id, ""} <- Integer.parse(group) do
-      case PauseContainment.register(identifier, root_pid, process_group_id, workspace: workspace) do
-        {:ok, handle} -> handle
-        _ -> nil
-      end
-    else
-      _ -> nil
-    end
-  end
-
-  defp register_pause_containment(_identifier, _metadata, _workspace), do: nil
 end

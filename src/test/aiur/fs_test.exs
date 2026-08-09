@@ -48,4 +48,44 @@ defmodule Aiur.FsTest do
     assert :ok = Fs.atomic_write(path, "second")
     assert File.read!(path) == "second"
   end
+
+  test "sync_filesystem/0 succeeds" do
+    assert :ok = Fs.sync_filesystem()
+  end
+
+  test "quarantine suffixes stay unique across separate boots so forensic archives never collide", %{tmp_dir: tmp_dir} do
+    path = Path.join(tmp_dir, "record.txt")
+
+    # Two separate boots: each fresh BEAM resets the VM-scoped unique_integer
+    # counter, which is exactly the window where the old .corrupt-<n> suffix
+    # would collide and the second rename would overwrite the first archive.
+    File.write!(path, "first-boot bytes")
+    assert {_out1, 0} = quarantine_in_fresh_beam(path)
+
+    File.write!(path, "second-boot bytes")
+    assert {_out2, 0} = quarantine_in_fresh_beam(path)
+
+    archives = Path.wildcard(path <> ".corrupt-*")
+    assert length(archives) == 2
+
+    # every boot's bytes survive under a distinct timestamped archive
+    assert archives |> Enum.map(&File.read!/1) |> Enum.sort() ==
+             ["first-boot bytes", "second-boot bytes"]
+  end
+
+  defp quarantine_in_fresh_beam(path) do
+    executable = System.find_executable("elixir") || raise "elixir executable not found"
+    timeout = System.find_executable("timeout") || raise "timeout executable not found"
+
+    code = """
+    path = System.fetch_env!("QUARANTINE_PATH")
+    :ok = Aiur.Fs.quarantine(path)
+    IO.puts("quarantined=" <> Path.basename(path))
+    """
+
+    System.cmd(timeout, ["20", executable, "-pa", Application.app_dir(:aiur, "ebin"), "-e", code],
+      env: [{"QUARANTINE_PATH", path}, {"ERL_FLAGS", "+S 1:1"}],
+      stderr_to_stdout: true
+    )
+  end
 end

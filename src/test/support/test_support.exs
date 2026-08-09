@@ -1,4 +1,9 @@
 defmodule Aiur.TestSupport do
+  import ExUnit.Assertions
+
+  alias Aiur.Events.Publisher, as: EventsPublisher
+  alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
+
   @workflow_prompt "You are an agent for this repository."
 
   defmacro __using__(_opts) do
@@ -23,12 +28,16 @@ defmodule Aiur.TestSupport do
 
       # Backend config aliases for tests
       alias Aiur.Codex.Config, as: CodexConfig
+      alias Aiur.Events.Publisher, as: EventsPublisher
+      alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
       alias Aiur.Linear.Config, as: LinearConfig
 
       import Aiur.TestSupport,
         only: [
           write_workflow_file!: 1,
           write_workflow_file!: 2,
+          write_workflow_file_synced!: 1,
+          write_workflow_file_synced!: 2,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
@@ -57,8 +66,20 @@ defmodule Aiur.TestSupport do
         # `max_restarts` and takes the whole `:aiur` app down — the #589 cascade.
         previous_workflow_file_path = Application.get_env(:aiur, :workflow_file_path)
         previous_log_file = Application.get_env(:aiur, :log_file)
+        previous_build_gate_dir = Application.get_env(:aiur, :build_gate_dir_override)
+        previous_global_pause_store_path = Application.get_env(:aiur, :global_pause_store_path)
+
+        # These callbacks live in :persistent_term so they outlast the test
+        # process that installed them. Start every TestSupport case from the
+        # production-safe defaults and restore those defaults at teardown;
+        # otherwise a filtering/enqueue stub can silently affect an unrelated
+        # Exchange test that happens to run later in the VM.
+        EventsPublisher.set_tracked_fn(fn _ -> true end)
+        EventsSubscriptionStore.set_enqueue_fn(nil)
 
         File.mkdir_p!(workflow_root)
+        Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
+        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -74,13 +95,24 @@ defmodule Aiur.TestSupport do
         File.mkdir_p!(Path.join(workflow_root, "log"))
         Application.put_env(:aiur, :log_file, Path.join([workflow_root, "log", "aiur.log"]))
 
+        # Global pause is deliberately durable in production, but that makes a
+        # suite-wide test path hazardous: a case that pauses the daemon can
+        # make a later named Orchestrator boot paused. Give every TestSupport
+        # case its own store so persisted control state cannot cross test
+        # boundaries or depend on ExUnit's randomized file order.
+        Application.put_env(
+          :aiur,
+          :global_pause_store_path,
+          Path.join([workflow_root, "state", "global-pause.json"])
+        )
+
         # A prior test may have terminated the shared WorkflowStore singleton
         # (e.g. extensions_test / core_test tear it down) and, on a mid-test
         # failure, left it down. Bring it back up before this test reads config
         # through it, so a sibling never calls into a torn-down store — the #780
         # `WorkspaceAndConfigTest` flake: `GenServer.call(WorkflowStore, :current)`
         # exiting `:shutdown`. Then reload it onto this test's config path.
-        Aiur.TestSupport.ensure_workflow_store_running()
+        Aiur.TestSupport.ensure_runtime_children_running()
         if Process.whereis(Aiur.WorkflowStore), do: Aiur.WorkflowStore.force_reload()
         stop_default_http_server()
 
@@ -95,9 +127,21 @@ defmodule Aiur.TestSupport do
             path -> Application.put_env(:aiur, :log_file, path)
           end
 
+          case previous_build_gate_dir do
+            nil -> Application.delete_env(:aiur, :build_gate_dir_override)
+            path -> Application.put_env(:aiur, :build_gate_dir_override, path)
+          end
+
+          case previous_global_pause_store_path do
+            nil -> Application.delete_env(:aiur, :global_pause_store_path)
+            path -> Application.put_env(:aiur, :global_pause_store_path, path)
+          end
+
           Application.delete_env(:aiur, :server_port_override)
           Application.delete_env(:aiur, :memory_tracker_issues)
           Application.delete_env(:aiur, :memory_tracker_recipient)
+          EventsPublisher.set_tracked_fn(fn _ -> true end)
+          EventsSubscriptionStore.set_enqueue_fn(nil)
           File.rm_rf(workflow_root)
 
           # Reload the store onto the restored baseline so the next test never
@@ -146,6 +190,30 @@ defmodule Aiur.TestSupport do
     end
 
     :ok
+  end
+
+  @doc """
+  Like `write_workflow_file!/2`, but waits for `WorkflowStore`'s pubsub
+  confirmation instead of trusting its best-effort `force_reload`.
+
+  `write_workflow_file!/2` fires a `force_reload` wrapped in `catch :exit, _
+  -> :ok`, so under host CPU contention a `GenServer.call` that outlasts its
+  default timeout is swallowed silently — the write looks like it landed, but
+  `WorkflowStore` only actually catches up whenever it next gets scheduled.
+  A caller that immediately reads `Config` afterward can race that catch-up
+  and observe the config as it stood before this write. Waiting for the
+  `{:workflow_config_updated, _}` broadcast removes the guess: it fires only
+  once the reload has genuinely completed, however long that took.
+  """
+  def write_workflow_file_synced!(path, overrides \\ []) do
+    ensure_workflow_store_running()
+    :ok = Aiur.WorkflowStore.subscribe()
+    {:ok, _workflow, generation_before} = Aiur.WorkflowStore.current_with_generation()
+
+    write_workflow_file!(path, overrides)
+
+    assert_receive {:workflow_config_updated, generation}, 15_000
+    assert generation > generation_before
   end
 
   # Mirror the real `.aiur/` layout in tests: drop the canonical alert
@@ -199,10 +267,19 @@ defmodule Aiur.TestSupport do
   end
 
   def stop_default_http_server do
-    if is_nil(Process.whereis(Aiur.Supervisor)) do
-      :ok
-    else
-      stop_default_http_server_child()
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) ->
+        stop_default_http_server(supervisor)
+
+      nil ->
+        ensure_aiur_supervisor_running()
+    end
+  end
+
+  defp stop_default_http_server(supervisor) do
+    case stop_default_http_server_child() do
+      :ok -> :ok
+      :supervisor_unavailable -> recover_stopped_supervisor(supervisor, &ensure_aiur_supervisor_running/0)
     end
   end
 
@@ -223,6 +300,54 @@ defmodule Aiur.TestSupport do
       _ ->
         :ok
     end
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  @doc """
+  Stops a server during test teardown, tolerating a process that has already
+  exited.
+
+  `start_link`ed servers are linked to the test process, so when the test
+  finishes its exit propagates over the link and tears the server down. An
+  `on_exit/1` callback runs *afterward* in a separate process, so a
+  `Process.alive?/1` / `Process.whereis/1` guard around `GenServer.stop/1` is a
+  TOCTOU race: the guard observes the server alive, the link teardown then kills
+  it, and the stop crashes with `no process`. Under coverage instrumentation the
+  teardown window widens and the race trips intermittently. `safe_stop/1`
+  catches that `:exit` instead of guarding, so an already-dead process is a
+  no-op. Accepts a pid or a registered name.
+  """
+  @spec safe_stop(GenServer.server()) :: :ok
+  def safe_stop(server) do
+    GenServer.stop(server)
+    :ok
+  catch
+    :exit, _reason -> :ok
+  end
+
+  @doc false
+  @spec await_process_down(pid(), timeout()) :: :ok | :error
+  def await_process_down(process, timeout \\ 2_000) when is_pid(process) do
+    ref = Process.monitor(process)
+
+    receive do
+      {:DOWN, ^ref, :process, ^process, _reason} -> :ok
+    after
+      timeout ->
+        Process.demonitor(ref, [:flush])
+        :error
+    end
+  end
+
+  @doc """
+  Restores the shared application children that ordinary tests rely on after a
+  sibling intentionally stopped one for an unavailable-service case.
+  """
+  def ensure_runtime_children_running do
+    ensure_aiur_supervisor_running()
+    ensure_pubsub_running()
+    ensure_workflow_store_running()
   end
 
   @doc """
@@ -241,13 +366,54 @@ defmodule Aiur.TestSupport do
     end
   end
 
-  defp restart_workflow_store do
-    case Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore) do
+  defp ensure_pubsub_running(retries \\ 1) do
+    case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) ->
+        :ok
+
+      nil ->
+        case restart_pubsub_child() do
+          {:ok, pid} when is_pid(pid) ->
+            :ok
+
+          {:error, {:already_started, pid}} when is_pid(pid) ->
+            :ok
+
+          :supervisor_unavailable when retries > 0 ->
+            ensure_aiur_supervisor_running()
+            ensure_pubsub_running(retries - 1)
+
+          _ ->
+            pubsub_status()
+        end
+    end
+  end
+
+  defp pubsub_status do
+    case Process.whereis(Aiur.PubSub) do
+      pid when is_pid(pid) -> :ok
+      nil -> :error
+    end
+  end
+
+  defp restart_workflow_store(retries \\ 1) do
+    case restart_workflow_store_child() do
       {:ok, pid} when is_pid(pid) ->
         :ok
 
       {:error, {:already_started, pid}} when is_pid(pid) ->
         :ok
+
+      # The application supervisor can terminate after the initial
+      # `Process.whereis/1` check and before the synchronous restart call.
+      # Bring it back and retry the child once so a suite sibling cannot leak
+      # that narrow shutdown race into an unrelated test setup.
+      :supervisor_unavailable when retries > 0 ->
+        ensure_aiur_supervisor_running()
+        restart_workflow_store(retries - 1)
+
+      :supervisor_unavailable ->
+        :error
 
       # A restart can race a sibling (already-present / running / restarting) or
       # genuinely fail — `WorkflowStore.init/1` reads the workflow file and stops
@@ -261,17 +427,85 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  defp restart_workflow_store_child do
+    Supervisor.restart_child(Aiur.Supervisor, Aiur.WorkflowStore)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
+  defp restart_pubsub_child do
+    Supervisor.restart_child(Aiur.Supervisor, Phoenix.PubSub.Supervisor)
+  catch
+    :exit, _reason -> :supervisor_unavailable
+  end
+
   defp ensure_aiur_supervisor_running do
     case Process.whereis(Aiur.Supervisor) do
       pid when is_pid(pid) ->
-        :ok
+        registered_supervisor_status(pid, &restart_aiur_application/0)
 
       nil ->
-        case Application.ensure_all_started(:aiur) do
-          {:ok, _apps} -> :ok
-          {:error, {:already_started, _app}} -> :ok
-        end
+        restart_aiur_application()
     end
+  end
+
+  defp restart_aiur_application do
+    ensure_aiur_application_started(&verify_or_restart_aiur_application/0)
+  end
+
+  defp verify_or_restart_aiur_application do
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) ->
+        registered_supervisor_status(supervisor, &stop_and_start_aiur_application/0)
+
+      nil ->
+        stop_and_start_aiur_application()
+    end
+  end
+
+  defp registered_supervisor_status(supervisor, recovery) do
+    if supervisor_accepting_calls?(supervisor),
+      do: :ok,
+      else: recover_stopped_supervisor(supervisor, recovery)
+  end
+
+  defp recover_stopped_supervisor(supervisor, recovery) do
+    with :ok <- await_process_down(supervisor), do: recovery.()
+  end
+
+  defp stop_and_start_aiur_application do
+    case Application.stop(:aiur) do
+      :ok -> start_aiur_application()
+      {:error, {:not_started, :aiur}} -> start_aiur_application()
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp start_aiur_application do
+    ensure_aiur_application_started(&aiur_supervisor_status/0)
+  end
+
+  defp ensure_aiur_application_started(on_started) do
+    case Application.ensure_all_started(:aiur) do
+      {:ok, _apps} -> on_started.()
+      {:error, {:already_started, _app}} -> on_started.()
+      {:error, {:aiur, {:already_started, _app}}} -> on_started.()
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp aiur_supervisor_status do
+    case Process.whereis(Aiur.Supervisor) do
+      supervisor when is_pid(supervisor) -> if(supervisor_accepting_calls?(supervisor), do: :ok, else: :error)
+      nil -> :error
+    end
+  end
+
+  defp supervisor_accepting_calls?(supervisor) do
+    Supervisor.which_children(supervisor)
+    true
+  catch
+    :exit, _reason -> false
   end
 
   defp workflow_content(overrides) do
@@ -289,6 +523,9 @@ defmodule Aiur.TestSupport do
           tracker_label_prefix: nil,
           tracker_bot_account: nil,
           tracker_trusted_accounts: [],
+          tracker_planning_root_limit: 100,
+          tracker_planning_page_budget: 4,
+          tracker_planning_call_budget: 4,
           max_vertical_panes: 3,
           pre_warmed_sessions: 3,
           agent_kind: "codex",
@@ -304,6 +541,7 @@ defmodule Aiur.TestSupport do
           build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
+          max_dispatches_per_ticket: nil,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           command: "codex app-server",
@@ -337,6 +575,7 @@ defmodule Aiur.TestSupport do
     tracker_active_states = Keyword.get(config, :tracker_active_states)
     tracker_terminal_states = Keyword.get(config, :tracker_terminal_states)
     tracker_base_branch = Keyword.get(config, :tracker_base_branch)
+    tracker_terminal_fence_grace_seconds = Keyword.get(config, :tracker_terminal_fence_grace_seconds)
     agent_kind = Keyword.get(config, :agent_kind)
     agent_routing = Keyword.get(config, :agent_routing)
     max_vertical_panes = Keyword.get(config, :max_vertical_panes)
@@ -355,6 +594,7 @@ defmodule Aiur.TestSupport do
     build_start_stagger_seconds = Keyword.get(config, :build_start_stagger_seconds)
     min_free_memory_mb = Keyword.get(config, :min_free_memory_mb)
     max_turns = Keyword.get(config, :max_turns)
+    max_dispatches_per_ticket = Keyword.get(config, :max_dispatches_per_ticket)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
     agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
@@ -369,6 +609,9 @@ defmodule Aiur.TestSupport do
     observability_writable = Keyword.get(config, :observability_writable)
     observability_refresh_ms = Keyword.get(config, :observability_refresh_ms)
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
+    observability_retention_max_bytes = Keyword.get(config, :observability_retention_max_bytes)
+    observability_retention_max_age_days = Keyword.get(config, :observability_retention_max_age_days)
+    observability_retention_prune_interval_bytes = Keyword.get(config, :observability_retention_prune_interval_bytes)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
     opencode_command = Keyword.get(config, :opencode_command)
@@ -400,7 +643,10 @@ defmodule Aiur.TestSupport do
         "  active_states: #{yaml_value(tracker_active_states)}",
         "  terminal_states: #{yaml_value(tracker_terminal_states)}",
         "  base_branch: #{yaml_value(tracker_base_branch)}",
-        tracker_backend_yaml(tracker_kind, config)
+        tracker_terminal_fence_grace_seconds &&
+          "  terminal_fence_grace_seconds: #{yaml_value(tracker_terminal_fence_grace_seconds)}",
+        tracker_github_yaml(tracker_kind, config),
+        tracker_linear_yaml(tracker_kind, config)
       ]
       |> Enum.reject(&(&1 in [nil, ""]))
       |> Enum.join("\n")
@@ -414,6 +660,8 @@ defmodule Aiur.TestSupport do
         "  build_start_stagger_seconds: #{yaml_value(build_start_stagger_seconds)}",
         "  min_free_memory_mb: #{yaml_value(min_free_memory_mb)}",
         "  max_turns: #{yaml_value(max_turns)}",
+        max_dispatches_per_ticket &&
+          "  max_dispatches_per_ticket: #{yaml_value(max_dispatches_per_ticket)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
         "  routing: #{yaml_value(agent_routing)}",
@@ -448,8 +696,12 @@ defmodule Aiur.TestSupport do
           observability_enabled,
           observability_writable,
           observability_refresh_ms,
-          observability_render_interval_ms
+          observability_render_interval_ms,
+          observability_retention_max_bytes,
+          observability_retention_max_age_days,
+          observability_retention_prune_interval_bytes
         ),
+        decisions_yaml(overrides),
         server_yaml(server_port, server_host),
         opencode_yaml(
           opencode_command,
@@ -466,7 +718,7 @@ defmodule Aiur.TestSupport do
     {Enum.join(sections, "\n") <> "\n", prompt}
   end
 
-  defp tracker_backend_yaml("linear", config) do
+  defp tracker_linear_yaml("linear", config) do
     endpoint = Keyword.get(config, :tracker_endpoint)
     api_token = Keyword.get(config, :tracker_api_token)
     project_slug = Keyword.get(config, :tracker_project_slug)
@@ -482,26 +734,30 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp tracker_backend_yaml("github", config) do
-    repo = Keyword.get(config, :tracker_repo)
-    label_prefix = Keyword.get(config, :tracker_label_prefix)
-    bot_account = Keyword.get(config, :tracker_bot_account)
-    trusted_accounts = Keyword.get(config, :tracker_trusted_accounts, [])
+  defp tracker_linear_yaml(_kind, _config), do: nil
+
+  defp tracker_github_yaml(tracker_kind, config) do
+    repo = if tracker_kind == "github", do: Keyword.get(config, :tracker_repo)
+    label_prefix = if tracker_kind == "github", do: Keyword.get(config, :tracker_label_prefix)
+    bot_account = if tracker_kind == "github", do: Keyword.get(config, :tracker_bot_account)
+    trusted_accounts = if tracker_kind == "github", do: Keyword.get(config, :tracker_trusted_accounts, []), else: []
+    root_limit = Keyword.fetch!(config, :tracker_planning_root_limit)
+    page_budget = Keyword.fetch!(config, :tracker_planning_page_budget)
+    call_budget = Keyword.fetch!(config, :tracker_planning_call_budget)
 
     [
       "  github:",
       repo && "    repo: #{yaml_value(repo)}",
       label_prefix && "    label_prefix: #{yaml_value(label_prefix)}",
       bot_account && "    bot_account: #{yaml_value(bot_account)}",
-      trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}"
+      trusted_accounts != [] && "    trusted_accounts: #{yaml_value(trusted_accounts)}",
+      "    planning_root_limit: #{yaml_value(root_limit)}",
+      "    planning_page_budget: #{yaml_value(page_budget)}",
+      "    planning_call_budget: #{yaml_value(call_budget)}"
     ]
     |> Enum.reject(&(&1 in [nil, false, ""]))
     |> Enum.join("\n")
   end
-
-  defp tracker_backend_yaml("memory", _config), do: nil
-  defp tracker_backend_yaml(nil, _config), do: nil
-  defp tracker_backend_yaml(_kind, _config), do: nil
 
   defp opencode_yaml(command, bridge_port, bridge_host, serve_args, model_prefix) do
     [
@@ -659,16 +915,45 @@ defmodule Aiur.TestSupport do
     |> Enum.join("\n")
   end
 
-  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms) do
+  defp observability_yaml(enabled, writable, refresh_ms, render_interval_ms, retention_max_bytes, retention_max_age_days, retention_prune_interval_bytes) do
     [
       "observability:",
       "  dashboard_enabled: #{yaml_value(enabled)}",
       writable != nil && "  dashboard_writable: #{yaml_value(writable)}",
       "  refresh_ms: #{yaml_value(refresh_ms)}",
-      "  render_interval_ms: #{yaml_value(render_interval_ms)}"
+      "  render_interval_ms: #{yaml_value(render_interval_ms)}",
+      retention_max_bytes != nil && "  telemetry_retention_max_bytes: #{yaml_value(retention_max_bytes)}",
+      retention_max_age_days != nil && "  telemetry_retention_max_age_days: #{yaml_value(retention_max_age_days)}",
+      retention_prune_interval_bytes != nil &&
+        "  telemetry_retention_prune_interval_bytes: #{yaml_value(retention_prune_interval_bytes)}"
     ]
     |> Enum.reject(&(&1 == false))
     |> Enum.join("\n")
+  end
+
+  defp decisions_yaml(overrides) do
+    lines =
+      [
+        decisions_line(
+          "supervisor_allowed_kinds",
+          overrides,
+          :supervisor_decision_allowed_kinds
+        ),
+        decisions_line(
+          "supervisor_allow_non_reversible",
+          overrides,
+          :supervisor_decision_allow_non_reversible
+        )
+      ]
+      |> Enum.reject(&is_nil/1)
+
+    if lines == [], do: nil, else: Enum.join(["decisions:" | lines], "\n")
+  end
+
+  defp decisions_line(key, overrides, override_key) do
+    if Keyword.has_key?(overrides, override_key) do
+      "  #{key}: #{yaml_value(Keyword.get(overrides, override_key))}"
+    end
   end
 
   defp server_yaml(nil, nil), do: nil

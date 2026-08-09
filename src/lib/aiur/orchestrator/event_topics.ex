@@ -7,37 +7,59 @@ defmodule Aiur.Orchestrator.EventTopics do
 
   @spec route(State.t(), map()) :: State.t()
   def route(%State{} = state, %{topic: topic} = event) when is_binary(topic) do
-    case classify_event_topic(topic) do
-      {:pr_review_comment, identifier} ->
-        CommentWake.maybe_reactivate_on_comment(
-          state,
-          identifier,
-          "PR review comment",
-          event
-        )
+    route_classified(state, classify_event_topic(topic), event)
+  end
 
-      {:issue_commented, identifier} ->
-        CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
+  defp route_classified(state, {:pr_review_comment, identifier}, event),
+    do: CommentWake.maybe_reactivate_on_comment(state, identifier, "PR review comment", event)
 
-      {:pr_merged, identifier} ->
-        CommentWake.mark_pr_merged_issue_done(state, identifier)
+  defp route_classified(state, {:issue_commented, identifier}, event),
+    do: CommentWake.maybe_reactivate_on_comment(state, identifier, "issue comment", event)
 
-      {:ci_failed, identifier} ->
-        CiLifecycle.maybe_resume_for_ci_failure(state, identifier)
+  defp route_classified(state, {:pr_merged, identifier}, event),
+    do: CommentWake.mark_pr_merged_issue_done(state, identifier, merged_by_login: get_in(event, [:pr, "merged_by", "login"]))
 
-      {:pause_request, identifier} ->
-        PushRouting.maybe_pause_on_request(state, identifier)
+  defp route_classified(state, {:ci_failed, identifier}, _event),
+    do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :failed)
 
-      {:branch_push, blocker_identifier} ->
-        PushRouting.maybe_resume_blockees_on_push(state, blocker_identifier, topic)
+  defp route_classified(state, {:ci_passed, identifier}, _event),
+    do: CiLifecycle.maybe_resume_for_ci_terminal(state, identifier, :passed)
 
-      {:system_branch_push, branch} ->
-        PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
+  defp route_classified(state, {:pause_request, identifier}, event),
+    do: PushRouting.maybe_pause_on_request(state, identifier, event)
 
-      :nomatch ->
+  defp route_classified(state, {:agent_unblocked, blocker_identifier}, %{topic: topic} = event) do
+    cond do
+      provisional_unblock?(event) ->
+        state
+
+      metadata = PushRouting.validated_unblock_metadata(blocker_identifier, event) ->
+        PushRouting.maybe_resume_blockees_on_unblocked(state, blocker_identifier, topic, metadata)
+
+      true ->
         state
     end
   end
+
+  defp route_classified(state, {:branch_push, blocker_identifier}, event),
+    do: PushRouting.record_blocker_branch_push(state, blocker_identifier, event)
+
+  defp route_classified(state, {:system_branch_push, branch}, event),
+    do: PushRouting.maybe_notify_agents_on_default_branch_push(state, branch, event)
+
+  defp route_classified(state, :nomatch, _event), do: state
+
+  defp provisional_unblock?(event) do
+    Enum.any?(
+      [event, Map.get(event, :payload), Map.get(event, "payload")],
+      &temporary_stub?/1
+    )
+  end
+
+  defp temporary_stub?(value) when is_map(value),
+    do: Map.get(value, :temporary_stub) == true or Map.get(value, "temporary_stub") == true
+
+  defp temporary_stub?(_value), do: false
 
   @spec parse_pr_review_comment_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pr_review_comment_topic(topic) do
@@ -71,6 +93,14 @@ defmodule Aiur.Orchestrator.EventTopics do
     end
   end
 
+  @spec parse_ci_passed_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_ci_passed_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.ci\.passed\z}, topic) do
+      [_, number] -> {:ok, number}
+      _ -> :nomatch
+    end
+  end
+
   @spec parse_pause_request_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_pause_request_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.agent\.pause\.request\z}, topic) do
@@ -82,6 +112,14 @@ defmodule Aiur.Orchestrator.EventTopics do
   @spec parse_branch_push_topic(String.t()) :: {:ok, String.t()} | :nomatch
   def parse_branch_push_topic(topic) do
     case Regex.run(~r{\Aticket\.([^.]+)\.branch\.push\z}, topic) do
+      [_, identifier] -> {:ok, identifier}
+      _ -> :nomatch
+    end
+  end
+
+  @spec parse_agent_unblocked_topic(String.t()) :: {:ok, String.t()} | :nomatch
+  def parse_agent_unblocked_topic(topic) do
+    case Regex.run(~r{\Aticket\.([^.]+)\.agent\.unblocked\z}, topic) do
       [_, identifier] -> {:ok, identifier}
       _ -> :nomatch
     end
@@ -105,7 +143,9 @@ defmodule Aiur.Orchestrator.EventTopics do
          :nomatch <- tag_topic(:issue_commented, parse_issue_commented_topic(topic)),
          :nomatch <- tag_topic(:pr_merged, parse_pr_merged_topic(topic)),
          :nomatch <- tag_topic(:ci_failed, parse_ci_failed_topic(topic)),
+         :nomatch <- tag_topic(:ci_passed, parse_ci_passed_topic(topic)),
          :nomatch <- tag_topic(:pause_request, parse_pause_request_topic(topic)),
+         :nomatch <- tag_topic(:agent_unblocked, parse_agent_unblocked_topic(topic)),
          :nomatch <- tag_topic(:branch_push, parse_branch_push_topic(topic)) do
       tag_topic(:system_branch_push, parse_system_branch_push_topic(topic))
     end

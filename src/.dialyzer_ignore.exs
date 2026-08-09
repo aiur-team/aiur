@@ -13,6 +13,14 @@
   # interop. The runtime works; dialyzer's opaque tracking gets confused.
   {"lib/aiur/github/code_owners.ex", :call_without_opaque},
   {"lib/aiur/github/issue_dependencies.ex", :call_with_opaque},
-  {"lib/aiur/github/issue_dependencies.ex", :call_without_opaque},
-  {"lib/aiur/orchestrator/lifecycle.ex", :call_without_opaque}
+  {"lib/aiur/orchestrator/lifecycle.ex", :call_without_opaque},
+  {"lib/aiur_web/build_order_presenter.ex", :call_without_opaque},
+  {"lib/aiur_web/components/operator_control_center/build_order_breakdown.ex",
+   :call_without_opaque},
+  {"lib/aiur_web/operator_control_center/usage_summary_presenter.ex", :call_without_opaque},
+
+  # Guardian liveness comes from injectable OS probes. Dialyzer collapses the
+  # default `kill -0` probe to `true`, although the explicit false branch is
+  # exercised by the process-containment regression tests.
+  {"lib/aiur/workspace/ownership/guardian.ex", :pattern_match}
 ]

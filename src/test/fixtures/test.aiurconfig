@@ -5,9 +5,15 @@ tracker:
     - in-progress
   terminal_states:
     - done
+    - closed
+    - cancelled
+    - canceled
   github:
     repo: test-org/test-repo
     label_prefix: agent
+    planning_root_limit: 100
+    planning_page_budget: 4
+    planning_call_budget: 4
 polling:
   interval_seconds: 5
 max_vertical_panes: 3

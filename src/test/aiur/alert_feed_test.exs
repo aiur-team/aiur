@@ -66,4 +66,131 @@ defmodule Aiur.AlertFeedTest do
              }
            ] = AlertFeed.list(roots: [root], log_roots: [log_root], needs_attention: true)
   end
+
+  test "a resolved system attention leaves the Executor feed", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"system.tracker.auth_preflight_failed","message":"Tracker auth failed","reason":"GitHub auth failed","severity":"warning","needs_attention":true,"source_ticket_id":null}
+    {"event":"alert","timestamp":"2026-08-02T01:01:00Z","topic":"system.tracker.auth_preflight_failed.resolved","message":"Tracker auth recovered","reason":"GitHub auth recovered","severity":"info","needs_attention":false,"source_ticket_id":null}
+    """)
+
+    refute Enum.any?(AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true), fn alert ->
+             alert["topic"] == "system.tracker.auth_preflight_failed"
+           end)
+  end
+
+  test "system attention probes never scan workspace transcript roots", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    central_root = Path.join(root, "central")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    File.mkdir_p!(central_root)
+
+    File.write!(workspace_log, """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"system.test.workspace_only","message":"workspace only","needs_attention":true}
+    """)
+
+    refute AlertFeed.active_system_attention?("system.test.workspace_only", roots: [Path.join(root, "workspace")], log_roots: [central_root])
+  end
+
+  test "ticket attention probes read only central alerts", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    central_root = Path.join(root, "central")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    File.mkdir_p!(central_root)
+
+    File.write!(workspace_log, """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"ticket.42.agent.attention.error","message":"workspace only","needs_attention":true}
+    """)
+
+    refute AlertFeed.active_ticket_attention?("ticket.42.agent.attention.error",
+             roots: [Path.join(root, "workspace")],
+             log_roots: [central_root]
+           )
+  end
+
+  test "a resolved tracker pause leaves the Executor feed", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-08-02T01:00:00Z","topic":"ticket.42.agent.paused","message":"Paused","needs_attention":true}
+    {"event":"alert","timestamp":"2026-08-02T01:01:00Z","topic":"ticket.42.agent.paused.resolved","message":"Resumed","needs_attention":false}
+    """)
+
+    refute Enum.any?(AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true), &(&1["topic"] == "ticket.42.agent.paused"))
+  end
+
+  test "projects only active legacy decision attentions", %{root: root} do
+    project_root = Path.join(root, "its-everdred/aiur")
+    log = Path.join(project_root, "42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(log))
+
+    File.write!(log, """
+    {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-07-12T01:00:30Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this now?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-07-12T01:01:00Z","topic":"ticket.42.agent.paused","reason":"Paused","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-07-12T01:01:30Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","reason":"Decision delivery failed","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-07-12T01:02:00Z","topic":"ticket.43.agent.attention.done","reason":"Executor decision required: Already handled?","severity":"warning","needs_attention":true,"source_ticket_id":"43"}
+    {"event":"alert","timestamp":"2026-07-12T01:03:00Z","topic":"ticket.43.agent.attention.done.resolved","reason":"Executor decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"43"}
+    """)
+
+    assert [attention] =
+             AlertFeed.list_decision_attentions(roots: [project_root], log_roots: [])
+
+    assert attention == %{
+             identifier: "42",
+             slug: "scope-question",
+             question: "Which scope owns this now?",
+             topic: "ticket.42.agent.attention.scope-question",
+             source_created_at: ~U[2026-07-12 01:00:00Z]
+           }
+  end
+
+  test "normalizes legacy persisted decision copy at the presentation boundary", %{root: root} do
+    project_root = Path.join(root, "its-everdred/aiur")
+    log = Path.join(project_root, "42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(log))
+
+    File.write!(log, """
+    {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","message":"Operator decision required: Which scope owns this?","reason":"Operator decision required: Which scope owns this?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
+    """)
+
+    assert [alert] = AlertFeed.list(roots: [project_root], log_roots: [])
+    assert alert["message"] == "Executor decision required: Which scope owns this?"
+    assert alert["reason"] == "Executor decision required: Which scope owns this?"
+
+    assert [%{question: "Which scope owns this?"}] =
+             AlertFeed.list_decision_attentions(roots: [project_root], log_roots: [])
+
+    assert File.read!(log) =~ "Operator decision required: Which scope owns this?"
+  end
+
+  test "a malformed alert timestamp becomes nil provenance", %{root: root} do
+    log = Path.join(root, "42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(log))
+
+    File.write!(log, """
+    {"event":"alert","timestamp":"not-a-time","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","needs_attention":true}
+    """)
+
+    assert [%{source_created_at: nil}] =
+             AlertFeed.list_decision_attentions(roots: [root], log_roots: [])
+  end
+
+  test "collapses repeated open attentions for one ticket and slug to the latest projection", %{root: root} do
+    log_root = Path.join(root, "logs")
+    File.mkdir_p!(log_root)
+
+    File.write!(Path.join(log_root, "alerts.ndjson"), """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","message":"first failure","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","message":"restart projection","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"ticket.42.agent.attention.other","message":"other attention","needs_attention":true,"source_ticket_id":"42"}
+    """)
+
+    alerts = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+
+    assert Enum.map(alerts, & &1["message"]) == ["restart projection", "other attention"]
+  end
 end

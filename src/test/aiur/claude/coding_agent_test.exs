@@ -1,13 +1,14 @@
 defmodule Aiur.Claude.CodingAgentWorkspaceTest do
   use Aiur.TestSupport
 
+  alias Aiur.AgentRunner.ToolExecutor
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.DynamicTool
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.Workflow
 
-  test "spawned claude shell receives the AIUR_AGENT_WORKSPACE guard var" do
+  test "spawned claude shell receives workspace, configured base, and launch vars" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_env_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
     File.mkdir_p!(workspace)
@@ -17,16 +18,21 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       agent_kind: "claude",
       workspace_root: root,
-      # The fake app-server records the guard var the spawned shell sees,
+      tracker_base_branch: "integration",
+      # The fake app-server records the workspace variables the spawned shell sees,
       # then idles so the initialize handshake reads back nothing and
       # start_session returns a timeout error. The marker is written first.
-      command: "printenv AIUR_AGENT_WORKSPACE > #{marker}; sleep 2",
+      command: "env | grep -E '^(AIUR_AGENT_WORKSPACE|AIUR_BASE_BRANCH|CLAUDE_CODE_ENABLE_TELEMETRY)=' | sort | sed 's/^[^=]*=//' > #{marker}; sleep 2",
       agent_read_timeout_ms: 300
     )
 
-    assert {:error, _reason} = ClaudeAgent.start_session(workspace)
+    assert {:error, _reason} =
+             ClaudeAgent.start_session(workspace,
+               telemetry_launch: %{env: [{"CLAUDE_CODE_ENABLE_TELEMETRY", "1"}]}
+             )
+
     assert File.exists?(marker)
-    assert String.trim(File.read!(marker)) == workspace
+    assert String.split(File.read!(marker), "\n", trim: true) == [workspace, "integration", "1"]
   end
 
   test "turn/start carries the configured model and completes a turn" do
@@ -80,6 +86,71 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert advertised_tool_names == expected_tool_names
   end
 
+  test "rate-limit notifications ingest through the Claude meter adapter and log only a redacted marker" do
+    root = Path.join(System.tmp_dir!(), "aiur_claude_meter_#{System.unique_integer([:positive])}")
+    workspace = Path.join(root, "agent-1")
+    File.mkdir_p!(workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+    on_exit(fn -> File.rm_rf(root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: root,
+      command: fake_app_server_with_rate_limit(frames)
+    )
+
+    {:ok, account_owner} =
+      start_supervised({Aiur.ProviderAccountGeneration, name: nil}, id: :claude_meter_account_owner)
+
+    test_pid = self()
+
+    ingester = fn update ->
+      send(test_pid, {:meter_update, update})
+      {:ok, %{}}
+    end
+
+    failure_recorder = fn failure ->
+      send(test_pid, {:meter_failure, failure})
+      {:ok, %{}}
+    end
+
+    on_message = fn message -> send(test_pid, {:agent_message, message}) end
+    issue = %{id: 1, identifier: "test:meter", title: "meter"}
+
+    assert {:ok, session} =
+             ClaudeAgent.start_session(workspace,
+               account_generation_server: account_owner,
+               provider_meter_ingester: ingester,
+               provider_meter_failure_recorder: failure_recorder
+             )
+
+    assert {:ok, %{result: :turn_completed}} =
+             ClaudeAgent.run_turn(session, "read limits", issue, on_message: on_message)
+
+    assert_received {:meter_update,
+                     %{
+                       provider: :claude,
+                       auth_mode: :subscription,
+                       source_version: 9_009_009,
+                       windows: [%{standing: :allowed_warning, used_percent: 83}]
+                     }}
+
+    assert_received {:agent_message,
+                     %{
+                       event: :notification,
+                       payload: %{"method" => "provider_account/rate_limits_changed", "params" => %{}},
+                       raw: nil
+                     } = message}
+
+    notification_wire = Jason.encode!(message)
+    refute String.contains?(notification_wire, "secret-turn-correlation")
+    refute String.contains?(notification_wire, "secret-thread-correlation")
+    refute String.contains?(notification_wire, "source_version")
+    refute_received {:meter_failure, _failure}
+
+    ClaudeAgent.stop_session(session)
+  end
+
   test "tool calls execute through the injected tool executor" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_tool_call_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
@@ -127,6 +198,40 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     assert get_in(response_frame, ["result", "output"]) == ~s({"ok":true})
   end
 
+  @tag :tmp_dir
+  test "oversized tool calls spill through the Claude adapter", %{tmp_dir: tmp_dir} do
+    workspace = Path.join(tmp_dir, "agent-1")
+    File.mkdir_p!(workspace)
+    {_output, 0} = System.cmd("git", ["init", "-q"], cd: workspace)
+    frames = Path.join(workspace, "frames.jsonl")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agent_kind: "claude",
+      workspace_root: tmp_dir,
+      command: fake_app_server_with_tool_call(frames)
+    )
+
+    issue = %{id: 1, identifier: "test:large-tool", title: "large-tool"}
+    output = String.duplicate("x", 110 * 1024)
+    tool_executor = fn _tool, _arguments -> %{"success" => true, "output" => output} end
+
+    assert {:ok, session} = ClaudeAgent.start_session(workspace)
+    assert {:ok, %{result: :turn_completed}} = ClaudeAgent.run_turn(session, "emit progress", issue, tool_executor: tool_executor)
+    ClaudeAgent.stop_session(session)
+
+    response_frame =
+      frames
+      |> File.read!()
+      |> String.split("\n", trim: true)
+      |> Enum.map(&Jason.decode!/1)
+      |> Enum.find(&(Map.get(&1, "id") == 101))
+
+    assert [path] =
+             Regex.run(~r/saved as JSON to (.+)\. Read the file/, get_in(response_frame, ["result", "output"]), capture: :all_but_first)
+
+    assert Jason.decode!(File.read!(path))["output"] == output
+  end
+
   test "tool call failures and unsupported calls are reported" do
     root = Path.join(System.tmp_dir!(), "aiur_claude_tool_errors_#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "agent-1")
@@ -151,7 +256,7 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
     on_message = fn message -> send(test_pid, {:agent_message, message}) end
 
     tool_executor = fn tool, arguments ->
-      send(test_pid, {:tool_called, tool, arguments})
+      send(test_pid, {:tool_called, tool, arguments, ToolExecutor.invocation_id()})
       %{"success" => false, "error" => "not available"}
     end
 
@@ -165,8 +270,8 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
 
     ClaudeAgent.stop_session(session)
 
-    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}}
-    assert_received {:tool_called, nil, %{}}
+    assert_received {:tool_called, "emit_alert", %{"name" => "phase.work.start", "message" => "starting"}, 101}
+    assert_received {:tool_called, nil, %{}, 102}
     assert_received {:agent_message, %{event: :tool_call_failed, payload: %{"params" => %{"tool" => "emit_alert"}}}}
     assert_received {:agent_message, %{event: :unsupported_tool_call, payload: %{"params" => %{}}}}
 
@@ -326,6 +431,24 @@ defmodule Aiur.Claude.CodingAgentWorkspaceTest do
       "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
       "*'\"turn/start\"'*) echo '#{turn}'; echo '#{tool_call}' ;; " <>
       "*'\"id\":101'*) echo '#{completed}' ;; " <>
+      "esac; done"
+  end
+
+  defp fake_app_server_with_rate_limit(frames) do
+    init = ~s({"jsonrpc":"2.0","id":1,"result":{"server":{"name":"fake"}}})
+    thread = ~s({"jsonrpc":"2.0","id":2,"result":{"thread":{"id":"t1"}}})
+    turn = ~s({"jsonrpc":"2.0","id":3,"result":{"turn":{"id":"u1"}}})
+
+    rate_limit =
+      ~s|{"jsonrpc":"2.0","method":"rate_limit/update","params":{"turn_id":"secret-turn-correlation","thread_id":"secret-thread-correlation","rate_limit":{"status":"allowed_warning","used_percent":83,"resets_at":1784192400,"account_type":"subscription","source_version":"9.9.9-test (fake-claude)"}}}|
+
+    completed = ~s({"jsonrpc":"2.0","method":"turn/completed","params":{"turn":{"status":"completed"}}})
+
+    "while IFS= read -r line; do echo \"$line\" >> #{frames}; " <>
+      "case \"$line\" in " <>
+      "*'\"initialize\"'*) echo '#{init}' ;; " <>
+      "*'\"thread/start\"'*) echo '#{thread}' ;; " <>
+      "*'\"turn/start\"'*) echo '#{turn}'; echo '#{rate_limit}'; echo '#{completed}' ;; " <>
       "esac; done"
   end
 

@@ -3,11 +3,12 @@ defmodule Aiur.GitHub.Client do
   GitHub REST API client for issue tracking via labels.
   """
 
-  alias Aiur.Issue
+  alias Aiur.{BuildOrder.GitHubGraph, BuildOrder.ProviderResult, Issue, TrackerIdentity}
 
   alias Aiur.GitHub.{
     AuthPreflight,
     Comments,
+    CycleFetchCache,
     DependenciesApi,
     Errors,
     HumanReviewGate,
@@ -19,8 +20,13 @@ defmodule Aiur.GitHub.Client do
     Teams
   }
 
+  alias Aiur.GitHub.CiReadiness
+
   @spec preflight_auth(keyword()) :: :ok | {:error, term()}
   def preflight_auth(opts \\ []), do: AuthPreflight.preflight_auth(opts)
+
+  @spec check_ci_readiness(keyword()) :: {:ok, CiReadiness.result()} | {:error, term()}
+  def check_ci_readiness(opts \\ []), do: CiReadiness.check(opts)
 
   @spec format_auth_preflight_error(term()) :: String.t()
   def format_auth_preflight_error(reason), do: AuthPreflight.format_auth_preflight_error(reason)
@@ -53,9 +59,25 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issues_by_states(state_names, opts \\ []), do: Issues.fetch_issues_by_states(state_names, opts)
 
+  @spec fetch_issues_by_states_conditional([String.t()], map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()}
+  def fetch_issues_by_states_conditional(state_names, cache, opts \\ []) do
+    Issues.fetch_issues_by_states_conditional(state_names, cache, opts)
+  end
+
   @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
           {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []), do: Issues.fetch_issue_states_by_ids(issue_ids, opts)
+
+  @doc "Fetches a complete, bounded Build Order root catalog without tracker-polling semantics."
+  @spec fetch_build_order_catalog(keyword()) ::
+          {:ok, ProviderResult.t()} | {:error, ProviderResult.t()}
+  def fetch_build_order_catalog(opts \\ []), do: GitHubGraph.fetch_catalog(opts)
+
+  @doc "Fetches one complete, bounded direct-member Build Order graph without mutating GitHub."
+  @spec fetch_build_order_selected_root(TrackerIdentity.t(), keyword()) ::
+          {:ok, ProviderResult.t()} | {:error, ProviderResult.t()}
+  def fetch_build_order_selected_root(root, opts \\ []), do: GitHubGraph.fetch_selected_root(root, opts)
 
   @spec create_comment(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def create_comment(issue_number, body, opts \\ []), do: Comments.create_comment(issue_number, body, opts)
@@ -81,7 +103,7 @@ defmodule Aiur.GitHub.Client do
     do: DependenciesApi.add_dependency(blocked_issue_number, blocker_issue_id, opts)
 
   @spec remove_dependency(integer() | String.t(), integer(), keyword()) ::
-          {:ok, map()} | {:error, term()}
+          {:ok, :removed} | {:error, term()}
   def remove_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),
     do: DependenciesApi.remove_dependency(blocked_issue_number, blocker_issue_id, opts)
 
@@ -105,7 +127,10 @@ defmodule Aiur.GitHub.Client do
   @spec fetch_open_pull_request_for_branch(String.t() | integer(), keyword()) ::
           {:ok, map() | nil} | {:error, term()}
   def fetch_open_pull_request_for_branch(issue_number, opts \\ []),
-    do: PullRequests.fetch_open_pull_request_for_branch(issue_number, opts)
+    do:
+      CycleFetchCache.fetch({:open_pull_request_for_branch, to_string(issue_number)}, fn ->
+        PullRequests.fetch_open_pull_request_for_branch(issue_number, opts)
+      end)
 
   @spec fetch_commit_ci_status(String.t(), keyword()) ::
           {:ok, %{check_runs: [map()], commit_status: map()}} | {:error, term()}
@@ -120,13 +145,33 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_review_comments(opts \\ []), do: Comments.fetch_recent_repo_review_comments(opts)
 
+  @spec fetch_recent_repo_review_comments_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_recent_repo_review_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_review_comments_conditional(opts)
+
   @spec fetch_recent_repo_issue_comments(keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_issue_comments(opts \\ []), do: Comments.fetch_recent_repo_issue_comments(opts)
 
+  @spec fetch_recent_repo_issue_comments_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_recent_repo_issue_comments_conditional(opts \\ []), do: Comments.fetch_recent_repo_issue_comments_conditional(opts)
+
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_issue_comments(issue_number, opts \\ []), do: Comments.fetch_issue_comments(issue_number, opts)
+  def fetch_issue_comments(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:issue_comments, to_string(issue_number), comment_cursor_key(opts)}, fn ->
+      Comments.fetch_issue_comments(issue_number, opts)
+    end)
+  end
+
+  @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_issue_comments_conditional(issue_number, opts \\ []) do
+    CycleFetchCache.fetch({:issue_comments_conditional, to_string(issue_number), comment_cursor_key(opts)}, fn ->
+      Comments.fetch_issue_comments_conditional(issue_number, opts)
+    end)
+  end
 
   @spec fetch_pull_request_head_ref(String.t() | integer(), keyword()) ::
           {:ok, String.t()} | {:error, term()}
@@ -138,6 +183,11 @@ defmodule Aiur.GitHub.Client do
   def fetch_open_pull_request(pr_number, opts \\ []),
     do: PullRequests.fetch_open_pull_request(pr_number, opts)
 
+  @spec ensure_pull_request_base(map(), String.t(), keyword()) ::
+          {:ok, :unchanged | {:repaired, String.t()}} | {:error, term()}
+  def ensure_pull_request_base(pr, expected_base, opts \\ []),
+    do: PullRequests.ensure_base_branch(pr, expected_base, opts)
+
   @spec fetch_classified_pr_review_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []),
@@ -145,8 +195,13 @@ defmodule Aiur.GitHub.Client do
 
   @spec fetch_unaddressed_pr_review_thread_comments(String.t() | integer(), keyword()) ::
           {:ok, [map()]} | {:error, term()}
-  def fetch_unaddressed_pr_review_thread_comments(pr_number, opts \\ []),
-    do: ReviewThreads.fetch_unaddressed_pr_review_thread_comments(pr_number, opts)
+  def fetch_unaddressed_pr_review_thread_comments(pr_number, opts \\ []) do
+    CycleFetchCache.fetch({:review_thread_comments, to_string(pr_number)}, fn ->
+      ReviewThreads.fetch_unaddressed_pr_review_thread_comments(pr_number, opts)
+    end)
+  end
+
+  defp comment_cursor_key(opts), do: {Keyword.get(opts, :since), Keyword.get(opts, :etag)}
 
   @spec reply_to_review_thread(String.t(), String.t(), keyword()) ::
           {:ok, map()} | {:error, term()}

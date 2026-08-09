@@ -1,0 +1,33 @@
+{
+  "name": "aiur-liveview-browser-harness",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "check:elk": "node scripts/check-vendored-elk.mjs",
+    "fixture:preflight": "cd .. && mise exec -- mix compile --warnings-as-errors",
+    "fixture:server": "node scripts/start-fixture.mjs",
+    "test": "npm run check:elk && npm run fixture:preflight && npm run test:harness && npm run test:smoke && npm run test:shell && npm run test:build-order && npm run test:interaction && npm run test:time-brush && npm run test:performance && npm run test:responsive && npm run test:layout && npm run test:ticket-context && npm run test:units && npm run test:provider-meters && npm run test:parity && npm run test:streamdeck",
+    "test:smoke": "node scripts/run-browser-tests.mjs tests/liveview-smoke.spec.mjs",
+    "test:shell": "node scripts/run-browser-tests.mjs tests/route-shell.browser.spec.mjs",
+    "test:build-order": "node scripts/run-browser-tests.mjs tests/build-order-route.browser.spec.mjs",
+    "test:interaction": "node scripts/run-browser-tests.mjs tests/build-order-interaction.browser.spec.mjs",
+    "test:time-brush": "node scripts/run-browser-tests.mjs tests/time-brush.browser.spec.mjs",
+    "test:performance": "node scripts/run-browser-tests.mjs tests/build-order-performance.browser.spec.mjs",
+    "test:responsive": "node scripts/run-browser-tests.mjs tests/build-order-responsive.browser.spec.mjs",
+    "test:ticket-context": "node scripts/run-browser-tests.mjs tests/ticket-context.browser.spec.mjs",
+    "test:units": "node scripts/run-browser-tests.mjs tests/units.browser.spec.mjs",
+    "test:provider-meters": "node scripts/run-browser-tests.mjs tests/provider_meters.browser.spec.mjs",
+    "test:parity": "node scripts/run-browser-tests.mjs tests/parity-composition.browser.spec.mjs",
+    "test:streamdeck": "node scripts/run-browser-tests.mjs tests/streamdeck-emulator.browser.spec.mjs",
+    "test:harness": "node scripts/run-browser-tests.mjs tests/harness-failures.spec.mjs",
+    "test:layout": "npm run fixture:preflight && node scripts/run-browser-tests.mjs tests/layout-worker.browser.spec.mjs tests/dom-svg-layout-adapter.browser.spec.mjs",
+    "verify:failure-artifacts": "npm run fixture:preflight && node scripts/verify-failure-artifacts.mjs",
+    "vendor:elk": "node scripts/vendor-elk.mjs"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.11.3",
+    "@playwright/test": "1.61.1",
+    "elkjs": "0.11.1"
+  }
+}

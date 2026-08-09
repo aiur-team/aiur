@@ -5,9 +5,12 @@ defmodule Aiur.Init.GitHub do
   rest of the wizard stays pure and testable.
   """
 
-  alias Aiur.Codeowners.Edit
+  alias Aiur.{Codeowners.Edit, Workflow}
+  alias Aiur.GitHub.BotIdentity
+  alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Labels
+  alias Aiur.GitHub.Transport
 
   @config_file_name ".aiur/config"
   @env_file_name ".env"
@@ -25,6 +28,110 @@ defmodule Aiur.Init.GitHub do
   end
 
   def create_labels(_tracker, _labels), do: :ok
+
+  @doc "Checks that the target repository can merge an Aiur-created PR."
+  @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
+  def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
+    opts = [repo: repo, base_branch: Map.get(tracker, :base_branch, "main")]
+
+    case System.get_env(CiReadiness.operator_token_env()) do
+      token when is_binary(token) and token != "" -> CiReadiness.check(Keyword.put(opts, :token, token))
+      _ -> CiReadiness.check(Keyword.put(opts, :workflow_presence_only, true))
+    end
+  end
+
+  def check_ci_readiness(%{kind: "github"}), do: {:error, :missing_github_repo}
+  def check_ci_readiness(_tracker), do: {:ok, %{ready?: true}}
+
+  @doc false
+  @spec ensure_ci_readiness(Aiur.Init.Runtime.io(), Aiur.Init.Runtime.deps(), map()) :: :ok | {:error, String.t()}
+  def ensure_ci_readiness(io, deps, %{kind: "github"} = tracker) do
+    readiness_check = Map.get(deps, :check_ci_readiness, &check_ci_readiness/1)
+    tracker = resolve_repo_for_readiness(tracker, deps)
+    check_tracker = Map.drop(tracker, [:config_path])
+
+    case readiness_check.(check_tracker) do
+      {:ok, %{ready?: true} = readiness} ->
+        case persist_operator_assessment(readiness, tracker) do
+          :ok ->
+            io.puts.(CiReadiness.format(readiness))
+            :ok
+
+          {:error, reason} ->
+            {:error, "Repository CI readiness was verified but could not be saved for the daemon: #{inspect(reason)}"}
+        end
+
+      {:ok, readiness} ->
+        case persist_operator_assessment(readiness, tracker) do
+          :ok ->
+            io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
+            maybe_scaffold_ci(io, deps, readiness)
+            {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
+
+          {:error, reason} ->
+            {:error, "Repository CI readiness could not be saved for the daemon: #{inspect(reason)}"}
+        end
+
+      {:error, reason} ->
+        {:error, readiness_error_message(reason)}
+    end
+  end
+
+  def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
+  defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())
+
+  defp persist_operator_assessment(readiness, tracker) do
+    case System.get_env(CiReadiness.operator_token_env()) do
+      token when is_binary(token) and token != "" ->
+        CiReadiness.persist_assessment(readiness,
+          repo: tracker.repo,
+          base_branch: Map.get(tracker, :base_branch, "main"),
+          config_path: Map.get(tracker, :config_path, Workflow.workflow_file_path())
+        )
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp readiness_error_message({:github, :http, %{status: 403}}) do
+    "Repository CI readiness could not be inspected: GitHub denied access to the readiness endpoints. " <>
+      "Run init with an operator-only #{CiReadiness.operator_token_env()} that has Contents, Actions, and Administration: Read-only; do not grant those permissions to GITHUB_TOKEN."
+  end
+
+  defp readiness_error_message(:ci_readiness_operator_token_required) do
+    "Repository CI readiness found a pull-request workflow but needs an operator-only #{CiReadiness.operator_token_env()} to inspect workflow state, branch protection, and rulesets. Do not grant those permissions to GITHUB_TOKEN."
+  end
+
+  defp readiness_error_message(reason), do: "Repository CI readiness could not be inspected: #{inspect(reason)}"
+
+  defp maybe_scaffold_ci(io, deps, %{workflow_paths: []}) do
+    if io.confirm.("No pull-request CI workflow found — scaffold .github/workflows/ci.yml?", true) do
+      path = Path.join([deps.repo_root.(), ".github", "workflows", "ci.yml"])
+      scaffold_ci(io, path)
+    end
+  end
+
+  defp maybe_scaffold_ci(_io, _deps, _readiness), do: :ok
+
+  defp scaffold_ci(io, path) do
+    case File.exists?(path) do
+      true -> io.puts.("CI scaffold skipped: #{path} already exists.")
+      false -> report_scaffold_write(io, path, write_scaffold(path))
+    end
+  end
+
+  defp report_scaffold_write(io, path, :ok), do: io.puts.("Created #{path}. Add required check `ci / required` to branch protection or a ruleset before rerunning init.")
+  defp report_scaffold_write(io, _path, {:error, reason}), do: io.puts.("CI scaffold could not be written: #{inspect(reason)}")
+
+  defp write_scaffold(path) do
+    case File.mkdir_p(Path.dirname(path)) do
+      :ok -> File.write(path, CiReadiness.scaffold())
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   @spec list_repo_labels(map()) :: {:ok, [String.t()]} | {:error, term()}
   def list_repo_labels(%{kind: "github", repo: repo}) do
@@ -109,6 +216,28 @@ defmodule Aiur.Init.GitHub do
 
       _ ->
         nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  @doc """
+  Resolves the GitHub login that the configured `GITHUB_TOKEN` authenticates as,
+  via the validated viewer-identity path. This is the login `aiur init` offers as
+  the default `bot_account` — the identity Aiur recognizes and suppresses to avoid
+  self-triggered comment/event loops.
+
+  Returns `nil` (never the token value) when no token is set, the viewer lookup
+  fails, or the request raises, so the caller can prompt without a default
+  instead of crashing. `request_fun` is injectable for tests.
+  """
+  @spec detect_bot_account((map() -> {:ok, map()} | {:error, term()})) :: String.t() | nil
+  def detect_bot_account(request_fun \\ &Transport.default_request_fun/1) do
+    with {:ok, token} <- require_github_token(),
+         {:ok, login} <- BotIdentity.fetch_authenticated_viewer_login(request_fun, token) do
+      Edit.normalize_login(login)
+    else
+      _ -> nil
     end
   rescue
     _ -> nil

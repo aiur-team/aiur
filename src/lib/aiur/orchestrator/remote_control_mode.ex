@@ -5,10 +5,11 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   """
 
   alias Aiur.Claude.{RemoteControl, ReplAgent}
-  alias Aiur.CodingAgent
+  alias Aiur.{CodingAgent, Config}
+  alias Aiur.HttpServer
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
+  alias Aiur.Orchestrator.{Dispatcher, RetryEngine, State, StatusReport}
   alias Aiur.Tracker
   require Logger
 
@@ -47,13 +48,13 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   end
 
   @doc false
-  @spec set_remote_control_reply(State.t(), String.t(), boolean()) :: {term(), State.t()}
-  def set_remote_control_reply(state, issue_identifier, on?) do
+  @spec set_remote_control_reply(State.t(), String.t(), boolean(), keyword()) :: {term(), State.t()}
+  def set_remote_control_reply(state, issue_identifier, on?, opts \\ []) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
         if on?,
-          do: promote_to_remote(state, running_entry),
-          else: demote_from_remote(state, running_entry)
+          do: promote_to_remote(state, running_entry, opts),
+          else: demote_from_remote(state, running_entry, opts)
 
       _ ->
         {{:error, :not_running}, state}
@@ -64,10 +65,11 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   # add the durable `model:remote` label, stop the current agent, and
   # re-dispatch the same issue. The re-dispatch resolves `claude-repl` + forced
   # RC (the alias from `CodingAgent`) and resumes the transcript by cwd, so the
-  # operator gets a persistent REPL with RC attached on the same conversation.
-  defp promote_to_remote(state, running_entry) do
+  # Executor gets a persistent REPL with RC attached on the same conversation.
+  defp promote_to_remote(state, running_entry, opts) do
     issue = Map.get(running_entry, :issue)
     workspace = Map.get(running_entry, :workspace_path)
+    dashboard_url_fun = Keyword.get(opts, :dashboard_url_fun, &HttpServer.base_url/0)
 
     cond do
       # Already remote (label present) — toggling on again is a no-op.
@@ -82,33 +84,51 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
       is_nil(workspace) ->
         {{:error, :workspace_unavailable}, state}
 
+      is_nil(dashboard_url_fun.()) ->
+        {{:error, :remote_control_requires_dashboard}, state}
+
       true ->
-        # Trust the workspace before tearing down the current agent. If trust
-        # fails RC can't attach, so abort with the current agent intact rather
-        # than stranding the issue with no running agent.
-        case RemoteControl.ensure_workspace_trusted(workspace, remote_control_trust_opts()) do
-          :ok ->
-            do_promote_to_remote(state, running_entry, issue)
+        label = CodingAgent.remote_control_alias_label()
+        relabeled = add_issue_label(issue, label)
 
-          {:error, reason} ->
-            Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
+        case redispatch_admission(state, relabeled, opts) do
+          {:ok, admitted_state} ->
+            promote_trusted_workspace(admitted_state, running_entry, relabeled, label, workspace, opts)
 
-            {{:error, {:rc_trust_failed, reason}}, state}
+          {:error, reason, rejected_state} ->
+            {{:error, reason}, rejected_state}
         end
     end
   end
 
-  defp do_promote_to_remote(state, running_entry, issue) do
-    label = CodingAgent.remote_control_alias_label()
+  # Trust the workspace before tearing down the current agent. If trust fails
+  # RC cannot attach, so abort with the current agent intact.
+  defp promote_trusted_workspace(state, running_entry, relabeled, label, workspace, opts) do
+    trust = Keyword.get(opts, :trust_fun, &RemoteControl.ensure_workspace_trusted/2)
 
-    case Tracker.add_label(Map.get(running_entry, :identifier), label) do
+    case trust.(workspace, remote_control_trust_opts()) do
       :ok ->
-        relabeled = add_issue_label(issue, label)
-        state = teardown_for_redispatch(state, running_entry)
+        do_promote_to_remote(state, running_entry, relabeled, label, opts)
+
+      {:error, reason} ->
+        Logger.error("Remote Control promote trust failed: #{rc_log_context(running_entry)} workspace=#{workspace} reason=#{inspect(reason)}")
+
+        {{:error, {:rc_trust_failed, reason}}, state}
+    end
+  end
+
+  defp do_promote_to_remote(state, running_entry, relabeled, label, opts) do
+    add_label = Keyword.get(opts, :add_label_fun, &Tracker.add_label/2)
+
+    case add_label.(Map.get(running_entry, :identifier), label) do
+      :ok ->
+        teardown = Keyword.get(opts, :teardown_fun, &teardown_for_redispatch/2)
+        state = teardown.(state, running_entry)
+        state = drop_redispatch_entry(state, relabeled.id)
 
         Logger.info("Remote Control promote; re-dispatching with model:remote: #{rc_log_context(running_entry)}")
 
-        {{:ok, :on}, Dispatcher.do_dispatch_issue(state, relabeled, nil, nil)}
+        {{:ok, :on}, redispatch_prior_work(state, relabeled, running_entry, opts)}
 
       {:error, reason} ->
         Logger.error("Remote Control promote label-add failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
@@ -119,7 +139,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
   # Demote a remote-control agent back to the default backend: remove the
   # label, stop the current REPL agent, and re-dispatch. `r` is a true toggle.
-  defp demote_from_remote(state, running_entry) do
+  defp demote_from_remote(state, running_entry, opts) do
     issue = Map.get(running_entry, :issue)
 
     cond do
@@ -132,23 +152,82 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
       true ->
         label = CodingAgent.remote_control_alias_label()
+        relabeled = remove_issue_label(issue, label)
 
-        case Tracker.remove_label(Map.get(running_entry, :identifier), label) do
-          :ok ->
-            relabeled = remove_issue_label(issue, label)
-            state = teardown_for_redispatch(state, running_entry)
+        case redispatch_admission(state, relabeled, opts) do
+          {:ok, admitted_state} ->
+            remove_remote_label_and_redispatch(admitted_state, running_entry, relabeled, label, opts)
 
-            Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
-
-            {{:ok, :off}, Dispatcher.do_dispatch_issue(state, relabeled, nil, nil)}
-
-          {:error, reason} ->
-            Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
-
-            {{:error, {:rc_label_failed, reason}}, state}
+          {:error, reason, rejected_state} ->
+            {{:error, reason}, rejected_state}
         end
     end
   end
+
+  defp remove_remote_label_and_redispatch(state, running_entry, relabeled, label, opts) do
+    remove_label = Keyword.get(opts, :remove_label_fun, &Tracker.remove_label/2)
+
+    case remove_label.(Map.get(running_entry, :identifier), label) do
+      :ok ->
+        teardown = Keyword.get(opts, :teardown_fun, &teardown_for_redispatch/2)
+        state = teardown.(state, running_entry)
+        state = drop_redispatch_entry(state, relabeled.id)
+
+        Logger.info("Remote Control demote; re-dispatching as default backend: #{rc_log_context(running_entry)}")
+
+        {{:ok, :off}, redispatch_prior_work(state, relabeled, running_entry, opts)}
+
+      {:error, reason} ->
+        Logger.error("Remote Control demote label-remove failed: #{rc_log_context(running_entry)} reason=#{inspect(reason)}")
+
+        {{:error, {:rc_label_failed, reason}}, state}
+    end
+  end
+
+  defp redispatch_prior_work(state, issue, running_entry, opts) do
+    dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.do_dispatch_issue/5)
+
+    state =
+      dispatch.(state, issue, nil, nil, prior_work: Config.agent_prior_work_continuation?())
+
+    ensure_redispatch_started(state, running_entry, issue, opts)
+  end
+
+  defp ensure_redispatch_started(state, running_entry, issue, opts) do
+    if live_running_entry?(Map.get(state.running, issue.id)) or
+         Map.has_key?(state.retry_attempts, issue.id) do
+      state
+    else
+      schedule_retry = Keyword.get(opts, :schedule_retry_fun, &RetryEngine.schedule_issue_retry/4)
+      next_attempt = RetryEngine.next_retry_attempt_from_running(running_entry)
+
+      schedule_retry.(state, issue.id, next_attempt, %{
+        identifier: issue.identifier,
+        tracker_identity: Issue.tracker_identity(issue),
+        error: "remote-control redispatch did not start",
+        prior_work: Config.agent_prior_work_continuation?(),
+        worker_host: Map.get(running_entry, :worker_host),
+        workspace_path: Map.get(running_entry, :workspace_path)
+      })
+    end
+  end
+
+  defp live_running_entry?(%{pid: pid}) when is_pid(pid), do: true
+  defp live_running_entry?(_entry), do: false
+
+  defp redispatch_admission(state, issue, opts) do
+    ready = Keyword.get(opts, :dispatch_ready_fun, &Dispatcher.admit_redispatch/3)
+
+    case ready.(state, issue, nil) do
+      {:ok, admitted_state} -> {:ok, admitted_state}
+      :ok -> {:ok, state}
+      {:error, reason, rejected_state} -> {:error, reason, rejected_state}
+      {:error, reason} -> {:error, reason, state}
+    end
+  end
+
+  defp drop_redispatch_entry(state, issue_id),
+    do: %{state | running: Map.delete(state.running, issue_id)}
 
   # Stop the current agent cleanly so the same issue can be re-dispatched under
   # a different backend. Mirrors `terminate_running_issue/3`'s task-teardown
@@ -157,14 +236,24 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
   # workspace or release the claim — the workspace is reused so the re-dispatched
   # agent resumes the transcript by cwd. Demonitor BEFORE killing so the agent
   # :DOWN handler doesn't fire a retry that re-dispatches underneath us.
-  defp teardown_for_redispatch(state, running_entry) do
+  #
+  # Public (not just used by promote/demote) so other backend-swap flows —
+  # `Aiur.Orchestrator.RateLimitFallback`'s codex<->claude reroute — reuse the
+  # exact same teardown ordering rather than duplicating it. `reason` is
+  # forwarded to the chat-stream close broadcast so a non-RC caller's
+  # teardown doesn't get logged/reported under a misleading `:remote_control`
+  # cause; it defaults to `:remote_control` so the two existing callers here
+  # are unaffected.
+  @doc false
+  @spec teardown_for_redispatch(State.t(), map(), atom()) :: State.t()
+  def teardown_for_redispatch(state, running_entry, reason \\ :remote_control) do
     issue_id = get_in(running_entry, [:issue, Access.key(:id)])
     identifier = Map.get(running_entry, :identifier)
     pid = Map.get(running_entry, :pid)
     ref = Map.get(running_entry, :ref)
 
     Orchestrator.kill_repl_session(running_entry)
-    Orchestrator.close_active_chat_streams(identifier, :remote_control)
+    Orchestrator.close_active_chat_streams(identifier, reason)
     if is_reference(ref), do: Process.demonitor(ref, [:flush])
     if is_pid(pid), do: Orchestrator.terminate_task(pid)
 

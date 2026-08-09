@@ -1,0 +1,6 @@
+interface:
+  display_name: "Aiur Executor"
+  short_description: "Run bounded Aiur work to acceptance"
+  default_prompt: "Use $aiur-run to execute this bounded Aiur scope through its accepted outcome."
+policy:
+  allow_implicit_invocation: true

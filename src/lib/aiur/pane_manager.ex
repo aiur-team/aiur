@@ -9,7 +9,7 @@ defmodule Aiur.PaneManager do
   which produces an explicit `tmux select-layout <string>` for the
   current window dimensions and slot occupancy. This sidesteps tmux's
   default auto-layout behaviour (and any `after-split-window` hooks) so
-  the operator sees a deterministic grid regardless of which pane tmux
+  the Executor sees a deterministic grid regardless of which pane tmux
   happened to split from.
 
   With `max_vertical_panes: 3`, the fully-populated grid is:
@@ -138,7 +138,7 @@ defmodule Aiur.PaneManager do
   Flip the grid between `:horizontal` (default — anchor sits in the top
   row) and `:vertical` (anchor sits at the top of the left column, slots
   stack downward, then continue in a second column). Re-applies the
-  layout immediately so the operator sees the rotated grid without
+  layout immediately so the Executor sees the rotated grid without
   waiting for the next open/close.
   """
   @spec toggle_orientation(GenServer.server()) :: {:ok, orientation()}

@@ -76,6 +76,19 @@ defmodule Aiur.Events.IdGenerator do
     GenServer.call(server, :peek)
   end
 
+  @doc """
+  Like `next_id/1`, but fails instead of silently degrading to an
+  in-memory-only ID when persistence is unavailable. For callers (such
+  as `Aiur.DecisionStore`) that must never accept a durable request
+  under an ID that isn't itself backed by a durably persisted
+  reservation. The generic `next_id/1` API is unchanged and remains
+  fail-open for existing best-effort event sources.
+  """
+  @spec reserve_durable_id(GenServer.server()) :: {:ok, pos_integer()} | {:error, :not_durable}
+  def reserve_durable_id(server \\ __MODULE__) do
+    GenServer.call(server, :reserve_durable_id)
+  end
+
   @impl true
   def init(opts) do
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
@@ -87,7 +100,8 @@ defmodule Aiur.Events.IdGenerator do
        reserved_through: 0,
        batch_size: batch_size,
        path: path,
-       persist_warning_emitted: false
+       persist_warning_emitted: false,
+       durable?: false
      }, {:continue, :load}}
   end
 
@@ -112,6 +126,30 @@ defmodule Aiur.Events.IdGenerator do
 
   def handle_call(:peek, _from, state) do
     {:reply, state.current, state}
+  end
+
+  def handle_call(:reserve_durable_id, _from, state) do
+    next = state.current + 1
+
+    if next <= state.reserved_through and state.durable? do
+      {:reply, {:ok, next}, %{state | current: next}}
+    else
+      # Not already in a confirmed-durable block (either crossing into a new
+      # batch, or the current one never durably persisted) — always retry
+      # the reservation rather than failing without another attempt, so a
+      # transient outage doesn't strand this the only strict caller ever has
+      # forever. On failure, reply with the pre-attempt current/reserved_through
+      # (no ID was actually issued, so none should be skipped) but keep
+      # candidate's persist_warning_emitted so repeated failures log once,
+      # not once per call.
+      candidate = reserve_next_batch(%{state | current: next})
+
+      if candidate.durable? do
+        {:reply, {:ok, next}, candidate}
+      else
+        {:reply, {:error, :not_durable}, %{state | persist_warning_emitted: candidate.persist_warning_emitted}}
+      end
+    end
   end
 
   @impl true
@@ -152,7 +190,7 @@ defmodule Aiur.Events.IdGenerator do
   end
 
   defp cold_boot_seed(state, reason) do
-    disk_max = scan_issue_log_for_max_id()
+    disk_max = scan_durable_event_logs_for_max_id()
     wall_clock_floor = System.system_time(:microsecond)
 
     seed = max(disk_max, wall_clock_floor) + @cold_boot_safety_margin_us
@@ -172,7 +210,7 @@ defmodule Aiur.Events.IdGenerator do
 
     case persist(new_state) do
       :ok ->
-        %{new_state | persist_warning_emitted: false}
+        %{new_state | persist_warning_emitted: false, durable?: true}
 
       {:error, reason} ->
         warn_persist_failed(new_state, reason)
@@ -189,7 +227,7 @@ defmodule Aiur.Events.IdGenerator do
       {:error, Exception.message(error)}
   end
 
-  defp warn_persist_failed(%{persist_warning_emitted: true} = state, _reason), do: state
+  defp warn_persist_failed(%{persist_warning_emitted: true} = state, _reason), do: %{state | durable?: false}
 
   defp warn_persist_failed(state, reason) do
     Logger.warning(
@@ -198,26 +236,23 @@ defmodule Aiur.Events.IdGenerator do
         "Restart-safe monotonicity is degraded for this counter path."
     )
 
-    %{state | persist_warning_emitted: true}
+    %{state | persist_warning_emitted: true, durable?: false}
   end
 
   defp default_path do
     Path.join(Paths.log_root_dir(), "#{Paths.repo_name()}.event_id")
   end
 
-  defp scan_issue_log_for_max_id do
-    # Best-effort: walk per-issue log files looking for the largest event ID
-    # ever emitted. The marker shape this module expects is
-    # `[event:*] id=<int>` somewhere in the line (introduced by U19's IssueLog
-    # marker extension). Until U19 lands, this returns 0 — which is correct
-    # for fresh installs and the wall-clock floor in cold-boot is what's
-    # actually load-bearing in that case.
+  defp scan_durable_event_logs_for_max_id do
+    # Best-effort: walk per-issue log files and the Executor journal for the
+    # largest event ID ever emitted. Issue logs use `[event:*] id=<int>`;
+    # executor events are newline-delimited JSON with an `id` field.
     log_dir = Paths.log_root_dir()
 
     case File.ls(log_dir) do
       {:ok, entries} ->
         entries
-        |> Enum.filter(&String.ends_with?(&1, ".log"))
+        |> Enum.filter(&(String.ends_with?(&1, ".log") or &1 == "#{Paths.repo_name()}.executor.events.ndjson"))
         |> Enum.reduce(0, fn entry, acc ->
           path = Path.join(log_dir, entry)
           max(acc, scan_file_for_max_id(path))
@@ -233,10 +268,7 @@ defmodule Aiur.Events.IdGenerator do
   defp scan_file_for_max_id(path) do
     case File.read(path) do
       {:ok, content} ->
-        # Match `id=<digits>` anywhere on a line tagged `[event:*]`. Tolerates
-        # both the U19 marker format and the absence of any markers (returns
-        # 0 if no matches).
-        ~r/\[event:[a-z:]+\][^\n]*\bid=(\d+)/
+        ~r/(?:\[event:[a-z:]+\][^\n]*\bid=|"id"\s*:\s*)(\d+)/
         |> Regex.scan(content, capture: :all_but_first)
         |> Enum.flat_map(& &1)
         |> Enum.map(&String.to_integer/1)

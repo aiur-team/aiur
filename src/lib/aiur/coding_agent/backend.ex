@@ -58,26 +58,53 @@ defmodule Aiur.CodingAgent.Backend do
   One registry entry in `Aiur.CodingAgent.backends/0`. Required keys
   exist on every backend; optional keys are declared capabilities:
 
-    * `:immediate_delivery` — operator messages pass straight through
+    * `:immediate_delivery` — Executor messages pass straight through
       to the live process instead of holding at a checkpoint.
     * `:remote_transport` — the backend an RC-promoted session
       actually runs on (remote control physically runs on the
       persistent-REPL transport).
     * `:fallback_backend` — the backend a failed spawn degrades to,
       once, so a transport failure never strands an issue.
+    * `:remote_worker` — whether sessions and workspace tools can execute on
+      configured SSH workers. Defaults to `true`; direct local transports must
+      opt out so dispatch never hands them a remote-only workspace path.
+    * `:model_aliases` — whether generic model tags are `:native` (the
+      backend's own CLI resolves `opus` to the newest opus, so aiur
+      passes them through) or `:derived` (aiur synthesizes a family
+      alias per `Aiur.CodingAgent.Models` and resolves it to the newest
+      version itself). Defaults to `:native`.
   """
   @type capabilities :: %{
           required(:adapter) => module(),
           required(:transcript) => module(),
+          required(:family) => String.t(),
           required(:can_interrupt) => boolean(),
           required(:safe_checkpoints) => [atom()],
+          optional(:control_application_confirmation) => :confirmed | :request_only | :unsupported,
           required(:remote_control) => boolean(),
           required(:resumable) => boolean(),
+          optional(:remote_worker) => boolean(),
           required(:models) => [String.t()],
+          optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
-          optional(:fallback_backend) => CodingAgent.backend()
+          optional(:fallback_backend) => CodingAgent.backend(),
+          optional(:model_catalog) => (map() -> term()),
+          optional(:model_catalog_backend) => CodingAgent.backend(),
+          optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
+          optional(:run_telemetry) => (map() -> term()),
+          optional(:presentation) => map(),
+          optional(:pricing) => map(),
+          optional(:usage) => map(),
+          optional(:account_generation) => map(),
+          optional(:default) => boolean(),
+          optional(:rate_limit_fallback) => CodingAgent.backend(),
+          optional(:configurable) => boolean(),
+          optional(:init_order) => non_neg_integer(),
+          optional(:default_command) => String.t(),
+          optional(:install_hint) => String.t(),
+          optional(atom()) => term()
         }
 
   @doc "Start a session in the workspace. See \"Resume contract\"."
@@ -85,18 +112,22 @@ defmodule Aiur.CodingAgent.Backend do
 
   @doc """
   Run one prompt turn. `{:paused, map()}` covers quota exhaustion and
-  operator pause; the runner treats it as suspend, never failure.
+  Executor pause; the runner treats it as suspend, never failure.
   """
   @callback run_turn(session(), String.t(), map(), keyword()) ::
               {:ok, map()} | {:paused, map()} | {:error, term()}
 
-  @doc "Tear the session down. Must be idempotent and never raise."
-  @callback stop_session(session()) :: :ok
+  @doc """
+  Tear the session down. Must be idempotent and never raise. Plain `:ok` is a
+  best-effort stop; only `{:ok, :cleanup_proven}` authoritatively proves that
+  the provider and its descendants are gone.
+  """
+  @callback stop_session(session()) :: :ok | {:ok, :cleanup_proven} | {:error, term()}
 
   @doc "Canonicalize a raw backend event map (usage, rate limits)."
   @callback normalize_event(map()) :: map()
 
-  @doc "Deliver an operator message into the live session."
+  @doc "Deliver an Executor message into the live session."
   @callback send_operator_message(session(), CodingAgent.operator_payload()) ::
               {:ok, request_id :: integer()} | {:error, term()}
 

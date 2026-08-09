@@ -38,6 +38,22 @@ defmodule Aiur.Init.ResumeTest do
            ]
   end
 
+  test "saved_summary_lines lists a configured bot_account after the repo" do
+    config = %{
+      "tracker" => %{
+        "kind" => "github",
+        "github" => %{"repo" => "owner/repo", "bot_account" => "its-applekid"}
+      },
+      "agent" => %{"kind" => "claude"}
+    }
+
+    lines = Resume.saved_summary_lines(config)
+    assert "bot_account: its-applekid" in lines
+
+    assert Enum.find_index(lines, &(&1 == "repo: owner/repo")) <
+             Enum.find_index(lines, &(&1 == "bot_account: its-applekid"))
+  end
+
   test "format_routing renders sorted maps and blanks non-maps" do
     assert Resume.format_routing(%{2 => "codex", 1 => "claude"}) == "1:claude, 2:codex"
     assert Resume.format_routing(nil) == ""
@@ -47,7 +63,15 @@ defmodule Aiur.Init.ResumeTest do
     deps = %{detect_repo: fn -> "detected/repo" end}
 
     assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "github"}}) ==
-             %{kind: "github", repo: "detected/repo"}
+             %{kind: "github", repo: "detected/repo", label_prefix: "agent", base_branch: "main"}
+
+    assert Resume.tracker_from_config(deps, %{
+             "tracker" => %{
+               "base_branch" => "develop",
+               "kind" => "github",
+               "github" => %{"repo" => "owner/repo", "label_prefix" => "team"}
+             }
+           }) == %{kind: "github", repo: "owner/repo", label_prefix: "team", base_branch: "develop"}
 
     assert Resume.tracker_from_config(deps, %{
              "tracker" => %{"kind" => "linear", "linear" => %{"api_key" => "key", "project_slug" => "slug"}}

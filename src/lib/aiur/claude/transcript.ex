@@ -61,7 +61,7 @@ defmodule Aiur.Claude.Transcript do
   `assistant` record carries a content *array* (text / thinking / tool_use
   blocks), so this returns a list of events, one per renderable block.
 
-  A bare user prompt string (the operator's own typed message, which the
+  A bare user prompt string (the Executor’s own typed message, which the
   harness writes with `message.content` as a plain string) maps to a
   single `:user` event so replayed history shows messages from both
   surfaces. A `queued_command` `attachment` is a Claude Remote Control
@@ -75,10 +75,14 @@ defmodule Aiur.Claude.Transcript do
     case get(record, :type) do
       "assistant" ->
         timestamp = disk_timestamp(record)
+        record_id = record_id(record)
 
         record
         |> disk_content_blocks()
-        |> Enum.flat_map(&events_for_block(&1, fallback_turn_id, timestamp))
+        |> Enum.with_index()
+        |> Enum.flat_map(fn {block, index} ->
+          events_for_block(block, index, record_id, fallback_turn_id, timestamp)
+        end)
 
       "user" ->
         extract_user_record(record, fallback_turn_id)
@@ -93,7 +97,7 @@ defmodule Aiur.Claude.Transcript do
 
   def extract_disk_record(_record, _fallback_turn_id), do: []
 
-  # A user record is either the operator's typed prompt (`content` is a
+  # A user record is either the Executor’s typed prompt (`content` is a
   # bare string -> a `:user` event) or a batch of `tool_result` blocks
   # (`content` is a list -> tool events), never both.
   defp extract_user_record(record, fallback_turn_id) do
@@ -101,10 +105,20 @@ defmodule Aiur.Claude.Transcript do
 
     case get(get(record, :message) || %{}, :content) do
       text when is_binary(text) and text != "" ->
-        [AgentEvents.transcript_event(:user, text, timestamp: timestamp, turn_id: fallback_turn_id)]
+        [
+          AgentEvents.transcript_event(:user, text,
+            timestamp: timestamp,
+            turn_id: fallback_turn_id,
+            msg_id: record_id(record)
+          )
+        ]
 
       content when is_list(content) ->
-        Enum.flat_map(content, &events_for_block(&1, fallback_turn_id, timestamp))
+        content
+        |> Enum.with_index()
+        |> Enum.flat_map(fn {block, index} ->
+          events_for_block(block, index, record_id(record), fallback_turn_id, timestamp)
+        end)
 
       _ ->
         []
@@ -126,6 +140,7 @@ defmodule Aiur.Claude.Transcript do
         AgentEvents.transcript_event(:user, prompt,
           timestamp: disk_timestamp(record),
           turn_id: fallback_turn_id,
+          msg_id: record_id(record),
           payload: %{origin: :remote}
         )
       ]
@@ -134,8 +149,8 @@ defmodule Aiur.Claude.Transcript do
     end
   end
 
-  defp events_for_block(block, turn_id, timestamp) do
-    case block_to_event(block, turn_id, timestamp) do
+  defp events_for_block(block, index, record_id, turn_id, timestamp) do
+    case block_to_event(block, index, record_id, turn_id, timestamp) do
       {:ok, event} -> [event]
       :skip -> []
     end
@@ -145,12 +160,33 @@ defmodule Aiur.Claude.Transcript do
   # each block is normalized to the item shape and routed through the same
   # `event_from_item/4` mapping. Only the `tool_use`/`tool_call` type name
   # and the `tool_result` content (string-or-list) differ.
-  defp block_to_event(block, turn_id, timestamp) when is_map(block) do
+  defp block_to_event(block, index, record_id, turn_id, timestamp) when is_map(block) do
+    block = maybe_put_disk_block_id(block, record_id, index)
     {type, item} = normalize_block(block)
     event_from_item(type, item, turn_id, timestamp)
   end
 
-  defp block_to_event(_block, _turn_id, _timestamp), do: :skip
+  defp block_to_event(_block, _index, _record_id, _turn_id, _timestamp), do: :skip
+
+  defp item_id(item) do
+    case get(item, :id) do
+      id when is_binary(id) and id != "" -> id
+      _ -> nil
+    end
+  end
+
+  defp record_id(record), do: get(record, :uuid) || get(record, :id)
+
+  defp maybe_put_disk_block_id(block, record_id, index)
+       when is_binary(record_id) and record_id != "" do
+    identity = item_id(block) || get(block, :tool_use_id) || Integer.to_string(index)
+    type = get(block, :type) || "block"
+    Map.put(block, "id", "disk:#{record_id}:#{type}:#{identity}")
+  end
+
+  defp maybe_put_disk_block_id(block, _record_id, _index), do: block
+
+  defp tool_event_id(item), do: item_id(item) || get(item, :tool_use_id)
 
   defp normalize_block(block) do
     case get(block, :type) do
@@ -203,7 +239,12 @@ defmodule Aiur.Claude.Transcript do
   defp event_from_item("text", item, turn_id, timestamp) do
     case get(item, :text) do
       text when is_binary(text) and text != "" ->
-        {:ok, AgentEvents.transcript_event(:assistant, text, timestamp: timestamp, turn_id: turn_id)}
+        {:ok,
+         AgentEvents.transcript_event(:assistant, text,
+           timestamp: timestamp,
+           turn_id: turn_id,
+           msg_id: item_id(item)
+         )}
 
       _ ->
         :skip
@@ -213,7 +254,12 @@ defmodule Aiur.Claude.Transcript do
   defp event_from_item("thinking", item, turn_id, timestamp) do
     case get(item, :thinking) do
       text when is_binary(text) and text != "" ->
-        {:ok, AgentEvents.transcript_event(:reasoning, text, timestamp: timestamp, turn_id: turn_id)}
+        {:ok,
+         AgentEvents.transcript_event(:reasoning, text,
+           timestamp: timestamp,
+           turn_id: turn_id,
+           msg_id: item_id(item)
+         )}
 
       _ ->
         :skip
@@ -233,6 +279,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:command, command,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: item_id(item),
            payload: %{command: command, output: "", title: command, workdir: workdir}
          )}
 
@@ -243,6 +290,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: tool_event_id(item),
            payload: %{tool: "edit", input: input, output: edit_diff(name, input), title: title}
          )}
 
@@ -251,6 +299,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, name,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: tool_event_id(item),
            payload: %{tool: name, input: input, output: "", title: name}
          )}
     end
@@ -265,6 +314,7 @@ defmodule Aiur.Claude.Transcript do
          AgentEvents.transcript_event(:tool, title,
            timestamp: timestamp,
            turn_id: turn_id,
+           msg_id: tool_event_id(item),
            payload: %{tool: "result", input: %{}, output: content, title: title}
          )}
 

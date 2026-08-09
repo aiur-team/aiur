@@ -4,13 +4,142 @@ defmodule Aiur.Orchestrator.IssueSync do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentQueue, AgentQueueStore, Alerts, Issue}
+  alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
+  alias Aiur.Config.Paths
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, OperatorMessages, Slots, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Reconciler, Slots, State}
+
+  @idle_terminal_verification_batch_size 25
+  @capacity_starvation_alert_after_ms 60_000
 
   @spec sync_polled_issue_state(State.t(), list()) :: State.t()
   def sync_polled_issue_state(%State{} = state, issues) when is_list(issues) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      &Tracker.fetch_issue_states_by_ids/1,
+      &MembershipLifecycle.observe/2,
+      DispatchPolicy.terminal_state_set(),
+      &CurrentRunMembership.mark_reconciled/1
+    )
+  end
+
+  def sync_polled_issue_state(%State{} = state, _issues), do: state
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term())
+        ) :: State.t()
+  def sync_polled_issue_state(%State{} = state, issues, fetch_issue_states_fun, observe_membership_fun)
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      DispatchPolicy.terminal_state_set()
+    )
+  end
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term()),
+          MapSet.t()
+        ) :: State.t()
+  def sync_polled_issue_state(
+        %State{} = state,
+        issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states
+      )
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
+             is_struct(terminal_states, MapSet) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      terminal_states,
+      &CurrentRunMembership.mark_reconciled/1,
+      &CurrentRunMembership.set_terminal_verification_pending/2
+    )
+  end
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term()),
+          MapSet.t(),
+          (:fresh | :unavailable -> term())
+        ) :: State.t()
+  def sync_polled_issue_state(
+        %State{} = state,
+        issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        mark_reconciled_fun
+      )
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
+             is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) do
+    sync_polled_issue_state(
+      state,
+      issues,
+      fetch_issue_states_fun,
+      observe_membership_fun,
+      terminal_states,
+      mark_reconciled_fun,
+      &CurrentRunMembership.set_terminal_verification_pending/2
+    )
+  end
+
+  @doc false
+  @spec sync_polled_issue_state(
+          State.t(),
+          list(),
+          ([String.t()] -> {:ok, [term()]} | {:error, term()}),
+          (TrackerIdentity.t(), atom() -> term()),
+          MapSet.t(),
+          (:fresh | :unavailable -> term()),
+          (TrackerIdentity.t(), boolean() -> term())
+        ) :: State.t()
+  def sync_polled_issue_state(
+        %State{} = state,
+        issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        mark_reconciled_fun,
+        set_terminal_verification_pending_fun
+      )
+      when is_list(issues) and is_function(fetch_issue_states_fun, 1) and is_function(observe_membership_fun, 2) and
+             is_struct(terminal_states, MapSet) and is_function(mark_reconciled_fun, 1) and
+             is_function(set_terminal_verification_pending_fun, 2) do
+    state = %{state | active_attention_topics: active_attention_topics()}
+    state = Reconciler.resolve_orphaned_divergence_attentions(state)
     previous_issues = state.last_polled_issues
+    current_issues = issues_by_id(issues)
+
+    retained_issues =
+      record_disappearing_idle_terminals(
+        state,
+        previous_issues,
+        current_issues,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        mark_reconciled_fun,
+        set_terminal_verification_pending_fun
+      )
 
     state =
       Enum.reduce(issues, state, fn issue, state_acc ->
@@ -18,19 +147,241 @@ defmodule Aiur.Orchestrator.IssueSync do
 
         state_acc
         |> emit_task_state_transition_alert(previous_issue, issue)
+        |> emit_tracker_pause_transition_alert(previous_issue, issue)
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    %{state | last_polled_issues: issues_by_id(issues)}
+    %{state | last_polled_issues: retained_issues}
   end
-
-  def sync_polled_issue_state(%State{} = state, _issues), do: state
 
   defp issues_by_id(issues) do
     Enum.reduce(issues, %{}, fn
       %Issue{id: issue_id} = issue, acc when is_binary(issue_id) -> Map.put(acc, issue_id, issue)
       _issue, acc -> acc
     end)
+  end
+
+  defp active_attention_topics do
+    [roots: [], log_roots: [Paths.log_root_dir()], needs_attention: true]
+    |> AlertFeed.list()
+    |> MapSet.new(& &1["topic"])
+  end
+
+  defp record_disappearing_idle_terminals(
+         %State{} = state,
+         previous_issues,
+         current_issues,
+         fetch_issue_states_fun,
+         observe_membership_fun,
+         terminal_states,
+         mark_reconciled_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    disappearing_idle_issue_ids =
+      previous_issues
+      |> Map.keys()
+      |> Enum.reject(fn issue_id ->
+        Map.has_key?(current_issues, issue_id) or
+          Map.has_key?(state.running, issue_id) or
+          Map.has_key?(state.retry_attempts, issue_id)
+      end)
+      |> Enum.sort()
+
+    pending_issue_ids =
+      record_refreshed_terminal_membership(
+        disappearing_idle_issue_ids,
+        fetch_issue_states_fun,
+        observe_membership_fun,
+        terminal_states,
+        set_terminal_verification_pending_fun
+      )
+
+    retain_pending_terminal_verification(
+      pending_issue_ids,
+      mark_reconciled_fun,
+      set_terminal_verification_pending_fun
+    )
+
+    Map.merge(current_issues, Map.take(previous_issues, pending_issue_ids))
+  end
+
+  defp record_refreshed_terminal_membership(
+         [],
+         _fetch_issue_states_fun,
+         _observe_membership_fun,
+         _terminal_states,
+         _set_terminal_verification_pending_fun
+       ),
+       do: []
+
+  defp record_refreshed_terminal_membership(
+         issue_ids,
+         fetch_issue_states_fun,
+         observe_membership_fun,
+         terminal_states,
+         set_terminal_verification_pending_fun
+       ) do
+    {verification_issue_ids, deferred_issue_ids} =
+      Enum.split(issue_ids, @idle_terminal_verification_batch_size)
+
+    disappeared_issue_ids = MapSet.new(verification_issue_ids)
+
+    case fetch_issue_states_fun.(verification_issue_ids) do
+      {:ok, refreshed_issues} when is_list(refreshed_issues) ->
+        returned_issue_ids =
+          refreshed_issues
+          |> Enum.flat_map(fn
+            %Issue{id: issue_id} when is_binary(issue_id) -> [issue_id]
+            _issue -> []
+          end)
+          |> MapSet.new()
+
+        failed_issue_ids =
+          Enum.reduce(
+            refreshed_issues,
+            MapSet.difference(disappeared_issue_ids, returned_issue_ids),
+            fn issue, failed_issue_ids ->
+              issue
+              |> record_refreshed_terminal_member(
+                disappeared_issue_ids,
+                observe_membership_fun,
+                terminal_states,
+                set_terminal_verification_pending_fun
+              )
+              |> retain_refreshed_terminal_verification(
+                failed_issue_ids,
+                issue,
+                set_terminal_verification_pending_fun
+              )
+            end
+          )
+
+        MapSet.to_list(failed_issue_ids) ++ deferred_issue_ids
+
+      _result ->
+        verification_issue_ids ++ deferred_issue_ids
+    end
+  end
+
+  defp record_refreshed_terminal_member(
+         %Issue{id: _issue_id} = issue,
+         disappeared_issue_ids,
+         observe_membership_fun,
+         terminal_states,
+         set_terminal_verification_pending_fun
+       ) do
+    if terminal_disappearing_issue?(issue, disappeared_issue_ids, terminal_states) do
+      record_and_clear_refreshed_terminal(
+        issue,
+        observe_membership_fun,
+        set_terminal_verification_pending_fun
+      )
+    else
+      :not_terminal
+    end
+  end
+
+  defp record_refreshed_terminal_member(
+         _issue,
+         _disappeared_issue_ids,
+         _observe_membership_fun,
+         _terminal_states,
+         _set_terminal_verification_pending_fun
+       ),
+       do: :not_terminal
+
+  defp retain_refreshed_terminal_verification(
+         result,
+         failed_issue_ids,
+         issue,
+         _set_terminal_verification_pending_fun
+       )
+       when result in [:ok, :not_terminal] do
+    MapSet.delete(failed_issue_ids, issue.id)
+  end
+
+  defp retain_refreshed_terminal_verification(
+         {:error, _reason},
+         failed_issue_ids,
+         issue,
+         set_terminal_verification_pending_fun
+       ) do
+    _ =
+      safely_set_terminal_verification_pending(
+        set_terminal_verification_pending_fun,
+        issue.tracker_identity,
+        true
+      )
+
+    MapSet.put(failed_issue_ids, issue.id)
+  end
+
+  defp terminal_disappearing_issue?(issue, disappeared_issue_ids, terminal_states) do
+    MapSet.member?(disappeared_issue_ids, issue.id) and
+      DispatchPolicy.terminal_issue_state?(issue.state, terminal_states)
+  end
+
+  defp record_and_clear_refreshed_terminal(
+         issue,
+         observe_membership_fun,
+         set_terminal_verification_pending_fun
+       ) do
+    case MembershipLifecycle.record(
+           issue,
+           MembershipLifecycle.terminal_lifecycle(issue.state),
+           observe_membership_fun
+         ) do
+      :ok ->
+        clear_refreshed_terminal_verification(
+          issue,
+          set_terminal_verification_pending_fun
+        )
+
+      error ->
+        error
+    end
+  end
+
+  defp clear_refreshed_terminal_verification(issue, set_terminal_verification_pending_fun) do
+    case safely_set_terminal_verification_pending(
+           set_terminal_verification_pending_fun,
+           issue.tracker_identity,
+           false
+         ) do
+      :ok -> :ok
+      :error -> {:error, :terminal_verification_marker_failed}
+    end
+  end
+
+  defp retain_pending_terminal_verification([], _mark_reconciled_fun, _set_terminal_verification_pending_fun), do: :ok
+
+  defp retain_pending_terminal_verification(
+         pending_issue_ids,
+         mark_reconciled_fun,
+         _set_terminal_verification_pending_fun
+       )
+       when is_list(pending_issue_ids) do
+    safely_mark_reconciled(mark_reconciled_fun, :unavailable)
+  end
+
+  defp safely_set_terminal_verification_pending(set_terminal_verification_pending_fun, identity, pending?) do
+    case set_terminal_verification_pending_fun.(identity, pending?) do
+      :ok -> :ok
+      _ -> :error
+    end
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
+  end
+
+  defp safely_mark_reconciled(mark_reconciled_fun, status) do
+    _ = mark_reconciled_fun.(status)
+    :ok
+  rescue
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
   end
 
   defp emit_dependency_transition_events(%State{} = state, previous_issue, %Issue{} = issue) do
@@ -81,7 +432,13 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   defp emit_dependency_transition_events(%State{} = state, _previous_issue, _issue), do: state
 
-  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{}), do: state
+  defp emit_task_state_transition_alert(%State{} = state, nil, %Issue{} = issue) do
+    if DispatchPolicy.state_slug(issue.state) == "error" do
+      emit_observed_error_transition_alert(state, issue)
+    else
+      resolve_observed_error_transition_alert(state, issue)
+    end
+  end
 
   defp emit_task_state_transition_alert(
          %State{} = state,
@@ -91,23 +448,246 @@ defmodule Aiur.Orchestrator.IssueSync do
     previous_state = DispatchPolicy.state_slug(previous_issue.state)
     current_state = DispatchPolicy.state_slug(issue.state)
 
-    if previous_state != current_state and current_state != nil do
-      # Ticket B: label-flip alerts route through the new topic shape so
-      # the alerts file can glob-match per state without one entry per state.
-      Alerts.emit_system(
-        "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
-        issue: issue,
-        worker_host: Orchestrator.running_worker_host(state, issue.id),
-        reason: task_state_alert_reason(current_state),
-        needs_attention: task_state_needs_attention?(current_state),
-        severity: task_state_alert_severity(current_state)
-      )
+    cond do
+      is_nil(current_state) ->
+        state
+
+      previous_state == current_state ->
+        reconcile_observed_error_alert(state, issue, current_state)
+
+      current_state == "error" ->
+        emit_observed_error_transition_alert(state, issue)
+
+      previous_state == "error" ->
+        resolve_observed_error_transition_alert(state, issue)
+
+      true ->
+        # Ticket B: label-flip alerts route through the new topic shape so
+        # the alerts file can glob-match per state without one entry per state.
+        Alerts.emit_system(
+          "ticket.#{issue.identifier}.issue.label.added.agent.#{current_state}",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: task_state_alert_reason(current_state),
+          needs_attention: task_state_needs_attention?(current_state),
+          severity: task_state_alert_severity(current_state)
+        )
+
+        clear_observed_error_alert(state, issue.id)
+    end
+  end
+
+  defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp reconcile_observed_error_alert(state, issue, "error"),
+    do: emit_observed_error_transition_alert(state, issue)
+
+  defp reconcile_observed_error_alert(state, issue, _state),
+    do: resolve_observed_error_transition_alert(state, issue)
+
+  defp emit_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
+    cause = observed_error_alert_cause(state, issue)
+    topic = observed_error_alert_topic(issue, cause)
+
+    if MapSet.member?(state.observed_error_alerts, issue.id) or active_attention?(state, topic) do
+      mark_observed_error_alert(state, issue.id, cause)
+    else
+      message = observed_error_alert_message(cause)
+
+      case Alerts.emit_system(topic,
+             issue: issue,
+             worker_host: Orchestrator.running_worker_host(state, issue.id),
+             reason: message,
+             needs_attention: true,
+             severity: "warning",
+             central: true
+           ) do
+        :ok -> mark_observed_error_alert(state, issue.id, cause)
+        {:error, _reason} -> state
+      end
+    end
+  end
+
+  defp resolve_observed_error_transition_alert(%State{} = state, %Issue{} = issue) do
+    cause = observed_error_alert_cause(state, issue)
+    topic = observed_error_alert_topic(issue, cause)
+
+    active? =
+      MapSet.member?(state.observed_error_alerts, issue.id) or
+        active_attention?(state, topic)
+
+    cond do
+      cause == :lifetime_latch and lifetime_latch_status(state, issue.id) != :inactive ->
+        mark_observed_error_alert(state, issue.id, cause)
+
+      active? ->
+        case Alerts.emit_system("#{topic}.resolved",
+               issue: issue,
+               worker_host: Orchestrator.running_worker_host(state, issue.id),
+               reason: "Tracker moved the ticket out of agent:error; the observed error condition is resolved.",
+               needs_attention: false,
+               severity: "info",
+               central: true
+             ) do
+          :ok -> clear_observed_error_alert(state, issue.id)
+          {:error, _reason} -> state
+        end
+
+      true ->
+        state
+    end
+  end
+
+  defp observed_error_alert_cause(%State{} = state, %Issue{} = issue) do
+    cond do
+      lifetime_latch_active?(state, issue.id) -> :lifetime_latch
+      cause = Map.get(state.observed_error_alert_causes, issue.id) -> cause
+      cause = persisted_observed_error_alert_cause(state, issue) -> cause
+      true -> :observed_tracker_error
+    end
+  end
+
+  defp persisted_observed_error_alert_cause(%State{} = state, %Issue{} = issue) do
+    Enum.find([:lifetime_latch, :retry_exhausted, :observed_tracker_error], fn cause ->
+      active_attention?(state, observed_error_alert_topic(issue, cause))
+    end)
+  end
+
+  defp active_attention?(state, topic), do: MapSet.member?(state.active_attention_topics, topic)
+
+  defp lifetime_latch_active?(%State{} = state, issue_id) when is_binary(issue_id) do
+    lifetime_latch_status(state, issue_id) == :active
+  end
+
+  defp lifetime_latch_active?(_state, _issue_id), do: false
+
+  defp lifetime_latch_status(%State{} = state, issue_id) when is_binary(issue_id) do
+    maximum = Config.agent_max_dispatches_per_ticket()
+    budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, issue_id]) || %{}
+
+    # A trip recorded in the live recovery state remains authoritative until
+    # the dispatch budget explicitly clears it. Configuration may be reloaded
+    # between the trip and this tracker observation, so do not reinterpret an
+    # already-recorded latch through the current cap.
+    memory_latched? = budget[:tripped] == :lifetime
+
+    if memory_latched?, do: :active, else: persisted_latch_status(maximum, issue_id)
+  end
+
+  defp lifetime_latch_status(_state, _issue_id), do: :inactive
+
+  defp persisted_latch_status(maximum, issue_id) when maximum > 0 do
+    case DispatchBudgetStore.lifetime(issue_id) do
+      {:ok, lifetime} when lifetime >= maximum -> :active
+      {:ok, _lifetime} -> :inactive
+      {:error, _reason} -> :unknown
+    end
+  end
+
+  defp persisted_latch_status(_maximum, _issue_id), do: :inactive
+
+  defp observed_error_alert_message(:lifetime_latch),
+    do: "Agent remains in error because its lifetime dispatch latch is still active; Executor action is required."
+
+  defp observed_error_alert_message(_cause),
+    do:
+      "Tracker observed agent:error without a specialized local cause; the ticket needs Executor review. " <>
+        "This condition will not clear on its own until the ticket is moved out of error."
+
+  defp observed_error_alert_topic(%Issue{} = issue, cause) do
+    "ticket.#{issue.identifier}.agent.attention.error-#{cause}"
+  end
+
+  defp mark_observed_error_alert(state, issue_id, cause) do
+    %{
+      state
+      | observed_error_alerts: MapSet.put(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue_id, cause)
+    }
+  end
+
+  defp clear_observed_error_alert(state, issue_id) do
+    %{
+      state
+      | observed_error_alerts: MapSet.delete(state.observed_error_alerts, issue_id),
+        observed_error_alert_causes: Map.delete(state.observed_error_alert_causes, issue_id)
+    }
+  end
+
+  defp emit_tracker_pause_transition_alert(%State{} = state, nil, %Issue{} = issue) do
+    if Issue.paused?(issue) do
+      emit_tracker_pause_alert(state, issue)
+    else
+      resolve_tracker_pause_alert(state, issue)
     end
 
     state
   end
 
-  defp emit_task_state_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+  defp emit_tracker_pause_transition_alert(
+         %State{} = state,
+         %Issue{} = previous_issue,
+         %Issue{} = issue
+       ) do
+    case {Issue.paused?(previous_issue), Issue.paused?(issue)} do
+      {false, true} ->
+        emit_tracker_pause_alert(state, issue)
+
+      {true, false} ->
+        Alerts.emit_system("ticket.#{issue.identifier}.agent.unpaused",
+          issue: issue,
+          worker_host: Orchestrator.running_worker_host(state, issue.id),
+          reason: "Tracker removed agent:paused; tracker=agent:#{issue.state}. No operator action is needed.",
+          needs_attention: false,
+          severity: "info"
+        )
+
+        resolve_tracker_pause_alert(state, issue, true)
+
+      _ ->
+        :ok
+    end
+
+    state
+  end
+
+  defp emit_tracker_pause_transition_alert(%State{} = state, _previous_issue, _issue), do: state
+
+  defp emit_tracker_pause_alert(%State{} = state, %Issue{} = issue) do
+    topic = "ticket.#{issue.identifier}.agent.paused"
+
+    unless active_attention?(state, topic) do
+      Alerts.emit_system(topic,
+        issue: issue,
+        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        reason:
+          "Tracker added agent:paused (tracker pause override); tracker=agent:#{issue.state}. " <>
+            "This clears when the operator removes agent:paused.",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+    end
+  end
+
+  defp resolve_tracker_pause_alert(state, issue), do: resolve_tracker_pause_alert(state, issue, false)
+
+  defp resolve_tracker_pause_alert(%State{} = state, %Issue{} = issue, force?) do
+    topic = "ticket.#{issue.identifier}.agent.paused"
+
+    if force? or active_attention?(state, topic) do
+      Alerts.emit_system("#{topic}.resolved",
+        issue: issue,
+        worker_host: Orchestrator.running_worker_host(state, issue.id),
+        reason: "Tracker removed agent:paused; the tracker pause override is resolved.",
+        needs_attention: false,
+        severity: "info",
+        central: true
+      )
+    else
+      :ok
+    end
+  end
 
   defp task_state_alert_reason("human-review"),
     do: "Agent marked the ticket ready for human review"
@@ -248,6 +828,152 @@ defmodule Aiur.Orchestrator.IssueSync do
 
   def sync_todo_capacity_alert(%State{} = state, _issues), do: state
 
+  @doc false
+  @spec sync_capacity_starvation_alert(State.t(), list(), integer()) :: State.t()
+  def sync_capacity_starvation_alert(%State{} = state, issues, now_ms)
+      when is_list(issues) and is_integer(now_ms) do
+    constraint_entries = capacity_constraint_entries(state, issues)
+
+    state
+    |> capacity_starvation_context(issues, constraint_entries)
+    |> sync_capacity_starvation_state(now_ms)
+  end
+
+  def sync_capacity_starvation_alert(%State{} = state, _issues, _now_ms), do: state
+
+  @spec sync_capacity_starvation_alert(State.t(), list()) :: State.t()
+  def sync_capacity_starvation_alert(%State{} = state, issues) when is_list(issues),
+    do: sync_capacity_starvation_alert(state, issues, System.monotonic_time(:millisecond))
+
+  def sync_capacity_starvation_alert(%State{} = state, _issues), do: state
+
+  defp capacity_starvation_context(state, issues, constraint_entries) do
+    %{
+      state: state,
+      configured: Slots.max_concurrent_agent_limit(state),
+      effective: Slots.effective_concurrent_agent_limit(state),
+      ready_count: state |> ready_dispatch_issues(issues) |> length(),
+      constraints: Enum.map(constraint_entries, & &1.detail),
+      signature: capacity_constraint_signature(constraint_entries)
+    }
+  end
+
+  defp sync_capacity_starvation_state(%{ready_count: 0} = context, _now_ms),
+    do: clear_capacity_starvation(context.state)
+
+  defp sync_capacity_starvation_state(%{constraints: []} = context, _now_ms),
+    do: clear_capacity_starvation(context.state)
+
+  defp sync_capacity_starvation_state(context, now_ms) do
+    starvation = Map.get(context.state, :capacity_starvation, %{})
+    since_by_identity = capacity_starvation_ages(starvation, context.signature, now_ms)
+    alerted_identities = active_alerted_identities(starvation, context.signature)
+    due_identities = due_capacity_identities(since_by_identity, alerted_identities, now_ms)
+
+    if due_identities == [] do
+      put_capacity_starvation(context.state, since_by_identity, alerted_identities, context.signature)
+    else
+      emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities)
+    end
+  end
+
+  defp capacity_starvation_ages(starvation, identities, now_ms) do
+    previous_ages = previous_capacity_starvation_ages(starvation, identities, now_ms)
+    Map.new(identities, &{&1, Map.get(previous_ages, &1, now_ms)})
+  end
+
+  defp previous_capacity_starvation_ages(%{since_ms: ages}, _identities, _now_ms) when is_map(ages), do: ages
+
+  defp previous_capacity_starvation_ages(%{since_ms: since_ms, signature: signature}, identities, _now_ms)
+       when is_integer(since_ms) do
+    Map.new(signature || identities, &{&1, since_ms})
+  end
+
+  defp previous_capacity_starvation_ages(_starvation, _identities, _now_ms), do: %{}
+
+  defp active_alerted_identities(starvation, identities) do
+    alerted =
+      case Map.get(starvation, :alerted) do
+        alerted when is_list(alerted) -> alerted
+        _ -> legacy_alerted_identities(starvation, identities)
+      end
+
+    MapSet.intersection(MapSet.new(alerted), MapSet.new(identities))
+  end
+
+  defp legacy_alerted_identities(starvation, identities) do
+    if Map.get(starvation, :alert_active) == true, do: starvation[:signature] || identities, else: []
+  end
+
+  defp due_capacity_identities(since_by_identity, alerted_identities, now_ms) do
+    since_by_identity
+    |> Enum.filter(fn {identity, since_ms} ->
+      now_ms - since_ms >= @capacity_starvation_alert_after_ms and not MapSet.member?(alerted_identities, identity)
+    end)
+    |> Enum.map(&elem(&1, 0))
+  end
+
+  defp emit_capacity_starvation_alert(context, since_by_identity, alerted_identities, due_identities) do
+    next_alerted_identities = MapSet.union(alerted_identities, MapSet.new(due_identities))
+
+    case Alerts.emit_system("system.dispatch.capacity_starved",
+           reason: capacity_starvation_reason(context),
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        context.state
+        |> put_capacity_starvation(since_by_identity, next_alerted_identities, context.signature)
+        |> Map.put(:capacity_starvation_resolution_emitted, false)
+
+      {:error, _reason} ->
+        put_capacity_starvation(context.state, since_by_identity, alerted_identities, context.signature)
+    end
+  end
+
+  defp capacity_starvation_reason(context) do
+    "Ready tickets=#{context.ready_count}, live agents=#{State.active_running_count(context.state.running)}, " <>
+      "effective cap=#{context.effective}, configured cap=#{context.configured}; " <>
+      "dispatch constraints=#{Enum.join(context.constraints, "; ")}."
+  end
+
+  defp clear_capacity_starvation(%State{capacity_starvation_resolution_emitted: true} = state),
+    do: put_cleared_capacity_starvation(state)
+
+  defp clear_capacity_starvation(%State{} = state) do
+    active? =
+      Map.get(state.capacity_starvation, :alert_active, false) or
+        AlertFeed.active_system_attention?("system.dispatch.capacity_starved")
+
+    if active? do
+      case Alerts.emit_system("system.dispatch.capacity_starved.resolved",
+             reason: "Ready-work dispatch capacity recovered; fleet dispatch may resume.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok -> put_cleared_capacity_starvation(%{state | capacity_starvation_resolution_emitted: true})
+        {:error, _reason} -> state
+      end
+    else
+      put_cleared_capacity_starvation(%{state | capacity_starvation_resolution_emitted: true})
+    end
+  end
+
+  defp put_cleared_capacity_starvation(state),
+    do: %{state | capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []}}
+
+  defp put_capacity_starvation(state, since_by_identity, alerted_identities, signature) do
+    %{
+      state
+      | capacity_starvation: %{
+          since_ms: since_by_identity,
+          alert_active: MapSet.size(alerted_identities) > 0,
+          signature: signature,
+          alerted: alerted_identities |> MapSet.to_list() |> Enum.sort()
+        }
+    }
+  end
+
   defp routable_todo_issues(issues) when is_list(issues) do
     issues
     |> Enum.filter(fn
@@ -262,6 +988,127 @@ defmodule Aiur.Orchestrator.IssueSync do
     end)
     |> DispatchPolicy.sort_issues_for_dispatch()
   end
+
+  defp ready_dispatch_issues(%State{} = state, issues) do
+    active_states = DispatchPolicy.active_state_set()
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    issues
+    |> Enum.filter(fn issue ->
+      DispatchPolicy.candidate_issue?(issue, active_states, terminal_states) and
+        !DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+    end)
+    |> Enum.reject(fn issue ->
+      Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) or
+        Map.has_key?(state.retry_attempts, issue.id)
+    end)
+  end
+
+  defp capacity_constraint_entries(%State{} = state, issues) do
+    state.dispatch_capacity_constraints
+    |> Enum.flat_map(&dispatch_capacity_constraint_entry/1)
+    |> Kernel.++(per_state_capacity_constraint_entries(state, issues))
+    |> Kernel.++(budget_capacity_constraint_entries(state, issues))
+    |> Enum.uniq_by(& &1.identity)
+    |> Enum.sort_by(& &1.detail)
+  end
+
+  defp capacity_constraint_signature(constraint_entries) do
+    constraint_entries
+    |> Enum.map(& &1.identity)
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  defp dispatch_capacity_constraint_entry(%{kind: kind} = constraint) do
+    case render_capacity_constraint(constraint) do
+      detail when is_binary(detail) -> [%{identity: dispatch_constraint_identity(kind), detail: detail}]
+      nil -> []
+    end
+  end
+
+  defp dispatch_capacity_constraint_entry(_constraint), do: []
+
+  defp dispatch_constraint_identity(:build), do: "build"
+  defp dispatch_constraint_identity(:build_queue), do: "build-queue"
+  defp dispatch_constraint_identity(:fd), do: "fd"
+  defp dispatch_constraint_identity(:load), do: "load"
+  defp dispatch_constraint_identity(:load_envelope), do: "load-envelope"
+  defp dispatch_constraint_identity(:memory), do: "memory"
+  defp dispatch_constraint_identity(:provider), do: "provider"
+  defp dispatch_constraint_identity(:run_queue), do: "run-queue"
+  defp dispatch_constraint_identity(kind), do: "dispatch:#{kind}"
+
+  defp render_capacity_constraint(%{kind: :build, detail: detail}), do: "prewarm build (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :build_queue, detail: detail}),
+    do: "build-queue gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :fd, detail: detail}), do: "FD gate (#{detail})"
+  defp render_capacity_constraint(%{kind: :load, detail: detail}), do: "load gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :load_envelope, detail: detail}),
+    do: "load-envelope limit (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :memory, detail: detail}), do: "memory gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :provider, detail: detail}),
+    do: "provider gate (#{detail})"
+
+  defp render_capacity_constraint(%{kind: :run_queue, detail: detail}),
+    do: "run-queue gate (#{detail})"
+
+  defp render_capacity_constraint(_constraint), do: nil
+
+  defp per_state_capacity_constraint_entries(%State{} = state, issues) do
+    configured_limits = Config.settings!().agent.max_concurrent_agents_by_state || %{}
+
+    ready_dispatch_issues(state, issues)
+    |> Enum.map(&DispatchPolicy.normalize_issue_state(&1.state))
+    |> Enum.uniq()
+    |> Enum.flat_map(&per_state_capacity_constraint_entry(state, configured_limits, &1))
+  end
+
+  defp per_state_capacity_constraint_entry(state, configured_limits, issue_state) do
+    with {:ok, limit} <- Map.fetch(configured_limits, issue_state),
+         used <- DispatchPolicy.running_issue_count_for_state(state.running, issue_state),
+         true <- used >= limit do
+      [%{identity: "per-state:#{issue_state}", detail: "per-state limit (#{issue_state}=#{used}/#{limit})"}]
+    else
+      _ -> []
+    end
+  end
+
+  defp budget_capacity_constraint_entries(%State{} = state, issues) do
+    budget = get_in(state.dispatch_recovery, [:codex_thrash_budget]) || %{}
+
+    ready_dispatch_issues(state, issues)
+    |> Enum.flat_map(&budget_capacity_constraint_entry(&1.id, Map.get(budget, &1.id, %{})))
+  end
+
+  defp budget_capacity_constraint_entry(issue_id, %{tripped: :lifetime} = entry) do
+    [%{identity: "budget:lifetime:#{issue_id}", detail: "budget latch (lifetime=#{Map.get(entry, :lifetime, 0)})"}]
+  end
+
+  defp budget_capacity_constraint_entry(issue_id, %{tripped: :window} = entry) do
+    case budget_window_remaining_ms(entry, System.monotonic_time(:millisecond)) do
+      remaining_ms when remaining_ms > 0 ->
+        [%{identity: "budget:window:#{issue_id}", detail: "budget circuit (window, clears #{format_remaining_duration(remaining_ms)})"}]
+
+      _ ->
+        []
+    end
+  end
+
+  defp budget_capacity_constraint_entry(_issue_id, _entry), do: []
+
+  defp budget_window_remaining_ms(entry, now_ms) do
+    window_ms = Config.codex_thrash_window_seconds() * 1_000
+    max(0, Map.get(entry, :window_start_ms, now_ms) + window_ms - now_ms)
+  end
+
+  defp format_remaining_duration(milliseconds) when milliseconds < 60_000, do: "in <1m"
+  defp format_remaining_duration(milliseconds), do: "in ~#{div(milliseconds + 59_999, 60_000)}m"
 
   defp emit_todo_capacity_alert(%State{} = state, todo_issues) when is_list(todo_issues) do
     case List.first(todo_issues) do

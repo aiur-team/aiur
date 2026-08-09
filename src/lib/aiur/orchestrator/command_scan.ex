@@ -34,10 +34,11 @@ defmodule Aiur.Orchestrator.CommandScan do
 
   defp do_scan_pr_commands(%State{} = state, opts) do
     since = command_scan_since(state, opts)
+    etags = state.github_comment_etags
     fetch_opts = Keyword.put(opts, :since, since)
 
-    review_comments = command_scan_review_comments(fetch_opts)
-    issue_comments = command_scan_issue_comments(fetch_opts)
+    {review_comments, review_etag} = command_scan_review_comments(Keyword.put(fetch_opts, :etag, Map.get(etags, :command_scan_review)))
+    {issue_comments, issue_etag} = command_scan_issue_comments(Keyword.put(fetch_opts, :etag, Map.get(etags, :command_scan_issue)))
 
     pr_comments =
       (review_comments ++ issue_comments)
@@ -51,7 +52,14 @@ defmodule Aiur.Orchestrator.CommandScan do
 
     publish_command_hits(pr_comments, command_scan_repo(opts), command_scan_limit(opts))
 
-    %{state | github_command_scan_since: advance_command_scan_since(since, newest)}
+    %{
+      state
+      | github_command_scan_since: advance_command_scan_since(since, newest),
+        github_comment_etags:
+          etags
+          |> Map.put(:command_scan_review, review_etag)
+          |> Map.put(:command_scan_issue, issue_etag)
+    }
   end
 
   # Fetch the repo-wide review-comment stream (pulls/comments). A failure is
@@ -60,20 +68,26 @@ defmodule Aiur.Orchestrator.CommandScan do
   defp command_scan_review_comments(fetch_opts) do
     fetcher =
       Keyword.get_lazy(fetch_opts, :command_scan_review_comment_fetcher, fn ->
-        fn scan_opts -> GitHubClient.fetch_recent_repo_review_comments(scan_opts) end
+        fn scan_opts -> GitHubClient.fetch_recent_repo_review_comments_conditional(scan_opts) end
       end)
 
     case fetcher.(fetch_opts) do
+      {:ok, comments, etag} when is_list(comments) ->
+        {comments, etag}
+
+      {:not_modified, etag} ->
+        {[], etag}
+
       {:ok, comments} when is_list(comments) ->
-        comments
+        {comments, Keyword.get(fetch_opts, :etag)}
 
       {:error, reason} ->
         Logger.warning("scan_pr_commands review-comment stream failed; reason=#{inspect(reason)}")
-        []
+        {[], Keyword.get(fetch_opts, :etag)}
 
       other ->
         Logger.warning("scan_pr_commands review-comment stream returned unexpected value: #{inspect(other)}")
-        []
+        {[], Keyword.get(fetch_opts, :etag)}
     end
   end
 
@@ -84,20 +98,26 @@ defmodule Aiur.Orchestrator.CommandScan do
   defp command_scan_issue_comments(fetch_opts) do
     fetcher =
       Keyword.get_lazy(fetch_opts, :command_scan_issue_comment_fetcher, fn ->
-        fn scan_opts -> GitHubClient.fetch_recent_repo_issue_comments(scan_opts) end
+        fn scan_opts -> GitHubClient.fetch_recent_repo_issue_comments_conditional(scan_opts) end
       end)
 
     case fetcher.(fetch_opts) do
+      {:ok, comments, etag} when is_list(comments) ->
+        {comments, etag}
+
+      {:not_modified, etag} ->
+        {[], etag}
+
       {:ok, comments} when is_list(comments) ->
-        comments
+        {comments, Keyword.get(fetch_opts, :etag)}
 
       {:error, reason} ->
         Logger.warning("scan_pr_commands issue-comment stream failed; reason=#{inspect(reason)}")
-        []
+        {[], Keyword.get(fetch_opts, :etag)}
 
       other ->
         Logger.warning("scan_pr_commands issue-comment stream returned unexpected value: #{inspect(other)}")
-        []
+        {[], Keyword.get(fetch_opts, :etag)}
     end
   end
 
@@ -156,9 +176,8 @@ defmodule Aiur.Orchestrator.CommandScan do
     actor = command_scan_comment_author(comment)
 
     payload =
-      %{issue_number: target, comment: comment, source: :github}
-      |> Sanitizer.scrub()
-      |> Sanitizer.put_comment_message()
+      %{issue_number: target, comment: comment}
+      |> Sanitizer.github_payload(actor)
 
     Publisher.publish(
       "ticket.#{target}.pr.review_comment",

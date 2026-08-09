@@ -2,10 +2,10 @@
 # Per-ticket phase timing extractor for `aiur --test3` runs.
 #
 # Each agent emits `agent.phase.<step>.<start|end>` events that hit the
-# operator log as `[alert] (#NN) ticket.NN.agent.phase.<step>.<start|end>: …`
+# Executor log as `[alert] (#NN) ticket.NN.agent.phase.<step>.<start|end>: …`
 # lines. The aiur-test3-timer captures total + per-ticket completion
 # (label flip to agent:human-review). This script bridges the gap: it
-# reads the operator log between two epochs, extracts phase boundaries
+# reads the Executor log between two epochs, extracts phase boundaries
 # per ticket, and prints a per-ticket timeline plus the deltas between
 # adjacent phases.
 #
@@ -67,7 +67,7 @@ if [ ! -r "$log_path" ]; then
 fi
 
 # Convert the run window to ISO so we can `awk '$1 > "..."'` against
-# operator log lines (which use ISO-8601 with offset).
+# Executor log lines (which use ISO-8601 with offset).
 start_iso=$(date -d "@$start_epoch" -Iseconds)
 end_iso=$(date -d "@$end_epoch" -Iseconds)
 

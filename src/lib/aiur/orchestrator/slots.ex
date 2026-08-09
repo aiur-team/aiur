@@ -164,6 +164,14 @@ defmodule Aiur.Orchestrator.Slots do
     end
   end
 
+  # `--pause` at launch lands in `:launch_globally_paused` (set by `Aiur.CLI`).
+  # When true, the orchestrator cold-starts globally paused and never provisions
+  # agents until the operator unpauses. Distinct from per-agent pause state.
+  @spec launch_globally_paused?() :: boolean()
+  def launch_globally_paused? do
+    Application.get_env(:aiur, :launch_globally_paused, false) == true
+  end
+
   @spec max_concurrent_agent_limit(State.t()) :: pos_integer()
   def max_concurrent_agent_limit(%State{} = state) do
     cond do
@@ -174,7 +182,7 @@ defmodule Aiur.Orchestrator.Slots do
         state.max_concurrent_agents
 
       true ->
-        Config.settings!().agent.max_concurrent_agents
+        Config.max_concurrent_agents()
     end
   end
 
@@ -191,26 +199,38 @@ defmodule Aiur.Orchestrator.Slots do
   @spec max_concurrent_agent_status(State.t()) :: map()
   def max_concurrent_agent_status(%State{} = state) do
     active = State.active_running_count(state.running)
+    reserved_paused = State.reserved_paused_running_count(state.running)
     max = max_concurrent_agent_limit(state)
 
     %{
       active: active,
       paused: State.paused_running_count(state.running),
-      configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
+      reserved_paused: reserved_paused,
+      occupied: active + reserved_paused,
+      configured: state.max_concurrent_agents || Config.max_concurrent_agents(),
       max: max,
+      effective: effective_concurrent_agent_limit(state),
+      available: available_slots(state),
+      queued_demand?: DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
   end
 
-  # Paused agents keep their slot reserved: a deliberate pause should not
-  # free capacity for the polling loop to auto-claim the next agent:todo
-  # ticket. Resuming a paused agent reuses the held slot via
-  # `resume_paused_issue/2`, which bypasses this check.
+  # Deliberate/Executor pauses keep their slot reserved so the polling loop
+  # cannot auto-claim replacement work. CI-wait is the exception: the daemon
+  # owns that wait, so the parked runner releases normal dispatch capacity.
+  @spec used_slots(State.t()) :: non_neg_integer()
+  def used_slots(%State{} = state) do
+    State.active_running_count(state.running) +
+      State.reserved_paused_running_count(state.running)
+  end
+
   @spec available_slots(State.t()) :: non_neg_integer()
+  def available_slots(%State{globally_paused: true}), do: 0
+
   def available_slots(%State{} = state) do
-    used = State.active_running_count(state.running) + State.paused_running_count(state.running)
-    max(effective_concurrent_agent_limit(state) - used, 0)
+    max(effective_concurrent_agent_limit(state) - used_slots(state), 0)
   end
 
   @spec resume_worker_slot_available?(State.t(), term()) :: boolean()

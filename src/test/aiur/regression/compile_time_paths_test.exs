@@ -27,12 +27,12 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   # legitimate sites, captured 2026-07-07 at these locations:
   # aiur/agent_skills.ex:13,16,45,58;
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
-  # aiur/prompt_builder.ex:9; aiur_web/static_assets.ex:4,9,10,11,12.
+  # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
   @allowlist %{
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
       "`priv/`, not the repo's `.claude` tree. (A runtime `__DIR__`-relative read",
-      "@skills_root Path.expand(\"../../../\#{@claude_skills_dir}\", __DIR__)",
+      "@skills_root Path.expand(\"../../../\#{@bundled_skills_dir}\", __DIR__)",
       "for path <- bundled_paths, do: @external_resource(path)"
     ],
     "aiur/init/templates.ex" => [
@@ -48,14 +48,20 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @alerts_linux_example_path"
     ],
     "aiur/prompt_builder.ex" => [
-      "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)"
+      "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",
+      "@external_resource @shared_prompt_path"
     ],
     "aiur_web/static_assets.ex" => [
       "@dashboard_css_path Path.expand(\"../../priv/static/dashboard.css\", __DIR__)",
       "@external_resource @dashboard_css_path",
+      "@dom_svg_layout_adapter_path Path.expand(\"../../priv/static/aiur-dom-svg-layout-adapter.js\", __DIR__)",
+      "@external_resource @dom_svg_layout_adapter_path",
       "@external_resource @phoenix_html_js_path",
       "@external_resource @phoenix_js_path",
       "@external_resource @phoenix_live_view_js_path"
+    ],
+    "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
+      "@external_resource path"
     ]
   }
 

@@ -76,6 +76,65 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       assert {:error, :cycle_detected} = IssueDependencies.declare(7, 80, request_fun: request_fun)
     end
 
+    test "GraphQL cycle checks paginate blocking dependencies before declaring" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          true ->
+            flunk("unexpected REST request: #{inspect(req)}")
+        end
+      end
+
+      graph_request_fun = fn %{body: %{"query" => query, "variables" => variables}} ->
+        body =
+          cond do
+            String.contains?(query, "issue_80") and is_nil(variables["after_80"]) ->
+              %{
+                "data" => %{
+                  "repository" => %{
+                    "issue_80" => %{
+                      "blocking" => %{
+                        "nodes" => Enum.map(1..100, &%{"number" => &1 + 100}),
+                        "pageInfo" => %{"hasNextPage" => true, "endCursor" => "page-2"}
+                      }
+                    }
+                  }
+                }
+              }
+
+            String.contains?(query, "issue_80") and variables["after_80"] == "page-2" ->
+              %{
+                "data" => %{
+                  "repository" => %{
+                    "issue_80" => %{
+                      "blocking" => %{
+                        "nodes" => [%{"number" => 7}],
+                        "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                      }
+                    }
+                  }
+                }
+              }
+
+            true ->
+              flunk("unexpected GraphQL request: #{inspect(%{query: query, variables: variables})}")
+          end
+
+        {:ok, %{status: 200, headers: [], body: body}}
+      end
+
+      assert {:error, :cycle_detected} =
+               IssueDependencies.declare(7, 80,
+                 request_fun: request_fun,
+                 graph_request_fun: graph_request_fun
+               )
+    end
+
     test "idempotent: blocker already present returns :already_present" do
       request_fun = fn req ->
         cond do
@@ -152,18 +211,21 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
   end
 
   describe "unblock/3" do
-    test "happy path: deletes and returns body" do
+    test "happy path: deletes and verifies the blocker is absent" do
       request_fun = fn req ->
         cond do
           String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
             {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
 
           req.method == :delete ->
-            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001}}}
+            {:ok, %{status: 204, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
         end
       end
 
-      assert {:ok, %{"id" => 80_001}} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
+      assert {:ok, :removed} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
     end
 
     test "404 on DELETE returns :not_present (idempotent)" do
@@ -174,10 +236,49 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
 
           req.method == :delete ->
             {:ok, %{status: 404, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
         end
       end
 
       assert {:ok, :not_present} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
+    end
+
+    test "does not report removal while the blocker remains after DELETE" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          req.method == :delete ->
+            {:ok, %{status: 204, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+        end
+      end
+
+      assert {:error, :dependency_still_present} =
+               IssueDependencies.unblock(7, 80, request_fun: request_fun)
+    end
+
+    test "distinguishes a malformed DELETE 404 when the blocker remains" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          req.method == :delete ->
+            {:ok, %{status: 404, headers: [], body: ""}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+        end
+      end
+
+      assert {:error, :dependency_still_present} =
+               IssueDependencies.unblock(7, 80, request_fun: request_fun)
     end
 
     test "rate-limited DELETE 403 stays rate_limited" do
@@ -192,6 +293,26 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       end
 
       assert {:error, :rate_limited} = IssueDependencies.unblock(7, 80, request_fun: request_fun)
+    end
+  end
+
+  describe "declared?/3" do
+    test "reads authoritative presence and absence" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: [%{"id" => 80_001, "number" => 80}]}}
+
+          String.contains?(req.url, "/issues/8/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+        end
+      end
+
+      assert {:ok, true} = IssueDependencies.declared?(7, 80, request_fun: request_fun)
+      assert {:ok, false} = IssueDependencies.declared?(8, 80, request_fun: request_fun)
     end
   end
 

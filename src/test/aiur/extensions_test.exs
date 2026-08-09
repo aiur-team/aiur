@@ -6,6 +6,8 @@ defmodule Aiur.ExtensionsTest do
 
   alias Aiur.Linear.Tracker, as: LinearTracker
   alias Aiur.Memory.Tracker, as: Memory
+  alias Aiur.Orchestrator.SnapshotStore
+  alias AiurWeb.OperatorControlCenter.UnitsPresenter
 
   @endpoint AiurWeb.Endpoint
 
@@ -68,7 +70,10 @@ defmodule Aiur.ExtensionsTest do
       GenServer.start_link(__MODULE__, opts, name: name)
     end
 
-    def init(opts), do: {:ok, opts}
+    def init(opts) do
+      :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), Keyword.fetch!(opts, :snapshot))
+      {:ok, opts}
+    end
 
     def handle_call(:snapshot, _from, state) do
       {:reply, Keyword.fetch!(state, :snapshot), state}
@@ -87,6 +92,65 @@ defmodule Aiur.ExtensionsTest do
         end
 
       {:reply, reply, state}
+    end
+  end
+
+  defmodule StaticDecisionStore do
+    use GenServer
+
+    alias Aiur.DecisionStore.RetainedSnapshot
+
+    def start_link(opts) do
+      name = Keyword.fetch!(opts, :name)
+      GenServer.start_link(__MODULE__, Keyword.fetch!(opts, :decisions), name: name)
+    end
+
+    def init(decisions), do: {:ok, decisions}
+
+    def handle_call({:get, decision_id}, _from, decisions) do
+      case Enum.find(decisions, &(&1.decision_id == decision_id)) do
+        nil -> {:reply, {:error, :not_found}, decisions}
+        decision -> {:reply, {:ok, decision}, decisions}
+      end
+    end
+
+    def handle_call({:retained_lookup, decision_id}, _from, decisions) do
+      decision = Enum.find(decisions, &(&1.decision_id == decision_id))
+      {:reply, {:ok, %{decision: decision, health: :writable}}, decisions}
+    end
+
+    def handle_call({:retained_query, query}, _from, decisions) do
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+
+      {:reply, RetainedSnapshot.query(current, index, :writable, query), decisions}
+    end
+
+    def handle_call(:retained_counts, _from, decisions) do
+      current = Map.new(decisions, &{&1.decision_id, &1})
+      index = RetainedSnapshot.build_index(current)
+      {:reply, RetainedSnapshot.counts(index, :writable), decisions}
+    end
+
+    def handle_call(:list, _from, decisions), do: {:reply, decisions, decisions}
+    def handle_call(:health, _from, decisions), do: {:reply, :writable, decisions}
+    def handle_call({:recent_decisions, limit}, _from, decisions), do: {:reply, Enum.take(decisions, limit), decisions}
+
+    def handle_call({:recent_audit_history, _limit}, _from, decisions) do
+      {:reply, %{records: [], contexts: %{}, revisions: %{}}, decisions}
+    end
+
+    def handle_call(:all_audit_history, _from, decisions), do: {:reply, %{}, decisions}
+  end
+
+  defmodule StaticPayloadProvider do
+    use GenServer
+
+    def start_link(responses), do: GenServer.start_link(__MODULE__, Map.new(responses))
+    def init(responses), do: {:ok, responses}
+
+    def handle_call(request, _from, responses) do
+      {:reply, Map.fetch!(responses, request), responses}
     end
   end
 
@@ -121,13 +185,21 @@ defmodule Aiur.ExtensionsTest do
     # sequential module (the #780 WorkspaceAndConfigTest flake).
     on_exit(fn -> ensure_workflow_store_running() end)
     assert {:ok, %{prompt: "You are an agent for this repository."}} = Workflow.current()
+    assert :ok = WorkflowStore.subscribe()
+    first_generation = :sys.get_state(WorkflowStore).generation
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: "Second prompt")
     send(WorkflowStore, :poll)
 
+    assert_receive {:workflow_config_updated, generation}
+    assert generation > first_generation
+
     assert_eventually(fn ->
       match?({:ok, %{prompt: "Second prompt"}}, Workflow.current())
     end)
+
+    assert {:ok, %{prompt: "Second prompt"}, ^generation} =
+             WorkflowStore.current_with_generation()
 
     File.write!(Workflow.workflow_file_path(), "tracker: [\n")
     assert {:error, _reason} = WorkflowStore.force_reload()
@@ -140,8 +212,45 @@ defmodule Aiur.ExtensionsTest do
 
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
     assert {:ok, %{prompt: "Third prompt"}} = WorkflowStore.current()
+    assert {:ok, %{prompt: "Third prompt"}, :unknown} = WorkflowStore.current_with_generation()
     assert :ok = WorkflowStore.force_reload()
     assert :ok = ensure_workflow_store_running()
+  end
+
+  test "workflow store falls back when it shuts down during a read" do
+    ensure_workflow_store_running()
+    store = Process.whereis(WorkflowStore)
+
+    on_exit(fn ->
+      if Process.alive?(store), do: :sys.resume(store)
+      ensure_workflow_store_running()
+    end)
+
+    :sys.suspend(store)
+    :erlang.trace(store, true, [:receive])
+
+    reader = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> WorkflowStore.current() end)
+
+    assert_receive {:trace, ^store, :receive, {:"$gen_call", _from, :current}}
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+    assert {:ok, %{prompt: "You are an agent for this repository."}} = Task.await(reader)
+  end
+
+  test "workflow store retries a transient parse failure during a config write" do
+    ensure_workflow_store_running()
+    path = Workflow.workflow_file_path()
+    valid_config = File.read!(path)
+
+    File.write!(path, "tracker: [\n")
+
+    writer =
+      Task.async(fn ->
+        Process.sleep(75)
+        File.write!(path, valid_config)
+      end)
+
+    assert :ok = WorkflowStore.force_reload()
+    assert :ok = Task.await(writer)
   end
 
   test "workflow store reloads when only the prompt_file body changes" do
@@ -386,21 +495,30 @@ defmodule Aiur.ExtensionsTest do
 
     conn = get(build_conn(), "/api/v1/state")
     state_payload = json_response(conn, 200)
+    assert_occ_sections(state_payload)
 
-    assert state_payload == %{
+    assert without_occ_sections(state_payload) == %{
              "generated_at" => state_payload["generated_at"],
-             "counts" => %{"running" => 1, "retrying" => 1},
+             "counts" => %{"running" => 1, "retrying" => 1, "idle" => 0},
              "running" => [
                %{
                  "issue_id" => "issue-http",
                  "issue_identifier" => "MT-HTTP",
                  "state" => "In Progress",
+                 "tag" => nil,
+                 "title" => nil,
+                 "url" => nil,
                  "worker_host" => nil,
                  "workspace_path" => nil,
                  "session_id" => "thread-http",
                  "turn_count" => 7,
+                 "runtime_seconds" => 0,
+                 "work_state" => "working",
+                 "pause_reason" => nil,
+                 "tracker_paused" => false,
                  "last_event" => "notification",
                  "last_message" => "rendered",
+                 "live_conversation" => nil,
                  "queue_depth" => 1,
                  "capabilities" => %{
                    "accepts_operator_messages" => true,
@@ -411,7 +529,12 @@ defmodule Aiur.ExtensionsTest do
                  },
                  "started_at" => state_payload["running"] |> List.first() |> Map.fetch!("started_at"),
                  "last_event_at" => nil,
-                 "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
+                 "stale_for_seconds" => nil,
+                 "waiting_reason" => "active",
+                 "open_decision_count" => 0,
+                 "open_decision_count_health" => "unknown",
+                 "ci" => nil,
+                 "review" => "not_started"
                }
              ],
              "retrying" => [
@@ -422,16 +545,26 @@ defmodule Aiur.ExtensionsTest do
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
                  "error" => "boom",
                  "worker_host" => nil,
-                 "workspace_path" => nil
+                 "workspace_path" => nil,
+                 "state" => nil,
+                 "tag" => nil,
+                 "title" => nil,
+                 "url" => nil,
+                 "runtime_seconds" => 0,
+                 "work_state" => "retrying",
+                 "tracker_paused" => false,
+                 "waiting_reason" => "backing_off",
+                 "open_decision_count" => 0,
+                 "open_decision_count_health" => "unknown",
+                 "ci" => nil,
+                 "review" => "not_started"
                }
              ],
-             "agent_totals" => %{
-               "input_tokens" => 4,
-               "output_tokens" => 8,
-               "total_tokens" => 12,
-               "seconds_running" => 42.5
-             },
-             "rate_limits" => %{"primary" => %{"remaining" => 11}}
+             "idle" => [],
+             "agent_totals" => %{"seconds_running" => 42.5},
+             # The global pause switch rides along on every state payload so
+             # API consumers can tell a quiet fleet from a held one.
+             "globally_paused" => false
            }
 
     conn = get(build_conn(), "/api/v1/MT-HTTP")
@@ -463,8 +596,14 @@ defmodule Aiur.ExtensionsTest do
                "started_at" => issue_payload["running"]["started_at"],
                "last_event" => "notification",
                "last_message" => "rendered",
+               "live_conversation" => nil,
                "last_event_at" => nil,
-               "tokens" => %{"input_tokens" => 4, "output_tokens" => 8, "total_tokens" => 12}
+               "stale_for_seconds" => nil,
+               "waiting_reason" => "active",
+               "open_decision_count" => 0,
+               "open_decision_count_health" => "unknown",
+               "ci" => nil,
+               "review" => "not_started"
              },
              "retry" => nil,
              "capabilities" => %{
@@ -508,6 +647,127 @@ defmodule Aiur.ExtensionsTest do
       |> post("/api/v1/MT-HTTP/messages", %{"text" => "hello"})
 
     assert json_response(conn, 202) == %{"issue_identifier" => "MT-HTTP", "request_id" => 1}
+  end
+
+  test "observability issue details include tracker-active idle rows" do
+    snapshot = %{
+      static_snapshot()
+      | running: [],
+        retrying: [],
+        idle: [
+          %{
+            issue_id: "issue-idle",
+            identifier: "MT-IDLE",
+            state: "human-review",
+            tag: "agent:human-review",
+            title: "Awaiting review",
+            url: "https://example.test/issues/idle",
+            queue_depth: 2,
+            waiting_reason: :waiting_for_review,
+            open_decision_count: 1,
+            ci_result: %{decision: :passed, pr_number: 1014, head_sha: "abc123"}
+          }
+        ]
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :IdleObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert %{"counts" => %{"idle" => 1}} =
+             json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert %{
+             "status" => "idle",
+             "issue_id" => "issue-idle",
+             "queue" => %{"depth" => 2},
+             "idle" => %{
+               "waiting_reason" => "waiting_for_review",
+               "open_decision_count" => 1,
+               "review" => "awaiting",
+               "ci" => %{"decision" => "passed", "pr_number" => 1014, "head_sha" => "abc123"}
+             }
+           } = json_response(get(build_conn(), "/api/v1/MT-IDLE"), 200)
+  end
+
+  test "observability API preserves tracker identity in status and issue snapshots" do
+    identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDOHTTP",
+      identifier: "MT-HTTP"
+    }
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        [Map.put(running, :tracker_identity, identity)]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert %{
+             "running" => [
+               %{
+                 "tracker_identity" => %{
+                   "version" => 1,
+                   "status" => "joinable",
+                   "kind" => "github",
+                   "owner" => "owner",
+                   "repository" => "repo",
+                   "provider_id" => "I_kwDOHTTP",
+                   "identifier" => "MT-HTTP"
+                 }
+               }
+             ]
+           } = json_response(get(build_conn(), "/api/v1/state"), 200)
+
+    assert %{
+             "tracker_identity" => %{"provider_id" => "I_kwDOHTTP"},
+             "running" => %{"tracker_identity" => %{"provider_id" => "I_kwDOHTTP"}}
+           } = json_response(get(build_conn(), "/api/v1/MT-HTTP"), 200)
+  end
+
+  test "observability API rejects ambiguous identifier snapshots before exposing nested identity" do
+    first_identity = %Aiur.TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo-one",
+      provider_id: "I_kwDOFirst",
+      identifier: "42"
+    }
+
+    second_identity = %{first_identity | repository: "repo-two", provider_id: "I_kwDOSecond"}
+
+    snapshot =
+      update_in(static_snapshot(), [:running], fn [running] ->
+        first = Map.merge(running, %{identifier: "42", tracker_identity: first_identity})
+
+        second =
+          Map.merge(running, %{
+            issue_id: "issue-http-second",
+            identifier: "42",
+            session_id: "thread-http-second",
+            workspace_path: "/workspace/repo-two/42",
+            tracker_identity: second_identity
+          })
+
+        [first, second]
+      end)
+
+    orchestrator_name = Module.concat(__MODULE__, :AmbiguousIdentityObservabilityApiOrchestrator)
+    {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+
+    assert json_response(get(build_conn(), "/api/v1/42"), 404) == %{
+             "error" => %{"code" => "issue_not_found", "message" => "Issue not found"}
+           }
   end
 
   test "read-only dashboard blocks agent-write endpoints but keeps reads working" do
@@ -599,8 +859,9 @@ defmodule Aiur.ExtensionsTest do
              %{"error" => %{"code" => "not_found", "message" => "Route not found"}}
 
     state_payload = json_response(get(build_conn(), "/api/v1/state"), 200)
+    assert_occ_sections(state_payload)
 
-    assert state_payload ==
+    assert without_occ_sections(state_payload) ==
              %{
                "generated_at" => state_payload["generated_at"],
                "error" => %{"code" => "snapshot_unavailable", "message" => "Snapshot unavailable"}
@@ -636,8 +897,9 @@ defmodule Aiur.ExtensionsTest do
     start_test_endpoint(orchestrator: timeout_orchestrator, snapshot_timeout_ms: 1)
 
     timeout_payload = json_response(get(build_conn(), "/api/v1/state"), 200)
+    assert_occ_sections(timeout_payload)
 
-    assert timeout_payload ==
+    assert without_occ_sections(timeout_payload) ==
              %{
                "generated_at" => timeout_payload["generated_at"],
                "error" => %{"code" => "snapshot_timeout", "message" => "Snapshot timed out"}
@@ -663,18 +925,56 @@ defmodule Aiur.ExtensionsTest do
 
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
+    assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/time-brush-hook.js"
+    assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
     assert html =~ "/vendor/phoenix/phoenix.js"
     assert html =~ "/vendor/phoenix_live_view/phoenix_live_view.js"
     refute html =~ "/assets/app.js"
     refute html =~ "<style>"
 
-    dashboard_css = response(get(build_conn(), "/dashboard.css"), 200)
+    dashboard_css_conn = get(build_conn(), "/dashboard.css")
+    dashboard_css = response(dashboard_css_conn, 200)
     assert dashboard_css =~ ":root {"
-    assert dashboard_css =~ ".status-badge-live"
-    assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-live"
+    refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
+    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .nav-show-icon"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
+    assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    provider_asset_conn = get(build_conn(), "/provider-assets/codex-color.svg")
+    assert response(provider_asset_conn, 200) =~ "<svg"
+    assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
+    assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
+    assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
+    assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
+    assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    adapter_conn = get(build_conn(), "/aiur-dom-svg-layout-adapter.js")
+    adapter = response(adapter_conn, 200)
+    assert adapter =~ "createDomSvgLayoutHook"
+    assert Plug.Conn.get_resp_header(adapter_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    for module <- ["lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
+      conn = get(build_conn(), "/aiur-dom-svg-layout/#{module}")
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
+
+    assert response(get(build_conn(), "/aiur-dom-svg-layout/not-a-module.js"), 404) == "Not Found"
+
+    loader_conn = get(build_conn(), "/aiur-dom-svg-layout-loader.js")
+    assert response(loader_conn, 200) =~ "createLiveViewHook"
+    assert Plug.Conn.get_resp_header(loader_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    logo = get(build_conn(), "/aiur-logo.png")
+    assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))
+    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png; charset=utf-8"]
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -686,7 +986,29 @@ defmodule Aiur.ExtensionsTest do
       response(get(build_conn(), "/vendor/phoenix_live_view/phoenix_live_view.js"), 200)
 
     assert live_view_js =~ "var LiveView = (() => {"
+
+    layout_urls = AiurWeb.StaticAssets.layout_asset_urls()
+
+    assert layout_urls.engine =~ ~r/^\/vendor\/layout\/elk-0\.11\.1\/[a-f0-9]{64}\/elk-worker\.min\.js$/
+    assert layout_urls.worker =~ ~r/^\/vendor\/layout\/worker-v1\/[a-f0-9]{64}\/aiur-layout-worker\.js$/
+    assert layout_urls.client =~ ~r/^\/vendor\/layout\/client-v1\/[a-f0-9]{64}\/aiur-layout-client\.js$/
+
+    for url <- Map.values(layout_urls) do
+      conn = get(build_conn(), url)
+      assert response(conn, 200) != ""
+      assert Plug.Conn.get_resp_header(conn, "content-type") == ["application/javascript; charset=utf-8"]
+      assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=31536000, immutable"]
+    end
+
+    assert response(get(build_conn(), "/vendor/layout/worker-v1/not-a-digest/aiur-layout-worker.js"), 404) == "Not Found"
+
+    for private_asset <- ["LICENSE.md", "PROVENANCE.md", "SOURCE.md"] do
+      private_asset_url = String.replace(layout_urls.worker, "aiur-layout-worker.js", private_asset)
+      assert response(get(build_conn(), private_asset_url), 404) == "Not Found"
+    end
+
     assert html =~ "AgentLogPanel"
+    assert html =~ "AiurTicketContextDialogHook"
     assert html =~ "hooks: Hooks"
   end
 
@@ -725,7 +1047,9 @@ defmodule Aiur.ExtensionsTest do
       """
     )
 
-    snapshot = static_snapshot(workspace_path: log_root)
+    {snapshot, units_membership} =
+      static_snapshot(workspace_path: log_root)
+      |> with_static_units()
 
     on_exit(fn -> File.rm_rf(log_root) end)
 
@@ -741,32 +1065,43 @@ defmodule Aiur.ExtensionsTest do
         }
       )
 
-    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 50)
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 50,
+      units_membership_fun: fn -> units_membership end,
+      units_activity_fun: &static_units_activity/0
+    )
 
-    {:ok, view, html} = live(build_conn(), "/")
-    assert html =~ "Operations Dashboard"
-    assert html =~ "MT-HTTP"
-    assert html =~ "MT-RETRY"
-    assert html =~ "rendered"
+    {:ok, view, html} = live(build_conn(), "/?v=1&scope=unfinished")
+    assert html =~ "Units"
+    assert Floki.parse_document!(html) |> Floki.find("title") |> Floki.text() =~ "Dashboard"
+    assert html =~ "1100"
+    assert html =~ "1101"
+    assert html =~ "Progress"
     assert html =~ "Runtime"
     assert html =~ "Live"
     assert html =~ "Offline"
-    assert html =~ "Copy ID"
-    assert html =~ "Agent update"
-    assert html =~ "phx-click=\"show-agent-log\""
+    refute html =~ "Latest evidence"
+    # The standalone read-agent-log row action moved into the chat modal, so the
+    # Units row no longer carries a show-agent-log button.
+    refute html =~ "phx-click=\"show-agent-log\""
     refute html =~ "data-runtime-clock="
     refute html =~ "setInterval(refreshRuntimeClocks"
     refute html =~ "Refresh now"
     refute html =~ "Transport"
-    assert html =~ "status-badge-live"
+    refute html =~ "status-badge-live"
     assert html =~ "status-badge-offline"
+    assert html =~ ~s(id="nav-toggle")
+    assert html =~ ~s(phx-hook="NavToggle")
 
     updated_snapshot =
       put_in(snapshot.running, [
         %{
           issue_id: "issue-http",
-          identifier: "MT-HTTP",
+          identifier: "1100",
+          tracker_identity: static_units_identity("1100"),
           state: "In Progress",
+          title: "Updated unit title",
           session_id: "thread-http",
           turn_count: 8,
           last_codex_event: :notification,
@@ -796,19 +1131,22 @@ defmodule Aiur.ExtensionsTest do
       Keyword.put(state, :snapshot, updated_snapshot)
     end)
 
+    :ok = SnapshotStore.publish(orchestrator_name, updated_snapshot)
+
     AiurWeb.ObservabilityPubSub.broadcast_update()
 
     assert_eventually(fn ->
-      render(view) =~ "structured update"
+      render(view) =~ "Updated unit title"
     end)
 
-    log_html =
-      view
-      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
-      |> render_click()
+    token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
 
-    assert log_html =~ "Agent log"
-    assert log_html =~ "MT-HTTP"
+    # The Units row no longer has a standalone agent-log button (the chat modal
+    # carries the log now), so drive the AgentLogModal event handler directly.
+    log_html = render_hook(view, "show-agent-log", %{"unit" => token})
+
+    assert log_html =~ "Logs"
+    assert log_html =~ "1100"
     assert log_html =~ "data-agent-log-live"
     assert log_html =~ "Live"
     assert log_html =~ "phx-hook=\"AgentLogPanel\""
@@ -848,24 +1186,103 @@ defmodule Aiur.ExtensionsTest do
     refute closed_html =~ "hello from workspace log"
   end
 
+  test "dashboard decision routes render a stable deep link from the real Decision projection" do
+    orchestrator_name = Module.concat(__MODULE__, :DecisionRouteOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DecisionRouteStore)
+    snapshot = static_snapshot()
+    decision = decision_fixture("decision-live-route")
+
+    unrelated =
+      Enum.map(1..50, fn index ->
+        decision_fixture("unrelated-decision-#{index}")
+        |> Map.put(:blocking, false)
+        |> Map.put(:urgency, :low)
+      end)
+
+    orchestrator = start_supervised!({StaticOrchestrator, name: orchestrator_name, snapshot: snapshot})
+
+    decision_store =
+      start_supervised!({StaticDecisionStore, name: decision_store_name, decisions: [decision | unrelated]})
+
+    cache = start_supervised!({AiurWeb.ControlCenterCache, name: nil})
+
+    decision_metrics =
+      start_static_payload_provider(:decision_route_metrics, snapshots: %{})
+
+    recent_merges =
+      start_static_payload_provider(
+        :decision_route_recent_merges,
+        snapshot: %{
+          merges: [],
+          health: :writable,
+          reconciliation: %{status: :complete, partial?: false, pages_fetched: 0}
+        }
+      )
+
+    start_test_endpoint(
+      orchestrator: orchestrator,
+      snapshot_timeout_ms: 50,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics,
+      recent_merge_store: recent_merges,
+      control_center_cache: cache,
+      dashboard_writable: false
+    )
+
+    providers = %{
+      orchestrator: orchestrator,
+      decision_store: decision_store,
+      decision_metrics: decision_metrics,
+      recent_merge_store: recent_merges,
+      control_center_cache: cache
+    }
+
+    {:ok, inbox_view, inbox_html} = live(build_conn(), "/decisions")
+    assert inbox_html =~ "Commands inbox"
+
+    assert has_element?(inbox_view, ~s(a[href="/decisions/decision-live-route"])),
+           dashboard_route_diagnostic(inbox_html, providers)
+
+    refute has_element?(inbox_view, ~s(a[href="/decisions/unrelated-decision-50"]))
+
+    {:ok, detail_view, detail_html} = live(build_conn(), "/decisions/decision-live-route")
+
+    assert has_element?(detail_view, "#decision-detail-decision-live-route"),
+           dashboard_route_diagnostic(detail_html, providers)
+
+    assert detail_html =~ "Should this real projected decision ship?"
+    assert detail_html =~ "&lt;script&gt;never execute&lt;/script&gt;"
+    assert detail_html =~ "Read-only mode · Command mutation controls are hidden."
+    refute detail_html =~ "phx-click=\"answer-decision\""
+
+    {:ok, _missing_view, missing_html} = live(build_conn(), "/decisions/not-present")
+    assert missing_html =~ "Command not found"
+    assert missing_html =~ "not-present"
+
+    lifecycle_diagnostic = dashboard_route_diagnostic(missing_html, providers)
+    assert Process.alive?(decision_store), lifecycle_diagnostic
+    assert GenServer.whereis(decision_store_name) == decision_store, lifecycle_diagnostic
+  end
+
   test "read-only dashboard liveview hides chat controls and no-ops write events" do
     orchestrator_name = Module.concat(__MODULE__, :ReadOnlyDashboardOrchestrator)
-    snapshot = static_snapshot()
+    {snapshot, units_membership} = static_snapshot() |> with_static_units()
 
     {:ok, _pid} = StaticOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 50,
-      dashboard_writable: false
+      dashboard_writable: false,
+      units_membership_fun: fn -> units_membership end,
+      units_activity_fun: &static_units_activity/0
     )
 
     {:ok, view, _html} = live(build_conn(), "/")
 
-    modal_html =
-      view
-      |> element("tr[phx-value-issue=\"MT-HTTP\"]")
-      |> render_click()
+    token = UnitsPresenter.row_token(%{identity: static_units_identity("1100")})
+
+    modal_html = render_hook(view, "show-agent-log", %{"unit" => token})
 
     # The agent log modal still opens (reads work), but the composer and its
     # Send/Pause controls are gone — replaced by the read-only notice.
@@ -889,10 +1306,24 @@ defmodule Aiur.ExtensionsTest do
 
     {:ok, _view, html} = live(build_conn(), "/")
     assert html =~ "Snapshot unavailable"
-    assert html =~ "snapshot_unavailable"
+    assert html =~ "orchestrator_unavailable"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    previous_endpoint_config = Application.get_env(:aiur, AiurWeb.Endpoint)
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+      restore_endpoint_config(previous_endpoint_config)
+    end)
+
+    authorization = {"authorization", "Basic " <> Base.encode64("operator:secret")}
+
     spec = HttpServer.child_spec(port: 0)
     assert spec.id == HttpServer
     assert spec.start == {HttpServer, :start_link, [[port: 0]]}
@@ -924,22 +1355,27 @@ defmodule Aiur.ExtensionsTest do
 
     port = wait_for_bound_port()
     assert port == HttpServer.bound_port()
+    assert HttpServer.base_url() == "http://127.0.0.1:#{port}"
 
-    response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
+    unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
+    assert unauthenticated_response.status == 401
+
+    response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
     assert response.status == 200
-    assert response.body["counts"] == %{"running" => 1, "retrying" => 1}
+    assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
 
-    dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css")
+    dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css", headers: [authorization])
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
 
-    phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js")
+    phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js", headers: [authorization])
     assert phoenix_js.status == 200
     assert phoenix_js.body =~ "var Phoenix = (() => {"
 
     refresh_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/refresh",
         headers: [
+          authorization,
           {"content-type", "application/x-www-form-urlencoded"},
           {"origin", "http://127.0.0.1:#{port}"},
           {"x-aiur-request", "1"}
@@ -952,11 +1388,18 @@ defmodule Aiur.ExtensionsTest do
 
     method_not_allowed_response =
       Req.post!("http://127.0.0.1:#{port}/api/v1/state",
-        headers: [{"content-type", "application/x-www-form-urlencoded"}],
+        headers: [authorization, {"content-type", "application/x-www-form-urlencoded"}],
         body: ""
       )
 
     assert method_not_allowed_response.status == 405
+
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
+
+    credential_loss_response =
+      Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
+
+    assert credential_loss_response.status == 401
     assert method_not_allowed_response.body["error"]["code"] == "method_not_allowed"
 
     assert {:error, _reason} = HttpServer.start_link(host: "bad host", port: 0)
@@ -979,24 +1422,63 @@ defmodule Aiur.ExtensionsTest do
       server_port: 0
     )
 
-    start_supervised!({HttpServer, port: 0})
+    start_supervised!({HttpServer, port: 0, dashboard_writable: false})
     assert is_integer(wait_for_bound_port())
   end
 
   defp start_test_endpoint(overrides) do
+    control_center_cache =
+      Keyword.get_lazy(overrides, :control_center_cache, fn ->
+        start_supervised!({AiurWeb.ControlCenterCache, name: nil})
+      end)
+
     endpoint_config =
       :aiur
       |> Application.get_env(AiurWeb.Endpoint, [])
       |> Keyword.merge(
         server: false,
         secret_key_base: String.duplicate("s", 64),
-        dashboard_writable: true
+        dashboard_writable: true,
+        dashboard_auth_required: false,
+        control_center_cache: control_center_cache
       )
       |> Keyword.merge(overrides)
 
     Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
     start_supervised!({AiurWeb.Endpoint, []})
   end
+
+  defp start_static_payload_provider(id, responses) do
+    {StaticPayloadProvider, responses}
+    |> Supervisor.child_spec(id: {StaticPayloadProvider, id})
+    |> start_supervised!()
+  end
+
+  defp dashboard_route_diagnostic(html, providers) do
+    payload =
+      AiurWeb.ControlCenterPresenter.state_payload(providers.orchestrator, 50,
+        decision_store: providers.decision_store,
+        decision_metrics: providers.decision_metrics,
+        recent_merge_store: providers.recent_merge_store
+      )
+
+    provider_status =
+      Map.new(providers, fn {name, server} ->
+        pid = GenServer.whereis(server)
+        {name, %{server: inspect(server), pid: inspect(pid), alive?: is_pid(pid) and Process.alive?(pid)}}
+      end)
+
+    """
+    Expected the stable Decision route from isolated providers.
+    provider_status=#{inspect(provider_status, pretty: true)}
+    payload_health=#{inspect(payload.provider_health, pretty: true)}
+    payload_decision_ids=#{inspect(Enum.map(payload.decisions, & &1.decision_id))}
+    rendered_html=#{html}
+    """
+  end
+
+  defp restore_endpoint_config(nil), do: Application.delete_env(:aiur, AiurWeb.Endpoint)
+  defp restore_endpoint_config(config), do: Application.put_env(:aiur, AiurWeb.Endpoint, config)
 
   defp static_snapshot(opts \\ []) do
     workspace_path = Keyword.get(opts, :workspace_path)
@@ -1037,9 +1519,125 @@ defmodule Aiur.ExtensionsTest do
           error: "boom"
         }
       ],
+      idle: [],
       agent_totals: %{input_tokens: 4, output_tokens: 8, total_tokens: 12, seconds_running: 42.5},
       rate_limits: %{"primary" => %{"remaining" => 11}}
     }
+  end
+
+  defp with_static_units(snapshot) do
+    observed_at = DateTime.utc_now()
+    running_identity = static_units_identity("1100")
+    retrying_identity = static_units_identity("1101")
+
+    snapshot =
+      snapshot
+      |> update_in([:running], fn rows ->
+        Enum.map(rows, &Map.merge(&1, %{identifier: "1100", tracker_identity: running_identity}))
+      end)
+      |> update_in([:retrying], fn rows ->
+        Enum.map(rows, &Map.merge(&1, %{identifier: "1101", tracker_identity: retrying_identity}))
+      end)
+
+    membership = %{
+      run_id: "extensions-dashboard",
+      generation: 1,
+      health: :healthy,
+      health_message: nil,
+      freshness: %{status: :fresh, observed_at: observed_at},
+      members: [
+        static_units_member(running_identity, :running, observed_at),
+        static_units_member(retrying_identity, :retrying, observed_at)
+      ],
+      truncated?: false
+    }
+
+    {snapshot, membership}
+  end
+
+  defp static_units_identity(identifier) do
+    %Aiur.TrackerIdentity{
+      status: :joinable,
+      kind: :github,
+      owner: "its-everdred",
+      repository: "aiur",
+      provider_id: "NODE-#{identifier}",
+      identifier: identifier,
+      reason: nil
+    }
+  end
+
+  defp static_units_member(identity, lifecycle, observed_at) do
+    %{
+      identity: identity,
+      lifecycle: lifecycle,
+      terminal?: false,
+      first_observed_at: observed_at,
+      last_observed_at: observed_at
+    }
+  end
+
+  defp static_units_activity do
+    %{
+      generation: 1,
+      health: :healthy,
+      freshness: %{status: :fresh},
+      entries: []
+    }
+  end
+
+  defp decision_fixture(decision_id) do
+    %Aiur.Decision{
+      decision_id: decision_id,
+      source_id: decision_id,
+      version: 1,
+      ticket: %{identifier: "MT-HTTP", title: "Projected ticket", url: "https://example.test/issues/MT-HTTP"},
+      source: %{agent_id: "agent-http", session_id: "thread-http", event_id: "event-http"},
+      kind: "architecture",
+      authority: :human_required,
+      urgency: :critical,
+      blocking: true,
+      reversibility: :reversible,
+      question: "Should this real projected decision ship?",
+      context: %{short_summary: "A durable request", long_context_markdown: "<script>never execute</script>"},
+      options: [],
+      recommendation: nil,
+      consequence_of_delay: "The ticket agent remains paused.",
+      artifacts: [],
+      created_at: ~U[2026-07-12 12:00:00Z],
+      source_created_at: ~U[2026-07-12 12:00:00Z],
+      content_hash: "hash-#{decision_id}"
+    }
+  end
+
+  defp assert_occ_sections(payload) do
+    assert %{"entries" => decision_entries, "status" => decision_status} = payload["decision_history"]
+    assert is_list(decision_entries)
+    assert decision_status in ["available", "unavailable"]
+
+    assert %{
+             "entries" => merge_entries,
+             "reconciliation" => %{"pages_fetched" => pages_fetched},
+             "status" => merge_status
+           } = payload["recent_merges"]
+
+    assert is_list(merge_entries)
+    assert is_integer(pages_fetched)
+    assert merge_status in ["available", "degraded", "unavailable"]
+
+    assert %{"available?" => available?, "message" => message} = payload["analytics"]
+    assert is_boolean(available?)
+    assert is_binary(message)
+  end
+
+  defp without_occ_sections(payload) do
+    Map.drop(payload, [
+      "decision_history",
+      "recent_merges",
+      "analytics",
+      "capacity",
+      "capacity_hold"
+    ])
   end
 
   defp wait_for_bound_port do

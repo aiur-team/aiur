@@ -48,6 +48,22 @@ defmodule Aiur.GitHub.Tracker do
   @spec fetch_issues_by_states([String.t()], keyword()) :: {:ok, [term()]} | {:error, term()}
   def fetch_issues_by_states(states, opts), do: client_module().fetch_issues_by_states(states, opts)
 
+  @spec fetch_issues_by_states_conditional([String.t()], map()) ::
+          {:ok, [term()], map()} | {:error, term()}
+  def fetch_issues_by_states_conditional(states, cache) do
+    client = client_module()
+
+    # `Code.ensure_loaded?/1` first: under a release's lazy module loading,
+    # `function_exported?/3` answers false for a module that simply has not been
+    # loaded yet, which would silently route every call to the unconditional
+    # path and with it lose the whole ETag saving.
+    if Code.ensure_loaded?(client) and function_exported?(client, :fetch_issues_by_states_conditional, 2) do
+      client.fetch_issues_by_states_conditional(states, cache)
+    else
+      with {:ok, issues} <- client.fetch_issues_by_states(states), do: {:ok, issues, cache}
+    end
+  end
+
   @spec fetch_issue_states_by_ids([String.t()]) :: {:ok, [term()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids),
     do: client_module().fetch_issue_states_by_ids(issue_ids)
@@ -85,6 +101,23 @@ defmodule Aiur.GitHub.Tracker do
   def update_issue_state(issue_id, state_name)
       when is_binary(issue_id) and is_binary(state_name) do
     client_module().update_issue_state(issue_id, state_name)
+  end
+
+  @spec update_issue_state(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
+  def update_issue_state(issue_id, state_name, opts)
+      when is_binary(issue_id) and is_binary(state_name) and is_list(opts) do
+    client = client_module()
+
+    cond do
+      Code.ensure_loaded?(client) and function_exported?(client, :update_issue_state, 3) ->
+        client.update_issue_state(issue_id, state_name, opts)
+
+      opts == [] ->
+        client.update_issue_state(issue_id, state_name)
+
+      true ->
+        {:error, :expected_state_unsupported}
+    end
   end
 
   @spec add_label(String.t(), String.t()) :: :ok | {:error, term()}

@@ -14,7 +14,7 @@ When you're working on an Aiur ticket and another ticket might need a signal fro
 | Understand what events are and why they exist | `overview.md` |
 | Know which event names are allowed and what they mean | `event-taxonomy.md` |
 | Emit an event or subscribe to a topic pattern | `emit-and-subscribe.md` |
-| Open / close an operator attention | `attention-and-resolve.md` |
+| Open / close an Executor attention | `attention-and-resolve.md` |
 | Unblock yourself temporarily with a stub | `stub-then-fetch.md` |
 
 ## Quick reference
@@ -23,5 +23,6 @@ When you're working on an Aiur ticket and another ticket might need a signal fro
 - **Subscribe to a pattern:** `aiur_subscribe(topic_pattern)` — AMQP topic syntax (`ticket.42.#`, `*.*.branch.push`)
 - **Declare a blocker:** `aiur_declare_blocker(issue_number)` — auto-subscribes you to a useful default subset
 - **Open an attention:** `emit_event("attention.<slug>", "what you need")`; close it with `attention.resolved` + `payload: {slug: "<the-slug>"}`
+- **Ask a bounded operator question:** emit `decision.requested` with structured `options` and a recommendation before any attention or pause. A question phrased as “A or B?” must produce clickable A/B options; `attention.*` and `pause.request` are not substitutes.
 
 Tools fail loudly with structured errors — if you call `emit_event("system.foo", ...)` you'll get back a `event_name_not_in_allowlist` payload listing the valid forms.

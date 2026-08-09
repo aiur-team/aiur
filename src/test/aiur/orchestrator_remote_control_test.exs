@@ -41,6 +41,26 @@ defmodule Aiur.OrchestratorRemoteControlTest do
   end
 
   describe "promote (set on): gating before any label op" do
+    test "a missing lifecycle-hook listener rejects promotion without stopping the agent" do
+      agent_pid = spawn(fn -> Process.sleep(:infinity) end)
+      agent_ref = Process.monitor(agent_pid)
+
+      entry =
+        running_entry("CLA-NODASH", ["model:claude"],
+          pid: agent_pid,
+          ref: agent_ref,
+          workspace_path: "/tmp/ws"
+        )
+
+      state = state_with([entry])
+
+      assert {{:error, :remote_control_requires_dashboard}, ^state} =
+               RemoteControlMode.set_remote_control_reply(state, "CLA-NODASH", true, dashboard_url_fun: fn -> nil end)
+
+      assert Process.alive?(agent_pid)
+      Process.exit(agent_pid, :kill)
+    end
+
     test "a claude agent on a remote worker is unsupported in v1" do
       entry = running_entry("CLA-1", ["model:claude"], worker_host: "box-2", workspace_path: "/tmp/ws")
       state = state_with([entry])
@@ -130,7 +150,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, new_state} =
         capture_and_return(fn ->
-          RemoteControlMode.set_remote_control_reply(state, "CLA-FAIL", true)
+          RemoteControlMode.set_remote_control_reply(state, "CLA-FAIL", true, dashboard_url_fun: fn -> "http://127.0.0.1:4000" end)
         end)
 
       assert {:error, {:rc_label_failed, :unsupported}} = result
@@ -176,7 +196,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, _new_state} =
         capture_and_return(fn ->
-          RemoteControlMode.set_remote_control_reply(state, "CLA-P", true)
+          RemoteControlMode.set_remote_control_reply(state, "CLA-P", true, dashboard_url_fun: fn -> "http://127.0.0.1:4000" end)
         end)
 
       assert result == {:ok, :on}
@@ -202,7 +222,7 @@ defmodule Aiur.OrchestratorRemoteControlTest do
 
       {result, _new_state} =
         capture_and_return(fn ->
-          RemoteControlMode.set_remote_control_reply(state, "CDX-P", true)
+          RemoteControlMode.set_remote_control_reply(state, "CDX-P", true, dashboard_url_fun: fn -> "http://127.0.0.1:4000" end)
         end)
 
       assert result == {:ok, :on}

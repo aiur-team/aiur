@@ -5,14 +5,18 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{CIApprovalStore, Config, ProcessReaper}
+  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    ControlLifecycleStore,
     DispatchPolicy,
+    GlobalPauseStore,
+    PauseResume,
     RemoteControlMode,
     Slots,
+    SnapshotStore,
     State,
     StatusReport,
     TrackedSet,
@@ -20,6 +24,18 @@ defmodule Aiur.Orchestrator.Lifecycle do
   }
 
   @poll_transition_render_delay_ms 20
+  @control_ack_timeout_ms 30_000
+  @orchestrator_topics [
+    "ticket.*.pr.review_comment",
+    "ticket.*.issue.commented",
+    "ticket.*.pr.merged",
+    "ticket.*.ci.failed",
+    "ticket.*.ci.passed",
+    "ticket.*.agent.pause.request",
+    "ticket.*.agent.unblocked",
+    "ticket.*.branch.push",
+    "system.*.branch.push"
+  ]
   @empty_agent_totals %{
     input_tokens: 0,
     output_tokens: 0,
@@ -40,7 +56,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   end
 
   @spec init(keyword(), (term() -> boolean())) :: {:ok, State.t()}
-  def init(_opts, tracked_issue?) when is_function(tracked_issue?, 1) do
+  def init(opts, tracked_issue?) when is_function(tracked_issue?, 1) do
     # Trap exits so the supervisor's orderly shutdown lands in `terminate/2`,
     # which reaps every running agent's process tree (see `terminate/2`).
     Process.flag(:trap_exit, true)
@@ -48,24 +64,54 @@ defmodule Aiur.Orchestrator.Lifecycle do
     now_ms = System.monotonic_time(:millisecond)
     config = Config.settings!()
 
+    control_lifecycle =
+      ControlLifecycleStore.load()
+      |> ControlLifecycleStore.expire_unresolved_on_recovery()
+
+    :ok = ControlLifecycleStore.save(control_lifecycle)
+
+    snapshot_key = Keyword.get(opts, :name, Aiur.Orchestrator)
+    persisted_global_pause = GlobalPauseStore.load()
+    global_pause = initial_global_pause(persisted_global_pause)
+
     state = %State{
+      snapshot_key: snapshot_key,
+      # A restarted server keeps its prior fleet view until this generation has
+      # completed a fresh poll and projection. Older projector tasks are fenced
+      # by this token before they can replace that retained view.
+      snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
       # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
       # holds without editing `.aiur/config`.
       session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
+      # `--pause` at launch: cold-start globally paused so no agents provision
+      # even with agent:todo tickets, until the operator unpauses.
+      globally_paused: global_pause.globally_paused,
+      global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
-      load_envelope_last_decrease_ms: nil,
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
+      poll_frozen: false,
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
-      ci_lifecycle: CIApprovalStore.load(),
+      ci_lifecycle:
+        CIApprovalStore.load()
+        |> Map.put(:poll_cache, %{})
+        |> Map.put(:rewakes, %{}),
       agent_totals: @empty_agent_totals,
-      agent_rate_limits: nil
+      agent_rate_limits: nil,
+      control_lifecycle: control_lifecycle
     }
+
+    :ok =
+      SnapshotStore.publish_global_pause(
+        snapshot_key,
+        state.snapshot_generation,
+        Map.put(state.global_pause, :globally_paused, state.globally_paused)
+      )
 
     state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
     state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
@@ -73,8 +119,31 @@ defmodule Aiur.Orchestrator.Lifecycle do
     TrackedSet.reset([])
     install_event_tracked_fn(tracked_issue?)
     subscribe_to_orchestrator_topics()
+    _ = LiveConversation.subscribe_restarts()
 
-    {:ok, schedule_tick(state, 0)}
+    state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
+
+    {:ok, state}
+  end
+
+  defp initial_global_pause({:ok, persisted}) do
+    if Slots.launch_globally_paused?() do
+      next = %{globally_paused: true, paused_at: DateTime.utc_now(), source: "CLI --pause"}
+      :ok = GlobalPauseStore.save(next)
+      next
+    else
+      persisted
+    end
+  end
+
+  defp initial_global_pause({:error, _reason}) do
+    if Slots.launch_globally_paused?() do
+      next = %{globally_paused: true, paused_at: DateTime.utc_now(), source: "CLI --pause"}
+      :ok = GlobalPauseStore.save(next)
+      next
+    else
+      %{globally_paused: true, paused_at: DateTime.utc_now(), source: "persistence recovery failed"}
+    end
   end
 
   # On whole-app shutdown the supervisor brutally kills the AgentRunner
@@ -102,6 +171,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   @spec handle_tick(State.t()) :: {:noreply, State.t()}
   def handle_tick(%State{} = state) do
     state = refresh_runtime_config(state)
+    state = PauseResume.expire_pending_controls(state, DateTime.utc_now(), @control_ack_timeout_ms)
 
     state = %{
       state
@@ -149,6 +219,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
     }
   end
 
+  defp schedule_initial_tick(state, false), do: %{state | next_poll_due_at_ms: nil}
+  defp schedule_initial_tick(state, _initial_poll?), do: schedule_tick(state, 0)
+
   @spec schedule_poll_cycle_start() :: :ok
   def schedule_poll_cycle_start do
     :timer.send_after(@poll_transition_render_delay_ms, self(), :run_poll_cycle)
@@ -179,15 +252,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # before the first tick is seeded.
   defp subscribe_to_orchestrator_topics do
     if Process.whereis(Exchange) do
-      Exchange.subscribe("ticket.*.pr.review_comment")
-      Exchange.subscribe("ticket.*.issue.commented")
-      Exchange.subscribe("ticket.*.pr.merged")
-      Exchange.subscribe("ticket.*.ci.failed")
-      Exchange.subscribe("ticket.*.agent.pause.request")
-      Exchange.subscribe("ticket.*.branch.push")
-      Exchange.subscribe("system.*.branch.push")
+      Enum.each(@orchestrator_topics, &Exchange.subscribe/1)
     end
 
     :ok
   end
+
+  @doc false
+  @spec orchestrator_topics() :: [String.t()]
+  def orchestrator_topics, do: @orchestrator_topics
 end

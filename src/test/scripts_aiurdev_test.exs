@@ -41,8 +41,17 @@ defmodule ScriptsAiurdevTest do
         "    echo \"XDG_STATE_HOME: ${XDG_STATE_HOME:-}\"\n" <>
         "    echo \"XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
         "    echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
+        "    echo \"OPENCODE_PATH: $(command -v opencode 2>/dev/null || true)\"\n" <>
         "  } >> \"$AIUR_ENGINE_TRACE\"\n" <>
         "fi\n" <>
+        ~S|if [ -n "${AIUR_FAKE_ENGINE_TRANSIENT_ONCE:-}" ] && [ ! -e "$AIUR_FAKE_ENGINE_TRANSIENT_ONCE" ]; then| <>
+        "\n" <>
+        "  : > \"$AIUR_FAKE_ENGINE_TRANSIENT_ONCE\"\n" <>
+        "  : > \"$AIUR_CONTROL_RELEASE_RETRY_SIGNAL\"\n" <>
+        "  exit 75\n" <>
+        "fi\n" <>
+        ~S|[ -n "${AIUR_FAKE_ENGINE_EXIT:-}" ] && exit "$AIUR_FAKE_ENGINE_EXIT"| <>
+        "\n" <>
         "echo \"ENGINE_ARGS: $*\"\n" <>
         "echo \"RELEASE_DIR: ${AIUR_RELEASE_DIR:-}\"\n" <>
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
@@ -52,7 +61,8 @@ defmodule ScriptsAiurdevTest do
         "echo \"XDG_CONFIG_HOME: ${XDG_CONFIG_HOME:-}\"\n" <>
         "echo \"XDG_STATE_HOME: ${XDG_STATE_HOME:-}\"\n" <>
         "echo \"XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-}\"\n" <>
-        "echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n"
+        "echo \"AIUR_OPENCODE_BRIDGE_PORT: ${AIUR_OPENCODE_BRIDGE_PORT:-}\"\n" <>
+        "echo \"OPENCODE_PATH: $(command -v opencode 2>/dev/null || true)\"\n"
     )
 
     File.chmod!(engine, 0o755)
@@ -105,11 +115,20 @@ defmodule ScriptsAiurdevTest do
   # `mise exec -- mix aiur.test.reset` runs without a real toolchain.
   defp fake_mise do
     path = Path.join(System.tmp_dir!(), "aiurdev-mise-#{System.unique_integer([:positive])}")
+    opencode_dir = path <> ".opencode"
 
     File.write!(
       path,
       ~S"""
       #!/usr/bin/env bash
+      if [ "${1:-}" = "where" ]; then
+        mkdir -p "${0}.opencode"
+        printf '%s\\n' '#!/usr/bin/env bash' > "${0}.opencode/opencode"
+        chmod +x "${0}.opencode/opencode"
+        echo "${0}.opencode"
+        exit 0
+      fi
+
       echo "MISE: $*"
       echo "MISE_AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}"
       echo "MISE_AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}"
@@ -122,6 +141,14 @@ defmodule ScriptsAiurdevTest do
         case "${4:-}" in
           deps.get|compile)
             mkdir -p deps _build
+            if [ "${4:-}" = "compile" ] && [ -n "${AIUR_FAKE_MISE_COMPILE_LOG:-}" ]; then
+              echo "compile $*" >> "$AIUR_FAKE_MISE_COMPILE_LOG"
+            fi
+            if [ "${4:-}" = "compile" ]; then
+              mkdir -p _build/dev/lib/aiur/ebin
+              printf 'generation-2' > _build/dev/lib/aiur/ebin/schema.beam
+              printf 'generation-2' > _build/dev/lib/aiur/ebin/consumer.beam
+            fi
             ;;
           release)
             if [ -n "${AIUR_FAKE_MISE_RELEASE_LOG:-}" ]; then
@@ -130,7 +157,7 @@ defmodule ScriptsAiurdevTest do
             if [ -n "${AIUR_FAKE_MISE_RELEASE_SLEEP:-}" ]; then
               sleep "$AIUR_FAKE_MISE_RELEASE_SLEEP"
             fi
-            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/releases/0.0.3 _build/dev/rel/aiur/erts-16.4/bin
+            mkdir -p bin _build/dev/rel/aiur/bin _build/dev/rel/aiur/lib/aiur-0.0.3/ebin _build/dev/rel/aiur/releases/0.0.3 _build/dev/rel/aiur/erts-16.4/bin
             echo '#!/usr/bin/env bash' > bin/aiur
             echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/bin/aiur
             echo '#!/usr/bin/env bash' > _build/dev/rel/aiur/erts-16.4/bin/epmd
@@ -139,6 +166,10 @@ defmodule ScriptsAiurdevTest do
             : > _build/dev/rel/aiur/releases/0.0.3/start_clean.boot
             : > _build/dev/rel/aiur/releases/0.0.3/vm.args
             : > _build/dev/rel/aiur/releases/0.0.3/sys.config
+            if [ -f _build/dev/lib/aiur/ebin/schema.beam ] && [ -f _build/dev/lib/aiur/ebin/consumer.beam ]; then
+              cp _build/dev/lib/aiur/ebin/schema.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/schema.beam
+              cp _build/dev/lib/aiur/ebin/consumer.beam _build/dev/rel/aiur/lib/aiur-0.0.3/ebin/consumer.beam
+            fi
             if [ "${AIUR_FAKE_MISE_FAIL_RELEASE:-}" = "1" ]; then
               exit 9
             fi
@@ -152,7 +183,12 @@ defmodule ScriptsAiurdevTest do
     )
 
     File.chmod!(path, 0o755)
-    on_exit(fn -> File.rm!(path) end)
+
+    on_exit(fn ->
+      File.rm(path)
+      File.rm_rf(opencode_dir)
+    end)
+
     path
   end
 
@@ -213,6 +249,51 @@ defmodule ScriptsAiurdevTest do
 
     refute out =~ "rebuilding"
     refute out =~ "force-rebuild"
+  end
+
+  test "AIUR_SKIP_BUILD still pins opencode for launch paths" do
+    root = fake_repo()
+    mise = fake_mise()
+
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: --bg"
+    assert out =~ "OPENCODE_PATH: #{mise}.opencode/opencode"
+  end
+
+  test "control commands do not require a pinned opencode install" do
+    root = fake_repo()
+
+    {out, 0} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", Path.join(root, "missing-mise")},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: status"
+  end
+
+  test "launch paths fail closed when pinned opencode is unavailable" do
+    root = fake_repo()
+
+    {out, 64} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", Path.join(root, "missing-mise")},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "mise not found"
+    refute out =~ "ENGINE_ARGS:"
   end
 
   test "concurrent stale rebuilds serialize and reuse the completed release" do
@@ -303,6 +384,47 @@ defmodule ScriptsAiurdevTest do
     refute out =~ "waiting for aiurdev rebuild lock"
   end
 
+  test "control commands retry once when the ready release changes before rpc" do
+    root = fake_repo()
+    mise = fake_mise()
+    trace = engine_trace(root)
+    transient = Path.join(root, "transient-once")
+
+    seed_ready_release(root)
+
+    {out, 0} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_FAKE_ENGINE_TRANSIENT_ONCE", transient},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "dev release changed during control command"
+    assert out =~ "ENGINE_ARGS: status"
+    assert File.read!(trace) |> String.split("ENGINE_ARGS: status") |> Enum.count() == 3
+  end
+
+  test "an ordinary control exit 75 is not retried without the release signal" do
+    root = fake_repo()
+    mise = fake_mise()
+    trace = engine_trace(root)
+
+    seed_ready_release(root)
+
+    {_, 75} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_ENGINE_TRACE", trace},
+        {"AIUR_FAKE_ENGINE_EXIT", "75"},
+        {"TMUX", nil}
+      ])
+
+    assert File.read!(trace) |> String.split("ENGINE_ARGS: status") |> Enum.count() == 2
+  end
+
   test "control commands rebuild when any ready-release artifact is missing" do
     for {missing, remove_artifact} <- [
           {"start_clean.boot",
@@ -369,6 +491,42 @@ defmodule ScriptsAiurdevTest do
     assert File.exists?(log), "run paths should still invoke mix release when sources are stale"
   end
 
+  test "stale rebuild compiles schema and consumer as one generation" do
+    root = fake_repo()
+    mise = fake_mise()
+    src = Path.join(root, "src")
+    compile_log = Path.join(root, "compile.log")
+    release_app = Path.join([src, "_build", "dev", "rel", "aiur", "lib", "aiur-0.0.3", "ebin"])
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin"]))
+    File.mkdir_p!(release_app)
+    File.write!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "schema.beam"]), "generation-1")
+    File.write!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "consumer.beam"]), "generation-1")
+    File.write!(Path.join(release_app, "schema.beam"), "generation-1")
+    File.write!(Path.join(release_app, "consumer.beam"), "generation-1")
+    File.write!(Path.join(src, "generation"), "generation-2")
+    File.mkdir_p!(Path.join(src, "lib"))
+    File.write!(Path.join([src, "lib", "generation.ex"]), "# generation-2")
+    File.touch!(Path.join([src, "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+    File.touch!(Path.join([src, "lib", "generation.ex"]), {{2030, 1, 1}, {0, 0, 0}})
+
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_COMPILE_LOG", compile_log},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: --bg"
+    assert File.read!(compile_log) =~ "compile exec -- mix compile --force"
+    assert File.read!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "schema.beam"])) == "generation-2"
+    assert File.read!(Path.join([src, "_build", "dev", "lib", "aiur", "ebin", "consumer.beam"])) == "generation-2"
+    assert File.read!(Path.join(release_app, "schema.beam")) == "generation-2"
+    assert File.read!(Path.join(release_app, "consumer.beam")) == "generation-2"
+  end
+
   test "failed rebuild removes the incomplete release and exits nonzero" do
     root = fake_repo()
     mise = fake_mise()
@@ -427,11 +585,13 @@ defmodule ScriptsAiurdevTest do
   test "--debug --clear wipes the logs root then execs the engine" do
     root = fake_repo()
     home = sandbox_home()
+    mise = fake_mise()
 
     {out, 0} =
       run_shim(["--debug", "--clear"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
         {"TMUX", nil},
         {"HOME", home}
       ])
@@ -520,12 +680,14 @@ defmodule ScriptsAiurdevTest do
   test "agent workspace non-test launch leaves bridge port to runtime selection" do
     root = fake_agent_repo(337)
     trace = engine_trace(root)
+    mise = fake_mise()
 
     {out, 0} =
       run_shim(["--bg", "--debug"], [
         {"AIUR_REPO_ROOT", root},
         {"AIUR_ENGINE_TRACE", trace},
         {"AIUR_SKIP_BUILD", "1"},
+        {"AIUR_MISE_BIN", mise},
         {"TMUX", nil},
         {"AIUR_AGENT_WORKSPACE", root}
       ])

@@ -101,7 +101,7 @@ defmodule Aiur.Alerts do
 
   @spec emit_system(String.t(), keyword()) :: :ok | {:error, term()}
   def emit_system(name, opts \\ []) when is_binary(name) do
-    do_emit(name, nil, opts)
+    do_emit(name, Keyword.get(opts, :message), Keyword.put(opts, :event_source, :system))
   end
 
   @spec emit_custom(String.t(), String.t()) :: :ok | {:error, term()}
@@ -112,7 +112,7 @@ defmodule Aiur.Alerts do
   @spec emit_custom(String.t(), String.t(), keyword()) :: :ok | {:error, term()}
   def emit_custom(name, message, opts)
       when is_binary(name) and is_binary(message) do
-    do_emit(name, message, opts)
+    do_emit(name, message, Keyword.put_new(opts, :event_source, :agent))
   end
 
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
@@ -123,7 +123,7 @@ defmodule Aiur.Alerts do
 
     # Always publish through the Exchange — even when there's no matching
     # alert entry. Subscribers to the topic bus see every alert-emitted
-    # event, regardless of whether the operator-facing sound/badge fires.
+    # event, regardless of whether the Executor-facing sound/badge fires.
     metadata = alert_metadata(message, opts)
     publish_to_exchange(topic, message, metadata, opts)
 
@@ -165,7 +165,7 @@ defmodule Aiur.Alerts do
       }
 
       AgentEventLog.write(workspace, worker_host, alert_event)
-      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host)
+      maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts)
 
       maybe_play_sound(selected_sound, settings, opts)
       broadcast_agent_alert(topic, message, metadata, selected_sound, opts)
@@ -206,8 +206,8 @@ defmodule Aiur.Alerts do
     end
   end
 
-  defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host) do
-    if is_binary(workspace) and worker_host == nil do
+  defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts) do
+    if is_binary(workspace) and worker_host == nil and not Keyword.get(opts, :central, false) do
       :ok
     else
       write_central_alert_feed_entry(alert_event)
@@ -252,10 +252,17 @@ defmodule Aiur.Alerts do
       "severity" => metadata.severity,
       "needs_attention" => metadata.needs_attention,
       "source_ticket_id" => metadata.source_ticket_id,
-      "topic" => topic
+      "topic" => topic,
+      source: Keyword.get(opts, :event_source, :system)
     }
 
-    Publisher.publish(topic, payload, issue_number: issue_number_for(opts))
+    Publisher.publish(topic, payload,
+      issue_number: issue_number_for(opts),
+      identity: Keyword.get(opts, :observation_identity),
+      observation_source: Keyword.get(opts, :observation_source),
+      observation_provenance: Keyword.get(opts, :observation_provenance),
+      occurred_at: Keyword.get(opts, :occurred_at)
+    )
 
     :ok
   rescue
@@ -328,7 +335,7 @@ defmodule Aiur.Alerts do
   # canonical file is absent but a legacy `.aiur/alerts.yaml` still sits next to
   # the config, the mappings silently resolve to `%{}` and every alert goes
   # quiet with no signal. Warn once — keyed on the legacy path via
-  # `:persistent_term`, so a single VM logs it a single time — so the operator
+  # `:persistent_term`, so a single VM logs it a single time — so the Executor
   # knows to rename the file. The yaml is never read; only its presence is
   # detected.
   defp warn_if_legacy_yaml_only(nil), do: :ok
@@ -362,7 +369,7 @@ defmodule Aiur.Alerts do
   # The default alert definitions live alongside the aiur config, at
   # `<config-dir>/alerts` (i.e. `.aiur/alerts`). Resolved at RUNTIME
   # from the active config path rather than a compile-time module attribute, so
-  # it tracks the operator's `.aiur/` directory and resolves correctly inside an
+  # it tracks the Executor’s `.aiur/` directory and resolves correctly inside an
   # assembled release/escript (a baked source path would not).
   defp default_alerts_path do
     case Workflow.workflow_file_path() do

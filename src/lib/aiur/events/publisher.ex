@@ -40,6 +40,7 @@ defmodule Aiur.Events.Publisher do
 
   alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.TicketObservation
 
   @table __MODULE__.Dedup
   # 1-hour dedup window. GitHub's Events API returns the same event
@@ -50,6 +51,7 @@ defmodule Aiur.Events.Publisher do
   # of ETS state per dedupe key.
   @default_ttl_ms 3_600_000
   @sweep_interval_ms 60_000
+  @durable_decision_names ["decision.requested", "decision.acknowledged", "decision.resolved"]
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -82,14 +84,23 @@ defmodule Aiur.Events.Publisher do
       `bot_self_loop?` and dedup gates still apply, and the orchestrator
       and live agents self-gate by subscription, so untracked-issue
       comments published this way reach no reactivation target.
+    * `:digest_source` — trusted internal provenance for the agent digest.
+      Reserved payload keys are stripped before this option is applied, so
+      external content cannot grant itself digest access.
   """
   @spec publish(String.t(), map(), keyword()) ::
-          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped
+          {:ok, pos_integer(), non_neg_integer()} | :filtered | :deduped | {:error, :decision_requires_durable_publish | :executor_namespace_rejects_github_source}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
     actor = Keyword.get(opts, :actor)
 
     cond do
-      bot_self_loop?(actor) ->
+      durable_decision_topic?(topic) ->
+        {:error, :decision_requires_durable_publish}
+
+      executor_topic_from_github?(topic, payload, opts) ->
+        {:error, :executor_namespace_rejects_github_source}
+
+      filtered_bot_self_loop?(topic, actor) ->
         :filtered
 
       not Keyword.get(opts, :bypass_contamination, false) and
@@ -101,11 +112,102 @@ defmodule Aiur.Events.Publisher do
 
       true ->
         id = IdGenerator.next_id()
-        event = Map.merge(payload, %{id: id, topic: topic})
+
+        event = event_with_observation(topic, payload, id, opts)
+
         subscribers = Exchange.publish(topic, event)
         record_emit_marker(topic, event, opts)
         DebugLog.broadcast(:publish, topic, id: id, body: payload)
         {:ok, id, subscribers}
+    end
+  end
+
+  @doc """
+  Publishes an event that is already durably persisted, under a
+  caller-supplied `id` from `Aiur.Events.IdGenerator.reserve_durable_id/1`.
+  Skips ID assignment and the contamination/dedup filters — the caller
+  (`Aiur.DecisionStore`) already made the accept/reject decision
+  durably; this is notification fan-out for something that already
+  happened, not a new best-effort publish. Keeps the same Exchange
+  fan-out, IssueLog marker, and debug broadcast behavior as `publish/3`.
+  """
+  @spec publish_persisted(String.t(), map(), pos_integer(), keyword()) ::
+          {:ok, pos_integer(), non_neg_integer()} | {:error, :executor_namespace_rejects_github_source}
+  def publish_persisted(topic, payload, id, opts \\ [])
+      when is_binary(topic) and is_map(payload) and is_integer(id) do
+    if executor_topic_from_github?(topic, payload, opts) do
+      {:error, :executor_namespace_rejects_github_source}
+    else
+      event = event_with_observation(topic, payload, id, opts)
+
+      subscribers = Exchange.publish(topic, event)
+      record_emit_marker(topic, event, opts)
+      DebugLog.broadcast(:publish, topic, id: id, body: payload)
+      {:ok, id, subscribers}
+    end
+  end
+
+  defp executor_topic_from_github?("executor." <> _rest, payload, opts) do
+    source = Keyword.get(opts, :source) || Keyword.get(opts, :observation_source) || Map.get(payload, :source) || Map.get(payload, "source")
+    source in [:github, "github"] or match?(%{kind: :github}, source) or match?(%{"kind" => "github"}, source)
+  end
+
+  defp executor_topic_from_github?(_topic, _payload, _opts), do: false
+
+  # Reserved Decision lifecycle names must only ever reach Exchange through
+  # `Aiur.DecisionStore`'s persist-before-notify path (via
+  # `publish_persisted/4`) — direct `publish/3` calls bypass durability
+  # entirely, so every call site is rejected here regardless of the
+  # ticket-namespace prefix a caller builds the topic with.
+  defp durable_decision_topic?(topic) do
+    Enum.any?(@durable_decision_names, &(topic == &1 or String.ends_with?(topic, ".#{&1}")))
+  end
+
+  # Compatibility boundary: every event gains an envelope, but legacy callers
+  # remain explicitly unattributed. Identity is accepted only through a trusted
+  # producer option; topic, issue number, and payload are never identity input.
+  defp ticket_observation(payload, id, opts) do
+    opts
+    |> observation_options(id)
+    |> then(&TicketObservation.normalize(payload, &1))
+  end
+
+  defp event_with_observation(topic, payload, id, opts) do
+    payload
+    |> Map.drop([:ticket_observation, "ticket_observation", :digest_source, "digest_source"])
+    |> Map.merge(%{id: id, topic: topic})
+    |> maybe_put_digest_source(Keyword.get(opts, :digest_source))
+    |> Map.put(:ticket_observation, ticket_observation(payload, id, opts))
+  end
+
+  defp maybe_put_digest_source(event, source) when source in [:agent, :orchestrator, :system],
+    do: Map.put(event, :digest_source, source)
+
+  defp maybe_put_digest_source(event, _source), do: event
+
+  defp observation_options(opts, id) do
+    [event_id: id, observed_at: observation_time(opts)]
+    |> copy_option(opts, :identity, :identity)
+    |> copy_option(opts, :observation_source, :source)
+    |> copy_option(opts, :observation_provenance, :provenance)
+    |> copy_option(opts, :occurred_at, :occurred_at)
+    |> copy_option(opts, :payload_version, :payload_version)
+  end
+
+  defp observation_time(opts) do
+    case Keyword.get(opts, :observation_clock, &DateTime.utc_now/0) do
+      clock when is_function(clock, 0) -> clock.()
+      _clock -> nil
+    end
+  rescue
+    _error -> nil
+  end
+
+  defp copy_option(accumulator, opts, source_key, destination_key) do
+    if Keyword.has_key?(opts, source_key) do
+      Keyword.put(accumulator, destination_key, Keyword.fetch!(opts, source_key))
+    else
+      accumulator
     end
   end
 
@@ -185,6 +287,11 @@ defmodule Aiur.Events.Publisher do
       _ -> false
     end
   end
+
+  defp authoritative_merge_topic?(topic), do: String.ends_with?(topic, ".pr.merged")
+
+  defp filtered_bot_self_loop?(topic, actor),
+    do: bot_self_loop?(actor) and not authoritative_merge_topic?(topic)
 
   defp tracked?(nil), do: true
 

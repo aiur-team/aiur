@@ -46,6 +46,18 @@ else
 fi
 unset __aiur_soft_nofile
 
+# Preserve the shell that initiated the run as a best-effort Executor root.
+# An explicit positive override wins (service managers may know a better root);
+# otherwise the engine's parent is the nearest identity available before tmux
+# hands daemon ownership to its pane launcher.
+if ! [[ "${AIUR_OPERATOR_PID:-}" =~ ^[1-9][0-9]*$ ]]; then
+  if [[ "${PPID:-}" =~ ^[1-9][0-9]*$ ]]; then
+    export AIUR_OPERATOR_PID="$PPID"
+  else
+    unset AIUR_OPERATOR_PID
+  fi
+fi
+
 die() {
   echo "❌ $*" >&2
   exit 1
@@ -224,16 +236,35 @@ release_dir=""
 vsn_dir=""
 release_bin=""
 
+control_release_retry() {
+  [ -n "${AIUR_CONTROL_RELEASE_RETRY_SIGNAL:-}" ] && : >"$AIUR_CONTROL_RELEASE_RETRY_SIGNAL"
+  return 75
+}
+
 resolve_release() {
   release_dir="${AIUR_RELEASE_DIR:-}"
   [ -n "$release_dir" ] || die "AIUR_RELEASE_DIR is not set; the engine must be invoked via the aiur or aiurdev wrapper"
-  [ -d "$release_dir" ] || die "AIUR_RELEASE_DIR does not exist: $release_dir"
+  if [ ! -d "$release_dir" ]; then
+    # aiurdev uses EX_TEMPFAIL to wait out an in-place dev rebuild and retry
+    # exactly once. Product launches keep the existing fatal diagnostics.
+    if [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ]; then
+      control_release_retry
+      return $?
+    fi
+    die "AIUR_RELEASE_DIR does not exist: $release_dir"
+  fi
 
   local release_vsn
-  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data")"
+  release_vsn="$(cut -d' ' -f2 "$release_dir/releases/start_erl.data" 2>/dev/null || true)"
   vsn_dir="$release_dir/releases/$release_vsn"
   release_bin="$release_dir/bin/aiur"
-  [ -x "$vsn_dir/elixir" ] || die "release elixir launcher not found at $vsn_dir/elixir"
+  if [ -z "$release_vsn" ] || [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ]; then
+    if [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ]; then
+      control_release_retry
+      return $?
+    fi
+    die "release elixir launcher not found at $vsn_dir/elixir"
+  fi
 }
 
 # --- argv round-trip (System.argv is empty under `elixir --eval`) -------------
@@ -278,17 +309,27 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--no-dashboard] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg             start in a lean, headless detached tmux session
+       aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
+       aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
+       aiur executor-emit <topic> --payload <json>  publish an Executor event
+       aiur executor-subscribe|executor-unsubscribe <pattern>
+       aiur executor-subscriptions  list persistent Executor bindings
        aiur set max-agents <n>   change the concurrent-agent cap at runtime
-       aiur pause <ids|--all> | resume <ids|--all>
-       aiur message <id> <text>  send operator text to a running agent
+       aiur pause | resume             flip the global pause switch (whole daemon)
+       aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
+       aiur message <id> <text>  send Executor text to a running agent
+       aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
+       aiur findings --record <json> --repo <owner/repo>  append one validated finding
+       aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -319,16 +360,75 @@ run_init() {
   exec "${release_cmd[@]}"
 }
 
+# --- one-shot: --todo (control RPC; requires a running daemon) ----------------
+
+parsed_todo_only=0
+
+parse_todo_args() {
+  parsed_targets=()
+  parsed_todo_only=0
+
+  local saw_todo=0 raw part parts
+  for raw in "$@"; do
+    case "$raw" in
+      --todo)
+        [ "$saw_todo" -eq 0 ] || return 1
+        saw_todo=1
+        ;;
+      --only)
+        parsed_todo_only=1
+        ;;
+      -*)
+        return 1
+        ;;
+      *)
+        IFS=',' read -ra parts <<<"$raw"
+        for part in "${parts[@]}"; do
+          part="$(trim "$part")"
+          if [ -z "$part" ] || [[ ! "$part" =~ ^[0-9]+$ ]]; then return 1; fi
+          while [ "${#part}" -gt 1 ] && [ "${part#0}" != "$part" ]; do
+            part="${part#0}"
+          done
+          parsed_targets+=("$part")
+        done
+        ;;
+    esac
+  done
+
+  [ "$saw_todo" -eq 1 ] && [ "${#parsed_targets[@]}" -gt 0 ]
+}
+
+run_todo() {
+  if ! parse_todo_args "$@"; then
+    echo "aiur: --todo expects one or more numeric issue IDs, optionally followed by --only" >&2
+    exit 64
+  fi
+
+  local only_arg="false"
+  [ "$parsed_todo_only" -eq 1 ] && only_arg="true"
+  run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
+}
+
+# --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
+
+run_findings() {
+  run_init "$@"
+}
+
 # --- interactive / background run -------------------------------------------
 #
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load KEY=VALUE pairs from ./.env into the environment so the running release
-# (e.g. GITHUB_TOKEN, dashboard creds) sees what `aiur init` scaffolded there.
-# An already-exported variable always wins, so a shell export overrides the file.
+# Load operator/machine credentials before repo-local settings. Since each file
+# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
 load_dotenv() {
-  local file=".env" line key val
+  load_dotenv_file "$HOME/.aiur/.env"
+  load_dotenv_file ".env"
+}
+
+load_dotenv_file() {
+  local file="$1" line key val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
@@ -346,6 +446,57 @@ load_dotenv() {
     [ -n "${!key+x}" ] && continue
     export "$key=$val"
   done <"$file"
+}
+
+# The readiness token grants the one-shot `aiur init` assessment access that a
+# normal daemon and its child agents must never inherit. Keep dotenv loading
+# generic, then remove this run-only secret before any session process starts.
+scrub_run_only_env() {
+  unset AIUR_CI_READINESS_TOKEN
+}
+
+run_argv=()
+# Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
+# dashboard is reachable across the tailnet by default (no per-project config);
+# fall back to loopback when Tailscale is absent, or when dashboard credentials
+# are unset (a non-loopback bind requires them, so we stay on loopback rather
+# than refuse to start). An explicit `--host` always overrides this.
+default_dashboard_host() {
+  local ip=""
+  if command -v tailscale >/dev/null 2>&1; then
+    ip="$(tailscale ip -4 2>/dev/null | grep -m1 -E '^100\.[0-9]+\.[0-9]+\.[0-9]+$' || true)"
+  fi
+  if [ -n "$ip" ] && [ -n "${AIUR_DASHBOARD_USERNAME:-}" ] && [ -n "${AIUR_DASHBOARD_PASSWORD:-}" ]; then
+    printf '%s' "$ip"
+  else
+    printf '127.0.0.1'
+  fi
+}
+
+build_run_argv() {
+  local mode="$1"
+  shift
+
+  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
+  for arg in "$@"; do
+    case "$arg" in
+      --host | --host=*) has_host=1 ;;
+      --interactive) has_interactive=1 ;;
+      --headless) has_headless=1 ;;
+      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
+    esac
+  done
+
+  local injected=()
+  [ "$has_host" -eq 1 ] || injected+=(--host "$(default_dashboard_host)")
+  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
+    [ "$has_headless" -eq 1 ] || injected+=(--headless)
+  else
+    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
+  fi
+  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
+
+  run_argv=("${injected[@]}" "$@")
 }
 
 run_session() {
@@ -374,34 +525,23 @@ run_session() {
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
+  scrub_run_only_env
 
   init_argv_file
 
   # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
   # no-guardrails ack. Skip any the user already passed. Foreground runs are
-  # interactive (tmux panes + dashboard); `--bg` runs lean/headless — no panes,
-  # no dashboard bind, no chat backfill — and is driven over the control RPC
-  # (status/agents/message/pause/set). `aiur --bg --interactive` opts back into
-  # the full interactive stack for an attachable background session.
-  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
-  for arg in "$@"; do
-    case "$arg" in
-      --host | --host=*) has_host=1 ;;
-      --interactive) has_interactive=1 ;;
-      --headless) has_headless=1 ;;
-      --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
-    esac
+  # interactive; `--bg` runs headless (no panes/chat backfill) and is driven
+  # over the control RPC (status/agents/message/pause/set). Dashboard binding is
+  # independent: it remains enabled in either mode unless `--no-dashboard` is
+  # supplied. `aiur --bg --interactive` opts back into the full terminal stack
+  # for an attachable background session.
+  build_run_argv "$mode" "$@"
+  local no_dashboard=0
+  for run_arg in "${run_argv[@]}"; do
+    [ "$run_arg" = "--no-dashboard" ] && no_dashboard=1
   done
-  local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host 127.0.0.1)
-  if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
-    [ "$has_headless" -eq 1 ] || injected+=(--headless)
-  else
-    [ "$has_interactive" -eq 1 ] || injected+=(--interactive)
-  fi
-  [ "$has_ack" -eq 1 ] || injected+=(--i-understand-that-this-will-be-running-without-the-usual-guardrails)
-
-  write_argv "${injected[@]}" "$@"
+  write_argv "${run_argv[@]}"
   export AIUR_ARGV_FILE="$argv_file"
 
   prepare_distribution
@@ -456,7 +596,7 @@ run_session() {
   # is diagnosable instead of vanishing. Written next to the run's aiur.log so it
   # survives the launcher's tempfile cleanup; ERL_CRASH_DUMP_SECONDS bounds the
   # write so a wedged BEAM can't hang the dump indefinitely. Nothing in the
-  # release boot disables dumps, and an operator override of either var is kept.
+  # release boot disables dumps, and an Executor override of either var is kept.
   # Requires a durable logs root (background run or agent IR sandbox).
   if [ -n "${AIUR_LOGS_ROOT:-}" ]; then
     export ERL_CRASH_DUMP="${ERL_CRASH_DUMP:-$AIUR_LOGS_ROOT/erl_crash.dump}"
@@ -482,6 +622,7 @@ run_session() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
+    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
@@ -489,7 +630,7 @@ run_session() {
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
       ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG \
-      ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
+      AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
     printf 'capture=%q\n' "$startup_capture"
@@ -603,6 +744,7 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
+    print_background_dashboard_status "$no_dashboard" "$startup_capture"
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
@@ -928,7 +1070,7 @@ agent_pid_matches() {
 #
 # tmux runs on aiur's PRIVATE socket (-L aiur-$USER), so kill-server tears down
 # every REPL/chat pane agent in one shot AND leaves no live aiur tmux server —
-# never touching the operator's own default tmux. Headless agents (claude/codex
+# never touching the Executor’s own default tmux. Headless agents (claude/codex
 # app-servers spawned via Port) are bare OS processes that reparent to init on a
 # BEAM crash; kill-server can't see them, so they're reaped from the pidfile by
 # process tree, comm-guarded against pid reuse. Idempotent.
@@ -1216,6 +1358,37 @@ probe_control_liveness() {
   fi
 }
 
+# Return the externally useful dashboard URL only when the running node confirms
+# that Bandit actually bound a listener. An empty result means the listener was
+# suppressed or refused; configured server.port alone is never proof of service.
+probe_dashboard_url() {
+  local expression output status marker="__AIUR_DASHBOARD_URL__:"
+  expression='case Aiur.HttpServer.base_url() do url when is_binary(url) -> IO.puts("__AIUR_DASHBOARD_URL__:" <> url); _ -> :ok end'
+
+  set +e
+  output="$("$release_bin" rpc "$expression" 2>&1)"
+  status=$?
+  set -e
+
+  if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
+    output="${output#*"$marker"}"
+    printf '%s' "${output%%$'\n'*}"
+  fi
+}
+
+print_background_dashboard_status() {
+  local no_dashboard="$1" startup_capture="$2" url
+  url="$(probe_dashboard_url)"
+
+  if [ -n "$url" ]; then
+    echo "Dashboard: ${url}" >&2
+  elif [ "$no_dashboard" -eq 1 ]; then
+    echo "Dashboard disabled by --no-dashboard." >&2
+  else
+    echo "⚠️ dashboard listener unavailable; inspect ${startup_capture} for bind or authentication refusal." >&2
+  fi
+}
+
 wait_for_session_startup() {
   local tmux_bin="$1" socket="$2" conf="$3" session="$4" startup_capture="$5" require_control="$6"
   local max_ticks="${AIUR_TMUX_GRACE_TICKS:-30}" tick control_state
@@ -1459,15 +1632,14 @@ $root
 }
 
 print_global_config_control_hint() {
+  [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ] || return 0
   [ "${AIUR_CONTROL_CALLER_ROOT_SOURCE:-}" = "cwd" ] || return 0
   [ "${AIUR_CONTROL_CURRENT_NODE_STATE:-}" = "down" ] || return 0
 
   echo "aiur: global-config control identity is keyed by cwd ${AIUR_CONTROL_CALLER_ROOT:-${AIUR_PROJECT_ROOT:-unknown}}" >&2
   echo "aiur: run control commands from the launch directory, or from a subdirectory of that launch directory" >&2
-  if [ -n "${AIUR_CONTROL_HINT_ROOTS:-}" ]; then
-    echo "aiur: live launch directory candidate(s):" >&2
-    printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
-  fi
+  echo "aiur: live launch directory candidate(s):" >&2
+  printf '%s' "$AIUR_CONTROL_HINT_ROOTS" | sed '/^$/d; s/^/  /' >&2
 }
 
 control_rpc_timeout_seconds() {
@@ -1478,20 +1650,41 @@ control_rpc_timeout_seconds() {
   printf '%s' "$seconds"
 }
 
+print_not_running_message() {
+  echo "error: aiur is not running. Start it with \`aiurdev run\` (or \`aiurdev --bg\`), then retry." >&2
+}
+
+print_control_down_message() {
+  local crash_marker
+  crash_marker="$(aiur_crash_marker_path)"
+  if [ -f "$crash_marker" ]; then
+    echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
+    sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
+    echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
+  else
+    print_not_running_message
+    print_global_config_control_hint
+  fi
+}
+
 kill_control_rpc_process() {
   local pid="$1" grouped="$2" p tree=()
   [ -n "$pid" ] || return 0
 
+  # Snapshot descendants before signalling the wrapper. A release launcher may
+  # fork its rpc BEAM into another process group and then exit; group signalling
+  # alone would orphan that child and lose the only relationship we can reap.
+  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
+
   if [ "$grouped" = "1" ]; then
     kill -TERM "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
-    sleep 0.2
-    kill -KILL "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
-    return 0
   fi
 
-  while IFS= read -r p; do tree+=("$p"); done < <(agent_pid_tree "$pid")
   for p in "${tree[@]}"; do kill -TERM "$p" 2>/dev/null || true; done
   sleep 0.2
+  if [ "$grouped" = "1" ]; then
+    kill -KILL "-$pid" 2>/dev/null || true
+  fi
   for p in "${tree[@]}"; do kill -KILL "$p" 2>/dev/null || true; done
 }
 
@@ -1524,7 +1717,14 @@ run_release_rpc_with_timeout() {
   else
     status=$?
   fi
-  kill "$watchdog_pid" 2>/dev/null || true
+  if [ -f "$timeout_file" ]; then
+    # The timeout watchdog owns descendant cleanup. Once it has marked the
+    # timeout, let it finish its TERM/KILL sequence; cancelling it here can
+    # strand descendants that ignored TERM after the root process exits.
+    :
+  else
+    kill "$watchdog_pid" 2>/dev/null || true
+  fi
   wait "$watchdog_pid" 2>/dev/null || true
 
   AIUR_CONTROL_RPC_OUTPUT="$(cat "$output_file" 2>/dev/null || true)"
@@ -1543,7 +1743,7 @@ run_release_rpc_with_timeout() {
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
 run_control_rpc() {
   local expression="$1"
-  resolve_release
+  resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
   resolve_control_identity_from_records
   if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
@@ -1558,6 +1758,12 @@ run_control_rpc() {
   status=$?
   output="$AIUR_CONTROL_RPC_OUTPUT"
   set -e
+
+  if [ "$status" -ne 0 ] && [ "${AIUR_CONTROL_RELEASE_RETRYABLE:-0}" = "1" ] && \
+    { [ ! -x "$release_bin" ] || [ ! -x "$vsn_dir/elixir" ] || [ ! -r "$release_dir/releases/start_erl.data" ]; }; then
+    control_release_retry
+    return $?
+  fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1577,16 +1783,7 @@ run_control_rpc() {
     # down — in both of those cases surface the actual rpc output, never mask it.
     case "$(probe_node_liveness)" in
       down)
-        local crash_marker
-        crash_marker="$(aiur_crash_marker_path)"
-        if [ -f "$crash_marker" ]; then
-          echo "aiur: background daemon at ${RELEASE_NODE} is DOWN after an unexpected exit; agents may be orphaned" >&2
-          sed 's/^/  /' "$crash_marker" >&2 2>/dev/null || true
-          echo "aiur: run 'aiur stop' to reap any orphaned agents, then start aiur again" >&2
-        else
-          echo "aiur: no running aiur node at ${RELEASE_NODE}; start aiur and try again" >&2
-          print_global_config_control_hint
-        fi
+        print_control_down_message
         ;;
       up)
         [ -n "$output" ] && printf '%s\n' "$output" >&2
@@ -1617,6 +1814,23 @@ run_control_rpc() {
   fi
 
   return "$exit_code"
+}
+
+# A streaming Executor listener must retain the RPC process and its stdout. It
+# intentionally bypasses the one-shot control timeout and exit-marker wrapper.
+run_control_stream() {
+  local expression="$1"
+  resolve_release || return $?
+  prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  resolve_control_identity_from_records
+  if [ "${AIUR_CONTROL_ADOPTED_RECORD:-0}" -eq 1 ]; then
+    prepare_distribution || die "distribution setup failed; cannot contact aiur"
+  fi
+  if [ "$(probe_node_liveness)" = "down" ]; then
+    print_control_down_message
+    return 1
+  fi
+  exec "$release_bin" rpc "$expression"
 }
 
 elixir_list_literal() {
@@ -1662,11 +1876,26 @@ cmd_status() {
   run_control_rpc "Aiur.AgentControlCLI.status()"
 }
 
+# `aiur usage` — Codex/Claude limit headroom from the daemon's meter
+# projection, each value carrying the age of its observation.
+cmd_usage() {
+  [ "$#" -eq 0 ] || die "usage does not accept arguments"
+  run_control_rpc "Aiur.AgentControlCLI.usage()"
+}
+
 cmd_pause_resume() {
   local command="$1"
   shift
+
+  # Bare `aiur pause` / `aiur resume` (no IDs, no --all) flips the single
+  # global pause switch: a daemon-wide halt distinct from per-agent pause.
+  if [ "$#" -eq 0 ]; then
+    run_control_rpc "Aiur.AgentControlCLI.${command}_global()"
+    return
+  fi
+
   if ! parse_issue_targets "$@"; then
-    echo "aiur: $command expects issue IDs or --all (e.g. aiur $command 44 45,46; aiur $command --all)" >&2
+    echo "aiur: $command expects issue IDs or --all (e.g. aiur $command 44 45,46; aiur $command --all; or bare aiur $command for the global switch)" >&2
     exit 64
   fi
 
@@ -1680,7 +1909,28 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
-# `aiur message <issue> <text>` — deliver operator text to one running agent.
+# `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
+# more tickets (the supported exit from the #1453 latch; no JSON hand-editing).
+cmd_reset_budget() {
+  if ! parse_issue_targets "$@"; then
+    echo "aiur: reset-budget expects issue IDs (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  # --all is rejected (exit 64 with guidance) rather than silently no-opping:
+  # clearing every ticket's latch at once is not a documented operation and
+  # would mask which tickets are structurally stuck (#1453 review P2d).
+  if [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: reset-budget does not accept --all; name ticket IDs explicitly (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  local expression
+  expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
+  run_control_rpc "$expression"
+}
+
+# `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
 cmd_message() {
@@ -1712,7 +1962,7 @@ cmd_agents() {
 }
 
 # `aiur alerts` — newline-delimited structured alert feed from persisted
-# per-agent logs. `--needs-attention` filters to operator-actionable alerts.
+# per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
   local needs_attention=0 arg
   for arg in "$@"; do
@@ -1774,6 +2024,59 @@ cmd_watch() {
   else
     run_control_rpc "$expression"
   fi
+}
+
+cmd_executor_listen() {
+  local topic="executor.#" arg
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --topic) shift; topic="${1:-}" ;;
+      --topic=*) topic="${arg#--topic=}" ;;
+      *) echo "aiur: executor-listen accepts --topic <pattern>" >&2; exit 64 ;;
+    esac
+    [ -n "$topic" ] || { echo "aiur: executor-listen requires a topic" >&2; exit 64; }
+    shift
+  done
+  local encoded
+  encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
+  run_control_stream "Aiur.AgentControlCLI.executor_listen(topic: Base.decode64!(\"$encoded\"))"
+}
+
+cmd_executor_emit() {
+  local topic="${1:-}" payload="" arg
+  shift 2>/dev/null || true
+  [ -n "$topic" ] || { echo "aiur: executor-emit requires a topic" >&2; exit 64; }
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --payload) shift; payload="${1:-}" ;;
+      --payload=*) payload="${arg#--payload=}" ;;
+      *) echo "aiur: executor-emit accepts only --payload <json>" >&2; exit 64 ;;
+    esac
+    shift
+  done
+  [ -n "$payload" ] || { echo "aiur: executor-emit requires --payload <json>" >&2; exit 64; }
+  local topic_encoded payload_encoded
+  topic_encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
+  payload_encoded="$(printf '%s' "$payload" | base64 | tr -d '\n')"
+  run_control_rpc "Aiur.AgentControlCLI.executor_emit(Base.decode64!(\"$topic_encoded\"), Base.decode64!(\"$payload_encoded\"))"
+}
+
+cmd_executor_subscription() {
+  local action="$1" topic="${2:-}"
+  [ -n "$topic" ] && [ "$#" -eq 2 ] || { echo "aiur: $action requires one topic pattern" >&2; exit 64; }
+  local encoded
+  encoded="$(printf '%s' "$topic" | base64 | tr -d '\n')"
+  case "$action" in
+    executor-subscribe) run_control_rpc "Aiur.AgentControlCLI.executor_subscribe(Base.decode64!(\"$encoded\"))" ;;
+    executor-unsubscribe) run_control_rpc "Aiur.AgentControlCLI.executor_unsubscribe(Base.decode64!(\"$encoded\"))" ;;
+  esac
+}
+
+cmd_executor_subscriptions() {
+  [ "$#" -eq 0 ] || { echo "aiur: executor-subscriptions does not accept arguments" >&2; exit 64; }
+  run_control_rpc "Aiur.AgentControlCLI.executor_subscriptions()"
 }
 
 watch_validate_interval() {
@@ -1856,7 +2159,7 @@ sweep_dead_tmux_sockets() {
 # foreground teardown (session_cleanup) and on `aiur stop`. Bounded and safe:
 #
 #   * Only exact top-level Aiur artifact families under the temp roots the engine
-#     and BEAM write to. Arbitrary operator worktrees/checkouts like
+#     and BEAM write to. Arbitrary Executor worktrees/checkouts like
 #     `/tmp/aiur-pr490` are not candidates.
 #   * Age-gated by AIUR_TMP_REAP_MINUTES (default 1440 = 24h). An entry is removed
 #     only when NOTHING in its subtree was modified within the window, so a live
@@ -1950,6 +2253,33 @@ sweep_stale_tmp_artifacts() {
   return 0
 }
 
+# A stop only reaps the daemon whose node name matches this project root's
+# instance key (keys are sha256(project_root), so instances can't reap each
+# other). A daemon launched from a different directory therefore survives a stop
+# invoked elsewhere — the silent orphan that keeps holding the dashboard port and
+# serving stale code/credentials. Surface it loudly (we warn, not reap, to
+# respect the deliberate isolation) so the operator can stop it explicitly.
+warn_other_aiur_daemons() {
+  local self_node="$1" me pids pid cmd node port found=0
+  me="${USER:-$(id -un 2>/dev/null)}"
+  pids="$(pgrep -u "$me" -f -- "-name aiur-${me}" 2>/dev/null || true)"
+  for pid in $pids; do
+    cmd="$(pid_command "$pid")"
+    case "$cmd" in *beam.smp*) : ;; *) continue ;; esac
+    node="$(printf '%s' "$cmd" | grep -oE -- '-name [^ ]+' | awk '{print $2}' | head -1)"
+    [ -z "$node" ] && continue
+    [ "$node" = "$self_node" ] && continue
+    port="$(ss -tlnpH 2>/dev/null | awk -v p="pid=$pid," '$0 ~ p {print $4}' \
+      | grep -oE '[0-9]+$' | head -1 || true)"
+    if [ "$found" -eq 0 ]; then
+      echo "aiur: heads up — another aiur daemon is still running that this stop did not touch" >&2
+      echo "      (launched from a different directory, so it has a different instance key):" >&2
+      found=1
+    fi
+    echo "      pid=$pid node=$node${port:+ dashboard-port=$port} — stop it with:  kill $pid" >&2
+  done
+}
+
 # Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
   resolve_release
@@ -1978,6 +2308,7 @@ cmd_stop() {
     [ "$has_session" -eq 0 ] && \
     [ ! -f "$(aiur_crash_marker_path)" ]; then
     echo "aiur: no running aiur node at ${AIUR_RELEASE_NODE}; nothing stopped" >&2
+    warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
     print_global_config_control_hint
     return 1
   fi
@@ -2027,9 +2358,27 @@ cmd_stop() {
   sweep_dead_tmux_sockets
   sweep_stale_tmp_artifacts
   rm -f "$(aiur_instance_record_path)" 2>/dev/null || true
+  warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
 }
 
 # --- dispatch ----------------------------------------------------------------
+
+dispatch_run() {
+  local mode="foreground" arg
+  local args=()
+
+  for arg in "$@"; do
+    if [ "$arg" = "--bg" ]; then
+      mode="background"
+    else
+      args+=("$arg")
+    fi
+  done
+
+  # bash 3.2 (macOS default) errors on "${args[@]}" when args is empty under
+  # `set -u` — happens for a bare `--bg` run. Guard the expansion.
+  run_session "$mode" "${args[@]+"${args[@]}"}"
+}
 
 aiur_engine_main() {
   local cmd="${1:-}"
@@ -2043,20 +2392,33 @@ aiur_engine_main() {
     --version)
       run_version "$@"
       ;;
+    --todo)
+      run_todo "$@"
+      ;;
+    --only)
+      echo "aiur: --only is valid only with --todo" >&2
+      exit 64
+      ;;
     init)
       run_init "$@"
       ;;
+    findings)
+      run_findings "$@"
+      ;;
     --bg)
-      shift
-      run_session background "$@"
+      dispatch_run "$@"
       ;;
     run)
       shift
-      run_session foreground "$@"
+      dispatch_run "$@"
       ;;
     status)
       shift
       cmd_status "$@"
+      ;;
+    usage)
+      shift
+      cmd_usage "$@"
       ;;
     agents)
       shift
@@ -2070,6 +2432,22 @@ aiur_engine_main() {
       shift
       cmd_watch "$@"
       ;;
+    executor-listen)
+      shift
+      cmd_executor_listen "$@"
+      ;;
+    executor-emit)
+      shift
+      cmd_executor_emit "$@"
+      ;;
+    executor-subscribe | executor-unsubscribe)
+      shift
+      cmd_executor_subscription "$cmd" "$@"
+      ;;
+    executor-subscriptions)
+      shift
+      cmd_executor_subscriptions "$@"
+      ;;
     set)
       shift
       cmd_set "$@"
@@ -2077,6 +2455,10 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    reset-budget)
+      shift
+      cmd_reset_budget "$@"
       ;;
     message)
       shift
@@ -2090,16 +2472,16 @@ aiur_engine_main() {
       cmd_stop
       ;;
     "")
-      run_session foreground
+      dispatch_run
       ;;
     -*)
       # leading-flag forms (e.g. `aiur --interactive <config>`) are a run
-      run_session foreground "$@"
+      dispatch_run "$@"
       ;;
     *)
       # a path/config argument is a run; anything else is a usage error
       if [ -e "$cmd" ]; then
-        run_session foreground "$@"
+        dispatch_run "$@"
       else
         echo "aiur: unknown command: $cmd" >&2
         usage >&2

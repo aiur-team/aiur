@@ -19,11 +19,11 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | --- | --- | --- | --- |
 | `tracker.kind` | string | — | Selects `linear`, `github`, or `memory`. |
 | `tracker.base_branch` | string | repo default | Branch agents target with PRs. |
-| `tracker.active_states` | array | `["Todo", "In Progress"]` | States eligible for dispatch. |
-| `tracker.terminal_states` | array | `["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]` | States that stop work. |
+| `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
+| `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.github.repo` | string | — | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
-| `tracker.github.bot_account` | string | nil | Account Aiur replies as or recognizes. |
+| `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.linear.api_key` | string | env fallback | Linear API key; `$VAR` resolves from the environment. |
 | `tracker.linear.project_slug` | string | nil | Linear project polled by Aiur. |
@@ -57,10 +57,14 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | --- | --- | --- | --- |
 | `agent.kind` | string | claude | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `claude`. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
-| `agent.max_concurrent_agents` | integer | 10 | Global simultaneous-agent cap. |
-| `agent.max_concurrent_builds` | integer | 2 | Caps agent-launched Mix verification; 0 disables the gate. |
+| `agent.max_concurrent_agents` | integer or nil | derived from host capacity | Global simultaneous-agent cap. When omitted, it derives from the measured host capacity: `schedulers + schedulers / 4` (e.g. 20 on a 16-core host), so the ceiling is calibrated to the box instead of a hard-coded count. Explicit config wins. The load envelope reduces effective concurrency below this ceiling under host pressure. |
+| `agent.max_concurrent_builds` | integer | 2 | Caps local agent Mix verification; 0 deliberately disables the concurrency cap. When every build slot is busy or builds are queued, the dispatch gate defers new admissions (`build` capacity hold). |
+| `agent.build_start_stagger_seconds` | integer | 0 | Minimum spacing between local Mix build starts; 0 disables pacing. |
+| `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
+| `agent.switch_model_on_ratelimit` | array | `[]` | Opt-in backend order for a new claim when a model is rate-limited. |
+| `agent.rate_limit_fallback` | string | `claude` | Automatic recovery backend for an already-running Codex agent; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
@@ -68,12 +72,53 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.turn_timeout_ms` | integer | 3600000 | Backstop timeout for one turn. |
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
+| `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
 | `agent.max_load_average` | float | 1.5 | Holds dispatch above the load threshold; null disables it. |
 | `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
+| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it (the 1-minute load gate still applies). When enabled, new dispatch holds while `procs_running` exceeds `run_queue_threshold × schedulers`, catching short CPU bursts the lagging load average smooths out (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
 | `agent.mix_scheduler_cap` | integer or nil | nil | Caps schedulers in agent-launched Mix BEAMs; nil leaves them uncapped. |
+
+Enabled local Codex `workspaceWrite` turns preserve configured/workspace/Git roots and
+also grant the canonical shared build-gate metadata directory. Host-prepared lock inodes
+live in a sibling `.locks` directory that is excluded from turn-writable roots, preventing
+a sandbox from replacing a held slot. Gate coordination failures return status `125`
+without running Mix. Repair the reported metadata/lock directory, `flock`, or `python3`
+subreaper dependency and
+restart/re-dispatch agents. If `aiur status` reports `BUILD GATE DEGRADED`, first stop the
+old fleet and confirm no old Mix verification is live, then clear only the reported legacy
+records. To disable build admission completely, set `agent.max_concurrent_builds: 0`, set
+`agent.build_start_stagger_seconds: 0`, and omit `agent.min_free_memory_mb`. This explicit
+opt-out removes every build safeguard; it is never an automatic error fallback.
+
+## Host-pressure fleet admission
+
+New fleet admissions are admitted against the total observed host pressure, not a
+hard-coded process count. Every signal is optional and fails open when disabled or
+unreadable (e.g. non-Linux hosts):
+
+- **CPU load** (`agent.max_load_average`) and the **adaptive AIMD envelope**
+  (`agent.target_load_average`, `agent.load_ramp_step`, `agent.load_cooldown_seconds`)
+  reduce and re-ramp effective capacity as the 1-minute load crosses its per-scheduler
+  targets.
+- **Run queue** (`agent.run_queue_threshold`) reacts instantly to `procs_running` spikes
+  that the lagging load average smooths out.
+- **Available memory** (`agent.min_free_memory_mb`), **file descriptors** (a 10% open-file
+  reserve), **concurrent build pressure** (`agent.max_concurrent_builds`), and
+  **configured provider limits** (when every dispatchable backend reports usage-limited)
+  each defer new dispatch while saturated.
+- **Recovery is automatic and bounded**: gates fail open the moment pressure clears, and
+  the AIMD envelope re-ramps within its cooldown window — no permanent cap reduction, no
+  starvation.
+
+While a hold is active the fleet surfaces the binding signal and threshold: idle
+dispatchable rows read `backing off`, the dashboard/status carry a `capacity_hold` block
+naming the measured signal and threshold, telemetry records `capacity_hold` /
+`capacity_resumed`, and a debounced `system.fleet.capacity.backoff` alert fires so an
+Executor can tell capacity backoff apart from an idle or broken fleet. This limits only
+**new** admissions — running agents and agent-spawned sub-agents are never terminated.
 
 ## agent.claude
 
@@ -143,10 +188,21 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `observability.dashboard_enabled` | boolean | true | Enables the web dashboard. |
+| `observability.dashboard_enabled` | boolean | true | Reserved compatibility setting; use the launch-time `--no-dashboard` flag to suppress the listener in foreground or background mode. |
 | `observability.dashboard_writable` | boolean | false | Enables dashboard write paths. |
 | `observability.refresh_ms` | integer | 1000 | Dashboard data refresh interval. |
 | `observability.render_interval_ms` | integer | 16 | Minimum render interval. |
+
+`dashboard_writable` is an authorization gate, not an authentication mechanism. Writable or non-loopback dashboards also require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
+
+## decisions
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `decisions.supervisor_allowed_kinds` | array | `[]` | Decision kinds an authenticated supervising Executor may answer. Empty means none. |
+| `decisions.supervisor_allow_non_reversible` | boolean | false | Allows supervisor policy to cover partially reversible or irreversible decisions. |
+
+These policy keys never grant transport access by themselves. The supervisor API also requires `AIUR_SUPERVISOR_TOKEN`; mutations require the writable and origin gates described above.
 
 ## server
 

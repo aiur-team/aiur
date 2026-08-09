@@ -151,6 +151,33 @@ defmodule Aiur.Codex.DynamicTool.Errors do
     }
   end
 
+  def payload({:decision_rejected, reason}) do
+    %{
+      "error" => %{
+        "message" => "Decision request was rejected by the durable DecisionStore.",
+        "reason" => inspect(reason)
+      }
+    }
+  end
+
+  def payload({:decision_lifecycle_rejected, reason}) do
+    %{
+      "error" => %{
+        "message" => "Decision lifecycle event was rejected by the durable DecisionStore.",
+        "reason" => inspect(reason)
+      }
+    }
+  end
+
+  def payload(:no_issue_identifier) do
+    %{
+      "error" => %{
+        "message" => "Decision requests require a ticket identifier.",
+        "reason" => "no_issue_identifier"
+      }
+    }
+  end
+
   def payload(:invalid_event_arguments) do
     %{
       "error" => %{
@@ -242,6 +269,59 @@ defmodule Aiur.Codex.DynamicTool.Errors do
       "error" => %{"message" => "Aiur's GitHub token lacks Issues:write scope for this repo."}
     }
 
+  def payload(:coordination_indeterminate),
+    do: %{
+      "error" => %{
+        "message" => "Coordination admission timed out and may already have been accepted. Do not retry until authoritative state is checked.",
+        "reason" => "coordination_indeterminate"
+      }
+    }
+
+  def payload(:coordination_overloaded),
+    do:
+      coordination_payload(
+        "Coordination work is at capacity; wait for pending work to drain before retrying.",
+        :coordination_overloaded
+      )
+
+  def payload(:coordination_unavailable),
+    do:
+      coordination_payload(
+        "Coordination work is temporarily unavailable; retry after the coordinator recovers.",
+        :coordination_unavailable
+      )
+
+  def payload(:coordination_timeout),
+    do:
+      coordination_payload(
+        "Coordination work exceeded its configured operation timeout.",
+        :coordination_timeout
+      )
+
+  def payload({:coordination_task_exit, detail}),
+    do:
+      coordination_payload(
+        "Coordination work exited before returning a terminal result.",
+        :coordination_task_exit,
+        detail
+      )
+
+  def payload({:coordination_operation_exception, detail}),
+    do:
+      coordination_payload(
+        "Coordination work raised before returning a terminal result.",
+        :coordination_operation_exception,
+        detail
+      )
+
+  def payload({:coordination_operation_failure, kind, detail}),
+    do:
+      coordination_payload(
+        "Coordination work failed before returning a terminal result.",
+        :coordination_operation_failure,
+        %{kind: kind, detail: detail}
+      )
+
   def payload(:custom_event_quota_exceeded) do
     %{
       "error" => %{
@@ -295,9 +375,14 @@ defmodule Aiur.Codex.DynamicTool.Errors do
   def payload(reason) do
     %{
       "error" => %{
-        "message" => "Linear GraphQL tool execution failed.",
+        "message" => "Aiur tool execution failed.",
         "reason" => inspect(reason)
       }
     }
+  end
+
+  defp coordination_payload(message, reason, detail \\ nil) do
+    error = %{"message" => message, "reason" => Atom.to_string(reason)}
+    %{"error" => if(is_nil(detail), do: error, else: Map.put(error, "detail", Response.jsonable(detail)))}
   end
 end

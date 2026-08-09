@@ -26,11 +26,48 @@ defmodule Aiur.Orchestrator.SlotsTest do
           "active" => running_entry(:working),
           "sleeping" => running_entry(:sleeping),
           "paused" => running_entry(:paused),
+          "completed" => running_entry(:completed),
           "deactivated" => running_entry(:deactivated)
         }
       }
 
+      assert Slots.used_slots(state) == 3
       assert Slots.available_slots(state) == 0
+    end
+
+    test "releases CI-wait pauses while other pauses keep their reservation" do
+      state = %State{
+        max_concurrent_agents: 3,
+        running: %{
+          "active" => running_entry(:working),
+          "ci-wait" => running_entry(:paused, nil, :ci_wait),
+          "operator" => running_entry(:paused, nil, :operator_pause)
+        }
+      }
+
+      assert Slots.used_slots(state) == 2
+      assert Slots.available_slots(state) == 1
+    end
+
+    test "reports no slots when globally paused, regardless of free capacity" do
+      state = %State{max_concurrent_agents: 3, running: %{}, globally_paused: true}
+
+      assert Slots.available_slots(state) == 0
+    end
+  end
+
+  describe "launch_globally_paused?/0" do
+    test "defaults to false with no launch flag" do
+      Application.delete_env(:aiur, :launch_globally_paused)
+
+      refute Slots.launch_globally_paused?()
+    end
+
+    test "is true when the launch flag is set" do
+      Application.put_env(:aiur, :launch_globally_paused, true)
+      on_exit(fn -> Application.delete_env(:aiur, :launch_globally_paused) end)
+
+      assert Slots.launch_globally_paused?()
     end
   end
 
@@ -49,8 +86,11 @@ defmodule Aiur.Orchestrator.SlotsTest do
       assert %{
                active: 2,
                paused: 1,
+               reserved_paused: 1,
+               occupied: 3,
                configured: 3,
                max: 1,
+               available: 0,
                session_override?: true,
                draining?: true
              } = Slots.max_concurrent_agent_status(state)
@@ -63,6 +103,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
         "active-a" => running_entry(:working, "worker-a"),
         "sleeping-a" => running_entry(:sleeping, "worker-a"),
         "paused-a" => running_entry(:paused, "worker-a"),
+        "completed-a" => running_entry(:completed, "worker-a"),
         "active-b" => running_entry(:working, "worker-b")
       }
 
@@ -88,11 +129,13 @@ defmodule Aiur.Orchestrator.SlotsTest do
     end
   end
 
-  defp running_entry(status, worker_host \\ nil) do
-    %{
+  defp running_entry(status, worker_host \\ nil, paused_reason \\ nil) do
+    entry = %{
       control: %{status: status},
       worker_host: worker_host,
       issue: %Issue{id: "issue-#{status}", identifier: "repo##{status}", state: "todo"}
     }
+
+    if is_nil(paused_reason), do: entry, else: Map.put(entry, :paused_reason, paused_reason)
   end
 end

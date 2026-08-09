@@ -7,6 +7,26 @@ operational practices that aren't in the main README.
 Engineering norms (code structure, testing, error handling, and the CI gate)
 live in [`CONTRIBUTING.md`](CONTRIBUTING.md).
 
+## Orientation
+
+Aiur's intended operating modes are documented in
+[README.md § Who drives Aiur?](README.md#who-drives-aiur). In short: every run has an
+**Executor** — the operator of the run — and that is either the human driving the CLI
+directly, or the human's coding agent operating Aiur on their behalf while they stay in
+conversation with it. Both are first-class. `README.md § What Aiur is not` records the
+misreadings this distinction commonly produces.
+
+The Executor skills live at [`.claude/skills/aiur-run`](.claude/skills/aiur-run/SKILL.md)
+(operate a run end to end) and
+[`.claude/skills/aiur-monitor`](.claude/skills/aiur-monitor/SKILL.md) (status and alert
+feed). [`.claude/skills/aiur-intro`](.claude/skills/aiur-intro/SKILL.md) answers "what is
+Aiur / how do I install it" and routes a new user to a mode.
+[`.claude/skills/using-aiur`](.claude/skills/using-aiur/SKILL.md) is the manual for an
+agent working a ticket *inside* a run — a different job from operating one.
+
+If you are evaluating Aiur rather than working in it, read the operating modes before
+forming a verdict; the feature list does not imply them.
+
 ## Layout
 
 - `.aiur/` — the Aiur config folder: `.aiur/config` (pure YAML), `.aiur/hooks`, and
@@ -45,13 +65,16 @@ hand unless something is broken.
 
 ```text
 aiurdev                       # foreground run, local-only bind (full interactive UI)
-aiurdev --bg                  # lean headless background run (one detached tmux lifetime session, no panes/dashboard)
+aiurdev --bg                  # detached headless run (no panes; dashboard remains available)
+aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard listener
+aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
 aiurdev status                # report the running session
 aiurdev agents                # one line per agent: state + current activity (headless dashboard equivalent)
 aiurdev set max-agents <n>    # change the concurrent-agent cap at runtime (no config edit)
 aiurdev pause | resume        # pause / resume the workflow
+aiurdev --todo <ids...> [--only] # queue tickets; optionally dequeue all other pending tickets
 aiurdev init                  # scaffold .aiur/ (or migrate a legacy .aiurconfig)
 aiurdev build                 # force-rebuild the local release (shim-only)
 aiurdev --host …              # opt out of the local-only --host injection
@@ -62,6 +85,13 @@ npm-installed `aiur` accepts the exact same set. The engine injects
 `--host 127.0.0.1` on the run path unless you pass `--host` somewhere in the
 args. Pass `--host` when you want to expose the dashboard over the network
 (e.g. Tailscale, LAN).
+
+Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
+Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
+or an `agent.routing` value carries `+remote`; remove `--no-dashboard` or
+disable that Remote Control configuration. Runtime Remote Control activation
+(including `model:remote` tickets and the live `r` promotion) is also refused
+unless the HTTP listener is confirmed bound.
 
 ## Per-issue workspaces
 
@@ -75,17 +105,22 @@ where `workspace.root` is the value from the active workflow and `<repo>` is the
 sanitized repo segment (GitHub repo name, or Linear `project_slug`) so multiple
 repos sharing a root don't collide on issue number. Trackers without a repo
 segment (e.g. memory) fall back to `<workspace.root>/<issue-id>/`. The leaf is
-still the bare issue id, so `basename "$PWD"` resolves the issue number. Two log
-files are written inside each workspace:
+still the bare issue id, so `basename "$PWD"` resolves the issue number. Runtime
+logs written inside each workspace include:
 
 - `logs/agent.md` — human-readable chat-style transcript of every event
 - `logs/agent.ndjson` — newline-delimited JSON event stream. The attentions feed
   (`Aiur.AlertFeed`) reads its `alert` events, and agent crash reasons must
   persist here (#708); don't stop writing it.
 
-When resuming an issue that was already in progress, inspect both logs and
-the workpad comment on the issue before changing code. Don't repeat work
-the previous run already finished.
+Call-correlated completion or failure evidence for asynchronously published
+agent events is daemon-owned at `<run-log-root>/log/event-publications.ndjson`.
+It must not live under an agent-writable workspace; the offline delivery
+collector joins it to the transcript by ticket and tool-call identity.
+
+When resuming an issue that was already in progress, inspect the transcript
+logs, daemon publication outcomes, and workpad comment before changing code. Don't
+repeat work the previous run already finished.
 
 ## Tracker label slugs
 
@@ -119,10 +154,13 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run
-the engine loads `./.env` from the current directory so the release picks
-these up (a value already exported in your shell always wins). `aiur init`
-also reads `.env` for the token during setup.
+from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
+credential precedence is: an already-exported environment value, then
+`~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
+fills unset names. Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
+`OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
+Keep the global per-user file outside Git trees and never commit either dotenv
+file. `aiur init` also reads `.env` for the GitHub token during setup.
 
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
@@ -168,14 +206,14 @@ When the user (or any doc) says "manually test", "run aiur and try it",
    markers, `_reasoning_` text, incoming-event rows, outgoing
    aiur-tool-call rows, etc. — whatever the feature was supposed to
    render.
-4. **End-to-end means end-to-end.** Send operator messages through the
+4. **End-to-end means end-to-end.** Send Executor messages through the
    TUI input box (the path a user takes), not via `curl POST
    /api/v1/<id>/messages`. The HTTP API exercises a small subset of the
    delivery path and routinely behaves differently than the TUI input
    path — verifying the API is verifying the API, not the UX.
 5. **Inspecting logs and SSE bridge events is NOT manual testing.**
    Logs prove *that internal events fired*. Manual testing proves
-   *that the operator sees the right thing on screen*. Both are useful;
+   *that the Executor sees the right thing on screen*. Both are useful;
    only the second satisfies "manually tested".
 
 **Do not report a feature as "working", "verified", or "shipped" until
@@ -196,7 +234,7 @@ sufficient. Substituting HTTP or log proxies is never acceptable.
 
 ### Driving the TUI from a non-TTY agent environment
 
-When a non-TTY operator environment needs to drive aiur manually, use a
+When a non-TTY Executor environment needs to drive aiur manually, use a
 wrapper tmux session as the "fake terminal," then `send-keys` and
 `capture-pane` against aiur's own inner tmux socket. This pattern was
 validated live and is the canonical recipe — do not substitute HTTP,
@@ -208,7 +246,7 @@ can mutate the live dogfood backlog. If an agent sees the guard message
 `manual --test runs are blocked inside agent workspaces`, it must stop that
 verification path and report the blocker; it must not retry from `/tmp`, a
 copied harness, a fresh clone, or an alternate wrapper-tmux name. Run this
-recipe only from the operator repo root, then use the socket/session printed
+recipe only from the Executor repo root, then use the socket/session printed
 by that launched instance.
 
 1. **Spawn aiur inside a wrapper tmux on a separate socket.** The
@@ -275,7 +313,7 @@ by that launched instance.
 
    ```bash
    tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.1" \
-     "your operator message here"
+     "your Executor message here"
    tmux -L "$AIUR_SOCKET" send-keys -t "$AIUR_SESSION:0.1" Enter
    ```
 
@@ -305,15 +343,17 @@ by that launched instance.
 
 Gotchas worth remembering:
 - `--bg` mode runs the workflow/agents **headlessly** inside the BEAM: it
-  skips the interactive UI tree (no agent-list pane, chat panes, prewarm
-  panes, or dashboard bind unless explicitly requested). The launcher still
+  skips the terminal UI tree (no agent-list pane, chat panes, or prewarm
+  panes) while keeping the dashboard enabled. Add `--no-dashboard` for the
+  lean no-listener background shape; the same flag suppresses only the
+  dashboard in foreground mode. The launcher still
   creates one detached tmux session as the BEAM lifetime holder and crash
   cleanup anchor. Observe it with `aiurdev agents` / `aiurdev status` over
   the control RPC. If that tmux session already exists, `--bg` treats a live
   control plane as "already running" and cleans up stale tmux state before a
   restart. For manual testing that needs the interactive TUI (chat panes),
   use foreground `aiurdev --test` instead.
-- The wrapper-tmux socket name (e.g. `claude-driver`) is the operator's
+- The wrapper-tmux socket name (e.g. `claude-driver`) is the Executor’s
   choice and must NOT collide with the `AIUR_SOCKET` printed by the
   launched instance.
 - `send-keys` accepts both literal strings and tmux key names
@@ -344,8 +384,8 @@ How it works, and why it has to:
   add nothing.
 - **It is read-only and non-intrusive.** Unlike a manual scrollback
   walk, the recorder never sends keys to the panes — it only reads the
-  visible viewport — so the operator's live session is untouched. It
-  starts when the session attaches and is killed the moment the operator
+  visible viewport — so the Executor’s live session is untouched. It
+  starts when the session attaches and is killed the moment the Executor
   detaches.
 
 `cat` a transcript (ANSI intact) or `sed 's/\x1b\[[0-9;?]*[A-Za-z]//g'`

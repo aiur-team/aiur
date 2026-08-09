@@ -25,22 +25,27 @@ defmodule Aiur.AgentRunnerTest do
         %{session_id: "ses_3", base_url: "http://127.0.0.1:9993"}
       ]
 
-      slow_post = fn _base, _sid, _payload ->
+      parent = self()
+
+      slow_post = fn base, sid, _payload ->
+        send(parent, {:entered, base, sid})
         # Simulate Req's 30s receive_timeout — what real opencode-serves
         # do while their chat-completion to our bridge is open.
         Process.sleep(30_000)
         {:ok, %{}}
       end
 
-      {elapsed_us, :ok} =
-        :timer.tc(fn ->
-          AgentRunner.post_aiur_turn_markers("99", "tTEST", writers, slow_post)
-        end)
+      # A synchronous fan-out would block here for ~90s (3 x 30s) and hang the
+      # test until ExUnit's timeout. Reaching the assertion at all proves the
+      # call returned without waiting on the posts; a wall-clock bound would be
+      # a preemption-sensitive proxy for the same property under load.
+      assert :ok = AgentRunner.post_aiur_turn_markers("99", "tTEST", writers, slow_post)
 
-      elapsed_ms = div(elapsed_us, 1000)
-
-      assert elapsed_ms < 500,
-             "post_aiur_turn_markers should return immediately (fire-and-forget) — took #{elapsed_ms}ms with 3 slow writers"
+      # Every writer's post still ran, concurrently, in its own fire-and-forget
+      # Task — each entered slow_post even though none of them has returned.
+      for %{session_id: sid, base_url: base} <- writers do
+        assert_receive {:entered, ^base, ^sid}, 5_000
+      end
     end
 
     test "still invokes the post function for every attached writer" do
@@ -125,6 +130,25 @@ defmodule Aiur.AgentRunnerTest do
 
       assert {:error, :boom} =
                AgentRunner.start_agent_session("/ws", [backend: "claude", model: nil], start_fun)
+    end
+
+    test "missing Remote Control hook listener fails instead of falling back" do
+      parent = self()
+
+      start_fun = fn _workspace, opts ->
+        send(parent, {:attempt, Keyword.fetch!(opts, :backend)})
+        {:error, :remote_control_requires_dashboard}
+      end
+
+      assert {:error, :remote_control_requires_dashboard} =
+               AgentRunner.start_agent_session(
+                 "/ws",
+                 [backend: "claude-repl", model: "opus", remote_control: true],
+                 start_fun
+               )
+
+      assert_received {:attempt, "claude-repl"}
+      refute_received {:attempt, "claude"}
     end
 
     test "a repl failure whose headless retry also fails surfaces the retry error" do
@@ -219,9 +243,51 @@ defmodule Aiur.AgentRunnerTest do
       assert AgentRunner.transient_run_error?(:prompt_not_delivered)
     end
 
+    test "a retired app-server port is transient so a fresh generation can replace it" do
+      assert AgentRunner.transient_run_error?(:port_closed)
+      assert AgentRunner.transient_run_error?({:port_exit, 9})
+      assert AgentRunner.transient_run_error?(:port_closed, "codex")
+      refute AgentRunner.transient_run_error?(:port_closed, "claude")
+      assert AgentRunner.transient_run_error?({:port_exit, 9}, "codex")
+      refute AgentRunner.transient_run_error?({:port_exit, 9}, "claude")
+
+      assert AgentRunner.transient_run_error?(
+               {:turn_start_failed, :port_closed},
+               "codex"
+             )
+
+      assert AgentRunner.transient_run_error?(
+               {:turn_interrupt_failed, :port_closed},
+               "codex"
+             )
+
+      refute AgentRunner.transient_run_error?(
+               {:turn_start_failed, :port_closed},
+               "claude"
+             )
+
+      refute AgentRunner.transient_run_error?(
+               {:turn_interrupt_failed, :port_closed},
+               "claude"
+             )
+    end
+
+    test "an active-turn mismatch is transient only for Codex" do
+      reason =
+        {:turn_interrupt_failed,
+         %{
+           "code" => -32_600,
+           "message" => "expected active turn id queued-turn but found prior-turn"
+         }}
+
+      assert AgentRunner.transient_run_error?(reason, "codex")
+      refute AgentRunner.transient_run_error?(reason, "claude")
+    end
+
     test "a genuine agent failure is NOT transient so it still surfaces as a hard error" do
       refute AgentRunner.transient_run_error?(:no_transcript)
       refute AgentRunner.transient_run_error?({:workspace_prepare_failed, :enoent})
+      refute AgentRunner.transient_run_error?({:turn_start_failed, :provider_rejected}, "codex")
     end
   end
 
@@ -611,7 +677,7 @@ defmodule Aiur.AgentRunnerTest do
              ]
     end
 
-    test "includes unaddressed review threads even before the latest workpad handoff" do
+    test "excludes unaddressed review threads from before the latest workpad handoff" do
       issue = %Aiur.Issue{id: "35", identifier: "35", title: "Resume comments"}
 
       fetchers = %{
@@ -661,7 +727,7 @@ defmodule Aiur.AgentRunnerTest do
       events = AgentRunner.current_comment_context_events_for_test(issue, fetchers)
       summaries = Enum.map(events, & &1.summary)
 
-      assert "old unresolved review directive" in summaries
+      refute "old unresolved review directive" in summaries
       refute "old flat inline directive" in summaries
     end
 

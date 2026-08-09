@@ -3,10 +3,14 @@ defmodule Aiur.PromptBuilder do
   Builds agent prompts from issue data.
   """
 
+  require Logger
+
   alias Aiur.{CodingAgent, Config, Workflow}
 
   @render_opts [strict_filters: true, strict_variables: true]
   @shared_prompt_path Path.expand("../../prompts/shared-agent-instructions.md", __DIR__)
+  @external_resource @shared_prompt_path
+  @shared_prompt File.read!(@shared_prompt_path)
 
   @spec build_prompt(Aiur.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
@@ -27,7 +31,27 @@ defmodule Aiur.PromptBuilder do
       |> IO.iodata_to_binary()
       |> ensure_utf8()
 
-    shared_prompt_prefix() <> rendered_prompt <> complexity_suffix(issue)
+    shared_prompt_prefix() <>
+      integration_branch_prompt(issue) <> rendered_prompt <> complexity_suffix(issue)
+  end
+
+  defp integration_branch_prompt(issue) do
+    base_branch = Config.base_branch()
+
+    Logger.info(
+      "Authoritative integration branch: issue_id=#{inspect(issue.id)} " <>
+        "issue_identifier=#{inspect(issue.identifier)} tracker.base_branch=#{inspect(base_branch)}"
+    )
+
+    """
+    ## Authoritative integration branch
+
+    This workflow's configured `tracker.base_branch` is `#{base_branch}`. The agent process exposes the same value as
+    `AIUR_BASE_BRANCH`; it is authoritative even when the repository default differs. Create pull requests with
+    `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
+    handoff.
+
+    """
   end
 
   # Appends the dev-configured guidance for the issue's complexity level
@@ -44,18 +68,9 @@ defmodule Aiur.PromptBuilder do
   end
 
   defp shared_prompt_prefix do
-    case File.read(@shared_prompt_path) do
-      {:ok, content} ->
-        trimmed = String.trim(content)
-
-        if trimmed == "" do
-          ""
-        else
-          trimmed <> "\n\n"
-        end
-
-      {:error, _reason} ->
-        ""
+    case String.trim(@shared_prompt) do
+      "" -> ""
+      trimmed -> trimmed <> "\n\n"
     end
   end
 

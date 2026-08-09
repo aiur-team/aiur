@@ -19,6 +19,7 @@ defmodule Aiur.Config.Paths do
   `Aiur.Events.IdGenerator` + `Aiur.Events.SubscriptionStore` modules.
   """
 
+  alias Aiur.PathSafety
   alias Aiur.Tracker
 
   @doc """
@@ -30,6 +31,140 @@ defmodule Aiur.Config.Paths do
     case Application.get_env(:aiur, :log_file) do
       path when is_binary(path) -> Path.dirname(path)
       _ -> Path.join(File.cwd!(), "log")
+    end
+  end
+
+  @doc """
+  Resolves the owner-only Decision state directory.
+
+  An `Application` env override (tests, and any future explicit
+  configuration) wins outright and skips validation below — it is a
+  trusted, explicit value. Otherwise the directory is built from
+  `AIUR_BG_STATE_DIR`, the `AIUR_INSTANCE_KEY` (already a truncated
+  sha256 of the launcher-resolved project root — see
+  `aiur-engine.sh`'s `aiur_instance_key`), and the tracker project
+  identity.
+
+  Fails closed instead of silently sharing state across instances or
+  projects: an empty `AIUR_INSTANCE_KEY` (the explicit shared-identity
+  override `aiur-engine.sh` still honors) or an unavailable/default
+  project identity would leave `repo_name/0`'s last-path-segment
+  fallback as the only discriminator, which collapses when two
+  projects share a directory name. The resolved path is also
+  canonicalized and asserted to stay beneath the configured root (the
+  `Aiur.PathSafety` / `Aiur.Workspace.Layout` root-containment
+  precedent), so a stray `.`/`..` component cannot escape the leaf.
+  """
+  @spec decision_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def decision_state_dir do
+    case Application.get_env(:aiur, :decision_state_dir) do
+      path when is_binary(path) and path != "" -> {:ok, path}
+      _ -> resolve_decision_state_dir()
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private current-run membership state directory.
+
+  Membership recovery is deliberately isolated beneath its own leaf so it
+  cannot be mistaken for, or replayed as, decision state. It shares the
+  same instance- and repository-qualified root selection as other daemon
+  private state.
+  """
+  @spec current_run_membership_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def current_run_membership_state_dir do
+    case Application.get_env(:aiur, :current_run_membership_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "current-run-membership")}
+        end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private canonical usage-ledger state directory.
+
+  It deliberately uses a separate leaf from decision and membership state so
+  raw accounting evidence can never be replayed by either subsystem.
+  """
+  @spec usage_ledger_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_ledger_state_dir do
+    case Application.get_env(:aiur, :usage_ledger_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-ledger")}
+        end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private usage-aggregate projection state directory.
+
+  The crash-safe aggregate/query projection owns its own leaf so its
+  reproducible checkpoint can never be mistaken for, or replayed as, the
+  canonical usage ledger (whose deltas remain the only source of truth).
+  """
+  @spec usage_aggregate_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_aggregate_state_dir do
+    case Application.get_env(:aiur, :usage_aggregate_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-aggregate")}
+        end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private usage-compaction state directory.
+
+  Retention/compaction owns its own leaf holding dimension-preserving
+  compacted aggregate blocks and the destructive-phase manifest. It is kept
+  distinct from the ledger and aggregate leaves so a compacted block can never
+  be replayed as raw ledger authority nor mistaken for the live projection
+  checkpoint.
+  """
+  @spec usage_compaction_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def usage_compaction_state_dir do
+    case Application.get_env(:aiur, :usage_compaction_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "usage-compaction")}
+        end
+    end
+  end
+
+  @doc """
+  Resolves the daemon-private prepaid-balance baseline state directory.
+
+  The OpenAI-compatible balance baseline (`balance-baseline.json`) is
+  daemon-private runtime state: it records the first-observed prepaid balance
+  used to derive an honest spend percentage. It lives under the same
+  instance- and repository-qualified root as other daemon-private state so a
+  read-only (or repo-checked-in) `.aiur/` config directory can never pollute
+  VCS or block the probe's write.
+  """
+  @spec balance_baseline_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def balance_baseline_state_dir do
+    case Application.get_env(:aiur, :balance_baseline_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "balance-baselines")}
+        end
     end
   end
 
@@ -87,4 +222,51 @@ defmodule Aiur.Config.Paths do
 
   defp default_if_empty(""), do: "aiur"
   defp default_if_empty(value), do: value
+
+  defp resolve_decision_state_dir do
+    with {:ok, instance_key} <- decision_instance_key(),
+         {:ok, project_leaf} <- decision_project_leaf() do
+      root = decision_state_root()
+      candidate = Path.join([root, instance_key, project_leaf])
+      contain_within_root(root, candidate)
+    end
+  end
+
+  defp decision_instance_key do
+    case System.get_env("AIUR_INSTANCE_KEY") do
+      key when is_binary(key) and key != "" -> {:ok, sanitize(key)}
+      _ -> {:error, :missing_instance_key}
+    end
+  end
+
+  # Rejects unavailable identity outright rather than falling back to a
+  # shared default the way `repo_name/0` does — `AIUR_INSTANCE_KEY` already
+  # guarantees per-project uniqueness once validated non-empty, so a
+  # genuinely-resolved leaf that happens to read "aiur" (e.g. this very
+  # repo) is not itself a collision risk and must not be rejected.
+  defp decision_project_leaf do
+    with identity when is_binary(identity) and identity != "" <- safe_project_identity(),
+         leaf <- identity |> String.split("/") |> List.last() |> sanitize(),
+         false <- leaf in ["", ".", ".."] do
+      {:ok, leaf}
+    else
+      _ -> {:error, :missing_project_identity}
+    end
+  end
+
+  defp decision_state_root do
+    case System.get_env("AIUR_BG_STATE_DIR") do
+      root when is_binary(root) and root != "" -> root
+      _ -> Path.join(File.cwd!(), ".aiur-state")
+    end
+  end
+
+  defp contain_within_root(root, candidate) do
+    case PathSafety.contained?(root, candidate) do
+      {:ok, %{root: same, candidate: same}} -> {:error, :decision_path_equals_root}
+      {:ok, %{candidate: canonical_candidate}} -> {:ok, canonical_candidate}
+      {:error, :outside_root} -> {:error, :decision_path_outside_root}
+      {:error, :unreadable} -> {:error, :decision_path_unreadable}
+    end
+  end
 end

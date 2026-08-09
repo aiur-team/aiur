@@ -115,7 +115,17 @@ defmodule Aiur.MixProject do
           Aiur.Claude.Transcript,
           Aiur.Config.Schema.Events,
           Mix.Tasks.Aiur.Test.Reset,
-          Aiur.TestReset
+          Mix.Tasks.Aiur.AffectedTests,
+          Aiur.TestReset,
+          # Presentational OperatorControlCenter components no route currently
+          # renders (the compact Units redesign dropped the recent-/current-run
+          # outcomes and capacity panels). Pure HEEx with no executable branches
+          # to unit-test until they are re-wired or removed.
+          AiurWeb.OperatorControlCenter.RecentOutcomes,
+          AiurWeb.OperatorControlCenter.CapacityControl,
+          AiurWeb.OperatorControlCenter.BuildOrderStatus,
+          AiurWeb.OperatorControlCenter.BuildOrderUsage,
+          AiurWeb.Units.DemoSource
         ]
       ],
       test_ignore_filters: [
@@ -147,11 +157,13 @@ defmodule Aiur.MixProject do
       {:bandit, "~> 1.8"},
       {:floki, ">= 0.30.0", only: :test},
       {:lazy_html, ">= 0.1.0", only: :test},
+      {:stream_data, "~> 1.2", only: :test},
       {:phoenix, "~> 1.8.0"},
       {:phoenix_html, "~> 4.2"},
       {:phoenix_live_view, "~> 1.1.0"},
       {:req, "~> 0.5"},
       {:jason, "~> 1.4"},
+      {:jose, "~> 1.11"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.0"},
       {:solid, "~> 1.2"},
@@ -159,7 +171,8 @@ defmodule Aiur.MixProject do
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
-      {:dialyxir, "~> 1.4", only: [:dev], runtime: false}
+      {:dialyxir, "~> 1.4", only: [:dev], runtime: false},
+      {:heroicons, github: "tailwindlabs/heroicons", tag: "v2.1.5", sparse: "optimized", app: false, compile: false, depth: 1}
     ]
   end
 

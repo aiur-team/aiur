@@ -6,7 +6,7 @@ defmodule Aiur.CLI do
   alias Aiur.LogFile
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
-  @repo "its-everdred/aiur"
+  @repo "aiur-team/aiur"
   @version Mix.Project.config()[:version]
   @git_rev String.trim(
              case System.cmd("git", ["rev-parse", "--short", "HEAD"], stderr_to_stdout: true) do
@@ -22,18 +22,29 @@ defmodule Aiur.CLI do
     version: :boolean,
     interactive: :boolean,
     headless: :boolean,
+    no_dashboard: :boolean,
     max_agents: :integer,
-    force: :boolean
+    pause: :boolean,
+    force: :boolean,
+    todo: :boolean,
+    only: :boolean,
+    unfiled: :boolean,
+    slugs: :boolean,
+    scope: :string,
+    record: :string,
+    repo: :string,
+    digest: :boolean
   ]
 
   @type ensure_started_result :: {:ok, [atom()]} | {:error, term()}
   @type deps :: %{
-          file_regular?: (String.t() -> boolean()),
-          set_workflow_file_path: (String.t() -> :ok | {:error, term()}),
-          set_logs_root: (String.t() -> :ok | {:error, term()}),
-          set_server_port_override: (non_neg_integer() | nil -> :ok | {:error, term()}),
-          set_server_host_override: (String.t() | nil -> :ok | {:error, term()}),
-          ensure_all_started: (-> ensure_started_result())
+          required(:file_regular?) => (String.t() -> boolean()),
+          required(:set_workflow_file_path) => (String.t() -> :ok | {:error, term()}),
+          required(:set_logs_root) => (String.t() -> :ok | {:error, term()}),
+          required(:set_server_port_override) => (non_neg_integer() | nil -> :ok | {:error, term()}),
+          required(:set_server_host_override) => (String.t() | nil -> :ok | {:error, term()}),
+          required(:ensure_all_started) => (-> ensure_started_result()),
+          optional(:configured_max_agents) => (-> pos_integer())
         }
 
   @spec main([String.t()]) :: :ok | no_return()
@@ -55,9 +66,35 @@ defmodule Aiur.CLI do
             Aiur.Shutdown.shutdown(1)
         end
 
+      {:todo, issue_ids, opts} ->
+        run_todo_command(issue_ids, opts)
+
+      {:findings, opts} ->
+        run_findings_command(opts)
+
       {:error, message} ->
         IO.puts(:stderr, message)
         Aiur.Shutdown.shutdown(1)
+    end
+  end
+
+  defp run_todo_command(issue_ids, opts) do
+    case Aiur.AgentControlCLI.todo(issue_ids, only: opts.only) do
+      0 ->
+        :ok
+
+      exit_code ->
+        # `--todo` runs under the distribution-free start_clean boot and never
+        # starts Aiur's supervision tree. Full application cleanup would touch
+        # run-only resources and can print unrelated warnings.
+        System.halt(exit_code)
+    end
+  end
+
+  defp run_findings_command(opts) do
+    case Aiur.FindingsCLI.run(opts) do
+      0 -> :ok
+      exit_code -> System.halt(exit_code)
     end
   end
 
@@ -90,39 +127,21 @@ defmodule Aiur.CLI do
   end
 
   @spec evaluate([String.t()], deps()) ::
-          :ok | {:version, String.t()} | {:init, %{force: boolean()}} | {:error, String.t()}
+          :ok
+          | {:version, String.t()}
+          | {:init, %{force: boolean()}}
+          | {:todo, [String.t()], %{only: boolean()}}
+          | {:findings, %{unfiled: boolean(), slugs: boolean(), scope: String.t() | nil}}
+          | {:findings, %{record: String.t(), repo: String.t()}}
+          | {:findings, %{digest: true, scope: String.t() | nil}}
+          | {:error, String.t()}
   def evaluate(args, deps \\ runtime_deps()) do
     case OptionParser.parse(args, strict: @switches) do
-      {[version: true], _, _} ->
-        {:version, @version}
-
-      {opts, ["init" | rest], []} ->
-        if rest == [] do
-          {:init, %{force: Keyword.get(opts, :force, false)}}
-        else
-          {:error, usage_message()}
-        end
-
-      {opts, [], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps),
-             :ok <- maybe_set_server_host(opts, deps),
-             :ok <- maybe_set_max_agents(opts),
-             :ok <- maybe_set_interactive(opts),
-             :ok <- maybe_set_headless(opts) do
-          run(Aiur.Workflow.detect_run_folder_config(), deps)
-        end
-
-      {opts, [workflow_path], []} ->
-        with :ok <- require_guardrails_acknowledgement(opts),
-             :ok <- maybe_set_logs_root(opts, deps),
-             :ok <- maybe_set_server_port(opts, deps),
-             :ok <- maybe_set_server_host(opts, deps),
-             :ok <- maybe_set_max_agents(opts),
-             :ok <- maybe_set_interactive(opts),
-             :ok <- maybe_set_headless(opts) do
-          run(workflow_path, deps)
+      {opts, positional, []} ->
+        cond do
+          todo_switch?(opts) -> evaluate_todo(opts, positional)
+          findings_switch?(opts) and not match?(["findings" | _], positional) -> {:error, usage_message()}
+          true -> evaluate_standard(opts, positional, deps)
         end
 
       _ ->
@@ -130,8 +149,124 @@ defmodule Aiur.CLI do
     end
   end
 
+  defp evaluate_standard([version: true], _positional, _deps), do: {:version, @version}
+
+  defp evaluate_standard(opts, ["init" | rest], _deps) do
+    if rest == [] do
+      {:init, %{force: Keyword.get(opts, :force, false)}}
+    else
+      {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_standard(opts, ["findings" | rest], _deps), do: evaluate_findings(opts, rest)
+
+  defp evaluate_standard(opts, [], deps) do
+    evaluate_run(opts, Aiur.Workflow.detect_run_folder_config(), deps)
+  end
+
+  defp evaluate_standard(opts, [workflow_path], deps), do: evaluate_run(opts, workflow_path, deps)
+  defp evaluate_standard(_opts, _positional, _deps), do: {:error, usage_message()}
+
+  defp evaluate_run(opts, workflow_path, deps) do
+    with :ok <- require_guardrails_acknowledgement(opts),
+         :ok <- maybe_set_logs_root(opts, deps),
+         :ok <- maybe_set_server_port(opts, deps),
+         :ok <- maybe_set_server_host(opts, deps),
+         :ok <- maybe_set_max_agents(opts),
+         :ok <- maybe_set_interactive(opts),
+         :ok <- maybe_set_headless(opts),
+         :ok <- maybe_disable_dashboard(opts),
+         :ok <- maybe_set_pause(opts) do
+      run(workflow_path, deps, opts)
+    end
+  end
+
+  defp todo_switch?(opts), do: Keyword.has_key?(opts, :todo) or Keyword.has_key?(opts, :only)
+
+  defp findings_switch?(opts),
+    do: Enum.any?([:unfiled, :slugs, :scope, :record, :repo, :digest], &Keyword.has_key?(opts, &1))
+
+  defp evaluate_findings(opts, positional) do
+    if positional == [] do
+      evaluate_findings_opts(opts)
+    else
+      {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_findings_opts(opts) do
+    cond do
+      Keyword.has_key?(opts, :record) or Keyword.has_key?(opts, :repo) -> evaluate_findings_record(opts)
+      Keyword.has_key?(opts, :digest) -> evaluate_findings_digest(opts)
+      true -> evaluate_findings_read(opts)
+    end
+  end
+
+  defp evaluate_findings_record(opts) do
+    if Enum.sort(Keyword.keys(opts)) == [:record, :repo] do
+      {:findings, %{record: opts[:record], repo: opts[:repo]}}
+    else
+      {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_findings_digest(opts) do
+    with true <- Enum.all?(Keyword.keys(opts), &(&1 in [:digest, :scope])),
+         true <- opts[:digest] == true,
+         {:ok, scope} <- parse_findings_scope(opts[:scope]) do
+      {:findings, %{digest: true, scope: scope}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp evaluate_findings_read(opts) do
+    with true <- Enum.all?(Keyword.keys(opts), &(&1 in [:unfiled, :slugs, :scope])),
+         {:ok, scope} <- parse_findings_scope(opts[:scope]) do
+      {:findings, %{unfiled: opts[:unfiled] || false, slugs: opts[:slugs] || false, scope: scope}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp parse_findings_scope(nil), do: {:ok, nil}
+  defp parse_findings_scope(scope) when scope in ["aiur", "repo"], do: {:ok, scope}
+  defp parse_findings_scope(_scope), do: :error
+
+  defp evaluate_todo(opts, positional) do
+    with true <- Keyword.get(opts, :todo, false),
+         true <- Enum.all?(Keyword.keys(opts), &(&1 in [:todo, :only])),
+         {:ok, issue_ids} <- parse_todo_ids(positional) do
+      {:todo, issue_ids, %{only: Keyword.get(opts, :only, false)}}
+    else
+      _ -> {:error, usage_message()}
+    end
+  end
+
+  defp parse_todo_ids(positional) do
+    issue_ids =
+      positional
+      |> Enum.flat_map(&String.split(&1, ",", trim: false))
+      |> Enum.map(&String.trim/1)
+
+    if issue_ids != [] and Enum.all?(issue_ids, &Regex.match?(~r/^\d+$/, &1)) do
+      {:ok, issue_ids |> Enum.map(&canonicalize_todo_id/1) |> Enum.uniq()}
+    else
+      :error
+    end
+  end
+
+  # Enumerated issue identifiers are canonical (no leading zeros, see
+  # github/issues.ex normalize_issue/4), so a requested ID must match that
+  # form or `--only` can mistake the ticket it just queued for one to clear.
+  defp canonicalize_todo_id(id), do: id |> String.to_integer() |> Integer.to_string()
+
   @spec run(String.t(), deps()) :: :ok | {:error, String.t()}
-  def run(workflow_path, deps) do
+  def run(workflow_path, deps), do: run(workflow_path, deps, [])
+
+  @spec run(String.t(), deps(), keyword()) :: :ok | {:error, String.t()}
+  def run(workflow_path, deps, opts) do
     expanded_path = Path.expand(workflow_path)
 
     if deps.file_regular?.(expanded_path) do
@@ -139,6 +274,7 @@ defmodule Aiur.CLI do
 
       case deps.ensure_all_started.() do
         {:ok, _started_apps} ->
+          warn_if_max_agents_exceeds_config(opts, deps)
           :ok
 
         {:error, reason} ->
@@ -151,7 +287,7 @@ defmodule Aiur.CLI do
 
   @spec usage_message() :: String.t()
   defp usage_message do
-    "Usage: aiur [--interactive] [--headless] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]"
+    "Usage: aiur [--interactive] [--headless] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [config-path]\n       aiur init [--force]\n       aiur --todo <id> [<id> ...] [--only]\n       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]\n       aiur findings --record <json> --repo <owner/repo>\n       aiur findings --digest [--scope aiur|repo]"
   end
 
   @spec runtime_deps() :: deps()
@@ -162,8 +298,31 @@ defmodule Aiur.CLI do
       set_logs_root: &set_logs_root/1,
       set_server_port_override: &set_server_port_override/1,
       set_server_host_override: &set_server_host_override/1,
-      ensure_all_started: fn -> Application.ensure_all_started(:aiur) end
+      ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
+      configured_max_agents: &Aiur.Config.max_concurrent_agents/0
     }
+  end
+
+  defp warn_if_max_agents_exceeds_config(opts, deps) do
+    with requested when is_integer(requested) <- last_option_value(opts, :max_agents),
+         configured_max_agents when is_function(configured_max_agents, 0) <- Map.get(deps, :configured_max_agents),
+         ceiling when is_integer(ceiling) and ceiling > 0 <- configured_max_agents.(),
+         true <- requested > ceiling do
+      IO.puts(:stderr, [
+        "warning: --max-agents #{requested} exceeds agent.max_concurrent_agents (#{ceiling}); ",
+        "the explicit CLI value wins, so using #{requested}. ",
+        "Raise the config value or pass --max-agents <= #{ceiling} to silence this."
+      ])
+    else
+      _ -> :ok
+    end
+  end
+
+  defp last_option_value(opts, key) do
+    case Keyword.get_values(opts, key) do
+      [] -> nil
+      values -> List.last(values)
+    end
   end
 
   defp maybe_set_logs_root(opts, deps) do
@@ -278,12 +437,31 @@ defmodule Aiur.CLI do
     :ok
   end
 
-  # Lean `--bg` mode: skip UI-only supervised work (dashboard, chat panes,
+  # Detached `--bg` mode skips terminal-only supervised work (chat panes and
   # the interactive CLI block). The engine injects `--headless` for `--bg`;
-  # foreground stays interactive and unchanged.
+  # dashboard supervision is controlled independently by `--no-dashboard`.
   defp maybe_set_headless(opts) do
     if Keyword.get(opts, :headless, false) do
       Application.put_env(:aiur, :headless, true)
+    end
+
+    :ok
+  end
+
+  defp maybe_disable_dashboard(opts) do
+    if Keyword.get(opts, :no_dashboard, false) do
+      Application.put_env(:aiur, :no_dashboard, true)
+    end
+
+    :ok
+  end
+
+  # `--pause` cold-starts the daemon globally paused: no agents provision even
+  # with `agent:todo` tickets, until the operator unpauses. Read once in
+  # `Orchestrator.init/1` via `Slots.launch_globally_paused?/0`.
+  defp maybe_set_pause(opts) do
+    if Keyword.get(opts, :pause, false) do
+      Application.put_env(:aiur, :launch_globally_paused, true)
     end
 
     :ok

@@ -17,15 +17,124 @@ Validates that `name` is in the allowlist (`event-taxonomy.md`). Returns:
   "ok": true,
   "name": "progress.tests-green",
   "message": "All 47 tests green on aiur/42",
-  "result": { "id": 4287, "topic": "ticket.42.agent.progress.tests-green" }
+  "result": {
+    "status": "pending",
+    "topic": "ticket.42.agent.progress.tests-green"
+  }
 }
 ```
+
+`pending` means Aiur accepted the event for keyed background processing. No
+event ID exists at admission time; publication assigns it later. A terminal
+background failure is written to the daemon run log and does not rewrite
+the already-returned tool response.
+
+Legacy `attention.<slug>` events use the same pending admission. If the
+attention needs a durable Decision contract, immediately follow it with
+`decision.requested` carrying that `attention_slug`; Aiur serializes the
+structured request behind the projection and returns its terminal
+`decision_id`, `version`, and status.
+
+### Requesting an operator decision
+
+When work genuinely needs operator direction, emit `decision.requested` with
+enough structure for the Commands dashboard to present the decision without
+reconstructing context from the transcript:
+
+If the question has two to five bounded alternatives, you **must** encode them
+as `options` before emitting an `attention.*` or `pause.request` event. If you
+can phrase the question as “A or B?”, A and B belong in `options` so the
+Executor can answer with one click. An attention or operator-decision pause
+does not replace `decision.requested`; never leave the alternatives only in an
+attention message, pause question, workpad, or recommendation payload. Use a
+free-text-only Decision only when predefined choices would genuinely be
+misleading.
+
+```jsonc
+{
+  "question": "Which implementation shape should this use?",
+  "blocking": true,
+  "context": {
+    "short_summary": "A one-line explanation of the choice.",
+    "long_context_markdown": "The relevant constraints, tradeoffs, and scope."
+  },
+  "options": [
+    {
+      "id": "a",
+      "label": "First option",
+      "description": "What this option does.",
+      "benefits": "Why it may be preferable.",
+      "drawbacks": "What it costs.",
+      "risk": "low"
+    },
+    {
+      "id": "b",
+      "label": "Second option",
+      "description": "What this option does.",
+      "benefits": "Why it may be preferable.",
+      "drawbacks": "What it costs.",
+      "risk": "low"
+    }
+  ],
+  "recommendation": {
+    "option_id": "a",
+    "reason": "Why this is the recommended option."
+  },
+  "authority": "human_required",
+  "urgency": "normal",
+  "reversibility": "reversible",
+  "kind": "product",
+  "consequence_of_delay": "What remains blocked while the decision is open."
+}
+```
+
+Populate the summary, long context, options, and recommendation whenever they
+apply; do not emit only a question and force the operator to infer the rest.
+`context.long_context_markdown` must give the Executor enough evidence to make
+the choice without opening the agent transcript: what triggered the decision,
+relevant constraints and observed facts, tradeoffs, and what each outcome
+changes. Avoid repeating the question or filling this field with generic prose.
+
+For example, an inherited-CI question should offer options such as “Proceed to
+human review” and “Remain held”, with the preferred option in
+`recommendation.option_id`, rather than emitting only “Should it proceed or
+remain held?” through an attention and pause.
+
+If the Executor message says the decision was dismissed and instructs you to
+use your best judgement, proceed autonomously with the best supported option.
+After completing that work, emit `decision.resolved` for the dismissed request
+using the correlation supplied by Aiur when available; do not keep waiting for
+another answer.
 
 Or, on failure:
 
 ```jsonc
 { "error": { "message": "`emit_event.name` must match the agent vocabulary: ...", "examples": [...] } }
 ```
+
+### Acknowledging a delivered Decision answer
+
+A durable answer message includes a Decision ID, the request version it
+answered, and an action ID. Treat the message as replayable and do not apply it
+twice. Once observed, acknowledge that exact action:
+
+```jsonc
+{
+  "name": "decision.acknowledged",
+  "message": "Applying the selected option",
+  "payload": {
+    "decision_id": "dec_abc123",
+    "action_id": "act_def456",
+    "expected_version": 2
+  }
+}
+```
+
+After the governed work is complete, emit `decision.resolved` with the same
+three fields. These two exact names go through the durable DecisionStore, not
+the generic event publisher. An exact retry returns `duplicate`; a wrong
+ticket, action, or version is rejected. Queue delivery or turn completion does
+not acknowledge a Decision for you.
 
 ## `aiur_subscribe(topic_pattern)`
 
@@ -55,11 +164,22 @@ When you start working on a ticket, Aiur automatically subscribes you to:
 - `system.<default-branch>.branch.push` — pushes to the repo's default branch
 - (After `aiur_declare_blocker(N)`:) a useful subset of `ticket.N.*` events — the blocker's progress, decisions, branch pushes, and unblock signals
 
-For a declared blocker, `ticket.N.branch.push` is an action cue. Load
-`stub-then-fetch.md`, fetch the actual validated ref from the event payload (never a guessed `origin/aiur/N`; use `scripts/resolve-ticket-branch N` when no event ref is available), inspect the pushed diff/exports, and
-stack on the branch when it contains the needed API. Treat an irrelevant push and
-a usable push differently: record the concrete inspected reason if it is still
-unusable; remove any temporary stub and rebase/merge when it is usable.
+For a declared blocker, `ticket.N.agent.unblocked` is the readiness signal that
+resumes a parked consumer through the mid-turn checkpoint drain. Load
+`stub-then-fetch.md`, then use the latest `ticket.N.branch.push` payload only to
+fetch and inspect its validated ref (never a guessed `origin/aiur/N`; use
+`scripts/resolve-ticket-branch N` when no event ref is available). Do not infer
+readiness from `branch.push` alone. Record the concrete inspected reason if the
+explicitly-unblocked dependency is still unusable; otherwise remove any
+temporary stub and stack on the blocker branch.
+
+`aiur_declare_blocker(N)` returns `pending` after the ordered declaration is
+admitted, not after GitHub confirms the dependency. Background failures are
+terminal in daemon diagnostics. If admission is indeterminate, inspect the
+authoritative GitHub dependency state before deciding whether a retry is safe.
+
+`blocked` and `unblocked` are required single-attempt, fire-and-forget emissions:
+enqueue each once and continue without waiting, polling, or retrying.
 
 So you only need explicit `aiur_subscribe` for **watch use cases** — e.g., tracking a sibling ticket that isn't a blocker.
 

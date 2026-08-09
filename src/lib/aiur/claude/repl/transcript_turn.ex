@@ -38,6 +38,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
   def run(session, prompt, opts) do
     on_message = Keyword.get(opts, :on_message, fn _ -> :ok end)
     on_operator = Keyword.get(opts, :on_operator_message, fn -> :noop end)
+    on_provider_delivery = Keyword.get(opts, :on_provider_delivery, fn _metadata -> :ok end)
     poll_ms = Keyword.get(opts, :poll_interval_ms, @turn_poll_ms)
     timeout_ms = Keyword.get(opts, :turn_timeout_ms) || Aiur.Config.agent_turn_timeout_ms()
     pause_confirm_ms = Keyword.get(opts, :pause_confirm_ms, @pause_confirm_ms)
@@ -54,7 +55,14 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
           turn_id: turn_id
         })
 
-        {:ok, tailer} = start_turn_tailer(session, turn_id, from, on_message)
+        {:ok, tailer} =
+          start_turn_tailer(
+            session,
+            turn_id,
+            from,
+            on_message,
+            on_provider_delivery
+          )
 
         # Warm turns send AFTER the tailer attaches so no record is missed;
         # cold turns already sent the prompt to create the transcript.
@@ -147,7 +155,13 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
 
   # Capture `parent = self()` BEFORE start_link so `{:turn_end, …}` routes back
   # to the awaiting process, not the tailer's process.
-  defp start_turn_tailer(session, turn_id, from, on_message) do
+  defp start_turn_tailer(
+         session,
+         turn_id,
+         from,
+         on_message,
+         on_provider_delivery
+       ) do
     parent = self()
 
     TranscriptTailer.start_link(
@@ -155,9 +169,32 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
       from: from,
       turn_id: turn_id,
       interval_ms: nil,
-      on_message: fn event -> TurnEvents.emit_transcript(on_message, event) end,
+      on_message: fn event ->
+        maybe_acknowledge_provider_delivery(event, on_provider_delivery, turn_id)
+        TurnEvents.emit_transcript(on_message, event)
+      end,
       on_turn_end: fn reason -> send(parent, {:turn_end, turn_id, reason}) end
     )
+  end
+
+  defp maybe_acknowledge_provider_delivery(
+         %{role: :user},
+         on_provider_delivery,
+         turn_id
+       ) do
+    safely_invoke_provider_delivery(on_provider_delivery, %{
+      transport: :claude_transcript,
+      turn_id: turn_id
+    })
+  end
+
+  defp maybe_acknowledge_provider_delivery(_event, _on_provider_delivery, _turn_id),
+    do: :ok
+
+  defp safely_invoke_provider_delivery(callback, metadata) do
+    callback.(metadata)
+  rescue
+    _error -> :ok
   end
 
   defp await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms) do
@@ -192,19 +229,27 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
           {:agent_queue_updated, _identifier, _item_id} ->
             await_turn(session, tailer, turn_id, deadline, poll_ms, on_operator, pause_confirm_ms)
 
-          # A failed interrupt still parks — the operator asked for a pause.
+          # A tmux delivery failure is not pause evidence. Do not report an
+          # applied pause while the REPL may still be working.
+          {:pause_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
+            interrupt_and_confirm_pause(
+              session,
+              tailer,
+              turn_id,
+              pause_confirm_ms,
+              poll_ms,
+              %{request_id: request_id, generation: generation, kind: :operator_pause}
+            )
+
           {:pause_agent, request_id} when is_integer(request_id) ->
-            case OperatorInject.interrupt(session) do
-              :ok ->
-                :ok
-
-              {:error, reason} ->
-                Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
-            end
-
-            confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms
-            await_pause_confirm(tailer, turn_id, confirm_deadline, poll_ms)
-            {:paused, %{request_id: request_id}}
+            interrupt_and_confirm_pause(
+              session,
+              tailer,
+              turn_id,
+              pause_confirm_ms,
+              poll_ms,
+              %{request_id: request_id}
+            )
         after
           0 ->
             Process.sleep(poll_ms)
@@ -213,7 +258,26 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
     end
   end
 
-  # Expiry parks anyway — never `{:error, :turn_timeout}` (see @pause_confirm_ms).
+  defp confirm_pause(tailer, turn_id, pause_confirm_ms, poll_ms, payload) do
+    confirm_deadline = System.monotonic_time(:millisecond) + pause_confirm_ms
+
+    case await_pause_confirm(tailer, turn_id, confirm_deadline, poll_ms) do
+      :confirmed -> {:paused, payload}
+      :timeout -> {:error, :pause_confirmation_timeout}
+    end
+  end
+
+  defp interrupt_and_confirm_pause(session, tailer, turn_id, pause_confirm_ms, poll_ms, payload) do
+    case OperatorInject.interrupt(session) do
+      :ok ->
+        confirm_pause(tailer, turn_id, pause_confirm_ms, poll_ms, payload)
+
+      {:error, reason} ->
+        Logger.warning("repl_pause interrupt_failed turn_id=#{turn_id} reason=#{inspect(reason)}")
+        {:error, {:pause_interrupt_failed, reason}}
+    end
+  end
+
   defp await_pause_confirm(tailer, turn_id, deadline, poll_ms) do
     if System.monotonic_time(:millisecond) >= deadline do
       Logger.warning("repl_pause pause_confirm_timeout turn_id=#{turn_id}")
@@ -222,7 +286,7 @@ defmodule Aiur.Claude.Repl.TranscriptTurn do
       TranscriptTailer.poll(tailer)
 
       receive do
-        {:turn_end, ^turn_id, _reason} -> :ok
+        {:turn_end, ^turn_id, _reason} -> :confirmed
       after
         0 ->
           Process.sleep(poll_ms)

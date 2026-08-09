@@ -5,6 +5,10 @@ defmodule Aiur.GitHub.Config do
 
   @behaviour Aiur.TrackerConfig
 
+  require Logger
+
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+
   @default_label_prefix "agent"
 
   @spec repo() :: String.t() | nil
@@ -23,21 +27,78 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @doc """
+  Returns only the repository explicitly configured in `tracker.github.repo`.
+
+  Unlike `repo/0`, this never falls back to the current checkout's git remote;
+  callers using it are establishing a trusted cross-repository identity.
+  """
+  @spec configured_repo() ::
+          {:ok, {String.t(), String.t()}}
+          | {:error, :missing_configured_repository | :invalid_configured_repository}
+  def configured_repo do
+    case section_value("repo") do
+      value when is_binary(value) -> parse_configured_repo(value)
+      _ -> {:error, :missing_configured_repository}
+    end
+  end
+
   @spec token() :: String.t() | nil
   def token do
-    case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
-      :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
-      resolved -> resolved
+    if AppCredentials.configured?() do
+      AppTokenRefresher.current_token()
+    else
+      case :persistent_term.get({__MODULE__, :resolved_token}, :unset) do
+        :unset -> normalize_secret(System.get_env("GITHUB_TOKEN"))
+        resolved -> resolved
+      end
     end
   end
 
   @doc """
-  Resolve the GitHub token once at startup: prefer a VALID `GITHUB_TOKEN` env
-  var, but fall back to the gh keyring when the env token is absent or invalid
-  (e.g. a stale token sourced from .env). Caches the result; `token/0` returns it.
+  Resolve the GitHub token once at startup.
+
+  When GitHub App credentials are configured (`GITHUB_APP_ID`,
+  `GITHUB_APP_INSTALLATION_ID` and the App private key), acquires and caches a
+  short-lived installation token synchronously — the App-token analogue of the
+  PAT path's boot-time rate-limit probe — so the pollers never start without a
+  credential. On failure it logs a warning and returns nil without crashing
+  boot; the `Aiur.GitHub.AppTokenRefresher` keeps retrying and raising
+  needs-attention alerts.
+
+  Otherwise prefers a VALID `GITHUB_TOKEN` env var, but falls back to the gh
+  keyring when the env token is absent or invalid (e.g. a stale token sourced
+  from .env). Caches the result; `token/0` returns it.
   """
   @spec resolve_token(keyword()) :: String.t() | nil
   def resolve_token(opts \\ []) do
+    if AppCredentials.configured?() do
+      resolve_installation_token(opts)
+    else
+      resolve_pat_token(opts)
+    end
+  end
+
+  defp resolve_installation_token(opts) do
+    request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+    validate_fun = Keyword.get(opts, :validate_fun, &AppToken.rate_limit_usable?/2)
+    acquire_fun = Keyword.get(opts, :acquire_fun, &AppToken.acquire/1)
+
+    case acquire_fun.(request_fun: request_fun, validate_fun: validate_fun) do
+      {:ok, %{token: token, expires_at: expires_at, permissions: permissions}}
+      when is_binary(token) and token != "" ->
+        :ok = AppTokenRefresher.cache_token(token, expires_at, permissions)
+        token
+
+      {:error, reason} ->
+        # Sanitized: the raw reason can carry the private-key file path.
+        sanitized = AppCredentials.sanitize_error(reason)
+        Logger.warning("aiur_boot phase=github_app_token_resolve_failed reason=#{inspect(sanitized)}")
+        nil
+    end
+  end
+
+  defp resolve_pat_token(opts) do
     request_fun = Keyword.get(opts, :request_fun, &Req.get/2)
 
     validate =
@@ -75,6 +136,15 @@ defmodule Aiur.GitHub.Config do
     end
   end
 
+  @spec planning_root_limit() :: pos_integer()
+  def planning_root_limit, do: section_value("planning_root_limit")
+
+  @spec planning_page_budget() :: pos_integer()
+  def planning_page_budget, do: section_value("planning_page_budget")
+
+  @spec planning_call_budget() :: pos_integer()
+  def planning_call_budget, do: section_value("planning_call_budget")
+
   @doc """
   Returns the GitHub login that Aiur posts under (PR comments, dependency
   declarations, etc.). Read from `github.bot_account` in .aiurconfig.
@@ -94,6 +164,34 @@ defmodule Aiur.GitHub.Config do
       _ ->
         nil
     end
+  end
+
+  @doc """
+  Checks that `github.bot_account` names the identity the daemon actually
+  writes as.
+
+  A GitHub App installation token authenticates as the App's bot user
+  (`<app-slug>[bot]`), never as the operator account a PAT authenticated as.
+  Every identity-keyed gate — `Events.Publisher`'s self-loop suppression, the
+  PR command scanner's self-loop drop, review-thread reply verification, the
+  CODEOWNERS self-include — compares the event actor against `bot_account`, so
+  a `bot_account` left pointing at the old PAT account silently stops
+  recognizing the daemon's own writes and the daemon reacts to itself.
+
+  Returns `nil` when the daemon is on the PAT path or `bot_account` already
+  names an App bot; otherwise the concrete misconfiguration.
+  """
+  @spec app_identity_issue() :: nil | :bot_account_missing | {:bot_account_not_app_bot, String.t()}
+  def app_identity_issue do
+    if AppCredentials.configured?(), do: bot_account_issue(bot_account())
+  end
+
+  defp bot_account_issue(nil), do: :bot_account_missing
+
+  # Case-insensitive, matching every consumer of bot_account: an operator who
+  # wrote `My-App[Bot]` has a working config and must not be alerted.
+  defp bot_account_issue(login) do
+    unless String.ends_with?(String.downcase(login), "[bot]"), do: {:bot_account_not_app_bot, login}
   end
 
   @doc """
@@ -119,6 +217,47 @@ defmodule Aiur.GitHub.Config do
       _ ->
         []
     end
+  end
+
+  @doc """
+  Returns the explicit dispatch allowlist, or the running CODEOWNERS-derived
+  allowlist when it is absent. An unavailable or empty fallback denies all
+  dispatches rather than opening the trust boundary.
+  """
+  @spec allowed_users() :: [String.t()]
+  def allowed_users do
+    case normalize_logins(section_value("allowed_users")) do
+      [] -> codeowners_users()
+      users -> users
+    end
+  end
+
+  @doc """
+  Returns the explicit human-only merge allowlist. Unlike comment trust and
+  dispatch authorization, this list never inherits CODEOWNERS, bot accounts,
+  or other trusted identities. An absent list denies all mergers.
+  """
+  @spec human_mergers() :: [String.t()]
+  def human_mergers do
+    section_value("human_mergers")
+    |> normalize_logins()
+  end
+
+  @doc """
+  Returns true only when `login` is explicitly configured as a human merger.
+  Login matching is case-insensitive.
+  """
+  @spec human_merger_allowed?(String.t() | nil, [String.t()]) :: boolean()
+  def human_merger_allowed?(login, allowed \\ human_mergers())
+
+  def human_merger_allowed?(nil, _allowed), do: false
+
+  def human_merger_allowed?(login, allowed) when is_binary(login) and is_list(allowed) do
+    normalized_login = login |> String.trim() |> String.downcase()
+
+    Enum.any?(allowed, fn candidate ->
+      is_binary(candidate) and String.downcase(String.trim(candidate)) == normalized_login
+    end)
   end
 
   @doc """
@@ -152,7 +291,10 @@ defmodule Aiur.GitHub.Config do
   @impl Aiur.TrackerConfig
   def validate! do
     cond do
-      !is_binary(token()) ->
+      AppCredentials.configured?() and !is_binary(token()) ->
+        {:error, "GitHub App installation token unavailable — check GITHUB_APP_ID, GITHUB_APP_INSTALLATION_ID and the App private key"}
+
+      !AppCredentials.configured?() and !is_binary(token()) ->
         {:error, "GitHub token missing — set GITHUB_TOKEN env var"}
 
       !is_binary(repo()) ->
@@ -167,6 +309,34 @@ defmodule Aiur.GitHub.Config do
     Aiur.Config.settings!().tracker.github
     |> Map.from_struct()
     |> Map.get(String.to_existing_atom(key))
+  end
+
+  defp normalize_logins(accounts) when is_list(accounts) do
+    accounts
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.uniq_by(&String.downcase/1)
+  end
+
+  defp normalize_logins(account) when is_binary(account), do: normalize_logins([account])
+  defp normalize_logins(_accounts), do: []
+
+  defp codeowners_users do
+    if Process.whereis(CodeOwners) do
+      CodeOwners.codeowners_snapshot()
+    else
+      []
+    end
+  catch
+    :exit, _reason -> []
+  end
+
+  defp parse_configured_repo(value) do
+    case String.split(String.trim(value), "/") do
+      [owner, repo] when owner != "" and repo != "" -> {:ok, {owner, repo}}
+      _ -> {:error, :invalid_configured_repository}
+    end
   end
 
   # Query the gh keyring with the env tokens CLEARED so gh returns the stored
@@ -188,7 +358,8 @@ defmodule Aiur.GitHub.Config do
   # token, but an exhausted core quota still wedges the fleet (#617). Treat a
   # 200 response with remaining=0 as unusable so boot can fall back from a stale
   # `.env` token to `gh` keyring auth when available.
-  defp valid_github_token?(token, request_fun) when is_binary(token) and is_function(request_fun, 2) do
+  defp valid_github_token?(token, request_fun)
+       when is_binary(token) and is_function(request_fun, 2) do
     case request_fun.("https://api.github.com/rate_limit",
            headers: [
              {"Authorization", "Bearer #{token}"},

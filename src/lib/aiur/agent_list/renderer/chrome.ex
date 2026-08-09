@@ -36,20 +36,156 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       project_row(Map.get(state, :project_label), inner_width),
       Text.eol(),
       dashboard_row(Map.get(state, :dashboard_url), inner_width),
+      Text.eol(),
+      usage_row(Map.get(state, :provider_usage), inner_width),
       Text.eol()
     ]
   end
 
-  @spec agents_row(term(), term(), term(), term(), term(), term()) :: term()
-  def agents_row(kind, count, max, focused?, alert?, inner_width)
-      when is_integer(count) and is_integer(max) and max > 0 do
-    kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    agents_row_iolist(kind_value, count, max, focused?, alert?, inner_width)
+  @doc """
+  Limit headroom for each provider, as a bar plus the age of the observation.
+
+  Meters are observed from live agent sessions, so a bar with no age cannot be
+  told apart from a current one. A provider that has never been observed reads
+  as `n/a` and draws no bar — an empty bar would read as "0% consumed".
+  """
+  @spec usage_row(term(), term()) :: term()
+  def usage_row(usage, inner_width) when is_map(usage) and map_size(usage) > 0 do
+    case usage |> Enum.sort_by(fn {provider, _view} -> provider end) |> Enum.map(&usage_segment/1) do
+      [] -> metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
+      segments -> metadata_row_iolist("Usage:", Enum.join(segments, "  "), Style.cyan(), inner_width)
+    end
   end
 
-  def agents_row(kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
-    kind_value = if is_binary(kind) and kind != "", do: kind, else: "agents"
-    metadata_row_iolist("Agents:", "#{kind_value} (#{count})", Style.cyan(), inner_width)
+  def usage_row(_usage, inner_width), do: metadata_row_iolist("Usage:", "n/a", Style.gray(), inner_width)
+
+  # Codex reports a consumed fraction, so it gets a bar. Claude reports only a
+  # standing and a reset time — its CLI exposes no utilization at all — so it
+  # gets those instead. Rendering an empty bar for Claude would read as "0%
+  # consumed", which is a claim the data does not support.
+  defp usage_segment({provider, %{state: :observed} = view}) do
+    case local_concurrency_summary(view) do
+      nil ->
+        case usage_percent(view) do
+          nil -> "#{provider_abbrev(provider)} #{fact_summary(view)}"
+          percent -> "#{provider_abbrev(provider)} #{usage_bar(percent)} #{round(percent)}% #{age_suffix(view[:age_seconds])}"
+        end
+
+      summary ->
+        "#{provider_abbrev(provider)} #{summary} #{age_suffix(view[:age_seconds])}"
+    end
+  end
+
+  defp usage_segment({provider, _view}), do: "#{provider_abbrev(provider)} n/a"
+
+  # The worst-consumed rate-limit window is the one that will stop work first,
+  # so it is the number worth the header's single line.
+  defp usage_percent(%{windows: windows}) when is_map(windows) do
+    windows
+    |> Map.values()
+    |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
+    |> Enum.map(&Map.get(&1, :used_percent))
+    |> Enum.filter(&is_number/1)
+    |> case do
+      [] -> nil
+      percents -> Enum.max(percents)
+    end
+  end
+
+  defp usage_percent(_view), do: nil
+
+  defp local_concurrency_summary(view) do
+    view
+    |> Map.get(:windows, %{})
+    |> Map.values()
+    |> Enum.find(&local_concurrency_window?/1)
+    |> case do
+      %{used: used, limit: limit} when is_number(used) and is_number(limit) ->
+        [credit_fact(view), "#{used}/#{limit} concurrent"]
+        |> Enum.reject(&is_nil/1)
+        |> Enum.join(" · ")
+
+      _window ->
+        nil
+    end
+  end
+
+  defp local_concurrency_window?(window) do
+    Map.get(window, :name) in [:concurrency, "Local concurrency"]
+  end
+
+  # A provider that reports standing without a percentage still has something
+  # worth the header's space: whether it is allowed, and when the window resets.
+  defp fact_summary(view) do
+    windows = view |> Map.get(:windows, %{}) |> Map.values() |> Enum.filter(&(Map.get(&1, :kind) == :rate_limit))
+
+    case Enum.find(windows, &Map.get(&1, :standing)) do
+      nil -> credit_summary(view)
+      window -> [standing_word(window.standing), reset_suffix(Map.get(window, :resets_at))] |> Enum.reject(&is_nil/1) |> Enum.join(" ")
+    end
+  end
+
+  defp credit_summary(view) do
+    case credit_fact(view) do
+      nil -> "n/a"
+      fact -> "#{fact} #{age_suffix(view[:age_seconds])}"
+    end
+  end
+
+  defp credit_fact(view) do
+    view
+    |> Map.get(:windows, %{})
+    |> Map.values()
+    |> Enum.find_value(fn
+      %{kind: :credit, credits: %{amount: amount}} when is_number(amount) -> "$#{format_amount(amount)} left"
+      _window -> nil
+    end)
+  end
+
+  defp format_amount(amount), do: :erlang.float_to_binary(amount / 1, decimals: 2)
+
+  defp standing_word(:allowed), do: "ok"
+  defp standing_word(:allowed_warning), do: "near limit"
+  defp standing_word(:rejected), do: "limited"
+  defp standing_word(_standing), do: "n/a"
+
+  defp reset_suffix(%DateTime{} = resets_at) do
+    case DateTime.diff(resets_at, DateTime.utc_now()) do
+      seconds when seconds <= 0 -> nil
+      seconds when seconds < 3_600 -> "· resets in #{div(seconds, 60)}m"
+      seconds when seconds < 86_400 -> "· resets in #{div(seconds, 3_600)}h"
+      # Days once there are any: a weekly window reading "167h" makes the reader
+      # divide to learn it is a week away. The header is tight, so hours only.
+      seconds -> "· resets in #{div(seconds, 86_400)}d #{div(rem(seconds, 86_400), 3_600)}h"
+    end
+  end
+
+  defp reset_suffix(_resets_at), do: nil
+
+  @bar_cells 10
+
+  defp usage_bar(percent) do
+    filled = percent |> max(0) |> min(100) |> Kernel./(100) |> Kernel.*(@bar_cells) |> round()
+    String.duplicate("█", filled) <> String.duplicate("░", @bar_cells - filled)
+  end
+
+  defp age_suffix(nil), do: "(age n/a)"
+  defp age_suffix(seconds) when seconds < 60, do: "(#{seconds}s)"
+  defp age_suffix(seconds) when seconds < 3_600, do: "(#{div(seconds, 60)}m)"
+  defp age_suffix(seconds), do: "(#{div(seconds, 3_600)}h)"
+
+  defp provider_abbrev(:codex), do: "codex"
+  defp provider_abbrev(:claude), do: "claude"
+  defp provider_abbrev(other), do: to_string(other)
+
+  @spec agents_row(term(), term(), term(), term(), term(), term()) :: term()
+  def agents_row(_kind, count, max, focused?, alert?, inner_width)
+      when is_integer(count) and is_integer(max) and max > 0 do
+    agents_row_iolist(nil, count, max, focused?, alert?, inner_width)
+  end
+
+  def agents_row(_kind, count, _max, _focused?, _alert?, inner_width) when is_integer(count) do
+    metadata_row_iolist("Agents:", to_string(count), Style.cyan(), inner_width)
   end
 
   def agents_row(_kind, _count, _max, _focused?, _alert?, inner_width),
@@ -86,14 +222,14 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   end
 
   @spec agents_row_iolist(term(), term(), term(), term(), term(), term()) :: term()
-  def agents_row_iolist(kind, count, max, focused?, alert?, inner_width) do
+  def agents_row_iolist(_kind, count, max, focused?, alert?, inner_width) do
     label = "Agents:"
     prefix = "│ "
     bold_label = Style.bold() <> label <> Style.reset()
     max_text = if focused?, do: "[#{max}]", else: to_string(max)
     affordance = if focused?, do: "  ← →", else: ""
     drain_text = if count > max, do: " drain", else: ""
-    plain = "#{prefix}#{label} #{kind} (#{count}/#{max_text}#{drain_text})#{affordance}"
+    plain = "#{prefix}#{label} #{count}/#{max_text}#{drain_text}#{affordance}"
     pad = Text.padding_for(plain, inner_width)
 
     max_style =
@@ -108,8 +244,6 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       bold_label,
       " ",
       Style.cyan(),
-      kind,
-      " (",
       Integer.to_string(count),
       "/",
       max_style,
@@ -117,7 +251,6 @@ defmodule Aiur.AgentList.Renderer.Chrome do
       Style.reset(),
       Style.cyan(),
       drain_text,
-      ")",
       affordance,
       Style.reset(),
       pad
@@ -139,7 +272,7 @@ defmodule Aiur.AgentList.Renderer.Chrome do
   @spec bottom_border(term()) :: term()
   def bottom_border(inner_width) do
     # Inject a "newest" label at the far-left of the bottom border so
-    # the operator can read the timeline direction in the events log:
+    # the Executor can read the timeline direction in the events log:
     #   `╰─ newest ──...──╯`
     # The label sits between the `╰` corner and the trailing fill. When
     # the box is too narrow (`< 14` cols) for label + chrome, fall back

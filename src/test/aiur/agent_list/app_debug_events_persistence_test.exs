@@ -32,7 +32,7 @@ defmodule Aiur.AgentList.AppDebugEventsPersistenceTest do
         debug?: true
       )
 
-    on_exit(fn -> if Process.alive?(pid), do: GenServer.stop(pid) end)
+    on_exit(fn -> Aiur.TestSupport.safe_stop(pid) end)
 
     %{pid: pid}
   end

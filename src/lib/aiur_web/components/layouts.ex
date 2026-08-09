@@ -7,19 +7,40 @@ defmodule AiurWeb.Layouts do
 
   @spec root(map()) :: Phoenix.LiveView.Rendered.t()
   def root(assigns) do
-    assigns = assign(assigns, :csrf_token, Plug.CSRFProtection.get_csrf_token())
+    assigns =
+      assigns
+      |> assign(:csrf_token, Plug.CSRFProtection.get_csrf_token())
+      |> assign(:page_title, page_title())
 
     ~H"""
     <!DOCTYPE html>
-    <html lang="en">
+    <html lang="en" data-theme="dark">
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <meta name="csrf-token" content={@csrf_token} />
-        <title>Aiur Observability</title>
+        <link rel="icon" type="image/png" href="/aiur-logo.png" />
+        <link rel="apple-touch-icon" href="/aiur-logo.png" />
+        <title>{@page_title}</title>
+        <script>
+          (function () {
+            try {
+              var stored = window.localStorage.getItem("aiur-theme");
+              if (stored === "light" || stored === "dark") {
+                document.documentElement.dataset.theme = stored;
+              }
+            } catch (_error) {}
+          })();
+        </script>
         <script defer src="/vendor/phoenix_html/phoenix_html.js"></script>
         <script defer src="/vendor/phoenix/phoenix.js"></script>
         <script defer src="/vendor/phoenix_live_view/phoenix_live_view.js"></script>
+        <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/ticket-context-dialog-hook.js"></script>
+        <script defer src="/conversation-drawer-hook.js"></script>
+        <script defer src="/build-order-grid-hook.js"></script>
+        <script defer src="/time-brush-hook.js"></script>
+        <script defer src="/streamdeck-emulator-hook.js"></script>
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document
@@ -77,6 +98,106 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            // The server owns the collapsed state (assigns -> data-nav-collapsed on
+            // the shell). This hook only mirrors it to localStorage and replays the
+            // stored value once on mount, so cross-navigation persistence survives
+            // without any client-written attribute for LiveView to strip.
+            Hooks.NavToggle = {
+              mounted: function () {
+                try {
+                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
+                  if (stored === "true" || stored === "false") {
+                    var collapsed = stored === "true";
+                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
+                      this.pushEvent("restore-nav", { collapsed: collapsed });
+                    }
+                  }
+                } catch (_error) {}
+              },
+              updated: function () {
+                try {
+                  window.localStorage.setItem(
+                    "aiur-nav-collapsed",
+                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
+                  );
+                } catch (_error) {}
+              }
+            };
+
+            // Provider usage is polled from a rate-limited endpoint, so it is
+            // polled only while someone is actually looking. Report focus to
+            // the server; it keeps polling for a grace period after the last
+            // watcher looks away, and stops entirely once a tab is abandoned.
+            Hooks.UsageWatch = {
+              mounted: function () {
+                this.report = () => {
+                  var watching = document.visibilityState === "visible" && document.hasFocus();
+                  if (watching === this.lastReported) return;
+                  this.lastReported = watching;
+                  this.pushEvent(watching ? "usage-watch-start" : "usage-watch-stop", {});
+                };
+
+                this.onVisibility = this.report;
+                this.onFocus = this.report;
+                this.onBlur = this.report;
+
+                document.addEventListener("visibilitychange", this.onVisibility);
+                window.addEventListener("focus", this.onFocus);
+                window.addEventListener("blur", this.onBlur);
+
+                this.report();
+              },
+              destroyed: function () {
+                document.removeEventListener("visibilitychange", this.onVisibility);
+                window.removeEventListener("focus", this.onFocus);
+                window.removeEventListener("blur", this.onBlur);
+              }
+            };
+
+            Hooks.ThemeToggle = {
+              mounted: function () {
+                this.onClick = () => {
+                  var current = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+                  var next = current === "light" ? "dark" : "light";
+                  document.documentElement.dataset.theme = next;
+                  this.el.setAttribute("aria-label", "Switch to " + current + " theme");
+
+                  try {
+                    window.localStorage.setItem("aiur-theme", next);
+                  } catch (_error) {}
+                };
+
+                this.el.addEventListener("click", this.onClick);
+              },
+              destroyed: function () {
+                this.el.removeEventListener("click", this.onClick);
+              }
+            };
+
+            if (window.AiurTicketContextDialogHook) {
+              Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
+
+            if (window.AiurConversationDrawerHook) {
+              Hooks.ConversationDrawer = window.AiurConversationDrawerHook;
+            }
+
+            if (window.AiurDomSvgLayout) {
+              Hooks.DomSvgLayout = window.AiurDomSvgLayout.createLiveViewHook();
+            }
+
+            if (window.AiurBuildOrderGridHook) {
+              Hooks.BuildOrderGrid = window.AiurBuildOrderGridHook;
+            }
+
+            if (window.AiurTimeBrushHook) {
+              Hooks.TimeBrush = window.AiurTimeBrushHook.createLiveViewHook();
+            }
+
+            if (window.AiurStreamdeckEmulatorHook) {
+              Hooks.StreamdeckEmulator = window.AiurStreamdeckEmulatorHook;
+            }
+
             var liveSocket = new window.LiveView.LiveSocket("/live", window.Phoenix.Socket, {
               hooks: Hooks,
               params: {_csrf_token: csrfToken}
@@ -103,4 +224,33 @@ defmodule AiurWeb.Layouts do
     </main>
     """
   end
+
+  # Names the repo this daemon is running against, so several instances are
+  # tellable apart in a tab strip — the reason the old fixed title was useless.
+  # Uses the same identity the TUI's Project row shows rather than resolving the
+  # repo a second way.
+  defp page_title do
+    case repo_label() do
+      nil -> "Aiur Dashboard"
+      label -> "Aiur: #{label} Dashboard"
+    end
+  end
+
+  defp repo_label do
+    case Aiur.Tracker.project_identity() do
+      value when is_binary(value) and value != "" -> value |> repo_name() |> capitalize()
+      _unavailable -> nil
+    end
+  rescue
+    _error -> nil
+  catch
+    _kind, _reason -> nil
+  end
+
+  # `project_identity/0` may carry an owner ("owner/repo"); the tab only has
+  # room for the part that distinguishes one instance from another.
+  defp repo_name(value), do: value |> String.split("/") |> List.last()
+
+  defp capitalize(<<first::utf8, rest::binary>>), do: String.upcase(<<first::utf8>>) <> rest
+  defp capitalize(value), do: value
 end

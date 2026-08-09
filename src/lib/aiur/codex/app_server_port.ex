@@ -53,12 +53,71 @@ defmodule Aiur.Codex.AppServerPort do
 
   @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil) ::
           {:ok, port()} | {:error, term()}
-  def start_port(workspace, nil, model, effort) do
-    Adapter.start_port(workspace, codex_command(model, effort))
+  def start_port(workspace, worker_host, model, effort),
+    do: start_port(workspace, worker_host, model, effort, fn _process_group_id -> :ok end)
+
+  @doc false
+  @spec start_port(
+          Path.t(),
+          String.t() | nil,
+          String.t() | nil,
+          String.t() | nil,
+          (integer() -> term()),
+          (map() -> term())
+        ) :: {:ok, port()} | {:error, term()}
+  def start_port(workspace, worker_host, model, effort, on_process_group_started, on_provider_started)
+      when is_function(on_process_group_started, 1) and is_function(on_provider_started, 1) do
+    open_port(workspace, worker_host, model, effort, fn port ->
+      with :ok <- notify_provider_started(port, worker_host, on_provider_started) do
+        notify_process_group_started(port, worker_host, on_process_group_started)
+      end
+    end)
   end
 
-  def start_port(workspace, worker_host, model, effort) when is_binary(worker_host) do
-    SSH.start_port(worker_host, remote_launch_command(workspace, model, effort), line: Adapter.port_line_bytes())
+  @spec start_port(Path.t(), String.t() | nil, String.t() | nil, String.t() | nil, (integer() -> term())) ::
+          {:ok, port()} | {:error, term()}
+  def start_port(workspace, nil, model, effort, on_process_group_started)
+      when is_function(on_process_group_started, 1) do
+    Adapter.start_port(workspace, codex_command(model, effort), fn port ->
+      notify_process_group_started(port, nil, on_process_group_started)
+    end)
+  end
+
+  def start_port(workspace, worker_host, model, effort, on_process_group_started)
+      when is_binary(worker_host) and is_function(on_process_group_started, 1) do
+    command = remote_launch_command(workspace, model, effort)
+
+    with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
+      notify_process_group_started(port, worker_host, on_process_group_started)
+      {:ok, port}
+    end
+  end
+
+  defp open_port(workspace, nil, model, effort, on_port_started) when is_function(on_port_started, 1) do
+    Adapter.start_port(workspace, codex_command(model, effort), on_port_started)
+  end
+
+  defp open_port(workspace, worker_host, model, effort, on_port_started)
+       when is_binary(worker_host) and is_function(on_port_started, 1) do
+    command = remote_launch_command(workspace, model, effort)
+
+    with {:ok, port} <- SSH.start_port(worker_host, command, line: Adapter.port_line_bytes()) do
+      case on_port_started.(port) do
+        :ok -> {:ok, port}
+        {:error, _reason} = error -> close_uncontained_remote_port(port, error)
+        _other -> close_uncontained_remote_port(port, {:error, :workspace_ownership_lost})
+      end
+    end
+  end
+
+  defp close_uncontained_remote_port(port, error) do
+    try do
+      Port.close(port)
+    rescue
+      ArgumentError -> :ok
+    end
+
+    error
   end
 
   @spec port_metadata(port(), String.t() | nil) :: map()
@@ -66,7 +125,7 @@ defmodule Aiur.Codex.AppServerPort do
     metadata =
       case :erlang.port_info(port, :os_pid) do
         {:os_pid, os_pid} ->
-          %{codex_app_server_pid: to_string(os_pid)}
+          %{provider_pid: to_string(os_pid), codex_app_server_pid: to_string(os_pid)}
 
         _ ->
           %{}
@@ -76,6 +135,10 @@ defmodule Aiur.Codex.AppServerPort do
     |> maybe_put_local_process_group(worker_host)
     |> maybe_put_worker_host(worker_host)
   end
+
+  @doc false
+  @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
+  defdelegate process_group_for_pid(pid), to: RemoteControl
 
   @spec stop_port(port()) :: :ok
   def stop_port(port) when is_port(port) do
@@ -149,8 +212,8 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_local_process_group(metadata, nil) do
     case metadata[:codex_app_server_pid] do
       pid when is_binary(pid) ->
-        case process_group_id(pid) do
-          ^pid -> Map.put(metadata, :agent_process_group_id, pid)
+        case process_group_for_pid(pid) do
+          group when is_integer(group) -> Map.put(metadata, :agent_process_group_id, Integer.to_string(group))
           _ -> metadata
         end
 
@@ -164,40 +227,61 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_worker_host(metadata, host) when is_binary(host), do: Map.put(metadata, :worker_host, host)
   defp maybe_put_worker_host(metadata, _worker_host), do: metadata
 
-  defp process_group_id(pid) do
-    case System.find_executable("ps") do
-      nil -> nil
-      ps -> await_process_group_leader(ps, pid, 20)
+  defp notify_process_group_started(port, worker_host, callback) do
+    case port_metadata(port, worker_host)[:agent_process_group_id] do
+      process_group_id when is_binary(process_group_id) ->
+        case Integer.parse(process_group_id) do
+          {value, ""} when value > 0 -> callback.(value)
+          _ -> :ok
+        end
+
+      process_group_id when is_integer(process_group_id) and process_group_id > 0 ->
+        callback.(process_group_id)
+
+      _ ->
+        :ok
     end
   end
 
-  # The port is its own group leader from spawn, so `ps` normally returns the
-  # matching pgid on the first read. Retry briefly only to ride out a transient
-  # `ps` read rather than disabling containment for the whole session.
-  defp await_process_group_leader(ps, pid, attempts) do
-    process_group_id =
-      case System.cmd(ps, ["-o", "pgid=", "-p", pid], stderr_to_stdout: true) do
-        {out, 0} -> out |> String.trim() |> positive_pid_string()
-        _ -> nil
-      end
+  defp notify_provider_started(port, worker_host, callback) do
+    metadata = port_metadata(port, worker_host)
 
-    cond do
-      process_group_id == pid ->
-        pid
+    provider =
+      %{}
+      |> maybe_put_provider_pid(metadata[:codex_app_server_pid])
+      |> maybe_put_provider_group(metadata[:agent_process_group_id])
+      |> maybe_put_remote(worker_host)
+      |> maybe_put_provider_processes(worker_host)
 
-      attempts <= 1 ->
-        process_group_id
+    callback.(provider)
+  end
 
-      true ->
-        Process.sleep(10)
-        await_process_group_leader(ps, pid, attempts - 1)
+  defp maybe_put_provider_pid(provider, pid) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {value, ""} when value > 0 -> Map.put(provider, :root_pid, value)
+      _ -> provider
     end
   end
 
-  defp positive_pid_string(value) do
-    case Integer.parse(value) do
-      {pid, ""} when pid > 0 -> Integer.to_string(pid)
-      _ -> nil
+  defp maybe_put_provider_pid(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :root_pid, pid)
+  defp maybe_put_provider_pid(provider, _pid), do: provider
+
+  defp maybe_put_provider_group(provider, pid) when is_binary(pid) do
+    case Integer.parse(pid) do
+      {value, ""} when value > 0 -> Map.put(provider, :process_group_id, value)
+      _ -> provider
     end
   end
+
+  defp maybe_put_provider_group(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :process_group_id, pid)
+  defp maybe_put_provider_group(provider, _pid), do: provider
+  defp maybe_put_remote(provider, worker_host) when is_binary(worker_host), do: Map.put(provider, :remote, true)
+  defp maybe_put_remote(provider, _worker_host), do: provider
+
+  defp maybe_put_provider_processes(provider, worker_host) when is_binary(worker_host), do: provider
+
+  defp maybe_put_provider_processes(%{root_pid: root_pid} = provider, _worker_host),
+    do: Map.put(provider, :descendant_pids, RemoteControl.process_tree(root_pid))
+
+  defp maybe_put_provider_processes(provider, _worker_host), do: provider
 end

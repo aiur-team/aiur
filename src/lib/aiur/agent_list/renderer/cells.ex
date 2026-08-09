@@ -16,7 +16,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
 
   # Wrap a padded ID cell in an OSC 8 hyperlink to the ticket's
   # web page when the renderer knows the project (e.g.
-  # "its-everdred/aiur") AND the identifier looks like a GitHub
+  # "aiur-team/aiur") AND the identifier looks like a GitHub
   # issue number. Terminals that support OSC 8 (iTerm2, WezTerm,
   # Ghostty, etc.) render the cell as a click-to-open link; those
   # that don't ignore the escapes and display the digits as plain
@@ -53,7 +53,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   end
 
   # Remote-control indicator cell. `:launching` shows 📲 (registration
-  # is a network round-trip, so the operator gets feedback the instant
+  # is a network round-trip, so the Executor gets feedback the instant
   # `r` is pressed, before the URL lands — a distinct glyph from the ⏳
   # warming marker so the two never read as the same state); `:on`
   # shows 📱; `:failed` shows ❌; `:off`/absent shows nothing. Width is
@@ -79,7 +79,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
   #
   # At percent: 100 (the agent's stop-work signal — see
   # `src/prompts/shared-agent-instructions.md`'s "Progress emits"
-  # section), the bar is tinted green so the operator sees at a
+  # section), the bar is tinted green so the Executor sees at a
   # glance that the agent is done for this iteration. The cell is
   # otherwise wrapped in `Style.dim()` at the call site; we reset and
   # re-apply dim around the green wrap so terminals render the
@@ -214,6 +214,7 @@ defmodule Aiur.AgentList.Renderer.Cells do
 
   @spec latest_event_message(term()) :: term()
   def latest_event_message(nil), do: ""
+  def latest_event_message(%{message: msg, stale?: true}) when is_binary(msg), do: "Stale: " <> msg
   def latest_event_message(%{message: msg}) when is_binary(msg), do: msg
   def latest_event_message(%{"message" => msg}) when is_binary(msg), do: msg
   def latest_event_message(_), do: ""

@@ -50,10 +50,11 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
       API and may return `:already_present` for a stale dependency
       that GitHub later mutates away (PR close + open cycle has been
       observed to drop the dependency).
-    * Without the direct subscribe, the blockee's SubscriptionStore
-      never receives `ticket.<blocker>.branch.push`, so when the
-      blocker pushes the orchestrator's `subscribed_to_topic?/2`
-      check returns false and the blockee never auto-resumes.
+    * Without the direct subscribe, the blockee's SubscriptionStore never
+      receives `ticket.<blocker>.agent.unblocked`, so the orchestrator's
+      `subscribed_to_topic?/2` check returns false and the blockee never
+      auto-resumes. The paired branch-push subscription still carries the ref
+      used after the explicit readiness signal.
 
   Idempotent: SubscriptionStore.add_subscription short-circuits on
   duplicate `(identifier, topic)`.
@@ -99,6 +100,13 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   end
 
   def auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
+
+  @spec unsubscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
+  def unsubscribe_for_declared_blocker(blockee_identifier, blocker_identifier) do
+    blockee = %Issue{identifier: to_string(blockee_identifier)}
+    blocker = %{identifier: to_string(blocker_identifier)}
+    auto_unsubscribe_for_dependency(blockee, blocker)
+  end
 
   defp attach_and_subscribe(identifier, topics, reason) do
     :ok = SubscriptionStore.attach(identifier)

@@ -3,6 +3,31 @@ defmodule Aiur.AgentQueueTest do
 
   alias Aiur.{AgentQueue, AgentQueueStore}
 
+  defp decision_correlation(overrides \\ %{}) do
+    Map.merge(
+      %{
+        decision_id: "dec_123",
+        decision_version: 2,
+        action_id: "act_123",
+        attempt_id: "act_123:1",
+        actor: %{kind: :operator, id: "operator-1"}
+      },
+      overrides
+    )
+  end
+
+  defp correlated_message(text \\ "Ship the approved option", overrides \\ []) do
+    correlation = Keyword.get(overrides, :correlation, decision_correlation())
+    action_id = Keyword.get(overrides, :action_id, correlation.action_id)
+
+    AgentQueue.operator_message(
+      Keyword.get(overrides, :target, "MT-981"),
+      text,
+      action_id: action_id,
+      correlation: correlation
+    )
+  end
+
   test "enqueue human message and claim it back with preserved delivery policy" do
     store = AgentQueueStore.new()
 
@@ -15,12 +40,54 @@ defmodule Aiur.AgentQueueTest do
     assert item.event_type == :text
     assert item.body == %{text: "focus on auth"}
     assert item.delivery.priority == :next
+    assert item.delivery_attempts == 0
 
     {store, claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-100")
 
     assert claimed.id == item.id
     assert claimed.status == :delivered
+    assert claimed.delivery_attempts == 1
     assert AgentQueueStore.list_pending(store, "MT-100") == []
+  end
+
+  test "delivery attempt count survives restoration and increments on reclaim" do
+    {store, item} =
+      AgentQueue.operator_message("MT-101", "retry correlation")
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    {store, first} = AgentQueueStore.claim_next_deliverable(store, "MT-101")
+    assert first.delivery_attempts == 1
+
+    {store, restored} = AgentQueueStore.restore_pending(store, item.id)
+    assert restored.delivery_attempts == 1
+
+    {_store, second} = AgentQueueStore.claim_next_deliverable(store, "MT-101")
+    assert second.delivery_attempts == 2
+  end
+
+  test "claim and provider acknowledgement remain distinct delivery milestones" do
+    {store, item} =
+      AgentQueue.operator_message("MT-102", "wait for provider")
+      |> then(&AgentQueueStore.enqueue(AgentQueueStore.new(), &1))
+
+    {store, claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-102")
+    assert claimed.status == :delivered
+    assert %DateTime{} = claimed.delivered_at
+    assert claimed.provider_delivered_at == nil
+    assert claimed.provider_turn_id == nil
+
+    {store, acknowledged} =
+      AgentQueueStore.mark_provider_delivered(store, item.id, %{turn_id: "turn-provider-1"})
+
+    assert acknowledged.status == :delivered
+    assert %DateTime{} = acknowledged.provider_delivered_at
+    assert acknowledged.provider_turn_id == "turn-provider-1"
+
+    {_store, duplicate} =
+      AgentQueueStore.mark_provider_delivered(store, item.id, %{turn_id: "turn-provider-2"})
+
+    assert duplicate.provider_delivered_at == acknowledged.provider_delivered_at
+    assert duplicate.provider_turn_id == "turn-provider-1"
   end
 
   test "immediate delivery policy flags pass-through, now priority, immediate consume point" do
@@ -119,6 +186,98 @@ defmodule Aiur.AgentQueueTest do
     assert AgentQueueStore.get(store, second.id).status == :pending
     assert [pending_item] = AgentQueueStore.list_pending(store, "MT-400")
     assert pending_item.id == second.id
+  end
+
+  describe "correlated operator-message idempotency" do
+    test "a fresh action produces one pending item with structured correlation" do
+      assert {:ok, store, item, :accepted} =
+               AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), correlated_message())
+
+      assert item.action_id == "act_123"
+      assert item.correlation == decision_correlation()
+      assert item.body == %{text: "Ship the approved option"}
+      assert AgentQueueStore.find_by_action(store, "act_123").id == item.id
+    end
+
+    test "exact replay returns the same item in every queue state" do
+      attrs = correlated_message()
+      assert {:ok, pending_store, pending, :accepted} = AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), attrs)
+      assert_same_correlated_item(pending_store, attrs, pending)
+
+      {delivered_store, delivered} = AgentQueueStore.claim_next_deliverable(pending_store, "MT-981")
+      assert_same_correlated_item(delivered_store, attrs, delivered)
+
+      {consumed_store, consumed} = AgentQueueStore.mark_consumed(delivered_store, delivered.id)
+      assert_same_correlated_item(consumed_store, attrs, consumed)
+
+      {failed_store, failed} = AgentQueueStore.mark_failed(delivered_store, delivered.id, :turn_failed)
+      assert_same_correlated_item(failed_store, attrs, failed)
+
+      {superseded_store, superseded} = AgentQueueStore.mark_superseded(pending_store, pending.id)
+      assert_same_correlated_item(superseded_store, attrs, superseded)
+    end
+
+    test "same action with changed target, body, version, or actor conflicts without mutation" do
+      attrs = correlated_message()
+      assert {:ok, store, item, :accepted} = AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), attrs)
+
+      conflicts = [
+        correlated_message("Different answer"),
+        correlated_message("Ship the approved option", target: "MT-OTHER"),
+        correlated_message("Ship the approved option", correlation: decision_correlation(%{decision_version: 3})),
+        correlated_message(
+          "Ship the approved option",
+          correlation: decision_correlation(%{actor: %{kind: :operator, id: "operator-2"}})
+        )
+      ]
+
+      for conflicting <- conflicts do
+        assert {:error, {:idempotency_conflict, "act_123"}} =
+                 AgentQueueStore.enqueue_correlated(store, conflicting)
+
+        assert AgentQueueStore.find_by_action(store, "act_123") == item
+      end
+    end
+
+    test "an explicit failed retry restores the original item exactly once" do
+      attrs = correlated_message()
+      assert {:ok, store, item, :accepted} = AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), attrs)
+      {store, _delivered} = AgentQueueStore.claim_next_deliverable(store, "MT-981")
+      {store, failed} = AgentQueueStore.mark_failed(store, item.id, :agent_unavailable)
+      assert failed.status == :failed
+
+      retry_attrs =
+        correlated_message("Ship the approved option",
+          correlation: decision_correlation(%{attempt_id: "act_123:2"})
+        )
+
+      assert {:ok, retried_store, retried, :retried} =
+               AgentQueueStore.enqueue_correlated(store, retry_attrs, retry_failed: true)
+
+      assert retried.id == item.id
+      assert retried.status == :pending
+      assert retried.failed_at == nil
+      assert retried.failure_reason == nil
+      assert retried.delivery_attempts == 0
+      assert retried.correlation.attempt_id == "act_123:1"
+      assert [%{id: id}] = AgentQueueStore.list_pending(retried_store, "MT-981")
+      assert id == item.id
+
+      assert {:ok, ^retried_store, duplicate, :duplicate} =
+               AgentQueueStore.enqueue_correlated(retried_store, retry_attrs, retry_failed: true)
+
+      assert duplicate.id == item.id
+    end
+
+    test "a fresh queue lifetime accepts the same durable action as a new attempt" do
+      attrs = correlated_message()
+      assert {:ok, _first_store, first, :accepted} = AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), attrs)
+      assert {:ok, _second_store, second, :accepted} = AgentQueueStore.enqueue_correlated(AgentQueueStore.new(), attrs)
+
+      assert first.id == 1
+      assert second.id == 1
+      assert first.action_id == second.action_id
+    end
   end
 
   test "preserves priority ordering when operator messages and deferred events coexist" do
@@ -257,15 +416,24 @@ defmodule Aiur.AgentQueueTest do
     assert Enum.map(AgentQueueStore.list_pending(store, "MT-886"), & &1.id) == [item.id]
   end
 
-  test "visible operator messages include pending and delivered items" do
+  test "visible operator messages include queued, in-flight, and failed items" do
     store = AgentQueueStore.new()
     {store, first} = AgentQueue.operator_message("MT-881", "abc") |> then(&AgentQueueStore.enqueue(store, &1))
     {store, second} = AgentQueue.operator_message("MT-881", "def") |> then(&AgentQueueStore.enqueue(store, &1))
     {store, _claimed} = AgentQueueStore.claim_next_deliverable(store, "MT-881")
 
-    assert [%{id: first_id}, %{id: second_id}] = AgentQueueStore.list_visible_operator_messages(store, "MT-881")
+    {store, failed_item} =
+      AgentQueue.operator_message("MT-881", "ghi")
+      |> then(&AgentQueueStore.enqueue(store, &1))
+
+    {store, failed} = AgentQueueStore.mark_failed(store, failed_item.id, :provider_down)
+
+    assert [%{id: first_id}, %{id: second_id}, %{id: failed_id}] =
+             AgentQueueStore.list_visible_operator_messages(store, "MT-881")
+
     assert first_id == first.id
     assert second_id == second.id
+    assert failed_id == failed.id
   end
 
   test "visible operator messages excludes non-operator and terminal items" do
@@ -345,5 +513,11 @@ defmodule Aiur.AgentQueueTest do
 
     assert claimed_first.id == first.id
     assert claimed_second.id == second.id
+  end
+
+  defp assert_same_correlated_item(store, attrs, expected) do
+    assert {:ok, ^store, replayed, :duplicate} = AgentQueueStore.enqueue_correlated(store, attrs)
+    assert replayed.id == expected.id
+    assert replayed.status == expected.status
   end
 end

@@ -3,7 +3,7 @@ defmodule Aiur.IssueLog do
   Per-issue file writer that captures the same transcript + alert stream
   the opencode pane shows. One GenServer per active issue; it
   subscribes to the agent's PubSub topic on startup and appends every
-  event to `<logs-root>/log/<repo>.<issue>.log`.
+  event to a repository-qualified file below `<logs-root>/log`.
 
   Multiple agent sessions on the same issue reuse the running writer —
   `attach/1` is idempotent. The writer stays alive until the BEAM exits;
@@ -15,15 +15,18 @@ defmodule Aiur.IssueLog do
   use GenServer
   require Logger
 
-  alias Aiur.{AgentEvents, AgentPubSub}
+  alias Aiur.{AgentEvents, AgentPubSub, TicketObservation, TrackerIdentity}
   alias Aiur.Config.Paths
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @supervisor Aiur.IssueLog.Supervisor
 
   @spec child_spec(term()) :: Supervisor.child_spec()
   def child_spec(opts) do
+    identifier = Keyword.fetch!(opts, :identifier)
+
     %{
-      id: opts[:identifier],
+      id: Keyword.get(opts, :writer_key, writer_key(identifier)),
       start: {__MODULE__, :start_link, [opts]},
       restart: :transient
     }
@@ -31,25 +34,35 @@ defmodule Aiur.IssueLog do
 
   # Cap on how many recent events we keep in memory for `history/2`.
   @history_limit 100
+  @max_transcript_record_bytes 16_384
+  # The API permits a page of up to 50 records. Read enough for that many
+  # capped records, while retaining a fixed ceiling independent of log size.
+  @max_tail_page_events 50
+  @max_tail_bytes (@max_transcript_record_bytes + 1) * @max_tail_page_events
+  @truncated_body_chars 1_000
+  @truncated_diff_chars 2_000
 
   @doc """
   Ensure a writer is running for `identifier`. Returns `:ok` on success;
-  if a writer is already running for this identifier the call is a
-  no-op.
+  writers are scoped by the configured repository and ticket identifier.
   """
-  @spec attach(AgentEvents.agent_identifier()) :: :ok
-  def attach(identifier) when is_binary(identifier) do
-    case start_writer(identifier) do
-      {:ok, _pid} ->
-        :ok
-
-      {:error, {:already_started, _pid}} ->
-        :ok
-
-      {:error, reason} ->
-        Logger.warning("IssueLog.attach(#{identifier}) failed: #{inspect(reason)}")
-        :ok
+  @spec attach(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: :ok
+  def attach(%TrackerIdentity{} = identity) do
+    if TrackerIdentity.joinable?(identity) do
+      attach_writer(
+        identity.identifier,
+        log_path(identity),
+        event_log_path(identity),
+        transcript_path(identity),
+        writer_key(identity)
+      )
+    else
+      :ok
     end
+  end
+
+  def attach(identifier) when is_binary(identifier) do
+    attach_writer(identifier, log_path(identifier), event_log_path(identifier), transcript_path(identifier), writer_key(identifier))
   end
 
   @doc """
@@ -60,7 +73,7 @@ defmodule Aiur.IssueLog do
   """
   @spec history(AgentEvents.agent_identifier(), pos_integer()) :: [map()]
   def history(identifier, limit \\ @history_limit) when is_binary(identifier) do
-    case Registry.lookup(Aiur.IssueLog.Registry, identifier) do
+    case writer_for_path(identifier, log_path(identifier), writer_key(identifier)) do
       [{pid, _}] -> GenServer.call(pid, {:history, limit}, 1_000)
       [] -> []
     end
@@ -92,44 +105,101 @@ defmodule Aiur.IssueLog do
   end
 
   @doc """
+  Reads a bounded, newest-first page from the durable JSONL transcript.
+
+  `:before` is the exclusive byte offset returned as `:next_cursor` by the
+  previous call. It is intentionally a file offset rather than an event id:
+  transcript producers do not share an event-id sequence. The read is capped
+  at the requested page's number of maximum-size records (and never more than
+  #{@max_tail_bytes} bytes), so a busy or historic transcript cannot turn a
+  Stream Deck refresh into a full-log scan.
+  """
+  @spec read_tail(AgentEvents.agent_identifier() | TrackerIdentity.t(), keyword()) ::
+          {:ok, %{events: [map()], next_cursor: String.t() | nil}} | {:error, atom()}
+  def read_tail(identifier, opts \\ []) do
+    limit = Keyword.get(opts, :limit, 7)
+    before = Keyword.get(opts, :before)
+
+    with true <- is_integer(limit) and limit > 0,
+         {:ok, cursor} <- parse_tail_cursor(before),
+         {:ok, %{size: size}} <- File.stat(transcript_path(identifier)) do
+      end_offset = min(cursor || size, size)
+      start_offset = max(end_offset - tail_chunk_bytes(limit), 0)
+
+      with {:ok, bytes} <- read_tail_chunk(transcript_path(identifier), start_offset, end_offset - start_offset) do
+        {:ok, tail_page(bytes, start_offset, limit)}
+      end
+    else
+      false -> {:error, :invalid_limit}
+      {:error, :enoent} -> {:ok, %{events: [], next_cursor: nil}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  @doc """
   Parse `[event:emit]` / `[event:emit_alert]` / `[event:self]` / `[event:consumed]`
-  lines from the per-issue log. Returns a list of partial event maps with
-  `id`, `topic`, `kind`, `summary`, `ts` fields. Used by `Aiur.AgentRunner`
-  to build the bootstrap digest on agent (re)start — events with
-  `id > last_seen_event_id` represent activity the agent missed while
-  inactive.
+  lines from the per-issue log. A legacy display identifier returns the parsed
+  list for bootstrap compatibility. A joinable `TrackerIdentity` returns a
+  typed `{:ok, events}` / `{:error, reason}` result and resolves the exact
+  owner/repository path. Events with `id > last_seen_event_id` represent
+  activity the agent missed while inactive.
 
   Options:
     * `:since_id` — only return events with `id > since_id` (default 0)
     * `:kinds` — list of kinds to include (default `[:emit, :emit_alert]`)
     * `:limit` — max number of returned events (default `@history_limit`)
   """
-  @spec event_history(AgentEvents.agent_identifier(), keyword()) :: [map()]
-  def event_history(identifier, opts \\ []) when is_binary(identifier) do
+  @type event_history_error :: :missing_source | :invalid_identity | {:unavailable, term()}
+
+  @spec event_history(AgentEvents.agent_identifier() | TrackerIdentity.t(), keyword()) ::
+          [map()] | {:ok, [map()]} | {:error, event_history_error()}
+  def event_history(identifier_or_identity, opts \\ [])
+
+  def event_history(identifier, opts) when is_binary(identifier) do
+    case read_event_history(event_log_path(identifier), opts) do
+      {:ok, events} -> events
+      {:error, _reason} -> []
+    end
+  end
+
+  def event_history(%TrackerIdentity{} = identity, opts) do
+    if TrackerIdentity.joinable?(identity) do
+      read_event_history(event_log_path(identity), opts)
+    else
+      {:error, :invalid_identity}
+    end
+  end
+
+  defp read_event_history(path, opts) do
     since_id = Keyword.get(opts, :since_id, 0)
     kinds = Keyword.get(opts, :kinds, [:emit, :emit_alert])
     limit = Keyword.get(opts, :limit, @history_limit)
     kind_set = MapSet.new(Enum.map(kinds, &Atom.to_string/1))
-    path = log_path(identifier)
 
     case File.read(path) do
       {:ok, content} ->
-        content
-        |> String.split("\n", trim: true)
-        |> Enum.map(&parse_event_line/1)
-        |> Enum.reject(&is_nil/1)
-        |> Enum.filter(fn ev ->
-          MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
-        end)
-        |> Enum.take(-limit)
+        events =
+          content
+          |> String.split("\n", trim: true)
+          |> Enum.map(&parse_event_line/1)
+          |> Enum.reject(&is_nil/1)
+          |> Enum.filter(fn ev ->
+            MapSet.member?(kind_set, ev.kind) and is_integer(ev.id) and ev.id > since_id
+          end)
+          |> Enum.take(-limit)
 
-      _ ->
-        []
+        {:ok, events}
+
+      {:error, :enoent} ->
+        {:error, :missing_source}
+
+      {:error, reason} ->
+        {:error, {:unavailable, reason}}
     end
   end
 
   defp parse_event_line(line) do
-    # Matches the optional `src=…` / `trust=…` flag segments between
+    # Matches the optional `src=…` / `trust=…` / `digest=…` flag segments between
     # `id=…` and the topic. Flags are surfaced as fields on the parsed
     # event so bootstrap replays carry the same `author_trusted?` +
     # `source` signal that the render-side filter and `<external-content>`
@@ -160,7 +230,8 @@ defmodule Aiur.IssueLog do
       ts: ts,
       summary: summary,
       source: flags |> Map.get("src") |> maybe_atomize_source(),
-      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool()
+      author_trusted?: flags |> Map.get("trust") |> maybe_atomize_bool(),
+      digest_source: flags |> Map.get("digest") |> maybe_atomize_digest_source()
     }
   end
 
@@ -188,6 +259,14 @@ defmodule Aiur.IssueLog do
   defp maybe_atomize_bool("false"), do: false
   defp maybe_atomize_bool(_), do: nil
 
+  # `digest=` is written only by IssueLog from Publisher's reserved envelope
+  # field. Rehydrate its fixed vocabulary to atoms so EventsDigest never
+  # treats an arbitrary string from an unknown event source as trusted.
+  defp maybe_atomize_digest_source("agent"), do: :agent
+  defp maybe_atomize_digest_source("orchestrator"), do: :orchestrator
+  defp maybe_atomize_digest_source("system"), do: :system
+  defp maybe_atomize_digest_source(_), do: nil
+
   defp parse_line(line) do
     case Regex.run(~r/\A([0-9T:\-\.Z]+) \[([a-z]+)\] (.*)\z/, line) do
       [_, _ts, tag, body] ->
@@ -212,38 +291,101 @@ defmodule Aiur.IssueLog do
   Returns the resolved file path for an issue's log. Useful for tests
   and for users who want to `tail -F` a specific issue.
   """
-  @spec log_path(AgentEvents.agent_identifier()) :: String.t()
+  @spec log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
   def log_path(identifier) when is_binary(identifier) do
-    Path.join(log_root_dir(), "#{repo_name()}.#{sanitize(identifier)}.log")
+    issue_log_path(configured_repository_scope(), identifier, ".log")
+  end
+
+  def log_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} ->
+        issue_log_path(repository_scope(owner, repository), identity.identifier, ".log")
+
+      nil ->
+        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
+    end
+  end
+
+  @doc false
+  @spec event_log_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
+  def event_log_path(identifier) when is_binary(identifier) do
+    issue_log_path(configured_repository_scope(), identifier, ".events.log")
+  end
+
+  def event_log_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} ->
+        issue_log_path(repository_scope(owner, repository), identity.identifier, ".events.log")
+
+      nil ->
+        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
+    end
+  end
+
+  @doc """
+  Returns the durable JSONL transcript path used by the classified events API.
+
+  Unlike the human-readable `.log`, this sidecar preserves the complete
+  transcript event, including its provider payload.
+  """
+  @spec transcript_path(AgentEvents.agent_identifier() | TrackerIdentity.t()) :: String.t()
+  def transcript_path(identifier) when is_binary(identifier) do
+    issue_log_path(configured_repository_scope(), identifier, ".agent_events.jsonl")
+  end
+
+  def transcript_path(%TrackerIdentity{} = identity) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, owner, repository, _provider_id} ->
+        issue_log_path(repository_scope(owner, repository), identity.identifier, ".agent_events.jsonl")
+
+      nil ->
+        raise ArgumentError, "IssueLog path requires a joinable tracker identity"
+    end
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     identifier = Keyword.fetch!(opts, :identifier)
-    GenServer.start_link(__MODULE__, identifier, name: via(identifier))
+    writer_key = Keyword.get(opts, :writer_key, writer_key(identifier))
+    GenServer.start_link(__MODULE__, opts, name: via(writer_key))
   end
 
   @impl true
-  def init(identifier) do
-    path = log_path(identifier)
+  def init(opts) do
+    identifier = Keyword.fetch!(opts, :identifier)
+    path = Keyword.get(opts, :path, log_path(identifier))
+    event_path = Keyword.get(opts, :event_path, event_log_path(identifier))
+    transcript_path = Keyword.get(opts, :transcript_path, transcript_path(identifier))
     :ok = File.mkdir_p(Path.dirname(path))
 
-    case File.open(path, [:append, :utf8]) do
-      {:ok, file} ->
+    case open_log_files(path, event_path, transcript_path) do
+      {:ok, file, event_file, transcript_file} ->
         :ok = AgentPubSub.subscribe_agent(identifier)
         Logger.debug("IssueLog attached identifier=#{identifier} path=#{path}")
-        {:ok, %{identifier: identifier, file: file, path: path, history: :queue.new(), history_size: 0}}
+
+        {:ok,
+         %{
+           identifier: identifier,
+           file: file,
+           event_file: event_file,
+           transcript_file: transcript_file,
+           transcript_path: transcript_path,
+           path: path,
+           event_path: event_path,
+           history: :queue.new(),
+           history_size: 0
+         }}
 
       {:error, reason} ->
-        Logger.warning("IssueLog open failed identifier=#{identifier} path=#{path} reason=#{inspect(reason)}")
-
         {:stop, reason}
     end
   end
 
   @impl true
-  def terminate(_reason, %{file: file}) when not is_nil(file) do
+  def terminate(_reason, %{file: file, event_file: event_file, transcript_file: transcript_file}) when not is_nil(file) do
     _ = File.close(file)
+    _ = File.close(event_file)
+    _ = File.close(transcript_file)
     :ok
   end
 
@@ -264,32 +406,39 @@ defmodule Aiur.IssueLog do
     {:reply, items, state}
   end
 
+  def handle_call(:path, _from, state), do: {:reply, state.path, state}
+
   @impl true
   def handle_info({:transcript_event, %{role: _role, body: _body} = event}, state) do
-    write_line(state.file, format_transcript(event[:role], event[:body], event))
-
     # Also surface the line in the system-wide `aiur.log` using the
     # same `[tag]` shape the pane shows. `Logger.debug` entries
     # (broadcast traces, codex notifications) only appear when
     # `--debug` is on; everything else in aiur.log is one of these
-    # human-readable rows, mirroring what the operator sees in the pane.
+    # human-readable rows, mirroring what the Executor sees in the pane.
     Logger.info(format_log_line(event[:role], event[:body], state.identifier))
 
-    {:noreply, push_history(state, {:transcript_event, event})}
+    write_and_continue(
+      state,
+      format_transcript(event[:role], event[:body], event),
+      {:transcript_event, event}
+    )
   end
 
   def handle_info({:alert, %{name: _name, message: _message} = event}, state) do
-    write_line(state.file, format_alert(event[:name], event[:message], event))
     # No Logger.info here — `Alerts.emit_system/2` already logs each
     # alert with `[alert] (#identifier) name: message`, so mirroring it
     # would double every alert row in aiur.log.
-    {:noreply, push_history(state, {:alert, event})}
+    write_and_continue(state, format_alert(event[:name], event[:message], event), {:alert, event})
+  end
+
+  def handle_info({:control_lifecycle, %{request_id: _request_id, status: _status} = event}, state) do
+    history = %{role: :system, body: "control lifecycle", payload: event, turn_id: nil}
+    write_and_continue(state, "[control] " <> Jason.encode!(event) <> "\n", history)
   end
 
   def handle_info({:aiur_event, kind, event}, state)
       when kind in [:emit, :emit_alert, :consumed, :self] do
-    write_line(state.file, format_event_marker(kind, event))
-    {:noreply, state}
+    write_event_and_continue(state, format_event_marker(kind, event))
   end
 
   def handle_info(_other, state), do: {:noreply, state}
@@ -298,7 +447,7 @@ defmodule Aiur.IssueLog do
   Writes an `[event:<kind>]` marker row to the per-issue log file.
   Called from `Aiur.Events.Publisher.publish/3` (for `:emit`),
   `Aiur.Events.SubscriptionStore` post-enqueue (`:consumed`), and the
-  agent's own emit path (`:self`) so the operator can `tail -F` the log
+  agent's own emit path (`:self`) so the Executor can `tail -F` the log
   and see every event for this issue in one place.
 
   Async cast — never blocks the publisher.
@@ -307,12 +456,79 @@ defmodule Aiur.IssueLog do
   def record_event(identifier, kind, event)
       when is_binary(identifier) and kind in [:emit, :emit_alert, :consumed, :self] and
              is_map(event) do
-    case Registry.lookup(Aiur.IssueLog.Registry, identifier) do
-      [{pid, _}] -> send(pid, {:aiur_event, kind, event})
-      [] -> :ok
+    case event_identity(event, identifier) do
+      {:ok, identity} ->
+        case writer_for_path(identifier, log_path(identity), writer_key(identity)) do
+          [{pid, _}] -> send(pid, {:aiur_event, kind, event})
+          [] -> :ok
+        end
+
+      :error ->
+        :ok
     end
 
     :ok
+  end
+
+  defp attach_writer(identifier, path, event_path, transcript_path, key) do
+    case ensure_writer(identifier, path, event_path, transcript_path, key) do
+      :ok ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("IssueLog.attach(#{identifier}) failed: #{inspect(reason)}")
+        :ok
+    end
+  end
+
+  defp event_identity(%{ticket_observation: %TicketObservation{} = observation}, identifier) do
+    identity = observation.tracker_identity
+
+    if observation.status == :joinable and TrackerIdentity.joinable?(identity) and identity.identifier == identifier,
+      do: {:ok, identity},
+      else: :error
+  end
+
+  defp event_identity(_event, _identifier), do: :error
+
+  defp ensure_writer(identifier, path, event_path, transcript_path, key) do
+    case Registry.lookup(Aiur.IssueLog.Registry, key) do
+      [] ->
+        start_writer(identifier, path, event_path, transcript_path, key)
+
+      [{pid, _}] ->
+        if writer_path(pid) == path do
+          :ok
+        else
+          replace_writer(identifier, pid, path, event_path, transcript_path, key)
+        end
+    end
+  end
+
+  defp replace_writer(identifier, pid, path, event_path, transcript_path, key) do
+    case DynamicSupervisor.terminate_child(@supervisor, pid) do
+      :ok -> start_writer(identifier, path, event_path, transcript_path, key)
+      {:error, :not_found} -> start_writer(identifier, path, event_path, transcript_path, key)
+    end
+  end
+
+  defp start_writer(identifier, path, event_path, transcript_path, key) do
+    DynamicSupervisor.start_child(
+      @supervisor,
+      {__MODULE__, identifier: identifier, path: path, event_path: event_path, transcript_path: transcript_path, writer_key: key}
+    )
+    |> normalize_start_result()
+  end
+
+  defp normalize_start_result({:ok, _pid}), do: :ok
+  defp normalize_start_result({:error, {:already_started, _pid}}), do: :ok
+  defp normalize_start_result({:error, reason}), do: {:error, reason}
+
+  defp writer_for_path(_identifier, path, key) do
+    case Registry.lookup(Aiur.IssueLog.Registry, key) do
+      [{pid, _}] = writer -> if writer_path(pid) == path, do: writer, else: []
+      _ -> []
+    end
   end
 
   defp push_history(state, item) do
@@ -327,21 +543,281 @@ defmodule Aiur.IssueLog do
     end
   end
 
-  # ---------- helpers ------------------------------------------------------
-
-  defp start_writer(identifier) do
-    DynamicSupervisor.start_child(
-      @supervisor,
-      {__MODULE__, identifier: identifier}
-    )
+  defp writer_path(pid) do
+    GenServer.call(pid, :path, 1_000)
+  catch
+    :exit, _ -> nil
   end
 
-  defp via(identifier), do: {:via, Registry, {Aiur.IssueLog.Registry, identifier}}
+  defp writer_key(identifier) when is_binary(identifier),
+    do: {:issue_log, configured_repository_scope(), identifier}
+
+  defp writer_key(%TrackerIdentity{} = identity) do
+    {:github, owner, repository, _provider_id} = TrackerIdentity.github_key(identity)
+    {:issue_log, repository_scope(owner, repository), identity.identifier}
+  end
+
+  defp via(key), do: {:via, Registry, {Aiur.IssueLog.Registry, key}}
+
+  defp write_and_continue(state, line, history_item) do
+    # A writer's target is fixed when it starts. Re-resolving the mutable
+    # workflow repository here could make an existing writer append to a
+    # different repository's same-number ticket log after a config reload.
+    write_line(state.file, line)
+
+    state =
+      case write_transcript_line(state.transcript_file, history_item, state.identifier) do
+        :ok -> state
+        {:error, _reason} -> reopen_transcript_and_retry(state, history_item)
+      end
+
+    state = push_history(state, history_item)
+    {:noreply, state}
+  end
+
+  defp write_event_and_continue(state, line) do
+    write_line(state.file, line)
+    write_line(state.event_file, line)
+    {:noreply, state}
+  end
 
   defp write_line(file, line) do
     IO.write(file, line)
   rescue
     _ -> :ok
+  end
+
+  defp write_transcript_line(file, event, identifier) do
+    encoded = event |> persisted_transcript() |> bounded_transcript() |> json_safe() |> encode_transcript()
+    :ok = IO.write(file, encoded <> "\n")
+  rescue
+    error ->
+      Logger.warning("IssueLog transcript write failed identifier=#{identifier} reason=#{Exception.message(error)}")
+      {:error, error}
+  end
+
+  defp reopen_transcript_and_retry(state, event) do
+    _ = File.close(state.transcript_file)
+
+    case File.open(state.transcript_path, [:append, :utf8]) do
+      {:ok, transcript_file} ->
+        state = %{state | transcript_file: transcript_file}
+        _ = write_transcript_line(transcript_file, event, state.identifier)
+        state
+
+      {:error, reason} ->
+        Logger.warning("IssueLog transcript reopen failed identifier=#{state.identifier} reason=#{inspect(reason)}")
+        state
+    end
+  end
+
+  # A tail page has a fixed byte budget. This is a second, defensive cap after
+  # `bounded_transcript/1`, which prevents unbounded provider payloads from
+  # being encoded in the first place.
+  defp encode_transcript(record) do
+    encoded = Jason.encode!(record)
+
+    if byte_size(encoded) <= @max_transcript_record_bytes do
+      encoded
+    else
+      record
+      |> Map.take(["role", "timestamp", "msg_id", "sequence", "turn_id"])
+      |> Map.put("body", truncated_body(Map.get(record, "body", "")))
+      |> Map.put("payload", %{"truncated" => true})
+      |> Jason.encode!()
+    end
+  end
+
+  defp truncated_body(body) when is_binary(body) do
+    if String.length(body) > @truncated_body_chars,
+      do: String.slice(body, 0, @truncated_body_chars) <> "…",
+      else: body
+  end
+
+  defp truncated_body(body), do: inspect(body)
+
+  defp persisted_transcript({:transcript_event, event}) when is_map(event), do: event
+
+  defp persisted_transcript({:alert, event}) when is_map(event) do
+    %{
+      role: :alert,
+      body: Map.get(event, :message, ""),
+      timestamp: Map.get(event, :timestamp, DateTime.utc_now()),
+      msg_id: nil,
+      sequence: nil,
+      turn_id: nil,
+      payload: event
+    }
+  end
+
+  defp persisted_transcript(event) when is_map(event), do: event
+
+  # The feed needs a message body and, for edit tools, the provider's real
+  # unified diff. Shell output and generic tool payloads can be arbitrarily
+  # large, so drop them before JSON encoding rather than paying their memory
+  # cost only to reject an oversized record afterward.
+  defp bounded_transcript(%{role: :tool, payload: %{tool: "edit", output: output} = payload} = event) when is_binary(output) do
+    %{event | body: truncated_body(event.body), payload: bounded_edit_payload(payload, output)}
+  end
+
+  defp bounded_transcript(%{body: body} = event) do
+    %{event | body: truncated_body(body), payload: nil}
+  end
+
+  defp json_safe(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp json_safe(%{} = value) do
+    Map.new(value, fn {key, item} -> {to_string(key), json_safe(item)} end)
+  end
+
+  defp json_safe(value) when is_list(value), do: Enum.map(value, &json_safe/1)
+  defp json_safe(value) when is_atom(value), do: Atom.to_string(value)
+  defp json_safe(value), do: value
+
+  defp bounded_edit_payload(payload, output) do
+    %{tool: "edit", output: String.slice(output, 0, @truncated_diff_chars)}
+    |> maybe_put_edit_changes(Map.get(payload, :input) || Map.get(payload, "input"))
+  end
+
+  defp maybe_put_edit_changes(payload, input) when is_map(input) do
+    case Map.get(input, :changes) || Map.get(input, "changes") do
+      changes when is_list(changes) ->
+        diffs = Enum.flat_map(changes, &bounded_edit_change/1)
+        if diffs == [], do: payload, else: Map.put(payload, :changes, diffs)
+
+      _ ->
+        payload
+    end
+  end
+
+  defp maybe_put_edit_changes(payload, _input), do: payload
+
+  defp bounded_edit_change(change) when is_map(change) do
+    case Map.get(change, :diff) || Map.get(change, "diff") do
+      diff when is_binary(diff) and diff != "" ->
+        [%{diff: String.slice(diff, 0, @truncated_diff_chars)} |> maybe_put_path(Map.get(change, :path) || Map.get(change, "path"))]
+
+      _ ->
+        []
+    end
+  end
+
+  defp bounded_edit_change(_change), do: []
+
+  defp maybe_put_path(change, path) when is_binary(path) and path != "", do: Map.put(change, :path, path)
+  defp maybe_put_path(change, _path), do: change
+
+  defp read_tail_chunk(path, start_offset, byte_count) do
+    with {:ok, file} <- File.open(path, [:read, :binary]) do
+      try do
+        :file.pread(file, start_offset, byte_count)
+      after
+        :ok = File.close(file)
+      end
+    end
+  end
+
+  defp tail_chunk_bytes(limit), do: min(limit * (@max_transcript_record_bytes + 1), @max_tail_bytes)
+
+  defp open_log_files(path, event_path, transcript_path) do
+    with {:ok, file} <- open_primary_log(path),
+         {:ok, event_file} <- open_event_log(event_path, file),
+         {:ok, transcript_file} <- open_transcript_log(transcript_path, file, event_file) do
+      {:ok, file, event_file, transcript_file}
+    end
+  end
+
+  defp open_primary_log(path) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, file} ->
+        {:ok, file}
+
+      {:error, reason} ->
+        Logger.warning("IssueLog open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp open_event_log(path, file) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, event_file} ->
+        {:ok, event_file}
+
+      {:error, reason} ->
+        _ = File.close(file)
+        Logger.warning("IssueLog event open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp open_transcript_log(path, file, event_file) do
+    case File.open(path, [:append, :utf8]) do
+      {:ok, transcript_file} ->
+        {:ok, transcript_file}
+
+      {:error, reason} ->
+        _ = File.close(event_file)
+        _ = File.close(file)
+        Logger.warning("IssueLog transcript open failed path=#{path} reason=#{inspect(reason)}")
+        {:error, reason}
+    end
+  end
+
+  defp parse_tail_cursor(nil), do: {:ok, nil}
+  defp parse_tail_cursor(cursor) when is_integer(cursor) and cursor >= 0, do: {:ok, cursor}
+
+  defp parse_tail_cursor(cursor) when is_binary(cursor) do
+    case Integer.parse(cursor) do
+      {value, ""} when value >= 0 -> {:ok, value}
+      _ -> {:error, :invalid_cursor}
+    end
+  end
+
+  defp parse_tail_cursor(_), do: {:error, :invalid_cursor}
+
+  defp tail_page(bytes, start_offset, limit) do
+    {first, rest} = split_tail_lines(bytes, start_offset)
+
+    events =
+      rest
+      |> line_offsets(first)
+      |> Enum.flat_map(fn {line, offset} ->
+        case Jason.decode(line) do
+          {:ok, %{} = event} -> [{event, offset}]
+          _ -> []
+        end
+      end)
+      |> Enum.reverse()
+      |> Enum.take(limit)
+
+    next_cursor =
+      case List.last(events) do
+        {_event, 0} -> nil
+        {_event, offset} -> Integer.to_string(offset)
+        nil -> if(start_offset > 0, do: Integer.to_string(start_offset), else: nil)
+      end
+
+    %{events: Enum.map(events, &elem(&1, 0)), next_cursor: next_cursor}
+  end
+
+  # The first line in a nonzero byte slice may begin in the middle of a JSON
+  # document, so discard it. Keep its byte length so offsets stay absolute.
+  defp split_tail_lines(bytes, 0), do: {0, String.split(bytes, "\n", trim: true)}
+
+  defp split_tail_lines(bytes, start_offset) do
+    case String.split(bytes, "\n", parts: 2) do
+      [_partial, rest] -> {start_offset + byte_size(bytes) - byte_size(rest), String.split(rest, "\n", trim: true)}
+      [_partial] -> {start_offset + byte_size(bytes), []}
+    end
+  end
+
+  defp line_offsets(lines, initial_offset) do
+    {records, _offset} =
+      Enum.map_reduce(lines, initial_offset, fn line, offset ->
+        {{line, offset}, offset + byte_size(line) + 1}
+      end)
+
+    records
   end
 
   defp format_transcript(role, body, event) do
@@ -367,7 +843,7 @@ defmodule Aiur.IssueLog do
     Map.get(event, key) || Map.get(event, Atom.to_string(key)) || default
   end
 
-  # `src=`/`trust=` are appended in a fixed order before the `topic`
+  # `src=`/`trust=`/`digest=` are appended in a fixed order before the `topic`
   # so `Aiur.IssueLog.event_history/2` can reconstruct the security-
   # sensitive flags on bootstrap. Without them, U2 replays would
   # bypass the U7 CODEOWNERS filter and `<external-content>` wrapper.
@@ -376,6 +852,7 @@ defmodule Aiur.IssueLog do
       []
       |> append_flag("src", event_field(event, :source, nil))
       |> append_flag("trust", event_field(event, :author_trusted?, nil))
+      |> append_flag("digest", event_field(event, :digest_source, nil))
       |> Enum.join(" ")
 
     if flags == "", do: "", else: " " <> flags
@@ -421,6 +898,23 @@ defmodule Aiur.IssueLog do
   end
 
   defp log_root_dir, do: Paths.log_root_dir()
+
+  defp configured_repository_scope do
+    case GitHubConfig.configured_repo() do
+      {:ok, {owner, repository}} -> repository_scope(owner, repository)
+      {:error, _reason} -> repo_name()
+    end
+  end
+
+  defp repository_scope(owner, repository) do
+    encoded = Base.url_encode64("#{String.downcase(owner)}/#{String.downcase(repository)}", padding: false)
+    "github-" <> encoded
+  end
+
+  defp issue_log_path(scope, identifier, suffix) do
+    Path.join(log_root_dir(), "#{scope}.#{sanitize(identifier)}#{suffix}")
+  end
+
   defp repo_name, do: Paths.repo_name()
   defp sanitize(name), do: Paths.sanitize(name)
 end

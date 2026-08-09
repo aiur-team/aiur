@@ -1,6 +1,6 @@
 tracker:
   kind: github
-  base_branch: v2
+  base_branch: develop
   active_states:
     - todo
     - in-progress
@@ -8,11 +8,19 @@ tracker:
     - merging
   terminal_states:
     - done
+    - closed
     - cancelled
     - canceled
   github:
-    repo: its-everdred/aiur
+    repo: aiur-team/aiur
     label_prefix: agent
+    bot_account: its-applekid
+    human_mergers:
+      - its-everdred
+    # Finite Build Order planning-graph safeguards. Defaults accept exactly 100 roots/members.
+    planning_root_limit: 100
+    planning_page_budget: 4
+    planning_call_budget: 4
 polling:
   interval_seconds: 5
 max_vertical_panes: 3
@@ -27,7 +35,7 @@ workspace:
 hooks_file: hooks
 agent:
   kind: codex
-  max_concurrent_agents: 5
+  max_concurrent_agents: 16
   # Bound every agent-launched Mix VM (and ExUnit's default max_cases) to four schedulers.
   mix_scheduler_cap: 4
   # Fleet cap for agent-launched mix compile/test verification. 0 disables it.
@@ -38,17 +46,41 @@ agent:
   # (~12). 1.5 → holds once load passes ~18. Raise/lower while ramping.
   max_load_average: 1.5
   max_turns: 12
+  # Lifetime dispatch latch (#1305, hardened by #1453). 0 disables it, which let
+  # #1091 burn 85 cold dispatches on a ticket that was functionally done in 53
+  # minutes (~20% of them productive). Since #1453 the counter only bills
+  # dispatches that survived provisioning (preflight/prewarm/tracker-auth
+  # failures leave it unchanged) and `aiurdev reset-budget <id>` is the
+  # supported exit. Hitting the cap signals a structurally-stuck ticket that
+  # needs an operator, not more turns. 40 (raised from the pre-#1453 20): with
+  # the counter committed-only, a legitimate multi-round rework ticket plus
+  # normal churn stays comfortably under it while a genuinely-stuck ticket
+  # still latches. Set 0 to rely solely on the windowed thrash guard
+  # (`codex.thrash_max_per_window`).
+  max_dispatches_per_ticket: 40
+  # Per-complexity turn ceiling; a level set here replaces `max_turns` for that
+  # ticket (it is an override, not a floor). Only the trivial levels are tightened —
+  # 4 and 5 are deliberately left unset so they keep falling back to `max_turns: 12`
+  # rather than being raised.
+  max_turns_by_complexity:
+    1: 4
+    2: 8
+    3: 12
   # A silent turn (e.g. a long `mix test --cover` run with no intermediate agent
   # output) is killed after this. Raised from the 5-min default so flake-fix /
   # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
   stall_timeout_ms: 3600000
-  # Complexity labels select a Codex 5.6 model and reasoning effort.
+  # Complexity labels select a codex model family and reasoning effort. These
+  # name the *family* (`luna`/`terra`/`sol`), not a version, so each level keeps
+  # resolving to the newest model in that family instead of breaking when a
+  # pinned version is retired. Pin a version (`codex:gpt-5.6-sol:max`) only when
+  # that exact release is deliberately wanted.
   routing:
-    1: "codex:gpt-5.6-luna:low"
-    2: "codex:gpt-5.6-luna:medium"
-    3: "codex:gpt-5.6-terra:high"
-    4: "codex:gpt-5.6-terra:xhigh"
-    5: "codex:gpt-5.6-sol:max"
+    1: "codex:luna:low"
+    2: "codex:luna:medium"
+    3: "codex:terra:high"
+    4: "codex:terra:xhigh"
+    5: "codex:sol:max"
   codex:
     command: codex app-server
     approval_policy: never
@@ -56,7 +88,6 @@ agent:
     turn_sandbox_policy:
       type: workspaceWrite
       writableRoots:
-        - /home/applekid/code/aiur-workspaces
         - /home/orangekid/code/aiur-workspaces
         - /tmp
       networkAccess: true

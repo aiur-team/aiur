@@ -8,9 +8,15 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
+    assert Templates.aiurhooks_template() =~ "Aiur must stage incomplete workspace reconstruction"
+    refute Templates.aiurhooks_template() =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     assert Templates.prompt_file_template() =~ "{{REPO}}"
-    assert Templates.prompt_file_template() =~ "actual validated ref supplied by the event payload"
-    assert Templates.env_example_content() =~ "GITHUB_TOKEN="
+    prompt = Templates.prompt_file_template()
+
+    assert prompt =~ "explicit signal as readiness to consume"
+    assert prompt =~ "latest `ticket.N.branch.push` payload only to fetch and diff the actual validated ref"
+    assert prompt =~ "Never infer readiness from `branch.push` alone"
+    assert Templates.env_content() == "GITHUB_TOKEN=\n"
   end
 
   test "alerts_template selects macOS and Linux bodies" do
@@ -64,6 +70,40 @@ defmodule Aiur.Init.TemplatesTest do
     assert rendered =~ "claude"
     assert rendered =~ "{1: claude, 2: claude, 3: codex, 4: codex:gpt-5, 5: codex:gpt-5:high}"
     assert rendered =~ "base_build_file: prewarm"
+  end
+
+  test "build_fills renders github bot_account when present and omits it when blank" do
+    base = %{
+      agents: ["claude"],
+      routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
+      permission_mode: "bypassPermissions",
+      workspace_root: "~/.aiur/workspaces/owner/repo",
+      max_agents: 1,
+      max_turns: "none",
+      max_duration: 60,
+      pre_warmed: 0,
+      polling: 30,
+      prompt_file: "prompt.md",
+      prewarm: %{enabled: false},
+      alerts: %{enabled: false, use_os_default_sounds: false}
+    }
+
+    with_account =
+      Templates.fill_template(
+        "{{TRACKER_PROVIDER}}",
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: "its-applekid"}))
+      )
+
+    assert with_account =~ "repo: owner/repo"
+    assert with_account =~ "bot_account: its-applekid"
+
+    without_account =
+      Templates.fill_template(
+        "{{TRACKER_PROVIDER}}",
+        Templates.build_fills(Map.put(base, :tracker, %{kind: "github", repo: "owner/repo", bot_account: nil}))
+      )
+
+    refute without_account =~ "bot_account:"
   end
 
   test "build_fills writes the ordered rate-limit fallback when selected" do

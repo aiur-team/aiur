@@ -32,9 +32,36 @@ defmodule Aiur.Orchestrator.PauseResumeTest do
     refute Map.has_key?(PauseResume.reset_duration_clock_if_capped(running, "capped", now, false)["capped"], :paused_reason)
   end
 
-  test "clears other pause markers on resume" do
+  test "preserves unrelated pause markers on resume" do
     running = %{"paused" => %{paused_reason: :operator}}
 
-    assert PauseResume.reset_duration_clock_if_capped(running, "paused", DateTime.utc_now(), true) == %{"paused" => %{}}
+    assert PauseResume.reset_duration_clock_if_capped(running, "paused", DateTime.utc_now(), true) == running
+  end
+
+  test "completed replacement preserves state committed by a rejected admission" do
+    issue = %Aiur.Issue{id: "known", identifier: "repo#known", state: "in-progress"}
+
+    running_entry = %{
+      issue: issue,
+      identifier: issue.identifier,
+      completed_provenance: true,
+      control: %{status: :completed}
+    }
+
+    state = %State{
+      running: %{issue.id => running_entry},
+      max_concurrent_agents: 1,
+      effective_concurrent_agents: 1
+    }
+
+    rejected = %{state | claimed: MapSet.new(["durably-tripped"])}
+
+    assert ^rejected =
+             PauseResume.dispatch_completed_replacement(state, running_entry, issue,
+               admit_fun: fn _state, ^issue, nil ->
+                 {:error, :thrash_circuit_open, rejected}
+               end,
+               replace_fun: fn _, _, _, _ -> flunk("rejected admission must not replace") end
+             )
   end
 end

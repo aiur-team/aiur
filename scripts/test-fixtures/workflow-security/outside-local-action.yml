@@ -1,0 +1,10 @@
+name: unsafe outside local action
+
+"on":
+  pull_request:
+
+jobs:
+  unsafe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: ./scripts/example-action

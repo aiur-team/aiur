@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.ClientTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, DispatchAuthorization}
   alias Aiur.Workflow
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
@@ -10,6 +10,7 @@ defmodule Aiur.GitHub.ClientTest do
     prev_token = System.get_env("GITHUB_TOKEN")
     prev_cached_token = :persistent_term.get(@token_cache_key, :unset)
     :persistent_term.erase(@token_cache_key)
+    DispatchAuthorization.clear_cache()
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
     on_exit(fn ->
@@ -44,36 +45,41 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn %{method: :get, url: url} ->
         decoded_url = URI.decode(url)
 
-        state =
-          cond do
-            decoded_url =~ "labels=sym:todo" -> "todo"
-            decoded_url =~ "labels=sym:in-progress" -> "in-progress"
-            decoded_url =~ "labels=sym:rework" -> "rework"
-            decoded_url =~ "labels=sym:merging" -> "merging"
-            true -> flunk("unexpected labels query: #{decoded_url}")
-          end
+        if decoded_url =~ "/timeline" do
+          # Dispatch authorization checks trigger-label provenance after fetch.
+          {:ok, %{status: 200, body: []}}
+        else
+          state =
+            cond do
+              decoded_url =~ "labels=sym:todo" -> "todo"
+              decoded_url =~ "labels=sym:in-progress" -> "in-progress"
+              decoded_url =~ "labels=sym:rework" -> "rework"
+              decoded_url =~ "labels=sym:merging" -> "merging"
+              true -> flunk("unexpected labels query: #{decoded_url}")
+            end
 
-        send(parent, {:label_request, state})
+          send(parent, {:label_request, state})
 
-        body =
-          if state == "rework" do
-            [
-              %{
-                "number" => 35,
-                "title" => "Fix review feedback",
-                "body" => nil,
-                "html_url" => "https://github.com/owner/repo/issues/35",
-                "labels" => [%{"name" => "sym:rework"}],
-                "assignee" => nil,
-                "created_at" => "2026-06-23T00:00:00Z",
-                "updated_at" => "2026-06-23T01:00:00Z"
-              }
-            ]
-          else
-            []
-          end
+          body =
+            if state == "rework" do
+              [
+                %{
+                  "number" => 35,
+                  "title" => "Fix review feedback",
+                  "body" => nil,
+                  "html_url" => "https://github.com/owner/repo/issues/35",
+                  "labels" => [%{"name" => "sym:rework"}],
+                  "assignee" => nil,
+                  "created_at" => "2026-06-23T00:00:00Z",
+                  "updated_at" => "2026-06-23T01:00:00Z"
+                }
+              ]
+            else
+              []
+            end
 
-        {:ok, %{status: 200, body: body}}
+          {:ok, %{status: 200, body: body}}
+        end
       end
 
       assert {:ok, [issue]} = Client.fetch_candidate_issues(request_fun: request_fun)
@@ -119,31 +125,38 @@ defmodule Aiur.GitHub.ClientTest do
       request_fun = fn %{method: :get, url: url, token: token} ->
         assert token == "test-gh-token"
         assert url =~ "/repos/owner/repo/issues"
-        assert url =~ "state=open"
 
-        # Each label is queried separately; return issue only for sym:todo
-        if url =~ "sym:todo" or url =~ "sym%3Atodo" do
-          {:ok,
-           %{
-             status: 200,
-             body: [
-               %{
-                 "number" => 42,
-                 "title" => "Fix the bug",
-                 "body" => "Something is broken",
-                 "html_url" => "https://github.com/owner/repo/issues/42",
-                 "labels" => [
-                   %{"name" => "sym:todo"},
-                   %{"name" => "priority:1"}
-                 ],
-                 "assignee" => %{"login" => "dev1"},
-                 "created_at" => "2025-01-01T00:00:00Z",
-                 "updated_at" => "2025-01-02T00:00:00Z"
-               }
-             ]
-           }}
-        else
-          {:ok, %{status: 200, body: []}}
+        cond do
+          url =~ "/timeline" ->
+            {:ok, %{status: 200, body: []}}
+
+          # Each label is queried separately; return issue only for sym:todo
+          url =~ "sym:todo" or url =~ "sym%3Atodo" ->
+            assert url =~ "state=open"
+
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "number" => 42,
+                   "title" => "Fix the bug",
+                   "body" => "Something is broken",
+                   "html_url" => "https://github.com/owner/repo/issues/42",
+                   "labels" => [
+                     %{"name" => "sym:todo"},
+                     %{"name" => "priority:1"}
+                   ],
+                   "assignee" => %{"login" => "dev1"},
+                   "created_at" => "2025-01-01T00:00:00Z",
+                   "updated_at" => "2025-01-02T00:00:00Z"
+                 }
+               ]
+             }}
+
+          true ->
+            assert url =~ "state=open"
+            {:ok, %{status: 200, body: []}}
         end
       end
 
@@ -331,25 +344,29 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "fetches issues by state labels" do
       request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "labels="
-        assert url =~ "sym:todo" or url =~ "sym%3Atodo"
+        if url =~ "/timeline" do
+          {:ok, %{status: 200, body: []}}
+        else
+          assert url =~ "labels="
+          assert url =~ "sym:todo" or url =~ "sym%3Atodo"
 
-        {:ok,
-         %{
-           status: 200,
-           body: [
-             %{
-               "number" => 1,
-               "title" => "Task",
-               "body" => nil,
-               "html_url" => "https://github.com/owner/repo/issues/1",
-               "labels" => [%{"name" => "sym:todo"}],
-               "assignee" => nil,
-               "created_at" => "2025-01-01T00:00:00Z",
-               "updated_at" => "2025-01-01T00:00:00Z"
-             }
-           ]
-         }}
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 1,
+                 "title" => "Task",
+                 "body" => nil,
+                 "html_url" => "https://github.com/owner/repo/issues/1",
+                 "labels" => [%{"name" => "sym:todo"}],
+                 "assignee" => nil,
+                 "created_at" => "2025-01-01T00:00:00Z",
+                 "updated_at" => "2025-01-01T00:00:00Z"
+               }
+             ]
+           }}
+        end
       end
 
       assert {:ok, issues} = Client.fetch_issues_by_states(["todo"], request_fun: request_fun)
@@ -360,28 +377,32 @@ defmodule Aiur.GitHub.ClientTest do
 
     test "marks paused override without treating it as the issue state" do
       request_fun = fn %{method: :get, url: url} ->
-        assert url =~ "sym:todo" or url =~ "sym%3Atodo"
+        if url =~ "/timeline" do
+          {:ok, %{status: 200, body: []}}
+        else
+          assert url =~ "sym:todo" or url =~ "sym%3Atodo"
 
-        {:ok,
-         %{
-           status: 200,
-           body: [
-             %{
-               "number" => 2,
-               "title" => "Paused task",
-               "body" => nil,
-               "html_url" => "https://github.com/owner/repo/issues/2",
-               "labels" => [
-                 %{"name" => "sym:paused"},
-                 %{"name" => "sym:todo"},
-                 %{"name" => "priority:1"}
-               ],
-               "assignee" => nil,
-               "created_at" => "2025-01-01T00:00:00Z",
-               "updated_at" => "2025-01-01T00:00:00Z"
-             }
-           ]
-         }}
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 2,
+                 "title" => "Paused task",
+                 "body" => nil,
+                 "html_url" => "https://github.com/owner/repo/issues/2",
+                 "labels" => [
+                   %{"name" => "sym:paused"},
+                   %{"name" => "sym:todo"},
+                   %{"name" => "priority:1"}
+                 ],
+                 "assignee" => nil,
+                 "created_at" => "2025-01-01T00:00:00Z",
+                 "updated_at" => "2025-01-01T00:00:00Z"
+               }
+             ]
+           }}
+        end
       end
 
       assert {:ok, [issue]} = Client.fetch_issues_by_states(["todo"], request_fun: request_fun)
@@ -1865,12 +1886,13 @@ defmodule Aiur.GitHub.ClientTest do
     test "an HTTP 403 rate-limit response classifies as :rate_limited" do
       response = %{
         status: 403,
-        headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "42"}],
+        headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "42"}, {"x-ratelimit-reset", "1900000000"}],
         body: %{"message" => "API rate limit exceeded"}
       }
 
       assert {:github, :rate_limited, detail} = Client.classify_error(response)
       assert detail.retry_after == 42
+      assert detail.reset_at == "2030-03-17T17:46:40Z"
     end
 
     test "a plain HTTP 403 (no rate-limit signal) classifies as :http" do
@@ -1897,6 +1919,33 @@ defmodule Aiur.GitHub.ClientTest do
 
       assert {:error, {:github, :timeout, _detail}} =
                Client.create_comment("42", "hi", request_fun: request_fun)
+    end
+  end
+
+  describe "Build Order planning graph reads" do
+    test "delegates catalog reads to the separate bounded planning adapter" do
+      request_fun = fn %{method: :post, body: body} ->
+        assert body["query"] =~ "AiurBuildOrderCatalog"
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{
+                 "issues" => %{
+                   "nodes" => [],
+                   "totalCount" => 0,
+                   "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                 }
+               }
+             }
+           }
+         }}
+      end
+
+      assert {:ok, %{candidate: %{entries: []}, calls: 1, pages: 1}} =
+               Client.fetch_build_order_catalog(request_fun: request_fun)
     end
   end
 

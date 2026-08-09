@@ -104,4 +104,94 @@ defmodule Aiur.Config.PathsTest do
       assert is_binary(Paths.repo_name())
     end
   end
+
+  describe "decision_state_dir/0" do
+    setup do
+      original_instance_key = System.get_env("AIUR_INSTANCE_KEY")
+      original_state_dir_env = System.get_env("AIUR_BG_STATE_DIR")
+      original_override = Application.get_env(:aiur, :decision_state_dir)
+
+      on_exit(fn ->
+        restore_system_env("AIUR_INSTANCE_KEY", original_instance_key)
+        restore_system_env("AIUR_BG_STATE_DIR", original_state_dir_env)
+
+        case original_override do
+          nil -> Application.delete_env(:aiur, :decision_state_dir)
+          value -> Application.put_env(:aiur, :decision_state_dir, value)
+        end
+      end)
+
+      Application.delete_env(:aiur, :decision_state_dir)
+      root = Path.join(System.tmp_dir!(), "aiur-decision-paths-#{System.unique_integer([:positive])}")
+      System.put_env("AIUR_BG_STATE_DIR", root)
+
+      %{root: root}
+    end
+
+    test "an Application override wins outright, skipping validation" do
+      Application.put_env(:aiur, :decision_state_dir, "/tmp/explicit-decision-override")
+      System.delete_env("AIUR_INSTANCE_KEY")
+
+      assert Paths.decision_state_dir() == {:ok, "/tmp/explicit-decision-override"}
+    end
+
+    test "refuses an empty AIUR_INSTANCE_KEY instead of sharing a default" do
+      System.put_env("AIUR_INSTANCE_KEY", "")
+
+      assert Paths.decision_state_dir() == {:error, :missing_instance_key}
+    end
+
+    test "refuses a missing AIUR_INSTANCE_KEY" do
+      System.delete_env("AIUR_INSTANCE_KEY")
+
+      assert Paths.decision_state_dir() == {:error, :missing_instance_key}
+    end
+
+    test "resolves beneath the configured root when the instance key and project identity are available",
+         %{root: root} do
+      System.put_env("AIUR_INSTANCE_KEY", "abc123")
+
+      assert {:ok, path} = Paths.decision_state_dir()
+      assert String.starts_with?(path, Path.expand(root) <> "/")
+      assert Path.basename(Path.dirname(path)) == "abc123"
+      assert Path.basename(path) == Paths.repo_name()
+    end
+
+    test "rejects an instance key that would escape the configured root" do
+      System.put_env("AIUR_INSTANCE_KEY", "..")
+
+      assert Paths.decision_state_dir() == {:error, :decision_path_outside_root}
+    end
+  end
+
+  describe "usage_ledger_state_dir/0" do
+    setup do
+      original_ledger = Application.get_env(:aiur, :usage_ledger_state_dir)
+      original_decision = Application.get_env(:aiur, :decision_state_dir)
+
+      on_exit(fn ->
+        restore_application_env(:usage_ledger_state_dir, original_ledger)
+        restore_application_env(:decision_state_dir, original_decision)
+      end)
+
+      :ok
+    end
+
+    test "uses a dedicated contained leaf beneath decision state" do
+      Application.put_env(:aiur, :decision_state_dir, "/tmp/aiur-private-state")
+      Application.delete_env(:aiur, :usage_ledger_state_dir)
+
+      assert Paths.usage_ledger_state_dir() == {:ok, "/tmp/aiur-private-state/usage-ledger"}
+    end
+
+    test "allows an explicit trusted test override" do
+      Application.put_env(:aiur, :usage_ledger_state_dir, "/tmp/usage-ledger-test")
+      assert Paths.usage_ledger_state_dir() == {:ok, "/tmp/usage-ledger-test"}
+    end
+  end
+
+  defp restore_system_env(key, nil), do: System.delete_env(key)
+  defp restore_system_env(key, value), do: System.put_env(key, value)
+  defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 end

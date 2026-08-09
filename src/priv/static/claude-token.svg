@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1254" height="1254" viewBox="0 0 1254 1254" fill="none">
+  <title>AIUR-style mineral patch icon</title>
+  <desc>A minimal cluster of four mineral crystals in a cyan-to-indigo gradient.</desc>
+  <defs>
+    <linearGradient id="mineralGradient" x1="272" y1="383" x2="1011" y2="1010" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#05CDE6"/>
+      <stop offset="0.28" stop-color="#05B4F7"/>
+      <stop offset="0.56" stop-color="#168EFD"/>
+      <stop offset="0.79" stop-color="#2A68FD"/>
+      <stop offset="1" stop-color="#4146FF"/>
+    </linearGradient>
+    <linearGradient id="depthGradient" x1="610" y1="157" x2="610" y2="1048" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.05"/>
+      <stop offset="0.55" stop-color="#1D6EFF" stop-opacity="0"/>
+      <stop offset="1" stop-color="#2C36FF" stop-opacity="0.17"/>
+    </linearGradient>
+    <radialGradient id="cyanBloom" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(378 620) rotate(36) scale(430 520)">
+      <stop offset="0" stop-color="#00D4DE" stop-opacity="0.18"/>
+      <stop offset="1" stop-color="#00D4DE" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+
+  <path id="mineral-cluster" d="
+    M 552 159
+    C 562 158 571 164 578 174
+    L 719 371
+    C 724 379 726 388 727 399
+    L 740 698
+    C 740 707 741 714 741 719
+    L 758 545
+    C 759 535 763 526 771 519
+    L 854 444
+    C 864 435 877 431 889 437
+    C 897 441 901 449 904 458
+    L 946 604
+    C 950 616 950 627 946 638
+    L 844 914
+    L 911 790
+    C 914 784 918 780 924 776
+    L 989 735
+    C 999 729 1010 731 1017 738
+    C 1022 743 1025 750 1026 758
+    L 1041 855
+    C 1043 867 1040 878 1034 889
+    L 957 1021
+    C 948 1038 932 1048 913 1048
+    L 427 1048
+    C 410 1048 395 1038 388 1022
+    L 255 720
+    C 251 710 251 699 254 689
+    L 288 547
+    C 291 533 299 524 310 521
+    C 318 519 326 521 333 526
+    L 478 632
+    C 486 638 491 645 495 655
+    L 572 888
+    L 523 646
+    C 521 638 517 631 510 626
+    L 464 592
+    L 421 413
+    C 418 400 420 387 426 375
+    L 522 188
+    C 529 174 539 162 552 159
+    Z" fill="url(#mineralGradient)"/>
+
+  <use href="#mineral-cluster" fill="url(#depthGradient)"/>
+  <use href="#mineral-cluster" fill="url(#cyanBloom)"/>
+</svg>

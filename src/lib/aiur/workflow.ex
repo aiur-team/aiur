@@ -40,7 +40,7 @@ defmodule Aiur.Workflow do
   @spec config_path_candidates() :: [Path.t(), ...]
   def config_path_candidates do
     cwd = File.cwd!()
-    home = Path.expand("~")
+    home = home_dir()
 
     [
       Path.join([cwd, @aiur_dir, @config_basename]),
@@ -48,6 +48,19 @@ defmodule Aiur.Workflow do
       Path.join([home, @aiur_dir, @config_basename]),
       Path.join(home, @legacy_config_file_name)
     ]
+  end
+
+  # Read HOME at call time rather than via `Path.expand("~")`, which resolves
+  # the home the VM captured at boot and ignores any later `System.put_env`.
+  # The test helper sandboxes HOME precisely so a suite run cannot discover the
+  # developer's real `~/.aiur/config` — with the cached expansion that sandbox
+  # silently did nothing, and background pollers issued real tracker requests
+  # against whatever account the developer had configured.
+  defp home_dir do
+    case System.get_env("HOME") do
+      home when is_binary(home) and home != "" -> home
+      _unset -> Path.expand("~")
+    end
   end
 
   @doc false
@@ -100,6 +113,19 @@ defmodule Aiur.Workflow do
 
       {:error, reason} ->
         {:error, {:missing_workflow_file, path, reason}}
+    end
+  end
+
+  @doc false
+  @spec resolved_prewarm_file_path(Path.t()) :: Path.t() | nil
+  def resolved_prewarm_file_path(path) when is_binary(path) do
+    with {:ok, content} <- File.read(path),
+         {:ok, config} <- yaml_to_map(content),
+         %{} = prewarm <- Map.get(config, "prewarm"),
+         rel when is_binary(rel) and rel != "" <- Map.get(prewarm, "base_build_file") do
+      Path.expand(rel, Path.dirname(path))
+    else
+      _ -> nil
     end
   end
 

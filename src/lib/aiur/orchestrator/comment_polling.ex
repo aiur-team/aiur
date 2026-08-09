@@ -6,11 +6,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
+  alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
+
+  @recent_merge_persistence_retry_limit 3
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
@@ -27,28 +30,123 @@ defmodule Aiur.Orchestrator.CommentPolling do
           state
           |> Orchestrator.note_github_connectivity_success(:firehose)
           |> Orchestrator.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
+          |> note_recent_merge_persistence_success(Map.get(result, :recent_merge_persistence))
 
         %{state | events_etag: etag, events_last_id: last_event_id}
+
+      {:error, {:recent_merge_persistence, reason, cursor}} ->
+        note_recent_merge_persistence_failure(state, reason, cursor, opts)
 
       {:error, reason} ->
         # Preserve cached etag so we retry as If-None-Match next tick; the
         # classified failure feeds the escalation policy so a sustained
-        # DNS/auth break surfaces a loud operator blocker (#617).
+        # DNS/auth break surfaces a loud Executor blocker (#617).
         Orchestrator.note_github_connectivity_failure(state, :firehose, reason)
     end
+  end
+
+  defp note_recent_merge_persistence_success(state, :ok) do
+    Orchestrator.note_github_connectivity_success(state, :recent_merge_store)
+  end
+
+  defp note_recent_merge_persistence_success(state, _status), do: state
+
+  defp note_recent_merge_persistence_failure(state, reason, cursor, opts) do
+    failures = recent_merge_persistence_failure_count(state) + 1
+    retry_limit = recent_merge_persistence_retry_limit(opts)
+    advance? = failures >= retry_limit
+
+    Logger.warning("GithubFirehose local outcome persistence failed; attempt=#{failures} advance=#{advance?} reason=#{inspect(reason)}")
+
+    state =
+      state
+      |> Orchestrator.note_github_connectivity_success(:firehose)
+      |> Orchestrator.note_github_poll_interval(:firehose, Map.get(cursor, :poll_interval))
+      |> Orchestrator.note_github_connectivity_failure(:recent_merge_store, {:recent_merge_persistence, reason})
+      |> maybe_alert_recent_merge_persistence(reason, retry_limit, opts)
+
+    if advance? do
+      %{
+        state
+        | events_etag: Map.get(cursor, :etag),
+          events_last_id: Map.get(cursor, :last_event_id)
+      }
+    else
+      state
+    end
+  end
+
+  defp recent_merge_persistence_failure_count(state) do
+    case Map.get(state.github_connectivity, :recent_merge_store) do
+      {_classification, count} when is_integer(count) and count > 0 -> count
+      _other -> 0
+    end
+  end
+
+  defp recent_merge_persistence_retry_limit(opts) do
+    case Keyword.get(opts, :recent_merge_persistence_retry_limit, @recent_merge_persistence_retry_limit) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> @recent_merge_persistence_retry_limit
+    end
+  end
+
+  defp maybe_alert_recent_merge_persistence(state, reason, limit, opts) do
+    if recent_merge_persistence_failure_count(state) == limit do
+      emit_recent_merge_persistence_alert(state, reason, opts)
+    else
+      state
+    end
+  end
+
+  defp emit_recent_merge_persistence_alert(state, reason, opts) do
+    failures = recent_merge_persistence_failure_count(state)
+
+    message =
+      "Recent repository merge audit remains read-only or unwritable after " <>
+        "#{failures} attempts (#{inspect(reason)}). " <>
+        "GitHub event delivery is continuing without durable outcome records until storage recovers."
+
+    alert_fun = Keyword.get(opts, :recent_merge_alert_fun, &Alerts.emit_custom/3)
+
+    _ =
+      alert_fun.("recent_merge_store.persistence_failed", message,
+        reason: message,
+        needs_attention: true,
+        severity: "warning"
+      )
+
+    state
+  rescue
+    error ->
+      Logger.warning("GithubFirehose local outcome persistence alert failed; reason=#{Exception.message(error)}")
+      state
+  catch
+    kind, reason ->
+      Logger.warning("GithubFirehose local outcome persistence alert failed; reason=#{inspect({kind, reason})}")
+      state
   end
 
   @spec poll_github_comments(State.t(), keyword()) :: State.t()
   def poll_github_comments(%State{} = state, opts \\ []) do
     case Config.tracker_kind() do
-      "github" -> do_poll_github_comments(state, opts)
-      _ -> state
+      # Comment polling always runs at the configured cadence. #1384 scoped a
+      # widen-on-quiet backoff, but it is deliberately not implemented: a global
+      # quiet gate is inert whenever any agent is running (the case the rate
+      # incident is about) and a per-target one would delay a new ticket's first
+      # comment wake, which the ticket lists as a non-goal. The steady-state
+      # saving comes from 304s and the GraphQL batch, not from skipping cycles.
+      "github" ->
+        do_poll_github_comments(state, opts)
+
+      _ ->
+        state
     end
   end
 
   defp do_poll_github_comments(%State{} = state, opts) do
-    case TargetSelection.github_comment_poll_targets(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets} ->
+    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
+      {:ok, targets, human_review_targets, watch_targets, cache} ->
+        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], cache)
         poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
 
       {:error, reason} ->
@@ -57,19 +155,22 @@ defmodule Aiur.Orchestrator.CommentPolling do
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts),
-    do: state
+  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts), do: state
 
   defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
        when is_list(targets) do
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
+      |> Keyword.put_new(:etags, state.github_comment_etags)
       |> TargetSelection.put_open_pull_requests_by_target(human_review_targets)
       |> TargetSelection.put_open_pull_requests_by_target(watch_targets)
+      |> Keyword.put_new(:titles_by_target, running_titles_by_target(state))
+
+    poll_opts = put_comment_batch(poll_opts, targets)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
-      {:ok, %{since: since, count: count, errors: errors}} ->
+      {:ok, %{since: since, etags: etags, count: count, errors: errors}} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
 
@@ -87,6 +188,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
         %{
           state
           | github_comments_since: TargetSelection.merge_comment_cursors(state.github_comments_since, since),
+            github_comment_etags: Map.merge(state.github_comment_etags, etags),
             github_comment_issue_updated_at:
               TargetSelection.remember_polled_human_review_targets(
                 state.github_comment_issue_updated_at,
@@ -95,6 +197,51 @@ defmodule Aiur.Orchestrator.CommentPolling do
               )
         }
     end
+  end
+
+  # GitHub issues carry no branch name, so the comment batch derives each
+  # running ticket's generated `aiur/<id>-<slug>` branch from its title. Without
+  # this every target without an already-known PR guesses the legacy
+  # `aiur/<id>` branch, misses, and falls back to the full REST fan-out.
+  defp running_titles_by_target(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.reduce(%{}, fn entry, acc ->
+      with identifier when is_binary(identifier) and identifier != "" <- Map.get(entry, :identifier),
+           %{title: title} when is_binary(title) and title != "" <- Map.get(entry, :issue) do
+        Map.put(acc, to_string(identifier), title)
+      else
+        _other -> acc
+      end
+    end)
+  end
+
+  defp put_comment_batch(opts, targets) do
+    fetcher = Keyword.get(opts, :comment_batch_fetcher, &CommentPollBatch.fetch/2)
+
+    case fetcher.(targets, opts) do
+      {:ok, batch} when is_map(batch) ->
+        Keyword.put(opts, :comment_batch, batch)
+
+      {:error, reason} ->
+        Logger.warning("Github comment GraphQL batch failed; falling back to conditional REST reads reason=#{inspect(reason)}")
+        opts
+
+      other ->
+        Logger.warning("Github comment GraphQL batch returned unexpected value; falling back to conditional REST reads value=#{inspect(other)}")
+        opts
+    end
+  rescue
+    exception ->
+      # The fallback keeps polling correct, but an exception here is a bug in
+      # the batch itself, not an expected condition: log it at :error with the
+      # stacktrace so it cannot hide as an indefinitely silent REST fallback.
+      Logger.error(
+        "Github comment GraphQL batch raised; falling back to conditional REST reads error=" <>
+          Exception.format(:error, exception, __STACKTRACE__)
+      )
+
+      opts
   end
 
   # The comments poller aggregates per-target failures as

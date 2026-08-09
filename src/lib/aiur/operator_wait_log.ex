@@ -1,8 +1,7 @@
 defmodule Aiur.OperatorWaitLog do
   @moduledoc """
-  Records how long operator messages sit between submission
-  (`Aiur.AgentChat.send/3` accept) and delivery (`AgentRunner`
-  handing the text to a codex turn). Appends one NDJSON line per
+  Records how long Executor messages sit between submission
+  (`Aiur.AgentChat.send/3` accept) and provider-confirmed delivery. Appends one NDJSON line per
   delivered message to `<log-root>/metrics/operator_message_wait.ndjson`.
 
   The file survives `aiur --clear` (sits in a subdirectory; --clear
@@ -22,8 +21,9 @@ defmodule Aiur.OperatorWaitLog do
   use GenServer
   require Logger
 
+  alias Aiur.Metrics
+
   @table :aiur_operator_wait_pending
-  @metrics_subdir "metrics"
   @metrics_filename "operator_message_wait.ndjson"
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -38,9 +38,9 @@ defmodule Aiur.OperatorWaitLog do
   end
 
   @doc """
-  Note an operator message accepted into the queue. Called from
-  `Aiur.AgentChat.send/3` after the orchestrator returns
-  `{:ok, request_id}`.
+  Note an Executor message accepted into the queue. Called by the orchestrator
+  before it notifies the worker, so a provider acknowledgement cannot outrun
+  the queued timestamp.
   """
   @spec record_queued(integer(), String.t(), non_neg_integer()) :: :ok
   def record_queued(request_id, identifier, text_bytes)
@@ -56,14 +56,13 @@ defmodule Aiur.OperatorWaitLog do
   end
 
   @doc """
-  Note an operator message handed off to the agent and append the
-  wait delta to the NDJSON file. Called from
-  `Aiur.AgentRunner.run_queue_item_turn/6` and
-  `safe_checkpoint_delivery/4` for `:operator_message` items.
+  Note a provider-confirmed Executor message and append the wait delta to
+  the NDJSON file. Called only after the provider accepts a new turn or
+  emits equivalent receipt evidence for an interactive session.
 
   Silently no-ops when no queued record exists (writer started after
   the message was enqueued, or this `request_id` came from a
-  non-operator queue item).
+  non-Executor queue item).
   """
   @spec record_delivered(integer(), String.t()) :: :ok
   def record_delivered(request_id, identifier)
@@ -92,20 +91,7 @@ defmodule Aiur.OperatorWaitLog do
        to.
   """
   @spec metrics_file() :: Path.t()
-  def metrics_file do
-    case Application.get_env(:aiur, :operator_wait_metrics_path) do
-      path when is_binary(path) ->
-        path
-
-      _ ->
-        log_file = Application.get_env(:aiur, :log_file, Aiur.LogFile.default_log_file())
-
-        log_file
-        |> Path.dirname()
-        |> Path.join(@metrics_subdir)
-        |> Path.join(@metrics_filename)
-    end
-  end
+  def metrics_file, do: Metrics.file(:operator_wait_metrics_path, @metrics_filename)
 
   defp ets_ready? do
     :ets.whereis(@table) != :undefined

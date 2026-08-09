@@ -133,12 +133,13 @@ defmodule Aiur.GitHub.ClientEventsTest do
       assert {:ok, %{"id" => 1001}} = Client.add_dependency(42, 99, request_fun: stub)
     end
 
-    test "remove issues DELETE" do
-      stub = fn %{method: :delete} ->
-        {:ok, %{status: 200, headers: [], body: %{"id" => 1001}}}
+    test "remove issues DELETE with the blocker id in the URL" do
+      stub = fn %{method: :delete, url: url} ->
+        assert String.ends_with?(url, "/issues/42/dependencies/blocked_by/99")
+        {:ok, %{status: 204, headers: [], body: ""}}
       end
 
-      assert {:ok, %{"id" => 1001}} = Client.remove_dependency(42, 99, request_fun: stub)
+      assert {:ok, :removed} = Client.remove_dependency(42, 99, request_fun: stub)
     end
 
     test "422 returns error (cycle detected by GitHub)" do

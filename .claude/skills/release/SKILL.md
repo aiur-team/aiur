@@ -59,10 +59,10 @@ git push origin VERSION
 ### 5. Create GitHub Release
 
 ```bash
-gh release create VERSION --generate-notes --title "VERSION" --repo its-everdred/aiur
+gh release create VERSION --generate-notes --title "VERSION" --repo aiur-team/aiur
 ```
 
-Note: pass `--repo its-everdred/aiur` explicitly so the release lands on the canonical repo even when the local remote is a fork or workspace clone.
+Note: pass `--repo aiur-team/aiur` explicitly so the release lands on the canonical repo even when the local remote is a fork or workspace clone.
 
 ### 6. Summary
 
@@ -76,7 +76,7 @@ After completion, show:
 
 If a tag already exists and needs to be recreated:
 ```bash
-gh release delete VERSION --repo its-everdred/aiur --yes
+gh release delete VERSION --repo aiur-team/aiur --yes
 git tag -d VERSION
 git push origin :refs/tags/VERSION
 # Then proceed from step 4

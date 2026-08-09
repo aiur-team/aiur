@@ -16,6 +16,11 @@ defmodule AiurWeb.Endpoint do
     longpoll: false
   )
 
+  socket("/streamdeck", AiurWeb.StreamdeckSocket,
+    websocket: true,
+    longpoll: false
+  )
+
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
 

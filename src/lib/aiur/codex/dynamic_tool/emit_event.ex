@@ -11,7 +11,7 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
 
   @emit_event_description """
   Emit a cross-ticket Aiur event. Routes onto the `Aiur.Events.Exchange`
-  topic exchange where other agents/the operator can subscribe by
+  topic exchange where other agents/the Executor can subscribe by
   pattern. The `name` is a scoped vocabulary tag (`progress.<slug>`,
   `decision.<slug>`, `blocked`, `unblocked`, `attention.<slug>`,
   `attention.resolved`, `pause.request`, or `custom.<slug>`). The full
@@ -19,7 +19,10 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
 
   Subscribers see your `message` and optional structured `payload`. Use
   `emit_event` for coordination signals an agent on another ticket might
-  want to react to; use `emit_alert` for operator-facing audible alerts.
+  want to react to; use `emit_alert` for Executor-facing audible alerts.
+  The exact names `decision.acknowledged` and `decision.resolved` are durable
+  target-agent lifecycle events; their payload must carry `decision_id`,
+  `action_id`, and `expected_version` from the delivered answer envelope.
   """
   @emit_event_input_schema %{
     "type" => "object",
@@ -29,13 +32,13 @@ defmodule Aiur.Codex.DynamicTool.EmitEvent do
       "name" => %{
         "type" => "string",
         "description" =>
-          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug>, blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
+          "Vocabulary tag. One of: progress (bare; payload %{percent, label}), progress.<slug>, decision.<slug> (decision.acknowledged/resolved require durable correlation payloads), blocked, unblocked, attention.<slug>, attention.resolved, pause.request, custom.<slug>"
       },
       "message" => %{"type" => "string", "description" => "Short human-readable summary."},
       "payload" => %{
         "type" => ["object", "null"],
         "description" =>
-          "Optional structured data (e.g. {blocking_issue: 80, function: \"foo\"}). For a decision-blocked `blocked` or `pause.request`, use {reason: \"operator_decision\", question: \"...\"} to raise a durable operator attention.",
+          "Optional structured data (e.g. {blocking_issue: 80, function: \"foo\"}). For a decision-blocked `blocked` or `pause.request`, use {reason: \"operator_decision\", question: \"...\"} to raise a durable Executor attention.",
         "additionalProperties" => true
       }
     }

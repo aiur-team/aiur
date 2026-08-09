@@ -106,6 +106,8 @@ defmodule Aiur.AgentEventsTest do
       assert AgentEvents.state_emoji("error") == "🔴"
       assert AgentEvents.state_emoji(:done) == "🏁"
       assert AgentEvents.state_emoji("done") == "🏁"
+      assert AgentEvents.state_emoji(:completed) == "⏹️"
+      assert AgentEvents.state_emoji("completed") == "⏹️"
       assert AgentEvents.state_emoji(:sleeping) == "💤"
       assert AgentEvents.state_emoji("sleeping") == "💤"
     end
@@ -114,6 +116,29 @@ defmodule Aiur.AgentEventsTest do
       assert AgentEvents.state_emoji(nil) == "⚫"
       assert AgentEvents.state_emoji(:idle) == "⚫"
       assert AgentEvents.state_emoji("unknown") == "⚫"
+    end
+  end
+
+  describe "streamdeck_bucket/1" do
+    test "prioritizes attention, intervention, activity, and queued readiness states" do
+      assert AgentEvents.streamdeck_bucket(%{open_decision_count: 1, streamdeck_source: :running}) == :alert
+      assert AgentEvents.streamdeck_bucket(%{work_state: :error, streamdeck_source: :running}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{waiting_reason: :unresponsive, streamdeck_source: :running}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :retrying}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{work_state: :working, streamdeck_source: :running}) == :running
+      assert AgentEvents.streamdeck_bucket(%{tracker_paused: true, streamdeck_source: :running}) == :paused
+
+      for work_state <- [:paused, :sleeping, :done, :deactivated, :completed] do
+        assert AgentEvents.streamdeck_bucket(%{work_state: work_state, streamdeck_source: :running}) == :paused
+      end
+
+      assert AgentEvents.streamdeck_bucket(%{streamdeck_source: :queued}) == :queued
+    end
+
+    test "uses the documented precedence when a row matches multiple buckets" do
+      assert AgentEvents.streamdeck_bucket(%{open_decision_count: 1, work_state: :error, tracker_paused: true, streamdeck_source: :retrying}) == :alert
+      assert AgentEvents.streamdeck_bucket(%{work_state: :error, tracker_paused: true, streamdeck_source: :running}) == :stuck
+      assert AgentEvents.streamdeck_bucket(%{waiting_reason: :unresponsive, tracker_paused: true, streamdeck_source: :running}) == :stuck
     end
   end
 

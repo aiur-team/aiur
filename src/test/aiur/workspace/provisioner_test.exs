@@ -1,8 +1,24 @@
 defmodule Aiur.Workspace.ProvisionerTest do
   use Aiur.TestSupport
 
-  alias Aiur.Workflow
+  alias Aiur.{Workflow, Workspace}
   alias Aiur.Workspace.Provisioner
+
+  test "remote workers receive the bundled agent skill install script" do
+    parent = self()
+
+    runner = fn host, script, timeout ->
+      send(parent, {:remote_install, host, script, timeout})
+      {:ok, {"", 0}}
+    end
+
+    assert :ok = Provisioner.maybe_install_agent_skills("/remote/workspace", "worker-1", runner)
+    assert_received {:remote_install, "worker-1", script, timeout}
+    assert is_integer(timeout) and timeout > 0
+    assert script =~ ".claude/skills/design-import"
+    assert script =~ "agents/openai.yaml"
+    assert script =~ ".codex/skills/design-import"
+  end
 
   test "parse_remote_workspace_output/1 with valid marker line returns ok tuple" do
     noise = "some\npreamble\n"
@@ -33,9 +49,9 @@ defmodule Aiur.Workspace.ProvisionerTest do
              Provisioner.parse_remote_workspace_output(bad)
   end
 
-  test "ensure_workspace/2 on an existing directory returns false and preserves contents" do
+  test "ensure_workspace/2 on a valid existing checkout returns false and preserves contents" do
     tmp = Path.join(System.tmp_dir!(), "prov_#{System.unique_integer([:positive])}")
-    File.mkdir_p!(tmp)
+    init_repo!(tmp)
     sentinel = Path.join(tmp, "sentinel.txt")
     File.write!(sentinel, "wip")
 
@@ -43,6 +59,160 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
     assert {:ok, ^tmp, false} = Provisioner.ensure_workspace(tmp, nil)
     assert File.read!(sentinel) == "wip"
+  end
+
+  test "reports interrupted Git initialization as existing but refuses it for use" do
+    workspace = Path.join(System.tmp_dir!(), "prov_unborn_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    {_output, 0} = System.cmd("git", ["init", "--quiet", workspace], stderr_to_stdout: true)
+    notes = Path.join(workspace, "notes.txt")
+    File.write!(notes, "do not discard\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :invalid_git_checkout}} =
+             Provisioner.ensure_workspace_usable(workspace, nil, false)
+
+    assert File.read!(notes) == "do not discard\n"
+  end
+
+  test "refuses unproven non-Git contents without deleting them" do
+    workspace = Path.join(System.tmp_dir!(), "prov_unproven_#{System.unique_integer([:positive])}")
+    notes = Path.join(workspace, "notes.txt")
+    File.mkdir_p!(workspace)
+    File.write!(notes, "agent WIP\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Provisioner.ensure_workspace(workspace, nil)
+
+    assert File.read!(notes) == "agent WIP\n"
+  end
+
+  test "completion proof makes an intentionally non-Git workspace reusable" do
+    workspace = Path.join(System.tmp_dir!(), "prov_ready_#{System.unique_integer([:positive])}")
+    notes = Path.join(workspace, "notes.txt")
+    File.mkdir_p!(workspace)
+    File.write!(notes, "intentional non-git workspace\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert :ok = Provisioner.mark_workspace_ready(workspace, nil)
+    assert {:ok, ^workspace, false} = Provisioner.ensure_workspace(workspace, nil)
+    refute Provisioner.bootstrap_required?(workspace, nil, false)
+    assert File.read!(notes) == "intentional non-git workspace\n"
+  end
+
+  test "partial agent-skill installation is not a non-Git completion proof" do
+    workspace = Path.join(System.tmp_dir!(), "prov_partial_skills_#{System.unique_integer([:positive])}")
+    skill = Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"])
+    notes = Path.join(workspace, "notes.txt")
+    File.mkdir_p!(Path.dirname(skill))
+    File.write!(skill, "partial bootstrap\\n")
+    File.write!(notes, "preserve this work\\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Provisioner.ensure_workspace(workspace, nil)
+
+    assert File.read!(skill) == "partial bootstrap\\n"
+    assert File.read!(notes) == "preserve this work\\n"
+  end
+
+  test "refuses an after_create hook that leaves a logs-only workspace non-Git, then self-heals on retry" do
+    test_root = Path.join(System.tmp_dir!(), "prov_completion_#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(test_root, "workspaces")
+
+    on_exit(fn -> File.rm_rf!(test_root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      hook_after_create: "printf initialized > README.md"
+    )
+
+    workspace = Workspace.workspace_path_under(workspace_root, "PROOF-1")
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"startup\"}\n")
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Workspace.create_for_issue("PROOF-1")
+
+    # #1317: a hook that exits 0 without producing a real checkout must not
+    # leave a permanently stuck workspace behind for the next dispatch to
+    # inherit — the failed attempt is torn down so a later provision can
+    # start clean instead of hitting the same ambiguity forever.
+    refute File.exists?(workspace)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      hook_after_create: """
+      git init --quiet -b main .
+      git config user.email test@example.com
+      git config user.name "Test User"
+      printf initialized > README.md
+      git add README.md
+      git commit --quiet -m init
+      """
+    )
+
+    assert {:ok, ^workspace} = Workspace.create_for_issue("PROOF-1")
+    assert File.exists?(Path.join(workspace, ".git"))
+  end
+
+  test "ensure_workspace/5 marks a logs-only directory for initial provisioning" do
+    workspace = Path.join(System.tmp_dir!(), "prov_logs_only_#{System.unique_integer([:positive])}")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "preserve this transcript\n")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:ok, ^workspace, true} =
+             Provisioner.ensure_workspace(workspace, nil, nil, "aiur/123-workspace-recovery", nil)
+
+    assert File.read!(log_path) == "preserve this transcript\n"
+  end
+
+  test "remote setup refuses a logs-only workspace before a provider can receive its cwd" do
+    test_root = Path.join(System.tmp_dir!(), "prov_remote_logs_#{System.unique_integer([:positive])}")
+    workspace = Path.join(test_root, "workspace")
+    log_path = Path.join([workspace, "logs", "agent.md"])
+    fake_ssh = Path.join(test_root, "ssh")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      File.rm_rf!(test_root)
+    end)
+
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "preserve this transcript\n")
+    File.write!(fake_ssh, "#!/bin/sh\nshift 2\nexec sh -lc \"$1\"\n")
+    File.chmod!(fake_ssh, 0o755)
+    System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+    assert {:error, {:workspace_prepare_failed, "worker-1", 65, _output}} =
+             Provisioner.ensure_workspace(workspace, "worker-1")
+
+    assert File.read!(log_path) == "preserve this transcript\n"
+  end
+
+  test "refuses a logs-only workspace whose logs node is not a safe directory" do
+    workspace = Path.join(System.tmp_dir!(), "prov_invalid_logs_#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    File.write!(Path.join(workspace, "logs"), "not a directory")
+
+    on_exit(fn -> File.rm_rf!(workspace) end)
+
+    assert {:error, {:workspace_ambiguous, ^workspace, :unproven_contents}} =
+             Provisioner.ensure_workspace(workspace, nil, nil, "aiur/invalid-logs", nil)
   end
 
   test "ensure_workspace/2 on a stale plain file replaces it and returns created? true" do

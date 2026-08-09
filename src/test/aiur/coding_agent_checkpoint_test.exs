@@ -4,124 +4,64 @@ defmodule Aiur.CodingAgentCheckpointTest do
   alias Aiur.Claude.CodingAgent, as: ClaudeAgent
   alias Aiur.Codex.CodingAgent, as: CodexAgent
 
-  test "Codex adapter starts a queued follow-up turn from a safe checkpoint" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-codex-checkpoint-#{System.unique_integer([:positive])}")
+  # Single-writer regression (#1247): a safe checkpoint that lands while the
+  # parent provider turn is live must NOT open a second `turn/start` on the same
+  # thread — aiur-claude would spawn a second concurrent CLI writer in the shared
+  # workspace. The checkpoint handler is not even invoked; the item stays queued
+  # for the turn-boundary drain.
+  test "Codex adapter does not open a second turn from a safe checkpoint while the parent turn is live" do
+    with_checkpoint_workspace("MT-SW-CODEX", :codex, codex_single_writer_script(), fn session, issue, trace_file ->
+      callback = deliver_on_checkpoint_callback(self(), "should not deliver")
 
-    try do
-      workspace = Path.join(Config.workspace_root(), "MT-CP-CODEX")
-      trace_file = Path.join(test_root, "codex.trace")
-      binary = Path.join(test_root, "fake-codex")
+      assert {:ok, _turn_session} =
+               CodexAgent.run_turn(session, "initial prompt", issue, on_safe_checkpoint: callback)
 
-      File.mkdir_p!(workspace)
-      File.mkdir_p!(test_root)
-      File.write!(binary, codex_checkpoint_script())
-      File.chmod!(binary, 0o755)
+      refute_receive {:checkpoint_seen, _checkpoint}
+      refute_receive {:delivered, _payload}
 
-      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
-
-      on_exit(fn ->
-        System.delete_env("SYMP_TEST_CODEX_TRACE")
-      end)
-
-      write_workflow_file!(Workflow.workflow_file_path(),
-        agent_kind: "codex",
-        command: "#{binary} app-server"
-      )
-
-      issue = %Issue{
-        id: "issue-checkpoint-codex",
-        identifier: "MT-CP-CODEX",
-        title: "Checkpoint follow-up",
-        description: "queue a follow-up turn from a checkpoint",
-        state: "In Progress",
-        url: "https://example.org/issues/MT-CP-CODEX",
-        labels: []
-      }
-
-      assert {:ok, session} = CodexAgent.start_session(workspace)
-
-      try do
-        callback = one_shot_follow_up_callback(self(), "focus on auth first", "MT-UNRELATED-CODEX")
-
-        assert {:ok, _turn_session} =
-                 CodexAgent.run_turn(
-                   session,
-                   "initial prompt",
-                   issue,
-                   on_safe_checkpoint: callback
-                 )
-
-        assert_receive {:delivered, %{turn_id: "turn-followup"}}
-        refute_receive {:delivery_failed, _reason}
-
-        assert_stable_turn_texts(trace_file, ["initial prompt", "focus on auth first"])
-        refute_traced_method(trace_file, "turn/interrupt")
-      after
-        CodexAgent.stop_session(session)
-      end
-    after
-      File.rm_rf(test_root)
-    end
+      assert_stable_turn_texts(trace_file, ["initial prompt"])
+      refute_traced_method(trace_file, "turn/interrupt")
+    end)
   end
 
-  test "Codex adapter interrupts for a current-issue deliver-now queue update" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-codex-checkpoint-current-#{System.unique_integer([:positive])}")
+  test "Claude adapter does not open a second turn from a safe checkpoint while the parent turn is live" do
+    with_checkpoint_workspace("MT-SW-CLAUDE", :claude, claude_single_writer_script(), fn session, issue, trace_file ->
+      callback = deliver_on_checkpoint_callback(self(), "should not deliver")
 
-    try do
-      workspace = Path.join(Config.workspace_root(), "MT-CP-CODEX-CURRENT")
-      trace_file = Path.join(test_root, "codex.trace")
-      binary = Path.join(test_root, "fake-codex")
+      assert {:ok, _turn_session} =
+               ClaudeAgent.run_turn(session, "initial prompt", issue, on_safe_checkpoint: callback)
 
-      File.mkdir_p!(workspace)
-      File.mkdir_p!(test_root)
-      File.write!(binary, codex_checkpoint_script())
-      File.chmod!(binary, 0o755)
+      refute_receive {:checkpoint_seen, _checkpoint}
+      refute_receive {:delivered, _payload}
 
-      System.put_env("SYMP_TEST_CODEX_TRACE", trace_file)
+      assert_stable_turn_texts(trace_file, ["initial prompt"])
+      refute_traced_method(trace_file, "turn/interrupt")
+    end)
+  end
 
-      on_exit(fn ->
-        System.delete_env("SYMP_TEST_CODEX_TRACE")
-      end)
+  # A current-issue deliver-now queue update still reaches the agent mid-turn,
+  # but through the acknowledged `turn/interrupt` steering primitive (which ends
+  # the parent turn) — never a concurrent second writer.
+  test "Codex adapter interrupts the parent turn for a current-issue deliver-now update" do
+    with_checkpoint_workspace("MT-INT-CODEX", :codex, codex_interrupt_script(), fn session, issue, trace_file ->
+      send(self(), {:agent_queue_updated, issue.identifier, 999, true})
 
-      write_workflow_file!(Workflow.workflow_file_path(),
-        agent_kind: "codex",
-        command: "#{binary} app-server"
-      )
+      assert {:ok, _turn_session} = CodexAgent.run_turn(session, "initial prompt", issue)
 
-      issue = %Issue{
-        id: "issue-checkpoint-codex-current",
-        identifier: "MT-CP-CODEX-CURRENT",
-        title: "Checkpoint current issue",
-        description: "interrupt for current issue delivery",
-        state: "In Progress",
-        url: "https://example.org/issues/MT-CP-CODEX-CURRENT",
-        labels: []
-      }
+      assert_traced_method(trace_file, "turn/interrupt")
+      assert_stable_turn_texts(trace_file, ["initial prompt"])
+    end)
+  end
 
-      assert {:ok, session} = CodexAgent.start_session(workspace)
+  test "Claude adapter interrupts the parent turn for a current-issue deliver-now update" do
+    with_checkpoint_workspace("MT-INT-CLAUDE", :claude, claude_interrupt_script(), fn session, issue, trace_file ->
+      send(self(), {:agent_queue_updated, issue.identifier, 999, true})
 
-      try do
-        callback = one_shot_follow_up_callback(self(), "focus on auth first", issue.identifier)
+      assert {:ok, _turn_session} = ClaudeAgent.run_turn(session, "initial prompt", issue)
 
-        assert {:ok, _turn_session} =
-                 CodexAgent.run_turn(
-                   session,
-                   "initial prompt",
-                   issue,
-                   on_safe_checkpoint: callback
-                 )
-
-        assert_receive {:delivered, %{turn_id: "turn-followup"}}
-        refute_receive {:delivery_failed, _reason}
-
-        assert_stable_turn_texts(trace_file, ["initial prompt", "focus on auth first"])
-        assert_traced_method(trace_file, "turn/interrupt")
-      after
-        CodexAgent.stop_session(session)
-      end
-    after
-      File.rm_rf(test_root)
-    end
+      assert_traced_method(trace_file, "turn/interrupt")
+      assert_stable_turn_texts(trace_file, ["initial prompt"])
+    end)
   end
 
   test "Codex adapter treats idle thread status as turn completion" do
@@ -143,7 +83,15 @@ defmodule Aiur.CodingAgentCheckpointTest do
         System.delete_env("SYMP_TEST_CODEX_TRACE")
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
+      # Synced, not best-effort: `write_workflow_file!/2` fires a `force_reload`
+      # wrapped in `catch :exit, _ -> :ok`, so under CI contention a call that
+      # outlasts its 5s GenServer timeout is swallowed silently. `Config` then
+      # still serves the pre-write cache and `start_session/1` spawns the
+      # DEFAULT provider command (`codex app-server` / `aiur-claude`) instead of
+      # this fixture — neither exists on a CI runner, so bash exits 127 and the
+      # session fails with `{:port_exit, 127}` or, when the exit lands before
+      # the `initialize` write, `:port_closed`.
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
         agent_kind: "codex",
         command: "#{binary} app-server",
         agent_turn_timeout_ms: 80
@@ -191,7 +139,9 @@ defmodule Aiur.CodingAgentCheckpointTest do
         System.delete_env("SYMP_TEST_CODEX_TRACE")
       end)
 
-      write_workflow_file!(Workflow.workflow_file_path(),
+      # Synced: see the note above — a swallowed `force_reload` leaves `Config`
+      # serving the pre-write cache and spawns the default provider command.
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
         agent_kind: "codex",
         command: "#{binary} app-server",
         agent_turn_timeout_ms: 1_000
@@ -229,145 +179,68 @@ defmodule Aiur.CodingAgentCheckpointTest do
     end
   end
 
-  test "Claude adapter starts a queued follow-up turn from a safe checkpoint" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-claude-checkpoint-#{System.unique_integer([:positive])}")
+  # Boots a fake app-server for the given backend, runs `body.(session, issue,
+  # trace_file)`, and tears everything down. Keeps each behavioral test focused
+  # on its assertions rather than the workspace/session boilerplate.
+  defp with_checkpoint_workspace(identifier, backend, script, body) do
+    test_root = Path.join(System.tmp_dir!(), "aiur-checkpoint-#{identifier}-#{System.unique_integer([:positive])}")
+
+    {agent, trace_env} =
+      case backend do
+        :codex -> {CodexAgent, "SYMP_TEST_CODEX_TRACE"}
+        :claude -> {ClaudeAgent, "SYMP_TEST_CLAUDE_TRACE"}
+      end
 
     try do
-      workspace = Path.join(Config.workspace_root(), "MT-CP-CLAUDE")
-      trace_file = Path.join(test_root, "claude.trace")
-      binary = Path.join(test_root, "fake-claude")
+      workspace = Path.join(Config.workspace_root(), identifier)
+      trace_file = Path.join(test_root, "provider.trace")
+      binary = Path.join(test_root, "fake-provider")
 
       File.mkdir_p!(workspace)
       File.mkdir_p!(test_root)
-      File.write!(binary, claude_checkpoint_script())
+      File.write!(binary, script)
       File.chmod!(binary, 0o755)
 
-      System.put_env("SYMP_TEST_CLAUDE_TRACE", trace_file)
+      System.put_env(trace_env, trace_file)
+      on_exit(fn -> System.delete_env(trace_env) end)
 
-      on_exit(fn ->
-        System.delete_env("SYMP_TEST_CLAUDE_TRACE")
-      end)
-
-      write_workflow_file!(Workflow.workflow_file_path(),
-        agent_kind: "claude",
-        command: "#{binary} app-server"
+      # Synced: see the note above — a swallowed `force_reload` leaves `Config`
+      # serving the pre-write cache and spawns the default provider command.
+      write_workflow_file_synced!(Workflow.workflow_file_path(),
+        agent_kind: Atom.to_string(backend),
+        command: "#{binary} app-server",
+        agent_turn_timeout_ms: 2_000
       )
 
       issue = %Issue{
-        id: "issue-checkpoint-claude",
-        identifier: "MT-CP-CLAUDE",
-        title: "Claude checkpoint follow-up",
-        description: "queue a follow-up turn from a checkpoint",
+        id: "issue-#{identifier}",
+        identifier: identifier,
+        title: "Checkpoint single-writer",
+        description: "single-writer checkpoint semantics",
         state: "In Progress",
-        url: "https://example.org/issues/MT-CP-CLAUDE",
+        url: "https://example.org/issues/#{identifier}",
         labels: []
       }
 
-      assert {:ok, session} = ClaudeAgent.start_session(workspace)
+      assert {:ok, session} = agent.start_session(workspace)
 
       try do
-        callback = one_shot_follow_up_callback(self(), "follow up in claude", "MT-UNRELATED-CLAUDE")
-
-        assert {:ok, _turn_session} =
-                 ClaudeAgent.run_turn(
-                   session,
-                   "initial prompt",
-                   issue,
-                   on_safe_checkpoint: callback
-                 )
-
-        assert_receive {:delivered, %{turn_id: "turn-followup"}}
-        refute_receive {:delivery_failed, _reason}
-
-        assert_stable_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
-        refute_traced_method(trace_file, "turn/interrupt")
+        body.(session, issue, trace_file)
       after
-        ClaudeAgent.stop_session(session)
+        agent.stop_session(session)
       end
     after
       File.rm_rf(test_root)
     end
   end
 
-  test "Claude adapter interrupts for a current-issue deliver-now queue update" do
-    test_root = Path.join(System.tmp_dir!(), "aiur-claude-checkpoint-current-#{System.unique_integer([:positive])}")
-
-    try do
-      workspace = Path.join(Config.workspace_root(), "MT-CP-CLAUDE-CURRENT")
-      trace_file = Path.join(test_root, "claude.trace")
-      binary = Path.join(test_root, "fake-claude")
-
-      File.mkdir_p!(workspace)
-      File.mkdir_p!(test_root)
-      File.write!(binary, claude_checkpoint_script())
-      File.chmod!(binary, 0o755)
-
-      System.put_env("SYMP_TEST_CLAUDE_TRACE", trace_file)
-
-      on_exit(fn ->
-        System.delete_env("SYMP_TEST_CLAUDE_TRACE")
-      end)
-
-      write_workflow_file!(Workflow.workflow_file_path(),
-        agent_kind: "claude",
-        command: "#{binary} app-server"
-      )
-
-      issue = %Issue{
-        id: "issue-checkpoint-claude-current",
-        identifier: "MT-CP-CLAUDE-CURRENT",
-        title: "Claude checkpoint current issue",
-        description: "interrupt for current issue delivery",
-        state: "In Progress",
-        url: "https://example.org/issues/MT-CP-CLAUDE-CURRENT",
-        labels: []
-      }
-
-      assert {:ok, session} = ClaudeAgent.start_session(workspace)
-
-      try do
-        callback = one_shot_follow_up_callback(self(), "follow up in claude", issue.identifier)
-
-        assert {:ok, _turn_session} =
-                 ClaudeAgent.run_turn(
-                   session,
-                   "initial prompt",
-                   issue,
-                   on_safe_checkpoint: callback
-                 )
-
-        assert_receive {:delivered, %{turn_id: "turn-followup"}}
-        refute_receive {:delivery_failed, _reason}
-
-        assert_stable_turn_texts(trace_file, ["initial prompt", "follow up in claude"])
-        assert_traced_method(trace_file, "turn/interrupt")
-      after
-        ClaudeAgent.stop_session(session)
-      end
-    after
-      File.rm_rf(test_root)
-    end
-  end
-
-  defp one_shot_follow_up_callback(test_pid, text, unrelated_issue_identifier) do
+  defp deliver_on_checkpoint_callback(test_pid, text) do
     fn checkpoint ->
       send(test_pid, {:checkpoint_seen, checkpoint})
-
-      if Process.get({__MODULE__, :follow_up_sent}) do
-        :noop
-      else
-        Process.put({__MODULE__, :follow_up_sent}, true)
-        send(self(), {:agent_queue_updated, unrelated_issue_identifier, 999, true})
-
-        deliver_text_result(test_pid, text)
-      end
+      on_success = fn payload -> send(test_pid, {:delivered, payload}) end
+      on_failure = fn reason -> send(test_pid, {:delivery_failed, reason}) end
+      {:deliver_text, text, on_success, on_failure}
     end
-  end
-
-  defp deliver_text_result(test_pid, text) do
-    on_success = fn payload -> send(test_pid, {:delivered, payload}) end
-    on_failure = fn reason -> send(test_pid, {:delivery_failed, reason}) end
-    {:deliver_text, text, on_success, on_failure}
   end
 
   defp assert_stable_turn_texts(trace_file, expected) do
@@ -436,10 +309,13 @@ defmodule Aiur.CodingAgentCheckpointTest do
     |> Enum.map(&Jason.decode!/1)
   end
 
-  defp codex_checkpoint_script do
+  # Parent turn responds to a checkpoint-triggering notification and then
+  # completes on its own. A second `turn/start` (which the single-writer guard
+  # must prevent) would be answered with `turn-followup`, surfacing in the trace.
+  defp codex_single_writer_script do
     """
     #!/bin/sh
-    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-checkpoint.trace}"
+    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-single-writer.trace}"
     first_turn_started=0
 
     while IFS= read -r line; do
@@ -452,19 +328,119 @@ defmodule Aiur.CodingAgentCheckpointTest do
         *'"method":"initialized"'*)
           ;;
         *'"method":"thread/start"'*)
-          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-checkpoint"}}}'
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-single"}}}'
+          ;;
+        *'"method":"turn/start"'*)
+          request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+          if [ "$first_turn_started" -eq 0 ]; then
+            first_turn_started=1
+            printf '{"id":%s,"result":{"turn":{"id":"turn-main","status":"inProgress"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-main","status":"inProgress"}}}'
+            printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-main","status":"completed"}}}'
+          else
+            printf '{"id":%s,"result":{"turn":{"id":"turn-followup","status":"inProgress"}}}\\n' "$request_id"
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-followup","status":"completed"}}}'
+          fi
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp claude_single_writer_script do
+    """
+    #!/bin/sh
+    trace_file="${SYMP_TEST_CLAUDE_TRACE:-/tmp/claude-single-writer.trace}"
+    first_turn_started=0
+
+    while IFS= read -r line; do
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        *'"method":"initialized"'*)
+          ;;
+        *'"method":"thread/start"'*)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-single"}}}'
           ;;
         *'"method":"turn/start"'*)
           if [ "$first_turn_started" -eq 0 ]; then
             first_turn_started=1
             printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-main"}}}'
             printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-main","status":"completed"}}}'
           else
             request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
             printf '{"id":%s,"result":{"turn":{"id":"turn-followup"}}}\\n' "$request_id"
-            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-followup","status":"completed"}}}'
           fi
+          ;;
+      esac
+    done
+    """
+  end
+
+  # Parent turn stays open until it is interrupted; the interrupt is acknowledged
+  # (Codex additionally reports idle) so the turn terminates as interrupted.
+  defp codex_interrupt_script do
+    """
+    #!/bin/sh
+    trace_file="${SYMP_TEST_CODEX_TRACE:-/tmp/codex-interrupt.trace}"
+
+    while IFS= read -r line; do
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        *'"method":"initialized"'*)
+          ;;
+        *'"method":"thread/start"'*)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-interrupt"}}}'
+          ;;
+        *'"method":"turn/interrupt"'*)
+          request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+          printf '{"id":%s,"result":{}}\\n' "$request_id"
+          printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
+          ;;
+        *'"method":"turn/start"'*)
+          request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+          printf '{"id":%s,"result":{"turn":{"id":"turn-main","status":"inProgress"}}}\\n' "$request_id"
+          printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-main","status":"inProgress"}}}'
+          ;;
+      esac
+    done
+    """
+  end
+
+  defp claude_interrupt_script do
+    """
+    #!/bin/sh
+    trace_file="${SYMP_TEST_CLAUDE_TRACE:-/tmp/claude-interrupt.trace}"
+
+    while IFS= read -r line; do
+      printf 'JSON:%s\\n' "$line" >> "$trace_file"
+
+      case "$line" in
+        *'"method":"initialize"'*)
+          printf '%s\\n' '{"id":1,"result":{}}'
+          ;;
+        *'"method":"initialized"'*)
+          ;;
+        *'"method":"thread/start"'*)
+          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-interrupt"}}}'
+          ;;
+        *'"method":"turn/interrupt"'*)
+          request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
+          printf '{"id":%s,"result":{}}\\n' "$request_id"
+          printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-main","status":"interrupted"}}}'
+          ;;
+        *'"method":"turn/start"'*)
+          printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-main"}}}'
           ;;
       esac
     done
@@ -525,41 +501,6 @@ defmodule Aiur.CodingAgentCheckpointTest do
           printf '%s\\n' '{"method":"turn/started","params":{"turn":{"id":"turn-prestart-idle-status"}}}'
           printf '%s\\n' '{"method":"item/completed","params":{"item":{"status":"completed"}}}'
           printf '%s\\n' '{"method":"thread/status/changed","params":{"status":{"type":"idle"}}}'
-          ;;
-      esac
-    done
-    """
-  end
-
-  defp claude_checkpoint_script do
-    """
-    #!/bin/sh
-    trace_file="${SYMP_TEST_CLAUDE_TRACE:-/tmp/claude-checkpoint.trace}"
-    first_turn_started=0
-
-    while IFS= read -r line; do
-      printf 'JSON:%s\\n' "$line" >> "$trace_file"
-
-      case "$line" in
-        *'"method":"initialize"'*)
-          printf '%s\\n' '{"id":1,"result":{}}'
-          ;;
-        *'"method":"initialized"'*)
-          ;;
-        *'"method":"thread/start"'*)
-          printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-checkpoint"}}}'
-          ;;
-        *'"method":"turn/start"'*)
-          if [ "$first_turn_started" -eq 0 ]; then
-            first_turn_started=1
-            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-main"}}}'
-            printf '%s\\n' '{"method":"turn/plan/updated","params":{"plan":[{"step":"keep going"}]}}'
-          else
-            request_id=$(printf '%s' "$line" | sed -n 's/.*"id":\\([0-9][0-9]*\\).*/\\1/p')
-            printf '{"id":%s,"result":{"turn":{"id":"turn-followup"}}}\\n' "$request_id"
-            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-            printf '%s\\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
-          fi
           ;;
       esac
     done
