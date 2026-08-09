@@ -1,6 +1,10 @@
 name: Stream Deck package
 
 on:
+  pull_request:
+    paths:
+      - "packages/streamdeck/**"
+      - ".github/workflows/streamdeck-package.yml"
   push:
     branches:
       - develop
@@ -13,7 +17,7 @@ permissions:
 
 jobs:
   build:
-    if: github.event_name == 'push' || startsWith(github.event.release.tag_name, 'v')
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || startsWith(github.event.release.tag_name, 'v')
     runs-on: ubuntu-latest
     defaults:
       run:

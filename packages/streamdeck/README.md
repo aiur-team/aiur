@@ -15,7 +15,7 @@ Node, npm, or a native build toolchain. `BUILD-INFO.json` records the exact
 Aiur commit, version, target, and reproducible-build timestamp; compare its
 `commit` field to the daemon revision when diagnosing a mismatch.
 
-`AIUR_STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
+`STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
 sidecar reapplies on open and on resume.
 
 ## Prerequisites
@@ -122,6 +122,7 @@ local sidecar build:
 AIUR_PHOENIX_URL=http://127.0.0.1:4000
 AIUR_DASHBOARD_USERNAME=operator
 AIUR_DASHBOARD_PASSWORD=replace-with-a-secret
+STREAMDECK_BRIGHTNESS=80
 ```
 
 Use `http://` only for a Phoenix endpoint on the same machine (such as the

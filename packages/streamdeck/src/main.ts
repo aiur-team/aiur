@@ -122,7 +122,7 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
 };
 
 export const main = async (): Promise<void> => {
-  const brightness = parseBrightness(process.env.AIUR_STREAMDECK_BRIGHTNESS);
+  const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
   const presentAtStart = deviceIsPresent();
 
   if (!presentAtStart) {
