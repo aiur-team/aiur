@@ -159,6 +159,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
        when is_list(targets) do
+    review_submission_targets = MapSet.new(human_review_targets, & &1.target)
+
     poll_opts =
       opts
       |> Keyword.put_new(:since, state.github_comments_since)
@@ -166,11 +168,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> TargetSelection.put_open_pull_requests_by_target(human_review_targets)
       |> TargetSelection.put_open_pull_requests_by_target(watch_targets)
       |> Keyword.put_new(:titles_by_target, running_titles_by_target(state))
+      |> Keyword.put(:review_submission_targets, review_submission_targets)
+      |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
 
     poll_opts = put_comment_batch(poll_opts, targets)
 
     case GithubCommentsPoller.poll(targets, poll_opts) do
-      {:ok, %{since: since, etags: etags, count: count, errors: errors}} ->
+      {:ok, %{since: since, etags: etags, count: count, errors: errors, pr_review_seen_at: new_review_seen_at}} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
 
@@ -194,7 +198,8 @@ defmodule Aiur.Orchestrator.CommentPolling do
                 state.github_comment_issue_updated_at,
                 human_review_targets,
                 errors
-              )
+              ),
+            pr_review_seen_at: Map.merge(state.pr_review_seen_at, new_review_seen_at)
         }
     end
   end
