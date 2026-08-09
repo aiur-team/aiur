@@ -7704,6 +7704,7 @@ html[data-theme="light"] .sd-device {
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --good: #3fb950;
   --super: #c69bff;
+  --ack: #4fd6c4;
 }
 
 @media (max-width: 560px) {
@@ -7795,8 +7796,7 @@ html[data-theme="light"] .sd-device {
 }
 
 .sd-log-body {
-  max-height: 6rem;
-  overflow-y: auto;
+  display: none;
 }
 
 .sd-device[data-mode="logs"] .sd-log-keys {
@@ -7857,7 +7857,7 @@ html[data-theme="light"] .sd-device {
 }
 
 .sd-live-label {
-  color: #4fd6c4;
+  color: var(--ack);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.66rem;
   font-weight: 800;
