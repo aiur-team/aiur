@@ -11,31 +11,39 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
-  def with_time_domain(%{window: window} = model, domain) do
+  def with_time_domain(%{} = model, domain) do
     case normalize_time_domain(model, domain) do
       nil ->
         model
 
       {t0, t1} ->
-        original_start = Map.get(window, :axis_origin_ms, window.start_ms)
-        now_ms = Map.get(window, :now_ms, window.end_ms)
-
-        %{
-          model
-          | window: window |> Map.put(:start_ms, t0) |> Map.put(:end_ms, t1) |> Map.put(:axis_origin_ms, original_start) |> Map.put(:now_ms, now_ms),
-            series: crop_series(model.series, t0, t1)
-        }
+        with_exact_time_domain(model, {t0, t1})
     end
+  end
+
+  @doc "Returns a model cropped to an exact valid chart-axis domain."
+  @spec with_exact_time_domain(map(), {integer(), integer()}, keyword()) :: map()
+  def with_exact_time_domain(%{window: window} = model, {t0, t1}, opts \\ []) when is_integer(t0) and is_integer(t1) and t0 <= t1 do
+    original_start = Map.get(window, :axis_origin_ms, window.start_ms)
+    now_ms = Map.get(window, :now_ms, window.end_ms)
+
+    %{
+      model
+      | window: window |> Map.put(:start_ms, t0) |> Map.put(:end_ms, t1) |> Map.put(:axis_origin_ms, original_start) |> Map.put(:now_ms, now_ms),
+        series: crop_series(model.series, t0, t1, Keyword.get(opts, :boundary_samples, true))
+    }
   end
 
   # Keeps in-domain samples plus one boundary sample on each side (the last
   # before t0 and the first after t1) so chart lines reach the plot edges even
   # when the zoom lands between samples.
-  defp crop_series(series, t0, t1) do
+  defp crop_series(series, t0, t1, true) do
     {before, rest} = Enum.split_while(series, &(&1.t_ms < t0))
     {inside, after_domain} = Enum.split_while(rest, &(&1.t_ms <= t1))
     Enum.take(before, -1) ++ inside ++ Enum.take(after_domain, 1)
   end
+
+  defp crop_series(series, t0, t1, false), do: Enum.filter(series, &(&1.t_ms >= t0 and &1.t_ms <= t1))
 
   @doc "Normalizes hook event values to a non-degenerate chart-axis domain."
   @spec normalize_time_domain(map(), term()) :: {integer(), integer()} | nil

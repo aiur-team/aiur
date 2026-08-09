@@ -18,13 +18,13 @@ On trackers that support labels, Aiur runs a label-based state machine.
 
 With the default `agent` label prefix, a GitHub ticket follows this lifecycle:
 
-1. `agent:todo` — queued work.
-2. `agent:in-progress` — an isolated run is active.
-3. `agent:ci-wait` — implementation is complete and the central daemon is awaiting terminal PR CI without holding an agent turn or dispatch slot.
-4. `agent:human-review` — CI passed and the PR is ready for human review.
-5. `agent:rework` — CI or reviewer feedback requires another run, looping back through review.
-6. `agent:merging` — the accepted PR is being merged.
-7. `agent:done` — the work is complete.
+1. `agent:todo`: queued work.
+2. `agent:in-progress`: an isolated run is active.
+3. `agent:ci-wait`: implementation is complete and the central daemon is awaiting terminal PR CI without holding an agent turn or dispatch slot.
+4. `agent:human-review`: CI passed and the PR is ready for human review.
+5. `agent:rework`: CI or reviewer feedback requires another run, looping back through review.
+6. `agent:merging`: the accepted PR is being merged.
+7. `agent:done`: the work is complete.
 
 The terminal error and cancellation states are `agent:error` and `agent:cancelled` (also spelled `agent:canceled`). `agent:watch` labels a PR for monitoring; it is deliberately not a dispatch state. Agents keep the Agent Workpad current, move tickets to human review when the PR is ready, and never self-merge.
 
@@ -39,3 +39,18 @@ Implementation backends plug in behind Aiur's app-server protocol. A `model:<bac
 - `codex`
 - `claude` (headless)
 - `claude-repl` (the persistent interactive REPL that backs remote control)
+- `kimi`, `openrouter` (generic OpenAI-compatible instances, configurable by default)
+- `deepseek` (generic OpenAI-compatible instance; ships disabled and needs `agent.backend_configs.deepseek.enabled: true` to dispatch)
+
+Kimi, DeepSeek, and OpenRouter use the same OpenAI-compatible adapter, but are separate registered instances with provider credentials and defaults. Route by a `model:<backend>` label, or name the backend in `agent.routing`; a bare backend label uses that instance's default model. For example:
+
+```yaml
+agent:
+  routing:
+    "complexity:3": kimi
+  backend_configs:
+    deepseek:
+      enabled: true
+```
+
+The registry reads `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`, and `OPENROUTER_API_KEY`; OpenRouter's balance meter additionally uses `OPENROUTER_MANAGEMENT_KEY`. DeepSeek is deliberately not dispatchable until the explicit `enabled: true` opt-in is present.
