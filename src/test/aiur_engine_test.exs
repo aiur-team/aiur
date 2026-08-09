@@ -531,6 +531,30 @@ defmodule AiurEngineTest do
     assert out =~ "commands --filter requires a value"
   end
 
+  test "analytics routes an explicit window through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_analytics --range full --since 2026-08-09T10:00:00Z --until 2026-08-09T11:00:00Z --build-order 1595 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
+    assert out =~ "since: Base.decode64!"
+    assert out =~ "build_order: Base.decode64!"
+  end
+
+  test "analytics rejects malformed launcher arguments before an RPC" do
+    for {argv, message} <- [
+          {~s|--range week|, "analytics --range accepts run or full"},
+          {~s|--build-order not-a-ticket|, "analytics --build-order expects a numeric ticket ID"},
+          {~s|--since|, "analytics --since requires a value"},
+          {~s|--unknown|, "analytics received an unknown option"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_analytics #{argv}", [])
+      assert out =~ message
+    end
+  end
+
   test "todo control rpc propagates live success and semantic failure codes" do
     for {rpc_output, expected_code} <- [
           {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},

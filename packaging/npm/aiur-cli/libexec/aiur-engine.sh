@@ -317,6 +317,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -2014,6 +2015,45 @@ cmd_commands() {
   run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
 }
 
+# `aiur analytics` — render the dashboard analytics projection for an explicit
+# time window. This is read-only and obtains the same durable telemetry snapshot
+# the page uses through the running node.
+cmd_analytics() {
+  local range="run" json=0 since="" until="" build_order="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --range) [ "$#" -gt 1 ] || { echo "aiur: analytics --range requires a value" >&2; exit 64; }; shift; range="$1" ;;
+      --range=*) range="${arg#--range=}" ;;
+      --since) [ "$#" -gt 1 ] || { echo "aiur: analytics --since requires a value" >&2; exit 64; }; shift; since="$1" ;;
+      --since=*) since="${arg#--since=}" ;;
+      --until) [ "$#" -gt 1 ] || { echo "aiur: analytics --until requires a value" >&2; exit 64; }; shift; until="$1" ;;
+      --until=*) until="${arg#--until=}" ;;
+      --build-order) [ "$#" -gt 1 ] || { echo "aiur: analytics --build-order requires a value" >&2; exit 64; }; shift; build_order="$1" ;;
+      --build-order=*) build_order="${arg#--build-order=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: analytics received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: analytics does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  case "$range" in run|full) ;; *) echo "aiur: analytics --range accepts run or full" >&2; exit 64 ;; esac
+  [ -z "$build_order" ] || [[ "$build_order" =~ ^[0-9]+$ ]] || { echo "aiur: analytics --build-order expects a numeric ticket ID" >&2; exit 64; }
+
+  local opts="range: :$range" key raw encoded
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  for key in since until build_order; do
+    raw="${!key}"
+    [ -n "$raw" ] || continue
+    encoded="$(printf '%s' "$raw" | base64 | tr -d '\n')"
+    opts="$opts, $key: Base.decode64!(\"$encoded\")"
+  done
+
+  run_control_rpc "Aiur.AgentControlCLI.analytics([$opts])"
+}
+
 # `aiur alerts` — newline-delimited structured alert feed from persisted
 # per-agent logs. `--needs-attention` filters to Executor-actionable alerts.
 cmd_alerts() {
@@ -2480,6 +2520,10 @@ aiur_engine_main() {
     commands)
       shift
       cmd_commands "$@"
+      ;;
+    analytics)
+      shift
+      cmd_analytics "$@"
       ;;
     alerts)
       shift
