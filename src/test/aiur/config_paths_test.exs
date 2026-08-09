@@ -105,6 +105,12 @@ defmodule Aiur.Config.PathsTest do
     end
   end
 
+  describe "project_name/0" do
+    test "returns a filename-safe project discriminator" do
+      assert Paths.project_name() =~ ~r/\A[A-Za-z0-9._-]+\z/
+    end
+  end
+
   describe "decision_state_dir/0" do
     setup do
       original_instance_key = System.get_env("AIUR_INSTANCE_KEY")
