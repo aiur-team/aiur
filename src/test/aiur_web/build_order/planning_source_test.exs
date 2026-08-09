@@ -117,6 +117,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     repository = repository_tuple()
     live_identity = github_identity(repository, 42, "I_live_42")
     packed_identity = github_identity(repository, 9901, "I_live_9901")
+    foreign_identity = github_identity({"other", "repository"}, 77, "I_foreign_77")
 
     live_root =
       RootSummary.new(%{
@@ -134,8 +135,16 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
         state: "OPEN"
       })
 
+    foreign_live_root =
+      RootSummary.new(%{
+        identity: foreign_identity,
+        title: "Foreign Build Order",
+        url: "https://github.com/#{foreign_identity.owner}/#{foreign_identity.repository}/issues/77",
+        state: "OPEN"
+      })
+
     Application.put_env(:aiur, :build_order_planning_live_catalog, fn ->
-      live_catalog_snapshot(repository, [live_root, duplicate_live_root])
+      live_catalog_snapshot(repository, [live_root, duplicate_live_root, foreign_live_root])
     end)
 
     assert %Snapshot{data: %Catalog{entries: entries}} = PlanningSource.catalog()
