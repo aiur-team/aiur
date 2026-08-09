@@ -247,6 +247,7 @@ set -euo pipefail
 case "$*" in
   *" has-session "*) exit 0 ;;
   *" list-panes "*) printf '%%1\n%%2\n%%3\n%%4\n%%5\n%%6\n' ;;
+  *" capture-pane "*) printf 'Agents: 0/16 ← →\n' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -275,6 +276,7 @@ grep -q 'first_lines:' "$cli_retro" || fail "CLI first output lines were not app
 grep -q 'panes=6' "$cli_retro" || fail "pane count was not appended"
 grep -q 'pre_warmed_sessions=3' "$cli_retro" || fail "warm-pool count was not appended"
 grep -q 'live_agent_cap=16' "$cli_retro" || fail "live cap was not appended"
+grep -q 'TUI: attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
 
 signal_bin="$state_root/signal-bin"
 signal_marker="$state_root/signal-date.started"

@@ -203,20 +203,32 @@ pre_warmed_sessions="$(config_value pre_warmed_sessions)"
 live_agent_cap="$(config_value max_concurrent_agents)"
 pane_count=""
 session_present=0
+tui_attached=0
+tui_agents_row=0
+tui_cap_controls=0
 if command -v "$tmux_bin" >/dev/null 2>&1 && "$tmux_bin" -L "$socket" has-session -t "$session" 2>/dev/null; then
   session_present=1
   pane_count="$("$tmux_bin" -L "$socket" list-panes -a -t "$session" -F '#{pane_id}' 2>/dev/null | wc -l | tr -d ' ')"
+  tui_output="$("$tmux_bin" -L "$socket" capture-pane -p -t "$session:0.0" 2>/dev/null || true)"
+  if [ -n "$tui_output" ]; then tui_attached=1; fi
+  if grep -q 'Agents:' <<< "$tui_output"; then tui_agents_row=1; fi
+  if grep -q '← →' <<< "$tui_output"; then tui_cap_controls=1; fi
 fi
 
 if [ "$session_present" -eq 0 ]; then
   pane_finding="$(jq -nc --arg socket "$socket" --arg session "$session" \
     '{kind:"pane_surface",reason:"session_unavailable",socket:$socket,session:$session}')"
   findings_json="$(jq --argjson finding "$pane_finding" '. + [$finding]' <<< "$findings_json")"
+elif [ "$tui_attached" -eq 0 ] || [ "$tui_agents_row" -eq 0 ] || [ "$tui_cap_controls" -eq 0 ]; then
+  tui_finding="$(jq -nc --argjson attached "$tui_attached" --argjson agents_row "$tui_agents_row" --argjson cap_controls "$tui_cap_controls" \
+    '{kind:"tui",reason:"agent_list_surface_incomplete",attached:($attached == 1),agents_row:($agents_row == 1),cap_controls:($cap_controls == 1)}')"
+  findings_json="$(jq --argjson finding "$tui_finding" '. + [$finding]' <<< "$findings_json")"
 fi
 
 jq -nc --arg checked_at "$(date -u '+%Y-%m-%dT%H:%M:%SZ')" \
   --arg repo_root "$repo_root" --arg release_node "$release_node" --arg socket "$socket" --arg session "$session" \
   --argjson commands "$commands_json" --argjson findings "$findings_json" \
   --argjson session_present "$session_present" --argjson pane_count "${pane_count:-null}" \
+  --argjson tui_attached "$tui_attached" --argjson tui_agents_row "$tui_agents_row" --argjson tui_cap_controls "$tui_cap_controls" \
   --argjson pre_warmed_sessions "${pre_warmed_sessions:-null}" --argjson live_agent_cap "${live_agent_cap:-null}" \
-  '{checked_at:$checked_at,target:{repo_root:$repo_root,release_node:$release_node},commands:$commands,pane_surface:{session:$session,socket:$socket,session_present:($session_present == 1),pane_count:$pane_count,pre_warmed_sessions:$pre_warmed_sessions,live_agent_cap:$live_agent_cap},findings:$findings}'
+  '{checked_at:$checked_at,target:{repo_root:$repo_root,release_node:$release_node},commands:$commands,pane_surface:{session:$session,socket:$socket,session_present:($session_present == 1),pane_count:$pane_count,pre_warmed_sessions:$pre_warmed_sessions,live_agent_cap:$live_agent_cap},tui_surface:{attached:($tui_attached == 1),agents_row:($tui_agents_row == 1),cap_controls:($tui_cap_controls == 1)},findings:$findings}'

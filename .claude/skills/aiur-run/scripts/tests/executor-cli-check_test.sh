@@ -53,6 +53,7 @@ set -euo pipefail
 case "$*" in
   *" has-session "*) exit 0 ;;
   *" list-panes "*) printf '%%1\n%%2\n%%3\n%%4\n%%5\n%%6\n' ;;
+  *" capture-pane "*) printf 'Agents: 0/16 ← →\n' ;;
   *) exit 1 ;;
 esac
 EOF
@@ -77,6 +78,7 @@ jq -e '
   (.pane_surface.pane_count == 6) and
   (.pane_surface.pre_warmed_sessions == 3) and
   (.pane_surface.live_agent_cap == 16) and
+  (.tui_surface.attached and .tui_surface.agents_row and .tui_surface.cap_controls) and
   (.findings == [])
 ' <<< "$healthy" >/dev/null || fail "healthy CLI check was not clean"
 

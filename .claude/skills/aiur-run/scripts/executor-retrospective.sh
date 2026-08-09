@@ -598,6 +598,7 @@ cli_check() {
         "- `aiur \(.command)`: answered=\(.answered), timed_out=\(.timed_out), elapsed_ms=\(.elapsed_ms), non_empty=\(.non_empty), well_formed=\(.well_formed)\n  first_lines: \((.first_lines // []) | join(" | "))"
       ' "$report"
       jq -r '"- Pane surface: session_present=\(.pane_surface.session_present), panes=\(.pane_surface.pane_count // "unknown"), pre_warmed_sessions=\(.pane_surface.pre_warmed_sessions // "unknown"), live_agent_cap=\(.pane_surface.live_agent_cap // "unknown")"' "$report"
+      jq -r '"- TUI: attached=\(.tui_surface.attached), agents_row=\(.tui_surface.agents_row), cap_controls=\(.tui_surface.cap_controls)"' "$report"
       if jq -e '.findings | length > 0' "$report" >/dev/null; then
         jq -r '.findings[] | "- Finding: \(.kind) \(.command // "pane") — \(.reason), elapsed_ms=\(.elapsed_ms // "n/a")"' "$report"
       else
