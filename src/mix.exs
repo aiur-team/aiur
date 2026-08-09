@@ -168,7 +168,7 @@ defmodule Aiur.MixProject do
       {:ymlr, "~> 5.1.6"},
       {:decimal, "~> 3.0"},
       {:solid, "~> 1.3"},
-      {:ecto, "~> 3.14"},
+      {:ecto, "~> 3.13.6"},
       {:exqlite, "~> 0.27"},
       {:owl, "~> 0.13"},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
