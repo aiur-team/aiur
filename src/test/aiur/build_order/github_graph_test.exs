@@ -85,6 +85,20 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert entry.member_count == 2
   end
 
+  test "keeps the member total but marks an incomplete catalog connection unresolved" do
+    root = root(1)
+    members = [member(2, root)]
+    root = Map.put(root, "subIssues", connection(members, 101, has_next?: true, cursor: "next-page"))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 101
+    assert is_nil(entry.progress)
+    assert entry.progress_resolution == :unresolved
+    assert entry.progress_resolved_count == 0
+  end
+
   test "keeps a catalog root missing its required parent key visible but invalid" do
     valid = root(1)
     missing_parent = Map.delete(root(2), "parent")
