@@ -61,13 +61,17 @@ defmodule Aiur.Orchestrator.PriorityControl do
   defp persist_priority(issue, :prioritized, opts) do
     priority_labels = priority_labels(issue.labels)
 
-    if priority_labels == [@prioritized_label] do
-      {:ok, :already_prioritized, issue}
-    else
-      with :ok <- remove_priority_labels(issue.id, priority_labels, opts),
-           :ok <- add_label(issue.id, @prioritized_label, opts) do
-        {:ok, :prioritized, with_priority(issue, @prioritized_label)}
-      end
+    cond do
+      priority_labels == [@prioritized_label] ->
+        {:ok, :already_prioritized, issue}
+
+      @prioritized_label in priority_labels ->
+        with :ok <- remove_priority_labels(issue.id, List.delete(priority_labels, @prioritized_label), opts) do
+          {:ok, :prioritized, with_priority(issue, @prioritized_label)}
+        end
+
+      true ->
+        replace_priority_label(issue, priority_labels, opts)
     end
   end
 
@@ -80,6 +84,23 @@ defmodule Aiur.Orchestrator.PriorityControl do
         with :ok <- remove_priority_labels(issue.id, priority_labels, opts) do
           {:ok, :deprioritized, without_priority(issue)}
         end
+    end
+  end
+
+  defp replace_priority_label(issue, priority_labels, opts) do
+    case add_label(issue.id, @prioritized_label, opts) do
+      :ok ->
+        case remove_priority_labels(issue.id, priority_labels, opts) do
+          :ok ->
+            {:ok, :prioritized, with_priority(issue, @prioritized_label)}
+
+          {:error, _reason} = error ->
+            _ = remove_priority_labels(issue.id, [@prioritized_label], opts)
+            error
+        end
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
