@@ -25,6 +25,7 @@ const output = resolve(args.get("output") ?? join(packageRoot, "package-dist"));
 const commit = required("commit");
 const version = required("version");
 const sourceDateEpoch = required("source-date-epoch");
+const releaseTag = args.get("release-tag") ?? `streamdeck-${commit}`;
 if (!/^[0-9a-f]{40}$/i.test(commit)) throw new Error("--commit must be a full Git commit SHA");
 if (!/^\d+$/.test(sourceDateEpoch)) throw new Error("--source-date-epoch must be Unix seconds");
 
@@ -78,7 +79,6 @@ try {
   const digest = await sha256(archive);
   const artifact = `${artifactBase}-${digest}.tar.gz`;
   await rename(archive, join(output, artifact));
-  const releaseTag = `streamdeck-${commit}`;
   const manifest = {
     version,
     commit,
@@ -89,7 +89,7 @@ try {
     release_asset_path: `releases/download/${releaseTag}/${artifact}`,
   };
   await writeFile(join(output, `${artifactBase}.json`), `${JSON.stringify(manifest, null, 2)}\n`);
-  process.stdout.write(`${archive}\n`);
+  process.stdout.write(`${join(output, artifact)}\n`);
 } finally {
   await rm(stage, { recursive: true, force: true });
 }

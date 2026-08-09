@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { execFileSync, spawn } from "node:child_process";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
@@ -9,20 +10,35 @@ const packageRoot = new URL("../..", import.meta.url);
 const fixtureCommit = "0123456789abcdef0123456789abcdef01234567";
 
 test("builds a self-contained archive with traceable provenance", async () => {
-  const output = await mkdtemp(join(fileURLToPath(packageRoot), ".package-artifact-"));
+  const output = process.env.PACKAGE_ARTIFACT_DIR ?? await mkdtemp(join(fileURLToPath(packageRoot), ".package-artifact-"));
   const extract = await mkdtemp(join(fileURLToPath(packageRoot), ".package-extract-"));
   try {
-    execFileSync(process.execPath, ["scripts/build-package.mjs", "--output", output, "--commit", fixtureCommit, "--version", "0.0.0-test", "--source-date-epoch", "0"], { cwd: packageRoot, stdio: "inherit" });
-    const manifest = JSON.parse(await readFile(join(output, "aiur-streamdeck-0.0.0-test-linux-x64.json"), "utf8"));
+    const archiveOutput = process.env.PACKAGE_ARTIFACT_DIR
+      ? undefined
+      : execFileSync(process.execPath, ["scripts/build-package.mjs", "--output", output, "--commit", fixtureCommit, "--version", "0.0.0-test", "--source-date-epoch", "0", "--release-tag", "v0.0.0-test"], { cwd: packageRoot, encoding: "utf8" });
+    const manifests = (await readdir(output)).filter((entry) => entry.endsWith(".json"));
+    assert.equal(manifests.length, 1, "the package directory contains one manifest");
+    const manifest = JSON.parse(await readFile(join(output, manifests[0]), "utf8"));
     const archive = join(output, manifest.artifact);
-    assert.equal(manifest.commit, fixtureCommit);
-    assert.match(manifest.artifact, /-[a-f0-9]{64}\.tar\.gz$/);
-    assert.match(manifest.content_address, new RegExp(`^releases/download/streamdeck-${fixtureCommit}/aiur-streamdeck-.*-[a-f0-9]{64}\\.tar\\.gz$`));
-    assert.equal(manifest.release_asset_path, `releases/download/streamdeck-${fixtureCommit}/${manifest.artifact}`);
+    const archiveDigest = createHash("sha256").update(await readFile(archive)).digest("hex");
+    assert.match(manifest.commit, /^[0-9a-f]{40}$/);
+    assert.equal(manifest.sha256, archiveDigest);
+    assert.ok(manifest.artifact.endsWith(`-${archiveDigest}.tar.gz`));
+    const releaseTag = process.env.PACKAGE_RELEASE_TAG ?? "v0.0.0-test";
+    assert.equal(manifest.content_address, `releases/download/${releaseTag}/${manifest.artifact}`);
+    assert.equal(manifest.release_asset_path, `releases/download/${releaseTag}/${manifest.artifact}`);
+    if (archiveOutput) {
+      assert.equal(manifest.commit, fixtureCommit);
+      assert.equal(archiveOutput, `${archive}\n`);
+    }
     execFileSync("tar", ["-xzf", archive, "-C", extract]);
-    const root = join(extract, "aiur-streamdeck-0.0.0-test-linux-x64");
-    assert.match(await readFile(join(root, "BUILD-INFO.json"), "utf8"), new RegExp(fixtureCommit));
-    assert.match(await readFile(join(root, "README.md"), "utf8"), /does not need\nNode/);
+    const archiveSuffix = `-${manifest.sha256}.tar.gz`;
+    assert.ok(manifest.artifact.endsWith(archiveSuffix));
+    const root = join(extract, manifest.artifact.slice(0, -archiveSuffix.length));
+    assert.match(await readFile(join(root, "BUILD-INFO.json"), "utf8"), new RegExp(manifest.commit));
+    const bundledNode = await stat(join(root, "runtime", "node"));
+    assert.ok(bundledNode.mode & 0o111, "the archive bundles an executable Node runtime");
+    assert.match(await readFile(join(root, "bin", "aiur-streamdeck"), "utf8"), /exec "\$root\/runtime\/node"/);
     assert.match(await readFile(join(root, "share", "udev", "70-streamdeck.rules"), "utf8"), /0fd9/);
     assert.match(await readFile(join(root, "share", "systemd", "aiur-streamdeck.service"), "utf8"), /bin\/aiur-streamdeck/);
     await new Promise((resolve, reject) => {
@@ -43,7 +59,7 @@ test("builds a self-contained archive with traceable provenance", async () => {
       });
     });
   } finally {
-    await rm(output, { recursive: true, force: true });
+    if (!process.env.PACKAGE_ARTIFACT_DIR) await rm(output, { recursive: true, force: true });
     await rm(extract, { recursive: true, force: true });
   }
 });

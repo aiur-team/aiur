@@ -15,6 +15,22 @@ Node, npm, or a native build toolchain. `BUILD-INFO.json` records the exact
 Aiur commit, version, target, and reproducible-build timestamp; compare its
 `commit` field to the daemon revision when diagnosing a mismatch.
 
+The archive filename is content-addressed: its final `<sha256>` component is
+the expected SHA-256 digest. Verify that digest from the release link before
+extracting the archive or installing its root-owned udev rule.
+
+The archive targets 64-bit glibc Linux (`x86_64`, glibc 2.28 or newer), which
+includes the supported Arch Linux target. It does not run on Alpine/musl Linux,
+ARM, or older glibc distributions. Check a host with `getconf GNU_LIBC_VERSION`
+before installing it. The bundled Node 24 runtime needs glibc 2.28; the bundled
+`usb` prebuild needs glibc 2.17, so the Node runtime defines the floor.
+
+Each `develop` commit receives an immutable prerelease named
+`streamdeck-<commit>`. Those prereleases have no automatic expiry: their
+content-addressed assets are the stable download contract for the web layer and
+operators investigating daemon/package mismatches. Release housekeeping must
+preserve any asset referenced by a published download link.
+
 `STREAMDECK_BRIGHTNESS` (0–100, default 80) sets the brightness the
 sidecar reapplies on open and on resume.
 
@@ -49,15 +65,9 @@ node. Access is granted by the `uaccess` tag on the **usb**-subsystem device
 
 ## udev permissions
 
-Install the shipped rules as root. In an installed archive the rule is at
-`~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules`:
-
-```sh
-sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules \
-  /etc/udev/rules.d/70-streamdeck.rules
-sudo udevadm control --reload-rules
-sudo udevadm trigger
-```
+After extracting the archive, install the shipped rule as part of the ordered
+setup below. In an installed archive the rule is at
+`~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules`.
 
 Physically unplug and replug the Stream Deck after triggering the rules.
 This matters: logind ACLs from `TAG+="uaccess"` are reliably applied on a
@@ -89,7 +99,10 @@ file. The credentials belong in the environment file, never in the unit:
 ```sh
 install -d -m755 ~/.local/share/aiur
 install -d -m755 ~/.local/share/aiur/streamdeck
-tar -xzf aiur-streamdeck-<version>-linux-x64-<sha256>.tar.gz \
+expected_sha=<sha256-from-the-archive-filename>
+archive=aiur-streamdeck-<version>-linux-x64-${expected_sha}.tar.gz
+printf '%s  %s\n' "$expected_sha" "$archive" | sha256sum --check --strict -
+tar -xzf "$archive" \
   -C ~/.local/share/aiur/streamdeck --strip-components=1
 install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service \
   ~/.config/systemd/user/aiur-streamdeck.service
@@ -98,17 +111,18 @@ install -dm700 ~/.config/aiur
 touch ~/.config/aiur/streamdeck.env
 chmod 600 ~/.config/aiur/streamdeck.env
 ${EDITOR:-vi} ~/.config/aiur/streamdeck.env
-systemctl --user daemon-reload
-systemctl --user enable --now aiur-streamdeck.service
 ```
 
-Install the included udev rule before starting the service:
+Install the included udev rule before starting the service, then enable the
+user unit:
 
 ```sh
 sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules \
   /etc/udev/rules.d/70-streamdeck.rules
 sudo udevadm control --reload-rules
 sudo udevadm trigger
+systemctl --user daemon-reload
+systemctl --user enable --now aiur-streamdeck.service
 ```
 
 The archive launch command is `~/.local/share/aiur/streamdeck/bin/aiur-streamdeck`.

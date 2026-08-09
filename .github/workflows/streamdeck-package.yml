@@ -54,9 +54,20 @@ jobs:
           COMMIT: ${{ steps.metadata.outputs.commit }}
           SOURCE_DATE_EPOCH: ${{ steps.metadata.outputs.source_date_epoch }}
           VERSION: ${{ steps.metadata.outputs.version }}
-        run: node scripts/build-package.mjs --output package-dist --commit "$COMMIT" --version "$VERSION" --source-date-epoch "$SOURCE_DATE_EPOCH"
+        run: |
+          args=(--output package-dist --commit "$COMMIT" --version "$VERSION" --source-date-epoch "$SOURCE_DATE_EPOCH")
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            args+=(--release-tag "$GITHUB_REF_NAME")
+          fi
+          node scripts/build-package.mjs "${args[@]}"
       - name: Clean-install smoke test
-        run: npm run test:package
+        run: |
+          commit=$(jq -r '.commit' package-dist/*.json)
+          release_tag="streamdeck-${commit}"
+          if [ "$GITHUB_EVENT_NAME" = release ]; then
+            release_tag="$GITHUB_REF_NAME"
+          fi
+          PACKAGE_ARTIFACT_DIR=package-dist PACKAGE_RELEASE_TAG="$release_tag" npm run test:package
       - name: Upload package artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -82,16 +93,24 @@ jobs:
           GH_REPO: ${{ github.repository }}
           COMMIT: ${{ needs.build.outputs.commit }}
         run: |
-          asset=$(jq -r '.artifact' package-dist/*.json)
-          expected=$(jq -r '.sha256' package-dist/*.json)
-          if gh release view "streamdeck-${COMMIT}" >/dev/null 2>&1; then
-            verify_dir=$(mktemp -d)
-            gh release download "streamdeck-${COMMIT}" --pattern "$asset" --dir "$verify_dir"
-            actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
-            test "$actual" = "$expected"
-          else
-            gh release create "streamdeck-${COMMIT}" package-dist/* --target "$COMMIT" --prerelease --title "Stream Deck ${COMMIT}" --notes "Immutable Stream Deck sidecar package for ${COMMIT}."
+          tag="streamdeck-${COMMIT}"
+          manifest_path=$(find package-dist -maxdepth 1 -name '*.json' -print -quit)
+          asset=$(jq -r '.artifact' "$manifest_path")
+          expected=$(jq -r '.sha256' "$manifest_path")
+          manifest=$(basename "$manifest_path")
+          if ! gh release view "$tag" >/dev/null 2>&1; then
+            gh release create "$tag" package-dist/* --target "$COMMIT" --prerelease --title "Stream Deck ${COMMIT}" --notes "Immutable Stream Deck sidecar package for ${COMMIT}."
           fi
+          assets=$(gh release view "$tag" --json assets --jq '.assets[].name')
+          for name in "$asset" "$manifest"; do
+            if ! grep -Fxq "$name" <<< "$assets"; then gh release upload "$tag" "package-dist/$name"; fi
+          done
+          verify_dir=$(mktemp -d)
+          gh release download "$tag" --pattern "$asset" --dir "$verify_dir"
+          gh release download "$tag" --pattern "$manifest" --dir "$verify_dir"
+          actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
+          test "$actual" = "$expected"
+          jq -e --arg commit "$COMMIT" --arg asset "$asset" --arg sha256 "$expected" --arg tag "$tag" '.commit == $commit and .artifact == $asset and .sha256 == $sha256 and .content_address == "releases/download/" + $tag + "/" + $asset' "$verify_dir/$manifest"
 
   publish-release-asset:
     if: github.event_name == 'release' && startsWith(github.event.release.tag_name, 'v')
@@ -110,14 +129,19 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           TAG: ${{ github.event.release.tag_name }}
+          COMMIT: ${{ needs.build.outputs.commit }}
         run: |
-          asset=$(jq -r '.artifact' package-dist/*.json)
-          expected=$(jq -r '.sha256' package-dist/*.json)
-          if gh release view "$TAG" --json assets --jq '.assets[].name' | grep -Fxq "$asset"; then
-            verify_dir=$(mktemp -d)
-            gh release download "$TAG" --pattern "$asset" --dir "$verify_dir"
-            actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
-            test "$actual" = "$expected"
-          else
-            gh release upload "$TAG" package-dist/*
-          fi
+          manifest_path=$(find package-dist -maxdepth 1 -name '*.json' -print -quit)
+          asset=$(jq -r '.artifact' "$manifest_path")
+          expected=$(jq -r '.sha256' "$manifest_path")
+          manifest=$(basename "$manifest_path")
+          assets=$(gh release view "$TAG" --json assets --jq '.assets[].name')
+          for name in "$asset" "$manifest"; do
+            if ! grep -Fxq "$name" <<< "$assets"; then gh release upload "$TAG" "package-dist/$name"; fi
+          done
+          verify_dir=$(mktemp -d)
+          gh release download "$TAG" --pattern "$asset" --dir "$verify_dir"
+          gh release download "$TAG" --pattern "$manifest" --dir "$verify_dir"
+          actual=$(sha256sum "$verify_dir/$asset" | awk '{print $1}')
+          test "$actual" = "$expected"
+          jq -e --arg commit "$COMMIT" --arg asset "$asset" --arg sha256 "$expected" --arg tag "$TAG" '.commit == $commit and .artifact == $asset and .sha256 == $sha256 and .content_address == "releases/download/" + $tag + "/" + $asset' "$verify_dir/$manifest"
