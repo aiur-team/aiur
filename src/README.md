@@ -328,6 +328,8 @@ back to its agent. A later CI observation for that exact SHA cannot return the
 ticket from human review to rework, even when the poll retained a stale
 `ci-wait` issue snapshot from before the handoff. A CI failure for a different
 SHA supersedes the approval and remains eligible for the normal rework path.
+Check runs whose names end in `(non-blocking)` are advisory and do not affect
+the lifecycle decision.
 
 ## Dashboard
 
