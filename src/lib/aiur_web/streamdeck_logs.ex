@@ -87,6 +87,21 @@ defmodule AiurWeb.StreamdeckLogs do
     end
   end
 
+  @doc "Refreshes the relative times shown on event keys without rebuilding the feed."
+  @spec refresh_relative_times(map(), DateTime.t()) :: map()
+  def refresh_relative_times(logs, now \\ DateTime.utc_now()) do
+    times = Map.new(logs.events, fn event -> {event.index, relative_time(event.timestamp, now)} end)
+
+    logs
+    |> Map.update!(:event_keys, fn keys ->
+      Enum.map(keys, fn
+        %{kind: :event, index: index} = key -> Map.put(key, :time, Map.fetch!(times, index))
+        key -> key
+      end)
+    end)
+    |> visible()
+  end
+
   @doc "Scrolls one logs surface while keeping the selected event coherent."
   @spec scroll(map(), :events | :transcript, integer()) :: map()
   def scroll(logs, :events, delta) when is_integer(delta) do
@@ -217,10 +232,12 @@ defmodule AiurWeb.StreamdeckLogs do
     if Map.has_key?(@direction_colours, badge), do: badge, else: "INFO"
   end
 
-  defp relative_time(timestamp) when is_binary(timestamp) do
+  defp relative_time(timestamp), do: relative_time(timestamp, DateTime.utc_now())
+
+  defp relative_time(timestamp, now) when is_binary(timestamp) and is_struct(now, DateTime) do
     case DateTime.from_iso8601(timestamp) do
       {:ok, event_at, _offset} ->
-        seconds = max(DateTime.diff(DateTime.utc_now(), event_at), 0)
+        seconds = max(DateTime.diff(now, event_at), 0)
 
         cond do
           seconds < 60 -> "now"
@@ -234,7 +251,7 @@ defmodule AiurWeb.StreamdeckLogs do
     end
   end
 
-  defp relative_time(_timestamp), do: ""
+  defp relative_time(_timestamp, _now), do: ""
 
   defp entry(entry) do
     case value(entry, :type) do

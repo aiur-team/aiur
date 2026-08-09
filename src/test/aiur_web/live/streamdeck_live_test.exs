@@ -323,6 +323,64 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end)
   end
 
+  test "rebuilds LIVE and event starts from the durable feed when the relay receives a new event" do
+    with_production_feed(fn ->
+      write_feed("1352", [
+        feed_event("assistant", "older durable event", "turn-1"),
+        feed_event("assistant", "newest durable event", "turn-2")
+      ])
+
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      enter_logs(view)
+
+      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "live durable event"))
+
+      Task.start(fn ->
+        Process.sleep(10)
+
+        write_feed("1352", [
+          feed_event("assistant", "older durable event", "turn-1"),
+          feed_event("assistant", "newest durable event", "turn-2"),
+          feed_event("assistant", "live durable event", "turn-3")
+        ])
+      end)
+
+      assert eventually(fn -> render(view) =~ "live durable event" end)
+
+      logs = streamdeck_assigns(view).logs
+      assert [%{kind: :live} | [%{text: "live durable event"} | _]] = logs.event_keys
+
+      html = render_hook(view, "log-key-select", %{"index" => "3"})
+      selected = streamdeck_assigns(view).logs
+
+      assert selected.transcript_offset == selected.event_starts[3]
+      assert [%{kind: :event_header, body: "older durable event"} | _] = selected.transcript_visible
+      assert log_pane(html, "sd-screen") =~ "older durable event"
+    end)
+  end
+
+  test "refreshes relative event times while logs mode remains open" do
+    with_production_feed(fn ->
+      timestamp = DateTime.utc_now() |> DateTime.add(-59, :second) |> DateTime.to_iso8601()
+      write_feed("1352", [feed_event("assistant", "recent durable event", "turn-1", timestamp: timestamp)])
+
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      assert enter_logs(view) =~ "now"
+
+      assert eventually(fn -> render(view) =~ "1m" end)
+    end)
+  end
+
+  test "relay alerts and control updates do not terminate the logs view" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    enter_logs(view)
+
+    AgentPubSub.broadcast_alert("1352", AgentEvents.alert_event("deploy", "Needs attention"))
+    AgentPubSub.broadcast_control_lifecycle("1352", %{request_id: "request-1", status: :paused})
+
+    assert eventually(fn -> render(view) =~ "event-1" end)
+  end
+
   test "focus switching rejects old feed topics and resets to the new agent projection" do
     with_production_feed(fn ->
       write_feed("1352", [feed_event("assistant", "old focused entry", "old-turn")])
@@ -508,15 +566,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
     }
   end
 
-  defp feed_event(role, body, turn_id, payload \\ nil) do
+  defp feed_event(role, body, turn_id, opts \\ [])
+
+  defp feed_event(role, body, turn_id, payload) when is_map(payload),
+    do: feed_event(role, body, turn_id, payload: payload)
+
+  defp feed_event(role, body, turn_id, opts) when is_list(opts) do
     %{
       "role" => role,
       "body" => body,
-      "timestamp" => "2026-08-02T00:00:00Z",
+      "timestamp" => Keyword.get(opts, :timestamp, "2026-08-02T00:00:00Z"),
       "msg_id" => nil,
       "sequence" => 1,
       "turn_id" => turn_id,
-      "payload" => payload
+      "payload" => Keyword.get(opts, :payload)
     }
   end
 
@@ -549,6 +612,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
   end
 
   defp streamdeck_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp eventually(fun, attempts \\ 30)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(100)
+      eventually(fun, attempts - 1)
+    end
+  end
 
   defp enter_logs(view, identifier \\ "1352") do
     render_hook(view, "key-press", %{"identifier" => identifier})

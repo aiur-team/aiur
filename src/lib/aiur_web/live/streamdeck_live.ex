@@ -20,6 +20,10 @@ defmodule AiurWeb.StreamdeckLive do
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
+  @relative_time_refresh_ms 1_000
+  @durable_feed_retry_attempts 2
+  @durable_feed_retry_ms 50
+
   @impl true
   def mount(_params, _session, socket) do
     socket =
@@ -47,7 +51,10 @@ defmodule AiurWeb.StreamdeckLive do
         :ok = AgentPubSub.subscribe_status()
         :ok = ProviderMeterEvents.subscribe_observed()
         maybe_subscribe_fixture_fleet()
-        replace_transcript_relay(socket, nil, socket.assigns.selected_identifier)
+
+        socket
+        |> replace_transcript_relay(nil, socket.assigns.selected_identifier)
+        |> schedule_relative_time_refresh()
       else
         socket
       end
@@ -136,10 +143,46 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
-      {:noreply, reload_logs(socket, identifier)}
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info({:streamdeck_alert, identifier, _event}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:streamdeck_control, identifier, _payload}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:refresh_streamdeck_durable_feed, identifier, attempts}, socket)
+      when is_binary(identifier) and is_integer(attempts) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier, attempts)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(:refresh_streamdeck_relative_times, socket) do
+    socket =
+      if socket.assigns.sd_mode == :logs do
+        assign(socket, :logs, StreamdeckLogs.refresh_relative_times(socket.assigns.logs))
+      else
+        socket
+      end
+
+    {:noreply, schedule_relative_time_refresh(socket)}
   end
 
   @impl true
@@ -561,6 +604,21 @@ defmodule AiurWeb.StreamdeckLive do
   defp log_key_label(%{kind: :live}), do: "LIVE"
   defp log_key_label(%{kind: :event, badge: badge, text: text, time: time}), do: "#{badge}: #{text}, #{time}"
   defp log_key_label(_key), do: nil
+
+  defp schedule_relative_time_refresh(socket) do
+    Process.send_after(self(), :refresh_streamdeck_relative_times, @relative_time_refresh_ms)
+    socket
+  end
+
+  defp schedule_durable_feed_refresh(socket, identifier, attempts \\ @durable_feed_retry_attempts)
+
+  defp schedule_durable_feed_refresh(socket, identifier, attempts)
+       when is_binary(identifier) and is_integer(attempts) and attempts > 0 do
+    Process.send_after(self(), {:refresh_streamdeck_durable_feed, identifier, attempts - 1}, @durable_feed_retry_ms)
+    socket
+  end
+
+  defp schedule_durable_feed_refresh(socket, _identifier, _attempts), do: socket
 
   defp maybe_subscribe_fixture_fleet do
     if endpoint_config(:streamdeck_fixture_fleet) do
