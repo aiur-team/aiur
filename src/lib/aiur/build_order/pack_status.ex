@@ -72,7 +72,7 @@ defmodule Aiur.BuildOrder.PackStatus do
       task_supervisor: Keyword.get(opts, :task_supervisor, Aiur.TaskSupervisor),
       request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
       token_fun: Keyword.get(opts, :token_fun, &Transport.require_token/0),
-      paths_fun: Keyword.get(opts, :paths_fun, &PackPaths.planning/0),
+      paths_fun: Keyword.get(opts, :paths_fun, &PackPaths.tracked_planning/0),
       planning_call_budget: Keyword.get_lazy(opts, :planning_call_budget, &Config.planning_call_budget/0),
       now_fun: Keyword.get(opts, :now_fun, &DateTime.utc_now/0),
       health: unavailable_health(System.unique_integer([:positive, :monotonic]))
