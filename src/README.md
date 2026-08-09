@@ -338,6 +338,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   `Cache-Control: no-store`. Drag across any time chart to zoom the five
   time-series charts together; use Reset to return to the full selected range.
 
+The Units catalog reconciles retained current-run membership with the latest
+fresh orchestrator snapshot. After a daemon generation change, current agents
+remain visible while membership catches up; counts are marked partial if that
+membership source is unavailable. A periodic reconciliation also recovers
+agents that existed without a dispatch notification, so an unknown catalog is
+never presented as an exact zero.
+
 ### Supervisor Decision API
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer
