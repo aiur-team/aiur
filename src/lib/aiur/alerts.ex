@@ -6,7 +6,7 @@ defmodule Aiur.Alerts do
 
   require Logger
 
-  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, Config, Issue, Workflow}
+  alias Aiur.{AgentEventLog, AgentEvents, AgentPubSub, AlertLedger, Config, Issue, Workflow}
   alias Aiur.Config.Paths
   alias Aiur.Config.Schema.Alerts, as: AlertConfig
   alias Aiur.Events.{Publisher, Topic}
@@ -165,6 +165,7 @@ defmodule Aiur.Alerts do
       }
 
       AgentEventLog.write(workspace, worker_host, alert_event)
+      write_alert_ledger_entry(alert_event, workspace, worker_host)
       maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts)
 
       maybe_play_sound(selected_sound, settings, opts)
@@ -206,6 +207,23 @@ defmodule Aiur.Alerts do
     end
   end
 
+  defp write_alert_ledger_entry(alert_event, workspace, worker_host) do
+    agent =
+      cond do
+        is_binary(worker_host) -> "system"
+        is_binary(workspace) -> Path.basename(workspace)
+        true -> "system"
+      end
+
+    alert_event
+    |> central_alert_json()
+    |> Map.put("agent", agent)
+    |> AlertLedger.append()
+  end
+
+  # Keep the historical central file as an audit-compatible auxiliary output.
+  # AlertFeed reads the project-scoped ledger above, which also receives local
+  # workspace alerts that intentionally remain absent from this file.
   defp maybe_write_central_alert_feed_entry(alert_event, workspace, worker_host, opts) do
     if is_binary(workspace) and worker_host == nil and not Keyword.get(opts, :central, false) do
       :ok
