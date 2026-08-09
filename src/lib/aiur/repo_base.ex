@@ -30,7 +30,7 @@ defmodule Aiur.RepoBase do
   @base_record "base-record.json"
   @legacy_built_marker ".aiur-base-built"
   @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
-  @state_entries ["builds", "analytics", "meta"]
+  @state_entries ["builds", "analytics", "meta", "executor"]
   @migration_lease_suffix ".migration-lock.sqlite3"
   @findings_transfer_suffix ".migration-transfer"
   # Cache sidecar migrations copy potentially gigabytes of hex/mix/npm cache
@@ -86,6 +86,16 @@ defmodule Aiur.RepoBase do
   def analytics_path(repo_url) when is_binary(repo_url),
     do: Path.join(repo_path(repo_url), "analytics")
 
+  @doc "Absolute path of replaceable Executor state for `repo_url`."
+  @spec executor_path(String.t()) :: Path.t()
+  def executor_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "executor")
+
+  @doc "Absolute path of the current Executor handoff for `repo_url`."
+  @spec handoff_path(String.t()) :: Path.t()
+  def handoff_path(repo_url) when is_binary(repo_url),
+    do: Path.join(executor_path(repo_url), "handoff.md")
+
   @doc "Creates the canonical repository state tree before any writer needs it."
   @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
   def ensure_state_tree(repo_url) when is_binary(repo_url) do
@@ -124,7 +134,8 @@ defmodule Aiur.RepoBase do
       Path.join(node, "builds"),
       Path.join(node, "analytics"),
       Path.join(node, "meta"),
-      Path.join([node, "meta", "retros"])
+      Path.join([node, "meta", "retros"]),
+      Path.join(node, "executor")
       | Enum.map(@cache_sidecars, &Path.join(node, &1))
     ]
     |> Enum.reduce_while(:ok, fn path, :ok ->

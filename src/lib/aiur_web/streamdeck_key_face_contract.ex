@@ -51,6 +51,14 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     end
   end
 
+  @spec known_state?(atom() | String.t()) :: boolean()
+  def known_state?(bucket) do
+    state!(bucket)
+    true
+  rescue
+    ArgumentError -> false
+  end
+
   @spec bucket_rank!(atom() | String.t()) :: non_neg_integer()
   def bucket_rank!(bucket), do: state!(bucket)["rank"]
 
