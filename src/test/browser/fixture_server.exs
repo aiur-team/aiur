@@ -30,6 +30,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
+        <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
         <script defer src="/assets/browser_harness.js"></script>
         <link rel="stylesheet" href="/dashboard.css" />
@@ -52,8 +53,17 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
               }
             };
 
+            window.BrowserHarnessHooks.NavToggle = {
+              mounted: function () {},
+              updated: function () {}
+            };
+
             if (window.AiurTicketContextDialogHook) {
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
+
+            if (window.AiurConversationDrawerHook) {
+              window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
 
             if (window.AiurBuildOrderGridHook) {
@@ -794,6 +804,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
   alias AiurWeb.OperatorControlCenter.{
+    ConversationDrawer,
     DecisionPath,
     TicketContext,
     UnitsFilters,
@@ -801,6 +812,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     UnitsTable,
     UnitsURL
   }
+
+  alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @now ~U[2026-07-17 12:00:00Z]
 
@@ -812,6 +825,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:selection, UnitsURL.default_selection())
      |> assign(:now, @now)
      |> assign(:context, nil)
+     |> assign(:conversation_drawer, nil)
+     |> assign(:conversation_origin_id, nil)
      |> assign(:selected_row, nil)
      |> assign(:generation, 1)}
   end
@@ -853,7 +868,24 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
+  def handle_event("read-conversation", %{"unit" => token}, socket) do
+    case UnitsPresenter.lookup(socket.assigns.catalog, token) do
+      {:ok, row} ->
+        {:noreply,
+         socket
+         |> assign(:conversation_drawer, ConversationPresenter.present(row, conversation_snapshot()))
+         |> assign(:conversation_origin_id, "units-conversation-#{token}")}
+
+      {:error, :not_found} ->
+        {:noreply, socket}
+    end
+  end
+
   def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-conversation", _params, socket) do
+    {:noreply, socket |> assign(:conversation_drawer, nil) |> assign(:conversation_origin_id, nil)}
+  end
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
@@ -926,6 +958,14 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         close_event="close-ticket-context"
         fallback_focus_id="units-title"
       />
+      <ConversationDrawer.conversation_drawer
+        :if={@conversation_drawer}
+        id="units-fixture-conversation-drawer"
+        view={@conversation_drawer}
+        close_event="close-conversation"
+        fallback_focus_id="units-title"
+        origin_id={@conversation_origin_id}
+      />
     </main>
     """
   end
@@ -965,7 +1005,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         lifecycle: :active,
         runtime: runtime(:running, :working, :active, 4_200),
         progress: %{status: :known, percent: 50, source: :checkin, freshness: :fresh},
-        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}}
+        latest_evidence: %{status: :known, source: %{kind: :branch, name: "feature pushed"}},
+        live_conversation: %{generation_handle: "conversation:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
       }),
       row(identity("NODE-1111", "1111"), %{
         title: "Paused provider follow-up",
@@ -1062,6 +1103,27 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       provider_id: provider_id,
       identifier: identifier,
       reason: nil
+    }
+  end
+
+  defp conversation_snapshot do
+    %{
+      state: :live,
+      health: :healthy,
+      freshness: :current,
+      observed_at: @now,
+      truncated?: false,
+      evicted_count: 0,
+      messages: [
+        %{
+          id: "message-1",
+          role: "agent",
+          title: "Agent",
+          body: "Conversation drawer hook loaded in the browser harness.",
+          occurred_at: @now,
+          observed_at: @now
+        }
+      ]
     }
   end
 
@@ -1507,7 +1569,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
 
   defp require_fixture_access(conn, opts), do: FixtureAuth.require_access(conn, opts)
 
-  defp require_fixture_or_dashboard_access(conn, opts) do
+  def require_fixture_or_dashboard_access(conn, opts) do
     if Plug.Conn.get_session(conn, "fixture_access") in ~w(read_only writable),
       do: conn,
       else: AiurWeb.Router.dashboard_basic_auth(conn, opts)
@@ -1517,13 +1579,27 @@ end
 defmodule Aiur.BrowserHarness.FixtureEndpoint do
   use Phoenix.Endpoint, otp_app: :aiur
 
+  alias Aiur.BrowserHarness.FixtureRouter
+
   @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
   socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
 
   plug(Plug.RequestId)
   plug(Plug.Session, @session_options)
-  plug(Aiur.BrowserHarness.FixtureRouter)
+  plug(:authenticate_static_asset)
+  plug(Plug.Static, AiurWeb.StaticAssets.plug_options())
+  plug(FixtureRouter)
+
+  defp authenticate_static_asset(conn, opts) do
+    if AiurWeb.StaticAssets.static_request?(conn.path_info) do
+      conn
+      |> Plug.Conn.fetch_session()
+      |> FixtureRouter.require_fixture_or_dashboard_access(opts)
+    else
+      conn
+    end
+  end
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do

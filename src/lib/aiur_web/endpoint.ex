@@ -33,5 +33,13 @@ defmodule AiurWeb.Endpoint do
   plug(Plug.MethodOverride)
   plug(Plug.Head)
   plug(Plug.Session, @session_options)
+  plug(:authenticate_static_asset)
+  plug(Plug.Static, AiurWeb.StaticAssets.plug_options())
   plug(AiurWeb.Router)
+
+  defp authenticate_static_asset(conn, opts) do
+    if AiurWeb.StaticAssets.static_request?(conn.path_info),
+      do: AiurWeb.Router.dashboard_basic_auth(conn, opts),
+      else: conn
+  end
 end

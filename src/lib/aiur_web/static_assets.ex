@@ -1,6 +1,24 @@
 defmodule AiurWeb.StaticAssets do
   @moduledoc false
 
+  @static_paths ~w(
+    aiur-dom-svg-layout
+    aiur-dom-svg-layout-adapter.js
+    aiur-dom-svg-layout-loader.js
+    aiur-logo.png
+    build-order-grid-hook.js
+    bungee.woff2
+    claude-symbol.svg
+    claude-token.svg
+    codex-color.svg
+    codex-token.svg
+    conversation-drawer-hook.js
+    dashboard.css
+    ticket-context-dialog-hook.js
+    time-brush-hook.js
+  )
+  @long_cache_paths ~w(/aiur-logo.png /bungee.woff2)
+
   @dashboard_css_path Path.expand("../../priv/static/dashboard.css", __DIR__)
   @dom_svg_layout_adapter_path Path.expand("../../priv/static/aiur-dom-svg-layout-adapter.js", __DIR__)
   @phoenix_html_js_path Application.app_dir(:phoenix_html, "priv/static/phoenix_html.js")
@@ -54,6 +72,31 @@ defmodule AiurWeb.StaticAssets do
     "/vendor/phoenix/phoenix.js" => {"application/javascript", @phoenix_js},
     "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
   }
+
+  @spec plug_options() :: keyword()
+  def plug_options do
+    [
+      at: "/",
+      from: :aiur,
+      gzip: false,
+      only: static_paths(),
+      cache_control_for_etags: "private, max-age=0, must-revalidate",
+      headers: {__MODULE__, :static_headers, []}
+    ]
+  end
+
+  @spec static_paths() :: [String.t()]
+  def static_paths, do: @static_paths
+
+  @spec static_request?([String.t()]) :: boolean()
+  def static_request?([segment | _rest]), do: segment in @static_paths
+  def static_request?(_path_info), do: false
+
+  @spec static_headers(Plug.Conn.t()) :: [{String.t(), String.t()}]
+  def static_headers(%Plug.Conn{request_path: path}) when path in @long_cache_paths,
+    do: [{"cache-control", "public, max-age=31536000"}]
+
+  def static_headers(_conn), do: []
 
   @spec layout_asset_urls() :: %{engine: String.t(), worker: String.t(), client: String.t()}
   def layout_asset_urls do

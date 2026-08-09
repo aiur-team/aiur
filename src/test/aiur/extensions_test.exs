@@ -922,6 +922,7 @@ defmodule Aiur.ExtensionsTest do
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
@@ -943,6 +944,10 @@ defmodule Aiur.ExtensionsTest do
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
+    conversation_hook_conn = get(build_conn(), "/conversation-drawer-hook.js")
+    assert response(conversation_hook_conn, 200) =~ "AiurConversationDrawerHook"
+    assert Plug.Conn.get_resp_header(conversation_hook_conn, "content-type") == ["text/javascript"]
+
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
     assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -952,7 +957,14 @@ defmodule Aiur.ExtensionsTest do
     assert adapter =~ "createDomSvgLayoutHook"
     assert Plug.Conn.get_resp_header(adapter_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    for module <- ["lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
+    for module <- [
+          "interaction-policy.js",
+          "interaction.js",
+          "lifecycle.js",
+          "measurement.js",
+          "protocol.js",
+          "renderer.js"
+        ] do
       conn = get(build_conn(), "/aiur-dom-svg-layout/#{module}")
       assert response(conn, 200) != ""
       assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -964,9 +976,23 @@ defmodule Aiur.ExtensionsTest do
     assert response(loader_conn, 200) =~ "createLiveViewHook"
     assert Plug.Conn.get_resp_header(loader_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
+    build_order_hook_conn = get(build_conn(), "/build-order-grid-hook.js")
+    assert response(build_order_hook_conn, 200) =~ "AiurBuildOrderGridHook"
+    assert Plug.Conn.get_resp_header(build_order_hook_conn, "content-type") == ["text/javascript"]
+
+    for provider_asset <- ["/claude-symbol.svg", "/claude-token.svg", "/codex-color.svg", "/codex-token.svg"] do
+      conn = get(build_conn(), provider_asset)
+      assert response(conn, 200) =~ "<svg"
+      assert Plug.Conn.get_resp_header(conn, "content-type") == ["image/svg+xml"]
+    end
+
+    bungee_font_conn = get(build_conn(), "/bungee.woff2")
+    assert byte_size(response(bungee_font_conn, 200)) > 0
+    assert Plug.Conn.get_resp_header(bungee_font_conn, "content-type") == ["font/woff2"]
+
     logo = get(build_conn(), "/aiur-logo.png")
     assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))
-    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png; charset=utf-8"]
+    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png"]
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -1352,6 +1378,9 @@ defmodule Aiur.ExtensionsTest do
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
 
+    unauthenticated_static = Req.get!("http://127.0.0.1:#{port}/conversation-drawer-hook.js")
+    assert unauthenticated_static.status == 401
+
     response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
     assert response.status == 200
     assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
@@ -1359,6 +1388,10 @@ defmodule Aiur.ExtensionsTest do
     dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css", headers: [authorization])
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
+
+    conversation_hook = Req.get!("http://127.0.0.1:#{port}/conversation-drawer-hook.js", headers: [authorization])
+    assert conversation_hook.status == 200
+    assert conversation_hook.body =~ "AiurConversationDrawerHook"
 
     phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js", headers: [authorization])
     assert phoenix_js.status == 200

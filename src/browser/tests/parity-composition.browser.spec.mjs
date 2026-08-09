@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { assertFixtureAccessDenied, assertNoDocumentOverflow, openFixture } from './support/browser-helpers.mjs'
+import { assertFixtureAccessDenied, assertNoDocumentOverflow, observePageLoadErrors, openFixture } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 // DASH-033 composed parity proof. The per-region specs (route-shell, units,
@@ -26,6 +26,7 @@ for (const { label, width, isMobile } of composedViewports) {
       reducedMotion: 'reduce'
     })
     const page = await context.newPage()
+    const assertNoPageLoadErrors = observePageLoadErrors(page)
 
     try {
       await openFixture(page, 'read_only')
@@ -60,6 +61,10 @@ for (const { label, width, isMobile } of composedViewports) {
       await expect(page).toHaveURL(/\/$/)
       await expect(page.locator('#route-title')).toHaveText('Units')
 
+      await page.goto('/analytics')
+      await expect(page.locator('#route-title')).toHaveText('Analytics')
+      await assertNoDocumentOverflow(page)
+
       // Standalone region fixtures are not linked from the shell nav; visit each
       // directly within the same authenticated session and assert its landmark
       // plus its accessible live-status region survives.
@@ -80,6 +85,7 @@ for (const { label, width, isMobile } of composedViewports) {
 
       const accessibility = await new AxeBuilder({ page }).analyze()
       expect(accessibility.violations).toEqual([])
+      assertNoPageLoadErrors()
     } finally {
       await context.close()
     }

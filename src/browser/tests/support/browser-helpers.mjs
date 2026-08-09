@@ -48,6 +48,20 @@ export async function assertControlsRemainReachable(page) {
   expect(controls.every(({ right, scrollReachable }) => right <= width || scrollReachable)).toBe(true)
 }
 
+export function observePageLoadErrors(page) {
+  const errors = []
+
+  page.on('console', (message) => {
+    if (message.type() === 'error') errors.push(`console: ${message.text()}`)
+  })
+
+  page.on('response', (response) => {
+    if (response.status() === 404) errors.push(`404: ${response.url()}`)
+  })
+
+  return () => expect(errors).toEqual([])
+}
+
 export async function reconnectLiveView(page) {
   await page.evaluate(() => window.liveSocket.disconnect())
   await expect(page.locator('#worker-status')).toHaveAttribute('data-live-status', 'disconnected')

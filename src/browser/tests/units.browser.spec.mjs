@@ -163,6 +163,22 @@ test('Units URL history restores independent conditions and copied links', async
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
 })
 
+test('Units conversation drawer loads its hook and restores focus after Escape', async ({ page }) => {
+  await openUnits(page)
+
+  const trigger = page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' })
+  await trigger.click()
+
+  const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByRole('heading', { name: 'Responsive Units interface' })).toBeFocused()
+  await expect(drawer).toContainText('Conversation drawer hook loaded in the browser harness.')
+
+  await page.keyboard.press('Escape')
+  await expect(drawer).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+})
+
 test('Units preserves focused controls on stable updates and restores dialog focus with a safe fallback', async ({ page }) => {
   await openUnits(page)
 
