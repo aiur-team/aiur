@@ -115,6 +115,9 @@ defmodule Aiur.Regression.GithubIngestionTest do
               }
             ])
 
+          String.contains?(url, "/reviews") ->
+            {:ok, %{status: 200, body: []}}
+
           String.contains?(url, "/issues/") ->
             {:ok, %{status: 200, body: []}}
         end
@@ -185,6 +188,9 @@ defmodule Aiur.Regression.GithubIngestionTest do
                 "comments" => %{"nodes" => [pre_boot_comment]}
               }
             ])
+
+          String.contains?(url, "/reviews") ->
+            {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/issues/") ->
             {:ok, %{status: 200, body: []}}
@@ -337,6 +343,9 @@ defmodule Aiur.Regression.GithubIngestionTest do
                  issue_comment(id_real, "alice", "please fix the retry loop", "2026-07-01T12:01:00Z")
                ]
              }}
+
+          String.contains?(url, "/reviews") ->
+            {:ok, %{status: 200, body: []}}
 
           String.contains?(url, "/graphql") ->
             empty_review_threads_response()
