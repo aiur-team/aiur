@@ -167,13 +167,22 @@ defmodule Aiur.ProviderMeters.Reconciler do
           state: :stale,
           failure: failure.reason,
           last_observed_at: failure.observed_at,
-          last_source_version: nil
+          last_source_version: nil,
+          last_attempt_at: nil,
+          consecutive_failures: 0
         }
     }
   end
 
   defp healthy(update) do
-    %{state: :healthy, failure: nil, last_observed_at: update.observed_at, last_source_version: update.source_version}
+    %{
+      state: :healthy,
+      failure: nil,
+      last_observed_at: update.observed_at,
+      last_source_version: update.source_version,
+      last_attempt_at: nil,
+      consecutive_failures: 0
+    }
   end
 
   # A sparse provider update may refresh individual facts, but it cannot prove
