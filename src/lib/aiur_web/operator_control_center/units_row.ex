@@ -2,8 +2,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow do
   @moduledoc """
   Pure, provenance-rich projection for one current-run Units snapshot.
 
-  Membership defines which rows exist. Every cross-source lookup uses the
-  repository-qualified `TrackerIdentity` key, never a display identifier.
+  Durable membership retains every row observed during the run. A fresh,
+  available StatusReport snapshot is the floor for current rows so a missed
+  membership observation can never hide an agent the orchestrator reports.
+  Every cross-source lookup uses the repository-qualified `TrackerIdentity`
+  key, never a display identifier.
   """
 
   alias Aiur.TrackerIdentity
