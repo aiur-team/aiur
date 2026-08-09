@@ -80,7 +80,7 @@ defmodule Aiur.SupervisionHealthTest do
     assert_receive {:supervision_alert, %{expected: 1, healthy: 1, missing: []}}, 1_000
   end
 
-  test "reports a child supervisor that gives up after restart intensity exhaustion" do
+  test "reports a child supervisor that exits after restart intensity exhaustion" do
     specs = [%{id: CrashLoopSupervisor, start: {CrashLoopSupervisor, :start_link, [[]]}, restart: :temporary, type: :supervisor}]
     {:ok, supervisor} = Supervisor.start_link(specs, strategy: :one_for_one)
     test_pid = self()
@@ -106,12 +106,9 @@ defmodule Aiur.SupervisionHealthTest do
 
     assert {:ok, %{healthy: 0}} = SupervisionHealth.status(health)
 
-    assert_receive {:supervision_alert, %{healthy: 0, missing: [%{id: CrashLoopSupervisor, reason: reason} | _]}}, 1_000
-
-    assert {:restart_intensity_exceeded, [CrashLoopSupervisor, CrashWorker], :boom, timestamp} = reason
-    assert timestamp =~ "T"
+    assert_receive {:supervision_alert, %{healthy: 0, missing: [%{id: CrashLoopSupervisor, reason: :shutdown} | _]}}, 1_000
     assert {:ok, snapshot} = SupervisionHealth.status(health)
-    assert SupervisionHealth.format(snapshot) =~ "CrashLoopSupervisor DOWN (restart intensity exceeded"
+    assert SupervisionHealth.format(snapshot) =~ "CrashLoopSupervisor DOWN (last termination: :shutdown)"
   end
 
   test "walks fixed children of nested supervisors" do

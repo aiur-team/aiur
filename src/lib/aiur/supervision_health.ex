@@ -60,8 +60,6 @@ defmodule Aiur.SupervisionHealth do
       specs: Keyword.fetch!(opts, :expected_children),
       tree: nil,
       last_terminations: %{},
-      termination_times: %{},
-      termination_timestamps: %{},
       monitors: %{},
       missing: MapSet.new(),
       timer: nil,
@@ -100,7 +98,6 @@ defmodule Aiur.SupervisionHealth do
         state =
           %{state | monitors: monitors}
           |> record_termination(path, reason)
-          |> mark_restart_intensity_exhaustion()
 
         {:noreply, state}
     end
@@ -266,63 +263,12 @@ defmodule Aiur.SupervisionHealth do
   defp monitored_descendants(_child, _tree), do: []
 
   defp record_termination(state, path, reason) do
-    now = System.monotonic_time(:millisecond)
-    timestamp = DateTime.utc_now() |> DateTime.to_iso8601()
-
-    %{
-      state
-      | last_terminations: Map.put(state.last_terminations, path, reason),
-        termination_times: Map.put(state.termination_times, path, now),
-        termination_timestamps: Map.put(state.termination_timestamps, path, timestamp)
-    }
+    %{state | last_terminations: Map.put(state.last_terminations, path, reason)}
   end
-
-  defp mark_restart_intensity_exhaustion(state) do
-    Enum.reduce(supervisor_paths(state.tree), state, fn path, state ->
-      case {Map.get(state.last_terminations, path), recent_descendant_termination(state, path)} do
-        {:shutdown, {child_path, child_reason}} ->
-          reason =
-            {:restart_intensity_exceeded, child_path, child_reason, Map.get(state.termination_timestamps, child_path)}
-
-          %{state | last_terminations: Map.put(state.last_terminations, path, reason)}
-
-        _other ->
-          state
-      end
-    end)
-  end
-
-  defp supervisor_paths(%{ids: ids, nested: nested}), do: supervisor_paths(ids, nested, [])
-
-  defp supervisor_paths(ids, nested, path) do
-    Enum.flat_map(ids, fn id ->
-      case nested[id] do
-        nil -> []
-        tree -> [path ++ [id] | supervisor_paths(tree.ids, tree.nested, path ++ [id])]
-      end
-    end)
-  end
-
-  defp recent_descendant_termination(state, parent_path) do
-    cutoff = System.monotonic_time(:millisecond) - 1_000
-
-    state.termination_times
-    |> Enum.filter(fn {path, time} -> path != parent_path and starts_with_path?(path, parent_path) and time >= cutoff end)
-    |> Enum.max_by(fn {_path, time} -> time end, fn -> nil end)
-    |> case do
-      {path, _time} -> {path, Map.fetch!(state.last_terminations, path)}
-      nil -> nil
-    end
-  end
-
-  defp starts_with_path?(path, prefix), do: Enum.take(path, length(prefix)) == prefix
 
   defp termination_reason(last_terminations, path, id), do: Map.get(last_terminations, path) || Map.get(last_terminations, id)
 
   defp format_missing(%{id: id, path: path, reason: nil}), do: "#{display_path(path, id)} DOWN"
-
-  defp format_missing(%{id: id, path: path, reason: {:restart_intensity_exceeded, child_path, child_reason, timestamp}}),
-    do: "#{display_path(path, id)} DOWN (restart intensity exceeded at #{timestamp}; #{display_path(child_path, id)} last termination: #{inspect(child_reason)})"
 
   defp format_missing(%{id: id, path: path, reason: reason}),
     do: "#{display_path(path, id)} DOWN (last termination: #{inspect(reason)})"
