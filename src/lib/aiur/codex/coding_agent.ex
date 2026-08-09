@@ -134,8 +134,11 @@ defmodule Aiur.Codex.CodingAgent do
       else
         {:error, reason} ->
           AccountGeneration.process_stopped(lifecycle_session)
-          SessionLifecycle.cleanup_port(port, containment)
-          {:error, reason}
+
+          case SessionLifecycle.cleanup_port(port, containment, metadata) do
+            :ok -> {:error, reason}
+            {:error, cleanup_reason} -> {:error, {:startup_cleanup_failed, reason, cleanup_reason}}
+          end
       end
     end
   end
@@ -159,12 +162,23 @@ defmodule Aiur.Codex.CodingAgent do
 
   @impl Aiur.CodingAgent.Backend
   def stop_session(%{port: port} = session) when is_port(port) do
-    AccountGeneration.process_stopped(session)
-  after
-    try do
-      SessionLifecycle.cleanup_port(port, Map.get(session, :containment))
-    after
-      ProviderTurnLedger.stop_store(Map.get(session, :provider_turn_store))
+    account_result =
+      try do
+        {:ok, AccountGeneration.process_stopped(session)}
+      catch
+        kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+      end
+
+    cleanup_result =
+      try do
+        SessionLifecycle.cleanup_port(port, Map.get(session, :containment), Map.get(session, :metadata, %{}))
+      after
+        ProviderTurnLedger.stop_store(Map.get(session, :provider_turn_store))
+      end
+
+    case account_result do
+      {:ok, _result} -> cleanup_result
+      {:raised, kind, reason, stacktrace} -> :erlang.raise(kind, reason, stacktrace)
     end
   end
 

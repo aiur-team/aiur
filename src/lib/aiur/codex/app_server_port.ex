@@ -140,36 +140,91 @@ defmodule Aiur.Codex.AppServerPort do
   @spec process_group_for_pid(integer() | String.t() | nil) :: integer() | nil
   defdelegate process_group_for_pid(pid), to: RemoteControl
 
-  @spec stop_port(port()) :: :ok
-  def stop_port(port) when is_port(port) do
+  @type stop_result :: :ok | {:error, :group_alive}
+
+  @spec stop_port(port()) :: stop_result()
+  def stop_port(port) when is_port(port), do: stop_port(port, %{})
+
+  @spec stop_port(port(), map()) :: stop_result()
+  def stop_port(port, metadata) when is_port(port) and is_map(metadata), do: stop_port(port, metadata, [])
+
+  @doc false
+  @spec stop_port(port(), map(), keyword()) :: stop_result()
+  def stop_port(port, metadata, opts) when is_port(port) and is_map(metadata) and is_list(opts) do
     case :erlang.port_info(port) do
       :undefined ->
         :ok
 
       _ ->
-        # Reap the descendant tree (node -> rust app-server) BEFORE closing the
-        # port. `Port.close` only kills the shell wrapper; its children would
-        # reparent to init and keep holding the global ~/.codex/state_5.sqlite
-        # lock, poisoning every subsequent codex agent. Collecting descendants
-        # must happen while the wrapper is still alive to anchor the pgrep walk.
-        case :erlang.port_info(port, :os_pid) do
-          {:os_pid, os_pid} ->
-            ProcessReaper.unregister({:os_pid, os_pid})
-            RemoteControl.graceful_kill_tree(os_pid)
+        # Reap the owned process group BEFORE closing the port. A detached tool
+        # child can outlive and reparent away from the shell/app-server tree
+        # while retaining both the recorded group and this port's stdio pipe.
+        # Closing the port first destroys that child's Erlang standard_error
+        # device; reaping only the dead parent tree misses it entirely.
+        os_pid = port_os_pid(port)
 
-          _ ->
-            :ok
-        end
-
-        try do
-          Port.close(port)
-          :ok
-        rescue
-          ArgumentError ->
-            :ok
+        with :ok <- reap_owned_processes(os_pid, metadata, opts) do
+          if is_integer(os_pid), do: ProcessReaper.unregister({:os_pid, os_pid})
+          close_port(port, Keyword.get(opts, :port_closer, &Port.close/1))
         end
     end
   end
+
+  defp port_os_pid(port) do
+    case :erlang.port_info(port, :os_pid) do
+      {:os_pid, os_pid} -> os_pid
+      _other -> nil
+    end
+  end
+
+  defp reap_owned_processes(nil, _metadata, _opts), do: :ok
+
+  defp reap_owned_processes(os_pid, %{agent_process_group_id: process_group_id}, opts) do
+    tree_reaper = Keyword.get(opts, :tree_reaper, &RemoteControl.graceful_kill_tree/1)
+
+    case positive_process_group_id(process_group_id) do
+      ^os_pid ->
+        group_reaper = Keyword.get(opts, :group_reaper, &RemoteControl.graceful_kill_process_group/1)
+
+        case group_reaper.(os_pid) do
+          {:ok, _outcome} -> :ok
+          {:error, reason} -> reap_failed_group(os_pid, reason, tree_reaper, opts)
+        end
+
+      _other ->
+        tree_reaper.(os_pid)
+    end
+  end
+
+  defp reap_owned_processes(os_pid, _metadata, opts) do
+    Keyword.get(opts, :tree_reaper, &RemoteControl.graceful_kill_tree/1).(os_pid)
+  end
+
+  defp reap_failed_group(os_pid, reason, tree_reaper, opts) do
+    tree_reaper.(os_pid)
+    group_alive? = Keyword.get(opts, :group_alive?, &RemoteControl.process_group_alive?/1)
+
+    if group_alive?.(os_pid), do: {:error, reason}, else: :ok
+  end
+
+  defp close_port(port, port_closer) do
+    port_closer.(port)
+    :ok
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp positive_process_group_id(process_group_id) when is_integer(process_group_id) and process_group_id > 0,
+    do: process_group_id
+
+  defp positive_process_group_id(process_group_id) when is_binary(process_group_id) do
+    case Integer.parse(process_group_id) do
+      {value, ""} when value > 0 -> value
+      _other -> nil
+    end
+  end
+
+  defp positive_process_group_id(_process_group_id), do: nil
 
   @doc false
   @spec codex_command_for_test(String.t() | nil, String.t() | nil) :: String.t()
@@ -228,18 +283,9 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_worker_host(metadata, _worker_host), do: metadata
 
   defp notify_process_group_started(port, worker_host, callback) do
-    case port_metadata(port, worker_host)[:agent_process_group_id] do
-      process_group_id when is_binary(process_group_id) ->
-        case Integer.parse(process_group_id) do
-          {value, ""} when value > 0 -> callback.(value)
-          _ -> :ok
-        end
-
-      process_group_id when is_integer(process_group_id) and process_group_id > 0 ->
-        callback.(process_group_id)
-
-      _ ->
-        :ok
+    case positive_process_group_id(port_metadata(port, worker_host)[:agent_process_group_id]) do
+      process_group_id when is_integer(process_group_id) -> callback.(process_group_id)
+      nil -> :ok
     end
   end
 
@@ -266,15 +312,13 @@ defmodule Aiur.Codex.AppServerPort do
   defp maybe_put_provider_pid(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :root_pid, pid)
   defp maybe_put_provider_pid(provider, _pid), do: provider
 
-  defp maybe_put_provider_group(provider, pid) when is_binary(pid) do
-    case Integer.parse(pid) do
-      {value, ""} when value > 0 -> Map.put(provider, :process_group_id, value)
-      _ -> provider
+  defp maybe_put_provider_group(provider, pid) do
+    case positive_process_group_id(pid) do
+      process_group_id when is_integer(process_group_id) -> Map.put(provider, :process_group_id, process_group_id)
+      nil -> provider
     end
   end
 
-  defp maybe_put_provider_group(provider, pid) when is_integer(pid) and pid > 0, do: Map.put(provider, :process_group_id, pid)
-  defp maybe_put_provider_group(provider, _pid), do: provider
   defp maybe_put_remote(provider, worker_host) when is_binary(worker_host), do: Map.put(provider, :remote, true)
   defp maybe_put_remote(provider, _worker_host), do: provider
 

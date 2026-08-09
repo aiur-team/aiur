@@ -113,6 +113,61 @@ defmodule Aiur.Codex.AppServerPortTest do
 
       assert :ok = AppServerPort.stop_port(port)
     end
+
+    test "reaps the owned process group before closing the port" do
+      assert {:ok, port} = Adapter.start_port(File.cwd!(), "sleep 600")
+      metadata = AppServerPort.port_metadata(port)
+      process_group_id = String.to_integer(metadata.agent_process_group_id)
+      test_pid = self()
+
+      on_exit(fn ->
+        Aiur.Claude.RemoteControl.graceful_kill_process_group(process_group_id)
+      end)
+
+      assert :ok =
+               AppServerPort.stop_port(port, metadata,
+                 group_reaper: fn ^process_group_id ->
+                   send(test_pid, {:reap_group, process_group_id})
+                   {:ok, :reaped}
+                 end,
+                 port_closer: fn ^port ->
+                   send(test_pid, :close_port)
+                   Port.close(port)
+                 end
+               )
+
+      assert_receive first_event
+      assert first_event == {:reap_group, process_group_id}
+      assert_receive :close_port
+    end
+
+    test "keeps the port open when the owned process group remains alive" do
+      assert {:ok, port} = Adapter.start_port(File.cwd!(), "sleep 600")
+      metadata = AppServerPort.port_metadata(port)
+      process_group_id = String.to_integer(metadata.agent_process_group_id)
+      test_pid = self()
+
+      on_exit(fn ->
+        if :erlang.port_info(port) != :undefined, do: Port.close(port)
+        Aiur.Claude.RemoteControl.graceful_kill_process_group(process_group_id)
+      end)
+
+      assert {:error, :group_alive} =
+               AppServerPort.stop_port(port, metadata,
+                 group_reaper: fn ^process_group_id ->
+                   send(test_pid, {:reap_group, process_group_id})
+                   {:error, :group_alive}
+                 end,
+                 tree_reaper: fn ^process_group_id -> send(test_pid, {:reap_tree, process_group_id}) end,
+                 group_alive?: fn ^process_group_id -> true end,
+                 port_closer: fn ^port -> send(test_pid, :close_port) end
+               )
+
+      assert_receive {:reap_group, ^process_group_id}
+      assert_receive {:reap_tree, ^process_group_id}
+      refute_receive :close_port
+      refute :erlang.port_info(port) == :undefined
+    end
   end
 
   defp open_cat_port do

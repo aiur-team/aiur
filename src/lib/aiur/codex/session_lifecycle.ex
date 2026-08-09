@@ -48,12 +48,17 @@ defmodule Aiur.Codex.SessionLifecycle do
 
   def register_pause_containment(_identifier, _metadata, _workspace), do: nil
 
-  @spec cleanup_port(port(), term() | nil) :: :ok
-  def cleanup_port(port, containment) do
-    AppServerPort.stop_port(port)
-  after
-    Rpc.clear_late_sensitive_responses(port)
-    PauseContainment.unregister(containment)
+  @spec cleanup_port(port(), term() | nil, map()) :: AppServerPort.stop_result()
+  def cleanup_port(port, containment, metadata) do
+    result =
+      try do
+        AppServerPort.stop_port(port, metadata)
+      after
+        Rpc.clear_late_sensitive_responses(port)
+      end
+
+    if result == :ok, do: PauseContainment.unregister(containment)
+    result
   end
 
   defp observe_rate_limits(port, session, handshake_opts) do

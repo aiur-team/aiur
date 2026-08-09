@@ -1,12 +1,16 @@
 defmodule Aiur.Codex.CodingAgentTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.AppServer.Adapter
   alias Aiur.AppServer.Rpc, as: AppServerRpc
-  alias Aiur.Codex.{AccountGeneration, CodingAgent, Frames, Handshake}
+  alias Aiur.Codex.{AccountGeneration, AppServerPort, CodingAgent, Frames, Handshake}
   alias Aiur.Codex.Rpc, as: CodexRpc
   alias Aiur.ProviderAccountGeneration
 
   @pgrep_skip_reason Aiur.TestSupport.pgrep_skip_reason()
+  @stderr_probe_skip_reason @pgrep_skip_reason ||
+                              if(File.exists?("/proc/self/fd/2"), do: false, else: "requires Linux /proc fd ownership")
+  @stderr_child_marker "aiur-stderr-lifecycle-child"
 
   describe "stop_session/1 reaps the app-server process tree" do
     @tag skip: @pgrep_skip_reason
@@ -64,6 +68,61 @@ defmodule Aiur.Codex.CodingAgentTest do
                })
 
       assert :undefined = :erlang.port_info(port)
+    end
+
+    @tag skip: @stderr_probe_skip_reason
+    @tag :tmp_dir
+    test "reaps a reparented same-group child before closing its stderr pipe", %{tmp_dir: tmp_dir} do
+      probe_path = Path.join(tmp_dir, "probe.log")
+      pid_path = Path.join(tmp_dir, "child.pid")
+
+      on_exit(fn ->
+        with {:ok, pid_string} <- File.read(pid_path),
+             {pid, ""} <- pid_string |> String.trim() |> Integer.parse(),
+             {:ok, cmdline} <- File.read("/proc/#{pid}/cmdline"),
+             true <- String.contains?(cmdline, @stderr_child_marker) do
+          System.cmd("kill", ["-KILL", Integer.to_string(pid)], stderr_to_stdout: true)
+        end
+      end)
+
+      expression = """
+      _marker = "#{@stderr_child_marker}"
+      probe_path = System.fetch_env!("AIUR_STDERR_PROBE")
+      standard_error = Process.whereis(:standard_error)
+
+      File.write!(
+        probe_path,
+        inspect(%{
+          group_leader: Process.group_leader(),
+          standard_error: standard_error,
+          fd2: File.read_link!("/proc/\#{System.pid()}/fd/2")
+        }) <> "\\n"
+      )
+
+      Process.sleep(10_000)
+      """
+
+      elixir = System.find_executable("elixir") || flunk("elixir executable unavailable")
+
+      command =
+        "AIUR_STDERR_PROBE=#{Aiur.Shell.escape(probe_path)} " <>
+          "#{Aiur.Shell.escape(elixir)} -e #{Aiur.Shell.escape(expression)} & " <>
+          "echo $! > #{Aiur.Shell.escape(pid_path)}; exit 0"
+
+      assert {:ok, port} = Adapter.start_port(File.cwd!(), command)
+      metadata = AppServerPort.port_metadata(port)
+
+      assert {:ok, {probe, child_pid}} = eventually_read_probe(probe_path, pid_path)
+      root_pid = metadata.codex_app_server_pid |> String.to_integer()
+      process_group_id = metadata.agent_process_group_id |> String.to_integer()
+
+      assert eventually(fn -> not os_alive?(root_pid) and os_alive?(child_pid) end)
+      assert process_group(child_pid) == process_group_id
+      assert probe =~ "standard_error: #PID"
+      assert probe =~ "pipe:["
+
+      assert :ok = CodingAgent.stop_session(%{port: port, metadata: metadata})
+      refute os_alive?(child_pid)
     end
   end
 
@@ -277,4 +336,40 @@ defmodule Aiur.Codex.CodingAgentTest do
   end
 
   defp os_alive?(pid), do: match?({_, 0}, System.cmd("kill", ["-0", Integer.to_string(pid)], stderr_to_stdout: true))
+
+  defp process_group(pid) do
+    case System.cmd("ps", ["-o", "pgid=", "-p", Integer.to_string(pid)], stderr_to_stdout: true) do
+      {output, 0} -> output |> String.trim() |> String.to_integer()
+      _ -> nil
+    end
+  end
+
+  defp eventually(assertion, attempts \\ 100)
+
+  defp eventually(assertion, attempts) when attempts > 0 do
+    if assertion.() do
+      true
+    else
+      Process.sleep(25)
+      eventually(assertion, attempts - 1)
+    end
+  end
+
+  defp eventually(_assertion, 0), do: false
+
+  defp eventually_read_probe(probe_path, pid_path, attempts \\ 100)
+
+  defp eventually_read_probe(probe_path, pid_path, attempts) when attempts > 0 do
+    with {:ok, probe} <- File.read(probe_path),
+         {:ok, pid_string} <- File.read(pid_path),
+         {pid, ""} <- pid_string |> String.trim() |> Integer.parse() do
+      {:ok, {probe, pid}}
+    else
+      _error ->
+        Process.sleep(25)
+        eventually_read_probe(probe_path, pid_path, attempts - 1)
+    end
+  end
+
+  defp eventually_read_probe(_probe_path, _pid_path, 0), do: :error
 end
