@@ -18,6 +18,23 @@ async function openUnits(page) {
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
 
+async function dragDialThroughAngles(page, dial, angles) {
+  const box = await dial.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * 30, y: cy + Math.sin(radians) * 30 }
+  }
+
+  await page.mouse.move(...Object.values(point(angles[0])))
+  await page.mouse.down()
+  for (const degrees of angles.slice(1)) {
+    await page.mouse.move(...Object.values(point(degrees)))
+  }
+  await page.mouse.up()
+}
+
 test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -63,6 +80,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
   const initialValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
 
   await knob.hover()
+  const scrollBeforeWheel = await page.evaluate(() => window.scrollY)
   // Scroll up → value should increase.
   await page.mouse.wheel(0, -100)
 
@@ -76,7 +94,7 @@ test('wheel event adjusts the knob value and does not scroll the page', async ({
 
   // Page must NOT have scrolled: the non-passive listener called preventDefault.
   const scrollY = await page.evaluate(() => window.scrollY)
-  expect(scrollY).toBe(0)
+  expect(scrollY).toBe(scrollBeforeWheel)
 })
 
 test('keyboard arrow keys adjust the focused knob value', async ({ page }) => {
@@ -277,6 +295,105 @@ test('dial and knob state survive a LiveView patch (regression for #1306)', asyn
   expect(valueAfterPatch).toBe(valueBeforePatch)
 })
 
+test('an active dial drag commits its final value after a LiveView patch', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  const keys = page.locator('#sd-keys')
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+  const eventCountBeforeDrag = await page.evaluate(() => window.__streamdeckGridEvents.length)
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 20, cy - 20)
+
+  const navToggle = page.getByRole('button', { name: /navigation/i }).first()
+  const navWasCollapsed = await navToggle.getAttribute('aria-pressed') === 'true'
+  await navToggle.dispatchEvent('click')
+  await expect(navToggle).toHaveAttribute('aria-pressed', String(!navWasCollapsed))
+
+  await page.mouse.move(cx + 30, cy)
+  await page.mouse.up()
+
+  const finalValue = await dialD.getAttribute('aria-valuenow')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', finalValue, { timeout: 1000 })
+  const releaseEvents = await page.evaluate(() => window.__streamdeckGridEvents)
+  expect(releaseEvents).toHaveLength(eventCountBeforeDrag + 1)
+  expect(releaseEvents.at(-1)).toMatchObject({ name: 'grid-page', payload: { value: Number(finalValue) } })
+})
+
+test('a cancelled dial drag emits no release commit', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+
+  const pointerId = await page.evaluate(
+    () => window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._knobs[3]._activePid,
+  )
+  await page.evaluate((id) => {
+    document.dispatchEvent(new PointerEvent('pointercancel', { bubbles: true, pointerId: id }))
+  }, pointerId)
+  await page.mouse.up()
+
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toHaveLength(0)
+  await expect.poll(async () => page.evaluate(() => window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._knobs[3].isDragging)).toBe(false)
+})
+
+test('destroying a dial without drag preservation emits no release commit', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'grid-page') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+
+  const box = await dialD.boundingBox()
+  const cx = box.x + box.width / 2
+  const cy = box.y + box.height / 2
+  await page.mouse.move(cx, cy - 30)
+  await page.mouse.down()
+  await page.mouse.move(cx + 30, cy)
+  await page.evaluate(() => {
+    window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._destroyKnobs(false)
+  })
+  await page.mouse.up()
+
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toHaveLength(0)
+})
+
 test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -287,14 +404,87 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.hover()
-  for (let step = 0; step < 17; step += 1) {
-    await page.mouse.wheel(0, -100)
+  const dialBox = await dialD.boundingBox()
+  const cx = dialBox.x + dialBox.width / 2
+  const cy = dialBox.y + dialBox.height / 2
+  const radius = Math.min(dialBox.width, dialBox.height) / 3
+  const point = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: cx + Math.cos(radians) * radius, y: cy + Math.sin(radians) * radius }
   }
 
-  await expect(dialD).toHaveAttribute('aria-valuenow', '68')
+  await page.mouse.move(...Object.values(point(-90)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(point(0)))
+  await page.mouse.move(...Object.values(point(90)))
+  await page.mouse.move(...Object.values(point(126)))
+  await page.mouse.up()
+
   await expect(keys).toHaveAttribute('data-grid-page', '1')
-  await expect(keys.locator('[data-streamdeck-identifier="1370"]')).toBeVisible()
+  const dialValue = parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
+  expect(dialValue).toBeGreaterThanOrEqual(75)
+  expect(dialValue).toBeLessThanOrEqual(85)
+  await expect(dialD).toHaveAttribute('aria-valuenow', String(dialValue))
+  await expect(keys.locator('.sd-key:not(.is-empty)')).toHaveCount(8)
+  await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
   await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+
+  const angleBeforeCycle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '2')
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '100')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '100')
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
+  expect(await dialD.evaluate((element) => element.style.getPropertyValue('--a'))).toBe(angleBeforeCycle)
+
+  await dialD.hover()
+  await page.mouse.wheel(0, 100)
+  await expect(dialD).toHaveAttribute('aria-valuenow', '96')
+  const angleAfterWheel = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
+  expect(angleAfterWheel).toBeLessThan(parseFloat(angleBeforeCycle))
+
+  await dialD.focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '92')
+  const angleAfterKey = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
+  expect(angleAfterKey).toBeLessThan(angleAfterWheel)
+
+  const dragBox = await dialD.boundingBox()
+  const dragCx = dragBox.x + dragBox.width / 2
+  const dragCy = dragBox.y + dragBox.height / 2
+  const dragRadius = Math.min(dragBox.width, dragBox.height) / 3
+  const dragPoint = (degrees) => {
+    const radians = (degrees * Math.PI) / 180
+    return { x: dragCx + Math.cos(radians) * dragRadius, y: dragCy + Math.sin(radians) * dragRadius }
+  }
+  await page.mouse.move(...Object.values(dragPoint(0)))
+  await page.mouse.down()
+  await page.mouse.move(...Object.values(dragPoint(-30)))
+  await page.mouse.up()
+  await expect.poll(async () => parseInt(await dialD.getAttribute('aria-valuenow'), 10)).toBeLessThan(92)
+  const angleAfterDrag = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
+  expect(angleAfterDrag).toBeLessThan(angleAfterKey)
+
+})
+
+test('an acknowledged grid cycle cannot overwrite a later server page patch', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const keys = page.locator('#sd-keys')
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(keys).toHaveAttribute('data-grid-page', '1')
+  await expect.poll(() => page.evaluate(() =>
+    window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))._pendingPageDialValue
+  )).toBe(null)
+
+  await page.evaluate(() => {
+    window.liveSocket.main
+      .getHook(document.querySelector('#streamdeck-page'))
+      .pushEvent('grid-page', { value: 0 })
+  })
+  await expect(keys).toHaveAttribute('data-grid-dial-value', '0')
+  await expect(dialD).toHaveAttribute('aria-valuenow', '0')
 })
 
 test('emulator and Units stay in sync after a live fleet-size change', async ({ page, context }) => {
@@ -329,7 +519,7 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await units.close()
 })
 
-test('logs mode scrolls event and transcript panes within real bounds', async ({ page }) => {
+test('logs mode scrolls classified feed events and flattened transcript panes within real bounds', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
@@ -348,11 +538,43 @@ test('logs mode scrolls event and transcript panes within real bounds', async ({
   await dialA.hover()
   await page.mouse.wheel(0, -100)
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-log-transcript')).toContainText('transcript-2')
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-max-offset', '18')
+  await expect(page.locator('#sd-log-transcript [data-log-kind="message"]')).toContainText('event-10')
 
   await page.mouse.wheel(0, 1000)
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+})
+
+test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  const dialA = page.locator('.sd-knob').first()
+  await dragDialThroughAngles(page, dialA, [-90, 0, 90])
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+
+  await dragDialThroughAngles(page, dialA, [90, 0, -90])
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+})
+
+test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await dragDialThroughAngles(page, dialD, [-90, 0, 90])
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+
+  await dragDialThroughAngles(page, dialD, [90, 0, -90])
+  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
 })
 
 test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
@@ -362,6 +584,130 @@ test('touch strip exposes provider percentages, not only window counts', async (
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
   await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
+})
+
+test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await openStreamdeck(page)
+
+  const device = page.locator('.sd-device')
+  const keys = page.locator('.sd-keys')
+  const desktopGeometry = await page.evaluate(() => {
+    const device = document.querySelector('.sd-device')
+    const keys = document.querySelector('.sd-keys')
+    const key = keys.querySelector('.sd-key')
+    const deviceStyle = getComputedStyle(device)
+    const keysStyle = getComputedStyle(keys)
+    const keyBox = key.getBoundingClientRect()
+
+    return {
+      device: {
+        width: device.getBoundingClientRect().width,
+        maxWidth: deviceStyle.maxWidth,
+        borderRadius: deviceStyle.borderRadius,
+        backgroundImage: deviceStyle.backgroundImage,
+        borderColor: deviceStyle.borderColor,
+        boxShadow: deviceStyle.boxShadow
+      },
+      columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
+      columnGap: keysStyle.columnGap,
+      rowGap: keysStyle.rowGap,
+      keyRatio: keyBox.width / keyBox.height,
+      states: Object.fromEntries(['running', 'paused', 'stuck', 'alert', 'queued'].map((state) => {
+        const key = document.createElement('div')
+        const face = document.createElement('div')
+        key.className = `sd-key st-${state}`
+        face.className = 'sd-key-face'
+        key.appendChild(face)
+        document.body.appendChild(key)
+        const styles = [getComputedStyle(key).backgroundImage, getComputedStyle(face).backgroundImage]
+        key.remove()
+        return [state, styles]
+      })),
+      pressShadow: (() => {
+        const knob = document.querySelector('.sd-knob')
+        knob.classList.add('press')
+        const boxShadow = getComputedStyle(knob).boxShadow
+        knob.classList.remove('press')
+        return boxShadow
+      })()
+    }
+  })
+
+  expect(desktopGeometry.device.width).toBeCloseTo(620, 0)
+  expect(desktopGeometry.device.maxWidth).toBe('620px')
+  expect(desktopGeometry.device.borderRadius).toBe('34px')
+  expect(desktopGeometry.device.borderColor).toBe('rgba(255, 255, 255, 0.06)')
+  expect(desktopGeometry.device.backgroundImage).toContain('rgb(42, 43, 46)')
+  expect(desktopGeometry.device.backgroundImage).toContain('0%')
+  expect(desktopGeometry.device.backgroundImage).toContain('rgb(32, 31, 34) 55%')
+  expect(desktopGeometry.device.backgroundImage).toContain('rgb(22, 21, 23)')
+  expect(desktopGeometry.device.boxShadow).toContain('rgba(0, 0, 0, 0.5) 0px 30px 70px 0px')
+  expect(desktopGeometry.device.boxShadow).toContain('rgba(255, 255, 255, 0.06) 0px 1px 0px 0px inset')
+  expect(desktopGeometry.columns).toBe(4)
+  expect(desktopGeometry.columnGap).toBe('30.4px')
+  expect(desktopGeometry.rowGap).toBe('16px')
+  expect(desktopGeometry.keyRatio).toBeCloseTo(1, 2)
+  expect(desktopGeometry.states.running[0]).toContain('rgb(63, 139, 255)')
+  expect(desktopGeometry.states.running[1]).toContain('rgb(24, 33, 45)')
+  expect(desktopGeometry.states.paused[0]).toContain('rgb(74, 77, 85)')
+  expect(desktopGeometry.states.paused[1]).toContain('rgb(30, 32, 37)')
+  expect(desktopGeometry.states.stuck[0]).toContain('rgb(255, 106, 94)')
+  expect(desktopGeometry.states.stuck[1]).toContain('rgb(39, 19, 23)')
+  expect(desktopGeometry.states.alert[0]).toContain('rgb(255, 192, 97)')
+  expect(desktopGeometry.states.alert[1]).toContain('rgb(36, 29, 14)')
+  expect(desktopGeometry.states.queued[0]).toContain('rgb(58, 63, 71)')
+  expect(desktopGeometry.states.queued[1]).toContain('rgb(25, 27, 33)')
+  expect(desktopGeometry.pressShadow).toContain('rgba(0, 0, 0, 0.6) 0px 3px 7px 0px')
+  expect(desktopGeometry.pressShadow).toContain('rgba(255, 255, 255, 0.5) 0px 0px 0px 2px inset')
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop.png') })
+
+  const darkSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
+    const style = getComputedStyle(document.querySelector(selector))
+    return [selector, style.backgroundImage, style.borderColor, style.boxShadow]
+  }))
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  const lightSurface = await page.evaluate(() => ['.sd-device', '.sd-key.st-running', '.sd-key.st-running .sd-key-face', '.sd-screen', '.sd-well', '.sd-knob'].map((selector) => {
+    const style = getComputedStyle(document.querySelector(selector))
+    return [selector, style.backgroundImage, style.borderColor, style.boxShadow]
+  }))
+  expect(lightSurface).toEqual(darkSurface)
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-desktop-light.png') })
+
+  await page.locator('html').evaluate((html) => html.removeAttribute('data-theme'))
+  await page.setViewportSize({ width: 540, height: 900 })
+  const mobileGeometry = await page.evaluate(() => {
+    const device = document.querySelector('.sd-device')
+    const keys = document.querySelector('.sd-keys')
+    const key = keys.querySelector('.sd-key')
+    const style = getComputedStyle(device)
+    const keysStyle = getComputedStyle(keys)
+    const keyBox = key.getBoundingClientRect()
+    const wellStyle = getComputedStyle(document.querySelector('.sd-well'))
+
+    return {
+      paddingTop: style.paddingTop,
+      borderRadius: style.borderRadius,
+      gap: style.gap,
+      wellPadding: wellStyle.padding,
+      columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
+      columnGap: keysStyle.columnGap,
+      rowGap: keysStyle.rowGap,
+      keyRatio: keyBox.width / keyBox.height
+    }
+  })
+
+  expect(mobileGeometry.paddingTop).toBe('17.6px')
+  expect(mobileGeometry.borderRadius).toBe('24px')
+  expect(mobileGeometry.gap).toBe('16px')
+  expect(mobileGeometry.wellPadding).toBe('14.4px 12.8px')
+  expect(mobileGeometry.columns).toBe(4)
+  expect(mobileGeometry.columnGap).toBe('8.8px')
+  expect(mobileGeometry.rowGap).toBe('8.8px')
+  expect(mobileGeometry.keyRatio).toBeCloseTo(1, 2)
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile.png') })
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile-light.png') })
 })
 
 test('Stream Deck emulator passes automated accessibility checks', async ({ page }) => {

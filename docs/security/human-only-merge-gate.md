@@ -3,7 +3,9 @@
 `human-only-merge-gate` protects both `main` and `develop`. It requires a
 pull request, an approval from a CODEOWNER, and an approval by someone other
 than the most recent pusher. Pushing a reviewable commit dismisses existing
-approvals. The ruleset has no bypass actors.
+approvals. It also requires every blocking CI check to pass, with strict status
+checks enabled so the pull request must be up to date with its target branch.
+The ruleset has no bypass actors.
 
 The reviewed API declaration is
 [`human-only-merge-ruleset.json`](human-only-merge-ruleset.json). An operator
@@ -13,10 +15,12 @@ with GitHub repository-administration permission applies or updates it with:
 scripts/apply-human-only-merge-ruleset.sh
 ```
 
-The declaration also requires every blocking CI job to succeed, with GitHub
-Actions fixed as the expected check source. Branches do not need to be rebased
-onto the latest target-branch commit before merging, but the exact proposed
-head commit must have successful checks.
+The declaration requires every blocking CI job to succeed, with GitHub Actions
+fixed as the expected check source. The required `workflow security` check is
+the CI job that runs the ruleset verifier itself; `build` and `test` are also
+explicitly required alongside the remaining blocking jobs. Strict status
+checks mean the exact proposed head must be tested after the branch is brought
+up to date with its target branch.
 
 `scripts/verify-human-only-merge-ruleset.sh` lets an administrator verify the
 live GitHub ruleset on demand. It is deliberately not run in CI: GitHub hides
@@ -28,8 +32,30 @@ to be present and exactly `[]`. Missing or `null` properties fail the audit:
 an omitted `bypass_actors` property means the credential cannot prove that
 the live ruleset has no bypass.
 
-The daemon's merge attribution is defense in depth, not permission to bypass
-this gate: GitHub remains authoritative about whether a merge occurred.
+A read-only drift check (`scripts/verify-human-only-merge-ruleset-live.sh`)
+runs in CI on every pull request and merge as the `merge ruleset drift` check.
+It verifies every property a read-only token can see — that the ruleset
+actively protects `main` and `develop`, that the `pull_request` rule requires
+current CODEOWNER approval and dismisses stale reviews, and that the
+`required_status_checks` rule matches the declaration exactly (the blocking
+GitHub Actions contexts, their integration source, enforcement-on-create, and
+strict status checks) — so a regressed gate fails CI visibly instead of
+silently. It does not assert `bypass_actors`, which GitHub hides from read-only
+tokens and the admin verifier audits at apply time. The drift check is not yet
+a required status check: promoting it requires adding its context to the
+reviewed declaration and applying the updated ruleset.
+
+Aiur does not merge worker pull requests as part of the worker lifecycle. The
+Executor's documented landing path, whether driven by a human or by an agent
+acting as Executor, follows this same gate: it waits for the required GitHub
+status checks and review conditions before issuing a squash merge. It does not
+use auto-merge or a bypass actor, and it cannot merge a stale, pending, or
+failing head. The application itself has no merge path to guard — the daemon
+and CLI never issue a merge, they only observe and attribute `pr_merged`
+events — so the CI drift check is the automated enforcement mechanism, not an
+application-side guard. GitHub remains authoritative about whether a merge
+occurred. The daemon's merge attribution is defense in depth, not permission to
+bypass this gate.
 `tracker.github.human_mergers` is a distinct, explicit allowlist for human
 mergers. It does not inherit CODEOWNERS, `bot_account`, `trusted_accounts`, or
 the dispatch `allowed_users`; absent configuration denies every merger and

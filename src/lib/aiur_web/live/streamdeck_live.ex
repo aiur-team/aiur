@@ -6,18 +6,19 @@ defmodule AiurWeb.StreamdeckLive do
   Stream Deck API and subscribes to the fleet topics so browser state follows
   the dashboard. Key presses use the existing AgentChat control facade; the
   orchestrator remains the authority for the resulting pause/resume state.
+
+  Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
+  and projects the durable classified feed (`AgentEventFeed`) through the
+  flattened two-line model in `StreamdeckLogs`. The production path reads the
+  real feed; `streamdeck_logs_fun` exists only as a test seam.
   """
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.AgentChat
-  alias Aiur.AgentPubSub
-  alias Aiur.Orchestrator
+  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.Endpoint
+  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
-  alias AiurWeb.StreamDeckGrid
-  alias AiurWeb.StreamdeckProjection
 
   @impl true
   def mount(_params, _session, socket) do
@@ -29,18 +30,25 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:grid_page, 0)
       |> assign(:grid_column_offset, 0)
       |> assign(:grid_dial_value, 0)
-      |> assign(:logs, load_logs())
+      |> assign(:transcript_relay, nil)
+      |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> refresh_grid()
 
-    if connected?(socket) do
-      :ok = AgentPubSub.subscribe_running()
-      :ok = AgentPubSub.subscribe_status()
-      :ok = ProviderMeterEvents.subscribe_observed()
-      maybe_subscribe_fixture_fleet()
-    end
+    socket = assign(socket, :logs, load_logs(socket.assigns.selected_identifier))
+
+    socket =
+      if connected?(socket) do
+        :ok = AgentPubSub.subscribe_running()
+        :ok = AgentPubSub.subscribe_status()
+        :ok = ProviderMeterEvents.subscribe_observed()
+        maybe_subscribe_fixture_fleet()
+        replace_transcript_relay(socket, nil, socket.assigns.selected_identifier)
+      else
+        socket
+      end
 
     {:ok, socket}
   end
@@ -55,7 +63,7 @@ defmodule AiurWeb.StreamdeckLive do
     page = parse_integer(page, socket.assigns.grid_page)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
-    maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    socket = focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
   end
 
@@ -63,7 +71,7 @@ defmodule AiurWeb.StreamdeckLive do
     value = parse_integer(value, socket.assigns.grid_dial_value)
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_dial(socket, value)
-    maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    socket = focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
   end
 
@@ -71,7 +79,7 @@ defmodule AiurWeb.StreamdeckLive do
     page = rem(socket.assigns.grid_page + 1, max(socket.assigns.grid.windows, 1))
     previous_identifier = socket.assigns.selected_identifier
     socket = assign_grid_window(socket, page)
-    maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    socket = focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
     {:noreply, socket}
   end
 
@@ -98,13 +106,11 @@ defmodule AiurWeb.StreamdeckLive do
 
   @impl true
   def handle_info({:running_changed, _summaries}, socket) do
-    socket = refresh_grid(socket)
-    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Fleet running state updated"))}
+    {:noreply, refresh_grid(socket)}
   end
 
-  def handle_info({:status_changed, %{identifier: identifier}}, socket) do
-    socket = refresh_grid(socket)
-    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Agent ##{identifier} status updated"))}
+  def handle_info({:status_changed, %{identifier: _identifier}}, socket) do
+    {:noreply, refresh_grid(socket)}
   end
 
   def handle_info(:streamdeck_fixture_fleet_changed, socket) do
@@ -112,12 +118,15 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_info({:provider_meter_changed, _snapshot}, socket) do
-    socket = refresh_grid(socket)
-    {:noreply, assign(socket, :logs, append_log_event(socket.assigns.logs, "Provider usage updated"))}
+    {:noreply, refresh_grid(socket)}
   end
 
-  def handle_info({:transcript_event, event}, socket) when is_map(event) do
-    {:noreply, assign(socket, :logs, append_transcript(socket.assigns.logs, event))}
+  def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, assign(socket, :logs, load_logs(identifier))}
+    else
+      {:noreply, socket}
+    end
   end
 
   @impl true
@@ -133,8 +142,12 @@ defmodule AiurWeb.StreamdeckLive do
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode="grid">
           <header class="sd-brand">
-            <span class="sd-brand-mark" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-            <span>STREAM DECK</span>
+            <svg class="sd-brand-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2" />
+              <path d="M15 12a3 3 0 1 0-3 3" stroke="#fff" stroke-width="2" fill="none" />
+              <circle cx="12" cy="12" r="2" fill="#fff" />
+            </svg>
+            <span class="sd-brand-name">STREAM DECK</span>
           </header>
 
           <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
@@ -186,17 +199,17 @@ defmodule AiurWeb.StreamdeckLive do
             </ul>
           </div>
 
-          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" role="log" aria-label="Agent logs" aria-hidden="true">
+          <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" data-focused-identifier={@selected_identifier} role="log" aria-label="Agent logs" aria-hidden="true">
             <p class="sd-mode-label">Logs</p>
             <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-              <p :for={line <- @logs.events_visible} class="sd-log-line">{line}</p>
+              <p :for={event <- @logs.events_visible} class="sd-log-line">{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
               <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
               <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
             </div>
             <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
               <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
-              <p :for={line <- @logs.transcript_visible} class="sd-log-line">{line}</p>
+              <p :for={entry <- @logs.transcript_visible} class="sd-log-line" data-log-kind={entry.kind}>{StreamdeckLogs.line(entry)}</p>
               <p :if={@logs.transcript_visible == []} class="sd-log-line">No recent transcript.</p>
               <span id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             </div>
@@ -246,11 +259,12 @@ defmodule AiurWeb.StreamdeckLive do
     column_offset = column_offset_from_dial(dial_value, grid.total)
     socket = assign_grid(socket, grid, column_offset, usage, dial_value)
 
-    if connected?(socket) do
-      maybe_resubscribe_agent(previous_identifier, socket.assigns.selected_identifier)
+    if connected?(socket) and is_binary(previous_identifier) and
+         previous_identifier != socket.assigns.selected_identifier do
+      focus_logs(socket, previous_identifier, socket.assigns.selected_identifier)
+    else
+      socket
     end
-
-    socket
   end
 
   defp assign_grid(socket, grid, column_offset, usage, dial_value) do
@@ -421,8 +435,7 @@ defmodule AiurWeb.StreamdeckLive do
     if Enum.any?(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       previous_identifier = socket.assigns.selected_identifier
       socket = assign(socket, :selected_identifier, identifier)
-      maybe_resubscribe_agent(previous_identifier, identifier)
-      socket
+      focus_logs(socket, previous_identifier, identifier)
     else
       socket
     end
@@ -435,66 +448,37 @@ defmodule AiurWeb.StreamdeckLive do
     offset_key = String.to_existing_atom("#{axis}_offset")
     max_key = String.to_existing_atom("#{axis}_max_offset")
     offset = clamp(Map.fetch!(logs, offset_key) + delta, 0, Map.fetch!(logs, max_key))
-    assign(socket, :logs, logs |> Map.put(offset_key, offset) |> visible_logs())
+    assign(socket, :logs, logs |> Map.put(offset_key, offset) |> StreamdeckLogs.visible())
   rescue
     _ -> socket
   end
 
-  defp append_transcript(logs, event) do
-    logs
-    |> Map.update!(:transcript, &(&1 ++ [log_line(event)]))
-    |> Map.put(:transcript_max_offset, max(length(logs.transcript) + 1 - 4, 0))
-    |> visible_logs()
-  end
-
-  defp append_log_event(logs, line) do
-    logs
-    |> Map.update!(:events, &(&1 ++ [line]))
-    |> Map.put(:events_max_offset, max(length(logs.events) + 1 - 4, 0))
-    |> visible_logs()
-  end
-
-  defp visible_logs(logs) do
-    logs
-    |> Map.put(:events_visible, Enum.slice(logs.events, logs.events_offset, 4))
-    |> Map.put(:transcript_visible, Enum.slice(logs.transcript, logs.transcript_offset, 4))
-  end
-
-  defp load_logs do
-    raw =
+  defp load_logs(identifier) when is_binary(identifier) do
+    entries =
       case endpoint_config(:streamdeck_logs_fun) do
-        fun when is_function(fun, 0) -> safe_call(fun, %{})
-        _ -> %{}
+        fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
+        fun when is_function(fun, 0) -> safe_call(fun, [])
+        _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
       end
 
-    events = raw |> get_value("events", []) |> Enum.map(&log_line/1)
-    transcript = raw |> get_value("transcript", []) |> Enum.map(&log_line/1)
-
-    %{
-      events: events,
-      transcript: transcript,
-      events_offset: 0,
-      events_max_offset: max(length(events) - 4, 0),
-      transcript_offset: 0,
-      transcript_max_offset: max(length(transcript) - 4, 0)
-    }
-    |> visible_logs()
+    entries
+    |> log_entries()
+    |> StreamdeckLogs.project()
   end
 
-  defp log_line(%{} = event) do
-    role = get_value(event, "role")
-    body = get_value(event, "body", get_value(event, "message", ""))
-    "[#{role || "event"}] #{body}"
+  defp load_logs(_identifier), do: StreamdeckLogs.project([])
+
+  defp agent_event_feed(identifier) do
+    case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+      {:ok, %{events: events}} -> events
+      _ -> []
+    end
   end
 
-  defp log_line(line), do: to_string(line)
-
-  defp maybe_subscribe_agent(identifier) when is_binary(identifier) do
-    _ = AgentPubSub.subscribe_agent(identifier)
-    :ok
-  end
-
-  defp maybe_subscribe_agent(_identifier), do: :ok
+  defp log_entries(%{events: events}) when is_list(events), do: events
+  defp log_entries(%{"events" => events}) when is_list(events), do: events
+  defp log_entries(entries) when is_list(entries), do: entries
+  defp log_entries(_entries), do: []
 
   defp maybe_subscribe_fixture_fleet do
     if endpoint_config(:streamdeck_fixture_fleet) do
@@ -502,13 +486,6 @@ defmodule AiurWeb.StreamdeckLive do
     end
 
     :ok
-  end
-
-  defp maybe_resubscribe_agent(previous, current) when previous == current, do: :ok
-
-  defp maybe_resubscribe_agent(previous, current) do
-    if is_binary(previous), do: AgentPubSub.unsubscribe_agent(previous)
-    maybe_subscribe_agent(current)
   end
 
   defp selected_identifier(socket, grid, visible_agents) do
@@ -668,6 +645,35 @@ defmodule AiurWeb.StreamdeckLive do
         angle: if(windows > 0, do: dial_value / 100 * 270 - 135, else: -135)
       }
     ]
+  end
+
+  defp replace_transcript_relay(socket, previous_identifier, identifier) do
+    if previous_identifier != identifier and is_pid(socket.assigns[:transcript_relay]) do
+      _ = GenServer.stop(socket.assigns.transcript_relay, :normal)
+    end
+
+    relay =
+      if connected?(socket) and is_binary(identifier) and previous_identifier != identifier do
+        {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
+        relay
+      else
+        socket.assigns[:transcript_relay]
+      end
+
+    assign(socket, :transcript_relay, relay)
+  end
+
+  defp focus_logs(socket, previous_identifier, identifier) when previous_identifier != identifier do
+    socket
+    |> assign(:logs, load_logs(identifier))
+    |> replace_transcript_relay(previous_identifier, identifier)
+  end
+
+  defp focus_logs(socket, _previous_identifier, _identifier), do: socket
+
+  defp transcript_flush_ms do
+    Endpoint.config(:streamdeck_transcript_flush_ms) ||
+      Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
   end
 
   # Dial 0 presses BACK, dial 3 cycles the focused window. Labels convey this.

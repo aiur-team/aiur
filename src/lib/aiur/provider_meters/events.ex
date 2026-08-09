@@ -9,13 +9,13 @@ defmodule Aiur.ProviderMeters.Events do
   # name without one. The payload is identical; only the addressing differs.
   @fanout_topic "provider_meters:observed"
 
-  @spec topic(atom(), :app_server, String.t()) :: String.t()
+  @spec topic(atom(), atom(), String.t()) :: String.t()
   def topic(provider, backend, generation), do: "provider_meters:#{provider}:#{backend}:#{generation}"
 
   @spec fanout_topic() :: String.t()
   def fanout_topic, do: @fanout_topic
 
-  @spec subscribe(atom(), :app_server, String.t()) :: :ok | {:error, :subscription_unavailable}
+  @spec subscribe(atom(), atom(), String.t()) :: :ok | {:error, :subscription_unavailable}
   def subscribe(provider, backend, generation) do
     subscribe_topic(topic(provider, backend, generation))
   end

@@ -8,6 +8,7 @@ tracker:
     - merging
   terminal_states:
     - done
+    - closed
     - cancelled
     - canceled
   github:
@@ -70,6 +71,14 @@ agent:
   kind: codex
   max_concurrent_agents: 2
   max_turns: 12
+  # Cold backend switches continue from workspace context; provider transcripts
+  # are never transferred across backends.
+  prior_work_continuation: true
+  # Direct OpenAI-compatible instances use keys from the environment (prefer
+  # ~/.aiur/.env) and can be enabled/selected without adding provider unions:
+  # backend_configs:
+  #   deepseek: {enabled: false}
+  #   openrouter: {model: moonshotai/kimi-k2.7-code}
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
   # unlabeled issues fall back to `kind`; a `model:<backend>` issue label

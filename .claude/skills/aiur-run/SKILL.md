@@ -405,29 +405,35 @@ the work itself (proven repeatedly in the 2026-07 analytics-streamdeck run):
    patching more instances, recording the reproductions that justify it. At
    most 1-2 evidence-backed systemic tickets per pattern, and never expand the
    active feature boundary with them;
-4. file the findings; do not merely write them down. A finding recorded without
-   a ticket number is not a completed retrospective — prose in a document is a
-   record, not a repair, and the only thing converting it into a ticket is the
-   Executor remembering. The 2026-07/08 run produced 71 findings and 23 of them
-   reached no ticket at all. Append every finding to the ledger below, and
-   before ending the retrospective confirm each one carries either a ticket
-   number or an explicit deliberate-skip note;
-5. write the narrative entry — bottleneck, number, proposed reduction, filed vs
-   deferred — in a durable retrospective log (e.g.
-   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
-   branch); a replacement Executor resumes from it;
-6. daily, review the accumulated notes and ask whether any Aiur skill should
+4. write and file the durable judgment in the repository state node: write the
+   narrative retrospective to
+   `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md` and pass each
+   actionable JSON record through `aiurdev findings --record '<json>' --repo
+   <owner>/<repo>`. This validated writer enforces the schema and atomic 4 KiB
+   cap; never append the ledger directly. Include the reusable slug, evidence
+   references, status, and ticket number (or `ticket: null` until it is filed).
+   A finding without a ticket is not a completed retrospective:
+   `aiurdev findings --unfiled` is the gate before treating the review as done.
+   Raw state remains host-local; periodically run `mkdir -p docs/executor &&
+   aiurdev findings --digest > docs/executor/open-findings.md`, inspect the
+   regenerated file, and commit it to share the digest between machines;
+5. daily, review the accumulated notes and ask whether any Aiur skill should
    change so the next run never rediscovers the lesson; land the concrete
    skill-doc edit as a small PR.
 
-The findings ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`
-(create the directory if it is absent): one JSON object per line, each line hard
-capped at 4 KiB so `O_APPEND` stays atomic when two Executor instances share a
-host. Cite evidence by reference — an issue number, a log path plus line —
-never a pasted log dump, which is also what keeps a record inside the cap.
+The findings ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`.
+`aiur init` creates it and its parent directories. It holds one JSON object per
+line, each hard-capped at 4 KiB so `O_APPEND` stays atomic when two Executor
+instances share a host. Cite evidence by reference - an issue number or a log
+path plus line - never a pasted log dump.
+
+Always write through `aiurdev findings --record '<json>' --repo <owner>/<repo>`.
+Use `mkdir -p docs/executor && aiurdev findings --digest >
+docs/executor/open-findings.md` for the cross-machine Markdown projection; do
+not hand-edit that generated digest or write directly to the NDJSON ledger.
 
 ```json
-{"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":"#1442; ~/.aiur/logs/agent-1442.log:8812","cost":"5.8h","ticket":1451,"status":"filed"}
+{"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":["#1442","~/.aiur/logs/agent-1442.log:8812"],"cost":"5.8h","ticket":1451,"status":"filed"}
 ```
 
 `slug` is a reusable kebab join key, so the same finding observed twice groups
@@ -435,13 +441,8 @@ into a recurrence count instead of a second entry to triage — that is what tur
 the "3+ reproductions" rule above into a number you can read rather than one you
 must remember. `scope` is `aiur` when the finding reproduces on any repository
 and `repo` when it names this repository's tests, CI, or code. `status` moves
-`open` -> `filed` -> `resolved`. A record left at `ticket: null` with no
-deliberate-skip note is a bug in the retrospective, not an accepted state.
-
-Issue #1464 is landing this as product: schema validation, an
-`aiurdev findings --unfiled` query, and `aiur init` creating the tree. Until it
-ships the Executor writes the file directly. Keep the path and the record shape
-identical so no migration is needed.
+`open` -> `filed` -> `resolved`. A record left at `ticket: null` is deliberately
+visible to the unfiled gate, not an accepted completed state.
 
 ### Merge mechanics
 
@@ -453,14 +454,19 @@ push already carries the wrong identity. Push agent work with an explicit
 token-bearing URL from the start, and open agent PRs with the agent token —
 GitHub counts the PR **opener** for self-approval, not the commit author.
 
-The ruleset has no `required_status_checks` rule, so nothing blocks merging with
-failing CI; verify checks by hand before every merge. A solo operator also
-cannot merge `develop` -> `main` through the gate (issue #1437): with a
+The declaration requires every blocking CI job as required status checks,
+including `build`, `test`, and `workflow security`, with strict status checks
+enabled, and the gate is enforced once that declaration is applied to the live
+ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
+that declaration on every PR and merge, so a regressed gate fails CI visibly.
+The Executor must wait for the required checks and the review conditions before
+merging; never merge a pending, failing, or stale head. A solo operator also
+cannot merge `develop` -> `main` through the review gate (issue #1437): with a
 two-owner CODEOWNERS plus `require_code_owner_review` and
-`require_last_push_approval`, `--admin` does not bypass it. The documented
-workaround is a ruleset window — back up the ruleset, disable, merge, restore,
-then **re-read the ruleset to verify restoration** instead of trusting the
-write.
+`require_last_push_approval`, `--admin` does not bypass it. Any maintenance
+procedure for that issue must preserve the required-status-check rule; never
+disable the whole ruleset as a merge workaround. Re-read the live ruleset after
+any approved review-side maintenance change instead of trusting the write.
 
 ### Ticket close-out
 
