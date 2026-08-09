@@ -29,14 +29,41 @@ defmodule Aiur.Init.Questions do
         # The global config is general, so it omits the repo (auto-detected
         # from the git remote of whatever repo aiur runs in).
         repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.(), nil)
-        %{kind: "github", repo: repo}
+        %{kind: "github", repo: repo, base_branch: prompt_base_branch(io, deps, repo)}
 
       "linear" ->
         %{
           kind: "linear",
           api_key: io.input.("Linear API key", nil, nil),
-          project_slug: io.input.("Linear project slug", nil, nil)
+          project_slug: io.input.("Linear project slug", nil, nil),
+          base_branch: prompt_base_branch(io, deps, nil)
         }
+    end
+  end
+
+  defp prompt_base_branch(io, deps, repo) do
+    prompt_base_branch(io, deps.detect_default_branch.(repo))
+  end
+
+  defp prompt_base_branch(io, api_default) do
+    case io.input.("Tracker base branch", api_default, "required; defaults to the repository default branch read from GitHub") do
+      branch when is_binary(branch) ->
+        case String.trim(branch) do
+          "" ->
+            io.puts.("Tracker base branch is required; Aiur will not guess one.")
+            prompt_base_branch(io, api_default)
+
+          configured ->
+            if configured == api_default do
+              io.puts.("Using repository default branch from GitHub API: #{configured}")
+            end
+
+            configured
+        end
+
+      _missing ->
+        io.puts.("Tracker base branch is required; Aiur will not guess one.")
+        prompt_base_branch(io, api_default)
     end
   end
 

@@ -19,7 +19,7 @@ defmodule Aiur.Events.UniversalSubscriptions do
 
   @spec topics(String.t()) :: [{String.t(), String.t()}]
   def topics(identifier) when is_binary(identifier) do
-    base_branch = base_branch_name()
+    base_branch = Config.base_branch()
 
     [
       {"system." <> base_branch <> ".branch.push", "base_branch:auto"},
@@ -29,13 +29,6 @@ defmodule Aiur.Events.UniversalSubscriptions do
       {"ticket." <> identifier <> ".ci.failed", "ci_status:auto"},
       {"ticket." <> identifier <> ".operator.progress_request", "progress_checkin:auto"}
     ]
-  end
-
-  defp base_branch_name do
-    case Config.settings!() do
-      %{tracker: %{base_branch: name}} when is_binary(name) and name != "" -> name
-      _ -> "main"
-    end
   end
 
   defp safe_attach(subscription_store, identifier) do

@@ -104,6 +104,7 @@ defmodule Aiur.InitTest do
         end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
+        detect_default_branch: fn _repo -> "main" end,
         setup_repo_state: fn tracker ->
           send(parent, {:repo_state, tracker})
           :ok
@@ -259,6 +260,7 @@ defmodule Aiur.InitTest do
     File.write!(target, """
     tracker:
       kind: github
+      base_branch: main
       github:
         repo: octo/repo
     agent:
@@ -387,6 +389,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -412,6 +415,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -583,7 +587,7 @@ defmodule Aiur.InitTest do
 
       answers =
         github_answers(%{
-          confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+          confirm: %{"Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?" => false}
         })
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -822,7 +826,7 @@ defmodule Aiur.InitTest do
       File.write!(target, "placeholder")
 
       config = %{
-        "tracker" => %{"kind" => "memory"},
+        "tracker" => %{"kind" => "memory", "base_branch" => "main"},
         "agent" => %{"kind" => "claude", "routing" => %{"5" => "claude-repl"}}
       }
 
@@ -868,7 +872,7 @@ defmodule Aiur.InitTest do
 
     test "resume migrates a legacy root config into .aiur/ when confirmed", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\nagent:\n  kind: claude\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\nagent:\n  kind: claude\n")
 
       answers = %{confirm: %{"Migrate them into .aiur/ now?" => true}}
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
@@ -878,7 +882,7 @@ defmodule Aiur.InitTest do
 
     test "resume leaves the legacy layout when migration is declined", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
 
       answers = %{confirm: %{"Migrate them into .aiur/ now?" => false}}
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
@@ -888,7 +892,7 @@ defmodule Aiur.InitTest do
 
     test "resume migration passes ignore: true when the gitignore opt-in is accepted", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
 
       answers = %{
         confirm: %{"Migrate them into .aiur/ now?" => true, "Also add .aiur/ to .gitignore?" => true}
@@ -905,6 +909,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -974,7 +979,7 @@ defmodule Aiur.InitTest do
 
   describe "resume backfill of new config sections (#411)" do
     # A config written before the prewarm block existed.
-    @legacy_yaml "tracker:\n  kind: github\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
+    @legacy_yaml "tracker:\n  kind: github\n  base_branch: main\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
 
     test "offers a missing registered section and appends it on opt-in", %{dir: dir, target: target} do
       File.write!(target, @legacy_yaml)
@@ -1047,7 +1052,7 @@ defmodule Aiur.InitTest do
         })
 
       answers = %{
-        confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+        confirm: %{"Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?" => false}
       }
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)

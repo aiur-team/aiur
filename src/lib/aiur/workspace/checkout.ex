@@ -39,9 +39,20 @@ defmodule Aiur.Workspace.Checkout do
     # original suffix). Resume that branch's tip rather than recreating its
     # name from the configured base. New tickets have no such ref and retain
     # the normal live-base checkout below.
+    copied_base_head = current_head_sha(workspace)
+
     case fetch_remote_branch(workspace, branch_name) do
-      :ok -> checkout_fetched_branch(workspace, branch_name)
-      :no_remote -> checkout_branch(workspace, branch_name, fresh_base_start_point(workspace))
+      :ok ->
+        with :ok <- checkout_fetched_branch(workspace, branch_name),
+             :ok <- record_branch_start(workspace, copied_base_head) do
+          :ok
+        end
+
+      :no_remote ->
+        with :ok <- checkout_branch(workspace, branch_name, fresh_base_start_point(workspace)),
+             :ok <- record_branch_start(workspace, "HEAD") do
+          :ok
+        end
     end
   end
 
@@ -53,12 +64,20 @@ defmodule Aiur.Workspace.Checkout do
   # branch off the copied HEAD so materialize still succeeds — the before_run
   # hook / agent will reconcile against origin at push time.
   def checkout_existing_pr_branch(workspace, pr_head_ref) do
+    copied_base_head = current_head_sha(workspace)
+
     case fetch_remote_branch(workspace, pr_head_ref) do
       :ok ->
-        checkout_fetched_branch(workspace, pr_head_ref)
+        with :ok <- checkout_fetched_branch(workspace, pr_head_ref),
+             :ok <- record_branch_start(workspace, copied_base_head) do
+          :ok
+        end
 
       :no_remote ->
-        checkout_local_pr_branch(workspace, pr_head_ref)
+        with :ok <- checkout_local_pr_branch(workspace, pr_head_ref),
+             :ok <- record_branch_start(workspace, "HEAD") do
+          :ok
+        end
     end
   end
 
@@ -114,6 +133,28 @@ defmodule Aiur.Workspace.Checkout do
     case System.cmd("git", args, stderr_to_stdout: true) do
       {_out, 0} -> :ok
       other -> {:error, other}
+    end
+  end
+
+  defp record_branch_start(workspace, candidate) do
+    with {merge_base, 0} <-
+           System.cmd("git", ["-C", workspace, "merge-base", candidate, "HEAD"], stderr_to_stdout: true),
+         {_out, 0} <-
+           System.cmd(
+             "git",
+             ["-C", workspace, "update-ref", "refs/aiur/branch-start", String.trim(merge_base)],
+             stderr_to_stdout: true
+           ) do
+      :ok
+    else
+      other -> {:error, other}
+    end
+  end
+
+  defp current_head_sha(workspace) do
+    case System.cmd("git", ["-C", workspace, "rev-parse", "--verify", "HEAD"], stderr_to_stdout: true) do
+      {head, 0} -> String.trim(head)
+      _ -> "HEAD"
     end
   end
 
