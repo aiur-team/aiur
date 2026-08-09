@@ -53,7 +53,19 @@ defmodule AiurWeb.StreamdeckLogsTest do
     scrolled = StreamdeckLogs.scroll(selected, :transcript, -99)
     assert scrolled.transcript_offset == 0
     assert scrolled.selected_event_index == 1
+    assert scrolled.selected_event_id == {:turn, "turn-1"}
     assert Enum.any?(scrolled.event_keys_visible, &(&1.index == 1))
+  end
+
+  test "refresh retains the selected event by turn identifier" do
+    entries = [entry("latest", "turn-2", "AGENT"), entry("older", "turn-1", "INFO")]
+    selected = entries |> StreamdeckLogs.project() |> StreamdeckLogs.select_event(2)
+
+    refreshed = StreamdeckLogs.refresh(selected, [entry("new", "turn-3", "EMIT") | entries])
+
+    assert refreshed.selected_event_id == {:turn, "turn-1"}
+    assert refreshed.selected_event_index == 3
+    assert refreshed.transcript_offset == 4
   end
 
   defp entry(body, turn_id, badge) do

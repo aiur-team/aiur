@@ -136,7 +136,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
-      {:noreply, assign(socket, :logs, load_logs(identifier))}
+      {:noreply, reload_logs(socket, identifier)}
     else
       {:noreply, socket}
     end
@@ -221,10 +221,15 @@ defmodule AiurWeb.StreamdeckLive do
             <ul id="sd-log-keys" class="sd-keys sd-log-keys" aria-label="Log event keys" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <li
                 :for={key <- @logs.event_keys_visible}
-                class={["sd-key", "sd-log-key", key.kind == :live && "is-live", key.index == @logs.selected_event_index && "is-selected"]}
+                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "is-live", key.index == @logs.selected_event_index && "is-selected"]}
                 data-log-event-index={key.index}
+                aria-hidden={to_string(key.kind == :empty)}
                 aria-current={if key.index == @logs.selected_event_index, do: "true", else: "false"}
+                aria-label={log_key_label(key)}
+                role={if key.kind == :empty, do: nil, else: "button"}
+                tabindex={if key.kind == :empty, do: nil, else: "0"}
               >
+                <div :if={key.kind == :empty} class="sd-key-face"></div>
                 <div :if={key.kind == :live} class="sd-key-face sd-live-key-face">
                   <span class="sd-live-dot" aria-hidden="true"></span>
                   <span class="sd-live-label">{key.label}</span>
@@ -246,7 +251,10 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <div id="sd-screen" class="sd-screen" role="group" aria-label="Touch strip">
-            <div :for={segment <- @screen} class={["sd-screen-segment", segment.live? && "is-live"]}>
+            <div :if={@sd_mode == :logs} :for={entry <- @logs.transcript_visible} class="sd-screen-segment sd-log-strip-entry" data-log-kind={entry.kind}>
+              <span>{StreamdeckLogs.line(entry)}</span>
+            </div>
+            <div :if={@sd_mode != :logs} :for={segment <- @screen} class={["sd-screen-segment", segment.live? && "is-live"]}>
               <span :if={segment.label == "Claude"} class="sd-mic" aria-hidden="true"></span>
               <span class="sd-screen-icon" aria-hidden="true">{segment.icon}</span>
               <span>{segment.label}</span>
@@ -519,19 +527,24 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp load_logs(identifier) when is_binary(identifier) do
-    entries =
-      case endpoint_config(:streamdeck_logs_fun) do
-        fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
-        fun when is_function(fun, 0) -> safe_call(fun, [])
-        _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
-      end
-
-    entries
-    |> log_entries()
-    |> StreamdeckLogs.project()
+    identifier |> load_log_entries() |> StreamdeckLogs.project()
   end
 
   defp load_logs(_identifier), do: StreamdeckLogs.project([])
+
+  defp reload_logs(socket, identifier) do
+    logs = StreamdeckLogs.refresh(socket.assigns.logs, load_log_entries(identifier))
+    assign(socket, :logs, logs)
+  end
+
+  defp load_log_entries(identifier) do
+    case endpoint_config(:streamdeck_logs_fun) do
+      fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
+      fun when is_function(fun, 0) -> safe_call(fun, [])
+      _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
+    end
+    |> log_entries()
+  end
 
   defp agent_event_feed(identifier) do
     case AgentEventFeed.list(identifier, %{"limit" => 50}) do
@@ -544,6 +557,10 @@ defmodule AiurWeb.StreamdeckLive do
   defp log_entries(%{"events" => events}) when is_list(events), do: events
   defp log_entries(entries) when is_list(entries), do: entries
   defp log_entries(_entries), do: []
+
+  defp log_key_label(%{kind: :live}), do: "LIVE"
+  defp log_key_label(%{kind: :event, badge: badge, text: text, time: time}), do: "#{badge}: #{text}, #{time}"
+  defp log_key_label(_key), do: nil
 
   defp maybe_subscribe_fixture_fleet do
     if endpoint_config(:streamdeck_fixture_fleet) do

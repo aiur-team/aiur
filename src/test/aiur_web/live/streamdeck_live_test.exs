@@ -276,6 +276,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert html =~ ~s(id="sd-log-keys")
     assert html =~ ~s(data-log-event-index="0")
+    assert length(Regex.scan(~r/class="sd-key sd-log-key/, html)) == 8
     assert log_pane(html, "sd-log-transcript") =~ "event-1"
     assert html =~ ~s(data-log-kind="event_header")
     assert html =~ ~s(data-log-kind="message")
@@ -283,7 +284,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "log-key-select", %{"index" => "2"})
     assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
     assert log_pane(html, "sd-log-transcript") =~ "event-2"
-    assert html =~ ~s(data-log-event-index="2" aria-current="true")
+    assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
+    assert log_pane(html, "sd-screen") =~ "event-2"
+
+    send(view.pid, {:streamdeck_transcript, "1352", %{}})
+    html = render(view)
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
+    assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
 
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
     assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="18"[^>]*data-max-offset="18"}

@@ -32,7 +32,7 @@ defmodule AiurWeb.StreamdeckLogs do
       |> Enum.map(fn {event, index} -> Map.put(event, :index, index) end)
 
     {flat, event_starts} = flatten(events)
-    event_keys = [%{kind: :live, index: 0, label: "LIVE"} | Enum.map(events, &event_key/1)]
+    event_keys = [%{kind: :live, id: :live, index: 0, label: "LIVE"} | Enum.map(events, &event_key/1)]
 
     %{
       events: events,
@@ -43,6 +43,7 @@ defmodule AiurWeb.StreamdeckLogs do
       events_max_offset: max(length(event_keys) - @events_window_size, 0),
       transcript_offset: 0,
       transcript_max_offset: max(length(flat) - @transcript_window_size, 0),
+      selected_event_id: :live,
       selected_event_index: 0
     }
     |> visible()
@@ -51,7 +52,7 @@ defmodule AiurWeb.StreamdeckLogs do
   @spec visible(map()) :: map()
   def visible(logs) do
     logs
-    |> Map.put(:event_keys_visible, Enum.slice(logs.event_keys, logs.events_offset, @events_window_size))
+    |> Map.put(:event_keys_visible, event_window(logs))
     |> Map.put(:transcript_visible, Enum.slice(logs.transcript, logs.transcript_offset, @transcript_window_size))
   end
 
@@ -62,10 +63,28 @@ defmodule AiurWeb.StreamdeckLogs do
     transcript_offset = Map.get(logs.event_starts, index, 0)
 
     logs
+    |> Map.put(:selected_event_id, Enum.at(logs.event_keys, index).id)
     |> Map.put(:selected_event_index, index)
     |> Map.put(:transcript_offset, transcript_offset)
     |> ensure_visible()
     |> visible()
+  end
+
+  @doc "Refreshes entries while retaining the selected event when it is still present."
+  @spec refresh(map(), [map()]) :: map()
+  def refresh(logs, entries) do
+    refreshed = project(entries)
+
+    case Map.get(logs, :selected_event_id) do
+      id when not is_nil(id) and id != :live ->
+        case Enum.find(refreshed.event_keys, &(&1.id == id)) do
+          nil -> refreshed
+          key -> select_event(refreshed, key.index)
+        end
+
+      _ ->
+        refreshed
+    end
   end
 
   @doc "Scrolls one logs surface while keeping the selected event coherent."
@@ -78,10 +97,12 @@ defmodule AiurWeb.StreamdeckLogs do
 
   def scroll(logs, :transcript, delta) when is_integer(delta) do
     transcript_offset = clamp(logs.transcript_offset + delta, 0, logs.transcript_max_offset)
+    selected_event_index = event_at(logs.event_starts, transcript_offset)
 
     logs
     |> Map.put(:transcript_offset, transcript_offset)
-    |> Map.put(:selected_event_index, event_at(logs.event_starts, transcript_offset))
+    |> Map.put(:selected_event_id, Enum.at(logs.event_keys, selected_event_index).id)
+    |> Map.put(:selected_event_index, selected_event_index)
     |> ensure_visible()
     |> visible()
   end
@@ -123,6 +144,7 @@ defmodule AiurWeb.StreamdeckLogs do
     %{
       badge: value(latest, :badge, "INFO"),
       body: summary_body(entries),
+      id: event_id(latest),
       timestamp: value(latest, :timestamp),
       entries: entries |> Enum.reverse() |> Enum.map(&entry/1)
     }
@@ -133,12 +155,21 @@ defmodule AiurWeb.StreamdeckLogs do
 
     %{
       kind: :event,
+      id: event.id,
       index: event.index,
       badge: badge,
       color: Map.fetch!(@direction_colours, badge),
       text: event.body,
       time: relative_time(event.timestamp)
     }
+  end
+
+  defp event_id(entry) do
+    cond do
+      turn_id = value(entry, :turn_id) -> {:turn, turn_id}
+      msg_id = value(entry, :msg_id) -> {:message, msg_id}
+      true -> {:entry, value(entry, :timestamp), value(entry, :type), value(entry, :role), body(entry), value(entry, :path)}
+    end
   end
 
   # The classified feed omits `body` for diff entries, so a turn whose newest
@@ -169,6 +200,13 @@ defmodule AiurWeb.StreamdeckLogs do
     [%{kind: :event_header, badge: event.badge, body: event.body, timestamp: event.timestamp} | event.entries]
   end
 
+  defp event_window(logs) do
+    logs.event_keys
+    |> Enum.slice(logs.events_offset, @events_window_size)
+    |> Kernel.++(List.duplicate(%{kind: :empty, id: nil, index: nil}, @events_window_size))
+    |> Enum.take(@events_window_size)
+  end
+
   defp event_at(event_starts, transcript_offset) do
     event_starts
     |> Enum.sort_by(fn {index, _offset} -> index end)
@@ -180,17 +218,19 @@ defmodule AiurWeb.StreamdeckLogs do
   end
 
   defp relative_time(timestamp) when is_binary(timestamp) do
-    with {:ok, event_at, _offset} <- DateTime.from_iso8601(timestamp) do
-      seconds = max(DateTime.diff(DateTime.utc_now(), event_at), 0)
+    case DateTime.from_iso8601(timestamp) do
+      {:ok, event_at, _offset} ->
+        seconds = max(DateTime.diff(DateTime.utc_now(), event_at), 0)
 
-      cond do
-        seconds < 60 -> "now"
-        seconds < 3600 -> "#{div(seconds, 60)}m"
-        seconds < 86_400 -> "#{div(seconds, 3600)}h"
-        true -> "#{div(seconds, 86_400)}d"
-      end
-    else
-      _ -> timestamp
+        cond do
+          seconds < 60 -> "now"
+          seconds < 3600 -> "#{div(seconds, 60)}m"
+          seconds < 86_400 -> "#{div(seconds, 3600)}h"
+          true -> "#{div(seconds, 86_400)}d"
+        end
+
+      _ ->
+        timestamp
     end
   end
 

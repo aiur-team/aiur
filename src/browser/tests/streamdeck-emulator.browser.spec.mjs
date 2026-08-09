@@ -532,13 +532,19 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
   const logKeys = page.locator('#sd-log-keys')
+  await expect(logKeys.locator('.sd-key')).toHaveCount(8)
   await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
   await expect(logKeys.locator('[data-log-event-index="2"] .sd-log-dir')).toContainText('AGENT')
+  await expect(page.locator('#sd-screen')).toContainText('event-1')
 
   await logKeys.locator('[data-log-event-index="2"]').click()
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
   await expect(page.locator('#sd-log-transcript')).toContainText('event-2')
+  await expect(page.locator('#sd-screen')).toContainText('event-2')
   await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
+
+  await logKeys.locator('[data-log-event-index="1"]').press('Enter')
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {

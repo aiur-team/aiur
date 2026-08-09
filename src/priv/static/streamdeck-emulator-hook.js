@@ -429,8 +429,15 @@
             self.pushEvent("key-press", { identifier: identifier });
           }
         };
+        var keydownHandler = function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handler();
+          }
+        };
         key.addEventListener("click", handler);
-        self._keyHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
+        key.addEventListener("keydown", keydownHandler);
+        self._keyHandlers.push({ el: key, handler: handler, keydownHandler: keydownHandler, timer: function () { return timer; } });
       });
     },
 
@@ -438,6 +445,7 @@
       (this._keyHandlers || []).forEach(function (entry) {
         clearTimeout(entry.timer());
         entry.el.removeEventListener("click", entry.handler);
+        entry.el.removeEventListener("keydown", entry.keydownHandler);
       });
       this._keyHandlers = [];
     },
