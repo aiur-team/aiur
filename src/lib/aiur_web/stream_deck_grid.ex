@@ -31,13 +31,17 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   @spec project(map()) :: map()
-  def project(%{} = snapshot) do
+  @spec project(map(), (map() -> boolean())) :: map()
+  def project(snapshot, dependency_ready? \\ &dependency_ready?/1)
+
+  def project(%{} = snapshot, dependency_ready?) when is_function(dependency_ready?, 1) do
     agents =
       snapshot
       |> snapshot_agents()
-      |> Enum.map(fn entry -> {agent_payload(entry), priority_rank(entry)} end)
-      |> Enum.sort_by(fn {agent, priority_rank} -> sort_key(agent, priority_rank) end)
-      |> Enum.map(&elem(&1, 0))
+      |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
+      |> Enum.filter(fn {_entry, bucket} -> Map.has_key?(@bucket_rank, bucket) end)
+      |> Enum.map(fn {entry, bucket} -> {agent_payload(entry, bucket, dependency_ready?), priority_rank(entry)} end)
+      |> stable_rank()
 
     total = length(agents)
 
@@ -58,12 +62,10 @@ defmodule AiurWeb.StreamDeckGrid do
         do: Map.put(entry, :streamdeck_source, source)
   end
 
-  defp agent_payload(entry) do
-    bucket = AgentEvents.streamdeck_bucket(entry)
-
+  defp agent_payload(entry, bucket, dependency_ready?) do
     entry
     |> base_agent_payload(bucket)
-    |> maybe_put_dependency_ready(entry, bucket)
+    |> maybe_put_dependency_ready(entry, bucket, dependency_ready?)
   end
 
   defp base_agent_payload(entry, bucket) do
@@ -77,10 +79,17 @@ defmodule AiurWeb.StreamDeckGrid do
     }
   end
 
-  defp maybe_put_dependency_ready(payload, entry, :queued),
-    do: Map.put(payload, :dependency_ready, dependency_ready(entry))
+  defp maybe_put_dependency_ready(payload, entry, :queued, dependency_ready?),
+    do: Map.put(payload, :dependency_ready, dependency_ready?.(entry))
 
-  defp maybe_put_dependency_ready(payload, _entry, _bucket), do: payload
+  defp maybe_put_dependency_ready(payload, _entry, _bucket, _dependency_ready?), do: payload
+
+  defp stable_rank(agents) do
+    agents
+    |> Enum.with_index()
+    |> Enum.sort_by(fn {{agent, priority_rank}, index} -> {sort_key(agent, priority_rank), index} end)
+    |> Enum.map(fn {{agent, _priority_rank}, _index} -> agent end)
+  end
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent, priority_rank) do
     dependency_ready = Map.get(agent, :dependency_ready)
@@ -112,8 +121,8 @@ defmodule AiurWeb.StreamDeckGrid do
     end
   end
 
-  defp dependency_ready(%{streamdeck_source: :queued, waiting_reason: :waiting_for_dependency}), do: false
-  defp dependency_ready(%{streamdeck_source: :queued}), do: true
+  defp dependency_ready?(%{streamdeck_source: :queued, waiting_reason: :waiting_for_dependency}), do: false
+  defp dependency_ready?(%{streamdeck_source: :queued}), do: true
 
   defp ceil_div(0, _divisor), do: 0
   defp ceil_div(value, divisor), do: div(value + divisor - 1, divisor)

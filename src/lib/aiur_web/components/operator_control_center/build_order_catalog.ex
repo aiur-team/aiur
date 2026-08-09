@@ -44,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       assigns
       |> assign(:entries, entries)
       |> assign(:catalog, catalog)
+      |> assign(:search_paths, catalog.search_paths)
       |> assign(:catalog_notice, catalog_notice(snapshot))
 
     ~H"""
@@ -71,16 +72,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
             </td>
             <td class="bo-catalog-progress-cell">
-              <div
-                :if={is_integer(entry.progress)}
-                class="bo-catalog-progress"
-                role="img"
-                aria-label={"#{entry.progress}% complete"}
-              >
-                <span class="bo-catalog-progress-track"><i style={"width:#{entry.progress}%"}></i></span>
-                <span class="bo-catalog-progress-label mono num">{entry.progress}%</span>
-              </div>
-              <span :if={is_nil(entry.progress)} class="bo-catalog-invalid">—</span>
+              <.catalog_progress entry={entry} />
             </td>
             <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
             <td class="bo-catalog-num mono num">{count_display(entry.epic_count)}</td>
@@ -90,8 +82,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       </table>
 
       <div :if={@entries == []} class="bo-state-card">
-        <h3>No Build Orders</h3>
-        <p>The healthy catalog contains no roots.</p>
+        <h3>No Build Orders for this repository</h3>
+        <p>No packs matching this daemon's tracked repository were found.</p>
+        <p :if={@search_paths != []}>
+          Searched: {Enum.join(@search_paths, ", ")}
+        </p>
       </div>
 
       <ul :if={@catalog.diagnostics != []} class="bo-diagnostics" aria-label="Catalog diagnostics">
@@ -111,6 +106,80 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
     </div>
     """
   end
+
+  # Progress has four renderings, and no two of them may look alike. A pack
+  # whose completion could not be resolved is the state this surface used to
+  # lose: it rendered the same blank as "this provider never reported progress"
+  # and it was read as "nothing has happened". It now says so in words.
+  defp catalog_progress(%{entry: %RootSummary{progress_resolution: :unresolved}} = assigns) do
+    ~H"""
+    <span
+      class="bo-catalog-progress-unresolved"
+      data-progress-state="unresolved"
+      role="img"
+      aria-label={"Progress unknown: completion could not be resolved for #{unresolved_scope(@entry)}"}
+      title={"Completion could not be resolved for #{unresolved_scope(@entry)}. This is not zero progress — it is unknown progress."}
+    >
+      unknown
+    </span>
+    """
+  end
+
+  defp catalog_progress(%{entry: %RootSummary{progress_resolution: :partial, progress: progress}} = assigns)
+       when is_integer(progress) do
+    ~H"""
+    <div
+      class="bo-catalog-progress bo-catalog-progress-partial"
+      data-progress-state="partial"
+      role="img"
+      aria-label={"#{@entry.progress}% complete across #{coverage_text(@entry)}"}
+      title={"#{@entry.progress}% of the tickets whose completion resolved. Coverage: #{coverage_text(@entry)}."}
+    >
+      <span class="bo-catalog-progress-track"><i style={"width:#{@entry.progress}%"}></i></span>
+      <span class="bo-catalog-progress-label mono num">{@entry.progress}%</span>
+      <span class="bo-catalog-progress-coverage mono num">{coverage_ratio(@entry)}</span>
+    </div>
+    """
+  end
+
+  defp catalog_progress(%{entry: %RootSummary{progress: progress}} = assigns) when is_integer(progress) do
+    ~H"""
+    <div class="bo-catalog-progress" data-progress-state="resolved" role="img" aria-label={"#{@entry.progress}% complete"}>
+      <span class="bo-catalog-progress-track"><i style={"width:#{@entry.progress}%"}></i></span>
+      <span class="bo-catalog-progress-label mono num">{@entry.progress}%</span>
+    </div>
+    """
+  end
+
+  # No progress was reported at all — the provider made no completion claim.
+  # Distinct from `:unresolved`, which is a claim that resolution was attempted
+  # and failed.
+  defp catalog_progress(assigns) do
+    ~H"""
+    <span class="bo-catalog-invalid" data-progress-state="not-reported" title="This provider reports no progress for this Build Order.">
+      —
+    </span>
+    """
+  end
+
+  defp coverage_ratio(%RootSummary{progress_resolved_count: resolved, member_count: total})
+       when is_integer(resolved) and is_integer(total),
+       do: "#{resolved}/#{total}"
+
+  defp coverage_ratio(%RootSummary{progress_resolved_count: resolved}) when is_integer(resolved), do: "#{resolved} resolved"
+  defp coverage_ratio(_entry), do: "partial"
+
+  defp coverage_text(%RootSummary{progress_resolved_count: resolved, member_count: total})
+       when is_integer(resolved) and is_integer(total),
+       do: "#{resolved} of #{total} tickets; #{total - resolved} unresolved"
+
+  defp coverage_text(%RootSummary{progress_resolved_count: resolved}) when is_integer(resolved),
+    do: "#{resolved} resolved tickets"
+
+  defp coverage_text(_entry), do: "an unknown share of this Build Order"
+
+  defp unresolved_scope(%RootSummary{member_count: total}) when is_integer(total), do: "any of its #{total} tickets"
+  defp unresolved_scope(_entry), do: "any of its tickets"
 
   defp count_display(count) when is_integer(count), do: Integer.to_string(count)
   defp count_display(_count), do: "—"
