@@ -3,7 +3,7 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, Asks, BuildGate, RepoBase}
+  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, RepoBase}
   alias Aiur.GitHub.CiReadiness
 
   defp capture_todo(ids, opts) do
@@ -1395,6 +1395,30 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "alerts/1" do
+    test "alerts and watch use the default project ledger" do
+      log_root = Path.join(System.tmp_dir!(), "aiur-default-alert-ledger-#{System.unique_integer([:positive])}")
+      previous_log_file = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "daemon.log"))
+
+      on_exit(fn ->
+        if previous_log_file,
+          do: Application.put_env(:aiur, :log_file, previous_log_file),
+          else: Application.delete_env(:aiur, :log_file)
+
+        File.rm_rf!(log_root)
+      end)
+
+      ledger = AlertLedger.path()
+      File.mkdir_p!(Path.dirname(ledger))
+
+      File.write!(ledger, "{\"event\":\"alert\",\"topic\":\"ticket.51.agent.paused\",\"reason\":\"operator paused the agent\",\"needs_attention\":true,\"source_ticket_id\":\"51\",\"agent\":\"51\"}\n")
+
+      assert capture_io(fn -> AgentControlCLI.alerts(needs_attention: true) end) =~ "ticket.51.agent.paused"
+
+      assert capture_io(fn -> AgentControlCLI.watch(mode: :full, blocking_asks: []) end) =~
+               "#51"
+    end
+
     test "prints persisted alerts as JSON lines with optional attention filtering" do
       workspace_root =
         Path.join(System.tmp_dir!(), "aiur-control-alerts-#{System.unique_integer([:positive])}")
