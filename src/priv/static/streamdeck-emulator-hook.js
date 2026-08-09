@@ -413,6 +413,15 @@
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
 
+          var logEventIndex = key.getAttribute("data-log-event-index");
+
+          // Log keys index the flattened transcript instead of selecting an
+          // agent. The server owns the resulting transcript offset.
+          if (self._mode === "logs" && logEventIndex !== null) {
+            self.pushEvent("log-key-select", { index: Number(logEventIndex) });
+            return;
+          }
+
           // Key click in grid mode transitions to cmd view.
           if (self._mode === "grid") {
             self._setMode("cmd");

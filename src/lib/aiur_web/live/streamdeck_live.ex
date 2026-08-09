@@ -88,6 +88,10 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, update_logs(socket, axis, parse_integer(delta, 0))}
   end
 
+  def handle_event("log-key-select", %{"index" => index}, socket) do
+    {:noreply, assign(socket, :logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0)))}
+  end
+
   def handle_event("key-press", params, socket) do
     socket = select_agent_from_params(socket, params)
 
@@ -196,13 +200,24 @@ defmodule AiurWeb.StreamdeckLive do
           </div>
 
           <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" data-focused-identifier={@selected_identifier} role="log" aria-label="Agent logs" aria-hidden="true">
-            <p class="sd-mode-label">Logs</p>
-            <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
-              <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-              <p :for={event <- @logs.events_visible} class="sd-log-line">{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
-              <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
-              <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
-            </div>
+            <ul id="sd-log-keys" class="sd-keys sd-log-keys" aria-label="Log event keys" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
+              <li
+                :for={key <- @logs.event_keys_visible}
+                class={["sd-key", "sd-log-key", key.kind == :live && "is-live", key.index == @logs.selected_event_index && "is-selected"]}
+                data-log-event-index={key.index}
+                aria-current={if key.index == @logs.selected_event_index, do: "true", else: "false"}
+              >
+                <div :if={key.kind == :live} class="sd-key-face sd-live-key-face">
+                  <span class="sd-live-dot" aria-hidden="true"></span>
+                  <span class="sd-live-label">{key.label}</span>
+                </div>
+                <div :if={key.kind == :event} class="sd-key-face sd-log-key-face">
+                  <span class="sd-log-dir" style={"color:#{key.color}"}>{key.badge}</span>
+                  <span class="sd-log-text">{key.text}</span>
+                  <span class="sd-log-time">{key.time}</span>
+                </div>
+              </li>
+            </ul>
             <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
               <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
               <p :for={entry <- @logs.transcript_visible} class="sd-log-line" data-log-kind={entry.kind}>{StreamdeckLogs.line(entry)}</p>
@@ -440,11 +455,8 @@ defmodule AiurWeb.StreamdeckLive do
   defp select_agent_from_params(socket, _params), do: socket
 
   defp update_logs(socket, axis, delta) do
-    logs = socket.assigns.logs
-    offset_key = String.to_existing_atom("#{axis}_offset")
-    max_key = String.to_existing_atom("#{axis}_max_offset")
-    offset = clamp(Map.fetch!(logs, offset_key) + delta, 0, Map.fetch!(logs, max_key))
-    assign(socket, :logs, logs |> Map.put(offset_key, offset) |> StreamdeckLogs.visible())
+    axis = String.to_existing_atom(axis)
+    assign(socket, :logs, StreamdeckLogs.scroll(socket.assigns.logs, axis, delta))
   rescue
     _ -> socket
   end
