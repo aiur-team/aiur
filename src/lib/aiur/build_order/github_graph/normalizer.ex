@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
   @moduledoc false
 
-  alias Aiur.{BuildOrder.Diagnostic, BuildOrder.Lifecycle, BuildOrder.Member, BuildOrder.RootSummary}
+  alias Aiur.{BuildOrder.Diagnostic, BuildOrder.Lifecycle, BuildOrder.Member, BuildOrder.Metadata, BuildOrder.RootSummary}
   alias Aiur.BuildOrder.GitHubGraph.{Connection, Dependencies, Endpoint}
 
   @connection_limit 100
@@ -14,6 +14,7 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
     {labels, labels_diagnostic} = labels(node)
     {created_at, created_diagnostic} = timestamp(node, "createdAt")
     {updated_at, updated_diagnostic} = timestamp(node, "updatedAt")
+    metrics = root_metrics(node)
 
     RootSummary.new(%{
       identity: identity,
@@ -24,7 +25,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
       state_reason: Map.get(node, "stateReason"),
       labels: labels,
       created_at: created_at,
-      updated_at: updated_at
+      updated_at: updated_at,
+      member_count: metrics.member_count,
+      epic_count: metrics.epic_count,
+      phase_count: metrics.phase_count,
+      progress: metrics.progress,
+      progress_resolution: metrics.progress_resolution,
+      progress_resolved_count: metrics.progress_resolved_count
     })
     |> append_diagnostics([
       identity_diagnostic,
@@ -113,6 +120,66 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
     else
       Diagnostic.new(:invalid_lifecycle)
     end
+  end
+
+  # Catalog reads carry each root's bounded direct-member connection so the
+  # catalog can make the same metric claims as a selected graph. If GitHub does
+  # not provide a complete connection, retain any trustworthy total but make no
+  # progress claim: `:unresolved` is distinct from an unreported metric.
+  defp root_metrics(node) do
+    connection = Map.get(node, "subIssues")
+
+    case Connection.parse(connection) do
+      {:ok, members, total, %{has_next?: false}} when length(members) == total -> metrics_from_members(members, total)
+      _ -> unresolved_metrics(connection_total(connection))
+    end
+  end
+
+  defp metrics_from_members([], 0) do
+    %{member_count: 0, epic_count: 0, phase_count: 0, progress: 0, progress_resolution: :resolved, progress_resolved_count: 0}
+  end
+
+  defp metrics_from_members(members, total) do
+    metadata = Enum.map(members, &member_metadata/1)
+    lifecycles = Enum.map(members, &Lifecycle.from_github(Map.get(&1, "state"), Map.get(&1, "stateReason")))
+    resolved = Enum.filter(lifecycles, &Lifecycle.valid?/1)
+    resolved_count = length(resolved)
+    completed_count = Enum.count(resolved, &match?(%Lifecycle{state: :closed, state_reason: :completed}, &1))
+
+    {progress, progress_resolution} =
+      cond do
+        resolved_count == 0 -> {nil, :unresolved}
+        resolved_count == total -> {round(completed_count / resolved_count * 100), :resolved}
+        true -> {round(completed_count / resolved_count * 100), :partial}
+      end
+
+    %{
+      member_count: total,
+      epic_count: metadata |> Enum.map(& &1.lane) |> Enum.uniq() |> length(),
+      phase_count: metadata |> Enum.map(& &1.phase) |> Enum.uniq() |> length(),
+      progress: progress,
+      progress_resolution: progress_resolution,
+      progress_resolved_count: resolved_count
+    }
+  end
+
+  defp unresolved_metrics(member_count) do
+    %{
+      member_count: member_count,
+      epic_count: nil,
+      phase_count: nil,
+      progress: nil,
+      progress_resolution: :unresolved,
+      progress_resolved_count: 0
+    }
+  end
+
+  defp connection_total(%{} = connection), do: Connection.total(connection)
+  defp connection_total(_connection), do: nil
+
+  defp member_metadata(member) do
+    {labels, _diagnostic} = labels(member)
+    Metadata.parse(labels)
   end
 
   defp validate_root_label(%{labels: labels} = root) do

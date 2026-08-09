@@ -12,6 +12,14 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
           repository { name owner { login } }
           parent { id databaseId number url repository { name owner { login } } }
           labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+          subIssues(first: 100) {
+            totalCount
+            pageInfo { hasNextPage endCursor }
+            nodes {
+              state stateReason
+              labels(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { name } }
+            }
+          }
         }
       }
     }

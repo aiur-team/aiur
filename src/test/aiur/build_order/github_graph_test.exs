@@ -23,6 +23,68 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_title in Enum.map(invalid.diagnostics, & &1.code)
   end
 
+  test "derives catalog metrics from a root's direct GitHub members" do
+    root = root(1)
+
+    members = [
+      member(2, root, labels: ["phase:1", "build-lane:runtime"]),
+      member(3, root, labels: ["phase:2", "build-lane:runtime"]),
+      member(4, root, labels: ["phase:2", "build-lane:dashboard-ui"])
+    ]
+
+    root = Map.put(root, "subIssues", connection(members, 3, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 3
+    assert entry.epic_count == 2
+    assert entry.phase_count == 2
+    assert entry.progress == 67
+    assert entry.progress_resolution == :resolved
+    assert entry.progress_resolved_count == 3
+  end
+
+  test "marks catalog progress unresolved when no member lifecycle can be resolved" do
+    root = root(1)
+
+    unresolved_members = [
+      member(2, root) |> Map.put("state", "UNRECOGNIZED"),
+      member(3, root) |> Map.delete("state")
+    ]
+
+    root = Map.put(root, "subIssues", connection(unresolved_members, 2, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 2
+    assert is_integer(entry.epic_count)
+    assert is_integer(entry.phase_count)
+    assert is_nil(entry.progress)
+    assert entry.progress_resolution == :unresolved
+    assert entry.progress_resolved_count == 0
+  end
+
+  test "reports catalog progress over the members whose lifecycle resolved" do
+    root = root(1)
+
+    members = [
+      member(2, root),
+      member(3, root) |> Map.put("state", "UNRECOGNIZED")
+    ]
+
+    root = Map.put(root, "subIssues", connection(members, 2, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.progress == 100
+    assert entry.progress_resolution == :partial
+    assert entry.progress_resolved_count == 1
+    assert entry.member_count == 2
+  end
+
   test "keeps a catalog root missing its required parent key visible but invalid" do
     valid = root(1)
     missing_parent = Map.delete(root(2), "parent")
@@ -1160,6 +1222,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
       catalog_request_fun = fn %{body: %{"query" => query}} ->
         refute query =~ "body"
+        assert query =~ "subIssues(first: 100)"
         catalog_response([], 0)
       end
 
