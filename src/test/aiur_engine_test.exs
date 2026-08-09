@@ -531,6 +531,21 @@ defmodule AiurEngineTest do
     assert out =~ "commands --filter requires a value"
   end
 
+  test "build-orders routes its selector and JSON mode through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
+  end
+
+  test "build-orders rejects multiple roots" do
+    {out, 64} = run_sourced_engine(~s|cmd_build_orders 1363 1467|, [])
+    assert out =~ "build-orders accepts at most one root"
+  end
+
   test "todo control rpc propagates live success and semantic failure codes" do
     for {rpc_output, expected_code} <- [
           {"queued 1 ticket(s); cleared 0 other(s)\n__AIUR_CONTROL_EXIT__:0", 0},

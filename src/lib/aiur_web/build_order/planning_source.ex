@@ -103,6 +103,9 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def load_sources, do: DataSource.load_sources()
 
   @impl true
+  def load_runtime_sources, do: DataSource.load_runtime_sources()
+
+  @impl true
   def load_context(_identity), do: %{detail: :unavailable, history: :unavailable}
 
   # --- subscriptions ----------------------------------------------------------
