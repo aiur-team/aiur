@@ -104,8 +104,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   defp control(%{state: :disabled, reason: reason}),
     do: %{state: :disabled, action: nil, reason: reason, label: UnitsControlPolicy.disabled_reason(reason)}
 
-  defp control(_affordance), do: %{state: :disabled, action: nil, reason: :unavailable, label: UnitsControlPolicy.disabled_reason(:unavailable)}
-
   defp availability(true), do: :available
   defp availability(false), do: :unavailable
 
