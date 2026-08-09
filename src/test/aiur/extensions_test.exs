@@ -1559,8 +1559,8 @@ defmodule Aiur.ExtensionsTest do
     %Aiur.TrackerIdentity{
       status: :joinable,
       kind: :github,
-      owner: "its-everdred",
-      repository: "aiur",
+      owner: Aiur.TestSupport.github_owner(),
+      repository: Aiur.TestSupport.github_repository_name(),
       provider_id: "NODE-#{identifier}",
       identifier: identifier,
       reason: nil
