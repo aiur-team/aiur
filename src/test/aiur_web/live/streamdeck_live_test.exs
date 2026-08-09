@@ -129,6 +129,27 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "Live running"
   end
 
+  test "keeps same-rank key order stable when snapshot order changes", %{snapshot_agent: snapshot_agent} do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    snapshot = %{
+      running: [fixture_agent("10", "First raw", "codex"), fixture_agent("2", "Second raw", "codex")],
+      retrying: [],
+      idle: []
+    }
+
+    Agent.update(snapshot_agent, fn _ -> snapshot end)
+    send(view.pid, {:running_changed, []})
+    first_refresh = render(view) |> slot_identifiers()
+
+    Agent.update(snapshot_agent, fn _ -> %{snapshot | running: Enum.reverse(snapshot.running)} end)
+    send(view.pid, {:running_changed, []})
+    second_refresh = render(view) |> slot_identifiers()
+
+    assert first_refresh == ["2", "10"]
+    assert second_refresh == ["2", "10"]
+  end
+
   test "key presses request pause for running and resume for paused agents" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
