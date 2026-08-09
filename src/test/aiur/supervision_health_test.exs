@@ -1,7 +1,7 @@
 defmodule Aiur.SupervisionHealthTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{AlertFeed, SupervisionHealth}
+  alias Aiur.{AlertFeed, AlertLedger, SupervisionHealth}
 
   defmodule Worker do
     use GenServer
@@ -167,11 +167,22 @@ defmodule Aiur.SupervisionHealthTest do
   test "emits production degraded and recovered alerts" do
     root = Path.join(System.tmp_dir!(), "aiur-supervision-alert-#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "workspace")
+    log_root = Path.join(root, "log")
+    previous_log_file = Application.get_env(:aiur, :log_file)
     specs = [{Worker, name: Worker, restart: :temporary}]
     {:ok, supervisor} = Supervisor.start_link(specs, strategy: :one_for_one)
 
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
     on_exit(fn ->
       stop_supervisor(supervisor)
+
+      if previous_log_file do
+        Application.put_env(:aiur, :log_file, previous_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
       File.rm_rf!(root)
     end)
 
@@ -188,7 +199,7 @@ defmodule Aiur.SupervisionHealthTest do
     send(health, :check)
     assert {:ok, %{healthy: 0}} = SupervisionHealth.status(health)
 
-    assert Enum.any?(AlertFeed.list(roots: [root], log_roots: []), fn alert ->
+    assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), fn alert ->
              alert["topic"] == "system.supervision.degraded" and
                alert["needs_attention"] == true and
                alert["message"] =~ "Aiur.SupervisionHealthTest.Worker DOWN"
@@ -198,7 +209,7 @@ defmodule Aiur.SupervisionHealthTest do
     send(health, :check)
     assert {:ok, %{healthy: 1}} = SupervisionHealth.status(health)
 
-    assert Enum.any?(AlertFeed.list(roots: [root], log_roots: []), fn alert ->
+    assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), fn alert ->
              alert["topic"] == "system.supervision.degraded.resolved" and
                alert["needs_attention"] == false
            end)
