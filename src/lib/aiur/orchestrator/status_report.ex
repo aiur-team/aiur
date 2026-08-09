@@ -195,8 +195,12 @@ defmodule Aiur.Orchestrator.StatusReport do
     state.running
     |> Map.values()
     |> Enum.map(&Map.get(&1, :identifier))
-    |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
-    |> Kernel.++(Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end))
+    |> Kernel.++(
+      Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end)
+    )
+    |> Kernel.++(
+      Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end)
+    )
     |> Enum.filter(&is_binary/1)
     |> Enum.uniq()
   end
@@ -253,8 +257,15 @@ defmodule Aiur.Orchestrator.StatusReport do
     stall_timeout_seconds = stall_timeout_seconds()
     activity_by_identity = activity_by_identity()
 
-    running = Enum.map(state.running, &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity))
-    retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
+    running =
+      Enum.map(
+        state.running,
+        &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity)
+      )
+
+    retrying =
+      Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
+
     idle = idle_snapshot(state, now_ms, activity_by_identity)
 
     %{
@@ -299,7 +310,13 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds, activity_by_identity) do
+  defp running_snapshot(
+         %State{} = state,
+         {issue_id, metadata},
+         now,
+         stall_timeout_seconds,
+         activity_by_identity
+       ) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
@@ -342,21 +359,29 @@ defmodule Aiur.Orchestrator.StatusReport do
       pause_reason: pause_reason,
       tracker_paused: Issue.paused?(metadata.issue),
       queue_depth: capabilities.queue_depth,
-      pending_operator_messages: OM.pending_operator_messages_for_issue(state, metadata.identifier),
+      pending_operator_messages:
+        OM.pending_operator_messages_for_issue(state, metadata.identifier),
       control: capabilities,
       runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
+      blocked_by: Map.get(metadata.issue, :blocked_by, []),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
-      progress_percent: progress_percent(Issue.tracker_identity(metadata.issue), activity_by_identity),
+      progress_percent:
+        progress_percent(Issue.tracker_identity(metadata.issue), activity_by_identity),
       ci_result: cached_ci_result(state, metadata.identifier)
     }
     |> Map.merge(running_execution_facts(metadata))
   end
 
-  defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms, activity_by_identity) do
+  defp retry_snapshot(
+         %State{} = state,
+         {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry},
+         now_ms,
+         activity_by_identity
+       ) do
     identifier = Map.get(retry, :identifier)
     issue = Map.get(state.last_polled_issues, issue_id)
     tracker_identity = retry_snapshot_tracker_identity(retry, issue)
@@ -376,6 +401,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
+      blocked_by: Map.get(issue || %{}, :blocked_by, []),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
@@ -401,14 +427,29 @@ defmodule Aiur.Orchestrator.StatusReport do
       |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
 
     # One durable-store read for the whole board, not one per idle ticket.
-    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {id, _} -> id end))
+    latch_statuses =
+      Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {id, _} -> id end))
 
     Enum.map(idle_issues, fn {_issue_id, issue} ->
-      idle_issue_snapshot(state, issue, terminal_states, now_ms, latch_statuses, activity_by_identity)
+      idle_issue_snapshot(
+        state,
+        issue,
+        terminal_states,
+        now_ms,
+        latch_statuses,
+        activity_by_identity
+      )
     end)
   end
 
-  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states, now_ms, latch_statuses, activity_by_identity) do
+  defp idle_issue_snapshot(
+         %State{} = state,
+         %Issue{} = issue,
+         terminal_states,
+         now_ms,
+         latch_statuses,
+         activity_by_identity
+       ) do
     identifier = issue.identifier || issue.id
     blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
@@ -438,6 +479,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           capacity_hold_active?: capacity_hold_active?(state)
         ),
+      blocked_by: issue.blocked_by,
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),
@@ -521,7 +563,8 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),
-         %{entries: entries} when is_list(entries) <- TicketActivity.snapshots(timeout: @activity_snapshot_timeout_ms) do
+         %{entries: entries} when is_list(entries) <-
+           TicketActivity.snapshots(timeout: @activity_snapshot_timeout_ms) do
       Enum.reduce(entries, %{}, &put_activity_entry/2)
     else
       _ -> %{}
@@ -539,8 +582,11 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp progress_percent(identity, activity_by_identity) do
     case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :progress]) do
-      %{freshness: :fresh, percent: percent} when is_integer(percent) and percent in 0..100 -> percent
-      _ -> 0
+      %{freshness: :fresh, percent: percent} when is_integer(percent) and percent in 0..100 ->
+        percent
+
+      _ ->
+        0
     end
   end
 
@@ -608,7 +654,14 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp running_summary(identifier, entry, now) do
     issue = Map.get(entry, :issue)
-    running_summary(identifier, entry, State.issue_tag(issue), get_in(entry, [:issue, Access.key(:title)]), now)
+
+    running_summary(
+      identifier,
+      entry,
+      State.issue_tag(issue),
+      get_in(entry, [:issue, Access.key(:title)]),
+      now
+    )
   end
 
   defp running_summary(identifier, entry, tag, title, now) do
@@ -648,7 +701,11 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec agent_statuses(State.t()) :: [map()]
   def agent_statuses(%State{} = state) do
-    status_fun = if Config.prewarm_enabled?(), do: &RepoBase.status/1, else: fn _timeout -> {:unavailable, nil} end
+    status_fun =
+      if Config.prewarm_enabled?(),
+        do: &RepoBase.status/1,
+        else: fn _timeout -> {:unavailable, nil} end
+
     agent_statuses(state, status_fun)
   end
 
@@ -661,7 +718,8 @@ defmodule Aiur.Orchestrator.StatusReport do
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now) ++ retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
+    (running_statuses(state, now) ++
+       retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
     |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
   end
 
@@ -697,7 +755,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
       last_codex_event: Map.get(entry, :last_codex_event),
-      reason: if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
+      reason:
+        if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
     }
   end
 
@@ -754,7 +813,9 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
     state.last_polled_issues
-    |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id) end)
+    |> Enum.reject(fn {issue_id, _issue} ->
+      Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id)
+    end)
     |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue, prewarm_phase) end)
   end
 

@@ -32,10 +32,11 @@ defmodule AiurWeb.StreamDeckGrid do
 
   @spec project(map()) :: map()
   def project(%{} = snapshot) do
+    fleet = snapshot_agents(snapshot)
+
     agents =
-      snapshot
-      |> snapshot_agents()
-      |> Enum.map(&agent_payload/1)
+      fleet
+      |> Enum.map(&agent_payload(&1, fleet))
       |> Enum.sort_by(&sort_key/1)
 
     total = length(agents)
@@ -52,17 +53,35 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   defp snapshot_agents(snapshot) do
-    for {source, entries} <- [running: Map.get(snapshot, :running, []), retrying: Map.get(snapshot, :retrying, []), queued: Map.get(snapshot, :idle, [])],
+    for {source, entries} <- [
+          running: Map.get(snapshot, :running, []),
+          retrying: Map.get(snapshot, :retrying, []),
+          queued: Map.get(snapshot, :idle, [])
+        ],
         entry <- entries,
         do: Map.put(entry, :streamdeck_source, source)
   end
 
-  defp agent_payload(entry) do
+  @doc "Returns whether every explicit upstream dependency is complete in the fleet."
+  @spec dependency_ready?(map(), [map()]) :: boolean()
+  def dependency_ready?(agent, fleet) when is_map(agent) and is_list(fleet) do
+    case Map.fetch(agent, :blocked_by) do
+      {:ok, blockers} when is_list(blockers) ->
+        Enum.all?(blockers, &dependency_satisfied?(&1, fleet))
+
+      _ ->
+        false
+    end
+  end
+
+  def dependency_ready?(_agent, _fleet), do: false
+
+  defp agent_payload(entry, fleet) do
     bucket = AgentEvents.streamdeck_bucket(entry)
 
     entry
     |> base_agent_payload(bucket)
-    |> maybe_put_dependency_ready(entry, bucket)
+    |> maybe_put_dependency_ready(entry, bucket, fleet)
   end
 
   defp base_agent_payload(entry, bucket) do
@@ -76,14 +95,16 @@ defmodule AiurWeb.StreamDeckGrid do
     }
   end
 
-  defp maybe_put_dependency_ready(payload, entry, :queued),
-    do: Map.put(payload, :dependency_ready, dependency_ready(entry))
+  defp maybe_put_dependency_ready(payload, entry, :queued, fleet),
+    do: Map.put(payload, :dependency_ready, dependency_ready?(entry, fleet))
 
-  defp maybe_put_dependency_ready(payload, _entry, _bucket), do: payload
+  defp maybe_put_dependency_ready(payload, _entry, _bucket, _fleet), do: payload
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
+
+    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1),
+     Summaries.identifier_sort_key(identifier)}
   end
 
   defp vendor(entry) do
@@ -102,10 +123,54 @@ defmodule AiurWeb.StreamDeckGrid do
     end
   end
 
-  defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
+  defp priority?(entry),
+    do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
 
-  defp dependency_ready(%{streamdeck_source: :queued, waiting_reason: :waiting_for_dependency}), do: false
-  defp dependency_ready(%{streamdeck_source: :queued}), do: true
+  defp dependency_satisfied?(blocker, fleet) do
+    with blocker_id when not is_nil(blocker_id) <- blocker_identifier(blocker),
+         upstream when is_map(upstream) <- Enum.find(fleet, &fleet_entry?(&1, blocker_id)) do
+      complete?(upstream)
+    else
+      _ -> false
+    end
+  end
+
+  defp blocker_identifier(%{id: id}) when not is_nil(id), do: id
+  defp blocker_identifier(%{identifier: identifier}) when not is_nil(identifier), do: identifier
+
+  defp blocker_identifier(identifier) when is_binary(identifier) or is_integer(identifier),
+    do: identifier
+
+  defp blocker_identifier(_blocker), do: nil
+
+  defp fleet_entry?(entry, blocker_id) when is_map(entry) do
+    Enum.any?(
+      [Map.get(entry, :id), Map.get(entry, :issue_id), Map.get(entry, :identifier)],
+      &same_identifier?(&1, blocker_id)
+    )
+  end
+
+  defp fleet_entry?(_entry, _blocker_id), do: false
+
+  defp same_identifier?(left, right) when is_binary(left) or is_integer(left) do
+    to_string(left) == to_string(right)
+  end
+
+  defp same_identifier?(_left, _right), do: false
+
+  defp complete?(entry) do
+    progress = Map.get(entry, :progress_percent) || Map.get(entry, :pct)
+
+    progress_complete?(progress) or merged_control?(Map.get(entry, :control)) or
+      Map.get(entry, :state) in ["Merged", :merged]
+  end
+
+  defp progress_complete?(progress) when is_integer(progress), do: progress >= 100
+  defp progress_complete?(_progress), do: false
+
+  defp merged_control?(control) when control in ["Merged", :merged], do: true
+  defp merged_control?(%{status: status}), do: status in ["Merged", :merged]
+  defp merged_control?(_control), do: false
 
   defp ceil_div(0, _divisor), do: 0
   defp ceil_div(value, divisor), do: div(value + divisor - 1, divisor)

@@ -17,7 +17,15 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+
+  alias AiurWeb.{
+    Endpoint,
+    StreamDeckGrid,
+    StreamdeckLogs,
+    StreamdeckProjection,
+    StreamdeckTranscriptRelay
+  }
+
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
@@ -121,7 +129,8 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, refresh_grid(socket)}
   end
 
-  def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
+  def handle_info({:streamdeck_transcript, identifier, _event}, socket)
+      when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
       {:noreply, assign(socket, :logs, load_logs(identifier))}
     else
@@ -267,7 +276,8 @@ defmodule AiurWeb.StreamdeckLive do
     {dial_value, column_offset} =
       case dial_value do
         nil ->
-          {dial_value_from_offset(column_offset, grid.total), clamp_column_offset(column_offset, grid.total)}
+          {dial_value_from_offset(column_offset, grid.total),
+           clamp_column_offset(column_offset, grid.total)}
 
         value ->
           value = clamp(value, 0, 100)
@@ -276,7 +286,9 @@ defmodule AiurWeb.StreamdeckLive do
 
     page = current_window(column_offset, grid.total)
     usage = usage || StreamdeckProjection.provider_meters()
-    visible_agents = Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
+
+    visible_agents =
+      Enum.slice(grid.agents, column_offset * grid.rows_per_column, grid.agents_per_page)
 
     socket
     |> assign(:grid, grid)
@@ -289,7 +301,8 @@ defmodule AiurWeb.StreamdeckLive do
     |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
   end
 
-  defp assign_grid_dial(socket, value), do: assign_grid(socket, socket.assigns.grid, 0, nil, clamp(value, 0, 100))
+  defp assign_grid_dial(socket, value),
+    do: assign_grid(socket, socket.assigns.grid, 0, nil, clamp(value, 0, 100))
 
   defp assign_grid_window(socket, page) do
     page = clamp_page(page, socket.assigns.grid.windows)
@@ -312,7 +325,9 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
-    dependency_ready = Map.get(agent, :dependency_ready, true)
+
+    dependency_ready =
+      if(bucket == :queued, do: Map.get(agent, :dependency_ready) === true, else: false)
 
     key(
       slot,
@@ -427,7 +442,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp handle_key_press(_params, socket), do: {:noreply, socket}
 
-  defp select_agent_from_params(socket, %{"identifier" => identifier}) when is_binary(identifier) do
+  defp select_agent_from_params(socket, %{"identifier" => identifier})
+       when is_binary(identifier) do
     if Enum.any?(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       previous_identifier = socket.assigns.selected_identifier
       socket = assign(socket, :selected_identifier, identifier)
@@ -499,8 +515,12 @@ defmodule AiurWeb.StreamdeckLive do
   defp clamp_page(_page, windows), do: clamp_page(0, windows)
 
   defp max_column_offset(agent_count), do: max(0, ceil(agent_count / 2) - 4)
-  defp clamp_column_offset(offset, agent_count), do: clamp(offset, 0, max_column_offset(agent_count))
-  defp column_offset_from_dial(value, agent_count), do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
+
+  defp clamp_column_offset(offset, agent_count),
+    do: clamp(offset, 0, max_column_offset(agent_count))
+
+  defp column_offset_from_dial(value, agent_count),
+    do: round(clamp(value, 0, 100) / 100 * max_column_offset(agent_count))
 
   defp dial_value_from_offset(offset, agent_count) do
     max_offset = max_column_offset(agent_count)
@@ -650,7 +670,9 @@ defmodule AiurWeb.StreamdeckLive do
 
     relay =
       if connected?(socket) and is_binary(identifier) and previous_identifier != identifier do
-        {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
+        {:ok, relay} =
+          StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
+
         relay
       else
         socket.assigns[:transcript_relay]
@@ -659,7 +681,8 @@ defmodule AiurWeb.StreamdeckLive do
     assign(socket, :transcript_relay, relay)
   end
 
-  defp focus_logs(socket, previous_identifier, identifier) when previous_identifier != identifier do
+  defp focus_logs(socket, previous_identifier, identifier)
+       when previous_identifier != identifier do
     socket
     |> assign(:logs, load_logs(identifier))
     |> replace_transcript_relay(previous_identifier, identifier)
@@ -669,7 +692,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp transcript_flush_ms do
     Endpoint.config(:streamdeck_transcript_flush_ms) ||
-      Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
+      Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) ||
+      250
   end
 
   # Dial 0 presses BACK, dial 3 cycles the focused window. Labels convey this.

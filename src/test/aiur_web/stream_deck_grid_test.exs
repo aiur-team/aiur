@@ -31,7 +31,8 @@ defmodule AiurWeb.StreamDeckGridTest do
 
     :ok = SnapshotStore.publish(server, %{running: [], retrying: [], idle: []})
 
-    assert %{agents: [], snapshot_freshness: %{status: :current}} = StreamDeckGrid.payload(server, 1)
+    assert %{agents: [], snapshot_freshness: %{status: :current}} =
+             StreamDeckGrid.payload(server, 1)
   end
 
   test "returns a hard error before the first snapshot" do
@@ -43,7 +44,12 @@ defmodule AiurWeb.StreamDeckGridTest do
   end
 
   test "projects fewer than eight agents with the column-major contract metadata" do
-    payload = StreamDeckGrid.project(%{running: [agent("1"), agent("2")], retrying: [], idle: [agent("3")]})
+    payload =
+      StreamDeckGrid.project(%{
+        running: [agent("1"), agent("2")],
+        retrying: [],
+        idle: [agent("3")]
+      })
 
     assert payload.total == 3
     assert payload.windows == 1
@@ -61,7 +67,8 @@ defmodule AiurWeb.StreamDeckGridTest do
   end
 
   test "uses the dashboard's natural ticket ordering within a bucket" do
-    payload = StreamDeckGrid.project(%{running: [agent("10"), agent("2")], retrying: [], idle: []})
+    payload =
+      StreamDeckGrid.project(%{running: [agent("10"), agent("2")], retrying: [], idle: []})
 
     assert Enum.map(payload.agents, & &1.identifier) == ["2", "10"]
   end
@@ -69,9 +76,17 @@ defmodule AiurWeb.StreamDeckGridTest do
   test "sorts one agent per bucket and places dependency-ready queued work first" do
     payload =
       StreamDeckGrid.project(%{
-        running: [agent("running"), agent("paused", work_state: :paused), agent("alert", open_decision_count: 1), agent("stuck", work_state: :error)],
+        running: [
+          agent("running"),
+          agent("paused", work_state: :paused),
+          agent("alert", open_decision_count: 1),
+          agent("stuck", work_state: :error)
+        ],
         retrying: [],
-        idle: [agent("queued-blocked", waiting_reason: :waiting_for_dependency), agent("queued-ready")]
+        idle: [
+          agent("queued-blocked", blocked_by: [%{id: "missing-upstream"}]),
+          agent("queued-ready", blocked_by: [])
+        ]
       })
 
     assert Enum.map(payload.agents, & &1.identifier) == [
@@ -96,8 +111,48 @@ defmodule AiurWeb.StreamDeckGridTest do
            ]
   end
 
+  test "derives queued readiness from complete fleet dependencies" do
+    snapshot = %{
+      running: [
+        agent("open-upstream", progress_percent: 99),
+        agent("merged-upstream", control: "Merged"),
+        agent("complete-upstream", progress_percent: 100)
+      ],
+      retrying: [],
+      idle: [
+        agent("open-child", blocked_by: [%{id: "open-upstream"}]),
+        agent("merged-child", blocked_by: [%{id: "merged-upstream"}]),
+        agent("complete-child", blocked_by: [%{id: "complete-upstream"}]),
+        agent("unknown-child", blocked_by: [%{id: "absent-upstream"}]),
+        agent("independent-child", blocked_by: []),
+        agent("missing-data-child")
+      ]
+    }
+
+    readiness =
+      snapshot
+      |> StreamDeckGrid.project()
+      |> Map.fetch!(:agents)
+      |> Enum.filter(&(&1.bucket == :queued))
+      |> Map.new(&{&1.identifier, &1.dependency_ready})
+
+    assert readiness == %{
+             "open-child" => false,
+             "merged-child" => true,
+             "complete-child" => true,
+             "unknown-child" => false,
+             "independent-child" => true,
+             "missing-data-child" => false
+           }
+  end
+
   test "includes the Stream Deck agent fields" do
-    [agent] = StreamDeckGrid.project(%{running: [agent("123", backend: "claude", progress_percent: 60, priority: 1)], retrying: [], idle: []}).agents
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", backend: "claude", progress_percent: 60, priority: 1)],
+        retrying: [],
+        idle: []
+      }).agents
 
     assert agent == %{
              identifier: "123",
@@ -112,7 +167,14 @@ defmodule AiurWeb.StreamDeckGridTest do
   test "normalizes vendor and invalid activity values" do
     [agent] =
       StreamDeckGrid.project(%{
-        running: [agent("123", agent_family: "claude", backend: "codex", progress_percent: 101, priority: "high")],
+        running: [
+          agent("123",
+            agent_family: "claude",
+            backend: "codex",
+            progress_percent: 101,
+            priority: "high"
+          )
+        ],
         retrying: [],
         idle: []
       }).agents
@@ -130,7 +192,12 @@ defmodule AiurWeb.StreamDeckGridTest do
   end
 
   test "only flags positive priority ranks" do
-    [unprioritized, prioritized] = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
+    [unprioritized, prioritized] =
+      StreamDeckGrid.project(%{
+        running: [agent("1", priority: 0), agent("2", priority: 1)],
+        retrying: [],
+        idle: []
+      }).agents
 
     refute unprioritized.priority
     assert prioritized.priority
@@ -157,7 +224,11 @@ defmodule AiurWeb.StreamDeckGridTest do
 
     def start_link(opts), do: GenServer.start_link(__MODULE__, :ok, Keyword.take(opts, [:name]))
 
-    def child_spec(opts), do: %{id: {__MODULE__, Keyword.get(opts, :name, self())}, start: {__MODULE__, :start_link, [opts]}}
+    def child_spec(opts),
+      do: %{
+        id: {__MODULE__, Keyword.get(opts, :name, self())},
+        start: {__MODULE__, :start_link, [opts]}
+      }
 
     @impl true
     def init(:ok), do: {:ok, :ok}

@@ -97,7 +97,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
              ["1363", "1367", "1371", "1373", "1366", "1370", "1372", "1374"]
   end
 
-  test "preserves raw dial value while deriving offset across fleet shrink and grow", %{snapshot_agent: snapshot_agent} do
+  test "preserves raw dial value while deriving offset across fleet shrink and grow", %{
+    snapshot_agent: snapshot_agent
+  } do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "grid-page", %{"value" => "50"})
@@ -121,7 +123,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
     assert html =~ "Live running"
 
-    Agent.update(snapshot_agent, fn _ -> %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]} end)
+    Agent.update(snapshot_agent, fn _ ->
+      %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]}
+    end)
+
     send(view.pid, {:running_changed, []})
 
     html = render(view)
@@ -204,7 +209,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
         feed_event("assistant", "older message", "turn-1"),
         feed_event("tool", "edit lib/example.ex", "turn-1", %{
           "tool" => "edit",
-          "changes" => [%{"path" => "lib/example.ex", "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"}]
+          "changes" => [
+            %{
+              "path" => "lib/example.ex",
+              "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"
+            }
+          ]
         }),
         feed_event("assistant", "newest message", "turn-2")
       ])
@@ -238,7 +248,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
       assert html =~ "new focused entry"
       refute html =~ "old focused entry"
 
-      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
+      AgentPubSub.broadcast_transcript(
+        "1352",
+        AgentEvents.transcript_event(:assistant, "stale topic")
+      )
+
       Process.sleep(20)
       html = render(view)
       refute html =~ "stale topic"
@@ -267,7 +281,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
         refute_receive {:streamdeck_pause, _identifier}
         refute_receive {:streamdeck_resume, _identifier}
 
-        AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
+        AgentPubSub.broadcast_transcript(
+          "1352",
+          AgentEvents.transcript_event(:assistant, "stale topic")
+        )
+
         Process.sleep(20)
         html = render(view)
         refute html =~ "stale topic"
@@ -295,7 +313,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-streamdeck-identifier="1377")
   end
 
-  test "renders provider percentages and refreshes them from the live meter event", %{meter_agent: meter_agent} do
+  test "renders provider percentages and refreshes them from the live meter event", %{
+    meter_agent: meter_agent
+  } do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ "daily 30%"
@@ -343,7 +363,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     assert render_click(view, "toggle-nav", %{}) =~ ~s(data-nav-collapsed="true")
-    assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~ ~s(data-nav-collapsed="false")
+
+    assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~
+             ~s(data-nav-collapsed="false")
   end
 
   defp fixture_snapshot do
@@ -382,7 +404,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         waiting_reason: :active,
         tracker_paused: false,
         progress_percent: 50,
-        priority: nil
+        priority: nil,
+        blocked_by: [%{id: "missing-upstream"}]
       },
       Map.new(attrs)
     )
@@ -431,7 +454,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
     Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, nil)
-    Application.put_env(:aiur, Endpoint, Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil))
+
+    Application.put_env(
+      :aiur,
+      Endpoint,
+      Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil)
+    )
 
     try do
       fun.()
