@@ -115,6 +115,48 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="sd-keys")
   end
 
+  test "renders the focused command strip and its fixed-width BACK hint" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert html =~ ~s(class="sd-screen sd-screen-cmd")
+    assert html =~ ~s(class="sd-strip-cmd")
+    assert html =~ "CONTROLLING #1352"
+    assert html =~ ~s(src="/codex-color.svg")
+    assert html =~ ~s(aria-valuenow="50")
+    assert html =~ "background: hsl(62.5, 72%, 50%)"
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
+  end
+
+  test "renders bounded BACK and EVENTS hint arrows in logs mode" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = enter_logs(view)
+
+    assert html =~ ~s(class="sd-screen sd-screen-logs")
+    assert html =~ ~s(class="sd-strip-logs")
+    assert html =~ ~s(data-log-kind="evhdr")
+    assert html =~ ~s(data-log-kind="message")
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: visible">›<\/span>/
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>EVENTS<span style="visibility: visible">›<\/span>/
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "99"})
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>EVENTS<span style="visibility: hidden">›<\/span>/
+  end
+
   test "cycle-window enters logs only from command mode" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
@@ -320,6 +362,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
       assert html =~ "older message"
       assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+      assert html =~ "sd-log-entry-diff"
+      assert html =~ ~s(class="sd-log-diff-line is-addition")
+      assert html =~ "+new"
     end)
   end
 

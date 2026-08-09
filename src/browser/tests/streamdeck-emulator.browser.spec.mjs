@@ -143,6 +143,11 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   await expect(page.locator('#sd-cmd-view')).toBeVisible()
   await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
+  await expect(page.locator('.sd-strip-cmd')).toBeVisible()
+  await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
+  await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
+  await expect(page.locator('.sd-strip-cmd-progress')).toHaveAttribute('aria-valuenow', /\d+/)
+  await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
 
 test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
@@ -536,6 +541,10 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
   await expect(logKeys.locator('[data-log-event-index="2"] .sd-log-dir')).toContainText('AGENT')
   await expect(page.locator('#sd-screen')).toContainText('event-1')
+  await expect(page.locator('.sd-log-entry-evhdr')).toBeVisible()
+  await expect(page.locator('.sd-log-entry-message')).toBeVisible()
+  await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
+  await expect(page.locator('.sd-dial-hint').first().locator('span').last()).toHaveCSS('visibility', 'visible')
 
   await logKeys.locator('[data-log-event-index="2"]').click()
   await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')

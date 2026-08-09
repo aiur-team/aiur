@@ -17,6 +17,7 @@ defmodule AiurWeb.StreamdeckStrip do
     %{
       number: to_string(Map.get(agent, :identifier, "")),
       provider: Map.get(agent, :vendor, "unknown") |> to_string(),
+      provider_logo: provider_logo(Map.get(agent, :vendor, "unknown")),
       title: Map.get(agent, :title, "Untitled agent") |> to_string(),
       status: status(Map.get(agent, :bucket)),
       percent: percent,
@@ -42,13 +43,15 @@ defmodule AiurWeb.StreamdeckStrip do
   end
 
   defp entry(%{kind: :diff, path: path, additions: additions, deletions: deletions, line: line}) do
-    line = to_string(line || "")
+    additions = additions || 0
+    deletions = deletions || 0
+    line = diff_line(line, additions, deletions)
 
     %{
       shape: :diff,
       file: to_string(path || "changed file"),
-      additions: additions || 0,
-      deletions: deletions || 0,
+      additions: additions,
+      deletions: deletions,
       line: line,
       line_kind: line_kind(line)
     }
@@ -71,6 +74,14 @@ defmodule AiurWeb.StreamdeckStrip do
   defp status(:alert), do: "ATTENTION"
   defp status(_bucket), do: "IDLE"
 
+  defp provider_logo(provider) do
+    case provider |> to_string() |> String.downcase() do
+      "claude" -> "/claude-symbol.svg"
+      "codex" -> "/codex-color.svg"
+      _ -> nil
+    end
+  end
+
   defp speaker(role) when role in ["assistant", :assistant], do: :agent
   defp speaker(role) when role in ["tool", :tool], do: :tool
   defp speaker(role) when role in ["user", :user], do: :you
@@ -79,6 +90,17 @@ defmodule AiurWeb.StreamdeckStrip do
   defp line_kind("+" <> _line), do: :addition
   defp line_kind("-" <> _line), do: :deletion
   defp line_kind(_line), do: :context
+
+  defp diff_line(line, additions, deletions) do
+    line = to_string(line || "")
+
+    cond do
+      line == "" or String.starts_with?(line, ["+", "-"]) -> line
+      additions > 0 -> "+#{line}"
+      deletions > 0 -> "-#{line}"
+      true -> line
+    end
+  end
 
   defp relative_time(timestamp) when is_binary(timestamp) do
     case DateTime.from_iso8601(timestamp) do

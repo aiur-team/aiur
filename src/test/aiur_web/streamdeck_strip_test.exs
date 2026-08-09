@@ -16,6 +16,7 @@ defmodule AiurWeb.StreamdeckStripTest do
     assert command == %{
              number: "1582",
              provider: "codex",
+             provider_logo: "/codex-color.svg",
              title: "Render the logs strip",
              status: "RUNNING",
              percent: 50,
@@ -33,9 +34,9 @@ defmodule AiurWeb.StreamdeckStripTest do
     [header, diff, addition, deletion, message, tool, ci, you] =
       StreamdeckStrip.entries([
         %{kind: :event_header, badge: "EMIT", body: "tool finished", timestamp: "not-a-time"},
-        %{kind: :diff, path: "lib/strip.ex", additions: 2, deletions: 1, line: " context"},
-        %{kind: :diff, path: "lib/strip.ex", additions: 2, deletions: 1, line: "+added"},
-        %{kind: :diff, path: "lib/strip.ex", additions: 2, deletions: 1, line: "-removed"},
+        %{kind: :diff, path: "lib/strip.ex", additions: 0, deletions: 0, line: " context"},
+        %{kind: :diff, path: "lib/strip.ex", additions: 2, deletions: 1, line: "added"},
+        %{kind: :diff, path: "lib/strip.ex", additions: 0, deletions: 1, line: "removed"},
         %{kind: :message, role: "assistant", body: "working"},
         %{kind: :message, role: "tool", body: "mix test"},
         %{kind: :message, role: "system", body: "CI passed"},
@@ -43,7 +44,7 @@ defmodule AiurWeb.StreamdeckStripTest do
       ])
 
     assert header == %{shape: :evhdr, direction: "EMIT", text: "tool finished", time: "not-a-time"}
-    assert %{shape: :diff, file: "lib/strip.ex", additions: 2, deletions: 1, line_kind: :context} = diff
+    assert %{shape: :diff, file: "lib/strip.ex", additions: 0, deletions: 0, line_kind: :context} = diff
     assert %{shape: :diff, line: "+added", line_kind: :addition} = addition
     assert %{shape: :diff, line: "-removed", line_kind: :deletion} = deletion
     assert message == %{shape: :message, speaker: :agent, text: "working"}
