@@ -7291,7 +7291,6 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-install-control {
-  margin-left: auto;
   padding: 0.28rem 0.48rem;
   border: 1px solid var(--accent-ink);
   border-radius: 999px;
@@ -7304,6 +7303,13 @@ html[data-theme="light"] .toggle-icon .moon {
   cursor: pointer;
 }
 
+.sd-package-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin-left: auto;
+}
+
 .sd-install-control:hover {
   background: var(--accent-soft);
 }
@@ -7314,7 +7320,6 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-install-modal {
-  grid-template-rows: auto auto auto auto auto auto;
   width: min(680px, 100%);
   overflow: auto;
 }
@@ -7351,6 +7356,13 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-install-modal code {
+  overflow-wrap: anywhere;
+}
+
+.sd-install-modal .modal-meta {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
   overflow-wrap: anywhere;
 }
 

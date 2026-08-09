@@ -20,6 +20,14 @@ defmodule AiurWeb.StreamdeckLive do
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
+  @streamdeck_package %{
+    version: "0.0.0-dev.0098e3ac86a2",
+    commit: "0098e3ac86a2e49e685e8e6ff67248373de43f1d",
+    url:
+      "https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/" <>
+        "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+  }
+
   @impl true
   def mount(_params, _session, socket) do
     socket =
@@ -36,6 +44,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
       |> assign(:install_modal?, false)
+      |> assign(:streamdeck_package, @streamdeck_package)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> refresh_grid()
@@ -162,9 +171,19 @@ defmodule AiurWeb.StreamdeckLive do
               <circle cx="12" cy="12" r="2" fill="#fff" />
             </svg>
             <span class="sd-brand-name">STREAM DECK</span>
-            <button id="streamdeck-install-control" class="sd-install-control" type="button" phx-click="open-streamdeck-install">
-              Install +
-            </button>
+            <div class="sd-package-controls">
+              <a
+                id="streamdeck-download-control"
+                class="sd-install-control"
+                href={@streamdeck_package.url}
+                download
+              >
+                Download
+              </a>
+              <button id="streamdeck-install-control" class="sd-install-control" type="button" phx-click="open-streamdeck-install">
+                Install +
+              </button>
+            </div>
           </header>
 
           <%= if @sd_mode == :grid do %>
@@ -300,13 +319,22 @@ defmodule AiurWeb.StreamdeckLive do
             <p>
               Put the daemon address and the dashboard’s HTTP Basic Auth username and password in
               <code>~/.config/aiur/streamdeck.env</code>. Get the address from the dashboard URL and the credential from
-              the dashboard configuration or the operator who runs it; never paste a live credential into this page.
+              the dashboard configuration or the operator who runs it. Use <code>https://</code> for a daemon outside
+              the local machine; never paste a live credential into this page.
             </p>
           </section>
 
           <ol class="sd-install-steps">
-            <li><strong>Download and extract</strong> the Stream Deck + package into <code>~/.local/share/aiur/streamdeck</code>.</li>
+            <li><a href={@streamdeck_package.url} download><strong>Download the Stream Deck + package.</strong></a></li>
+            <li><strong>Create the sidecar directory:</strong> <code>install -dm755 ~/.local/share/aiur/streamdeck</code></li>
+            <li><strong>Extract the archive:</strong> <code>tar -xzf /path/to/downloaded-archive.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></li>
+            <li><strong>Create the pairing directory:</strong> <code>install -dm700 ~/.config/aiur</code></li>
+            <li><strong>Create the pairing file:</strong> <code>touch ~/.config/aiur/streamdeck.env</code></li>
+            <li><strong>Restrict the pairing file:</strong> <code>chmod 600 ~/.config/aiur/streamdeck.env</code></li>
+            <li><strong>Add the daemon values</strong> for <code>AIUR_PHOENIX_URL</code>, <code>AIUR_DASHBOARD_USERNAME</code>, and <code>AIUR_DASHBOARD_PASSWORD</code>.</li>
             <li><strong>Install the udev rule:</strong> <code>sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules /etc/udev/rules.d/70-streamdeck.rules</code></li>
+            <li><strong>Install the user unit:</strong> <code>install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service ~/.config/systemd/user/aiur-streamdeck.service</code></li>
+            <li><strong>Reload user systemd:</strong> <code>systemctl --user daemon-reload</code></li>
             <li><strong>Enable the sidecar:</strong> <code>systemctl --user enable --now aiur-streamdeck.service</code></li>
             <li><strong>Plug in the deck.</strong> The sidecar detects it and paints the fleet.</li>
           </ol>
@@ -316,7 +344,11 @@ defmodule AiurWeb.StreamdeckLive do
             <p>The deck shows your Aiur fleet. If it does not, first check <code>systemctl --user status aiur-streamdeck.service</code>.</p>
           </section>
 
-          <p class="modal-meta">Package version and Aiur commit will be shown with the published download.</p>
+          <p class="modal-meta">
+            <a href={@streamdeck_package.url} download>Download package {@streamdeck_package.version}</a>
+            <span aria-hidden="true"> · </span>
+            Aiur commit <code>{@streamdeck_package.commit}</code>
+          </p>
         </section>
       </div>
     </DashboardShell.dashboard_shell>
