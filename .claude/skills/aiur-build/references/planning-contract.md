@@ -13,9 +13,9 @@ runtime facts.
   tickets/<ID>.md             # draft issue body until promoted
 ```
 
-The state node is host-local runtime storage and the only path Aiur reads. A
-developer may keep a copied plan in repository version control, but that copy
-is inert to Aiur.
+The state node is host-local canonical runtime storage. Aiur also reads the
+materialized repository discovery mirror that successful publication writes to
+`.aiur/build_orders/<slug>.json`; a copied plan under `docs/` remains inert.
 
 ## Canonical pack
 
