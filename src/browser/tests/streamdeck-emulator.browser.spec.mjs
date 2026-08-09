@@ -64,6 +64,54 @@ test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) =>
   expect(newValue).toBeGreaterThan(initialValue)
 })
 
+test('installation modal renders its steps and closes by backdrop or Escape at mobile size', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 375, height: 760 } })
+  const page = await context.newPage()
+
+  try {
+    await openStreamdeck(page)
+
+    const packageUrl = 'https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz'
+    await expect(page.locator('#streamdeck-download-control')).toHaveAttribute('href', packageUrl)
+    await page.getByRole('button', { name: 'Install +' }).click()
+    let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Linux with udev')).toBeVisible()
+    await expect(dialog.getByText('Pair it with your daemon')).toBeVisible()
+    await expect(dialog.getByText('Download the Stream Deck + package')).toBeVisible()
+    await expect(dialog.getByText('Create the sidecar directory')).toBeVisible()
+    await expect(dialog.getByText('--strip-components=1')).toBeVisible()
+    await expect(dialog.getByText('Create the pairing directory')).toBeVisible()
+    await expect(dialog.getByText('Create the pairing file')).toBeVisible()
+    await expect(dialog.getByText('Restrict the pairing file')).toBeVisible()
+    await expect(dialog.getByText('AIUR_PHOENIX_URL')).toBeVisible()
+    await expect(dialog.getByText('Install the udev rule')).toBeVisible()
+    await expect(dialog.getByText('Install the user unit')).toBeVisible()
+    await expect(dialog.getByText('Reload user systemd')).toBeVisible()
+    await expect(dialog.getByText('Enable the sidecar')).toBeVisible()
+    await expect(dialog.getByText('Plug in the deck')).toBeVisible()
+    await expect(dialog.getByText('What success looks like')).toBeVisible()
+    await expect(dialog.getByText('0.0.0-dev.0098e3ac86a2')).toBeVisible()
+    await expect(dialog.getByText('0098e3ac86a2e49e685e8e6ff67248373de43f1d')).toBeVisible()
+    await expect(dialog.getByRole('link', { name: /Download the Stream Deck \+ package/ })).toHaveAttribute('href', packageUrl)
+    await expect(dialog.getByRole('link', { name: 'Download package 0.0.0-dev.0098e3ac86a2' })).toHaveAttribute('href', packageUrl)
+    await expect(dialog.locator('input[type="password"], [value*="password" i]')).toHaveCount(0)
+    await expect(dialog).not.toContainText(dashboardCredentials.username)
+    await expect(dialog).not.toContainText(dashboardCredentials.password)
+
+    await page.locator('.sd-install-backdrop').click({ position: { x: 8, y: 8 } })
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Install +' }).click()
+    dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  } finally {
+    await context.close()
+  }
+})
+
 test('wheel event adjusts the knob value and does not scroll the page', async ({ page }) => {
   await openStreamdeck(page)
 
