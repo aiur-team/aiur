@@ -152,6 +152,7 @@ class Context:
     root: Path
     build_path: Path
     publication_path: Path
+    discovery_path: Path
     approved: str
     authority: str
     repository: str
@@ -242,6 +243,7 @@ class Publisher:
         fresh = self._fresh_evidence(mappings, comment)
         self._write_materialized(fresh)
         self._run_validators()
+        self._write_discovery_pack()
         self._check_authority()
         return {
             "mode": "apply-pending",
@@ -256,6 +258,7 @@ class Publisher:
             ),
             "files_written": [
                 str(self.context.build_path), str(self.context.publication_path),
+                str(self.context.discovery_path),
                 str(self.context.root_document),
                 *(
                     [str(self.context.additional_document)]
@@ -1275,6 +1278,12 @@ class Publisher:
         self.context.build = build
         self.context.publication = publication
 
+    def _write_discovery_pack(self) -> None:
+        self.context.discovery_path.parent.mkdir(parents=True, exist_ok=True)
+        self.context.discovery_path.write_text(
+            self.context.build_path.read_text(encoding="utf-8"), encoding="utf-8",
+        )
+
     def _run_validators(self) -> None:
         canonical_command = [
             sys.executable,
@@ -1427,6 +1436,9 @@ def build_context(
         for value in (repository, root_id, trusted_ref)
     ) or type(plan_version) is not int:
         raise PublicationError("publication identity fields are invalid")
+    slug = root_id.removeprefix(f"{repository}:")
+    if root_id == slug or not slug or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in slug):
+        raise PublicationError("build_order_id must be repository:feature-slug")
     mutation_repositories = publication.get("mutation_repositories")
     if mutation_repositories is not None and (
         not isinstance(mutation_repositories, list)
@@ -1613,6 +1625,7 @@ def build_context(
     )
     return Context(
         root=root, build_path=build_path, publication_path=publication_path,
+        discovery_path=root / ".aiur" / "build_orders" / f"{slug}.json",
         approved=approved.lower(), authority=authority.lower(),
         repository=repository, trusted_ref=trusted_ref, plan_version=plan_version,
         root_id=root_id, skill_id=skill_id, build=build, publication=publication,

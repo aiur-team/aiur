@@ -19,9 +19,12 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   @behaviour AiurWeb.BuildOrder.DataSource
 
+  require Logger
+
   alias Aiur.BuildOrder.{Catalog, Dependency, Member, PackPaths, PackStatus, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.CurrentRunMembership
+  alias Aiur.GitHub.Config
   alias Aiur.Orchestrator.StatusReport
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.DataSource
@@ -30,29 +33,26 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   @generation 1
   @default_root_number_base 100_000
   @default_root_number_range 800_000_000
+  @pack_source_precedence %{workspace: 0, state: 1, override: 2, configured: 3, explicit: 4}
+  @pack_source_precedence_description "workspace > state > environment > configured > explicit"
 
   # --- catalog ---------------------------------------------------------------
 
   @impl true
   def catalog do
     membership = membership_snapshot()
+    packs = load_packs()
 
-    case load_packs() do
-      [] ->
-        nil
+    {provider_health, source_generation} = provider(membership, packs)
 
-      packs ->
-        {provider_health, source_generation} = provider(membership, packs)
-
-        %Snapshot{
-          scope: :catalog,
-          repository: hd(packs).repository,
-          generation: source_generation,
-          authority_epoch: @epoch,
-          data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health),
-          health: provider_health
-        }
-    end
+    %Snapshot{
+      scope: :catalog,
+      repository: catalog_repository(packs),
+      generation: source_generation,
+      authority_epoch: @epoch,
+      data: Catalog.new(Enum.map(packs, &root_summary(&1, membership)), provider_health, search_paths: catalog_search_paths()),
+      health: provider_health
+    }
   end
 
   # --- selected root ---------------------------------------------------------
@@ -511,35 +511,98 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       {:ok, pack} -> [pack]
       :error -> []
     end)
+    |> filter_for_tracked_repository()
+    |> reconcile_duplicate_packs()
     |> Enum.sort(&pack_before?/2)
     |> assign_default_root_numbers()
     |> assign_default_icons()
   end
 
-  defp pack_paths, do: PackPaths.planning()
+  # A single explicit pack is a test/demo override. Every normal catalog source,
+  # including the environment directory override, remains scoped to the repo this
+  # daemon is tracking.
+  defp filter_for_tracked_repository(packs) do
+    if Application.get_env(:aiur, :build_order_planning_pack) do
+      packs
+    else
+      Enum.filter(packs, &tracked_repository?/1)
+    end
+  end
 
-  defp load_pack(path, include_drafts?) do
-    absolute = if Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path)
+  defp tracked_repository?(%{repository: repository}), do: same_repository?(repository, configured_repository_tuple())
+  defp tracked_repository?(_pack), do: false
+
+  defp pack_paths do
+    case Application.get_env(:aiur, :build_order_planning_pack) do
+      nil ->
+        case Application.get_env(:aiur, :build_order_planning_packs) do
+          paths when is_list(paths) -> Enum.map(paths, &{:configured, &1})
+          _missing -> discovered_packs()
+        end
+
+      path ->
+        [{:explicit, path}]
+    end
+  end
+
+  # Runtime packs are re-discovered through the same canonical source list the
+  # status poller uses, including publisher-created workspace mirrors.
+  defp discovered_packs do
+    PackPaths.discovered_sources()
+  end
+
+  defp catalog_repository([pack | _packs]), do: pack.repository
+  defp catalog_repository([]), do: configured_repository_tuple()
+
+  defp configured_repository_tuple do
+    case String.split(to_string(configured_repository() || ""), "/", parts: 2) do
+      [owner, repo] when owner != "" and repo != "" -> {owner, repo}
+      _other -> {"unknown", "unknown"}
+    end
+  end
+
+  defp catalog_search_paths do
+    case Application.get_env(:aiur, :build_order_planning_pack) do
+      nil ->
+        case Application.get_env(:aiur, :build_order_planning_packs) do
+          paths when is_list(paths) -> Enum.map(paths, &Path.dirname(absolute_path(&1)))
+          _missing -> PackPaths.discovery_directories()
+        end
+
+      path ->
+        [Path.dirname(absolute_path(path))]
+    end
+  end
+
+  defp load_pack({source, path}, include_drafts?) do
+    absolute = absolute_path(path)
 
     with {:ok, body} <- File.read(absolute),
          {:ok, json} <- Jason.decode(body),
          {:ok, repository} <- repository(json),
          {:ok, tickets} <- tickets(Map.get(json, "tickets", []), Path.dirname(absolute), include_drafts?) do
-      build_order_id = Map.get(json, "build_order_id", "planning")
-      root_number = Map.get(json, "root_number")
+      raw_build_order_id = Map.get(json, "build_order_id")
+      build_order_id = normalized_build_order_id(raw_build_order_id)
+      root_number = Map.get(json, "root_number") || get_in(json, ["github_root", "number"])
       status = status(absolute)
+      declared_completed? = Map.get(json, "completed", false) == true
 
       {:ok,
        %{
+         source: source,
+         path: absolute,
+         content_hash: :crypto.hash(:sha256, body),
          repository: repository,
          build_order_id: build_order_id,
+         build_order_id_explicit?: is_binary(raw_build_order_id) and raw_build_order_id != "",
          title: Map.get(json, "title", "Planning build order"),
          icon: pack_icon(json),
          icon_explicit?: is_binary(Map.get(json, "icon")) and Map.get(json, "icon") != "",
          root_number: root_number || default_root_number(build_order_id),
          root_number_explicit?: is_integer(root_number),
          root_node_id: root_node_id(json, build_order_id),
-         completed: Map.get(json, "completed", false) == true or status_completed?(status),
+         declared_completed?: declared_completed?,
+         completed: declared_completed? or status_completed?(status),
          completed_at: status_completed_at(status),
          status: status,
          materialized?: Enum.any?(tickets, &is_integer(&1.number)),
@@ -551,11 +614,69 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
     end
   end
 
+  # The publisher writes a workspace mirror while the repository state node
+  # retains its canonical copy. Reconcile only mirrors of the same logical
+  # build order before sorting so the URL router receives one root identity.
+  # Source precedence is intentional and auditable in the warning: workspace,
+  # state, environment, configured list, then the singular explicit test/demo
+  # pack. Distinct build orders retain their entries even when root locators
+  # collide, allowing RouteState to fail closed rather than hiding a pack.
+  defp reconcile_duplicate_packs(packs) do
+    packs
+    |> Enum.sort_by(&pack_precedence/1)
+    |> Enum.reduce([], fn pack, selected ->
+      case Enum.find_index(selected, &same_catalog_pack?(&1, pack)) do
+        nil ->
+          [pack | selected]
+
+        index ->
+          chosen = Enum.at(selected, index)
+
+          Logger.warning(
+            "build order catalog discarded #{duplicate_kind(chosen, pack)} #{inspect(pack.build_order_id)} from #{pack.source} (#{pack.path}); " <>
+              "source precedence #{@pack_source_precedence_description} selected #{chosen.source} (#{chosen.path})"
+          )
+
+          List.replace_at(selected, index, retain_state_projection(chosen, pack))
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp pack_precedence(pack), do: {Map.get(@pack_source_precedence, pack.source, 99), pack.path}
+
+  defp same_catalog_pack?(left, right) do
+    same_repository?(left.repository, right.repository) and
+      left.build_order_id_explicit? and right.build_order_id_explicit? and
+      left.build_order_id == right.build_order_id
+  end
+
+  defp duplicate_kind(%{content_hash: hash}, %{content_hash: hash}), do: "identical mirror"
+  defp duplicate_kind(_chosen, _pack), do: "divergent duplicate"
+
+  # A workspace mirror determines the catalog definition, but the daemon writes
+  # status.json only beside the repository-state manifest. Keep that projection
+  # when the matching state pack loses definition precedence.
+  defp retain_state_projection(chosen, %{source: :state, status: status}) do
+    %{chosen | status: status, completed: chosen.declared_completed? or status_completed?(status), completed_at: status_completed_at(status)}
+  end
+
+  defp retain_state_projection(chosen, _discarded), do: chosen
+
+  defp same_repository?({left_owner, left_repo}, {right_owner, right_repo}) do
+    String.downcase(left_owner) == String.downcase(right_owner) and String.downcase(left_repo) == String.downcase(right_repo)
+  end
+
+  defp same_repository?(_left, _right), do: false
+
+  defp normalized_build_order_id(build_order_id) when is_binary(build_order_id) and build_order_id != "", do: build_order_id
+  defp normalized_build_order_id(_build_order_id), do: "planning"
+
   defp ticket_numbers(tickets) do
     for %{id: id, number: number} <- tickets, is_integer(number), into: %{}, do: {id, number}
   end
 
-  defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || "BO_#{build_order_id}"
+  defp root_node_id(json, build_order_id), do: Map.get(json, "root_node_id") || get_in(json, ["github_root", "node_id"]) || "BO_#{build_order_id}"
 
   defp assign_default_root_numbers(packs) do
     {packs, _used_numbers} =
@@ -609,17 +730,17 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket(%{"id" => id} = attributes, pack_dir, include_drafts?) when is_binary(id) and id != "" do
     with {:ok, number} <- ticket_number(attributes),
-         document_path <- Map.get(attributes, "doc"),
+         document_path <- ticket_document_path(attributes),
          true <- safe_document_path?(document_path) do
       {:ok,
        %{
          id: id,
          title: Map.get(attributes, "title", id),
-         lane: to_string(Map.get(attributes, "lane", "unassigned")),
-         phase: Map.get(attributes, "phase", 0),
-         complexity: Map.get(attributes, "complexity"),
+         lane: ticket_lane(attributes),
+         phase: ticket_phase(attributes),
+         complexity: ticket_complexity(attributes),
          number: number,
-         node_id: nil,
+         node_id: ticket_node_id(attributes),
          depends_on: List.wrap(Map.get(attributes, "depends_on", [])),
          document_url: nil,
          document_path: document_path,
@@ -632,6 +753,16 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   end
 
   defp ticket(_attributes, _pack_dir, _include_drafts?), do: :error
+
+  defp ticket_document_path(attributes), do: Map.get(attributes, "doc") || Map.get(attributes, "document")
+
+  defp ticket_lane(attributes), do: to_string(Map.get(attributes, "lane") || Map.get(attributes, "workstream") || "unassigned")
+
+  defp ticket_phase(attributes), do: Map.get(attributes, "phase") || Map.get(attributes, "phase_hint") || 0
+
+  defp ticket_complexity(attributes), do: Map.get(attributes, "complexity") || Map.get(attributes, "complexity_points")
+
+  defp ticket_node_id(attributes), do: get_in(attributes, ["github", "node_id"])
 
   defp safe_document_path?(path) when is_binary(path) and byte_size(path) in 1..512 do
     Path.type(path) == :relative and
@@ -707,6 +838,7 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   defp ticket_number(%{"ticket" => ticket}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(%{"ticket" => nil}), do: {:ok, nil}
+  defp ticket_number(%{"github" => %{"number" => ticket}}) when is_integer(ticket) and ticket > 0, do: {:ok, ticket}
   defp ticket_number(_attributes), do: :error
 
   @default_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
@@ -750,4 +882,12 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
       true -> left.title < right.title
     end
   end
+
+  defp configured_repository do
+    Config.repo()
+  rescue
+    _error -> nil
+  end
+
+  defp absolute_path(path), do: if(Path.type(path) == :absolute, do: path, else: Application.app_dir(:aiur, path))
 end
