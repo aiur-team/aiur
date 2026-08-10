@@ -3501,6 +3501,18 @@ html[data-theme="light"] .toggle-icon .moon {
   object-fit: contain;
 }
 
+.rs-github-logo {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--surface);
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
 .rs-name {
   font-weight: 700;
   font-size: 0.92rem;
@@ -3617,6 +3629,25 @@ html[data-theme="light"] .toggle-icon .moon {
    exhausted window is never mistaken for a healthy one. */
 .rs-meter > i.is-critical {
   background: var(--blocking);
+}
+
+.rs-meter > i.is-warning {
+  background: var(--warning, #d08a2a);
+}
+
+.github-quota-attribution,
+.github-quota-backoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+}
+
+/* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
+   the same warning colour the meters use as they approach their ceiling. */
+.github-quota-backoff {
+  color: var(--warning, #d08a2a);
 }
 
 .rs-progress {
