@@ -8137,6 +8137,23 @@ html[data-theme="light"] .sd-device {
   overflow: hidden;
 }
 
+/* Logs mode replaces the fleet segments with the transcript, but the pager
+   segment stays: it names the agent whose transcript you are reading, and
+   #1580's focus label has to survive the descent into logs. It sits above the
+   transcript rather than in source order at the end of the strip. */
+.sd-screen.is-logs [data-segment="pager"] {
+  order: -1;
+  display: block;
+  padding: 0;
+  text-align: left;
+}
+
+.sd-screen.is-logs [data-segment="pager"] .sd-seg-dlabel {
+  color: var(--muted);
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+}
+
 .sd-log-strip-entry {
   display: block;
   min-width: 0;

@@ -285,7 +285,7 @@ defmodule AiurWeb.StreamdeckLive do
             </div>
             <span :if={@sd_mode == :logs} id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             <div
-              :if={@sd_mode != :logs}
+              :if={@sd_mode != :logs or segment.kind == :pager}
               :for={segment <- @screen}
               class={[
                 "sd-screen-segment",
