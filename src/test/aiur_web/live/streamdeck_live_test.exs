@@ -146,7 +146,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
       %{
         running: [fixture_agent("zero", "Zero progress", "codex", progress_percent: 0), fixture_agent("full", "Full progress", "nonesuch", progress_percent: 100)],
         retrying: [],
-        idle: [fixture_agent("ready", "Ready queue", "claude")]
+        # No upstreams at all, so this queued key is the ready side of the badge.
+        idle: [fixture_agent("ready", "Ready queue", "claude", blocked_by: [])]
       }
     end)
 
@@ -911,7 +912,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         waiting_reason: :active,
         tracker_paused: false,
         progress_percent: 50,
-        priority: nil
+        priority: nil,
+        blocked_by: [%{id: "missing-upstream"}]
       },
       Map.new(attrs)
     )
