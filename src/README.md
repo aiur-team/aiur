@@ -276,6 +276,11 @@ the issue state. Aiur will not claim a paused `agent:todo` ticket, will
 cooperatively pause a running ticket when the label appears, and `aiurdev watch`
 shows the override as `paused`.
 
+`aiurdev resume <id>` removes `agent:paused` from the tracker before it resumes
+or starts the local agent. If the tracker refuses that removal, the command exits
+non-zero and explains that the resume will not hold; it does not report a plain
+success. A fleet-wide `aiurdev resume` still preserves per-ticket pause labels.
+
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
 
