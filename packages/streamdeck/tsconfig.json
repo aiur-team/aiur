@@ -11,6 +11,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "isolatedModules": true,
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
     "skipLibCheck": true,
     "types": ["node"]

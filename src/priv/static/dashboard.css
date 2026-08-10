@@ -7418,9 +7418,10 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-key {
-  --sd-accent: #9fd0ff;
-  --sd-glow: #0c0d0f;
+  --sd-accent: var(--accent);
+  --sd-glow: var(--accent-soft);
   --sd-face: #0f151c;
+  --sd-progress-fill: var(--sd-accent);
   position: relative;
   aspect-ratio: 1 / 1;
   min-width: 0;
@@ -7428,7 +7429,7 @@ html[data-theme="light"] .toggle-icon .moon {
   border: 0;
   padding: 3px;
   border-radius: 15px;
-  background: #0c0d0f;
+  background: var(--sd-glow);
   color: var(--fg);
   cursor: pointer;
   transition: transform 0.08s ease, filter 0.14s ease;
@@ -7441,7 +7442,7 @@ html[data-theme="light"] .toggle-icon .moon {
   min-width: 0;
   border-radius: 12px;
   overflow: hidden;
-  background: #0f151c;
+  background: var(--sd-face);
   color: var(--fg);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
@@ -7595,11 +7596,7 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--sd-accent);
 }
 
-.sd-agent-key.st-stuck .sd-ag-dot,
-.sd-agent-key.st-stuck .sd-ag-stat::before { animation: sd-pulse 1.4s ease-in-out infinite; }
-
-.sd-agent-key.st-alert .sd-ag-dot,
-.sd-agent-key.st-alert .sd-ag-stat::before { animation: sd-pulse 1.6s ease-in-out infinite; }
+/* Pulse timings come from key-face-contract.json via @key_face_css. */
 
 .sd-ag-bar {
   display: block;
@@ -7615,61 +7612,12 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: inherit;
+  background: var(--sd-progress-fill);
 }
 
-.sd-key.st-running {
-  --sd-accent: #9fd0ff;
-  --sd-glow: linear-gradient(180deg, #3f8bff, #7b4bf5);
-  --sd-face: linear-gradient(180deg, #18212d, #0f151d);
-}
-
-.sd-key.st-running .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-paused {
-  --sd-accent: #c2c6cf;
-  --sd-glow: linear-gradient(180deg, #4a4d55, #33363d);
-  --sd-face: linear-gradient(180deg, #1e2025, #131419);
-}
-
-.sd-key.st-paused .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-stuck {
-  --sd-accent: #ff9a90;
-  --sd-glow: linear-gradient(180deg, #ff6a5e, #c0392b);
-  --sd-face: linear-gradient(180deg, #271317, #160c0e);
-}
-
-.sd-key.st-stuck .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-alert {
-  --sd-accent: #ffcf87;
-  --sd-glow: linear-gradient(180deg, #ffc061, #e08a1e);
-  --sd-face: linear-gradient(180deg, #241d0e, #15110a);
-}
-
-.sd-key.st-alert .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key.st-queued {
-  --sd-accent: #9096a4;
-  --sd-glow: linear-gradient(180deg, #3a3f47, #23262c);
-  --sd-face: linear-gradient(180deg, #191b21, #111318);
-}
-
-.sd-key.st-queued .sd-key-face {
-  background: var(--sd-face);
-}
-
-.sd-key:is(.st-running, .st-paused, .st-stuck, .st-alert, .st-queued) {
-  background: var(--sd-glow);
-}
+/* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
+   from key-face-contract.json by StreamdeckLive; see @key_face_css. Restating
+   them here is what lets the two renderers drift. */
 
 .sd-key:is(.is-empty, .sd-empty) {
   background: #0a0b0d;
@@ -8206,4 +8154,9 @@ html[data-theme="light"] .sd-device {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.62rem;
   line-height: 1.5;
+}
+
+.sd-log-badge {
+  color: var(--sd-log-badge);
+  font-weight: 800;
 }
