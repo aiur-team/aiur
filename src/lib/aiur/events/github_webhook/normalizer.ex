@@ -453,15 +453,13 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     pr = Map.get(payload, "pull_request")
     pr_number = if is_map(pr), do: Map.get(pr, "number")
 
-    cond do
-      not is_map(pr) or not is_integer(pr_number) ->
-        {:error, {:malformed_payload, "pull_request"}}
-
-      true ->
-        case ticket_from_head_ref(pr) do
-          nil -> {:drop, {:unresolved_ticket, "pull_request", pr_number}}
-          ticket -> {:ok, ticket, pr_number}
-        end
+    if is_map(pr) and is_integer(pr_number) do
+      case ticket_from_head_ref(pr) do
+        nil -> {:drop, {:unresolved_ticket, "pull_request", pr_number}}
+        ticket -> {:ok, ticket, pr_number}
+      end
+    else
+      {:error, {:malformed_payload, "pull_request"}}
     end
   end
 

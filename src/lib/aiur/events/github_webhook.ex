@@ -23,8 +23,8 @@ defmodule Aiur.Events.GithubWebhook do
 
   require Logger
 
-  alias Aiur.Events.{Publisher, Sanitizer}
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.Events.{Publisher, Sanitizer}
 
   @reconcile_debounce_ms 2_000
 
