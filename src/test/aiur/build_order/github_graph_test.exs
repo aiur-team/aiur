@@ -45,6 +45,40 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert entry.progress_resolved_count == 3
   end
 
+  # `Metadata.parse/1` maps a missing `build-lane:`/`phase:` label onto
+  # `:unassigned`/`:unphased`, and the pack path counts that placeholder as one
+  # distinct group. Pin the exact degenerate values so the GitHub path cannot
+  # drift away from that shared rule behind an `is_integer/1` assertion.
+  test "counts unlabelled catalog members as one distinct epic and wave" do
+    labelled_root = root(1)
+    unlabelled_root = root(5)
+
+    mixed = [
+      member(2, labelled_root, labels: ["phase:1", "build-lane:runtime"]),
+      member(3, labelled_root, labels: ["complexity:2"])
+    ]
+
+    unlabelled = [
+      member(6, unlabelled_root, labels: []),
+      member(7, unlabelled_root, labels: ["complexity:1"])
+    ]
+
+    labelled_root = Map.put(labelled_root, "subIssues", connection(mixed, 2, []))
+    unlabelled_root = Map.put(unlabelled_root, "subIssues", connection(unlabelled, 2, []))
+
+    assert {:ok, %{candidate: %{entries: [mixed_entry, unlabelled_entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([labelled_root, unlabelled_root], 2)))
+
+    # One real lane plus the `:unassigned` placeholder are two distinct groups.
+    assert mixed_entry.epic_count == 2
+    assert mixed_entry.phase_count == 2
+
+    # Every member unlabelled collapses onto the single placeholder group.
+    assert unlabelled_entry.member_count == 2
+    assert unlabelled_entry.epic_count == 1
+    assert unlabelled_entry.phase_count == 1
+  end
+
   test "marks catalog progress unresolved when no member lifecycle can be resolved" do
     root = root(1)
 

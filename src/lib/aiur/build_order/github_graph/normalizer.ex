@@ -187,6 +187,13 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
     end
   end
 
+  # Distinct-value count over a metadata dimension, matching the pack path
+  # (`planning_source.ex:145-146`) exactly so both catalog sources report the
+  # same way. `Metadata.parse/1` never yields nil: a member carrying no
+  # `build-lane:`/`phase:` label lands on `:unassigned`/`:unphased`, and that
+  # placeholder counts as one distinct group like any other. A root whose
+  # members are all unlabelled therefore reports 1, not 0 — an unlabelled
+  # cohort is still a cohort, and it is the same claim the pack path makes.
   defp metric_count(metadata, field) do
     if Enum.all?(metadata, &match?({:ok, _}, &1)) do
       metadata
