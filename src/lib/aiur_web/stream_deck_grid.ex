@@ -46,7 +46,7 @@ defmodule AiurWeb.StreamDeckGrid do
       fleet
       |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
       |> Enum.filter(fn {_entry, bucket} -> StreamdeckKeyFaceContract.known_state?(bucket) end)
-      |> Enum.map(fn {entry, bucket} -> agent_payload(entry, bucket, readiness_fun) end)
+      |> Enum.map(fn {entry, bucket} -> {agent_payload(entry, bucket, readiness_fun), priority_rank(entry)} end)
       |> stable_rank()
 
     total = length(agents)
@@ -97,13 +97,13 @@ defmodule AiurWeb.StreamDeckGrid do
   defp stable_rank(agents) do
     agents
     |> Enum.with_index()
-    |> Enum.sort_by(fn {agent, index} -> {sort_key(agent), index} end)
-    |> Enum.map(&elem(&1, 0))
+    |> Enum.sort_by(fn {{agent, priority_rank}, index} -> {sort_key(agent, priority_rank), index} end)
+    |> Enum.map(fn {{agent, _priority_rank}, _index} -> agent end)
   end
 
-  defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
+  defp sort_key(%{bucket: bucket, identifier: identifier} = agent, priority_rank) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {StreamdeckKeyFaceContract.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
+    {StreamdeckKeyFaceContract.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
   end
 
   defp provider(entry) do
@@ -129,7 +129,14 @@ defmodule AiurWeb.StreamDeckGrid do
     end
   end
 
-  defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
+  defp priority?(entry), do: priority_rank(entry) < 5
+
+  defp priority_rank(entry) do
+    case Map.get(entry, :priority) do
+      priority when is_integer(priority) and priority > 0 -> priority
+      _ -> 5
+    end
+  end
 
   @doc """
   Returns whether every explicit upstream dependency is complete in the fleet.
