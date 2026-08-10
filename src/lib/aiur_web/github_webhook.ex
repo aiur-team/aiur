@@ -18,6 +18,7 @@ defmodule AiurWeb.GithubWebhook do
   @max_body_bytes 25 * 1024 * 1024
 
   @raw_body_key :aiur_github_webhook_raw_body
+  @admission_key :aiur_github_webhook_admission
 
   @doc "Request path the receiver is mounted at."
   @spec path() :: String.t()
@@ -30,6 +31,16 @@ defmodule AiurWeb.GithubWebhook do
   @doc "`Plug.Conn` private key holding the cached raw request body."
   @spec raw_body_key() :: atom()
   def raw_body_key, do: @raw_body_key
+
+  @doc """
+  `Plug.Conn` private key holding the `Aiur.Webhooks.Ingest` admission result.
+
+  The receiver records its admission decision here rather than acting on it, so
+  the consumer that normalizes deliveries onto the firehose (W-3 of #1675) reads
+  one already-deduplicated decision instead of re-deriving it.
+  """
+  @spec admission_key() :: atom()
+  def admission_key, do: @admission_key
 
   @doc "True when `conn` targets the webhook receiver."
   @spec receiver_request?(Plug.Conn.t()) :: boolean()
