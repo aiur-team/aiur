@@ -7424,7 +7424,7 @@ html[data-theme="light"] .toggle-icon .moon {
   flex-direction: column;
   height: 100%;
   box-sizing: border-box;
-  padding: 0.5rem 0.35rem 0.55rem;
+  padding: 0.5rem 0.55rem 0.55rem;
   gap: 0.34rem;
   text-align: left;
 }
@@ -7433,7 +7433,7 @@ html[data-theme="light"] .toggle-icon .moon {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 0.25rem;
+  gap: 0.35rem;
 }
 
 .sd-ag-ic {

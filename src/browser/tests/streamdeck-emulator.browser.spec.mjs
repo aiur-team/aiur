@@ -220,6 +220,13 @@ test('agent key face matches the design geometry and hue-mapped progress', async
       iconGlyph: { width: css(iconGlyph).width, height: css(iconGlyph).height },
       vendor: { width: css(vendor).width, height: css(vendor).height },
       barHeight: css(bar).height,
+      facePadding: {
+        top: css(face).paddingTop,
+        right: css(face).paddingRight,
+        bottom: css(face).paddingBottom,
+        left: css(face).paddingLeft
+      },
+      topGap: css(top).gap,
       topChildrenFit,
       progress: Number(bar.getAttribute('aria-valuenow')),
       fill: css(fill).backgroundColor
@@ -234,6 +241,11 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   expect(geometry.iconGlyph).toEqual({ width: '20px', height: '20px' })
   expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
   expect(geometry.barHeight).toBe('6px')
+  // .sd-agent is `padding: 0.5rem 0.55rem 0.55rem` with a 0.35rem top-row gap
+  // (streamdeck.design.css:38-39). The key box matches the design exactly, so
+  // there is no fit reason to narrow either value.
+  expect(geometry.facePadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px', left: '8.8px' })
+  expect(geometry.topGap).toBe('5.6px')
   expect(geometry.topChildrenFit).toBe(true)
 
   const hue = Math.round((geometry.progress / 100) * 125)
@@ -874,7 +886,9 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(mobileGeometry.agentIcon).toEqual({ width: '26px', height: '26px' })
   expect(mobileGeometry.agentIconSvg).toEqual({ width: '17px', height: '17px' })
   expect(mobileGeometry.agentTicketSize).toBe('16px')
-  expect(mobileGeometry.agentPadding).toEqual({ top: '8px', right: '5.6px', bottom: '8.8px' })
+  // The design's mobile block (streamdeck.design.css:198-208) scales the icon and
+  // ticket number only; .sd-agent keeps its desktop padding at both breakpoints.
+  expect(mobileGeometry.agentPadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px' })
   expect(mobileGeometry.agentFaceFits).toBe(true)
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile.png') })
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
