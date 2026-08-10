@@ -28,7 +28,9 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
   }
 
-  # These files own separate live-execution progress domains. The exact file
+  # These files own separate live-execution progress domains — including the
+  # Stream Deck key-face surface, whose contract module and live view render a
+  # key's progress bar rather than a Build Order RootSummary. The exact file
   # census keeps the exemption visible without blessing new files or paths.
   @raw_progress_exempt_files [
     "aiur/agent_list/activation.ex",
@@ -51,7 +53,8 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
     "aiur_web/components/operator_control_center/ticket_context.ex",
     "aiur_web/components/operator_control_center/units_table.ex",
     "aiur_web/live/streamdeck_live.ex",
-    "aiur_web/operator_control_center/run_summary_presenter.ex"
+    "aiur_web/operator_control_center/run_summary_presenter.ex",
+    "aiur_web/streamdeck_key_face_contract.ex"
   ]
 
   test "Build Order presentation surfaces do not bypass the shared renderer" do

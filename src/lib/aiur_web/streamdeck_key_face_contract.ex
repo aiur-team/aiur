@@ -24,8 +24,14 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     end
   end
 
+  # The web renderer interpolates these tokens into a stylesheet, so a token
+  # carrying markup would break out of the <style> element it is written into.
   for {bucket, state} <- @contract["states"] do
-    unless is_integer(state["rank"]) and Enum.all?(["glow", "face", "accent", "label"], &(is_binary(state[&1]) and state[&1] != "")) do
+    unless is_integer(state["rank"]) and
+             Enum.all?(
+               ["glow", "face", "accent", "label"],
+               &(is_binary(state[&1]) and state[&1] != "" and not String.contains?(state[&1], ["<", ">"]))
+             ) do
       raise "Stream Deck state #{inspect(bucket)} has malformed visual tokens"
     end
   end
@@ -44,6 +50,9 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   unless is_boolean(@contract["footers"]["queued"]["ready_when"]) do
     raise "Stream Deck queued footer readiness contract is malformed"
   end
+
+  @spec states() :: %{String.t() => map()}
+  def states, do: @contract["states"]
 
   @spec state!(atom() | String.t()) :: map()
   def state!(bucket) when is_atom(bucket), do: state!(Atom.to_string(bucket))

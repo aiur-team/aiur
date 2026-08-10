@@ -7508,10 +7508,6 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--sd-progress-fill);
 }
 
-.sd-key.is-pulsing .sd-status-dot {
-  animation: sd-pulse var(--sd-pulse) ease-in-out infinite;
-}
-
 .sd-key:is(.is-empty, .sd-empty) {
   background: #0a0b0d;
   cursor: default;

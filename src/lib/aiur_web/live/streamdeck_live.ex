@@ -28,6 +28,27 @@ defmodule AiurWeb.StreamdeckLive do
         "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
   }
 
+  # The web emulator's own drawing routine, fed entirely by the shared key-face
+  # contract: a state's colours are stated once, in the contract, and reach the
+  # page as CSS custom properties keyed by the same `st-<bucket>` class the
+  # packaged deck keys its bitmaps by.
+  @key_face_css StreamdeckKeyFaceContract.states()
+                |> Enum.sort_by(fn {_bucket, state} -> state["rank"] end)
+                |> Enum.map_join("", fn {bucket, state} ->
+                  pulse =
+                    case state["pulse_seconds"] do
+                      seconds when is_number(seconds) ->
+                        ".sd-key.st-#{bucket} .sd-status-dot{animation:sd-pulse #{seconds}s ease-in-out infinite;}"
+
+                      _absent ->
+                        ""
+                    end
+
+                  ".sd-key.st-#{bucket}{--sd-accent:#{state["accent"]};--sd-glow:#{state["glow"]};--sd-face:#{state["face"]};}" <>
+                    ".sd-key.st-#{bucket} .sd-key-face{background:var(--sd-face);}" <> pulse
+                end)
+                |> then(&Phoenix.HTML.raw("<style>" <> &1 <> "</style>"))
+
   @impl true
   def mount(_params, _session, socket) do
     socket =
@@ -162,6 +183,8 @@ defmodule AiurWeb.StreamdeckLive do
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
     >
+      {key_face_css()}
+
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
           <header class="sd-brand">
@@ -190,7 +213,7 @@ defmodule AiurWeb.StreamdeckLive do
           <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
             <li
               :for={key <- @keys}
-              class={["sd-key", key.empty? && "is-empty", key.pulse? && "is-pulsing"]}
+              class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
               style={key.style}
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
@@ -456,7 +479,6 @@ defmodule AiurWeb.StreamdeckLive do
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
     footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
-    state = StreamdeckKeyFaceContract.state!(bucket)
 
     key(
       slot,
@@ -470,8 +492,7 @@ defmodule AiurWeb.StreamdeckLive do
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
       dependency: footer.dependency,
-      pulse?: is_number(state["pulse_seconds"]),
-      style: key_style(state, Map.get(agent, :progress_percent, 0))
+      style: key_style(Map.get(agent, :progress_percent, 0))
     )
   end
 
@@ -488,14 +509,13 @@ defmodule AiurWeb.StreamdeckLive do
       dependency: Keyword.get(opts, :dependency),
       identifier: Keyword.get(opts, :identifier, ticket),
       control_action: Keyword.get(opts, :control_action),
-      pulse?: Keyword.get(opts, :pulse?, false),
       style: Keyword.fetch!(opts, :style),
       empty?: false
     }
   end
 
   defp empty_key(slot),
-    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, pulse?: false, style: nil, empty?: true}
+    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, style: nil, empty?: true}
 
   defp screen_descriptors(grid, usage, current_page) do
     live = live_count(grid)
@@ -589,9 +609,9 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp meter_aria_label(%{label: label}), do: "#{label} unavailable"
 
-  defp key_style(state, progress),
-    do:
-      "--sd-accent: #{state["accent"]}; --sd-glow: #{state["glow"]}; --sd-face: #{state["face"]}; --sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}; --sd-pulse: #{state["pulse_seconds"] || 0}s"
+  defp key_face_css, do: @key_face_css
+
+  defp key_style(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
 
   defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 

@@ -116,8 +116,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
   test "renders contract-derived state, progress, and log badge styles" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "--sd-accent: #9fd0ff"
-    assert html =~ "--sd-face: linear-gradient(180deg,#18212d,#0f151d)"
+    # State colours reach the page as a contract-derived stylesheet keyed by the
+    # same st-<bucket> class the packaged deck keys its bitmaps by.
+    assert html =~ ".sd-key.st-running{--sd-accent:#9fd0ff;"
+    assert html =~ "--sd-face:linear-gradient(180deg,#18212d,#0f151d);}"
+    assert html =~ ".sd-key.st-alert .sd-status-dot{animation:sd-pulse 1.6s ease-in-out infinite;}"
+    refute html =~ ".sd-key.st-running .sd-status-dot{animation"
+    # Per-key values that depend on live fleet state stay inline.
     assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
     assert enter_logs(view) =~ "--sd-log-badge: #9fd0ff"
   end
