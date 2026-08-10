@@ -251,7 +251,7 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
-      "  TMPDIR=\"$aiur_scratch_dir\"; TMP=\"$aiur_scratch_dir\"; TEMP=\"$aiur_scratch_dir\"\n" <>
+      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
       "  export TMPDIR TMP TEMP\nfi\nunset aiur_scratch_dir\n" <>
       "{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
