@@ -174,7 +174,12 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # itself fails and the transition is left untouched.
       assert next.running == state.running
       assert next.ci_lifecycle.poll_cache == %{identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head"}}
-      assert Map.delete(next.ci_lifecycle, :poll_cache) == Map.delete(state.ci_lifecycle, :poll_cache)
+      # `:attention_refresh_ms` is poll bookkeeping for the durable
+      # attention-ledger cadence, not CI lifecycle state, so it moves on
+      # every poll by design.
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :attention_refresh_ms]) ==
+               Map.drop(state.ci_lifecycle, [:poll_cache, :attention_refresh_ms])
+
       assert MapSet.member?(next.claimed, identifier)
     end
 
@@ -419,8 +424,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
                identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head"}
              }
 
-      assert Map.delete(next.ci_lifecycle, :poll_cache) ==
-               Map.delete(armed.ci_lifecycle, :poll_cache)
+      assert Map.drop(next.ci_lifecycle, [:poll_cache, :attention_refresh_ms]) ==
+               Map.drop(armed.ci_lifecycle, [:poll_cache, :attention_refresh_ms])
     end
 
     test "an approved draft raises one alert until the condition resolves" do
@@ -496,6 +501,115 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute resolved_opts[:needs_attention]
     end
 
+    test "the watch fetch threads its ETag cache so a tick costs no charged list read" do
+      identifier = unique_identifier("approved-draft-cache")
+      issue = issue(identifier, "rework")
+      RecordingGitHubClient.record_to(self())
+
+      watch_fetcher = fn ["in-progress", "rework", "merging"], cache ->
+        send(self(), {:watch_fetch, cache})
+        {:ok, [issue], Map.put(cache, "agent:rework", %{pages: %{"page-1" => %{etag: "etag-1"}}})}
+      end
+
+      poll = fn state ->
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
+          approved_draft_issue_fetcher: watch_fetcher,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [%{target: identifier, decision: :pending, pending_reason: :alert_only}], errors: []}}
+          end,
+          alert_emitter: fn _topic, _opts -> :ok end
+        )
+      end
+
+      state = poll.(%State{})
+
+      assert_received {:watch_fetch, %{}}
+      assert state.ci_lifecycle.poll_cache.issue_list_cache["agent:rework"].pages["page-1"].etag == "etag-1"
+
+      _state = poll.(state)
+
+      # The second tick hands the stored ETag back to GitHub, which is what
+      # makes the repeated list read a free `304` instead of a charged call.
+      assert_received {:watch_fetch, second_cache}
+      assert second_cache["agent:rework"].pages["page-1"].etag == "etag-1"
+    end
+
+    test "the durable attention ledger is reloaded once per slow cadence, not once per tick" do
+      identifier = unique_identifier("approved-draft-cadence")
+      issue = issue(identifier, "ci-wait")
+
+      poll = fn state, now_ms ->
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [%{target: identifier, decision: :pending, pending_reason: :ci_not_observed}], errors: []}}
+          end,
+          attention_topics_loader: fn ->
+            send(self(), {:attention_ledger_read, now_ms})
+            MapSet.new()
+          end,
+          attention_clock_ms: now_ms,
+          alert_emitter: fn _topic, _opts -> :ok end
+        )
+      end
+
+      state = poll.(%State{}, 0)
+      assert_received {:attention_ledger_read, 0}
+
+      # Eleven further dispatcher ticks inside the same minute must not touch
+      # the ledger; only the tick past the interval reloads it.
+      state =
+        Enum.reduce(1..11, state, fn tick, acc ->
+          acc = poll.(acc, tick * 5_000)
+          refute_received {:attention_ledger_read, _ms}
+          acc
+        end)
+
+      _state = poll.(state, 61_000)
+      assert_received {:attention_ledger_read, 61_000}
+    end
+
+    test "a transient PR-listing lag leaves an armed approved-draft alert alone" do
+      identifier = unique_identifier("approved-draft-lag")
+      issue = issue(identifier, "ci-wait")
+      topic = "ticket.#{identifier}.pr.approved_draft"
+
+      alert_emitter = fn emitted_topic, opts ->
+        send(self(), {:approved_draft_alert, emitted_topic, opts})
+        :ok
+      end
+
+      poll = fn state, result ->
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [Map.put(result, :target, identifier)], errors: []}}
+          end,
+          alert_emitter: alert_emitter
+        )
+      end
+
+      state =
+        poll.(%State{}, %{
+          decision: :pending,
+          draft?: true,
+          review_decision: "APPROVED",
+          head_sha: "lagged-head",
+          pr_number: 945
+        })
+
+      assert_received {:approved_draft_alert, ^topic, _alert_opts}
+
+      # The shape `GithubCIPoller` emits for `:open_pr_not_yet_visible`: the
+      # branch listing has not caught up, which says nothing about draft
+      # state, so `:draft?` is absent rather than `false`.
+      state = poll.(state, %{decision: :pending, pending_reason: :open_pr_not_yet_visible})
+
+      refute_received {:approved_draft_alert, _topic, _opts}
+      assert MapSet.member?(state.ci_lifecycle.approved_draft_alerts, identifier)
+    end
+
     test "a rework watch snapshot overrides a stale CI-wait snapshot for the same target" do
       identifier = unique_identifier("approved-draft-rework-watch")
       issue = issue(identifier, "rework")
@@ -506,8 +620,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       state =
         CiLifecycle.poll_github_ci(%State{},
           ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [stale_issue]} end,
-          approved_draft_issue_fetcher: fn ["in-progress", "rework", "merging"] ->
-            {:ok, [issue]}
+          approved_draft_issue_fetcher: fn ["in-progress", "rework", "merging"], cache ->
+            {:ok, [issue], cache}
           end,
           ci_poller: fn [^identifier], opts ->
             assert MapSet.member?(opts[:alert_only_targets], identifier)

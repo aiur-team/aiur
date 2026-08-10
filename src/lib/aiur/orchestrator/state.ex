@@ -45,6 +45,7 @@ defmodule Aiur.Orchestrator.State do
           ci_lifecycle: %{
             approved_heads: map(),
             approved_draft_alerts: MapSet.t(),
+            attention_refresh_ms: integer() | nil,
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
@@ -142,6 +143,11 @@ defmodule Aiur.Orchestrator.State do
     ci_lifecycle: %{
       approved_heads: %{},
       approved_draft_alerts: MapSet.new(),
+      # Monotonic stamp of the last durable attention-ledger reload. `nil`
+      # forces the reload on the first poll after boot, which is what makes an
+      # already-armed alert survive a restart without re-reading disk on every
+      # dispatcher tick.
+      attention_refresh_ms: nil,
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},

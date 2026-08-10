@@ -380,6 +380,16 @@ defmodule Aiur.Events.GithubCIPoller do
     end
   end
 
+  # `:open_pr_not_yet_visible` is branch-listing lag, not an observation that
+  # the PR is out of draft, so the key is left absent and the approved-draft
+  # alert reads `:unknown` rather than resolving. Claiming `draft?: false`
+  # here would emit a spurious `.resolved` on every lagged poll and re-fire
+  # the alert on the next one. `:open_pr_no_longer_visible` follows a PR that
+  # was already observed on this branch, so it stays a genuine clear.
+  defp no_open_pull_request_result(target, :open_pr_not_yet_visible = pending_reason) do
+    %{target: target, decision: :pending, pending_reason: pending_reason}
+  end
+
   defp no_open_pull_request_result(target, pending_reason) do
     %{target: target, decision: :pending, pending_reason: pending_reason, draft?: false}
   end

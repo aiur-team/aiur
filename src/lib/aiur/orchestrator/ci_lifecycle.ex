@@ -30,6 +30,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @active_handoff_state "in-progress"
   @ci_poll_states [@ci_wait_state, @human_review_state]
   @approved_draft_watch_states [@active_handoff_state, "rework", "merging"]
+  @attention_refresh_interval_ms 60_000
 
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
@@ -326,7 +327,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     case fetch_ci_issues(state, opts) do
       {:ok, issues, state} ->
-        issues = merge_approved_draft_watch_issues(issues, opts)
+        {issues, state} = merge_approved_draft_watch_issues(issues, state, opts)
 
         state
         |> prune_ci_lifecycle_state(issues)
@@ -367,33 +368,55 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
   end
 
-  defp merge_approved_draft_watch_issues(issues, opts) do
-    case fetch_approved_draft_watch_issues(opts) do
-      {:ok, watched_issues} when is_list(watched_issues) ->
-        (issues ++ watched_issues)
-        |> Enum.reverse()
-        |> Enum.uniq_by(&ci_target_for_issue/1)
-        |> Enum.reverse()
+  defp merge_approved_draft_watch_issues(issues, %State{} = state, opts) do
+    case fetch_approved_draft_watch_issues(state, opts) do
+      {:ok, watched_issues, state} when is_list(watched_issues) ->
+        merged =
+          (issues ++ watched_issues)
+          |> Enum.reverse()
+          |> Enum.uniq_by(&ci_target_for_issue/1)
+          |> Enum.reverse()
+
+        {merged, state}
 
       {:error, reason} ->
         Logger.warning("Approved-draft watch target refresh skipped; reason=#{inspect(reason)}")
-        issues
+        {issues, state}
 
       other ->
         Logger.warning("Approved-draft watch target refresh returned unexpected value=#{inspect(other)}")
-        issues
+        {issues, state}
     end
   end
 
-  defp fetch_approved_draft_watch_issues(opts) do
+  # The watch fetch runs on every dispatcher tick, so it must be conditional
+  # like `fetch_ci_issues/2`: an unconditional list read here spends three
+  # REST calls per tick against the hourly budget the whole fleet shares,
+  # while an ETag-matched `304` is free. The cache slot is the same
+  # label-keyed map the CI and candidate fetches use, so the watch labels get
+  # their own entries without disturbing theirs.
+  defp fetch_approved_draft_watch_issues(%State{} = state, opts) do
     case Keyword.fetch(opts, :approved_draft_issue_fetcher) do
       {:ok, fetcher} ->
-        fetcher.(@approved_draft_watch_states)
+        case fetcher.(@approved_draft_watch_states, issue_list_cache(state)) do
+          {:ok, issues, cache} when is_list(issues) -> {:ok, issues, put_issue_list_cache(state, cache)}
+          {:error, reason} -> {:error, reason}
+          other -> other
+        end
 
       :error ->
-        if Keyword.has_key?(opts, :ci_issue_fetcher),
-          do: {:ok, []},
-          else: Client.fetch_issues_by_states(@approved_draft_watch_states, opts)
+        if Keyword.has_key?(opts, :ci_issue_fetcher) do
+          {:ok, [], state}
+        else
+          case Client.fetch_issues_by_states_conditional(
+                 @approved_draft_watch_states,
+                 issue_list_cache(state),
+                 opts
+               ) do
+            {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
+            {:error, reason} -> {:error, reason}
+          end
+        end
     end
   end
 
@@ -640,21 +663,44 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp refresh_active_attention_topics(state, opts) do
     cond do
-      Keyword.has_key?(opts, :attention_topics_loader) ->
-        opts
-        |> Keyword.fetch!(:attention_topics_loader)
-        |> then(&load_active_attention_topics(state, &1))
-
-      Keyword.has_key?(opts, :alert_emitter) ->
+      Keyword.has_key?(opts, :alert_emitter) and not Keyword.has_key?(opts, :attention_topics_loader) ->
         # Tests with an in-memory emitter maintain the cache directly below;
         # there is no persisted ledger to reload between their poll calls.
         state
 
+      attention_refresh_due?(state, opts) ->
+        loader =
+          Keyword.get(opts, :attention_topics_loader, fn ->
+            AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true)
+          end)
+
+        state
+        |> load_active_attention_topics(loader)
+        |> note_attention_refresh(opts)
+
       true ->
-        load_active_attention_topics(state, fn ->
-          AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true)
-        end)
+        state
     end
+  end
+
+  # The ledger read exists to survive a restart with an alert already armed,
+  # which only needs to happen once after boot. Reading it from disk on every
+  # 5-second dispatcher tick buys nothing, so the refresh keeps its own slow
+  # cadence: the first poll after boot always reloads, then at most once a
+  # minute.
+  defp attention_refresh_due?(%State{} = state, opts) do
+    case Map.get(state.ci_lifecycle, :attention_refresh_ms) do
+      last_ms when is_integer(last_ms) -> attention_clock(opts) - last_ms >= @attention_refresh_interval_ms
+      _never -> true
+    end
+  end
+
+  defp note_attention_refresh(%State{} = state, opts) do
+    %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :attention_refresh_ms, attention_clock(opts))}
+  end
+
+  defp attention_clock(opts) do
+    Keyword.get_lazy(opts, :attention_clock_ms, fn -> System.monotonic_time(:millisecond) end)
   end
 
   defp load_active_attention_topics(state, loader) when is_function(loader, 0) do

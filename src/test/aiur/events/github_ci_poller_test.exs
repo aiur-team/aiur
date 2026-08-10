@@ -135,47 +135,37 @@ defmodule Aiur.Events.GithubCIPollerTest do
              )
   end
 
-  test "an alert-only target clears draft state when the authoritative batch has no open PR" do
+  test "an alert-only target reports unknown draft state when the authoritative batch has no open PR" do
     ci_batch = %{"42" => %{pull_request: nil}}
 
-    assert {:ok,
-            %{
-              errors: [],
-              results: [
-                %{
-                  decision: :pending,
-                  pending_reason: :open_pr_not_yet_visible,
-                  draft?: false
-                }
-              ]
-            }} =
+    assert {:ok, %{errors: [], results: [result]}} =
              GithubCIPoller.poll(["42"],
                ci_batch: ci_batch,
                alert_only_targets: MapSet.new(["42"])
              )
+
+    assert %{decision: :pending, pending_reason: :open_pr_not_yet_visible} = result
+
+    # Branch-listing lag is not evidence the PR left draft. Reporting
+    # `draft?: false` here would resolve an armed approved-draft alert on
+    # every lagged poll and re-arm it on the next one.
+    refute Map.has_key?(result, :draft?)
   end
 
-  test "an alert-only target clears draft state when REST reports no open PR" do
+  test "an alert-only target reports unknown draft state when REST reports no open PR" do
     request_fun = fn %{method: :get, url: url} ->
       assert String.contains?(url, "/pulls?")
       {:ok, %{status: 200, body: []}}
     end
 
-    assert {:ok,
-            %{
-              errors: [],
-              results: [
-                %{
-                  decision: :pending,
-                  pending_reason: :open_pr_not_yet_visible,
-                  draft?: false
-                }
-              ]
-            }} =
+    assert {:ok, %{errors: [], results: [result]}} =
              GithubCIPoller.poll(["42"],
                request_fun: request_fun,
                alert_only_targets: MapSet.new(["42"])
              )
+
+    assert %{decision: :pending, pending_reason: :open_pr_not_yet_visible} = result
+    refute Map.has_key?(result, :draft?)
   end
 
   test "carries approved draft state through the REST fallback" do
