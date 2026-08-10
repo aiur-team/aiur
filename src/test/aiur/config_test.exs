@@ -3,6 +3,28 @@ defmodule Aiur.ConfigTest do
 
   alias Aiur.Config
 
+  describe "base_branch/2" do
+    test "returns a configured non-empty branch" do
+      assert Config.base_branch(%{base_branch: "develop"}, config_path: "/tmp/aiur/config", cwd: "/tmp/repo") == "develop"
+    end
+
+    test "raises with the searched config path and resolved cwd when the branch is missing or empty" do
+      config_path = "/tmp/aiur/config"
+      cwd = "/tmp/repo"
+
+      for tracker <- [%{}, %{tracker: nil}, %{base_branch: nil}, %{base_branch: ""}, %{base_branch: "   "}] do
+        error =
+          assert_raise ArgumentError, fn ->
+            Config.base_branch(tracker, config_path: config_path, cwd: cwd)
+          end
+
+        assert error.message =~ "tracker.base_branch"
+        assert error.message =~ config_path
+        assert error.message =~ cwd
+      end
+    end
+  end
+
   describe "rate_limit_fallback_backend/0" do
     test "defaults to claude" do
       assert Config.rate_limit_fallback_backend() == "claude"

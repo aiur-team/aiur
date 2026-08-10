@@ -11,7 +11,7 @@ defmodule Aiur.Events.Exchange do
   ## Why a separate exchange
 
   Phoenix.PubSub does literal-only matching. Cross-ticket subscription
-  needs patterns like `ticket.42.*.push` or `system.main.branch.#`,
+  needs patterns like `ticket.42.*.push` or `system.<base_branch>.branch.#`,
   which PubSub cannot express. Rather than denormalize bindings into
   N literal topic subscriptions (the explosion grows with every issue
   + every surface + every verb), we maintain a small ETS table of
