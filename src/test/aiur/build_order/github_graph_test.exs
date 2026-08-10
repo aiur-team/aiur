@@ -76,6 +76,21 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert rate_limit.remaining == 4974
   end
 
+  # A catalog poll spends points per page, so the figure that multiplies by the
+  # poll frequency into a per-hour number is what the whole read cost — not
+  # whatever the last page happened to charge.
+  test "accumulates the reported point cost across a paged read" do
+    pages = [
+      costed_catalog_response([root(1)], 2, 4, has_next?: true, cursor: "page-2"),
+      costed_catalog_response([root(2)], 2, 5, [])
+    ]
+
+    assert {:ok, %ProviderResult{pages: 2, rate_limit: rate_limit}} =
+             GitHubGraph.fetch_catalog(base_opts(queued_responses(pages)))
+
+    assert rate_limit.cost == 9
+  end
+
   test "leaves the header rate-limit observation intact when a response reports no cost" do
     assert {:ok, %ProviderResult{rate_limit: rate_limit}} =
              GitHubGraph.fetch_catalog(base_opts(catalog_response([root(1)], 1)))
@@ -1435,6 +1450,15 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     after
       0 -> Enum.reverse(acc)
     end
+  end
+
+  defp costed_catalog_response(nodes, total, cost, opts) do
+    graphql_response(%{
+      "data" => %{
+        "rateLimit" => %{"limit" => 5000, "cost" => cost, "remaining" => 4000, "resetAt" => "2026-08-10T19:00:25Z"},
+        "repository" => %{"issues" => connection(nodes, total, opts)}
+      }
+    })
   end
 
   defp catalog_response(nodes, total, opts \\ []) do
