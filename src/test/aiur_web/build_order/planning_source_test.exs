@@ -247,10 +247,10 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert Enum.map(model.phase_groups, & &1.key) == [2, 3]
 
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_pct == nil
-    assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 100
-    assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
-    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
+    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert Enum.find(grid.columns, &(&1.lane == "runtime")).completion.progress == 100
+    assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
+    assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
   end
 
   test "does not count cancelled members as completed progress" do
@@ -282,8 +282,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
 
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
     grid = BuildOrderGridModel.build(model, nil)
-    assert grid.overall_pct == nil
-    assert Enum.find(grid.columns, &(&1.lane == "runtime")).pct == 0
+    assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert Enum.find(grid.columns, &(&1.lane == "runtime")).completion.progress == 0
   end
 
   test "uses status.json for canonical members when no live membership exists" do
@@ -331,7 +331,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     model = BuildOrderPresenter.present(snapshot, :unavailable, :unavailable)
     card = model |> BuildOrderGridModel.build(nil) |> Map.fetch!(:cards) |> Enum.find(&(&1.id == "4101"))
     assert card.state == :merged
-    assert card.progress == 100
+    assert card.completion.progress == 100
     assert card.status_word == "merged"
   end
 
@@ -417,8 +417,8 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert draft.lifecycle.state == :open
 
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
-    assert grid.overall_pct == nil
-    refute Enum.find(grid.cards, &(&1.id == "4101")).has_progress
+    assert grid.overall_completion == %{progress: 0, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress_resolution == :unresolved
   end
 
   test "downgrades healthy PackStatus when a promoted member lacks a projection" do
@@ -454,9 +454,9 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert missing.lifecycle.state_reason == :unknown
 
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
-    assert grid.overall_pct == nil
-    assert Enum.find(grid.waves, &(&1.phase == 2)).pct == 100
-    assert Enum.find(grid.waves, &(&1.phase == 3)).pct == nil
+    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
+    assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
   end
 
   test "preserves PackStatus budget exhaustion through an incomplete projection" do
@@ -582,7 +582,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     grid = BuildOrderGridModel.build(model, nil)
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
     assert %{state: :planned, icon: "sparkles"} = Enum.find(grid.cards, &(&1.id == "102"))
-    assert grid.overall_pct == 60
+    assert grid.overall_completion.progress == 60
     assert Enum.find(model.nodes, & &1.card.planned?).draft_body == "# Render deck\n\nDraft ticket body."
   end
 
