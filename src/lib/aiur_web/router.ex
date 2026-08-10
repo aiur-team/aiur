@@ -14,6 +14,13 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.SupervisorAuth)
   end
 
+  # GitHub webhook deliveries carry no bearer token and no browser session:
+  # they authenticate by HMAC signature over the raw body, so they need their
+  # own pipeline rather than the dashboard or supervisor auth pipelines.
+  pipeline :github_webhook do
+    plug(AiurWeb.GithubWebhook.Auth)
+  end
+
   pipeline :browser do
     plug(:fetch_session)
     plug(AiurWeb.FinancialDataAccess, :persist_session)
@@ -48,6 +55,19 @@ defmodule AiurWeb.Router do
   # behind this gate (see the route scopes below).
   pipeline :require_writable do
     plug(:require_dashboard_writable)
+  end
+
+  # Keep the webhook receiver ahead of every other scope: the dashboard's
+  # trailing `/*path` catch-all would otherwise claim this path and answer with
+  # a Basic-Auth challenge instead of a signature check. The literal path is
+  # asserted against `AiurWeb.GithubWebhook.path/0` in the router tests, since
+  # the endpoint's body reader keys raw-body caching off that same value.
+  scope "/", AiurWeb do
+    pipe_through(:github_webhook)
+
+    # `log: false` suppresses Phoenix's default dispatch log, which would
+    # otherwise write the entire decoded webhook payload into the debug log.
+    post("/api/v1/github/webhook", GithubWebhookController, :create, log: false)
   end
 
   # Supervisor Decision mutations retain the dashboard's existing write

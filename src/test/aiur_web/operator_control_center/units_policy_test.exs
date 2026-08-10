@@ -126,6 +126,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
     end
   end
 
+  test "lists exactly the page-visible condition chips" do
+    assert UnitsPolicy.visible_conditions() == [:active, :alert, :paused, :queued, :finished]
+  end
+
   defp active_row(attrs \\ %{}) do
     Map.merge(
       %{

@@ -11,7 +11,8 @@ defmodule Aiur.GitHub.Connectivity do
     * `:dns` / `:timeout` / `:tls` / `:transport` — capped exponential backoff;
       a sustained streak of the *fixable* connectivity class (`:dns`) raises a
       loud, Executor-visible blocker.
-    * `:rate_limited` — honor GitHub's `Retry-After` / `X-Poll-Interval`.
+    * `:rate_limited` — hold until GitHub's reset when present, otherwise honor
+      `Retry-After` / `X-Poll-Interval`.
     * `:auth` — escalate immediately (never silently retry an expired token),
       and a sustained streak raises the same Executor-visible blocker.
 
@@ -144,8 +145,9 @@ defmodule Aiur.GitHub.Connectivity do
   @doc """
   Returns how long to wait before the next attempt for a classified failure.
 
-    * `:rate_limited` — `retry_after` (seconds) if present, else `poll_interval`,
-      else the capped exponential default — all in capped milliseconds.
+    * `:rate_limited` — wait until `reset_at` if present, else use
+      `retry_after` (seconds), `poll_interval`, or the capped exponential
+      default. Reset waits deliberately exceed the ordinary transport cap.
     * `:dns` / `:timeout` / `:tls` / `:transport` / `:http` — capped exponential
       backoff that grows with `attempt`.
     * `:auth` — `:escalate` (don't retry an expired/invalid token).
@@ -155,6 +157,9 @@ defmodule Aiur.GitHub.Connectivity do
 
   def backoff_ms(:rate_limited, attempt, detail) do
     cond do
+      reset_delay = reset_delay_ms(detail) ->
+        reset_delay
+
       is_integer(detail[:retry_after]) and detail[:retry_after] > 0 ->
         cap_backoff(detail[:retry_after] * 1_000)
 
@@ -169,6 +174,18 @@ defmodule Aiur.GitHub.Connectivity do
   def backoff_ms(_classification, attempt, _detail), do: exponential(attempt)
 
   defp cap_backoff(delay_ms), do: min(delay_ms, @max_backoff_ms)
+
+  defp reset_delay_ms(detail) do
+    now = Map.get(detail, :now, DateTime.utc_now())
+
+    with reset_at when is_binary(reset_at) <- Map.get(detail, :reset_at),
+         {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset_at),
+         delay_ms when delay_ms > 0 <- DateTime.diff(reset_at, now, :millisecond) do
+      delay_ms
+    else
+      _missing_or_expired -> nil
+    end
+  end
 
   defp exponential(attempt) when is_integer(attempt) and attempt >= 1 do
     cap_backoff(@base_backoff_ms * 2 ** (attempt - 1))

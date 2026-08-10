@@ -274,13 +274,34 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_running_from_global(%State{} = state) do
     state.running
     |> Enum.filter(fn {_id, entry} -> globally_held?(state, entry) end)
-    |> Enum.map(fn {_id, entry} -> Map.get(entry, :identifier) end)
-    |> Enum.reject(&is_nil/1)
-    |> Enum.reduce(state, fn identifier, state ->
-      {_reply, state} = resume_issue(state, identifier)
-      state
+    |> Enum.reduce(state, fn {_id, entry}, state ->
+      if tracker_pause_override?(entry) do
+        preserve_tracker_pause_after_global_hold(state, entry)
+      else
+        {_reply, state} = resume_issue(state, Map.get(entry, :identifier))
+        state
+      end
     end)
   end
+
+  defp tracker_pause_override?(%{issue: %Issue{} = issue}), do: Issue.paused?(issue)
+  defp tracker_pause_override?(_entry), do: false
+
+  defp preserve_tracker_pause_after_global_hold(state, entry) do
+    issue_id = get_in(entry, [:issue, Access.key(:id)])
+
+    entry =
+      entry
+      |> Map.put(:paused_reason, :label_override)
+      |> update_pending_global_pause_reason()
+
+    put_running_entry(state, issue_id, entry)
+  end
+
+  defp update_pending_global_pause_reason(%{pending_pause_reason: %{reason: @global_pause_reason} = pending} = entry),
+    do: %{entry | pending_pause_reason: %{pending | reason: :label_override}}
+
+  defp update_pending_global_pause_reason(entry), do: entry
 
   defp globally_pausable?(state, entry) do
     not State.paused_running_entry?(entry) and
@@ -353,27 +374,74 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
-        cond do
-          State.completed_provenance?(running_entry) ->
-            restart_completed_provenance_issue(state, running_entry)
-
-          State.deactivated_running_entry?(running_entry) ->
-            reactivate_issue(state, running_entry)
-
-          pending_pause_request?(state, running_entry) ->
-            resume_pending_pause(state, running_entry)
-
-          State.paused_running_entry?(running_entry) ->
-            resume_label_overridden_issue(state, running_entry)
-
-          true ->
-            {{:ok, :resumed}, state}
-        end
+        resume_running_issue(state, running_entry)
 
       nil ->
         resume_queued_issue(state, issue_identifier)
     end
   end
+
+  defp resume_running_issue(%State{} = state, running_entry) do
+    case clear_tracker_pause_override(state, running_entry) do
+      {:ok, state, running_entry} ->
+        do_resume_running_issue(state, running_entry)
+
+      {:error, reason} ->
+        Logger.warning("Pause override clear failed: #{pause_log_context(running_entry)} reason=#{inspect(reason)}")
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
+
+  defp do_resume_running_issue(state, running_entry) do
+    cond do
+      State.completed_provenance?(running_entry) ->
+        restart_completed_provenance_issue(state, running_entry)
+
+      State.deactivated_running_entry?(running_entry) ->
+        reactivate_issue(state, running_entry)
+
+      pending_pause_request?(state, running_entry) ->
+        resume_pending_pause(state, running_entry)
+
+      State.paused_running_entry?(running_entry) ->
+        resume_paused_issue(state, running_entry)
+
+      true ->
+        {{:ok, :resumed}, state}
+    end
+  end
+
+  defp clear_tracker_pause_override(%State{} = state, %{issue: %Issue{} = issue} = running_entry) do
+    if Issue.paused?(issue) do
+      case clear_pause_override(running_entry) do
+        {:ok, cleared_entry} ->
+          {:ok, put_running_entry(state, issue.id, cleared_entry), cleared_entry}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, state, running_entry}
+    end
+  end
+
+  defp clear_tracker_pause_override(%State{} = state, %Issue{} = issue) do
+    if Issue.paused?(issue) do
+      case clear_pause_override(issue) do
+        {:ok, cleared_issue} ->
+          state = %{state | last_polled_issues: Map.put(state.last_polled_issues, issue.id, cleared_issue)}
+          {:ok, state, cleared_issue}
+
+        {:error, reason} ->
+          {:error, reason}
+      end
+    else
+      {:ok, state, issue}
+    end
+  end
+
+  defp clear_tracker_pause_override(%State{} = state, running_entry),
+    do: {:ok, state, running_entry}
 
   @spec pause_issue_for_label_override(State.t(), Issue.t()) :: State.t()
   def pause_issue_for_label_override(%State{} = state, %Issue{} = issue) do
@@ -446,26 +514,8 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   @spec resume_label_overridden_issue(State.t(), map()) ::
           {{:ok, :resumed} | {:error, term()}, State.t()}
-  # Clear the durable tracker override before waking or the next poll parks it again.
-  def resume_label_overridden_issue(
-        %State{} = state,
-        %{paused_reason: :label_override} = running_entry
-      ) do
-    case clear_pause_override(running_entry) do
-      {:ok, cleared_entry} ->
-        issue_id = get_in(cleared_entry, [:issue, Access.key(:id)])
-        state = %{state | running: Map.put(state.running, issue_id, cleared_entry)}
-        resume_paused_issue(state, cleared_entry)
-
-      {:error, reason} ->
-        Logger.warning("Pause override clear failed: #{pause_log_context(running_entry)} reason=#{inspect(reason)}")
-
-        {{:error, {:pause_override_clear_failed, reason}}, state}
-    end
-  end
-
   def resume_label_overridden_issue(%State{} = state, running_entry),
-    do: resume_paused_issue(state, running_entry)
+    do: resume_running_issue(state, running_entry)
 
   defp pause_completed_issue_for_label_override(state, running_entry, issue) do
     if State.paused_running_entry?(running_entry) and
@@ -1085,21 +1135,6 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp restart_completed_provenance_issue(
-         state,
-         %{paused_reason: :label_override} = running_entry
-       ) do
-    case clear_pause_override(running_entry) do
-      {:ok, cleared_entry} ->
-        issue_id = get_in(cleared_entry, [:issue, Access.key(:id)])
-        state = %{state | running: Map.put(state.running, issue_id, cleared_entry)}
-        restart_completed_issue(state, cleared_entry)
-
-      {:error, reason} ->
-        {{:error, {:pause_override_clear_failed, reason}}, state}
-    end
-  end
-
   defp restart_completed_provenance_issue(state, running_entry),
     do: restart_completed_issue(state, running_entry)
 
@@ -1651,7 +1686,7 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp put_running_entry(state, _issue_id, _running_entry), do: state
 
-  defp resume_queued_issue(%State{} = state, issue_identifier) do
+  defp resume_queued_issue(%State{} = state, issue_identifier) when is_binary(issue_identifier) do
     issue =
       state.last_polled_issues
       |> Map.values()
@@ -1660,10 +1695,17 @@ defmodule Aiur.Orchestrator.PauseResume do
         _ -> false
       end)
 
-    cond do
-      is_nil(issue) ->
+    case issue do
+      nil ->
         {{:error, :no_running_agent}, state}
 
+      %Issue{} = issue ->
+        resume_queued_issue(state, issue)
+    end
+  end
+
+  defp resume_queued_issue(%State{} = state, %Issue{} = issue) do
+    cond do
       # Manual start (Executor pressed space on a queued ticket): paused
       # agents are excluded from the cap so the Executor can fill a free
       # active slot even when a paused agent is parked in `running`.
@@ -1676,27 +1718,42 @@ defmodule Aiur.Orchestrator.PauseResume do
       match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(state, issue.id)) ->
         {{:error, :lifetime_dispatch_latch}, state}
 
-      not DispatchPolicy.dispatch_candidate?(
-        issue,
-        state,
-        DispatchPolicy.active_state_set(),
-        DispatchPolicy.terminal_state_set()
-      ) ->
-        {{:error, :not_resumable}, state}
-
       true ->
-        next_state = Dispatcher.dispatch_issue(state, issue)
+        clear_and_resume_queued_issue(state, issue)
+    end
+  end
 
-        cond do
-          MapSet.member?(next_state.claimed, issue.id) ->
-            {{:ok, :started}, next_state}
+  defp clear_and_resume_queued_issue(state, issue) do
+    case clear_tracker_pause_override(state, issue) do
+      {:ok, state, issue} ->
+        dispatch_resumed_queued_issue(state, issue)
 
-          match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
-            {{:error, :lifetime_dispatch_latch}, next_state}
+      {:error, reason} ->
+        {{:error, {:pause_override_clear_failed, reason}}, state}
+    end
+  end
 
-          true ->
-            {{:error, :dispatch_failed}, next_state}
-        end
+  defp dispatch_resumed_queued_issue(state, issue) do
+    if DispatchPolicy.dispatch_candidate?(
+         issue,
+         state,
+         DispatchPolicy.active_state_set(),
+         DispatchPolicy.terminal_state_set()
+       ) do
+      next_state = Dispatcher.dispatch_issue(state, issue)
+
+      cond do
+        MapSet.member?(next_state.claimed, issue.id) ->
+          {{:ok, :started}, next_state}
+
+        match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
+          {{:error, :lifetime_dispatch_latch}, next_state}
+
+        true ->
+          {{:error, :dispatch_failed}, next_state}
+      end
+    else
+      {{:error, :not_resumable}, state}
     end
   end
 

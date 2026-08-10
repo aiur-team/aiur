@@ -32,19 +32,24 @@ defmodule Aiur.Orchestrator.GlobalPause do
   end
 
   @doc "Returns the global pause state and its recorded provenance."
-  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status, do: global_pause_status(Aiur.Orchestrator)
 
-  @spec global_pause_status(GenServer.server()) :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status(GenServer.server()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status(%State{} = state), do: global_pause_status_for_state(state)
+  def global_pause_status(server), do: global_pause_status(server, 5_000)
 
-  def global_pause_status(server) do
+  @spec global_pause_status(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
+  def global_pause_status(server, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
     if GenServer.whereis(server) do
-      {:ok, GenServer.call(server, :global_pause_status, 5_000)}
+      {:ok, GenServer.call(server, :global_pause_status, timeout_ms)}
     else
       {:error, :orchestrator_unavailable}
     end
   catch
+    :exit, {:timeout, _details} -> {:error, :timeout}
     :exit, _ -> {:error, :orchestrator_unavailable}
   end
 

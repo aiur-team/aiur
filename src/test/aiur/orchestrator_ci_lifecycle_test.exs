@@ -293,6 +293,60 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
     end
 
+    test "a stale ci-wait projection cannot rework the persisted approved head" do
+      identifier = unique_identifier("ci-stale-approved-head")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      :ok = CIApprovalStore.save(%{identifier => "reviewed-head"}, %{})
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> then(fn state ->
+          %{state | ci_lifecycle: Map.merge(state.ci_lifecycle, CIApprovalStore.load())}
+        end)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "reviewed-head",
+          pr_number: 99,
+          failures: [%{name: "quarantined tests (non-blocking)", result: "failure"}]
+        })
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
+    end
+
+    test "a stale ci-wait projection still reworks a different head" do
+      identifier = unique_identifier("ci-stale-superseded-head")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "pushed-head",
+          pr_number: 99,
+          failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+        })
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
+      assert next.running[identifier].issue.state == "rework"
+      assert next.ci_lifecycle.approved_heads == %{}
+    end
+
     test "a CI failure observed after a dismissed-failure handoff anchors the reviewed head" do
       identifier = unique_identifier("ci-dismissed-human-review")
       recorder = start_recorder()

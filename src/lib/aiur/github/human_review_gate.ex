@@ -72,18 +72,57 @@ defmodule Aiur.GitHub.HumanReviewGate do
         :ok
 
       {:ok, comments} ->
-        {:error,
-         {:unverified_review_threads,
-          %{
-            issue_number: context.issue_number,
-            pr_number: pr_number,
-            review_thread_ids: Enum.map(comments, &Map.get(&1, "review_thread_id")) |> Enum.reject(&is_nil/1),
-            comment_ids: Enum.map(comments, &Map.get(&1, "id")) |> Enum.reject(&is_nil/1),
-            count: length(comments)
-          }}}
+        # An approved pull request is a human's judgement on the whole change,
+        # and it outranks a thread nobody clicked "resolve" on. Reverting it to
+        # rework deadlocks the ticket: the rework turn has nothing to fix, and
+        # its liveness push dismisses the very approval that would release it
+        # (#1756). Only read the reviews on this path, so an already-clean PR
+        # still costs no extra request.
+        if approved?(context, pr_number) do
+          :ok
+        else
+          {:error,
+           {:unverified_review_threads,
+            %{
+              issue_number: context.issue_number,
+              pr_number: pr_number,
+              review_thread_ids: Enum.map(comments, &Map.get(&1, "review_thread_id")) |> Enum.reject(&is_nil/1),
+              comment_ids: Enum.map(comments, &Map.get(&1, "id")) |> Enum.reject(&is_nil/1),
+              count: length(comments)
+            }}}
+        end
 
       {:error, _reason} = error ->
         error
     end
+  end
+
+  # Mirrors GitHub's own `reviewDecision`: each reviewer's latest non-COMMENTED
+  # submission is their standing verdict, and the pull request is approved only
+  # when at least one reviewer approves and none is still requesting changes. An
+  # unreadable /reviews response fails closed to the pre-existing error.
+  defp approved?(context, pr_number) do
+    case PullRequests.fetch_pull_request_reviews(pr_number,
+           request_fun: context.request_fun,
+           token: context.token
+         ) do
+      {:ok, reviews} when is_list(reviews) -> approved_decision?(standing_verdicts(reviews))
+      _other -> false
+    end
+  end
+
+  defp standing_verdicts(reviews) do
+    reviews
+    |> Enum.filter(&(get_in(&1, ["user", "login"]) != nil and Map.get(&1, "state") in ~w(APPROVED CHANGES_REQUESTED DISMISSED)))
+    |> Enum.group_by(&get_in(&1, ["user", "login"]))
+    |> Enum.map(fn {_login, reviewer_reviews} ->
+      reviewer_reviews
+      |> Enum.max_by(&(Map.get(&1, "submitted_at") || ""), fn -> %{} end)
+      |> Map.get("state")
+    end)
+  end
+
+  defp approved_decision?(verdicts) do
+    "APPROVED" in verdicts and "CHANGES_REQUESTED" not in verdicts
   end
 end

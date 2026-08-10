@@ -2,10 +2,15 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
-async function openStreamdeck(page) {
+// The fixture dashboard is read-only by default, and the command keys are gated
+// on that. Set the mode explicitly rather than relying on the default, so a test
+// that opts into `writable` cannot leak into whichever test runs after it.
+async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/auth/read_only')
   await page.goto('/')
   await page.context().setHTTPCredentials(dashboardCredentials)
+  const control = await page.goto(`/streamdeck-control/${mode}`)
+  expect(control.status()).toBe(200)
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
@@ -62,6 +67,54 @@ test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) =>
   const newValue = parseInt(await knob.getAttribute('aria-valuenow'), 10)
   // A sustained clockwise drag must increase the value, not merely match it.
   expect(newValue).toBeGreaterThan(initialValue)
+})
+
+test('installation modal renders its steps and closes by backdrop or Escape at mobile size', async ({ browser }) => {
+  const context = await browser.newContext({ viewport: { width: 375, height: 760 } })
+  const page = await context.newPage()
+
+  try {
+    await openStreamdeck(page)
+
+    const packageUrl = 'https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz'
+    await expect(page.locator('#streamdeck-download-control')).toHaveAttribute('href', packageUrl)
+    await page.getByRole('button', { name: 'Install +' }).click()
+    let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
+    await expect(dialog).toBeVisible()
+    await expect(dialog.getByText('Linux with udev')).toBeVisible()
+    await expect(dialog.getByText('Pair it with your daemon')).toBeVisible()
+    await expect(dialog.getByText('Download the Stream Deck + package')).toBeVisible()
+    await expect(dialog.getByText('Create the sidecar directory')).toBeVisible()
+    await expect(dialog.getByText('--strip-components=1')).toBeVisible()
+    await expect(dialog.getByText('Create the pairing directory')).toBeVisible()
+    await expect(dialog.getByText('Create the pairing file')).toBeVisible()
+    await expect(dialog.getByText('Restrict the pairing file')).toBeVisible()
+    await expect(dialog.getByText('AIUR_PHOENIX_URL')).toBeVisible()
+    await expect(dialog.getByText('Install the udev rule')).toBeVisible()
+    await expect(dialog.getByText('Install the user unit')).toBeVisible()
+    await expect(dialog.getByText('Reload user systemd')).toBeVisible()
+    await expect(dialog.getByText('Enable the sidecar')).toBeVisible()
+    await expect(dialog.getByText('Plug in the deck')).toBeVisible()
+    await expect(dialog.getByText('What success looks like')).toBeVisible()
+    await expect(dialog.getByText('0.0.0-dev.0098e3ac86a2')).toBeVisible()
+    await expect(dialog.getByText('0098e3ac86a2e49e685e8e6ff67248373de43f1d')).toBeVisible()
+    await expect(dialog.getByRole('link', { name: /Download the Stream Deck \+ package/ })).toHaveAttribute('href', packageUrl)
+    await expect(dialog.getByRole('link', { name: 'Download package 0.0.0-dev.0098e3ac86a2' })).toHaveAttribute('href', packageUrl)
+    await expect(dialog.locator('input[type="password"], [value*="password" i]')).toHaveCount(0)
+    await expect(dialog).not.toContainText(dashboardCredentials.username)
+    await expect(dialog).not.toContainText(dashboardCredentials.password)
+
+    await page.locator('.sd-install-backdrop').click({ position: { x: 8, y: 8 } })
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+
+    await page.getByRole('button', { name: 'Install +' }).click()
+    dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
+    await expect(dialog).toBeVisible()
+    await page.keyboard.press('Escape')
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  } finally {
+    await context.close()
+  }
 })
 
 test('wheel event adjusts the knob value and does not scroll the page', async ({ page }) => {
@@ -136,54 +189,255 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
 test('grid key press enters command mode and replaces grid keys', async ({ page }) => {
   await openStreamdeck(page)
 
-  const key = page.locator('.sd-key:not(.is-empty)').first()
+  const key = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(page.locator('#sd-cmd-view')).toBeVisible()
-  await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
+  await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(4)
+  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(4)
+  await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
+  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(4)
 })
 
-test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
+test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
   await openStreamdeck(page)
 
-  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
-  await expect(micSegment).toBeVisible()
+  const key = page.locator('.sd-agent-key:not(.is-empty)').first()
+  const geometry = await key.evaluate((element) => {
+    const face = element.querySelector('.sd-key-face')
+    const icon = element.querySelector('.sd-ag-ic')
+    const iconGlyph = icon.querySelector('svg')
+    const vendor = element.querySelector('.sd-ag-vendor')
+    const bar = element.querySelector('.sd-ag-bar')
+    const fill = bar.querySelector('i')
+    const top = element.querySelector('.sd-agent-top')
+    const css = window.getComputedStyle
 
-  await micSegment.hover()
+    const faceBox = face.getBoundingClientRect()
+    const topChildrenFit = Array.from(top.children).every((child) => {
+      const box = child.getBoundingClientRect()
+      return box.left >= faceBox.left && box.right <= faceBox.right
+    })
+
+    return {
+      key: element.getBoundingClientRect().toJSON(),
+      faceRadius: css(face).borderRadius,
+      icon: { width: css(icon).width, height: css(icon).height },
+      iconGlyph: { width: css(iconGlyph).width, height: css(iconGlyph).height },
+      vendor: { width: css(vendor).width, height: css(vendor).height },
+      barHeight: css(bar).height,
+      facePadding: {
+        top: css(face).paddingTop,
+        right: css(face).paddingRight,
+        bottom: css(face).paddingBottom,
+        left: css(face).paddingLeft
+      },
+      topGap: css(top).gap,
+      topChildrenFit,
+      progress: Number(bar.getAttribute('aria-valuenow')),
+      fill: css(fill).backgroundColor
+    }
+  })
+
+  expect(Math.abs(geometry.key.width - geometry.key.height)).toBeLessThan(1)
+  expect(geometry.faceRadius).toBe('12px')
+  expect(geometry.icon).toEqual({ width: '30px', height: '30px' })
+  // The design centres a fixed 20px glyph in the 30px box (streamdeck.design.css:42-43).
+  // Asserting the box alone passed while the glyph rendered at 18px.
+  expect(geometry.iconGlyph).toEqual({ width: '20px', height: '20px' })
+  expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
+  expect(geometry.barHeight).toBe('6px')
+  // .sd-agent is `padding: 0.5rem 0.55rem 0.55rem` with a 0.35rem top-row gap
+  // (streamdeck.design.css:38-39). The key box matches the design exactly, so
+  // there is no fit reason to narrow either value.
+  expect(geometry.facePadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px', left: '8.8px' })
+  expect(geometry.topGap).toBe('5.6px')
+  expect(geometry.topChildrenFit).toBe(true)
+
+  const hue = Math.round((geometry.progress / 100) * 125)
+  const expectedFill = await page.evaluate((h) => {
+    const sample = document.createElement('i')
+    sample.style.background = `hsl(${h} 72% 50%)`
+    document.body.append(sample)
+    const color = getComputedStyle(sample).backgroundColor
+    sample.remove()
+    return color
+  }, hue)
+
+  expect(geometry.fill).toBe(expectedFill)
+
+  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(219, 36, 36)')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
+})
+
+// Pressing a fleet-control key needs a writable dashboard: read-only renders
+// those keys disabled and the hook never binds them.
+test('command keys render real state-derived controls, flash on click, and emit events', async ({ page }) => {
+  await openStreamdeck(page, 'writable')
+
+  await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
+  const commands = page.locator('[data-streamdeck-command]')
+  await expect(commands).toHaveCount(4)
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prioritize', exact: true })).toBeVisible()
+  await expect(page.locator('#sd-keys button:disabled')).toHaveCount(4)
+  await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
+
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckCommandEvents = []
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'command-press') window.__streamdeckCommandEvents.push({ name, payload })
+      if (name === 'key-press') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
+
+  for (const command of ['pause', 'priority', 'logs']) {
+    const key = page.locator(`[data-streamdeck-command="${command}"]`)
+    await key.click()
+    await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+    if (command === 'logs') {
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+      await page.locator('.sd-knob').first().click()
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+    }
+  }
+
+  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'priority', 'logs'])
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toEqual([])
+})
+
+test('command mic activates on pointerdown and deactivates on pointerup', async ({ page }) => {
+  await openStreamdeck(page, 'writable')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const micFace = micKey.locator('.sd-key-face')
+  await expect(micKey).toBeVisible()
+
+  await micKey.hover()
   await page.mouse.down()
-  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  // The hold must actually pulse, not merely carry the class: .sd-mic-key
+  // .mic-live is only meaningful if the face resolves the design's animation.
+  await expect(micFace).toHaveCSS('animation-name', 'sd-mic-pulse')
 
   await page.mouse.up()
-  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
+  await expect(micFace).not.toHaveCSS('animation-name', 'sd-mic-pulse')
 })
 
-test('mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
-  await openStreamdeck(page)
+test('command mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
+  await openStreamdeck(page, 'writable')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
 
-  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
-  const box = await micSegment.boundingBox()
+  const micKey = page.locator('.sd-mic-key')
+  const box = await micKey.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
 
   await page.mouse.move(cx, cy)
   await page.mouse.down()
-  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 
   // Move outside the segment without releasing — simulates a drag-exit.
   await page.mouse.move(0, 0)
-  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
 
   await page.mouse.up()
+})
+
+test('cmd mode renders the design\'s four command keys with Mic excluded from the click path', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
+  await expect(buttons).toHaveCount(4)
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Prioritize', 'Logs', 'Mic'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'RAISE', 'SCROLL', 'HOLD'])
+
+  // Mic is the only press-and-hold key; the hook drives it from pointer events
+  // rather than the click handler it binds to the others.
+  const micButton = page.locator('[data-streamdeck-command="mic"]')
+  await expect(micButton).toHaveAttribute('data-command-hold', 'true')
+  await expect(page.locator('[data-command-hold="true"]')).toHaveCount(1)
+
+  // Logs is the control here: it is navigation rather than fleet control, so it
+  // stays enabled even in this read-only fixture. That proves the disabling
+  // asserted below is the read-only gate and not every key being inert.
+  await expect(page.locator('[data-streamdeck-command="logs"]')).toBeEnabled()
+})
+
+// The browser fixture serves the dashboard read-only, so this is the read-only
+// half of the command-key contract: the fleet-control keys are visibly disabled
+// and a hold on Mic is inert. The writable paths are covered server-side in
+// streamdeck_live_test.exs.
+test('read-only mode disables the fleet-control command keys and a mic hold does not arm it', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  for (const command of ['pause', 'priority', 'mic']) {
+    await expect(page.locator(`[data-streamdeck-command="${command}"]`)).toBeDisabled()
+    await expect(page.locator(`.sd-cmd-key:has([data-streamdeck-command="${command}"])`)).toHaveClass(/is-disabled/)
+  }
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+
+  // The hook skips disabled keys, so the hold never binds and the key cannot
+  // latch live no matter how long the pointer is held down.
+  await micButton.dispatchEvent('pointerdown')
+  await page.waitForTimeout(250)
+  await expect(micKey).not.toHaveClass(/mic-live/)
+  await expect(micButton).toHaveAttribute('data-command-state', 'idle')
+  await micButton.dispatchEvent('pointerup')
+})
+
+// The mic key is fleet control, so it is only armed on a writable dashboard.
+test('command mic deactivates on pointercancel', async ({ page }) => {
+  await openStreamdeck(page, 'writable')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  await micButton.dispatchEvent('pointerdown')
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  await micButton.dispatchEvent('pointercancel')
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
+})
+
+test('command mic deactivates when a mode transition removes the held key', async ({ page }) => {
+  await openStreamdeck(page, 'writable')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  await micButton.dispatchEvent('pointerdown')
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  const dial = page.locator('.sd-knob').nth(3)
+  await dial.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await page.locator('.sd-knob').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('.sd-mic-key')).not.toHaveClass(/mic-live/, { timeout: 500 })
 })
 
 test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
   await openStreamdeck(page)
 
   const device = page.locator('.sd-device')
-  const keysView = page.locator('[data-mode-view="grid"]')
-  const cmdView = page.locator('[data-mode-view="cmd"]')
+  const keysView = page.locator('#sd-keys[data-mode-view="grid"]')
+  const cmdView = page.locator('#sd-keys[data-mode-view="cmd"]')
   const logsView = page.locator('[data-mode-view="logs"]')
 
   // Initial state: grid mode, keys visible, cmd and logs hidden.
@@ -242,10 +496,55 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.getByText('View logs', { exact: true }).click()
+  await page.locator('[data-streamdeck-command="logs"]').click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
-  await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
+  await expect(page.locator('#sd-keys')).toHaveCount(0)
+})
+
+// Read-only command keys are covered by 'read-only mode disables the
+// fleet-control command keys and a mic hold does not arm it' above, which
+// asserts the same gating plus the `is-disabled` face and the inert hold.
+
+test('pager segment relabels to CONTROLLING with the focused agent and restores its dots on back', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const pager = page.locator('[data-segment="pager"]')
+  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
+
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
+
+  const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  await expect(pager).toContainText('CONTROLLING')
+  await expect(pager).not.toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+
+  // The relabelled segment still shares the strip's row and heading geometry.
+  const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
+  expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
+  expect(await pager.locator('.sd-seg-dlabel').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+
+  // Dial A is the back press: logs -> cmd -> grid.
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await dialA.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
+
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
@@ -430,7 +729,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await expect(dialD).toHaveAttribute('aria-valuenow', String(dialValue))
   await expect(keys.locator('.sd-key:not(.is-empty)')).toHaveCount(8)
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
-  await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+  await expect(page.locator('[data-segment="pager"] [aria-current="page"]')).toHaveAttribute('data-pager-page', '1')
 
   const angleBeforeCycle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.click()
@@ -522,7 +821,7 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
   await units.close()
 })
 
-test('logs mode scrolls classified feed events and flattened transcript panes within real bounds', async ({ page }) => {
+test('clicking a logs event key positions the flattened transcript at that event', async ({ page }) => {
   await openStreamdeck(page)
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
@@ -531,22 +830,42 @@ test('logs mode scrolls classified feed events and flattened transcript panes wi
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
-  await expect(page.locator('#sd-log-events')).toContainText('event-1')
-  await dialD.hover()
-  await page.mouse.wheel(0, -100)
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-log-events')).toContainText('event-2')
+  const logKeys = page.locator('#sd-log-keys')
+  await expect(logKeys.locator('.sd-key')).toHaveCount(8)
+  // Index 0 is LIVE, never an event row.
+  await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
+  await expect(logKeys.locator('[data-log-event-index="0"] .sd-log-dir')).toHaveCount(0)
+  await expect(logKeys.locator('[data-log-event-index="0"] .sd-live-dot')).toHaveCount(1)
 
-  const dialA = page.locator('.sd-knob').first()
-  await dialA.hover()
-  await page.mouse.wheel(0, -100)
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-max-offset', '18')
-  await expect(page.locator('#sd-log-transcript [data-log-kind="message"]')).toContainText('event-10')
+  // The fixture feed gives events 1..5 the five roles that map onto the five
+  // direction badges, so each badge — and each badge's colour — is exercised.
+  const directions = ['AGENT', 'CONSUME', 'SYSTEM', 'INFO', 'EMIT']
+  const inks = new Set()
+  for (const [slot, direction] of directions.entries()) {
+    const badge = logKeys.locator(`[data-log-event-index="${slot + 1}"] .sd-log-dir`)
+    await expect(badge).toContainText(direction)
+    await expect(badge).toHaveAttribute('data-dir', direction)
+    inks.add(await badge.evaluate((el) => getComputedStyle(el).color))
+  }
+  // EMIT and AGENT share one blue by design; the other three are distinct.
+  expect(inks.size).toBe(4)
 
-  await page.mouse.wheel(0, 1000)
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
-  await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+  const strip = page.locator('#sd-screen')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toContainText('event-1')
+
+  await logKeys.locator('[data-log-event-index="2"]').click()
+  await expect(strip).toHaveAttribute('data-transcript-offset', '2')
+  await expect(strip).toContainText('event-2')
+  // The strip moved off the pre-click head rather than merely gaining a line.
+  // `event-1` starts at offset 0 and `event-10` at 18, so neither belongs in
+  // the two-line window at offset 2.
+  await expect(strip).not.toContainText('event-1')
+  await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
+
+  await logKeys.locator('[data-log-event-index="1"]').press('Enter')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toContainText('event-1')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
@@ -559,10 +878,10 @@ test('dial A pointer direction controls transcript scroll direction in logs mode
 
   const dialA = page.locator('.sd-knob').first()
   await dragDialThroughAngles(page, dialA, [-90, 0, 90])
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '1')
 
   await dragDialThroughAngles(page, dialA, [90, 0, -90])
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '0')
 })
 
 test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {
@@ -574,19 +893,86 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
 
   await dragDialThroughAngles(page, dialD, [-90, 0, 90])
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '1')
 
   await dragDialThroughAngles(page, dialD, [90, 0, -90])
-  await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-log-keys')).toHaveAttribute('data-offset', '0')
 })
 
-test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
+test('touch strip renders two provider meters and design segment geometry', async ({ page }) => {
   await openStreamdeck(page)
 
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('30%')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
+  const providers = page.locator('[data-segment="provider"]')
+  const providerCount = await providers.count()
+  expect(providerCount).toBeGreaterThan(0)
+
+  for (let index = 0; index < providerCount; index += 1) {
+    const provider = providers.nth(index)
+    await expect(provider.locator('[data-meter="session"]')).toHaveCount(1)
+    await expect(provider.locator('[data-meter="weekly"]')).toHaveCount(1)
+    await expect(provider.locator('.sd-mini')).toHaveCount(2)
+  }
+
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('30% · 22m')
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('47% · Thu 6PM')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% · 1h')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('75% · Fri 8PM')
+
+  const pagerDots = page.locator('[data-segment="pager"] .sd-pager-dot')
+  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
+  await expect(pagerDots).toHaveCount(pageCount)
+
+  const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
+  expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
+
+  const geometry = await providers.first().evaluate((segment) => {
+    const heading = segment.querySelector('.sd-info-hd')
+    const mini = segment.querySelector('.sd-mini')
+
+    return {
+      direction: getComputedStyle(segment).flexDirection,
+      padding: getComputedStyle(segment).padding,
+      headingFont: getComputedStyle(heading).fontFamily,
+      barHeight: getComputedStyle(mini.querySelector('.sd-mini-bar')).height
+    }
+  })
+
+  expect(geometry.direction).toBe('column')
+  expect(geometry.padding).toBe('5.12px 8px')
+  expect(geometry.headingFont).toContain('JetBrains Mono')
+  expect(geometry.barHeight).toBe('3px')
+
+  // Both segment headings hold one ink. The design specifies 0.42, which
+  // measures under 4.5:1 here and fails the axe check below, so they sit at
+  // 0.55 together rather than one heading drifting from the other.
+  expect(await providers.first().locator('.sd-info-hd').evaluate((heading) => getComputedStyle(heading).color)).toBe('rgba(255, 255, 255, 0.55)')
+
+  // The pager is the design's dial segment (.sd-seg-d, streamdeck.design.css:153-154):
+  // a centred column on the brighter 0.04 ground, labelled by its own text and
+  // carrying no logo header.
+  const pagerShape = await page.locator('[data-segment="pager"]').evaluate((segment) => {
+    const label = segment.querySelector('.sd-seg-dlabel')
+
+    return {
+      align: getComputedStyle(segment).alignItems,
+      gap: getComputedStyle(segment).gap,
+      background: getComputedStyle(segment).backgroundColor,
+      labelSize: getComputedStyle(label).fontSize,
+      labelWeight: getComputedStyle(label).fontWeight,
+      labelColor: getComputedStyle(label).color,
+      headings: segment.querySelectorAll('.sd-info-hd').length,
+      logos: segment.querySelectorAll('.sd-hd-logo').length
+    }
+  })
+
+  expect(pagerShape.align).toBe('center')
+  expect(pagerShape.gap).toBe('5.12px')
+  expect(pagerShape.background).toBe('rgba(255, 255, 255, 0.04)')
+  expect(pagerShape.labelSize).toBe('8.64px')
+  expect(pagerShape.labelWeight).toBe('700')
+  expect(pagerShape.labelColor).toBe('rgba(255, 255, 255, 0.55)')
+  expect(pagerShape.headings).toBe(0)
+  expect(pagerShape.logos).toBe(0)
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
@@ -687,6 +1073,18 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
     const keysStyle = getComputedStyle(keys)
     const keyBox = key.getBoundingClientRect()
     const wellStyle = getComputedStyle(document.querySelector('.sd-well'))
+    const agentKey = keys.querySelector('.sd-agent-key:not(.is-empty)')
+    const agentFace = agentKey.querySelector('.sd-key-face')
+    const agentFaceStyle = getComputedStyle(agentFace)
+    const faceBox = agentFace.getBoundingClientRect()
+    const agentIcon = agentKey.querySelector('.sd-ag-ic')
+    const agentIconSvg = agentIcon.querySelector('svg')
+    const agentTicket = agentKey.querySelector('.sd-ag-id')
+    const agentElements = Array.from(agentKey.querySelectorAll('.sd-agent-top > *, .sd-ag-title, .sd-ag-foot'))
+    const agentFaceFits = agentElements.every((element) => {
+      const box = element.getBoundingClientRect()
+      return box.left >= faceBox.left && box.right <= faceBox.right && box.top >= faceBox.top && box.bottom <= faceBox.bottom
+    })
 
     return {
       paddingTop: style.paddingTop,
@@ -696,7 +1094,16 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
       columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
       columnGap: keysStyle.columnGap,
       rowGap: keysStyle.rowGap,
-      keyRatio: keyBox.width / keyBox.height
+      keyRatio: keyBox.width / keyBox.height,
+      agentIcon: { width: getComputedStyle(agentIcon).width, height: getComputedStyle(agentIcon).height },
+      agentIconSvg: { width: getComputedStyle(agentIconSvg).width, height: getComputedStyle(agentIconSvg).height },
+      agentTicketSize: getComputedStyle(agentTicket).fontSize,
+      agentPadding: {
+        top: agentFaceStyle.paddingTop,
+        right: agentFaceStyle.paddingRight,
+        bottom: agentFaceStyle.paddingBottom
+      },
+      agentFaceFits
     }
   })
 
@@ -708,6 +1115,13 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(mobileGeometry.columnGap).toBe('8.8px')
   expect(mobileGeometry.rowGap).toBe('8.8px')
   expect(mobileGeometry.keyRatio).toBeCloseTo(1, 2)
+  expect(mobileGeometry.agentIcon).toEqual({ width: '26px', height: '26px' })
+  expect(mobileGeometry.agentIconSvg).toEqual({ width: '17px', height: '17px' })
+  expect(mobileGeometry.agentTicketSize).toBe('16px')
+  // The design's mobile block (streamdeck.design.css:198-208) scales the icon and
+  // ticket number only; .sd-agent keeps its desktop padding at both breakpoints.
+  expect(mobileGeometry.agentPadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px' })
+  expect(mobileGeometry.agentFaceFits).toBe(true)
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile.png') })
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile-light.png') })

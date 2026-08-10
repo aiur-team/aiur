@@ -146,6 +146,27 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       refute Map.has_key?(applied_state.running[held], :paused_reason)
       assert applied_state.running[individual].paused_reason == :operator_pause
     end
+
+    test "preserves a tracker pause added while an agent is globally held" do
+      held = unique_id("gp-tracker-held")
+
+      entry =
+        held
+        |> paused_entry(:global_pause)
+        |> put_in([:issue, Access.key(:paused)], true)
+        |> put_in([:issue, Access.key(:labels)], ["agent:in-progress", "agent:paused"])
+
+      state = base_state(globally_paused: true, running: %{held => entry})
+
+      {:reply, {:ok, %{globally_paused: false}}, resumed_state} =
+        GlobalPause.set_global_pause_call(state, false)
+
+      refute resumed_state.globally_paused
+      assert resumed_state.running[held].control.status == :paused
+      assert resumed_state.running[held].paused_reason == :label_override
+      assert resumed_state.running[held].issue.paused
+      refute_receive {:resume_agent, _request_id, _generation}, 50
+    end
   end
 
   describe "global-hold-wins guard" do
@@ -283,6 +304,18 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
 
       assert {:error, :orchestrator_unavailable} = GlobalPause.globally_paused?(name)
       assert {:error, :orchestrator_unavailable} = GlobalPause.global_pause_status(name)
+    end
+
+    test "distinguishes a timed-out status query from an unavailable orchestrator" do
+      name = Module.concat(__MODULE__, :SuspendedOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+      :sys.suspend(pid)
+
+      try do
+        assert {:error, :timeout} = GlobalPause.global_pause_status(name, 1)
+      after
+        :sys.resume(pid)
+      end
     end
   end
 

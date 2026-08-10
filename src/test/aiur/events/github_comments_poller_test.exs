@@ -827,6 +827,49 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
       stop_codeowners(codeowners)
     end
 
+    # #1756: the orchestrator's rework gate is a pure function over the event,
+    # so the review decision and head commit date the batch resolved have to
+    # ride along on every published PR comment and review event.
+    test "carries the pull request review context onto published review events" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_010, "its-everdred", "CHANGES_REQUESTED", "please rework this section")
+
+      batch = %{
+        "42" => %{
+          open_pull_request: %{
+            "number" => 77,
+            "review_decision" => "CHANGES_REQUESTED",
+            "head_committed_at" => "2026-08-10T04:29:00Z"
+          },
+          issue_comments: [],
+          pr_issue_comments: [],
+          review_thread_comments: []
+        }
+      }
+
+      assert {:ok, %{count: 1, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 since: "2026-06-24T11:00:00Z",
+                 repo: "owner/repo",
+                 comment_batch: batch,
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        pull_request: %{
+                          "review_decision" => "CHANGES_REQUESTED",
+                          "head_committed_at" => "2026-08-10T04:29:00Z"
+                        }
+                      }},
+                     500
+
+      stop_codeowners(codeowners)
+    end
+
     test "publishes pr.review_comment for COMMENTED from a trusted reviewer" do
       :ok = Exchange.subscribe("ticket.42.pr.review_comment")
       codeowners = ensure_codeowners!("* @its-everdred\n")

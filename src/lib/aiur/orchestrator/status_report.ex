@@ -364,6 +364,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
+      blocked_by: known_blocked_by(metadata.issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
@@ -393,6 +394,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
+      blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
@@ -456,6 +458,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
           capacity_hold_active?: capacity_hold_active?(state)
         ),
+      blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),
@@ -770,7 +773,15 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
   defp tracker_paused?(_issue), do: false
 
+  # `Config.agent_max_dispatches_per_ticket/0` is a `WorkflowStore` GenServer
+  # call that re-stats and re-reads the config file, so resolving it per idle
+  # row turned one status render into one round-trip per backlog ticket, all
+  # serialized inside this handle_call. That is why `status` and `agents` were
+  # slow (and `alerts`, which never touches the orchestrator, was not) — #1684.
+  # Read it once per snapshot.
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
+    max_dispatches = Config.agent_max_dispatches_per_ticket()
+
     idle_issues =
       Enum.reject(state.last_polled_issues, fn {issue_id, _issue} ->
         Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id)
@@ -779,11 +790,11 @@ defmodule Aiur.Orchestrator.StatusReport do
     latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {issue_id, _issue} -> issue_id end))
 
     Enum.map(idle_issues, fn {issue_id, issue} ->
-      idle_status(state, issue, prewarm_phase, Map.get(latch_statuses, issue_id, :none))
+      idle_status(state, issue, prewarm_phase, max_dispatches, Map.get(latch_statuses, issue_id, :none))
     end)
   end
 
-  defp idle_status(%State{} = state, issue, prewarm_phase, latch_status) do
+  defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches, latch_status) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
@@ -811,22 +822,22 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
-      reason: idle_status_reason(work_state, pause_reason, prewarm_blocked?, budget, latch_status)
+      reason: idle_status_reason(work_state, pause_reason, prewarm_blocked?, budget, max_dispatches, latch_status)
     }
   end
 
-  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, {:lifetime, lifetime, maximum}),
+  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, _max_dispatches, {:lifetime, lifetime, maximum}),
     do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
 
-  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, :none),
+  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, _max_dispatches, :none),
     do: StatusReason.for_pause(pause_reason)
 
-  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, :none) do
+  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, max_dispatches, :none) do
     StatusReason.for_idle(
       prewarm_blocked?,
       Map.get(budget, :tripped),
       Map.get(budget, :lifetime, 0),
-      Config.agent_max_dispatches_per_ticket()
+      max_dispatches
     )
   end
 
@@ -855,6 +866,14 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp retry_snapshot_tracker_identity(retry, nil), do: Map.get(retry, :tracker_identity)
   defp retry_snapshot_tracker_identity(_retry, issue), do: Issue.tracker_identity(issue)
+
+  # Distinguishes "this issue has no upstreams" from "we never resolved this
+  # issue". Only the first is an empty list; the second is `nil`, which
+  # `StreamDeckGrid.dependency_ready?/2` treats as blocking. Defaulting the
+  # unknown case to `[]` would read as "no dependencies" and render the key
+  # `Unblocked` — the same fail-open this projection exists to remove.
+  defp known_blocked_by(%Issue{blocked_by: blockers}) when is_list(blockers), do: blockers
+  defp known_blocked_by(_issue), do: nil
 
   defp idle_issue_work_state(%Issue{} = issue) do
     if Issue.paused?(issue), do: :paused, else: :idle

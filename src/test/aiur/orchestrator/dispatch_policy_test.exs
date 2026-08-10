@@ -135,6 +135,7 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
           load_threshold: 1.5,
           build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
           provider_backends: [],
+          github_quota: :available,
           queued_demand?: true
         },
         overrides
@@ -157,6 +158,24 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert {:hold, %{signal: :load, measured: 25.0, threshold: 18.0}} =
                DispatchPolicy.admission_gate(gate_input(%{load: 25.0}))
+
+      reset_at = ~U[2026-08-09 22:00:00Z]
+
+      assert {:hold, %{signal: :github_quota, measured: %{resource: "core"}, threshold: :ten_percent_remaining}} =
+               DispatchPolicy.admission_gate(gate_input(%{github_quota: {:hold, %{resource: "core", remaining: 500, limit: 5000, reset_at: reset_at}}}))
+
+      build = %{enabled?: true, capacity: 1, active: 1, queued: 1}
+
+      assert {:hold, %{signal: :github_quota}} =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   github_quota: {:hold, %{resource: "graphql"}},
+                   run_queue_threshold: 1.0,
+                   runnable: 99,
+                   load: 99.0,
+                   build_status: build
+                 })
+               )
     end
 
     test "reports build pressure and provider limits in priority order" do
@@ -234,6 +253,61 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                active_states,
                terminal_states
              )
+    end
+  end
+
+  describe "no-agent-work states (#1759)" do
+    # `merging` (PR sitting in GitHub's merge queue) and `ci-wait` (CI in flight)
+    # are states where by definition no agent work exists. Dispatching into them
+    # cannot produce progress, only cost, and each committed dispatch bills a
+    # lifetime unit toward the terminal latch.
+    test "a merging or ci-wait ticket is not dispatchable even when listed as an active state" do
+      # The operator config that produced #1759 listed `merging` in
+      # `active_states`, so the refusal must hold *despite* that listing —
+      # otherwise this test would pass against the pre-fix code.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait"]
+      )
+
+      state = %State{max_concurrent_agents: 5}
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      # Control: the same ticket shape in a real work state IS dispatchable, so
+      # a blanket-false predicate cannot satisfy this test.
+      for workable <- ["todo", "in-progress", "rework"] do
+        ticket = issue("work-#{workable}", state: workable)
+
+        assert DispatchPolicy.candidate_issue?(ticket, active, terminal), "#{workable} must stay dispatchable"
+        assert DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal)
+        assert DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
+      end
+
+      for parked <- ["merging", "ci-wait"] do
+        ticket = issue("parked-#{parked}", state: parked)
+
+        assert DispatchPolicy.no_agent_work_state?(parked)
+        refute DispatchPolicy.candidate_issue?(ticket, active, terminal), "#{parked} must not be a candidate"
+        refute DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal)
+        refute DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
+
+        # The retry engine and the pre-spawn revalidation in
+        # `Dispatcher.revalidate_issue_for_dispatch/3` both gate on this one, so
+        # a ticket that flips into `merging` mid-flight is refused there too.
+        refute DispatchPolicy.retry_candidate_issue?(ticket, terminal)
+
+        # The poll cycle's queued-work signal must not count it as demand.
+        refute DispatchPolicy.queued_dispatch_demand?([ticket], state)
+      end
+    end
+
+    test "state matching is normalized and nil-safe" do
+      assert DispatchPolicy.no_agent_work_state?("Merging")
+      assert DispatchPolicy.no_agent_work_state?("  CI-Wait ")
+      refute DispatchPolicy.no_agent_work_state?("human-review")
+      refute DispatchPolicy.no_agent_work_state?(nil)
+      refute DispatchPolicy.no_agent_work_state?(:merging)
     end
   end
 

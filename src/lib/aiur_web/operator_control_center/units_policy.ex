@@ -21,6 +21,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
   @spec conditions() :: [condition()]
   def conditions, do: @conditions
 
+  @doc "The condition chips exposed by the Units page."
+  @spec visible_conditions() :: [condition()]
+  def visible_conditions, do: Enum.reject(@conditions, &(&1 == :stuck))
+
   @spec default_selection() :: selection()
   def default_selection, do: %{scope: :live, conditions: []}
 

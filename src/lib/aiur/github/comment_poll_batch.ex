@@ -137,7 +137,8 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
   defp pull_request_fields do
     """
-    number state headRefName headRefOid baseRefName
+    number state headRefName headRefOid baseRefName reviewDecision
+    commits(last: 1) { nodes { commit { committedDate } } }
     comments(last: 100) { pageInfo { hasPreviousPage } nodes { #{comment_fields()} } }
     reviewThreads(first: 100) {
       pageInfo { hasNextPage endCursor }
@@ -270,11 +271,23 @@ defmodule Aiur.GitHub.CommentPollBatch do
       "state" => String.downcase(to_string(Map.get(pull_request, "state", "open"))),
       "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
       "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
+      # Review-staleness context for the rework gate (#1756). `reviewDecision`
+      # is nil until the first review lands; `head_committed_at` is the commit
+      # date of the head commit the reviews are (or are not) talking about.
+      "review_decision" => Map.get(pull_request, "reviewDecision"),
+      "head_committed_at" => head_committed_at(pull_request),
       comments: normalize_comments(get_in(pull_request, ["comments", "nodes"])),
       comments_page_info: comments_page_info(pull_request),
       review_threads: review_thread_nodes(pull_request),
       review_threads_page_info: review_thread_page_info(pull_request)
     }
+  end
+
+  defp head_committed_at(pull_request) do
+    case get_in(pull_request, ["commits", "nodes"]) do
+      [_ | _] = nodes -> nodes |> List.last() |> get_in(["commit", "committedDate"])
+      _other -> nil
+    end
   end
 
   defp review_thread_nodes(pull_request) do

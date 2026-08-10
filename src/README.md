@@ -63,6 +63,19 @@ to focus the active-agent limit, then use `Left` / `Right` to decrease or increa
 session-only maximum. The config file remains unchanged; restarting Aiur reloads the
 configured limit.
 
+## Inspecting Build Orders
+
+`aiur build-orders` prints the repository-scoped Build Order catalog with the
+captured-source freshness. Pass a root identifier to inspect its members,
+completion state, and directed dependency edges; `--json` returns the same read
+as a versioned JSON envelope. Unknown completion remains `unresolved` rather
+than being reported as zero.
+
+```bash
+aiur build-orders
+aiur build-orders 1363 --json
+```
+
 ## Quickstart
 
 ```bash
@@ -230,7 +243,8 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
+| `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
+| `aiurdev units [--scope live\|unfinished\|all\|none] [--condition active\|alert\|paused\|queued\|finished]... [--format auto\|table\|records] [--json]` | Render the dashboard's Units ticket view, including its filters and source freshness; `--format` picks the human layout (`auto` uses a table only on a wide terminal); `--json` emits the stable envelope |
 | `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
@@ -239,7 +253,7 @@ on your `PATH`:
 | `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
-Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`,
+Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `units`,
 and `stop`) reuse the existing dev release when it is complete, even if sources
 are newer. They control the already-running node, so a stale-source rebuild would
 not update that session. Run/start paths and explicit `aiurdev build` still
@@ -256,6 +270,13 @@ If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,
 then start it again; this is a session-level recovery action, not a cooperative
 single-agent pause.
+
+Read-only fleet queries never use an empty buffer to mean success: `status`,
+`agents`, and `watch` print an affirmative empty-fleet row when no agents are
+active. Query failures print one stderr diagnostic and exit 1. Bounded query
+timeouts name their budget, warn that the daemon may be scheduler-saturated,
+and exit 124; any partial fleet output captured before an outer RPC timeout is
+discarded rather than presented as a trustworthy snapshot.
 
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
@@ -276,6 +297,11 @@ For tracker-level shelving, apply `agent:paused` in GitHub instead of changing
 the issue state. Aiur will not claim a paused `agent:todo` ticket, will
 cooperatively pause a running ticket when the label appears, and `aiurdev watch`
 shows the override as `paused`.
+
+`aiurdev resume <id>` removes `agent:paused` from the tracker before it resumes
+or starts the local agent. If the tracker refuses that removal, the command exits
+non-zero and explains that the resume will not hold; it does not report a plain
+success. A fleet-wide `aiurdev resume` still preserves per-ticket pause labels.
 
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
@@ -322,6 +348,16 @@ from the Executor repo root or a dedicated isolated harness. Foreground startup
 prints the resolved tmux socket/session, which non-TTY drivers should use
 instead of hard-coded socket names.
 
+### GitHub CI handoff safety
+
+After CI passes, Aiur persists the approved PR head before handing the ticket
+back to its agent. A later CI observation for that exact SHA cannot return the
+ticket from human review to rework, even when the poll retained a stale
+`ci-wait` issue snapshot from before the handoff. A CI failure for a different
+SHA supersedes the approval and remains eligible for the normal rework path.
+Check runs whose names end in `(non-blocking)` are advisory and do not affect
+the lifecycle decision.
+
 ## Dashboard
 
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
@@ -336,12 +372,29 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   `Cache-Control: no-store`. Drag across any time chart to zoom the five
   time-series charts together; use Reset to return to the full selected range.
 
+The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider
+icons from `priv/static` before router dispatch. Explicit allowlists keep the
+dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and
+font files use long-lived caching, and provider icons derive from the coding-agent
+registry. Content-addressed layout vendor files remain on their verified router
+paths; vendor manifests, provenance, sources, and licenses are not exposed.
+
 The Units catalog reconciles retained current-run membership with the latest
 fresh orchestrator snapshot. After a daemon generation change, current agents
 remain visible while membership catches up; counts are marked partial if that
 membership source is unavailable. A periodic reconciliation also recovers
 agents that existed without a dispatch notification, so an unknown catalog is
 never presented as an exact zero.
+
+### Shared GitHub quota
+
+GitHub-backed runs meter the shared agent credential's core and GraphQL budgets
+in the dashboard, including remaining units, reset times, rolling read/write
+attribution, and the top ticket consumer. Aiur raises an Executor alert at 10%
+remaining and pauses new dispatch until the affected window resets. At zero,
+daemon requests are rejected locally and agent-launched `gh` commands wait on
+the recorded reset instead of retrying into the exhausted budget. Quota state
+that has not yet been observed fails open so startup is not blocked by a meter.
 
 ### Supervisor Decision API
 

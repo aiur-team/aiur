@@ -31,9 +31,11 @@ defmodule Aiur.Application do
     :ok = Aiur.LogFile.ensure_session_log_file()
     :ok = Aiur.LogFile.apply_config_debug()
     :ok = Aiur.LogFile.configure()
-    telemetry? = Aiur.Config.telemetry_enabled?()
+    settings = Aiur.Config.settings_uncached()
+    telemetry? = Aiur.Config.telemetry_enabled?(settings)
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
+    :ok = log_base_branch(settings)
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
@@ -58,11 +60,19 @@ defmodule Aiur.Application do
         )
 
       Supervisor.start_link(
-        children,
+        children ++ [supervision_health_child(children)],
         strategy: :one_for_one,
         name: Aiur.Supervisor
       )
     end
+  end
+
+  @doc false
+  @spec log_base_branch() :: :ok
+  @spec log_base_branch(term()) :: :ok
+  def log_base_branch(settings \\ AiurConfig.settings_uncached()) do
+    Logger.info("aiur_boot phase=config base_branch=#{inspect(AiurConfig.base_branch(settings))}")
+    :ok
   end
 
   @doc """
@@ -159,6 +169,7 @@ defmodule Aiur.Application do
       Aiur.WorkflowStore,
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
+      Aiur.GitHub.Quota,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,
@@ -228,6 +239,10 @@ defmodule Aiur.Application do
     ]
     |> Enum.reject(&is_nil/1)
     |> Kernel.++(cli_children)
+  end
+
+  defp supervision_health_child(children) do
+    {Aiur.SupervisionHealth, supervisor: Aiur.Supervisor, expected_children: children}
   end
 
   defp remote_routing?(routing) when is_map(routing) do

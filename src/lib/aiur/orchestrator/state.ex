@@ -84,6 +84,9 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
+          comment_rework_retries: %{
+            {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
+          },
           # Transient-caused pause/error tickets waiting a bounded backoff before
           # automatic re-dispatch (#1453). Keyed by issue_id; see
           # `Aiur.Orchestrator.AutoResume`.
@@ -174,6 +177,11 @@ defmodule Aiur.Orchestrator.State do
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
+    # Timer refs for in-flight comment-rework retries, keyed by
+    # `{issue_key, source_key}`. Tracked so a superseded retry can be cancelled
+    # and so `terminate/2` never leaves a timer firing into a dead orchestrator's
+    # successor — see `Aiur.Orchestrator.CommentWake`.
+    comment_rework_retries: %{},
     auto_resume: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
