@@ -279,7 +279,7 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp evaluate(check_runs, commit_status) do
-    check_runs = Enum.filter(check_runs, &is_map/1)
+    check_runs = blocking_check_runs(check_runs)
     statuses = commit_status |> Map.get("statuses", []) |> Enum.filter(&is_map/1)
     failed_checks = failed_check_runs(check_runs) ++ failed_commit_statuses(statuses)
 
@@ -301,6 +301,22 @@ defmodule Aiur.Events.GithubCIPoller do
       end
 
     evaluation(classification, failed_checks)
+  end
+
+  defp non_blocking_check?(check_run) do
+    case Map.get(check_run, "name") do
+      name when is_binary(name) ->
+        name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+
+      _ ->
+        false
+    end
+  end
+
+  defp blocking_check_runs(check_runs) do
+    check_runs
+    |> Enum.filter(&is_map/1)
+    |> Enum.reject(&non_blocking_check?/1)
   end
 
   defp evaluation({:pending, pending_reason}, failed_checks) do
@@ -356,7 +372,7 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp post_repair_ci?(check_runs, commit_status, repaired_at) do
-    check_evidence = Enum.map(check_runs, &ci_evidence_timestamp/1)
+    check_evidence = check_runs |> blocking_check_runs() |> Enum.map(&ci_evidence_timestamp/1)
 
     status_evidence =
       commit_status
@@ -478,12 +494,7 @@ defmodule Aiur.Events.GithubCIPoller do
     |> Enum.uniq()
   end
 
-  defp expected_base_branch(opts) do
-    case Keyword.fetch(opts, :base_branch) do
-      {:ok, branch} when is_binary(branch) and branch != "" -> branch
-      _ -> Config.base_branch()
-    end
-  end
+  defp expected_base_branch(opts), do: Config.base_branch(opts)
 
   defp ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
     repair_started_at = system_time_seconds(opts)
