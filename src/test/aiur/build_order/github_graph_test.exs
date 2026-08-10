@@ -23,6 +23,154 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_title in Enum.map(invalid.diagnostics, & &1.code)
   end
 
+  test "derives catalog metrics from a root's direct GitHub members" do
+    root = root(1)
+
+    members = [
+      member(2, root, labels: ["phase:1", "build-lane:runtime"]),
+      member(3, root, labels: ["phase:2", "build-lane:runtime"]),
+      member(4, root, labels: ["phase:2", "build-lane:dashboard-ui"])
+    ]
+
+    root = Map.put(root, "subIssues", connection(members, 3, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 3
+    assert entry.epic_count == 2
+    assert entry.phase_count == 2
+    assert entry.progress == 67
+    assert entry.progress_resolution == :resolved
+    assert entry.progress_resolved_count == 3
+  end
+
+  # `Metadata.parse/1` maps a missing `build-lane:`/`phase:` label onto
+  # `:unassigned`/`:unphased`, and the pack path counts that placeholder as one
+  # distinct group. Pin the exact degenerate values so the GitHub path cannot
+  # drift away from that shared rule behind an `is_integer/1` assertion.
+  test "counts unlabelled catalog members as one distinct epic and wave" do
+    labelled_root = root(1)
+    unlabelled_root = root(5)
+
+    mixed = [
+      member(2, labelled_root, labels: ["phase:1", "build-lane:runtime"]),
+      member(3, labelled_root, labels: ["complexity:2"])
+    ]
+
+    unlabelled = [
+      member(6, unlabelled_root, labels: []),
+      member(7, unlabelled_root, labels: ["complexity:1"])
+    ]
+
+    labelled_root = Map.put(labelled_root, "subIssues", connection(mixed, 2, []))
+    unlabelled_root = Map.put(unlabelled_root, "subIssues", connection(unlabelled, 2, []))
+
+    assert {:ok, %{candidate: %{entries: [mixed_entry, unlabelled_entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([labelled_root, unlabelled_root], 2)))
+
+    # One real lane plus the `:unassigned` placeholder are two distinct groups.
+    assert mixed_entry.epic_count == 2
+    assert mixed_entry.phase_count == 2
+
+    # Every member unlabelled collapses onto the single placeholder group.
+    assert unlabelled_entry.member_count == 2
+    assert unlabelled_entry.epic_count == 1
+    assert unlabelled_entry.phase_count == 1
+  end
+
+  test "marks catalog progress unresolved when no member lifecycle can be resolved" do
+    root = root(1)
+
+    unresolved_members = [
+      member(2, root) |> Map.put("state", "UNRECOGNIZED"),
+      member(3, root) |> Map.delete("state")
+    ]
+
+    root = Map.put(root, "subIssues", connection(unresolved_members, 2, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 2
+    assert entry.epic_count == 1
+    assert entry.phase_count == 1
+    assert is_nil(entry.progress)
+    assert entry.progress_resolution == :unresolved
+    assert entry.progress_resolved_count == 0
+  end
+
+  test "leaves catalog counts unresolved when member labels are truncated" do
+    root = root(1)
+
+    member =
+      member(2, root)
+      |> Map.put("labels", connection(Enum.map(1..20, &%{"name" => "label-#{&1}"}), 21, has_next?: true, cursor: "more-labels"))
+
+    root = Map.put(root, "subIssues", connection([member], 1, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 1
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+    assert entry.progress == 100
+    assert entry.progress_resolution == :resolved
+    assert entry.progress_resolved_count == 1
+  end
+
+  test "reports catalog progress over the members whose lifecycle resolved" do
+    root = root(1)
+
+    members = [
+      member(2, root),
+      member(3, root) |> Map.put("state", "UNRECOGNIZED")
+    ]
+
+    root = Map.put(root, "subIssues", connection(members, 2, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.progress == 100
+    assert entry.progress_resolution == :partial
+    assert entry.progress_resolved_count == 1
+    assert entry.member_count == 2
+  end
+
+  test "keeps the member total but marks an incomplete catalog connection unresolved" do
+    root = root(1)
+    members = [member(2, root)]
+    root = Map.put(root, "subIssues", connection(members, 101, has_next?: true, cursor: "next-page"))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert entry.member_count == 101
+    assert is_nil(entry.progress)
+    assert entry.progress_resolution == :unresolved
+    assert entry.progress_resolved_count == 0
+  end
+
+  test "makes no member claim when a catalog connection carries no readable total" do
+    root = root(1)
+    members = [member(2, root)]
+
+    root =
+      Map.put(root, "subIssues", %{
+        "nodes" => members,
+        "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+      })
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
+
+    assert is_nil(entry.member_count)
+    assert is_nil(entry.progress)
+    assert entry.progress_resolution == :unresolved
+  end
+
   test "keeps a catalog root missing its required parent key visible but invalid" do
     valid = root(1)
     missing_parent = Map.delete(root(2), "parent")
@@ -1160,6 +1308,11 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
       catalog_request_fun = fn %{body: %{"query" => query}} ->
         refute query =~ "body"
+        assert query =~ "subIssues(first: 100)"
+
+        assert String.replace(query, ~r/\s+/, " ") =~
+                 "subIssues(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { state stateReason labels(first: 20)"
+
         catalog_response([], 0)
       end
 

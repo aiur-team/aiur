@@ -27,6 +27,14 @@ defmodule Aiur.AgentChatTest do
     assert reason in [:unavailable, :no_running_agent]
   end
 
+  test "priority controls delegate to the orchestrator control path" do
+    assert {:error, prioritize_reason} = AgentChat.prioritize("MT-CHAT")
+    assert prioritize_reason in [:unavailable, :unknown_issue]
+
+    assert {:error, deprioritize_reason} = AgentChat.deprioritize("MT-CHAT")
+    assert deprioritize_reason in [:unavailable, :unknown_issue]
+  end
+
   test "interrupt delegates to orchestrator control path" do
     assert {:error, reason} = AgentChat.interrupt("MT-CHAT")
     assert reason in [:unavailable, :not_running]
