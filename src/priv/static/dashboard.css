@@ -7430,114 +7430,194 @@ html[data-theme="light"] .toggle-icon .moon {
   padding: 3px;
   border-radius: 15px;
   background: var(--sd-glow);
+  color: var(--fg);
   cursor: pointer;
   transition: transform 0.08s ease, filter 0.14s ease;
 }
 
 .sd-key-face {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
+  position: relative;
   width: 100%;
   height: 100%;
   min-width: 0;
-  padding: 0.48rem;
   border-radius: 12px;
+  overflow: hidden;
   background: var(--sd-face);
   color: var(--fg);
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.5), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
 }
 
 .sd-key:hover { filter: brightness(1.07); }
+
 .sd-key:active { transform: translateY(1px) scale(0.98); }
 
-.sd-key-topline,
-.sd-key-footer {
+.sd-agent {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 0.5rem 0.55rem 0.55rem;
+  gap: 0.34rem;
+  text-align: left;
+}
+
+.sd-agent-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.sd-ag-ic {
+  width: 30px;
+  height: 30px;
+  box-sizing: border-box;
+  display: grid;
+  place-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--sd-accent);
+}
+
+.sd-ag-ic svg { width: 20px; height: 20px; }
+
+.sd-ag-vendor,
+.sd-ag-vendor-fallback {
+  display: block;
+  width: 18px;
+  height: 18px;
+  justify-self: center;
+}
+
+.sd-ag-vendor-fallback {
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(240, 242, 246, 0.72);
+  font-size: 0.7rem;
+}
+
+.sd-ag-idwrap,
+.sd-ag-foot {
   display: flex;
   align-items: center;
   min-width: 0;
-  gap: 0.28rem;
+  gap: 0.35rem;
 }
 
-.sd-key-topline {
-  justify-content: space-between;
-  color: var(--muted);
+.sd-ag-idwrap { justify-self: end; gap: 0.25rem; }
+
+.sd-ag-id {
+  color: var(--fg);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.52rem;
+  font-size: 1.15rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: -0.01em;
 }
 
-.sd-key-priority {
+.sd-ag-prio {
+  display: inline-flex;
+  flex: none;
+  margin-left: 0;
   color: var(--attention-ink);
-  font-size: 0.62rem;
 }
 
-.sd-key-main {
-  display: grid;
-  align-content: center;
-  min-width: 0;
-  gap: 0.18rem;
-}
+.sd-ag-prio svg { width: 13px; height: 13px; }
 
-.sd-key-ticket {
-  color: var(--sd-accent);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.58rem;
-  font-weight: 800;
-}
-
-.sd-key-title {
+.sd-ag-title {
   display: -webkit-box;
   overflow: hidden;
-  color: var(--fg);
-  font-size: clamp(0.58rem, 1.4vw, 0.72rem);
-  font-weight: 700;
-  line-height: 1.12;
+  color: rgba(240, 242, 246, 0.9);
+  font-size: 1.08rem;
+  font-weight: 600;
+  line-height: 1.16;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
-.sd-key-footer {
-  color: var(--muted);
-  font-size: 0.5rem;
+.sd-ag-foot {
+  margin-top: auto;
+  gap: 8px;
+  color: var(--sd-accent);
+  font-size: 0.7rem;
   font-weight: 700;
   line-height: 1;
 }
 
-.sd-key-footer b {
-  margin-left: auto;
-  padding: 0.13rem 0.2rem;
-  border-radius: 999px;
-  background: var(--blocking-soft);
-  color: var(--blocking-ink);
-  font-size: 0.43rem;
+.sd-ag-foot.col {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
 }
 
-.sd-status-dot {
+.sd-ag-stat {
+  display: inline-flex;
+  align-items: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-ag-stat::before {
   width: 0.42rem;
   height: 0.42rem;
+  margin-right: 0.28rem;
+  border-radius: 50%;
+  background: currentColor;
+  content: "";
+  flex: none;
+}
+
+.sd-ag-tag {
+  margin-left: auto;
+  padding: 0.12rem 0.42rem;
+  border-radius: 999px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.sd-ag-tag.blocked { background: rgba(224, 86, 78, 0.2); color: #ff9a90; }
+
+.sd-ag-tag.ready { background: rgba(74, 200, 130, 0.2); color: #88e0a6; }
+
+.sd-ag-foot.col .sd-ag-tag { margin-left: 0; }
+
+.sd-ag-dot {
+  width: 11px;
+  height: 11px;
   flex: none;
   border-radius: 50%;
   background: var(--sd-accent);
-  box-shadow: 0 0 0.45rem var(--sd-accent);
 }
 
-.sd-progress {
+/* Pulse timings come from key-face-contract.json via @key_face_css. */
+
+.sd-ag-bar {
   display: block;
-  height: 0.22rem;
-  flex: 1;
-  min-width: 0.6rem;
+  height: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.14);
 }
 
-.sd-progress i {
+.sd-ag-bar i {
   display: block;
   height: 100%;
   border-radius: inherit;
   background: var(--sd-progress-fill);
 }
+
+/* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
+   from key-face-contract.json by StreamdeckLive; see @key_face_css. Restating
+   them here is what lets the two renderers drift. */
 
 .sd-key:is(.is-empty, .sd-empty) {
   background: #0a0b0d;
@@ -7923,9 +8003,18 @@ html[data-theme="light"] .sd-device {
     padding: 0.9rem 0.8rem;
   }
 
-  .sd-key-face {
+  .sd-key-face:not(.sd-agent) {
     padding: 0.32rem;
   }
+
+  .sd-ag-ic {
+    width: 26px;
+    height: 26px;
+  }
+
+  .sd-ag-ic svg { width: 17px; height: 17px; }
+
+  .sd-ag-id { font-size: 1rem; }
 
   .sd-screen {
     height: 82px;

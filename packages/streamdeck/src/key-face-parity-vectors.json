@@ -64,10 +64,10 @@
     { "badge": "INFO", "color": "#c2c6cf" }
   ],
   "footers": [
-    { "bucket": "running", "dependency_ready": "absent", "kind": "progress", "label": "Running", "dependency": null },
-    { "bucket": "running", "dependency_ready": false, "kind": "progress", "label": "Running", "dependency": null },
-    { "bucket": "queued", "dependency_ready": true, "kind": "queued", "label": "Unstarted", "dependency": "Unblocked" },
-    { "bucket": "queued", "dependency_ready": false, "kind": "queued", "label": "Unstarted", "dependency": "Blocked" },
-    { "bucket": "queued", "dependency_ready": "absent", "kind": "queued", "label": "Unstarted", "dependency": "Blocked" }
+    { "bucket": "running", "dependency_ready": "absent", "kind": "progress", "label": "Running", "dependency": null, "ready": false },
+    { "bucket": "running", "dependency_ready": false, "kind": "progress", "label": "Running", "dependency": null, "ready": false },
+    { "bucket": "queued", "dependency_ready": true, "kind": "queued", "label": "Unstarted", "dependency": "Unblocked", "ready": true },
+    { "bucket": "queued", "dependency_ready": false, "kind": "queued", "label": "Unstarted", "dependency": "Blocked", "ready": false },
+    { "bucket": "queued", "dependency_ready": "absent", "kind": "queued", "label": "Unstarted", "dependency": "Blocked", "ready": false }
   ]
 }

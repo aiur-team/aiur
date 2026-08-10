@@ -75,19 +75,22 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   @spec bucket_rank!(atom() | String.t()) :: non_neg_integer()
   def bucket_rank!(bucket), do: state!(bucket)["rank"]
 
-  @spec footer(atom() | String.t(), term()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil}
+  @spec footer(atom() | String.t(), term()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil, ready?: boolean()}
   def footer(bucket, dependency_ready) do
     state = state!(bucket)
 
     if bucket == :queued or bucket == "queued" do
       queued = @contract["footers"]["queued"]
-      %{kind: queued["kind"], label: state["label"], dependency: if(dependency_ready == queued["ready_when"], do: queued["ready_label"], else: queued["blocked_label"])}
+      # Fail-closed: only the exact `ready_when` value reads as ready, so an
+      # absent or unrecognised flag renders blocked on both renderers.
+      ready? = dependency_ready == queued["ready_when"]
+      %{kind: queued["kind"], label: state["label"], dependency: if(ready?, do: queued["ready_label"], else: queued["blocked_label"]), ready?: ready?}
     else
-      %{kind: @contract["footers"]["progress"]["kind"], label: state["label"], dependency: nil}
+      %{kind: @contract["footers"]["progress"]["kind"], label: state["label"], dependency: nil, ready?: false}
     end
   end
 
-  @spec footer_for_agent(atom() | String.t(), map()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil}
+  @spec footer_for_agent(atom() | String.t(), map()) :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil, ready?: boolean()}
   def footer_for_agent(bucket, agent) when is_map(agent), do: footer(bucket, Map.get(agent, :dependency_ready))
 
   @spec progress_color(number()) :: String.t()

@@ -55,7 +55,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
           ready -> StreamdeckKeyFaceContract.footer(vector["bucket"], ready)
         end
 
-      assert footer == %{kind: vector["kind"], label: vector["label"], dependency: vector["dependency"]}
+      assert footer == %{kind: vector["kind"], label: vector["label"], dependency: vector["dependency"], ready?: vector["ready"]}
     end
   end
 

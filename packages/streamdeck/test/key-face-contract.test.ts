@@ -78,7 +78,7 @@ describe("key-face contract parity", () => {
     expect(key.footer.kind).toBe(vector.kind);
 
     if (vector.kind === "queued") {
-      expect(key.footer).toMatchObject({ label: vector.label, statusLabel: vector.dependency, unblocked: vector.dependency === KEY_FACE_CONTRACT.footers.queued.ready_label });
+      expect(key.footer).toMatchObject({ label: vector.label, statusLabel: vector.dependency, unblocked: vector.ready });
     } else {
       expect(vector.dependency).toBeNull();
       expect(key.footer).not.toHaveProperty("statusLabel");
