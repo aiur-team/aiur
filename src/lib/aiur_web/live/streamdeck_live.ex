@@ -20,7 +20,10 @@ defmodule AiurWeb.StreamdeckLive do
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
 
-  @control_commands ~w(pause resume prioritize deprioritize)
+  # The two fleet-control commands. Each is a single key whose direction the
+  # server resolves from orchestrator state, so the client never names the
+  # action — it only names the key it pressed.
+  @control_commands ~w(pause priority)
 
   @streamdeck_package %{
     version: "0.0.0-dev.0098e3ac86a2",
@@ -66,9 +69,9 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:transcript_relay, nil)
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
-      |> assign(:mic_live?, false)
       |> assign(:install_modal?, false)
       |> assign(:streamdeck_package, @streamdeck_package)
+      |> assign(:mic_held?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> refresh_grid()
@@ -167,16 +170,18 @@ defmodule AiurWeb.StreamdeckLive do
       not dashboard_writable?() ->
         {:noreply,
          socket
-         |> assign(:mic_live?, false)
+         |> assign(:mic_held?, false)
          |> assign(:control_feedback, "Read-only dashboard: controls are disabled")}
 
       truthy?(active) ->
-        {:noreply, assign(socket, :mic_live?, true)}
+        {:noreply, assign(socket, :mic_held?, true)}
 
       true ->
-        {:noreply, assign(socket, :mic_live?, false)}
+        {:noreply, assign(socket, :mic_held?, false)}
     end
   end
+
+  def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_info({:running_changed, _summaries}, socket) do
@@ -281,29 +286,29 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands">
-            <p class="sd-mode-label">Commands</p>
-            <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
-            <ul class="sd-cmd-list" aria-label="Available commands">
-              <li :for={command <- command_keys(@sd_active, @mic_live?)} class={["sd-cmd-item", command.disabled? && "is-disabled", command.hold? && "sd-mic-key", command.hold? && command.state == "live" && "is-live"]}>
-                <button
-                  type="button"
-                  class="sd-cmd-button"
-                  data-streamdeck-command={command.command}
-                  data-command-state={command.state}
-                  data-command-hold={command.hold? && "true"}
-                  data-streamdeck-identifier={@selected_identifier}
-                  disabled={command.disabled?}
-                  aria-disabled={to_string(command.disabled?)}
-                  phx-click={!command.hold? && !command.disabled? && "command-press"}
-                  phx-value-command={command.command}
-                >
-                  <span class="sd-cmd-label">{command.label}</span>
-                  <span class="sd-cmd-sub" aria-hidden="true">{command.sub}</span>
-                </button>
-              </li>
-            </ul>
-          </div>
+          <%!-- The live region stays screen-reader-only until there is something to
+               say, so a control failure becomes visible on the deck face rather than
+               being announced only to assistive tech. --%>
+          <p id="sd-control-status" class={[!@control_feedback && "sr-only", @control_feedback && "sd-control-status"]} role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
+          <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
+            <li :for={key <- command_keys(@sd_active, @mic_held?)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty", !key.empty? && key.disabled? && "is-disabled"]} aria-hidden={to_string(key.empty?)}>
+              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-command-state={key.state} data-command-hold={key.mic? && "true"} data-streamdeck-identifier={@selected_identifier} disabled={key.disabled?} aria-disabled={to_string(key.disabled?)} aria-label={key.label}>
+                <span class="sd-cmd">
+                  <span class="sd-cmd-ic" aria-hidden="true">
+                    <svg :if={key.icon == "pause"} data-streamdeck-icon="pause" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/></svg>
+                    <svg :if={key.icon == "play"} data-streamdeck-icon="play" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13l11-6.5z"/></svg>
+                    <svg :if={key.icon == "up"} data-streamdeck-icon="up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+                    <svg :if={key.icon == "down"} data-streamdeck-icon="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+                    <svg :if={key.icon == "logs"} data-streamdeck-icon="logs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                    <svg :if={key.icon == "mic"} data-streamdeck-icon="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>
+                  </span>
+                  <span class="sd-cmd-label">{key.label}</span>
+                  <span class="sd-cmd-sub">{key.sub}</span>
+                </span>
+              </button>
+              <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
+            </li>
+          </ul>
           <% end %>
 
           <%= if @sd_mode == :logs do %>
@@ -743,42 +748,73 @@ defmodule AiurWeb.StreamdeckLive do
   defp control_action(:paused), do: "resume"
   defp control_action(_bucket), do: nil
 
+  # Without a focused agent there is no real pause or priority state to render.
+  # Blank every slot rather than showing a control whose label would be a guess.
+  defp command_keys(nil, _mic_held?), do: List.duplicate(empty_command_key(), 8)
+
   # The command keys are derived from the agent the orchestrator currently
   # reports, never from an optimistic local toggle, so a control call that the
   # orchestrator rejects leaves the key showing the state that actually holds.
-  defp command_keys(agent, mic_live?) do
+  defp command_keys(agent, mic_held?) do
     writable? = dashboard_writable?()
-    paused? = Map.get(agent || %{}, :bucket) == :paused
-    prioritized? = Map.get(agent || %{}, :priority) == true
+    paused? = Map.get(agent, :bucket) == :paused
+    prioritized? = Map.get(agent, :priority, false)
 
     [
-      pause_command_key(paused?, writable?),
-      priority_command_key(prioritized?, writable?),
-      command_key("logs", "Logs", "SCROLL", "ready", true),
-      # Mic is the design's fourth command and the only press-and-hold one:
-      # it carries no `phx-click`, so the hook drives it from pointer events
-      # and a click can never fire it.
-      mic_command_key(mic_live?, writable?)
+      command_key(
+        "pause",
+        if(paused?, do: "Play", else: "Pause"),
+        if(paused?, do: "RESUME", else: "HOLD"),
+        icon: if(paused?, do: "play", else: "pause"),
+        state: if(paused?, do: "paused", else: "running"),
+        disabled?: not writable?
+      ),
+      command_key(
+        "priority",
+        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
+        if(prioritized?, do: "LOWER", else: "RAISE"),
+        icon: if(prioritized?, do: "down", else: "up"),
+        state: if(prioritized?, do: "prioritized", else: "standard"),
+        disabled?: not writable?
+      ),
+      # Logs is navigation rather than fleet control, so read-only leaves it
+      # enabled: it changes what the operator sees, never what the fleet does.
+      command_key("logs", "Logs", "SCROLL", icon: "logs", state: "ready"),
+      # Mic is the design's fourth command and the only press-and-hold one: it
+      # carries no click handler, so the hook drives it from pointer events.
+      command_key("mic", "Mic", "HOLD",
+        icon: "mic",
+        mic?: true,
+        state: if(mic_held?, do: "live", else: "idle"),
+        disabled?: not writable?
+      ),
+      empty_command_key(),
+      empty_command_key(),
+      empty_command_key(),
+      empty_command_key()
     ]
   end
 
-  defp pause_command_key(true, writable?), do: command_key("resume", "Play", "RESUME", "paused", writable?)
-  defp pause_command_key(false, writable?), do: command_key("pause", "Pause", "HOLD", "running", writable?)
+  defp command_key(command, label, sub, opts) do
+    %{
+      command: command,
+      label: label,
+      sub: sub,
+      icon: Keyword.fetch!(opts, :icon),
+      mic?: Keyword.get(opts, :mic?, false),
+      state: Keyword.get(opts, :state, "ready"),
+      disabled?: Keyword.get(opts, :disabled?, false),
+      empty?: false
+    }
+  end
 
-  defp priority_command_key(true, writable?), do: command_key("deprioritize", "Deprioritize", "LOWER", "prioritized", writable?)
-  defp priority_command_key(false, writable?), do: command_key("prioritize", "Prioritize", "RAISE", "standard", writable?)
-
-  defp mic_command_key(true, writable?), do: %{command_key("mic", "Mic", "HOLD", "live", writable?) | hold?: true}
-  defp mic_command_key(false, writable?), do: %{command_key("mic", "Mic", "HOLD", "idle", writable?) | hold?: true}
-
-  defp command_key(command, label, sub, state, writable?),
-    do: %{command: command, label: label, sub: sub, state: state, disabled?: not writable?, hold?: false}
+  defp empty_command_key, do: %{empty?: true, mic?: false}
 
   defp invoke_command(socket, command) do
     case socket.assigns.sd_active do
-      %{identifier: identifier} when not is_nil(identifier) ->
+      %{identifier: identifier} = agent when not is_nil(identifier) ->
         socket
-        |> invoke_agent_control(to_string(identifier), control_action_for(command))
+        |> invoke_agent_control(to_string(identifier), control_action_for(command, agent))
         |> refresh_grid()
 
       _agent ->
@@ -786,10 +822,14 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
-  defp control_action_for("pause"), do: :pause
-  defp control_action_for("resume"), do: :resume
-  defp control_action_for("prioritize"), do: :prioritize
-  defp control_action_for("deprioritize"), do: :deprioritize
+  # Each control key is a single toggle, and the direction is resolved from the
+  # state the orchestrator reports rather than from the label the client
+  # happened to be rendering. A stale key still reading "Pause" therefore cannot
+  # re-pause an agent the orchestrator has already paused.
+  defp control_action_for("pause", %{bucket: :paused}), do: :resume
+  defp control_action_for("pause", _agent), do: :pause
+  defp control_action_for("priority", %{priority: true}), do: :deprioritize
+  defp control_action_for("priority", _agent), do: :prioritize
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do

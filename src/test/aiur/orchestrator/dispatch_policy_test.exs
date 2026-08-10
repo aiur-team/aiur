@@ -256,6 +256,61 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
+  describe "no-agent-work states (#1759)" do
+    # `merging` (PR sitting in GitHub's merge queue) and `ci-wait` (CI in flight)
+    # are states where by definition no agent work exists. Dispatching into them
+    # cannot produce progress, only cost, and each committed dispatch bills a
+    # lifetime unit toward the terminal latch.
+    test "a merging or ci-wait ticket is not dispatchable even when listed as an active state" do
+      # The operator config that produced #1759 listed `merging` in
+      # `active_states`, so the refusal must hold *despite* that listing —
+      # otherwise this test would pass against the pre-fix code.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 5,
+        tracker_active_states: ["todo", "in-progress", "rework", "merging", "ci-wait"]
+      )
+
+      state = %State{max_concurrent_agents: 5}
+      active = DispatchPolicy.active_state_set()
+      terminal = DispatchPolicy.terminal_state_set()
+
+      # Control: the same ticket shape in a real work state IS dispatchable, so
+      # a blanket-false predicate cannot satisfy this test.
+      for workable <- ["todo", "in-progress", "rework"] do
+        ticket = issue("work-#{workable}", state: workable)
+
+        assert DispatchPolicy.candidate_issue?(ticket, active, terminal), "#{workable} must stay dispatchable"
+        assert DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal)
+        assert DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
+      end
+
+      for parked <- ["merging", "ci-wait"] do
+        ticket = issue("parked-#{parked}", state: parked)
+
+        assert DispatchPolicy.no_agent_work_state?(parked)
+        refute DispatchPolicy.candidate_issue?(ticket, active, terminal), "#{parked} must not be a candidate"
+        refute DispatchPolicy.dispatch_candidate?(ticket, state, active, terminal)
+        refute DispatchPolicy.should_dispatch_issue?(ticket, state, active, terminal)
+
+        # The retry engine and the pre-spawn revalidation in
+        # `Dispatcher.revalidate_issue_for_dispatch/3` both gate on this one, so
+        # a ticket that flips into `merging` mid-flight is refused there too.
+        refute DispatchPolicy.retry_candidate_issue?(ticket, terminal)
+
+        # The poll cycle's queued-work signal must not count it as demand.
+        refute DispatchPolicy.queued_dispatch_demand?([ticket], state)
+      end
+    end
+
+    test "state matching is normalized and nil-safe" do
+      assert DispatchPolicy.no_agent_work_state?("Merging")
+      assert DispatchPolicy.no_agent_work_state?("  CI-Wait ")
+      refute DispatchPolicy.no_agent_work_state?("human-review")
+      refute DispatchPolicy.no_agent_work_state?(nil)
+      refute DispatchPolicy.no_agent_work_state?(:merging)
+    end
+  end
+
   describe "queued_dispatch_demand?/2" do
     test "finds eligible queued work independently of the current envelope slots" do
       write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
