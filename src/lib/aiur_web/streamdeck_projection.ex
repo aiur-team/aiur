@@ -5,6 +5,10 @@ defmodule AiurWeb.StreamdeckProjection do
   alias AiurWeb.Endpoint
 
   @version 1
+  @default_usage_interval_seconds 300
+  @stale_after_intervals 2
+  @session_window_tokens ~w(session primary five_hour hourly)
+  @weekly_window_tokens ~w(weekly secondary seven_day)
 
   @spec snapshot() :: map()
   def snapshot do
@@ -59,7 +63,22 @@ defmodule AiurWeb.StreamdeckProjection do
   end
 
   @spec provider_meters() :: map()
-  def provider_meters, do: provider_meters_fun() |> safe_call(%{}) |> external_value()
+  def provider_meters do
+    provider_meters_fun()
+    |> safe_call(%{})
+    |> provider_meters(DateTime.utc_now())
+  end
+
+  @doc false
+  @spec provider_meters(map(), DateTime.t()) :: map()
+  def provider_meters(meters, %DateTime{} = now) when is_map(meters) do
+    CodingAgent.provider_families()
+    |> Map.new(fn provider ->
+      meter = field(meters, provider)
+      {Atom.to_string(provider), normalize_provider_meter(provider, meter, now)}
+    end)
+    |> external_value()
+  end
 
   @spec provider_meters(ProviderMeterSnapshot.t()) :: map()
   def provider_meters(%ProviderMeterSnapshot{} = snapshot), do: merge_provider_meter(provider_meters(), snapshot)
@@ -68,7 +87,8 @@ defmodule AiurWeb.StreamdeckProjection do
   @spec merge_provider_meter(map(), ProviderMeterSnapshot.t()) :: map()
   def merge_provider_meter(meters, %ProviderMeterSnapshot{provider: provider} = snapshot) do
     if provider in CodingAgent.provider_families() and newer_provider_observation?(snapshot, Map.get(meters, Atom.to_string(provider))) do
-      Map.put(meters, Atom.to_string(provider), provider_meter(snapshot))
+      meter = normalize_provider_meter(provider, provider_meter(snapshot), DateTime.utc_now()) |> external_value()
+      Map.put(meters, Atom.to_string(provider), meter)
     else
       meters
     end
@@ -155,6 +175,144 @@ defmodule AiurWeb.StreamdeckProjection do
     |> external_value()
   end
 
+  # The provider projection intentionally preserves backend-native limit IDs
+  # (for example, `five_hour`/`seven_day` and `primary`/`secondary`). The
+  # Stream Deck has two fixed physical meter positions, so it maps two distinct
+  # rate-limit observations into its semantic Session/Weekly slots here. It
+  # never invents a second value: a provider with one usable reading has one
+  # populated slot and an explicitly unobserved other slot.
+  defp normalize_provider_meter(provider, meter, now) when is_map(meter) do
+    observed_at = meter |> field(:observed_at) |> datetime()
+    freshness = meter_freshness(meter, observed_at, now)
+
+    %{
+      provider: provider,
+      state: meter_state(meter, observed_at),
+      observed_at: observed_at,
+      age_seconds: age_seconds(observed_at, now),
+      auth_mode: field(meter, :auth_mode),
+      plan: field(meter, :plan),
+      freshness: freshness,
+      health: field(meter, :health),
+      windows: normalized_windows(meter, observed_at, now, freshness)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp normalize_provider_meter(provider, _meter, _now) do
+    %{provider: provider, state: :unknown, freshness: :unknown, windows: %{}}
+  end
+
+  defp meter_state(meter, _observed_at) do
+    case field(meter, :state) do
+      state when state in [:observed, "observed"] -> :observed
+      _ -> :unknown
+    end
+  end
+
+  defp normalized_windows(meter, provider_observed_at, now, provider_freshness) do
+    meter
+    |> field(:windows)
+    |> rate_limit_windows()
+    |> semantic_windows()
+    |> Map.new(fn {slot, {_limit_id, window}} ->
+      {slot, normalize_window(window, provider_observed_at, now, provider_freshness)}
+    end)
+  end
+
+  defp rate_limit_windows(windows) when is_map(windows) do
+    windows
+    |> Enum.filter(fn {_limit_id, window} -> is_map(window) and field(window, :kind) in [:rate_limit, "rate_limit"] end)
+    |> Enum.sort_by(fn {limit_id, window} -> {window_duration(window), to_string(limit_id)} end)
+  end
+
+  defp rate_limit_windows(_windows), do: []
+
+  defp semantic_windows([]), do: []
+
+  defp semantic_windows(windows) do
+    session = Enum.find(windows, &window_matches?(&1, @session_window_tokens))
+    weekly = windows |> List.delete(session) |> Enum.find(&window_matches?(&1, @weekly_window_tokens))
+    remaining = unclassified_windows(windows) |> List.delete(session) |> List.delete(weekly)
+
+    session = session || fallback_window(remaining, :shortest)
+    weekly = weekly || remaining |> List.delete(session) |> fallback_window(:longest)
+
+    [{"session", session}, {"weekly", weekly}]
+    |> Enum.reject(fn {_slot, window} -> is_nil(window) end)
+  end
+
+  defp unclassified_windows(windows),
+    do: Enum.reject(windows, &(window_matches?(&1, @session_window_tokens) or window_matches?(&1, @weekly_window_tokens)))
+
+  defp window_matches?({limit_id, _window}, tokens) do
+    limit_id
+    |> to_string()
+    |> String.downcase()
+    |> then(&Enum.any?(tokens, fn token -> String.contains?(&1, token) end))
+  end
+
+  defp fallback_window([], _fallback), do: nil
+  defp fallback_window(windows, :shortest), do: Enum.min_by(windows, fn {_limit_id, window} -> window_duration(window) end)
+  defp fallback_window(windows, :longest), do: Enum.max_by(windows, fn {_limit_id, window} -> window_duration(window) end)
+
+  defp window_duration(window) do
+    case field(window, :duration_minutes) do
+      minutes when is_integer(minutes) and minutes >= 0 -> minutes
+      _ -> 0
+    end
+  end
+
+  defp normalize_window(window, provider_observed_at, now, provider_freshness) do
+    observed_at = window |> field(:observed_at) |> datetime() || provider_observed_at
+
+    %{
+      used_percent: field(window, :used_percent),
+      remaining: field(window, :remaining),
+      resets_at: window |> field(:resets_at) |> datetime(),
+      observed_at: observed_at,
+      age_seconds: age_seconds(observed_at, now),
+      freshness: window_freshness(window, observed_at, now, provider_freshness)
+    }
+    |> Enum.reject(fn {_key, value} -> is_nil(value) end)
+    |> Map.new()
+  end
+
+  defp meter_freshness(meter, observed_at, now) do
+    if stale?(observed_at, now) or field(meter, :freshness) in [:stale, "stale"] or field(field(meter, :health) || %{}, :state) in [:stale, "stale"] do
+      :stale
+    else
+      case field(meter, :freshness) do
+        freshness when freshness in [:fresh, "fresh"] -> :fresh
+        freshness when freshness in [:partial, "partial"] -> :partial
+        _ -> :unknown
+      end
+    end
+  end
+
+  defp window_freshness(window, observed_at, now, provider_freshness) do
+    if provider_freshness == :stale or stale?(observed_at, now) or field(window, :freshness) in [:stale, "stale"] do
+      :stale
+    else
+      case field(window, :freshness) do
+        freshness when freshness in [:fresh, "fresh"] -> :fresh
+        freshness when freshness in [:partial, "partial"] -> :partial
+        _ -> :unknown
+      end
+    end
+  end
+
+  defp stale?(nil, _now), do: false
+  defp stale?(observed_at, now), do: age_seconds(observed_at, now) > usage_interval_seconds() * @stale_after_intervals
+
+  defp usage_interval_seconds do
+    case Aiur.Config.settings() do
+      {:ok, %{polling: %{usage_interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> @default_usage_interval_seconds
+    end
+  end
+
   defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
   defp newer_provider_observation?(%ProviderMeterSnapshot{}, nil), do: true
   defp newer_provider_observation?(%ProviderMeterSnapshot{}, %{"observed_at" => nil}), do: true
@@ -169,7 +327,20 @@ defmodule AiurWeb.StreamdeckProjection do
   defp newer_provider_observation?(%ProviderMeterSnapshot{}, _current), do: true
 
   defp age_seconds(nil), do: nil
-  defp age_seconds(observed_at), do: DateTime.diff(DateTime.utc_now(), observed_at) |> max(0)
+  defp age_seconds(observed_at), do: age_seconds(observed_at, DateTime.utc_now())
+  defp age_seconds(nil, _now), do: nil
+  defp age_seconds(observed_at, now), do: DateTime.diff(now, observed_at) |> max(0)
+
+  defp datetime(%DateTime{} = value), do: value
+
+  defp datetime(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, datetime, _offset} -> datetime
+      _ -> nil
+    end
+  end
+
+  defp datetime(_value), do: nil
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
   defp snapshot_timeout_ms, do: endpoint_config(:snapshot_timeout_ms) || 15_000
