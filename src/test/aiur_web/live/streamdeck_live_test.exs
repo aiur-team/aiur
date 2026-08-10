@@ -154,8 +154,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     send(view.pid, {:running_changed, []})
     html = render(view)
 
-    assert html =~ ~s|width: 0%; background: hsl(0 72% 50%)|
-    assert html =~ ~s|width: 100%; background: hsl(125 72% 50%)|
+    # The bar fill is the contract's progress colour, carried per key as
+    # --sd-progress-fill rather than an hsl() the template restates.
+    assert html =~ ~s|--sd-progress-fill: hsl(0 72% 50%)|
+    assert html =~ ~s|--sd-progress-fill: hsl(125 72% 50%)|
+    assert html =~ ~s|<i style="width: 0%">|
+    assert html =~ ~s|<i style="width: 100%">|
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
   end
@@ -180,6 +184,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
     for provider <- providers do
       assert html =~ ~s(src="#{provider.logo}")
     end
+  end
+
+  test "renders contract-derived state, progress, and log badge styles" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    # State colours reach the page as a contract-derived stylesheet keyed by the
+    # same st-<bucket> class the packaged deck keys its bitmaps by.
+    assert html =~ ".sd-key.st-running{--sd-accent:#9fd0ff;"
+    assert html =~ "--sd-face:linear-gradient(180deg,#18212d,#0f151d);}"
+    assert html =~ ".sd-agent-key.st-alert .sd-ag-dot,.sd-agent-key.st-alert .sd-ag-stat::before{animation:sd-pulse 1.6s ease-in-out infinite;}"
+    refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
+    # Per-key values that depend on live fleet state stay inline.
+    assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
+    assert enter_logs(view) =~ "--sd-log-badge: #9fd0ff"
   end
 
   test "renders the live grid projection instead of preview descriptors" do

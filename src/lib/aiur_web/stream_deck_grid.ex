@@ -10,11 +10,11 @@ defmodule AiurWeb.StreamDeckGrid do
   """
 
   alias Aiur.{AgentEvents, AgentList.Summaries, BuildOrder.Metadata, CodingAgent, Orchestrator}
+  alias AiurWeb.StreamdeckKeyFaceContract
 
   @columns_per_page 4
   @rows_per_column 2
   @agents_per_page @columns_per_page * @rows_per_column
-  @bucket_rank %{alert: 0, stuck: 1, running: 2, paused: 3, queued: 4}
 
   @spec payload(GenServer.name(), timeout()) :: map()
   def payload(orchestrator, snapshot_timeout_ms) do
@@ -39,7 +39,7 @@ defmodule AiurWeb.StreamDeckGrid do
       snapshot
       |> snapshot_agents()
       |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
-      |> Enum.filter(fn {_entry, bucket} -> Map.has_key?(@bucket_rank, bucket) end)
+      |> Enum.filter(fn {_entry, bucket} -> StreamdeckKeyFaceContract.known_state?(bucket) end)
       |> Enum.map(fn {entry, bucket} -> {agent_payload(entry, bucket, dependency_ready?), priority_rank(entry)} end)
       |> stable_rank()
 
@@ -97,7 +97,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent, priority_rank) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
+    {StreamdeckKeyFaceContract.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
   end
 
   defp provider(entry) do

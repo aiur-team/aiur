@@ -86,7 +86,7 @@ describe("composeKeyFace", () => {
 
   it("carries a queued footer", () => {
     const face = composeKeyFace(descriptorFor({ bucket: "queued", dependency_ready: false })) as AgentKeyFace;
-    expect(face.footer).toMatchObject({ kind: "queued", unblocked: false });
+    expect(face.footer).toMatchObject({ kind: "queued", unblocked: false, statusLabel: "Blocked" });
   });
 
   it("uses an empty string for a missing title", () => {

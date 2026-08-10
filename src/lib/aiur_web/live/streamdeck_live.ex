@@ -17,7 +17,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
 
   @control_commands ~w(pause resume prioritize deprioritize)
@@ -29,6 +29,27 @@ defmodule AiurWeb.StreamdeckLive do
       "https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/" <>
         "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
   }
+
+  # The web emulator's own drawing routine, fed entirely by the shared key-face
+  # contract: a state's colours are stated once, in the contract, and reach the
+  # page as CSS custom properties keyed by the same `st-<bucket>` class the
+  # packaged deck keys its bitmaps by.
+  @key_face_css StreamdeckKeyFaceContract.states()
+                |> Enum.sort_by(fn {_bucket, state} -> state["rank"] end)
+                |> Enum.map_join("", fn {bucket, state} ->
+                  pulse =
+                    case state["pulse_seconds"] do
+                      seconds when is_number(seconds) ->
+                        ".sd-agent-key.st-#{bucket} .sd-ag-dot,.sd-agent-key.st-#{bucket} .sd-ag-stat::before{animation:sd-pulse #{seconds}s ease-in-out infinite;}"
+
+                      _absent ->
+                        ""
+                    end
+
+                  ".sd-key.st-#{bucket}{--sd-accent:#{state["accent"]};--sd-glow:#{state["glow"]};--sd-face:#{state["face"]};}" <>
+                    ".sd-key.st-#{bucket} .sd-key-face{background:var(--sd-face);}" <> pulse
+                end)
+                |> then(&Phoenix.HTML.raw("<style>" <> &1 <> "</style>"))
 
   @impl true
   def mount(_params, _session, socket) do
@@ -192,6 +213,8 @@ defmodule AiurWeb.StreamdeckLive do
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
     >
+      {key_face_css()}
+
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
           <header class="sd-brand">
@@ -223,6 +246,7 @@ defmodule AiurWeb.StreamdeckLive do
               type="button"
               class={["sd-key", "sd-agent-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
               disabled={key.empty?}
+              style={key.style}
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
               data-streamdeck-identifier={key.identifier}
@@ -248,7 +272,7 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
                   <span class="sd-ag-dot" aria-hidden="true"></span>
                   <span class="sr-only">{key.label}</span>
-                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%; background: hsl(#{key.progress_hue} 72% 50%)"}></i></span>
+                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
             </button>
@@ -287,7 +311,7 @@ defmodule AiurWeb.StreamdeckLive do
             <p class="sd-mode-label">Logs</p>
             <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-              <p :for={event <- @logs.events_visible} class="sd-log-line">{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
+              <p :for={event <- @logs.events_visible} class={["sd-log-line", "sd-log-badge"]} style={log_badge_style(event.badge)}>{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
               <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
               <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
             </div>
@@ -517,22 +541,23 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
-    dependency_ready = Map.get(agent, :dependency_ready, true)
+    footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
 
     key(
       slot,
       Atom.to_string(bucket),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
-      bucket_label(bucket),
+      footer.label,
       Map.get(agent, :progress_percent, 0),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
       icon: Map.get(agent, :icon),
       vendor_logo: Map.get(agent, :vendor_logo),
-      dependency_ready?: dependency_ready,
-      dependency: if(bucket == :queued, do: if(dependency_ready, do: "Unblocked", else: "Blocked"))
+      dependency_ready?: footer.ready?,
+      dependency: footer.dependency,
+      style: key_style(Map.get(agent, :progress_percent, 0))
     )
   end
 
@@ -544,7 +569,6 @@ defmodule AiurWeb.StreamdeckLive do
       title: title,
       label: label,
       progress: progress,
-      progress_hue: round(progress / 100 * 125),
       priority?: Keyword.get(opts, :priority?, false),
       dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
       icon: Keyword.get(opts, :icon),
@@ -552,12 +576,13 @@ defmodule AiurWeb.StreamdeckLive do
       dependency: Keyword.get(opts, :dependency),
       identifier: Keyword.get(opts, :identifier, ticket),
       control_action: Keyword.get(opts, :control_action),
+      style: Keyword.fetch!(opts, :style),
       empty?: false
     }
   end
 
   defp empty_key(slot),
-    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
+    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, style: nil, empty?: true}
 
   defp screen_descriptors(grid, usage, current_page, focus) do
     live = live_count(grid)
@@ -708,11 +733,11 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp meter_aria_label(%{label: label}), do: "#{label} unavailable"
 
-  defp bucket_label(:alert), do: "Alert"
-  defp bucket_label(:stuck), do: "Stuck"
-  defp bucket_label(:running), do: "Running"
-  defp bucket_label(:paused), do: "Paused"
-  defp bucket_label(:queued), do: "Queued"
+  defp key_face_css, do: @key_face_css
+
+  defp key_style(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
+
+  defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 
   defp control_action(:running), do: "pause"
   defp control_action(:paused), do: "resume"
