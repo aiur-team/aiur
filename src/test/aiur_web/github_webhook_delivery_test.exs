@@ -213,9 +213,13 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       test = self()
       pid = spawn_link(fn -> forward_messages(test) end)
       Process.register(pid, Aiur.Orchestrator)
-      on_exit(fn -> if Process.whereis(Aiur.Orchestrator) == pid, do: Process.unregister(Aiur.Orchestrator) end)
+      on_exit(fn -> unregister_orchestrator(pid) end)
       pid
     end
+  end
+
+  defp unregister_orchestrator(pid) do
+    if Process.whereis(Aiur.Orchestrator) == pid, do: Process.unregister(Aiur.Orchestrator)
   end
 
   defp forward_messages(test) do

@@ -97,7 +97,6 @@ defmodule AiurWeb.GithubWebhookController do
       {true, _params} -> {:error, :form_payload_missing}
       {false, %Conn.Unfetched{}} -> {:error, :body_not_parsed}
       {false, params} when is_map(params) -> {:ok, params}
-      {false, _other} -> {:error, :unparseable_body}
     end
   end
 
