@@ -608,8 +608,11 @@ defmodule AiurWeb.StreamdeckLive do
   defp control_action(:paused), do: "resume"
   defp control_action(_bucket), do: nil
 
+  # Without a focused agent there is no real pause or priority state to render.
+  # Blank every slot rather than showing a control whose label would be a guess.
+  defp command_keys(nil), do: List.duplicate(empty_command_key(), 8)
+
   defp command_keys(agent) do
-    agent = agent || %{}
     paused? = Map.get(agent, :bucket) == :paused
     prioritized? = Map.get(agent, :priority, false)
 
