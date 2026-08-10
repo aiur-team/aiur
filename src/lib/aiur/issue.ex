@@ -13,6 +13,7 @@ defmodule Aiur.Issue do
     :description,
     :priority,
     :state,
+    :state_labels,
     :branch_name,
     :url,
     :assignee_id,
@@ -39,6 +40,7 @@ defmodule Aiur.Issue do
           description: String.t() | nil,
           priority: integer() | nil,
           state: String.t() | nil,
+          state_labels: [String.t()] | nil,
           branch_name: String.t() | nil,
           url: String.t() | nil,
           assignee_id: String.t() | nil,
@@ -65,6 +67,17 @@ defmodule Aiur.Issue do
   @spec paused?(t()) :: boolean()
   def paused?(%__MODULE__{paused: paused}), do: paused == true
   def paused?(_issue), do: false
+
+  @doc "Returns whether a tracker target names the issue by raw id or canonical identifier."
+  @spec identifier_matches?(term(), term(), term()) :: boolean()
+  def identifier_matches?(id, identifier, target) do
+    id = to_string(id || "")
+    identifier = to_string(identifier || "")
+    target = to_string(target || "")
+
+    target != "" and
+      (target == id or target == identifier or String.ends_with?(identifier, "##{target}"))
+  end
 
   @doc """
   Returns the issue's explicitly joinable or nonjoinable identity. Legacy and

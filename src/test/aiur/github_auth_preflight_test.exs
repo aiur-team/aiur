@@ -1,10 +1,10 @@
 defmodule Aiur.GitHubAuthPreflightTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, Config.Paths}
+  alias Aiur.{AlertFeed, Config.Paths, Issue}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Client
-  alias Aiur.Orchestrator.{Dispatcher, State}
+  alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
 
   defmodule FailingPreflightClient do
     def preflight_auth do
@@ -127,11 +127,12 @@ defmodule Aiur.GitHubAuthPreflightTest do
     assert same_outage.tracker_preflight_alert_signature == first.tracker_preflight_alert_signature
     refute_receive {:event, %{topic: "system.tracker.auth_preflight_failed"}}, 100
 
-    # A restarted orchestrator has no in-memory signature, but must still close
-    # the persisted fleet attention when the first preflight succeeds.
-    recovered = Dispatcher.maybe_dispatch(%State{}, & &1, preflight_fun)
+    # The same orchestrator must clear both the attention and its dashboard
+    # hold as soon as the preflight succeeds.
+    recovered = Dispatcher.maybe_dispatch(same_outage, & &1, preflight_fun)
     assert recovered.tracker_preflight_alert_signature == nil
     assert recovered.tracker_preflight_alert_resolution_emitted
+    assert recovered.dispatch_hold == nil
 
     assert_receive {:event, %{topic: "system.tracker.auth_preflight_failed.resolved"}}, 500
 
@@ -148,6 +149,43 @@ defmodule Aiur.GitHubAuthPreflightTest do
     assert Enum.any?(AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true), fn alert ->
              alert["topic"] == "system.tracker.auth_preflight_failed"
            end)
+  end
+
+  test "free cached demand reports the tracker preflight reason instead of looking dispatchable" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+    end)
+
+    issue = %Issue{
+      id: "1580",
+      identifier: "owner/repo#1580",
+      state: "todo",
+      title: "Eligible cached ticket"
+    }
+
+    state = %State{
+      session_max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      last_polled_issues: %{issue.id => issue}
+    }
+
+    {:error, reason} = FailingPreflightClient.preflight_auth()
+    held = Dispatcher.maybe_dispatch(state, & &1, fn current -> {:error, reason, current} end)
+    snapshot = held |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
+
+    assert snapshot.capacity.available == 4
+    assert snapshot.capacity.queued_demand?
+    assert snapshot.capacity_hold.held? == false
+
+    assert %{
+             held?: true,
+             reason: :tracker_preflight,
+             detail: :invalid_or_expired_token
+           } = snapshot.dispatch_hold
+
+    assert [%{identifier: "owner/repo#1580", waiting_reason: :tracker_unavailable}] = snapshot.idle
   end
 
   test "missing GitHub token emits a fleet auth alert before polling" do

@@ -124,6 +124,18 @@ defmodule AiurWeb.StreamDeckGridTest do
            ]
   end
 
+  test "tracker-unavailable queued work is stuck rather than ready" do
+    payload =
+      StreamDeckGrid.project(%{
+        running: [],
+        retrying: [],
+        idle: [agent("tracker-held", waiting_reason: :tracker_unavailable)]
+      })
+
+    assert [%{identifier: "tracker-held", bucket: :stuck} = held] = payload.agents
+    refute Map.has_key?(held, :dependency_ready)
+  end
+
   test "derives queued readiness from complete fleet dependencies" do
     snapshot = %{
       running: [

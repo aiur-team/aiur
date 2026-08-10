@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Config, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, Config, Issue, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -45,12 +45,20 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_agent(server, issue_identifier),
     do: control_api_call(server, {:resume_agent, issue_identifier})
 
-  @spec reset_dispatch_budget(String.t()) :: {:ok, :reset} | {:error, term()}
+  @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
   def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
 
-  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :reset} | {:error, term()}
-  def reset_dispatch_budget(server, issue_identifier),
-    do: control_api_call(server, {:reset_dispatch_budget, issue_identifier})
+  @spec reset_dispatch_budget(GenServer.server(), String.t()) :: {:ok, :queued} | {:error, term()}
+  def reset_dispatch_budget(server, issue_identifier) when is_binary(issue_identifier) and issue_identifier != "" do
+    if GenServer.whereis(server) do
+      GenServer.cast(server, {:reset_dispatch_budget, issue_identifier})
+      {:ok, :queued}
+    else
+      {:error, :unavailable}
+    end
+  end
+
+  def reset_dispatch_budget(_server, _issue_identifier), do: {:error, :invalid_identifier}
 
   @doc false
   @spec reset_dispatch_budget_call(State.t(), String.t()) :: {:reply, {:ok, :reset} | {:error, term()}, State.t()}
@@ -69,6 +77,48 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   def reset_dispatch_budget_call(%State{} = state, _issue_identifier) do
     {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  @doc false
+  @spec reset_dispatch_budget_cast(State.t(), String.t()) :: State.t()
+  def reset_dispatch_budget_cast(%State{} = state, issue_identifier) do
+    alert_issue_id = reset_alert_issue_id(state, issue_identifier)
+
+    case reset_dispatch_budget_call(state, issue_identifier) do
+      {:reply, {:ok, :reset}, next_state} ->
+        Alerts.emit_custom(
+          "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset.resolved",
+          "Lifetime dispatch budget reset completed for #{issue_identifier}.",
+          issue: alert_issue_id,
+          reason: "The queued lifetime dispatch budget reset completed.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
+
+        StatusReport.notify_dashboard(next_state)
+        next_state
+
+      {:reply, {:error, reason}, next_state} ->
+        Alerts.emit_custom(
+          "ticket.#{alert_issue_id}.agent.attention.dispatch-budget-reset",
+          "Lifetime dispatch budget reset failed for #{issue_identifier}: #{inspect(reason)}.",
+          issue: alert_issue_id,
+          reason: "The queued lifetime dispatch budget reset failed: #{inspect(reason)}",
+          needs_attention: true,
+          severity: "warning",
+          event_source: :system
+        )
+
+        next_state
+    end
+  end
+
+  defp reset_alert_issue_id(%State{} = state, issue_identifier) do
+    case find_issue_id_by_identifier(state, issue_identifier) do
+      {:ok, issue_id} -> issue_id
+      {:error, _reason} -> issue_identifier
+    end
   end
 
   defp reply_for_reset(state, issue, was_latched?, :ok, issue_identifier) do
@@ -115,8 +165,11 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp find_issue_id_by_identifier(%State{} = state, issue_identifier) do
     case Enum.find(state.last_polled_issues, fn
-           {_id, %Issue{identifier: ^issue_identifier}} -> true
-           _ -> false
+           {issue_id, %Issue{identifier: identifier}} ->
+             Issue.identifier_matches?(issue_id, identifier, issue_identifier)
+
+           _ ->
+             false
          end) do
       {issue_id, _issue} -> {:ok, issue_id}
       nil -> {:error, :unknown_issue}

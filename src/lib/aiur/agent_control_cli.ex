@@ -11,6 +11,7 @@ defmodule Aiur.AgentControlCLI do
     CommandsCLI,
     Config,
     ExecutorEvents,
+    Issue,
     Orchestrator,
     PauseContainment,
     ProviderMeterProjection,
@@ -531,22 +532,12 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp reset_budget_one(target) do
-    # Resolve the display number to the canonical tracker identifier (e.g.
-    # `repo#49`) so the orchestrator can find the issue's budget entry.
-    status =
-      case Orchestrator.status() do
-        statuses when is_list(statuses) -> Enum.find(statuses, &target_matches?(&1, target))
-        _ -> nil
-      end
-
-    identifier = if status, do: canonical_identifier(status), else: target
-
-    case Orchestrator.reset_dispatch_budget(identifier) do
-      {:ok, :reset} ->
-        IO.puts("aiur: reset lifetime dispatch budget for ##{target}")
+    case Orchestrator.reset_dispatch_budget(target) do
+      {:ok, :queued} ->
+        IO.puts("aiur: queued lifetime dispatch budget reset for ##{target}")
 
       {:error, reason} ->
-        print_failure(:reset_budget, %{identifier: identifier, issue_id: target}, reason)
+        print_failure(:reset_budget, %{identifier: target, issue_id: target}, reason)
     end
   end
 
@@ -1105,6 +1096,13 @@ defmodule Aiur.AgentControlCLI do
   defp visible_status_row?(%{work_state: :deactivated}, _tracker_states), do: false
   defp visible_status_row?(%{work_state: "deactivated"}, _tracker_states), do: false
 
+  # A latched-out agent is idle but terminal: the lifetime dispatch budget is
+  # exhausted and will not clear on its own (#1712). Keep the row visible even
+  # when the tracker-state filters below would hide it, so `aiur status` shows
+  # the state an operator has to act on.
+  defp visible_status_row?(%{state: :idle, reason: {:latched, _lifetime, _maximum}}, _tracker_states),
+    do: true
+
   defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}, tracker_states) do
     in_tracker_state_set?(tracker_state, tracker_states.active) and
       not in_tracker_state_set?(tracker_state, tracker_states.terminal)
@@ -1586,11 +1584,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp target_matches?(status, target) do
-    target = to_string(target)
-    identifier = to_string(status.identifier || "")
-    issue_id = to_string(status.issue_id || "")
-
-    target == identifier or target == issue_id or String.ends_with?(identifier, "##{target}")
+    Issue.identifier_matches?(status.issue_id, status.identifier, target)
   end
 
   defp canonical_identifier(status) do
