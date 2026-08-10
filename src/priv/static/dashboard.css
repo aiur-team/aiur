@@ -3501,6 +3501,18 @@ html[data-theme="light"] .toggle-icon .moon {
   object-fit: contain;
 }
 
+.rs-github-logo {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--fg);
+  color: var(--surface);
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.48rem;
+  font-weight: 800;
+  letter-spacing: -0.04em;
+}
+
 .rs-name {
   font-weight: 700;
   font-size: 0.92rem;
@@ -3617,6 +3629,25 @@ html[data-theme="light"] .toggle-icon .moon {
    exhausted window is never mistaken for a healthy one. */
 .rs-meter > i.is-critical {
   background: var(--blocking);
+}
+
+.rs-meter > i.is-warning {
+  background: var(--warning, #d08a2a);
+}
+
+.github-quota-attribution,
+.github-quota-backoff {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.25rem 0.5rem;
+}
+
+/* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
+   the same warning colour the meters use as they approach their ceiling. */
+.github-quota-backoff {
+  color: var(--warning, #d08a2a);
 }
 
 .rs-progress {
@@ -7658,6 +7689,28 @@ html[data-theme="light"] .toggle-icon .moon {
   padding: 0.32rem 0.5rem;
 }
 
+/* The pager is the design's dial-style segment, not an info segment: a
+   centred column on a slightly brighter ground, labelled by its own text
+   rather than by a logo header. */
+.sd-screen-segment.sd-seg-d {
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Structure, size and tracking follow the design. The ink does not: the
+   design's rgba(255,255,255,0.42) measures 4.09:1 on this ground, under the
+   4.5:1 the Stream Deck axe check enforces, so both segment headings hold at
+   0.55 — the same uplift .sd-info-hd already carries. */
+.sd-seg-dlabel {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 .sd-info-hd {
   display: flex;
   align-items: center;
@@ -7760,6 +7813,14 @@ html[data-theme="light"] .toggle-icon .moon {
 .sd-pager-dot.is-active {
   background: #fff;
   transform: scale(1.25);
+}
+
+.sd-pager-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .sd-mic {

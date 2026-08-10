@@ -18,6 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
+  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], backoffs: []})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -28,9 +29,63 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
 
     ~H"""
-    <section class="run-summary" aria-label="Provider usage">
+    <section class="run-summary" aria-label="Provider and GitHub usage">
+      <.github_quota_card quota={@github_quota} now={@now} />
       <.vendor_card :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
     </section>
+    """
+  end
+
+  attr(:quota, :map, required: true)
+  attr(:now, :any, required: true)
+
+  defp github_quota_card(assigns) do
+    assigns =
+      assigns
+      |> assign(:windows, github_windows(assigns.quota))
+      |> assign(:attribution, github_attribution(assigns.quota))
+      |> assign(:top_consumer, github_top_consumer(assigns.quota))
+      |> assign(:backoffs, github_backoffs(assigns.quota))
+
+    ~H"""
+    <div class="rs-block github-quota-card">
+      <div class="rs-head">
+        <span class="rs-logo rs-github-logo" aria-hidden="true">GH</span>
+        <span class="rs-name">GitHub API</span>
+        <div :if={@attribution} class="rs-head-stats">
+          <div class="rs-stat">
+            <span class="rs-stat-label">1h traffic</span>
+            <span class="rs-stat-val">{@attribution.reads}R / {@attribution.writes}W</span>
+          </div>
+        </div>
+      </div>
+      <div class="rs-limits">
+        <div :if={@windows == []} class="rs-limit">
+          <div class="rs-limit-top">
+            <span class="rs-limit-label">Quota</span>
+            <span class="rs-limit-meta">Awaiting GitHub response</span>
+          </div>
+          <div class="rs-meter"><i style="width:0%"></i></div>
+        </div>
+        <div :for={window <- @windows} class="rs-limit">
+          <div class="rs-limit-top">
+            <span class="rs-limit-label">{github_window_label(window)}</span>
+            <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
+          </div>
+          <div class="rs-meter">
+            <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+          </div>
+        </div>
+        <div :for={backoff <- @backoffs} class="github-quota-backoff">
+          <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
+          <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
+        </div>
+        <div :if={@top_consumer} class="github-quota-attribution">
+          <span class="rs-limit-label">Top consumer</span>
+          <span class="rs-limit-meta">{@top_consumer.consumer} · {@top_consumer.total} requests</span>
+        </div>
+      </div>
+    </div>
     """
   end
 
@@ -165,6 +220,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end)
     |> keyed_cards()
     |> order_cards()
+  end
+
+  defp github_windows(%{windows: windows}) when is_map(windows) do
+    ~w(core graphql)
+    |> Enum.map(&Map.get(windows, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp github_windows(_quota), do: []
+
+  defp github_backoffs(%{backoffs: backoffs}) when is_list(backoffs), do: backoffs
+  defp github_backoffs(_quota), do: []
+
+  defp github_attribution(%{attribution: attribution}) when is_list(attribution) and attribution != [] do
+    Enum.reduce(attribution, %{reads: 0, writes: 0}, fn entry, totals ->
+      %{reads: totals.reads + Map.get(entry, :reads, 0), writes: totals.writes + Map.get(entry, :writes, 0)}
+    end)
+  end
+
+  defp github_attribution(_quota), do: nil
+
+  defp github_top_consumer(%{attribution: attribution}) when is_list(attribution) do
+    attribution
+    |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed"))
+    |> Enum.max_by(&Map.get(&1, :total, 0), fn -> nil end)
+  end
+
+  defp github_top_consumer(_quota), do: nil
+
+  defp github_window_label(%{resource: "graphql"}), do: "GraphQL"
+  defp github_window_label(%{resource: resource}), do: String.capitalize(resource)
+
+  defp github_window_meta(window, now) do
+    "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
   end
 
   # A provider card only occupies strip space when the provider is actually
@@ -426,8 +515,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # A bar that is fully consumed reads as critical: the fill turns red so an
   # exhausted window is never mistaken for a healthy one. Credit percentages
   # arrive as floats (e.g. 100.0), so the guard accepts any number at/above 100.
-  defp meter_class(percent) when is_number(percent) and percent >= 100, do: "is-critical"
-  defp meter_class(_percent), do: ""
+  defp meter_class(percent, warning_threshold \\ nil)
+  defp meter_class(percent, _warning_threshold) when is_number(percent) and percent >= 100, do: "is-critical"
+
+  defp meter_class(percent, warning_threshold)
+       when is_number(percent) and is_number(warning_threshold) and percent >= warning_threshold,
+       do: "is-warning"
+
+  defp meter_class(_percent, _warning_threshold), do: ""
 
   # A credit window is a dollar balance. When a durable baseline exists the
   # window carries a measured `used_percent` and renders a real spend bar
