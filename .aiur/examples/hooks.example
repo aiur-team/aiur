@@ -9,7 +9,7 @@
 #
 # Env available to these hooks:
 #   $THIS_REPOSITORY_URL   the repo aiur is working on (for a cold git clone)
-#   $THIS_BASE_BRANCH      configured tracker base branch (required)
+#   $THIS_BASE_BRANCH      required configured tracker base branch
 #   $AIUR_TICKET_BRANCH    generated canonical branch for this ticket
 #   $AIUR_REPO_STATE_PATH  machine-local per-repository state node
 #
@@ -19,7 +19,7 @@
 # runs initial provisioning in an atomic staging directory, so this hook must
 # never remove or clone into a nonempty live workspace itself.
 after_create: |
-  base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}"
+  base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}"
   if [ -n "$(find . -mindepth 1 -maxdepth 1 -print -quit)" ]; then
     echo "Aiur must stage incomplete workspace reconstruction before after_create runs." >&2
     exit 66
@@ -30,6 +30,7 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
+  git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"
@@ -40,7 +41,7 @@ after_create: |
 # Otherwise refresh a clean checkout from the configured base before the next
 # turn so agents do not continue from stale runbooks or safety scripts.
 before_run: |
-  base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}"
+  base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"
@@ -77,6 +78,9 @@ before_run: |
       exit 65
     fi
     git merge --no-edit "origin/$base_branch"
+  fi
+  if ! git rev-parse --verify --quiet 'refs/aiur/branch-start^{commit}' >/dev/null; then
+    git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   fi
 
 # Optional — run after each agent turn (e.g. format, quick checks):

@@ -106,6 +106,7 @@ defmodule Aiur.InitTest do
         end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
+        detect_default_branch: fn _repo -> "main" end,
         setup_repo_state: fn tracker ->
           send(parent, {:repo_state, tracker})
           :ok
@@ -588,7 +589,7 @@ defmodule Aiur.InitTest do
 
       answers =
         github_answers(%{
-          confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+          confirm: %{"Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?" => false}
         })
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -1053,7 +1054,7 @@ defmodule Aiur.InitTest do
         })
 
       answers = %{
-        confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+        confirm: %{"Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?" => false}
       }
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -1310,25 +1311,24 @@ defmodule Aiur.InitTest do
     end
 
     test "github records the operator-selected base branch", %{dir: dir, target: target} do
-      answers = github_answers(%{input: %{"Base branch" => "develop"}})
+      answers = github_answers(%{input: %{"Tracker base branch" => "develop"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       assert written_config(target)["tracker"]["base_branch"] == "develop"
     end
 
-    test "the global config records the explicit repository", %{dir: dir, target: target} do
+    test "the global config omits the repo (auto-detected at runtime)", %{dir: dir, target: target} do
       answers = github_answers(%{select: %{@location_label => "global"}})
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
 
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
-      assert config["tracker"]["github"]["repo"] == "octo/repo"
-      assert config["tracker"]["base_branch"] == "main"
+      refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
     end
 
-    test "global init checks the explicitly selected repository", %{dir: dir, target: target} do
+    test "global init checks the current repository without storing it", %{dir: dir, target: target} do
       answers = github_answers(%{select: %{@location_label => "global"}, confirm: %{"No pull-request CI workflow found — scaffold .github/workflows/ci.yml?" => false}})
 
       deps =
@@ -1342,8 +1342,8 @@ defmodule Aiur.InitTest do
         })
 
       assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
-      assert_received {:readiness_tracker, %{repo: "octo/repo", base_branch: "main"}}
-      assert written_config(target)["tracker"]["github"]["repo"] == "octo/repo"
+      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
+      refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
     end
 
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do

@@ -30,8 +30,8 @@ defmodule Aiur.DogfoodHooksTest do
     assert dogfood_base == "develop"
 
     hooks = dogfood_hooks!()
-    assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}")
-    assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?Aiur must provide the configured base branch}")
+    assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
+    assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
     refute File.read!(@hooks_path) =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     refute File.read!(@hooks_path) =~ "logs_backup="
     refute File.read!(@hooks_path) =~ "origin/v2"
@@ -59,6 +59,10 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
+
+    assert String.trim(git!(["-C", workspace, "rev-parse", "refs/aiur/branch-start"])) ==
+             String.trim(git!(["-C", workspace, "rev-parse", "origin/#{configured_base()}"]))
+
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
     assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))
@@ -83,6 +87,26 @@ defmodule Aiur.DogfoodHooksTest do
     assert current_branch!(workspace) == ticket_branch()
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.read!(log_path) == "prior agent transcript\n"
+  end
+
+  test "reconstruction restores branch start for an existing remote ticket branch", context do
+    original = Path.join(context.test_root, "original-ticket")
+    File.mkdir_p!(original)
+    assert_hook_ok!("after_create", original, context.origin)
+    git!(["-C", original, "config", "user.name", "Aiur Test"])
+    git!(["-C", original, "config", "user.email", "aiur@example.test"])
+
+    File.write!(Path.join(original, "feature.txt"), "feature\n")
+    git!(["-C", original, "add", "feature.txt"])
+    git!(["-C", original, "commit", "-m", "feature"])
+    git!(["-C", original, "push", "origin", ticket_branch()])
+
+    reconstructed = Path.join(context.test_root, "reconstructed-ticket")
+    File.mkdir_p!(reconstructed)
+    assert_hook_ok!("after_create", reconstructed, context.origin)
+
+    assert String.trim(git!(["-C", reconstructed, "rev-parse", "refs/aiur/branch-start"])) ==
+             String.trim(git!(["-C", reconstructed, "merge-base", "origin/#{configured_base()}", "HEAD"]))
   end
 
   test "after_create reconstructs a log-only workspace and preserves its logs", context do

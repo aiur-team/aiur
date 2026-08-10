@@ -5,7 +5,7 @@ defmodule Aiur.Init.GitHub do
   rest of the wizard stays pure and testable.
   """
 
-  alias Aiur.{Codeowners.Edit, Workflow}
+  alias Aiur.{Codeowners.Edit, Config, Workflow}
   alias Aiur.GitHub.BotIdentity
   alias Aiur.GitHub.CiReadiness
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -31,9 +31,8 @@ defmodule Aiur.Init.GitHub do
 
   @doc "Checks that the target repository can merge an Aiur-created PR."
   @spec check_ci_readiness(map()) :: {:ok, CiReadiness.result()} | {:error, term()}
-  def check_ci_readiness(%{kind: "github", repo: repo, base_branch: base_branch})
-      when is_binary(repo) and is_binary(base_branch) do
-    opts = [repo: repo, base_branch: base_branch]
+  def check_ci_readiness(%{kind: "github", repo: repo} = tracker) when is_binary(repo) do
+    opts = [repo: repo, base_branch: Config.base_branch(tracker)]
 
     case System.get_env(CiReadiness.operator_token_env()) do
       token when is_binary(token) and token != "" -> CiReadiness.check(Keyword.put(opts, :token, token))
@@ -91,7 +90,7 @@ defmodule Aiur.Init.GitHub do
       token when is_binary(token) and token != "" ->
         CiReadiness.persist_assessment(readiness,
           repo: tracker.repo,
-          base_branch: Map.fetch!(tracker, :base_branch),
+          base_branch: Config.base_branch(tracker),
           config_path: Map.get(tracker, :config_path, Workflow.workflow_file_path())
         )
 
@@ -255,6 +254,28 @@ defmodule Aiur.Init.GitHub do
     end
   rescue
     _ -> nil
+  end
+
+  @doc false
+  @spec detect_default_branch(String.t() | nil) :: String.t() | nil
+  @spec detect_default_branch(String.t() | nil, (String.t(), [String.t()], keyword() -> {String.t(), non_neg_integer()})) :: String.t() | nil
+  def detect_default_branch(repo, command_fun \\ &System.cmd/3)
+
+  def detect_default_branch(nil, _command_fun), do: nil
+
+  def detect_default_branch(repo, command_fun) when is_binary(repo) and is_function(command_fun, 3) do
+    case command_fun.("gh", ["api", "repos/#{repo}", "--jq", ".default_branch"], stderr_to_stdout: true) do
+      {output, 0} ->
+        case String.trim(output) do
+          "" -> nil
+          branch -> branch
+        end
+
+      {_output, _status} ->
+        nil
+    end
+  rescue
+    _error -> nil
   end
 
   @doc false

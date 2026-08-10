@@ -102,7 +102,7 @@ defmodule Aiur.Init do
   end
 
   defp fresh_setup(io, deps, location, target) do
-    tracker = Questions.prompt_tracker(io, deps)
+    tracker = Questions.prompt_tracker(io, deps, location)
     tracker = Aiur.Init.BotAccount.maybe_prompt(io, deps, tracker)
 
     case deps.setup_repo_state.(tracker) do
@@ -157,7 +157,7 @@ defmodule Aiur.Init do
               io,
               deps,
               tracker
-              |> Map.put(:base_branch, configured_base_branch(config_yaml))
+              |> Map.put(:base_branch, Aiur.Config.base_branch(tracker))
               |> Map.put(:config_path, path),
               agents
             )
@@ -286,15 +286,6 @@ defmodule Aiur.Init do
     io.puts.("\n✅ aiur is set up. You can now:")
     io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
     io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
-  end
-
-  defp configured_base_branch(config_yaml) do
-    with {:ok, config} <- YamlElixir.read_from_string(config_yaml),
-         branch when is_binary(branch) and branch != "" <- get_in(config, ["tracker", "base_branch"]) do
-      branch
-    else
-      _ -> "main"
-    end
   end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do

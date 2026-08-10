@@ -36,7 +36,7 @@ defmodule Aiur.PromptBuilderTest do
   @config """
   tracker:
     kind: memory
-    base_branch: main
+    base_branch: integration
   agent:
     kind: claude
     complexity_prompts:
@@ -67,7 +67,7 @@ defmodule Aiur.PromptBuilderTest do
   @tag config: """
        tracker:
          kind: memory
-         base_branch: main
+         base_branch: integration
        agent:
          kind: claude
          complexity_prompts:
@@ -141,6 +141,8 @@ defmodule Aiur.PromptBuilderTest do
     assert prompt =~ "configured `tracker.base_branch` is `integration`"
     assert prompt =~ ~s(--base "$AIUR_BASE_BRANCH")
     assert prompt =~ "never from `origin/HEAD`"
+    assert prompt =~ ~s(aiur guard-pr-deletions "$AIUR_BASE_BRANCH")
+    assert prompt =~ "more than 50 files the feature did not touch"
     assert log =~ "Authoritative integration branch"
     assert log =~ ~s(tracker.base_branch="integration")
   end

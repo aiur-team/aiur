@@ -540,6 +540,7 @@ defmodule Aiur.TestSupport do
           tracker_planning_root_limit: 100,
           tracker_planning_page_budget: 4,
           tracker_planning_call_budget: 4,
+          tracker_base_branch: "main",
           max_vertical_panes: 3,
           pre_warmed_sessions: 3,
           agent_kind: "codex",

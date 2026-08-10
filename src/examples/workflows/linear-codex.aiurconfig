@@ -1,6 +1,6 @@
 tracker:
   kind: linear
-  base_branch: main
+  base_branch: your-base-branch
   active_states:
     - Todo
     - In Progress

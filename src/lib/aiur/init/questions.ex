@@ -22,25 +22,50 @@ defmodule Aiur.Init.Questions do
     end
   end
 
-  @spec prompt_tracker(Aiur.Init.io(), Aiur.Init.deps()) :: map()
-  def prompt_tracker(io, deps) do
+  @spec prompt_tracker(Aiur.Init.io(), Aiur.Init.deps(), atom()) :: map()
+  def prompt_tracker(io, deps, location) do
     case io.select.("Issue tracker", @tracker_kinds, "github") do
       "github" ->
-        repo = io.input.("GitHub repo (owner/name)", deps.detect_repo.(), nil)
-        %{kind: "github", repo: repo, base_branch: prompt_base_branch(io)}
+        # The global config is general, so it omits the repo (auto-detected
+        # from the git remote of whatever repo aiur runs in).
+        repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.(), nil)
+        %{kind: "github", repo: repo, base_branch: prompt_base_branch(io, deps, repo)}
 
       "linear" ->
         %{
           kind: "linear",
           api_key: io.input.("Linear API key", nil, nil),
           project_slug: io.input.("Linear project slug", nil, nil),
-          base_branch: prompt_base_branch(io)
+          base_branch: prompt_base_branch(io, deps, nil)
         }
     end
   end
 
-  defp prompt_base_branch(io),
-    do: io.input.("Base branch", "main", "Required merge destination; verify this before starting Aiur")
+  defp prompt_base_branch(io, deps, repo) do
+    prompt_base_branch(io, deps.detect_default_branch.(repo))
+  end
+
+  defp prompt_base_branch(io, api_default) do
+    io.input.("Tracker base branch", api_default, "required; defaults to the repository default branch read from GitHub")
+    |> normalize_base_branch()
+    |> accept_base_branch(io, api_default)
+  end
+
+  defp normalize_base_branch(branch) when is_binary(branch), do: String.trim(branch)
+  defp normalize_base_branch(_missing), do: ""
+
+  defp accept_base_branch("", io, api_default) do
+    io.puts.("Tracker base branch is required; Aiur will not guess one.")
+    prompt_base_branch(io, api_default)
+  end
+
+  defp accept_base_branch(configured, io, api_default) do
+    if configured == api_default do
+      io.puts.("Using repository default branch from GitHub API: #{configured}")
+    end
+
+    configured
+  end
 
   @spec prompt_agents(Aiur.Init.io()) :: [String.t()]
   def prompt_agents(io) do

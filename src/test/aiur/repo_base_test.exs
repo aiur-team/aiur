@@ -1115,11 +1115,11 @@ defmodule Aiur.RepoBaseTest do
       {:ok, cfg: cfg}
     end
 
-    test "refuses to guess when tracker.base_branch is unset", %{cfg: cfg} do
+    test "raises when tracker.base_branch is unset", %{cfg: cfg} do
       File.write!(cfg, "tracker:\n  kind: memory\n")
       Aiur.Workflow.set_workflow_file_path(cfg)
 
-      assert_raise ArgumentError, ~r/tracker\.base_branch/, fn -> RepoBase.base_branch() end
+      assert_raise ArgumentError, ~r/tracker\.base_branch could not be resolved/, fn -> RepoBase.base_branch() end
     end
 
     test "returns the configured tracker.base_branch", %{cfg: cfg} do
@@ -1129,11 +1129,11 @@ defmodule Aiur.RepoBaseTest do
       assert RepoBase.base_branch() == "v2"
     end
 
-    test "refuses to guess when tracker.base_branch is empty", %{cfg: cfg} do
+    test "raises when tracker.base_branch is empty", %{cfg: cfg} do
       File.write!(cfg, ~s(tracker:\n  kind: memory\n  base_branch: ""\n))
       Aiur.Workflow.set_workflow_file_path(cfg)
 
-      assert_raise ArgumentError, ~r/tracker\.base_branch/, fn -> RepoBase.base_branch() end
+      assert_raise ArgumentError, ~r/tracker\.base_branch could not be resolved/, fn -> RepoBase.base_branch() end
     end
   end
 

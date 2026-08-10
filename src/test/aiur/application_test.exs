@@ -24,6 +24,12 @@ defmodule Aiur.ApplicationTest do
     assert :ok = AiurApp.stop(:any_state)
   end
 
+  test "logs the resolved base branch exactly once at info level" do
+    log = capture_log(fn -> assert :ok = AiurApp.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
+
+    assert length(Regex.scan(~r/aiur_boot phase=config base_branch="develop"/, log)) == 1
+  end
+
   describe "start_distribution/1" do
     test "logs at info when distribution starts successfully" do
       assert :ok = AiurApp.start_distribution(SuccessStubDistribution)

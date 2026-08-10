@@ -649,9 +649,10 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert {:error, :missing_github_repo} = CiReadiness.check(repo: 42, base_branch: "develop")
   end
 
-  test "refuses to inspect readiness without an explicit base branch" do
-    assert {:error, :missing_base_branch} = CiReadiness.check(repo: "owner/repo")
-    assert {:error, :missing_base_branch} = CiReadiness.check(repo: "owner/repo", base_branch: "  ")
+  test "refuses to inspect readiness against a blank base branch" do
+    assert_raise ArgumentError, ~r/tracker\.base_branch could not be resolved/, fn ->
+      CiReadiness.check(repo: "owner/repo", token: "t", base_branch: "  ")
+    end
   end
 
   test "reports a DNS transport failure fetching the repository metadata" do
