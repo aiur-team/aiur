@@ -228,6 +228,36 @@ defmodule AiurWeb.GithubWebhookTest do
       assert rejected =~ "reason=signature_mismatch"
     end
 
+    test "never logs the shared secret, whatever the delivery outcome" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          deliver(@payload, signature: github_signature(@secret, @payload))
+          deliver(@payload, signature: github_signature("wrong-secret", @payload))
+          deliver(@payload, signature: nil)
+          deliver(@payload, signature: "sha256=not-hex")
+        end)
+
+      assert log =~ "accepted"
+      assert log =~ "rejected"
+      refute log =~ @secret
+    end
+
+    test "never logs the expected digest when rejecting a mismatch" do
+      # Logging the digest the server expected for a known body hands an attacker
+      # a forgery oracle: they can replay that body with the leaked signature
+      # without ever learning the secret. Refuting the bare hex is stricter than
+      # refuting the `sha256=`-prefixed header, and catches both spellings.
+      expected_digest = Base.encode16(:crypto.mac(:hmac, :sha256, @secret, @payload), case: :lower)
+
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          deliver(@payload, signature: github_signature("wrong-secret", @payload))
+        end)
+
+      assert log =~ "reason=signature_mismatch"
+      refute log =~ expected_digest
+    end
+
     test "sanitizes attacker-controlled header values before logging them" do
       log =
         ExUnit.CaptureLog.capture_log(fn ->
