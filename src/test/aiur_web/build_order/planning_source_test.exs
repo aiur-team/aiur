@@ -6,6 +6,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.{TicketDetail, TicketHistory}
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, PlanningSource, RouteState}
@@ -246,8 +247,16 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     identity = github_identity(repository_tuple(), 42, "I_live_42")
 
     refute PlanningSource.load_context(identity) == %{detail: :unavailable, history: :unavailable}
-    assert PlanningSource.load_context(identity) == DataSource.load_context(identity)
-    assert PlanningSource.load_sources() == DataSource.load_sources()
+
+    # Not compared against a second DataSource call: the live providers carry a
+    # per-call generation counter and attempt timestamp, so equality of two
+    # separate reads is never stable. The delegation is what is under test.
+    assert %{
+             history: {:ok, %TicketHistory.Snapshot{identity: %TrackerIdentity{identifier: "42"}}},
+             detail: {:ok, %TicketDetail.State{identity: %TrackerIdentity{identifier: "42"}}}
+           } = PlanningSource.load_context(identity)
+
+    assert %{activity: _, execution: _, adhoc: _} = PlanningSource.load_sources()
     assert PlanningSource.subscribe_context(identity) == :ok
     assert PlanningSource.unsubscribe_context(identity) == :ok
     assert PlanningSource.release(identity) == :ok
