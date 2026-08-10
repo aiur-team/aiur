@@ -47,17 +47,12 @@ defmodule Aiur.WorkflowStoreTest do
       max_concurrent_agents: 3
     )
 
-    original_identity_override =
-      Application.get_env(:aiur, :allow_runtime_tracker_identity_changes)
-
-    Application.put_env(:aiur, :allow_runtime_tracker_identity_changes, false)
+    assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+    store = start_store_with_production_defaults!()
 
     on_exit(fn ->
-      Application.put_env(
-        :aiur,
-        :allow_runtime_tracker_identity_changes,
-        original_identity_override
-      )
+      if Process.alive?(store), do: GenServer.stop(store)
+      assert {:ok, _pid} = Supervisor.restart_child(Aiur.Supervisor, WorkflowStore)
     end)
 
     generation = :sys.get_state(WorkflowStore).generation
@@ -115,4 +110,20 @@ defmodule Aiur.WorkflowStoreTest do
     assert Config.max_concurrent_agents() == 7
     assert :sys.get_state(WorkflowStore).generation == generation + 1
   end
+
+  defp start_store_with_production_defaults! do
+    keys = [:allow_runtime_tracker_identity_changes, :validate_workflow_reloads]
+    previous = Map.new(keys, &{&1, Application.fetch_env(:aiur, &1)})
+
+    try do
+      Enum.each(keys, &Application.delete_env(:aiur, &1))
+      assert {:ok, store} = WorkflowStore.start_link()
+      store
+    after
+      Enum.each(previous, &restore_application_env/1)
+    end
+  end
+
+  defp restore_application_env({key, {:ok, value}}), do: Application.put_env(:aiur, key, value)
+  defp restore_application_env({key, :error}), do: Application.delete_env(:aiur, key)
 end

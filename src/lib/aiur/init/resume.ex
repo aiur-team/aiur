@@ -4,6 +4,7 @@ defmodule Aiur.Init.Resume do
   """
 
   alias Aiur.Init.{Format, Prewarm, Questions}
+  alias Aiur.GitHub.Config, as: GitHubConfig
 
   @gitignore_entry ".aiur/"
 
@@ -102,7 +103,7 @@ defmodule Aiur.Init.Resume do
   end
 
   defp require_github_repo(repo) do
-    case Aiur.GitHub.Config.parse_configured_repo(repo) do
+    case GitHubConfig.parse_configured_repo(repo) do
       {:ok, _parsed} -> :ok
       {:error, _reason} -> {:error, :missing_github_repo}
     end

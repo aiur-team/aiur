@@ -36,9 +36,12 @@ if config_env() == :test do
   config :aiur, :workspace_github_preflight_enabled, false
 
   # TestSupport rewrites one shared workflow across tracker/base combinations.
-  # Production leaves this unset so repository/base identity remains
-  # restart-required; the focused WorkflowStore regression disables it.
+  # It also exercises schema errors by reading deliberately-invalid files.
+  # Production leaves both settings unset so reloads validate and repository/
+  # base identity remains restart-required; the focused WorkflowStore
+  # regression starts a strict store explicitly.
   config :aiur, :allow_runtime_tracker_identity_changes, true
+  config :aiur, :validate_workflow_reloads, false
 
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production

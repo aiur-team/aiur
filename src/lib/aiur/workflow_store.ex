@@ -18,7 +18,15 @@ defmodule Aiur.WorkflowStore do
   defmodule State do
     @moduledoc false
 
-    defstruct [:path, :stamp, :workflow, :failed_stamp, generation: 1]
+    defstruct [
+      :path,
+      :stamp,
+      :workflow,
+      :failed_stamp,
+      generation: 1,
+      allow_identity_change?: false,
+      validate_reloads?: true
+    ]
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -77,9 +85,9 @@ defmodule Aiur.WorkflowStore do
         GenServer.call(__MODULE__, :force_reload)
 
       _ ->
-        with {:ok, workflow} <- Workflow.load(),
-             :ok <- Config.validate_workflow(workflow) do
-          :ok
+        case Workflow.load() do
+          {:ok, workflow} -> Config.validate_workflow(workflow)
+          {:error, reason} -> {:error, reason}
         end
     end
   end
@@ -88,9 +96,17 @@ defmodule Aiur.WorkflowStore do
   def subscribe(_pid \\ self()), do: Phoenix.PubSub.subscribe(Aiur.PubSub, @configuration_topic)
 
   @impl true
-  def init(_opts) do
-    case load_state(Workflow.workflow_file_path()) do
+  def init(opts) do
+    validate_reloads? = validate_reloads?(opts)
+
+    case load_state(Workflow.workflow_file_path(), validate_reloads?) do
       {:ok, state} ->
+        state = %{
+          state
+          | allow_identity_change?: allow_identity_change?(opts),
+            validate_reloads?: validate_reloads?
+        }
+
         broadcast_configuration(state)
         schedule_poll()
         {:ok, state}
@@ -156,7 +172,7 @@ defmodule Aiur.WorkflowStore do
   end
 
   defp reload_path(path, state) do
-    case load_state(path) do
+    case load_state(path, state.validate_reloads?) do
       {:ok, new_state} ->
         activate_loaded_state(new_state, state)
 
@@ -181,16 +197,9 @@ defmodule Aiur.WorkflowStore do
   end
 
   defp reload_changed_stamp(path, stamp, state) do
-    case load_state(path) do
+    case load_state(path, state.validate_reloads?) do
       {:ok, new_state} ->
-        case activate_loaded_state(new_state, state) do
-          {:ok, activated_state} ->
-            {:ok, activated_state}
-
-          {:error, reason, _state} ->
-            if stamp != state.failed_stamp, do: log_reload_error(path, reason)
-            {:error, reason, %{state | failed_stamp: stamp}}
-        end
+        activate_changed_state(path, stamp, new_state, state)
 
       {:error, reason} ->
         # Keep the prior stamp so the next poll retries: a transient load
@@ -203,20 +212,34 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
-  defp load_state(path, attempts \\ @reload_attempts) do
+  defp activate_changed_state(path, stamp, new_state, state) do
+    case activate_loaded_state(new_state, state) do
+      {:ok, activated_state} ->
+        {:ok, activated_state}
+
+      {:error, reason, _state} ->
+        if stamp != state.failed_stamp, do: log_reload_error(path, reason)
+        {:error, reason, %{state | failed_stamp: stamp}}
+    end
+  end
+
+  defp load_state(path, validate_reloads?, attempts \\ @reload_attempts) do
     with {:ok, workflow} <- Workflow.load(path),
-         :ok <- Config.validate_workflow(workflow),
+         :ok <- validate_workflow(workflow, validate_reloads?),
          {:ok, stamp} <- current_stamp(path) do
       {:ok, %State{path: path, stamp: stamp, workflow: workflow}}
     else
       {:error, {:workflow_parse_error, _reason}} when attempts > 1 ->
         Process.sleep(@reload_retry_delay_ms)
-        load_state(path, attempts - 1)
+        load_state(path, validate_reloads?, attempts - 1)
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp validate_workflow(workflow, true), do: Config.validate_workflow(workflow)
+  defp validate_workflow(_workflow, false), do: :ok
 
   defp current_stamp(path) when is_binary(path) do
     with {:ok, stat} <- File.stat(path, time: :posix),
@@ -273,31 +296,55 @@ defmodule Aiur.WorkflowStore do
     )
   end
 
+  defp activate_loaded_state(new_state, %State{allow_identity_change?: true} = state) do
+    activate_state(new_state, state)
+  end
+
   defp activate_loaded_state(new_state, state) do
     with {:ok, old_identity} <- Config.workflow_identity(state.workflow),
          {:ok, new_identity} <- Config.workflow_identity(new_state.workflow),
          :ok <- require_same_identity(old_identity, new_identity) do
-      new_state = advance_generation(new_state, state)
-      broadcast_configuration(new_state)
-      {:ok, new_state}
+      activate_state(new_state, state)
     else
       {:error, reason} ->
         {:error, reason, state}
     end
   end
 
-  defp require_same_identity(identity, identity), do: :ok
-
-  defp require_same_identity(old_identity, new_identity) do
-    if Application.get_env(:aiur, :allow_runtime_tracker_identity_changes, false) do
-      :ok
-    else
-      {:error, {:restart_required_configuration_change, old_identity, new_identity}}
-    end
+  defp activate_state(new_state, state) do
+    new_state = advance_generation(new_state, state)
+    broadcast_configuration(new_state)
+    {:ok, new_state}
   end
 
+  defp require_same_identity(identity, identity), do: :ok
+
+  defp require_same_identity(old_identity, new_identity),
+    do: {:error, {:restart_required_configuration_change, old_identity, new_identity}}
+
   defp advance_generation(new_state, state) do
-    %{new_state | generation: state.generation + 1}
+    %{
+      new_state
+      | generation: state.generation + 1,
+        allow_identity_change?: state.allow_identity_change?,
+        validate_reloads?: state.validate_reloads?
+    }
+  end
+
+  defp allow_identity_change?(opts) do
+    Keyword.get(
+      opts,
+      :allow_identity_change?,
+      Application.get_env(:aiur, :allow_runtime_tracker_identity_changes, false)
+    )
+  end
+
+  defp validate_reloads?(opts) do
+    Keyword.get(
+      opts,
+      :validate_reloads?,
+      Application.get_env(:aiur, :validate_workflow_reloads, true)
+    )
   end
 
   defp broadcast_configuration(%State{generation: generation}) do

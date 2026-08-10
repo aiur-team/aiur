@@ -73,21 +73,8 @@ defmodule Aiur.Init do
       {:ok, config} ->
         io.puts.("Found an existing config at #{target}; resuming setup.")
 
-        with {:ok, tracker} <- Resume.tracker_from_config(config) do
-          Resume.print_saved_summary(io, config)
-          effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-
-          case deps.setup_repo_state.(tracker) do
-            :ok ->
-              Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
-              Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
-              Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-              provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
-
-            {:error, reason} ->
-              {:error, "Failed to create repository state: #{inspect(reason)}"}
-          end
-        else
+        case Resume.tracker_from_config(config) do
+          {:ok, tracker} -> resume(io, deps, {kind, location, target}, tracker, config)
           {:error, reason} -> {:error, Aiur.Config.format_error(reason)}
         end
 
@@ -95,6 +82,22 @@ defmodule Aiur.Init do
         {:error,
          "Couldn't read the existing config at #{target} (#{inspect(reason)}). " <>
            "Pass --force to recreate it: aiur init --force"}
+    end
+  end
+
+  defp resume(io, deps, {kind, location, target}, tracker, config) do
+    Resume.print_saved_summary(io, config)
+    effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
+
+    case deps.setup_repo_state.(tracker) do
+      :ok ->
+        Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+        Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
+        Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+        provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
+
+      {:error, reason} ->
+        {:error, "Failed to create repository state: #{inspect(reason)}"}
     end
   end
 

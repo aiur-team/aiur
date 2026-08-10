@@ -36,6 +36,7 @@ defmodule Aiur.PromptBuilderTest do
   @config """
   tracker:
     kind: memory
+    base_branch: main
   agent:
     kind: claude
     complexity_prompts:
@@ -66,6 +67,7 @@ defmodule Aiur.PromptBuilderTest do
   @tag config: """
        tracker:
          kind: memory
+         base_branch: main
        agent:
          kind: claude
          complexity_prompts:
