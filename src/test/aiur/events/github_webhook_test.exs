@@ -3,6 +3,8 @@ defmodule Aiur.Events.GithubWebhookTest do
 
   alias Aiur.Events.{Exchange, GithubWebhook, Publisher}
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.Webhooks
+  alias Aiur.Webhooks.ModeRegistry
   alias Aiur.Workflow
 
   @repo "owner/repo"
@@ -348,6 +350,82 @@ defmodule Aiur.Events.GithubWebhookTest do
       assert {:drop, {:unresolved_ticket, "check_suite", "completed"}} =
                Normalizer.normalize("check_suite", delivery, repo: @repo)
     end
+  end
+
+  # W-6 (#1683) treats a repo as webhook-backed only once a delivery has been
+  # observed, and exposes `Aiur.Webhooks.record_delivery/2` as the seam "the
+  # receiver" calls. This module is that receiver's tail, so these assert the
+  # seam is actually wired: each one reads the mode back through the registry
+  # rather than the return value, so dropping the call turns them red.
+  describe "webhook proof of life" do
+    test "a delivery for the tracked repo promotes it from configured-unproven to webhook-backed" do
+      registry = start_mode_registry([@repo])
+
+      assert Webhooks.polling_reason(@repo, server: registry) == :configured_unproven
+
+      assert %{status: :published} =
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(), repo: @repo, server: registry)
+
+      assert Webhooks.transport(@repo, server: registry) == :webhook
+      assert Webhooks.polling_reason(@repo, server: registry) == nil
+    end
+
+    test "an event type the fleet ignores still proves the webhook works" do
+      registry = start_mode_registry([@repo])
+
+      assert %{status: :dropped, reason: {:unsupported_event, "star"}} =
+               GithubWebhook.handle_delivery("star", %{"action" => "created", "repository" => %{"full_name" => @repo}},
+                 repo: @repo,
+                 server: registry
+               )
+
+      assert Webhooks.transport(@repo, server: registry) == :webhook
+    end
+
+    test "a delivery for an untracked repository proves nothing for either repo" do
+      untracked = "someone-else/other-repo"
+      registry = start_mode_registry([@repo, untracked])
+
+      assert %{status: :dropped, reason: {:untracked_repository, ^untracked}} =
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(%{"full_name" => untracked}),
+                 repo: @repo,
+                 server: registry
+               )
+
+      assert Webhooks.transport(untracked, server: registry) == :polling
+      assert Webhooks.transport(@repo, server: registry) == :polling
+    end
+
+    test "a malformed delivery records nothing and does not crash the tail" do
+      registry = start_mode_registry([@repo])
+
+      assert %{status: :error} = GithubWebhook.handle_delivery("issue_comment", "not-a-map", repo: @repo, server: registry)
+
+      assert %{status: :error, reason: :missing_repository} =
+               GithubWebhook.handle_delivery("issue_comment", Map.delete(issue_comment_delivery(), "repository"),
+                 repo: @repo,
+                 server: registry
+               )
+
+      assert Webhooks.transport(@repo, server: registry) == :polling
+    end
+
+    test "the tail is unaffected when no mode registry is running" do
+      assert %{status: :published} =
+               GithubWebhook.handle_delivery("issue_comment", issue_comment_delivery(),
+                 repo: @repo,
+                 server: :no_mode_registry_here
+               )
+    end
+  end
+
+  defp start_mode_registry(configured_repos) do
+    name = :"webhook_tail_registry_#{System.unique_integer([:positive])}"
+
+    {:ok, _pid} =
+      start_supervised({ModeRegistry, name: name, configured_repos: configured_repos, silence_threshold_ms: 900_000, sweep_interval_ms: 3_600_000, alert_fun: fn _name, _message, _opts -> :ok end})
+
+    name
   end
 
   defp issue_comment_delivery(repository \\ %{"full_name" => @repo}, comment \\ nil) do

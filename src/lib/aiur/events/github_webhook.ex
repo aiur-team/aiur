@@ -14,6 +14,16 @@ defmodule Aiur.Events.GithubWebhook do
   to run its poll cycle now, so the *existing* producer emits the *existing*
   event without a poll-interval wait. Consecutive nudges are coalesced.
 
+  Every delivery that resolves to a tracked repository is also recorded with
+  `Aiur.Webhooks.record_delivery/2` — the seam W-6 (#1683) exposes for exactly
+  this caller. Configuration only says a webhook is *expected*; an observed
+  delivery is what proves it works, so without this call a repo stays "configured
+  but unproven" forever and W-6's degradation sweep has nothing to hold onto.
+  Recording happens *before* the publish, so a consumer reacting synchronously
+  can never observe the repo as silent while it handles one of that repo's
+  deliveries. Deliveries for untracked repositories record nothing: the fleet
+  does not track them, so their liveness is not ours to assert.
+
   Nothing in this module is allowed to take down the caller. The receiver is an
   HTTP endpoint holding an unvalidated payload from the public internet: an
   unrecognized event type is logged and ignored, a malformed payload is
@@ -25,6 +35,7 @@ defmodule Aiur.Events.GithubWebhook do
 
   alias Aiur.Events.GithubWebhook.Normalizer
   alias Aiur.Events.{Publisher, Sanitizer}
+  alias Aiur.Webhooks
 
   @reconcile_debounce_ms 2_000
 
@@ -49,9 +60,12 @@ defmodule Aiur.Events.GithubWebhook do
     * `:reconcile_fun` — 1-arity override for the orchestrator nudge
     * `:orchestrator` — process name or pid to nudge; defaults to
       `Aiur.Orchestrator`
+    * `:at` / `:server` — passed through to `Aiur.Webhooks.record_delivery/2`
   """
   @spec handle_delivery(term(), term(), keyword()) :: outcome()
   def handle_delivery(event_type, payload, opts \\ []) do
+    record_proof_of_life(payload, opts)
+
     case Normalizer.normalize(event_type, payload, opts) do
       {:publish, triples} ->
         publish_all(triples, opts)
@@ -80,6 +94,17 @@ defmodule Aiur.Events.GithubWebhook do
     kind, reason ->
       Logger.error("GithubWebhook delivery exited type=#{inspect(event_type)} reason=#{inspect({kind, reason})}")
       %{status: :error, reason: {kind, reason}}
+  end
+
+  # Liveness is a property of the delivery, not of what the delivery turned out
+  # to mean: an event type this fleet ignores still proves the webhook, the App
+  # install, and the tunnel are all working. So this keys off the tracked-repo
+  # filter alone and runs ahead of `normalize/3`, not off the publish outcome.
+  defp record_proof_of_life(payload, opts) do
+    case Normalizer.tracked_repo(payload, opts) do
+      {:ok, repo} -> Webhooks.record_delivery(repo, Keyword.take(opts, [:at, :server]))
+      _untracked_or_malformed -> :ok
+    end
   end
 
   defp publish_all(triples, opts) do

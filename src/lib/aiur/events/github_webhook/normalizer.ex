@@ -99,7 +99,21 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # Tracked-repo filter
   # ---------------------------------------------------------------------------
 
-  defp tracked_repo(payload, opts) do
+  @doc """
+  Resolves the delivery to the repository the fleet tracks.
+
+  Public because the publish tail needs the same answer this module's own filter
+  reaches: a delivery only counts as proof that webhooks work for a repo the
+  fleet actually tracks, and that judgement must not be made twice by two
+  slightly different rules.
+
+  Takes the same `:repo` option as `normalize/3`.
+  """
+  @spec tracked_repo(term(), keyword()) ::
+          {:ok, String.t()} | {:drop, {:untracked_repository, String.t()}} | {:error, term()}
+  def tracked_repo(payload, opts \\ [])
+
+  def tracked_repo(payload, opts) when is_map(payload) do
     tracked = Keyword.get(opts, :repo) || Aiur.Tracker.project_identity()
     delivered = get_in(payload, ["repository", "full_name"])
 
@@ -117,6 +131,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
         {:drop, {:untracked_repository, delivered}}
     end
   end
+
+  def tracked_repo(_payload, _opts), do: {:error, :missing_repository}
 
   # ---------------------------------------------------------------------------
   # issue_comment -> ticket.<id>.issue.commented
