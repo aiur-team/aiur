@@ -204,19 +204,28 @@ the single configured value, so a per-repo secret would not be checked against
 the right key.
 
 Subscribe only to the events the fleet consumes. Every unused event costs no
-quota but still costs parsing, log volume, and payload surface. The starting
-set, which W-3 finalises:
+quota but still costs parsing, log volume, and payload surface. W-3 (#1732) has
+landed, so this list is final rather than provisional: it is exactly the set
+`Aiur.Events.GithubWebhook.Normalizer` has a clause for. Every other type is
+dropped as `unsupported_event`.
 
 | Event | Why |
 | --- | --- |
 | `issue_comment` | agent instructions and firehose comments |
 | `issues` | `labeled`, `unlabeled`, `closed` drive the agent lifecycle |
+| `pull_request` | publishes `pr.opened` / `pr.merged`; `synchronize` drives CI reconcile |
 | `pull_request_review` | wakes agents paused on review |
 | `pull_request_review_comment` | review feedback threads |
 | `check_suite` | CI completion |
 | `check_run` | CI completion |
 
 Do not select "Send me everything."
+
+Omitting `pull_request` is the easiest mistake to make here and the hardest to
+notice: deliveries still arrive and are still accepted, so the ingress guard and
+the delivery-mode diagnostic both stay green, while agents silently never wake on
+a PR opening or merging. If the normalizer gains or loses a clause, this table is
+what has to change with it.
 
 ## Register the repo for webhook delivery
 
