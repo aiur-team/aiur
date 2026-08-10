@@ -121,12 +121,21 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     packed_identity = github_identity(repository, 9901, "I_live_9901")
     foreign_identity = github_identity({"other", "repository"}, 77, "I_foreign_77")
 
+    # The live source populates root metrics itself (#1663). The union must carry
+    # them through untouched, otherwise a GitHub-only row returns to the page as
+    # the title-with-four-em-dashes shape #1616 reported.
     live_root =
       RootSummary.new(%{
         identity: live_identity,
         title: "GitHub-only Build Order",
         url: "https://github.com/#{live_identity.owner}/#{live_identity.repository}/issues/42",
-        state: "OPEN"
+        state: "OPEN",
+        member_count: 27,
+        epic_count: 4,
+        phase_count: 3,
+        progress: 78,
+        progress_resolution: :resolved,
+        progress_resolved_count: 27
       })
 
     duplicate_live_root =
@@ -152,8 +161,12 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %Snapshot{data: %Catalog{entries: entries}} = PlanningSource.catalog()
 
     assert Enum.map(entries, & &1.identity.identifier) |> Enum.sort() == ["42", "9901"]
-    assert Enum.find(entries, &(&1.identity.identifier == "42")).progress == nil
     assert Enum.find(entries, &(&1.identity.identifier == "9901")).title == "Pack 1"
+
+    unioned_live = Enum.find(entries, &(&1.identity.identifier == "42"))
+
+    assert {unioned_live.member_count, unioned_live.epic_count, unioned_live.phase_count} == {27, 4, 3}
+    assert {unioned_live.progress, unioned_live.progress_resolution, unioned_live.progress_resolved_count} == {78, :resolved, 27}
   end
 
   test "keeps packed roots visible when the live catalog is unavailable", context do
