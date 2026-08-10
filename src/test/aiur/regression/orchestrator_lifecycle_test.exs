@@ -293,15 +293,25 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       refute_receive {:resume_agent, _}, 100
     end
 
-    test "resume with no running entry starts a queued idle issue" do
+    test "resume with no running entry clears tracker pause and starts a queued idle issue" do
       name = Module.concat(__MODULE__, :ResumeQueued)
       pid = start_orchestrator(name)
-      issue = todo_issue("L11")
+
+      issue =
+        "L11"
+        |> todo_issue()
+        |> Map.put(:paused, true)
+        |> Map.put(:labels, ["agent:todo", "agent:paused"])
+
+      # The tracker still carries `agent:paused`, so the authoritative re-read
+      # agrees with the cache and the resume has a real override to clear.
       memory_tracker!([issue])
       :sys.replace_state(pid, &%{&1 | last_polled_issues: %{issue.id => issue}, running: %{}, claimed: MapSet.new()})
 
       assert {:ok, :started} = Orchestrator.resume_agent(name, issue.identifier)
+      assert_receive {:memory_tracker_remove_label, "L11", "agent:paused"}
       assert MapSet.member?(:sys.get_state(pid).claimed, issue.id)
+      refute :sys.get_state(pid).last_polled_issues[issue.id].paused
     end
 
     test "resume refreshes stale cached tracker state before deciding dispatchability" do
