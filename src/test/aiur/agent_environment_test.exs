@@ -476,4 +476,59 @@ defmodule Aiur.AgentEnvironmentTest do
       assert AgentEnvironment.workspace_env_export_prefix(nil) == ""
     end
   end
+
+  # Concurrent agents share the host's /tmp, so two of them staging a comment
+  # body at the same generic path clobber each other and one publishes the
+  # other ticket's workpad (#1763).
+  describe "workspace-private TMPDIR" do
+    setup do
+      workspace = Path.join(System.tmp_dir!(), "aiur-env-scratch-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(workspace)
+      on_exit(fn -> File.rm_rf(workspace) end)
+      {:ok, workspace: workspace}
+    end
+
+    test "workspace_env/1 points TMPDIR at the workspace's own scratch dir", %{workspace: workspace} do
+      env = AgentEnvironment.workspace_env(workspace)
+      expected = String.to_charlist(Path.join(workspace, ".aiur-runtime/tmp"))
+
+      assert {~c"TMPDIR", ^expected} = List.keyfind(env, ~c"TMPDIR", 0)
+      assert {~c"TMP", ^expected} = List.keyfind(env, ~c"TMP", 0)
+      assert {~c"TEMP", ^expected} = List.keyfind(env, ~c"TEMP", 0)
+      refute expected == ~c"/tmp"
+      assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
+    end
+
+    test "workspace_env/1 leaves TMPDIR alone when the scratch dir is unusable", %{workspace: workspace} do
+      File.mkdir_p!(Path.join(workspace, ".aiur-runtime"))
+      File.write!(Path.join(workspace, ".aiur-runtime/tmp"), "not a directory")
+
+      env = AgentEnvironment.workspace_env(workspace)
+
+      assert List.keyfind(env, ~c"TMPDIR", 0) == nil
+    end
+
+    test "the export prefix redirects TMPDIR for the SSH-launch path", %{workspace: workspace} do
+      prefix = AgentEnvironment.workspace_env_export_prefix(workspace, base_branch: "develop")
+
+      {resolved, 0} =
+        System.cmd("bash", ["-c", "#{prefix} && printf '%s|%s|%s' \"$TMPDIR\" \"$TMP\" \"$TEMP\""], env: [{"TMPDIR", "/tmp"}])
+
+      scratch = Path.join(workspace, ".aiur-runtime/tmp")
+      assert resolved == "#{scratch}|#{scratch}|#{scratch}"
+      assert File.dir?(scratch)
+    end
+
+    test "the export prefix keeps launching when the scratch dir cannot be created" do
+      prefix = AgentEnvironment.workspace_env_export_prefix("/proc/aiur-unwritable-1763", base_branch: "develop")
+
+      {resolved, 0} =
+        System.cmd("bash", ["-c", "#{prefix} && printf '%s' \"$TMPDIR\""],
+          env: [{"TMPDIR", "/tmp"}],
+          stderr_to_stdout: true
+        )
+
+      assert resolved == "/tmp"
+    end
+  end
 end
