@@ -311,10 +311,6 @@ defmodule AiurWeb.StreamdeckProjection do
       {:ok, %{polling: %{usage_interval_seconds: seconds}}} when is_integer(seconds) and seconds > 0 -> seconds
       _ -> @default_usage_interval_seconds
     end
-  rescue
-    _error -> @default_usage_interval_seconds
-  catch
-    _kind, _reason -> @default_usage_interval_seconds
   end
 
   defp newer_provider_observation?(%ProviderMeterSnapshot{observed_at: nil}, _current), do: false
