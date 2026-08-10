@@ -73,44 +73,37 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
 
   # --- selected root ---------------------------------------------------------
 
+  # A root the daemon has no pack for is not "empty" — it is a live GitHub root
+  # this source cannot describe, so the live source answers for it rather than
+  # this one returning a data-less snapshot that renders as a blank row.
   @impl true
   def demand(%TrackerIdentity{} = identity) do
-    if pack_for(identity), do: {:ok, selected_snapshot(identity)}, else: DataSource.demand(identity)
+    case pack_for(identity) do
+      %{} = pack -> {:ok, selected_snapshot(pack, identity)}
+      nil -> DataSource.demand(identity)
+    end
   end
 
   @impl true
   def selected(%TrackerIdentity{} = identity) do
-    if pack_for(identity), do: {:ok, selected_snapshot(identity)}, else: DataSource.selected(identity)
+    case pack_for(identity) do
+      %{} = pack -> {:ok, selected_snapshot(pack, identity)}
+      nil -> DataSource.selected(identity)
+    end
   end
 
-  defp selected_snapshot(identity) do
+  defp selected_snapshot(pack, identity) do
     membership = membership_snapshot()
+    {provider_health, source_generation} = provider(membership, [pack])
 
-    case pack_for(identity) do
-      %{} = pack ->
-        {provider_health, source_generation} = provider(membership, [pack])
-
-        %Snapshot{
-          scope: {:selected, identity},
-          repository: pack.repository,
-          generation: source_generation,
-          authority_epoch: @epoch,
-          data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed)),
-          health: provider_health
-        }
-
-      nil ->
-        {provider_health, source_generation} = provider(membership, [])
-
-        %Snapshot{
-          scope: {:selected, identity},
-          repository: {"unknown", "unknown"},
-          generation: source_generation,
-          authority_epoch: @epoch,
-          data: nil,
-          health: provider_health
-        }
-    end
+    %Snapshot{
+      scope: {:selected, identity},
+      repository: pack.repository,
+      generation: source_generation,
+      authority_epoch: @epoch,
+      data: SelectedRoot.new(root_summary(pack, membership), members(pack, membership), provider_health, planning?: not (pack.materialized? or pack.completed)),
+      health: provider_health
+    }
   end
 
   # A selected root identity carries the pack's repository and root number.
@@ -206,36 +199,49 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   # definition when it shares a root with GitHub, while a GitHub-only root stays
   # visible until it is materialized. The numeric repository-qualified locator
   # is deliberate because a pack can predate the root's opaque GitHub node id.
+  # A live row whose identity did not survive structural validation is skipped
+  # rather than keyed against a pack: `Catalog.new/3` has already recorded the
+  # diagnostic that keeps its absence visible, and an unkeyed row would collapse
+  # an unrelated pack.
   defp union_live_catalog(pack_entries, live_catalog) do
-    Enum.reduce(live_catalog_entries(live_catalog), pack_entries, fn live_entry, entries ->
-      if Enum.any?(entries, &same_catalog_root?(&1, live_entry)), do: entries, else: entries ++ [live_entry]
-    end)
+    tracked_repository = configured_repository_tuple()
+
+    packed_keys =
+      for %RootSummary{identity: %TrackerIdentity{} = identity} <- pack_entries, into: MapSet.new(), do: root_key(identity)
+
+    live_entries =
+      for %RootSummary{identity: %TrackerIdentity{} = identity} = entry <- live_catalog_entries(live_catalog),
+          same_repository?({identity.owner, identity.repository}, tracked_repository),
+          not MapSet.member?(packed_keys, root_key(identity)),
+          do: entry
+
+    pack_entries ++ live_entries
   end
 
-  defp live_catalog_entries(%Snapshot{data: %Catalog{entries: entries}}) do
-    Enum.filter(entries, &tracked_catalog_root?/1)
-  end
-
+  defp live_catalog_entries(%Snapshot{data: %Catalog{entries: entries}}), do: entries
   defp live_catalog_entries(_live_catalog), do: []
 
-  defp tracked_catalog_root?(%RootSummary{identity: %TrackerIdentity{} = identity}) do
-    same_repository?({identity.owner, identity.repository}, configured_repository_tuple())
-  end
+  defp root_key(%TrackerIdentity{} = identity),
+    do: {String.downcase(identity.owner || ""), String.downcase(identity.repository || ""), to_string(identity.identifier)}
 
-  defp tracked_catalog_root?(_entry), do: false
-
-  defp same_catalog_root?(%RootSummary{identity: left}, %RootSummary{identity: right}),
-    do: same_repository_number?(left, right)
-
-  defp same_catalog_root?(_left, _right), do: false
-
-  defp append_live_catalog_diagnostics(catalog, %Snapshot{data: %Catalog{diagnostics: diagnostics}, health: health}) do
-    diagnostics = if ProviderHealth.usable?(health), do: diagnostics, else: [Diagnostic.new(:provider_unavailable) | diagnostics]
-    %{catalog | diagnostics: Enum.uniq_by(catalog.diagnostics ++ diagnostics, & &1.code)}
+  defp append_live_catalog_diagnostics(catalog, %Snapshot{data: %Catalog{} = live, health: health}) do
+    merged = live.diagnostics ++ unusable_provider_diagnostics(health) ++ unkeyed_row_diagnostics(live.entries)
+    %{catalog | diagnostics: Enum.uniq_by(catalog.diagnostics ++ merged, & &1.code)}
   end
 
   defp append_live_catalog_diagnostics(catalog, _live_catalog) do
     %{catalog | diagnostics: Enum.uniq_by([Diagnostic.new(:provider_unavailable) | catalog.diagnostics], & &1.code)}
+  end
+
+  defp unusable_provider_diagnostics(health),
+    do: if(ProviderHealth.usable?(health), do: [], else: [Diagnostic.new(:provider_unavailable)])
+
+  # Skipping an unkeyed live row is still an omission, so it is reported rather
+  # than left to look like a catalog that simply had fewer roots.
+  defp unkeyed_row_diagnostics(entries) do
+    if Enum.all?(entries, &match?(%RootSummary{identity: %TrackerIdentity{}}, &1)),
+      do: [],
+      else: [Diagnostic.new(:invalid_root)]
   end
 
   defp live_catalog do

@@ -4,6 +4,7 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   import ExUnit.CaptureLog
 
   alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.GitHub.Config
   alias Aiur.{RepoBase, TrackerIdentity}
@@ -163,6 +164,111 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert %Snapshot{data: %Catalog{entries: [root], diagnostics: diagnostics}} = PlanningSource.catalog()
     assert root.identity.identifier == "9901"
     assert Enum.any?(diagnostics, &(&1.code == :provider_unavailable))
+  end
+
+  test "keeps packed roots visible when reading the live catalog raises", context do
+    directory = context.workspace_directory
+    isolate_pack_discovery(directory)
+    write_tracked_packs(directory, 1)
+    Application.put_env(:aiur, :build_order_planning_live_catalog, fn -> raise "live catalog exploded" end)
+
+    assert %Snapshot{data: %Catalog{entries: [root], diagnostics: diagnostics}} = PlanningSource.catalog()
+    assert root.identity.identifier == "9901"
+    assert Enum.any?(diagnostics, &(&1.code == :provider_unavailable))
+  end
+
+  test "skips a live row with no resolvable identity but keeps its diagnostic", context do
+    directory = context.workspace_directory
+    isolate_pack_discovery(directory)
+    write_tracked_packs(directory, 1)
+
+    unkeyed_root = RootSummary.new(%{title: "Live root with no identity"})
+    assert unkeyed_root.identity == nil
+
+    Application.put_env(:aiur, :build_order_planning_live_catalog, fn ->
+      live_catalog_snapshot(repository_tuple(), [unkeyed_root])
+    end)
+
+    assert %Snapshot{data: %Catalog{entries: [root], diagnostics: diagnostics}} = PlanningSource.catalog()
+    assert root.identity.identifier == "9901"
+    assert Enum.any?(diagnostics, &(&1.code == :invalid_root))
+  end
+
+  describe "roots with no materialized pack" do
+    setup context do
+      isolate_pack_discovery(context.workspace_directory)
+      write_tracked_packs(context.workspace_directory, 1)
+
+      %{
+        github_only: github_identity(repository_tuple(), 42, "I_live_42"),
+        packed: github_identity(repository_tuple(), 9901, "I_live_9901")
+      }
+    end
+
+    test "selected/1 answers from the live source", %{github_only: identity} do
+      assert PlanningSource.selected(identity) == DataSource.selected(identity)
+    end
+
+    test "demand/1 answers from the live source", %{github_only: identity} do
+      assert PlanningSource.demand(identity) == DataSource.demand(identity)
+    end
+
+    test "selected/1 still answers from the pack when one exists", %{packed: identity} do
+      assert {:ok, %Snapshot{data: %SelectedRoot{root: root}}} = PlanningSource.selected(identity)
+      assert root.title == "Pack 1"
+    end
+
+    test "subscribe_selected/1 really subscribes for a live-only root", %{github_only: identity} do
+      assert PlanningSource.subscribe_selected(identity) == :ok
+      assert_broadcast_received(GraphProjection.selected_topic(identity))
+
+      assert PlanningSource.unsubscribe_selected(identity) == :ok
+      refute_broadcast_received(GraphProjection.selected_topic(identity))
+    end
+
+    test "subscribe_selected/1 does not subscribe for a packed root", %{packed: identity} do
+      assert PlanningSource.subscribe_selected(identity) == :ok
+      refute_broadcast_received(GraphProjection.selected_topic(identity))
+    end
+  end
+
+  test "subscribe_catalog/0 really subscribes to the live catalog topic" do
+    topic = GraphProjection.catalog_topic(repository_tuple())
+
+    assert PlanningSource.subscribe_catalog() == :ok
+    assert_broadcast_received(topic)
+
+    assert PlanningSource.unsubscribe_catalog(repository_tuple()) == :ok
+    refute_broadcast_received(topic)
+  end
+
+  test "ticket context is served by the live providers rather than reported unavailable" do
+    identity = github_identity(repository_tuple(), 42, "I_live_42")
+
+    refute PlanningSource.load_context(identity) == %{detail: :unavailable, history: :unavailable}
+    assert PlanningSource.load_context(identity) == DataSource.load_context(identity)
+    assert PlanningSource.load_sources() == DataSource.load_sources()
+    assert PlanningSource.subscribe_context(identity) == :ok
+    assert PlanningSource.unsubscribe_context(identity) == :ok
+    assert PlanningSource.release(identity) == :ok
+    assert PlanningSource.subscribe_sources() == :ok
+  end
+
+  test "a pack with no tickets is resolved zero, not unresolved", context do
+    directory = context.workspace_directory
+    isolate_pack_discovery(directory)
+    File.mkdir_p!(directory)
+
+    File.write!(
+      Path.join(directory, "empty-pack.json"),
+      ~s({"build_order_id": "#{Config.repo()}:empty", "title": "Empty Pack", "repository": "#{Config.repo()}", "root_number": 9902, "tickets": []})
+    )
+
+    assert %Snapshot{data: %Catalog{entries: [root]}} = PlanningSource.catalog()
+    assert root.title == "Empty Pack"
+    assert root.progress == 0
+    assert root.progress_resolution == :resolved
+    assert root.member_count == 0
   end
 
   test "catalog exposes one selectable planning root" do
@@ -1041,6 +1147,20 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
   defp github_identity(repository, number, node_id) do
     {:ok, identity} = TrackerIdentity.from_github(%{"number" => number, "node_id" => node_id}, repository, repository)
     identity
+  end
+
+  # A subscription is only real if a broadcast on the topic reaches this test
+  # process; asserting `:ok` alone cannot tell a delegation from a stub.
+  defp assert_broadcast_received(topic) do
+    message = {:planning_source_probe, System.unique_integer([:positive])}
+    Phoenix.PubSub.broadcast(Aiur.PubSub, topic, message)
+    assert_receive ^message, 500
+  end
+
+  defp refute_broadcast_received(topic) do
+    message = {:planning_source_probe, System.unique_integer([:positive])}
+    Phoenix.PubSub.broadcast(Aiur.PubSub, topic, message)
+    refute_receive ^message, 200
   end
 
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
