@@ -3198,9 +3198,11 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--provider-unit-background, var(--pill-bg));
 }
 
-/* The provider pill carries the vendor mark instead of its name. Sized to the
-   pill's 0.66rem type so rows keep their existing height, and squared so a
-   wide mark (Codex) and a tall one (Claude) occupy the same box. */
+/* The provider pill carries the vendor mark instead of its name, sized to the
+   pill's 0.66rem type. `object-fit: contain` is defensive rather than load
+   bearing: today's marks are both near-square (codex-color 1.07:1,
+   claude-symbol 1:1), but a future backend may register a wide wordmark, and
+   without it that mark would stretch. */
 .u-agent-logo {
   display: block;
   width: 0.95rem;

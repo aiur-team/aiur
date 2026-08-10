@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
+  alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
   alias AiurWeb.OperatorControlCenter.{UnitsPresenter, UnitsTable}
 
@@ -93,8 +94,45 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       })
 
     assert html =~ ~s(class="u-pill u-agent is-fake")
-    assert html =~ ">Fake</span>"
     assert html =~ "--provider-unit-color"
+
+    # The pill shows the registry's mark, not the provider's name. The name
+    # survives as the image's accessible name rather than as a text node.
+    assert html =~ ~s(class="u-agent-logo")
+    assert html =~ ~s(alt="Fake")
+    refute html =~ ">Fake</span>"
+  end
+
+  test "renders the provider mark from the registry descriptor" do
+    row = row() |> Map.put(:agent_family, "fake") |> Map.put(:backend, "fake")
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    %{logo: logo, label: label} = CodingAgent.provider_descriptor(:fake)
+
+    # Asserted against the descriptor rather than a literal path, so a registry
+    # change moves the test with it instead of silently diverging.
+    assert html =~ ~s(src="#{logo}")
+    assert html =~ ~s(alt="#{label}")
+  end
+
+  test "falls back to the provider name when the family resolves no descriptor" do
+    row = row() |> Map.put(:agent_family, "not-a-registered-backend") |> Map.put(:backend, nil)
+
+    html =
+      render_component(&UnitsTable.units_table/1, %{
+        view: view([row]),
+        now: ~U[2026-07-17 12:00:00Z]
+      })
+
+    # An unknown family has no logo, so the pill must still name something
+    # rather than render empty.
+    refute html =~ ~s(class="u-agent-logo")
+    assert html =~ ">Agent</span>"
   end
 
   test "distinguishes unavailable, healthy-empty, filtered-empty, and stale catalog states" do

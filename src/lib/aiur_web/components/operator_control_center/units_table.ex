@@ -97,16 +97,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span
-                    class={["u-pill", "u-agent", agent_class(agent_family(row))]}
-                    style={agent_style(agent_family(row))}
-                    title={agent_label(agent_family(row))}
-                  >
+                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>
                     <img
                       :if={agent_logo(agent_family(row))}
                       class="u-agent-logo"
                       src={agent_logo(agent_family(row))}
                       alt={agent_label(agent_family(row))}
+                      title={agent_label(agent_family(row))}
                     />
                     <span :if={is_nil(agent_logo(agent_family(row)))}>{agent_label(agent_family(row))}</span>
                   </span>
