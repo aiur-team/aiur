@@ -1346,6 +1346,14 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
   end
 
   @impl true
+  def load_runtime_sources do
+    %{
+      execution: %{running: [], retrying: [], idle: []},
+      activity: %{generation: 9, entries: [activity(identity(5))], diagnostics: %{}}
+    }
+  end
+
+  @impl true
   def subscribe_context(_identity), do: :ok
 
   @impl true
