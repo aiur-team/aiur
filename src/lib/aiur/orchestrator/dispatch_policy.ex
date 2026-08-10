@@ -10,6 +10,27 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @cpu_headroom_ramp_max 3
   @fd_headroom_percent 10
 
+  # States in which, by definition, there is no agent work: the PR is sitting in
+  # GitHub's merge queue (`merging`) or CI is in flight (`ci-wait`). Dispatching
+  # into them cannot produce progress, only cost — and every committed dispatch
+  # bills a lifetime unit, so a ticket can burn the terminal (self-declared
+  # unrecoverable) latch while waiting for the merge queue, *after* its work was
+  # finished and approved (#1759: 48 dispatches in ~50 minutes on a ticket in
+  # `merging` with an approved, queued PR).
+  #
+  # This is a code-level refusal rather than an `active_states` edit because
+  # `merging` must stay an active state for comment polling
+  # (`CommentPolling.TargetSelection`), the paused-agent sweep, and terminal-fence
+  # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
+  # sweep as legitimate waiting; refusing it here makes the two beliefs
+  # consistent regardless of how an operator configures `active_states`.
+  #
+  # Neither state strands a ticket: leaving `ci-wait` (the CI result delivery and
+  # the `ci_wait_rewake` fallback) and leaving `merging` (a trusted comment
+  # promoting the ticket to `rework`) both transition the tracker label *first*,
+  # so dispatch is re-evaluated against the new state.
+  @no_agent_work_states ["merging", "ci-wait"]
+
   @doc false
   # Reads the host 1-min load only when the hard gate or adaptive target is
   # enabled, so explicit-disable configs never touch /proc. Exposed for
@@ -605,6 +626,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       issue_dispatch_authorized?(issue) and
       issue_not_paused?(issue) and
       active_issue_state?(state_name, active_states) and
+      !no_agent_work_state?(state_name) and
       !terminal_issue_state?(state_name, terminal_states)
   end
 
@@ -656,6 +678,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   def terminal_issue_state?(_state_name, _terminal_states), do: false
+
+  @doc """
+  True for a state where no agent work exists, so dispatch must be refused.
+
+  See `@no_agent_work_states`. Independent of `active_states`: an operator can
+  list `merging` as active (it is, for polling and fence purposes) without making
+  it dispatchable.
+  """
+  @spec no_agent_work_state?(term()) :: boolean()
+  def no_agent_work_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) in @no_agent_work_states
+  end
+
+  def no_agent_work_state?(_state_name), do: false
 
   @spec active_issue_state?(term(), MapSet.t()) :: boolean()
   def active_issue_state?(state_name, active_states) when is_binary(state_name) do

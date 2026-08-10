@@ -2221,11 +2221,22 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
         unpaused_issue = %{issue | paused: false, labels: ["agent:#{issue.state}"]}
 
-        assert DispatchPolicy.candidate_issue?(
-                 unpaused_issue,
-                 DispatchPolicy.active_state_set(),
-                 DispatchPolicy.terminal_state_set()
-               )
+        candidate? =
+          DispatchPolicy.candidate_issue?(
+            unpaused_issue,
+            DispatchPolicy.active_state_set(),
+            DispatchPolicy.terminal_state_set()
+          )
+
+        # The control for this test: with the pause lifted these would dispatch,
+        # so `agent:paused` is what suppressed them above. `merging` is the
+        # exception — it is an active state, but no agent work exists there, so
+        # it stays refused on its own account (#1759).
+        if DispatchPolicy.no_agent_work_state?(issue.state) do
+          refute candidate?
+        else
+          assert candidate?
+        end
       end
     end
 

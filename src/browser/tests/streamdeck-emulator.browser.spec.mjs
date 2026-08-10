@@ -184,7 +184,7 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
 test('grid key press enters command mode and replaces grid keys', async ({ page }) => {
   await openStreamdeck(page)
 
-  const key = page.locator('.sd-key:not(.is-empty)').first()
+  const key = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
   // The key the operator pressed and the panel it opens must agree about the
@@ -195,7 +195,12 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   await expect(page.locator('#sd-cmd-view')).toBeVisible()
-  await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
+  // #1607 fills the cmd-mode grid with the four command keys, so the grid is no
+  // longer empty here; that PR owns the grid, this one owns the strip below.
+  await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(4)
+  await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(4)
+  await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
+  await expect(page.locator('[data-streamdeck-command]')).toHaveCount(4)
   await expect(page.locator('.sd-strip-cmd')).toBeVisible()
   await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
   await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
@@ -298,45 +303,122 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
 })
 
-test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
+test('command keys render real state-derived controls, flash on click, and emit events', async ({ page }) => {
   await openStreamdeck(page)
 
-  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
-  await expect(micSegment).toBeVisible()
+  await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
+  const commands = page.locator('[data-streamdeck-command]')
+  await expect(commands).toHaveCount(4)
+  await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Prioritize', exact: true })).toBeVisible()
+  await expect(page.locator('#sd-keys button:disabled')).toHaveCount(4)
+  await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
 
-  await micSegment.hover()
-  await page.mouse.down()
-  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+  await page.evaluate(() => {
+    const hook = window.liveSocket.main.getHook(document.querySelector('#streamdeck-page'))
+    window.__streamdeckCommandEvents = []
+    window.__streamdeckGridEvents = []
+    const pushEvent = hook.pushEvent.bind(hook)
+    hook.pushEvent = (name, payload) => {
+      if (name === 'command-press') window.__streamdeckCommandEvents.push({ name, payload })
+      if (name === 'key-press') window.__streamdeckGridEvents.push({ name, payload })
+      return pushEvent(name, payload)
+    }
+  })
 
-  await page.mouse.up()
-  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+  for (const command of ['pause', 'priority', 'logs']) {
+    const key = page.locator(`[data-streamdeck-command="${command}"]`)
+    await key.click()
+    await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
+    if (command === 'logs') {
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+      await page.locator('.sd-knob').first().click()
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+    }
+  }
+
+  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'priority', 'logs'])
+  expect(await page.evaluate(() => window.__streamdeckGridEvents)).toEqual([])
 })
 
-test('mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
+test('command mic activates on pointerdown and deactivates on pointerup', async ({ page }) => {
   await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
 
-  const micSegment = page.locator('.sd-screen-segment').filter({ has: page.locator('.sd-mic') })
-  const box = await micSegment.boundingBox()
+  const micKey = page.locator('.sd-mic-key')
+  const micFace = micKey.locator('.sd-key-face')
+  await expect(micKey).toBeVisible()
+
+  await micKey.hover()
+  await page.mouse.down()
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  // The hold must actually pulse, not merely carry the class: .sd-mic-key
+  // .mic-live is only meaningful if the face resolves the design's animation.
+  await expect(micFace).toHaveCSS('animation-name', 'sd-mic-pulse')
+
+  await page.mouse.up()
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
+  await expect(micFace).not.toHaveCSS('animation-name', 'sd-mic-pulse')
+})
+
+test('command mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
+  await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const box = await micKey.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
 
   await page.mouse.move(cx, cy)
   await page.mouse.down()
-  await expect(micSegment).toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 
   // Move outside the segment without releasing — simulates a drag-exit.
   await page.mouse.move(0, 0)
-  await expect(micSegment).not.toHaveClass(/is-live/, { timeout: 500 })
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
 
   await page.mouse.up()
+})
+
+test('command mic deactivates on pointercancel', async ({ page }) => {
+  await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  await micButton.dispatchEvent('pointerdown')
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  await micButton.dispatchEvent('pointercancel')
+  await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
+})
+
+test('command mic deactivates when a mode transition removes the held key', async ({ page }) => {
+  await openStreamdeck(page)
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+  await micButton.dispatchEvent('pointerdown')
+  await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
+
+  const dial = page.locator('.sd-knob').nth(3)
+  await dial.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+
+  await page.locator('.sd-knob').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('.sd-mic-key')).not.toHaveClass(/mic-live/, { timeout: 500 })
 })
 
 test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
   await openStreamdeck(page)
 
   const device = page.locator('.sd-device')
-  const keysView = page.locator('[data-mode-view="grid"]')
-  const cmdView = page.locator('[data-mode-view="cmd"]')
+  const keysView = page.locator('#sd-keys[data-mode-view="grid"]')
+  const cmdView = page.locator('#sd-keys[data-mode-view="cmd"]')
   const logsView = page.locator('[data-mode-view="logs"]')
 
   // Initial state: grid mode, keys visible, cmd and logs hidden.
@@ -395,10 +477,10 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.getByText('View logs', { exact: true }).click()
+  await page.locator('[data-streamdeck-command="logs"]').click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
-  await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
+  await expect(page.locator('#sd-keys')).toHaveCount(0)
 })
 
 test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {

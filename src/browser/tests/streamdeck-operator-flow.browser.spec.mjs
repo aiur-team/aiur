@@ -8,7 +8,11 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // not merely when the page fails to render.
 
 const CONTROLLED = '1352'
-const CMD_COMMANDS = ['Run tests', 'Deploy staging', 'View logs', 'Open PR']
+// The design's cmd slots are Pause / Prioritize / Logs / Mic, and the first two
+// relabel from the agent's real state. Asserting both variants is what proves
+// the labels track the fleet rather than being a fixed list.
+const CMD_COMMANDS_RUNNING = ['Pause', 'Prioritize', 'Logs', 'Mic']
+const CMD_COMMANDS_PAUSED = ['Play', 'Prioritize', 'Logs', 'Mic']
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')
@@ -62,8 +66,26 @@ async function gridDialEcho(keys) {
   return Number.parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
 }
 
+// Cmd mode fills the key grid itself, so the labels live on the command keys
+// inside `#sd-keys` rather than in a parallel list beside it.
 function commandLabels(page) {
-  return page.locator('#sd-cmd-view .sd-cmd-item').allInnerTexts()
+  return page.locator('#sd-keys .sd-cmd-key:not(.is-empty) .sd-cmd-label').allInnerTexts()
+}
+
+// The design turns the eight key slots into four commands and four blanks. So
+// the key grid survives the mode switch and the agent faces do not: assert the
+// slot shape rather than the absence of `#sd-keys`.
+async function expectCommandSurface(keys, expectedLabels, page) {
+  await expect(keys).toHaveAttribute('data-mode-view', 'cmd')
+  await expect(keys.locator('.sd-cmd-key:not(.is-empty)')).toHaveCount(4)
+  await expect(keys.locator('.sd-cmd-key.is-empty')).toHaveCount(4)
+  // The four unused slots are inert and hidden from assistive tech, so the
+  // operator cannot press a blank into a command.
+  await expect(keys.locator('.sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
+  await expect(keys.locator('.sd-cmd-key.is-empty button[disabled]')).toHaveCount(4)
+  // No agent grid is left behind under the commands.
+  await expect(keys).not.toHaveAttribute('data-grid-page', /.*/)
+  expect(await commandLabels(page)).toEqual(expectedLabels)
 }
 
 // Free dial turns move the column offset without landing on a window boundary,
@@ -168,9 +190,9 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // operator still reads which agent they are controlling; it just moved.
   await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
   // Cmd mode replaces the key faces, it does not merely relabel the strip: the
-  // agent grid is gone and the operator is looking at the command set.
-  await expect(keys).toHaveCount(0)
-  expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
+  // operator is looking at the command set. The press already paused the agent,
+  // so the first slot offers the resume rather than a second pause.
+  await expectCommandSurface(keys, CMD_COMMANDS_PAUSED, page)
 
   // Back out and confirm the fleet itself moved — the agent is now bucketed as
   // paused and its key offers resume. Feedback text alone would not prove this.
@@ -184,9 +206,12 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // key a third time — another press would toggle the control straight back.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
+  // SP-302's full-width cmd panel carries the CONTROLLING relabel, so read it
+  // off the panel rather than the segment row the panel steps aside.
   await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
-  await expect(keys).toHaveCount(0)
-  expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
+  // The resume landed before this render, so the same slot has flipped back to
+  // Pause — the label is reading real state, not a fixed list.
+  await expectCommandSurface(keys, CMD_COMMANDS_RUNNING, page)
 
   // ---------------------------------------------------------------- step 5 --
   // Descend from cmd into the focused agent's logs.
