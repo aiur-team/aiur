@@ -475,9 +475,16 @@
       var keys = Array.prototype.slice.call(this.el.querySelectorAll("[data-streamdeck-command]"));
       keys.forEach(function (key) {
         var command = key.getAttribute("data-streamdeck-command");
+        // Read-only mode renders fleet-control keys `disabled`. Skip binding them
+        // entirely so a read-only dashboard emits no control call at all, rather
+        // than relying on the server to refuse one the client still sent.
+        if (key.disabled) return;
+
         if (command === "mic") {
           self._micKey = key;
-          self._onMicDown = function () { self._setMic(true); };
+          // preventDefault keeps a press-and-hold from turning into a synthesized
+          // click, text selection, or a mobile long-press context menu.
+          self._onMicDown = function (e) { if (e && e.preventDefault) e.preventDefault(); self._setMic(true); };
           self._onMicUp = function () { self._setMic(false); };
           key.addEventListener("pointerdown", self._onMicDown);
           key.addEventListener("pointerup", self._onMicUp);

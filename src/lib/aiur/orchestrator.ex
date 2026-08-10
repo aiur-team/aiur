@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.{Alerts, Issue}
   alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentWake}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
-  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PushRouting, RetryEngine}
+  alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.{TokenAccounting, TrackedSet, TrackerHealth, WorkspaceCleanup}
@@ -412,6 +412,16 @@ defmodule Aiur.Orchestrator do
           {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(server, identifier), do: PauseResume.resume_agent(server, identifier)
 
+  @spec prioritize_agent(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
+  def prioritize_agent(identifier), do: PriorityControl.prioritize_agent(identifier)
+  @spec prioritize_agent(GenServer.server(), String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
+  def prioritize_agent(server, identifier), do: PriorityControl.prioritize_agent(server, identifier)
+
+  @spec deprioritize_agent(String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
+  def deprioritize_agent(identifier), do: PriorityControl.deprioritize_agent(identifier)
+  @spec deprioritize_agent(GenServer.server(), String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
+  def deprioritize_agent(server, identifier), do: PriorityControl.deprioritize_agent(server, identifier)
+
   @spec control_lifecycle(String.t()) :: {:ok, map()} | {:error, term()}
   def control_lifecycle(identifier), do: PauseResume.control_lifecycle(identifier)
   @spec control_lifecycle(GenServer.server(), String.t()) :: {:ok, map()} | {:error, term()}
@@ -646,6 +656,18 @@ defmodule Aiur.Orchestrator do
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
+
+  def handle_call({:prioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
+    do: PriorityControl.prioritize_agent_call(state, issue_identifier)
+
+  def handle_call({:prioritize_agent, _issue_identifier}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
+
+  def handle_call({:deprioritize_agent, issue_identifier}, _from, state) when is_binary(issue_identifier),
+    do: PriorityControl.deprioritize_agent_call(state, issue_identifier)
+
+  def handle_call({:deprioritize_agent, _issue_identifier}, _from, state),
+    do: {:reply, {:error, :invalid_identifier}, state}
 
   def handle_call({:reset_dispatch_budget, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
