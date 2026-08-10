@@ -186,7 +186,24 @@ defmodule AiurWeb.StreamdeckLive do
       {key_face_css()}
 
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
-        <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
+        <%!--
+        The device root carries the mode state the end-to-end operator spec reads.
+        The per-mode tickets move the markup that renders each mode — the design
+        makes the cmd keys the command set and the logs keys the event window — so
+        the composition spec reads the state from the one element that survives
+        every mode, rather than from whichever pane happens to hold it today.
+        --%>
+        <div
+          class="sd-device"
+          role="group"
+          aria-label="Stream Deck + control surface"
+          data-mode={@sd_mode}
+          data-controlling={@sd_active && @sd_mode != :grid && @sd_active.identifier}
+          data-log-events-offset={@logs.events_offset}
+          data-log-events-max-offset={@logs.events_max_offset}
+          data-log-transcript-offset={@logs.transcript_offset}
+          data-log-transcript-max-offset={@logs.transcript_max_offset}
+        >
           <header class="sd-brand">
             <svg class="sd-brand-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2" />
@@ -254,11 +271,26 @@ defmodule AiurWeb.StreamdeckLive do
           <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands">
             <p class="sd-mode-label">Commands</p>
             <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
+            <%!--
+            The design's cmd slots are Pause, Prioritize, Logs and Mic, and the
+            first two carry the agent's own state: Pause reads Play once the
+            agent is paused, Prioritize reads Deprioritize once it is prioritized
+            (docs/design/streamdeck/README.md, "cmd"). Only Logs is wired here;
+            SP-202 and SP-205 give the other three their real controls.
+            --%>
             <ul class="sd-cmd-list" aria-label="Available commands">
-              <li class="sd-cmd-item">Run tests</li>
-              <li class="sd-cmd-item">Deploy staging</li>
-              <li class="sd-cmd-item" phx-click="command-press" phx-value-command="logs">View logs</li>
-              <li class="sd-cmd-item">Open PR</li>
+              <li class="sd-cmd-item" data-streamdeck-command="pause">
+                <span class="sd-cmd-label">{if @sd_active.bucket == :paused, do: "Play", else: "Pause"}</span>
+              </li>
+              <li class="sd-cmd-item" data-streamdeck-command="prioritize">
+                <span class="sd-cmd-label">{if Map.get(@sd_active, :priority, false), do: "Deprioritize", else: "Prioritize"}</span>
+              </li>
+              <li class="sd-cmd-item" data-streamdeck-command="logs" phx-click="command-press" phx-value-command="logs">
+                <span class="sd-cmd-label">Logs</span>
+              </li>
+              <li class="sd-cmd-item" data-streamdeck-command="mic">
+                <span class="sd-cmd-label">Mic</span>
+              </li>
             </ul>
           </div>
           <% end %>

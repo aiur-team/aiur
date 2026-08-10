@@ -8,7 +8,12 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // not merely when the page fails to render.
 
 const CONTROLLED = '1352'
-const CMD_COMMANDS = ['Run tests', 'Deploy staging', 'View logs', 'Open PR']
+// docs/design/streamdeck/README.md, "cmd": the eight key slots become four
+// commands and four blanks — Pause, Prioritize, Logs, Mic. Slot 1 "toggles to
+// Play, when `control === "Paused"`", so the word it carries is the agent's live
+// state and the operator reads the action the key will actually take. This spec
+// asserts the designed command set, not whichever placeholder renders today.
+const cmdCommands = (slotOne) => [slotOne, 'Prioritize', 'Logs', 'Mic']
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')
@@ -62,8 +67,45 @@ async function gridDialEcho(keys) {
   return Number.parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
 }
 
+// The design puts the commands on the key slots, so SP-202 moves them out of
+// `#sd-cmd-view` and onto `#sd-keys`. Both carry `data-mode-view="cmd"` and label
+// each command with `.sd-cmd-label`, which is the part the operator reads.
 function commandLabels(page) {
-  return page.locator('#sd-cmd-view .sd-cmd-item').allInnerTexts()
+  return page.locator('[data-mode-view="cmd"] .sd-cmd-label').allInnerTexts()
+}
+
+// Everything cmd mode owes the operator, asserted through the parts the design
+// names rather than the markup that happens to carry them today.
+//
+// The identity check is the design's, from README "Touch strip": in `cmd` "the
+// pager segment relabels to `CONTROLLING` with the agent's number". Both halves
+// are asserted — the relabel and the number — so this stays a proof that the
+// operator can read who they are controlling. SP-302 moves that relabel onto the
+// full-width cmd panel, which is still inside `#sd-screen`, so the strip is the
+// stable place to read it from.
+//
+// The grid check is also the design's, from README "cmd": "the eight key slots
+// become four commands and four blanks". The keys therefore survive cmd mode —
+// what must be gone is the *agent* grid, and `data-grid-page` is the attribute
+// that only the agent grid carries.
+async function expectControllingCmd(page, device, slotOne) {
+  await expect(device).toHaveAttribute('data-mode', 'cmd')
+  await expect(device).toHaveAttribute('data-controlling', CONTROLLED)
+
+  const screen = page.locator('#sd-screen')
+  await expect(screen).toContainText('CONTROLLING')
+  await expect(screen).toContainText(`#${CONTROLLED}`)
+
+  await expect(page.locator('#sd-keys[data-grid-page]')).toHaveCount(0)
+  expect(await commandLabels(page)).toEqual(cmdCommands(slotOne))
+}
+
+// The scroll state the operator drives lives in the LiveView's `@logs` assigns.
+// Which element renders it is per-mode-ticket territory — the design moves the
+// event window onto the keys and the transcript onto the strip — so read it from
+// the device root, the one element every mode keeps.
+async function logOffset(device, name) {
+  return Number.parseInt(await device.getAttribute(`data-log-${name}`), 10)
 }
 
 // Free dial turns move the column offset without landing on a window boundary,
@@ -161,12 +203,9 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // ---------------------------------------------------------------- step 4 --
   // Press the running agent's key: it enters cmd mode and pauses the agent.
   await controlled.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
-  // Cmd mode replaces the key faces, it does not merely relabel the strip: the
-  // agent grid is gone and the operator is looking at the command set.
-  await expect(keys).toHaveCount(0)
-  expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
+  // The press pauses the agent on its way into cmd, so slot 1 must already offer
+  // Play: the operator is looking at the state their own press just produced.
+  await expectControllingCmd(page, device, 'Play')
 
   // Back out and confirm the fleet itself moved — the agent is now bucketed as
   // paused and its key offers resume. Feedback text alone would not prove this.
@@ -179,53 +218,50 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // cmd, so the operator continues into logs from here rather than pressing the
   // key a third time — another press would toggle the control straight back.
   await controlled.click()
-  await expect(device).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
-  await expect(keys).toHaveCount(0)
-  expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
+  // ...and this press resumed it, so the same slot has swung back to Pause.
+  await expectControllingCmd(page, device, 'Pause')
 
   // ---------------------------------------------------------------- step 5 --
   // Descend from cmd into the focused agent's logs.
   await dialD.click()
   await expect(device).toHaveAttribute('data-mode', 'logs')
-  await expect(page.locator('#sd-logs-view')).toHaveAttribute('data-focused-identifier', CONTROLLED)
+  await expect(device).toHaveAttribute('data-controlling', CONTROLLED)
 
-  // Hint arrows start at the real top bound of both panes.
-  const events = page.locator('#sd-log-events')
-  const transcript = page.locator('#sd-log-transcript')
-  await expect(events).toHaveAttribute('data-offset', '0')
-  await expect(page.locator('#sd-events-hint-up')).toHaveAttribute('aria-hidden', 'true')
+  // Both windows start at their real top bound.
+  await expect(device).toHaveAttribute('data-log-events-offset', '0')
+  await expect(device).toHaveAttribute('data-log-transcript-offset', '0')
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
 
-  // Dial D scrolls the events pane; dial A scrolls the transcript.
+  // Dial D scrolls the event window; dial A scrolls the transcript. They are
+  // separate windows, so moving one must leave the other where it was.
   await dialD.hover()
   await page.mouse.wheel(0, -100)
-  await expect(events).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-events-hint-up')).toHaveAttribute('aria-hidden', 'false')
-  await expect(transcript).toHaveAttribute('data-offset', '0')
+  await expect(device).toHaveAttribute('data-log-events-offset', '1')
+  await expect(device).toHaveAttribute('data-log-transcript-offset', '0')
 
-  // Each wheel notch is one discrete step, so overshoot the pane deliberately:
-  // the offset clamps to the real bound and the down arrow hides there.
-  const eventsMax = Number.parseInt(await events.getAttribute('data-max-offset'), 10)
+  // Each wheel notch is one discrete step, so overshoot the window deliberately:
+  // the offset clamps to the real bound rather than running past it.
+  const eventsMax = await logOffset(device, 'events-max-offset')
   expect(eventsMax).toBeGreaterThan(0)
   for (let step = 0; step < eventsMax + 3; step += 1) {
     await page.mouse.wheel(0, -100)
   }
-  await expect(events).toHaveAttribute('data-offset', String(eventsMax))
-  await expect(page.locator('#sd-events-hint-down')).toHaveAttribute('aria-hidden', 'true')
+  await expect(device).toHaveAttribute('data-log-events-offset', String(eventsMax))
 
   await dialA.hover()
   await page.mouse.wheel(0, -100)
-  await expect(transcript).toHaveAttribute('data-offset', '1')
+  await expect(device).toHaveAttribute('data-log-transcript-offset', '1')
+  // The hint arrow is state, not decoration (README, "Touch strip"): off the top
+  // bound it has somewhere to point, and at the bottom bound it does not.
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'false')
 
   // The transcript clamps at its own, different bound.
-  const transcriptMax = Number.parseInt(await transcript.getAttribute('data-max-offset'), 10)
+  const transcriptMax = await logOffset(device, 'transcript-max-offset')
   expect(transcriptMax).toBeGreaterThan(0)
   for (let step = 0; step < transcriptMax + 3; step += 1) {
     await page.mouse.wheel(0, -100)
   }
-  await expect(transcript).toHaveAttribute('data-offset', String(transcriptMax))
+  await expect(device).toHaveAttribute('data-log-transcript-offset', String(transcriptMax))
   await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
 
   // ---------------------------------------------------------------- step 6 --

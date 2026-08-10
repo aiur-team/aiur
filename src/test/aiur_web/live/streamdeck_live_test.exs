@@ -348,6 +348,48 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert_receive {:streamdeck_resume, "1345"}
   end
 
+  test "cmd mode offers the designed command set and reads slot one from the agent's state" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    # 1352 is running and already priority-starred in the fixture fleet, so both
+    # toggling slots offer the action that undoes that state.
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert command_labels(html) == ["Pause", "Deprioritize", "Logs", "Mic"]
+
+    render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+
+    # 1345 is paused and unstarred, so both slots swing the other way.
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_labels(html) == ["Play", "Prioritize", "Logs", "Mic"]
+  end
+
+  test "the device root carries the focused agent and the log scroll bounds" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    # Nothing is being controlled from the grid, so the attribute is absent
+    # rather than empty — an empty value would read as "controlling nobody".
+    refute html =~ "data-controlling="
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert html =~ ~s(data-controlling="1352")
+
+    html = render_click(view, "command-press", %{"command" => "logs"})
+    assert html =~ ~s(data-controlling="1352")
+    assert html =~ ~s(data-log-events-offset="0")
+    assert html =~ ~s(data-log-transcript-offset="0")
+
+    %{logs: logs} = streamdeck_assigns(view)
+    assert html =~ ~s(data-log-events-max-offset="#{logs.events_max_offset}")
+    assert html =~ ~s(data-log-transcript-max-offset="#{logs.transcript_max_offset}")
+
+    # The root echoes real scroll state, not the mount-time constant.
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => 1})
+    assert html =~ ~s(data-log-transcript-offset="1")
+    assert html =~ ~s(data-log-events-offset="0")
+  end
+
   test "initial mount creates one real PubSub transcript subscription" do
     {:ok, _view, _html} = live(build_conn(), "/streamdeck")
 
@@ -779,6 +821,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
   end
 
   defp streamdeck_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp command_labels(html) do
+    ~r|<span class="sd-cmd-label">([^<]+)</span>|
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match, label] -> label end)
+  end
 
   defp enter_logs(view, identifier \\ "1352") do
     render_hook(view, "key-press", %{"identifier" => identifier})

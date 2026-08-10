@@ -361,7 +361,7 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.getByText('View logs', { exact: true }).click()
+  await page.locator('[data-streamdeck-command="logs"]').click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
   await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
