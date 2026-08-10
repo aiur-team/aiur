@@ -24,8 +24,19 @@ const inheritedRuntimeNames = [
 ]
 const inflateRawAsync = promisify(inflateRaw)
 
+// The provider meter row only gives an OpenAI-compatible provider a pane when
+// its configured credential env resolves to a non-empty value, so the meter-row
+// fixture cannot reach five panes without one. These are synthetic strings that
+// never leave the fixture process and are never sent to a provider; the real
+// credentials stay out of the fixture environment as before.
+const syntheticProviderCredentials = {
+  DEEPSEEK_API_KEY: 'fixture-deepseek-key',
+  MOONSHOT_API_KEY: 'fixture-moonshot-key'
+}
+
 export function syntheticFixtureEnvironment(environment = process.env) {
   return {
+    ...syntheticProviderCredentials,
     AIUR_BROWSER_PORT: environment.AIUR_BROWSER_PORT ?? '',
     AIUR_BROWSER_FIXTURE_MODE: environment.AIUR_BROWSER_FIXTURE_MODE ?? 'synthetic'
   }
