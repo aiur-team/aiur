@@ -2,10 +2,15 @@ import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
-async function openStreamdeck(page) {
+// The fixture dashboard is read-only by default, and the command keys are gated
+// on that. Set the mode explicitly rather than relying on the default, so a test
+// that opts into `writable` cannot leak into whichever test runs after it.
+async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/auth/read_only')
   await page.goto('/')
   await page.context().setHTTPCredentials(dashboardCredentials)
+  const control = await page.goto(`/streamdeck-control/${mode}`)
+  expect(control.status()).toBe(200)
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
@@ -266,8 +271,10 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
 })
 
+// Pressing a fleet-control key needs a writable dashboard: read-only renders
+// those keys disabled and the hook never binds them.
 test('command keys render real state-derived controls, flash on click, and emit events', async ({ page }) => {
-  await openStreamdeck(page)
+  await openStreamdeck(page, 'writable')
 
   await page.locator('#sd-keys .sd-key:not(.is-empty)').first().click()
   const commands = page.locator('[data-streamdeck-command]')
@@ -305,7 +312,7 @@ test('command keys render real state-derived controls, flash on click, and emit 
 })
 
 test('command mic activates on pointerdown and deactivates on pointerup', async ({ page }) => {
-  await openStreamdeck(page)
+  await openStreamdeck(page, 'writable')
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
@@ -326,7 +333,7 @@ test('command mic activates on pointerdown and deactivates on pointerup', async 
 })
 
 test('command mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
-  await openStreamdeck(page)
+  await openStreamdeck(page, 'writable')
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
@@ -345,8 +352,57 @@ test('command mic deactivates on pointerleave (not stuck on drag-exit)', async (
   await page.mouse.up()
 })
 
-test('command mic deactivates on pointercancel', async ({ page }) => {
+test('cmd mode renders the design\'s four command keys with Mic excluded from the click path', async ({ page }) => {
   await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
+  await expect(buttons).toHaveCount(4)
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Prioritize', 'Logs', 'Mic'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'RAISE', 'SCROLL', 'HOLD'])
+
+  // Mic is the only press-and-hold key; the hook drives it from pointer events
+  // rather than the click handler it binds to the others.
+  const micButton = page.locator('[data-streamdeck-command="mic"]')
+  await expect(micButton).toHaveAttribute('data-command-hold', 'true')
+  await expect(page.locator('[data-command-hold="true"]')).toHaveCount(1)
+
+  // Logs is the control here: it is navigation rather than fleet control, so it
+  // stays enabled even in this read-only fixture. That proves the disabling
+  // asserted below is the read-only gate and not every key being inert.
+  await expect(page.locator('[data-streamdeck-command="logs"]')).toBeEnabled()
+})
+
+// The browser fixture serves the dashboard read-only, so this is the read-only
+// half of the command-key contract: the fleet-control keys are visibly disabled
+// and a hold on Mic is inert. The writable paths are covered server-side in
+// streamdeck_live_test.exs.
+test('read-only mode disables the fleet-control command keys and a mic hold does not arm it', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  for (const command of ['pause', 'priority', 'mic']) {
+    await expect(page.locator(`[data-streamdeck-command="${command}"]`)).toBeDisabled()
+    await expect(page.locator(`.sd-cmd-key:has([data-streamdeck-command="${command}"])`)).toHaveClass(/is-disabled/)
+  }
+
+  const micKey = page.locator('.sd-mic-key')
+  const micButton = micKey.locator('[data-streamdeck-command="mic"]')
+
+  // The hook skips disabled keys, so the hold never binds and the key cannot
+  // latch live no matter how long the pointer is held down.
+  await micButton.dispatchEvent('pointerdown')
+  await page.waitForTimeout(250)
+  await expect(micKey).not.toHaveClass(/mic-live/)
+  await expect(micButton).toHaveAttribute('data-command-state', 'idle')
+  await micButton.dispatchEvent('pointerup')
+})
+
+// The mic key is fleet control, so it is only armed on a writable dashboard.
+test('command mic deactivates on pointercancel', async ({ page }) => {
+  await openStreamdeck(page, 'writable')
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
@@ -359,7 +415,7 @@ test('command mic deactivates on pointercancel', async ({ page }) => {
 })
 
 test('command mic deactivates when a mode transition removes the held key', async ({ page }) => {
-  await openStreamdeck(page)
+  await openStreamdeck(page, 'writable')
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
@@ -445,6 +501,10 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await expect(page.locator('#sd-logs-view')).toBeVisible()
   await expect(page.locator('#sd-keys')).toHaveCount(0)
 })
+
+// Read-only command keys are covered by 'read-only mode disables the
+// fleet-control command keys and a mic hold does not arm it' above, which
+// asserts the same gating plus the `is-disabled` face and the inert hold.
 
 test('pager segment relabels to CONTROLLING with the focused agent and restores its dots on back', async ({ page }) => {
   await openStreamdeck(page)
@@ -776,18 +836,40 @@ test('clicking a logs event key positions the flattened transcript at that event
 
   const logKeys = page.locator('#sd-log-keys')
   await expect(logKeys.locator('.sd-key')).toHaveCount(8)
+  // Index 0 is LIVE, never an event row.
   await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
-  await expect(logKeys.locator('[data-log-event-index="2"] .sd-log-dir')).toContainText('AGENT')
-  await expect(page.locator('#sd-screen')).toContainText('event-1')
+  await expect(logKeys.locator('[data-log-event-index="0"] .sd-log-dir')).toHaveCount(0)
+  await expect(logKeys.locator('[data-log-event-index="0"] .sd-live-dot')).toHaveCount(1)
+
+  // The fixture feed gives events 1..5 the five roles that map onto the five
+  // direction badges, so each badge — and each badge's colour — is exercised.
+  const directions = ['AGENT', 'CONSUME', 'SYSTEM', 'INFO', 'EMIT']
+  const inks = new Set()
+  for (const [slot, direction] of directions.entries()) {
+    const badge = logKeys.locator(`[data-log-event-index="${slot + 1}"] .sd-log-dir`)
+    await expect(badge).toContainText(direction)
+    await expect(badge).toHaveAttribute('data-dir', direction)
+    inks.add(await badge.evaluate((el) => getComputedStyle(el).color))
+  }
+  // EMIT and AGENT share one blue by design; the other three are distinct.
+  expect(inks.size).toBe(4)
+
+  const strip = page.locator('#sd-screen')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toContainText('event-1')
 
   await logKeys.locator('[data-log-event-index="2"]').click()
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
-  await expect(page.locator('#sd-log-transcript')).toContainText('event-2')
-  await expect(page.locator('#sd-screen')).toContainText('event-2')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '2')
+  await expect(strip).toContainText('event-2')
+  // The strip moved off the pre-click head rather than merely gaining a line.
+  // `event-1` starts at offset 0 and `event-10` at 18, so neither belongs in
+  // the two-line window at offset 2.
+  await expect(strip).not.toContainText('event-1')
   await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
 
   await logKeys.locator('[data-log-event-index="1"]').press('Enter')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toContainText('event-1')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
@@ -800,10 +882,10 @@ test('dial A pointer direction controls transcript scroll direction in logs mode
 
   const dialA = page.locator('.sd-knob').first()
   await dragDialThroughAngles(page, dialA, [-90, 0, 90])
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '1')
 
   await dragDialThroughAngles(page, dialA, [90, 0, -90])
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '0')
 })
 
 test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {

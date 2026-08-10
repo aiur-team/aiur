@@ -77,6 +77,16 @@ defmodule Aiur.AgentChat do
     Orchestrator.resume_agent(issue_identifier)
   end
 
+  @spec prioritize(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
+  def prioritize(issue_identifier) when is_binary(issue_identifier) do
+    Orchestrator.prioritize_agent(issue_identifier)
+  end
+
+  @spec deprioritize(String.t()) :: {:ok, :deprioritized | :already_deprioritized} | {:error, term()}
+  def deprioritize(issue_identifier) when is_binary(issue_identifier) do
+    Orchestrator.deprioritize_agent(issue_identifier)
+  end
+
   @spec request_control(String.t(), :pause | :resume, pos_integer()) :: {:ok, pos_integer()} | {:error, term()}
   def request_control(issue_identifier, action, request_id)
       when is_binary(issue_identifier) and action in [:pause, :resume] and is_integer(request_id) and request_id > 0 do

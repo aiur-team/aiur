@@ -14,11 +14,10 @@ defmodule AiurWeb.StreamdeckLogs do
   @events_window_size 8
   @transcript_window_size 2
 
-  alias AiurWeb.StreamdeckKeyFaceContract
-
-  # The five direction categories and their colours live in the shared key-face
-  # contract so the web emulator and the packaged deck cannot drift apart.
-  @directions ~w(EMIT CONSUME INFO AGENT SYSTEM)
+  # The badge is the only thing the projection emits; the shared key-face
+  # contract owns both the set of directions and the colour each one paints
+  # with, so the emulator and the packaged deck cannot drift apart.
+  @directions Map.keys(AiurWeb.StreamdeckKeyFaceContract.direction_badges())
 
   @spec project([map()]) :: map()
   def project(entries) when is_list(entries) do
@@ -33,6 +32,8 @@ defmodule AiurWeb.StreamdeckLogs do
     event_keys = [%{kind: :live, id: :live, index: 0, label: "LIVE"} | Enum.map(events, &event_key/1)]
 
     %{
+      # Retained so `refresh_relative_times/2` can re-derive each key's age from
+      # the real timestamp without rebuilding the feed.
       events: events,
       event_keys: event_keys,
       event_starts: event_starts,
@@ -68,24 +69,42 @@ defmodule AiurWeb.StreamdeckLogs do
     |> visible()
   end
 
-  @doc "Refreshes entries while retaining the selected event when it is still present."
+  @doc """
+  Refreshes entries while retaining the operator's reading position.
+
+  The relay flushes several times a second, so re-projecting alone is not
+  enough: the selected event, how far into that event the transcript is
+  scrolled, and where the eight-key window sits all have to survive the flush.
+  The transcript position is carried as a delta from the selected event's start
+  offset, because the absolute offset moves whenever a newer event is prepended.
+  """
   @spec refresh(map(), [map()]) :: map()
   def refresh(logs, entries) do
     refreshed = project(entries)
+    selected_id = Map.get(logs, :selected_event_id)
 
-    case Map.get(logs, :selected_event_id) do
-      id when not is_nil(id) and id != :live ->
-        case Enum.find(refreshed.event_keys, &(&1.id == id)) do
-          nil -> refreshed
-          key -> select_event(refreshed, key.index)
-        end
-
-      _ ->
-        refreshed
+    with id when not is_nil(id) and id != :live <- selected_id,
+         key when not is_nil(key) <- Enum.find(refreshed.event_keys, &(&1.id == id)) do
+      refreshed
+      |> select_event(key.index)
+      |> shift_transcript(transcript_delta(logs))
+      |> restore_events_offset(logs)
+    else
+      # LIVE follows the head of the feed, so the transcript position is not
+      # carried; only the key window the operator scrolled with dial D is.
+      :live -> restore_events_offset(refreshed, logs)
+      _ -> refreshed
     end
   end
 
-  @doc "Refreshes the relative times shown on event keys without rebuilding the feed."
+  @doc """
+  Re-derives the age shown on each event key against `now`.
+
+  `refresh/2` only runs when the feed changes, so on an idle agent a key face
+  would otherwise read "now" indefinitely. This recomputes the relative times
+  from the events' real timestamps without rebuilding the feed, leaving the
+  selection, both offsets and the flattened transcript untouched.
+  """
   @spec refresh_relative_times(map(), DateTime.t()) :: map()
   def refresh_relative_times(logs, now \\ DateTime.utc_now()) do
     times = Map.new(logs.events, fn event -> {event.index, relative_time(event.timestamp, now)} end)
@@ -164,19 +183,20 @@ defmodule AiurWeb.StreamdeckLogs do
   end
 
   defp event_key(event) do
-    badge = direction(event.badge)
-
     %{
       kind: :event,
       id: event.id,
       index: event.index,
-      badge: badge,
-      color: StreamdeckKeyFaceContract.direction_badge!(badge)["color"],
+      badge: direction(event.badge),
       text: event.body,
       time: relative_time(event.timestamp)
     }
   end
 
+  # `turn_id` is what the classified feed always sets, and it is what makes an
+  # event stable across refreshes. The remaining clauses only matter for
+  # synthetic or partial entries, where two byte-identical entries collide and
+  # `refresh/2` may reselect the sibling.
   defp event_id(entry) do
     cond do
       turn_id = value(entry, :turn_id) -> {:turn, turn_id}
@@ -213,6 +233,28 @@ defmodule AiurWeb.StreamdeckLogs do
     [%{kind: :event_header, badge: event.badge, body: event.body, timestamp: event.timestamp} | event.entries]
   end
 
+  defp transcript_delta(logs) do
+    starts = Map.get(logs, :event_starts) || %{}
+    selected_start = Map.get(starts, Map.get(logs, :selected_event_index, 0), 0)
+    Map.get(logs, :transcript_offset, 0) - selected_start
+  end
+
+  defp shift_transcript(logs, 0), do: logs
+
+  defp shift_transcript(logs, delta) do
+    logs
+    |> Map.put(:transcript_offset, clamp(logs.transcript_offset + delta, 0, logs.transcript_max_offset))
+    |> visible()
+  end
+
+  # Deliberately not `ensure_visible/1`: dial D may legitimately have scrolled
+  # the key window away from the selection, and a flush must not drag it back.
+  defp restore_events_offset(logs, previous) do
+    logs
+    |> Map.put(:events_offset, clamp(Map.get(previous, :events_offset, 0), 0, logs.events_max_offset))
+    |> visible()
+  end
+
   defp event_window(logs) do
     logs.event_keys
     |> Enum.slice(logs.events_offset, @events_window_size)
@@ -230,6 +272,9 @@ defmodule AiurWeb.StreamdeckLogs do
     if badge in @directions, do: badge, else: "INFO"
   end
 
+  # `now` is injected rather than read inline so `refresh_relative_times/2` can
+  # re-age every key against a single instant, and so a test can assert that the
+  # faces advance without sleeping.
   defp relative_time(timestamp), do: relative_time(timestamp, DateTime.utc_now())
 
   defp relative_time(timestamp, now) when is_binary(timestamp) and is_struct(now, DateTime) do
@@ -244,8 +289,10 @@ defmodule AiurWeb.StreamdeckLogs do
           true -> "#{div(seconds, 86_400)}d"
         end
 
+      # A non-ISO8601 stamp is not a duration, and a key face is six characters
+      # wide, so show a truncated literal rather than overflowing the face.
       _ ->
-        timestamp
+        String.slice(timestamp, 0, 6)
     end
   end
 
