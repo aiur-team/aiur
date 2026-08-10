@@ -162,7 +162,11 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // Press the running agent's key: it enters cmd mode and pauses the agent.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
+  // SP-302 gives cmd mode a full-width agent panel (streamdeck.design.js's
+  // sdBuildCmdStrip replaces the whole screen), so the segment row — pager
+  // included — steps aside and the CONTROLLING relabel rides the panel. The
+  // operator still reads which agent they are controlling; it just moved.
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
   // Cmd mode replaces the key faces, it does not merely relabel the strip: the
   // agent grid is gone and the operator is looking at the command set.
   await expect(keys).toHaveCount(0)
@@ -180,7 +184,7 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // key a third time — another press would toggle the control straight back.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
   await expect(keys).toHaveCount(0)
   expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
 

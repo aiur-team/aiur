@@ -302,6 +302,15 @@ defmodule AiurWeb.StreamdeckLive do
                 </div>
               </li>
             </ul>
+            <%!-- SP-203 turned the event window into the key faces above, so this
+                  pane no longer paints event lines. It stays as the event
+                  window's state mirror — the same role #sd-log-transcript plays
+                  below, both hidden by .sd-log-body — so the offset bounds that
+                  drive the dial-D EVENTS hint remain observable. --%>
+            <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
+              <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
+              <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
+            </div>
             <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
               <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
               <p :for={entry <- @logs.transcript_visible} class="sd-log-line" data-log-kind={entry.kind}>{StreamdeckLogs.line(entry)}</p>
