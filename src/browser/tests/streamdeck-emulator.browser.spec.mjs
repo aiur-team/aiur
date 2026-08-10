@@ -290,10 +290,28 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await page.getByText('View logs', { exact: true }).click()
+  await page.locator('[data-streamdeck-command="logs"]').click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toBeVisible()
   await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
+})
+
+// The browser fixture serves the dashboard read-only, so the fleet command
+// keys must look disabled rather than silently swallowing a control call.
+test('read-only command keys render disabled while Logs stays available', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  const control = page.locator('[data-streamdeck-command="pause"], [data-streamdeck-command="resume"]')
+  await expect(control).toBeDisabled()
+  await expect(control).toHaveAttribute('aria-disabled', 'true')
+
+  const priority = page.locator('[data-streamdeck-command="prioritize"], [data-streamdeck-command="deprioritize"]')
+  await expect(priority).toBeDisabled()
+
+  await expect(page.locator('[data-streamdeck-command="logs"]')).toBeEnabled()
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {

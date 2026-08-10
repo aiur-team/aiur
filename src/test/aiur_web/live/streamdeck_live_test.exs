@@ -27,13 +27,28 @@ defmodule AiurWeb.StreamdeckLiveTest do
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
         streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
         streamdeck_logs_fun: &fixture_logs/1,
+        # The control seams stand in for the orchestrator: they settle the
+        # shared snapshot the same way a real control call would, so the view
+        # can only render the new state by re-reading that snapshot.
         agent_chat_pause_fun: fn identifier ->
           send(test_pid, {:streamdeck_pause, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, work_state: :paused))
           {:ok, 1}
         end,
         agent_chat_resume_fun: fn identifier ->
           send(test_pid, {:streamdeck_resume, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, work_state: :working))
           {:ok, :resumed}
+        end,
+        agent_chat_prioritize_fun: fn identifier ->
+          send(test_pid, {:streamdeck_prioritize, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, priority: 1))
+          {:ok, :prioritized}
+        end,
+        agent_chat_deprioritize_fun: fn identifier ->
+          send(test_pid, {:streamdeck_deprioritize, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, priority: nil))
+          {:ok, :deprioritized}
         end
       )
 
@@ -273,6 +288,120 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Resume requested for #1345"
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
     assert_receive {:streamdeck_resume, "1345"}
+  end
+
+  test "the pause command key controls the agent and adopts the state the orchestrator settles on" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # The key-press pause already settled the snapshot, but the view has not
+    # re-read it yet, so the command key still offers Pause.
+    assert html =~ ~s(data-streamdeck-command="pause")
+    assert html =~ ~s(data-command-state="running")
+
+    html = render_click(view, "command-press", %{"command" => "pause"})
+
+    assert_receive {:streamdeck_pause, "1352"}
+    assert html =~ "Pause requested for #1352"
+    assert html =~ ~s(data-streamdeck-command="resume")
+    assert html =~ ~s(data-command-state="paused")
+    refute html =~ ~s(data-streamdeck-command="pause")
+
+    html = render_click(view, "command-press", %{"command" => "resume"})
+
+    assert_receive {:streamdeck_resume, "1352"}
+    assert html =~ "Resume requested for #1352"
+    assert html =~ ~s(data-streamdeck-command="pause")
+    assert html =~ ~s(data-command-state="running")
+    refute html =~ ~s(data-streamdeck-command="resume")
+  end
+
+  test "the priority command key changes real dispatch priority and re-renders the star" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # Slot 1 is the prioritized running agent, so the deprioritize key is offered.
+    assert html =~ ~s(data-streamdeck-command="deprioritize")
+
+    html = render_click(view, "command-press", %{"command" => "deprioritize"})
+
+    assert_receive {:streamdeck_deprioritize, "1352"}
+    assert html =~ "Deprioritize requested for #1352"
+    assert html =~ ~s(data-streamdeck-command="prioritize")
+    assert html =~ ~s(data-command-state="standard")
+    refute html =~ ~s(class="sd-key-priority")
+
+    html = render_click(view, "command-press", %{"command" => "prioritize"})
+
+    assert_receive {:streamdeck_prioritize, "1352"}
+    assert html =~ "Prioritize requested for #1352"
+    assert html =~ ~s(data-streamdeck-command="deprioritize")
+    assert html =~ ~s(data-command-state="prioritized")
+  end
+
+  test "read-only mode renders the command keys disabled and refuses the control call" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      assert html =~ ~s(<li class="sd-cmd-item is-disabled">)
+      assert html =~ ~s(aria-disabled="true")
+      assert html =~ ~s(disabled)
+      # Logs is navigation rather than fleet control, so it stays available.
+      assert html =~ ~s(data-streamdeck-command="logs" data-command-state="ready")
+
+      html = render_click(view, "command-press", %{"command" => "pause"})
+
+      assert html =~ "Read-only dashboard: controls are disabled"
+      refute_receive {:streamdeck_pause, "1352"}
+
+      render_click(view, "command-press", %{"command" => "prioritize"})
+      refute_receive {:streamdeck_prioritize, "1352"}
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
+  end
+
+  test "a failed command control call surfaces in the status region instead of being swallowed" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+
+    failing_config =
+      Keyword.merge(endpoint_config,
+        agent_chat_pause_fun: fn _identifier -> {:error, :tracker_unavailable} end,
+        agent_chat_prioritize_fun: fn _identifier -> raise "tracker exploded" end
+      )
+
+    Endpoint.config_change(%{Endpoint => failing_config}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      html = render_click(view, "command-press", %{"command" => "pause"})
+
+      assert html =~ "Pause failed: :tracker_unavailable"
+      # The failed call must not flip the key: the agent is still running.
+      assert html =~ ~s(data-streamdeck-command="pause")
+      assert html =~ ~s(data-command-state="running")
+
+      html = render_click(view, "command-press", %{"command" => "deprioritize"})
+      assert html =~ "Deprioritize requested for #1352"
+
+      html = render_click(view, "command-press", %{"command" => "prioritize"})
+
+      assert html =~ "Prioritize failed:"
+      assert html =~ "tracker exploded"
+      assert html =~ ~s(data-streamdeck-command="prioritize")
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
   end
 
   test "initial mount creates one real PubSub transcript subscription" do
@@ -543,6 +672,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
         fixture_agent("1377", "Extra fourteen", "codex", waiting_reason: :waiting_for_dependency)
       ]
     }
+  end
+
+  defp put_fixture_agent(snapshot, identifier, attrs) do
+    Map.new(snapshot, fn {bucket, entries} ->
+      {bucket, Enum.map(entries, fn entry -> if entry.identifier == identifier, do: Map.merge(entry, Map.new(attrs)), else: entry end)}
+    end)
   end
 
   defp fixture_agent(identifier, title, backend, attrs \\ []) do

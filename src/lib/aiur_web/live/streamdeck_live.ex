@@ -20,6 +20,8 @@ defmodule AiurWeb.StreamdeckLive do
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
+  @control_commands ~w(pause resume prioritize deprioritize)
+
   @streamdeck_package %{
     version: "0.0.0-dev.0098e3ac86a2",
     commit: "0098e3ac86a2e49e685e8e6ff67248373de43f1d",
@@ -116,6 +118,16 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("command-press", %{"command" => "logs"}, socket), do: {:noreply, enter_logs(socket)}
+
+  def handle_event("command-press", %{"command" => command}, socket) when command in @control_commands do
+    if dashboard_writable?() do
+      {:noreply, invoke_command(socket, command)}
+    else
+      {:noreply, assign(socket, :control_feedback, "Read-only dashboard: controls are disabled")}
+    end
+  end
+
+  def handle_event("command-press", _params, socket), do: {:noreply, socket}
 
   def handle_event("dial-press", %{"action" => "back"}, socket), do: {:noreply, back(socket)}
 
@@ -223,10 +235,21 @@ defmodule AiurWeb.StreamdeckLive do
             <p class="sd-mode-label">Commands</p>
             <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
             <ul class="sd-cmd-list" aria-label="Available commands">
-              <li class="sd-cmd-item">Run tests</li>
-              <li class="sd-cmd-item">Deploy staging</li>
-              <li class="sd-cmd-item" phx-click="command-press" phx-value-command="logs">View logs</li>
-              <li class="sd-cmd-item">Open PR</li>
+              <li :for={command <- command_keys(@sd_active)} class={["sd-cmd-item", command.disabled? && "is-disabled"]}>
+                <button
+                  type="button"
+                  class="sd-cmd-button"
+                  data-streamdeck-command={command.command}
+                  data-command-state={command.state}
+                  data-streamdeck-identifier={@selected_identifier}
+                  disabled={command.disabled?}
+                  aria-disabled={to_string(command.disabled?)}
+                  phx-click={!command.disabled? && "command-press"}
+                  phx-value-command={command.command}
+                >
+                  {command.label}
+                </button>
+              </li>
             </ul>
           </div>
           <% end %>
@@ -593,6 +616,46 @@ defmodule AiurWeb.StreamdeckLive do
   defp control_action(:paused), do: "resume"
   defp control_action(_bucket), do: nil
 
+  # The command keys are derived from the agent the orchestrator currently
+  # reports, never from an optimistic local toggle, so a control call that the
+  # orchestrator rejects leaves the key showing the state that actually holds.
+  defp command_keys(agent) do
+    writable? = dashboard_writable?()
+    paused? = Map.get(agent || %{}, :bucket) == :paused
+    prioritized? = Map.get(agent || %{}, :priority) == true
+
+    [
+      command_key(if(paused?, do: "resume", else: "pause"), if(paused?, do: "Play", else: "Pause"), if(paused?, do: "paused", else: "running"), writable?),
+      command_key(
+        if(prioritized?, do: "deprioritize", else: "prioritize"),
+        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
+        if(prioritized?, do: "prioritized", else: "standard"),
+        writable?
+      ),
+      command_key("logs", "View logs", "ready", true)
+    ]
+  end
+
+  defp command_key(command, label, state, writable?),
+    do: %{command: command, label: label, state: state, disabled?: not writable?}
+
+  defp invoke_command(socket, command) do
+    case socket.assigns.sd_active do
+      %{identifier: identifier} when not is_nil(identifier) ->
+        socket
+        |> invoke_agent_control(to_string(identifier), control_action_for(command))
+        |> refresh_grid()
+
+      _agent ->
+        assign(socket, :control_feedback, "No agent selected")
+    end
+  end
+
+  defp control_action_for("pause"), do: :pause
+  defp control_action_for("resume"), do: :resume
+  defp control_action_for("prioritize"), do: :prioritize
+  defp control_action_for("deprioritize"), do: :deprioritize
+
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do
       {:ok, _request_id} ->
@@ -607,6 +670,20 @@ defmodule AiurWeb.StreamdeckLive do
     case safe_control_call(fn -> resume_agent(identifier) end) do
       {:ok, _result} -> assign(socket, :control_feedback, "Resume requested for ##{identifier}")
       {:error, reason} -> assign(socket, :control_feedback, "Resume failed: #{inspect(reason)}")
+    end
+  end
+
+  defp invoke_agent_control(socket, identifier, :prioritize) do
+    case safe_control_call(fn -> prioritize_agent(identifier) end) do
+      {:ok, _result} -> assign(socket, :control_feedback, "Prioritize requested for ##{identifier}")
+      {:error, reason} -> assign(socket, :control_feedback, "Prioritize failed: #{inspect(reason)}")
+    end
+  end
+
+  defp invoke_agent_control(socket, identifier, :deprioritize) do
+    case safe_control_call(fn -> deprioritize_agent(identifier) end) do
+      {:ok, _result} -> assign(socket, :control_feedback, "Deprioritize requested for ##{identifier}")
+      {:error, reason} -> assign(socket, :control_feedback, "Deprioritize failed: #{inspect(reason)}")
     end
   end
 
@@ -806,6 +883,20 @@ defmodule AiurWeb.StreamdeckLive do
     case endpoint_config(:agent_chat_resume_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.resume(identifier)
+    end
+  end
+
+  defp prioritize_agent(identifier) do
+    case endpoint_config(:agent_chat_prioritize_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.prioritize(identifier)
+    end
+  end
+
+  defp deprioritize_agent(identifier) do
+    case endpoint_config(:agent_chat_deprioritize_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.deprioritize(identifier)
     end
   end
 

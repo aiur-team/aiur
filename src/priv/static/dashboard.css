@@ -7988,7 +7988,7 @@ html[data-theme="light"] .sd-device {
 }
 
 .sd-cmd-item {
-  padding: 0.4rem 0.6rem;
+  padding: 0;
   border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 6px;
   color: var(--fg);
@@ -7996,8 +7996,30 @@ html[data-theme="light"] .sd-device {
   cursor: pointer;
 }
 
+.sd-cmd-button {
+  display: block;
+  width: 100%;
+  padding: 0.4rem 0.6rem;
+  background: none;
+  border: 0;
+  border-radius: inherit;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: inherit;
+}
+
 .sd-cmd-item:hover {
   background: rgba(255, 255, 255, 0.06);
+}
+
+.sd-cmd-item.is-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.sd-cmd-item.is-disabled:hover {
+  background: none;
 }
 
 .sd-log-body {
