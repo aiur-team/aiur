@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 
+// The same golden table `src/test/aiur_web/streamdeck_key_face_contract_test.exs`
+// asserts against. These are literal expected renderings, not a restatement of
+// the formula: a hue rounded differently in one language, or a contract value
+// changed on one side only, fails here rather than drifting silently.
+import vectors from "../src/key-face-parity-vectors.json" with { type: "json" };
 import {
   BADGE_IDS,
   BUCKET_IDS,
@@ -9,43 +14,76 @@ import {
   directionBadgeColor,
   KEY_FACE_CONTRACT,
   progressBarColor,
+  type DirectionBadge,
 } from "../src/key-face-contract.js";
-import { layoutKeys, type AgentInput } from "../src/keys.js";
+import { layoutKeys, type AgentInput, type AgentKey } from "../src/keys.js";
 import { badgeColor } from "../src/logs.js";
 
-const agent = (bucket: AgentInput["bucket"]): AgentInput => ({
+function firstAgentKey(input: AgentInput): AgentKey {
+  const key = layoutKeys([input], 0)[0];
+  if (key.kind !== "agent") throw new Error(`expected an agent key, received ${key.kind}`);
+  return key;
+}
+
+const agent = (bucket: AgentInput["bucket"], overrides: Partial<AgentInput> = {}): AgentInput => ({
   identifier: bucket,
   title: `${bucket} agent`,
   vendor: "codex",
   bucket,
   progress_percent: 50,
   priority: false,
+  ...overrides,
 });
 
 describe("key-face contract parity", () => {
-  it.each(BUCKET_IDS)("derives the package state token and rank for %s from shared data", (bucket) => {
-    const state = KEY_FACE_CONTRACT.states[bucket];
-    const key = layoutKeys([agent(bucket)], 0)[0];
-
-    expect(key).toMatchObject({ kind: "agent", style: { accent: state.accent, glow: state.glow, face: state.face, label: state.label } });
-    expect(bucketContract(bucket)).toBe(state);
-    expect(bucketRank(bucket)).toBe(state.rank);
+  it("covers every contract state and direction badge in the parity table", () => {
+    expect(vectors.states.map((vector) => vector.bucket).sort()).toEqual([...BUCKET_IDS].sort());
+    expect(vectors.direction_badges.map((vector) => vector.badge).sort()).toEqual([...BADGE_IDS].sort());
   });
 
-  it.each([0, 50, 100])("uses the shared progress formula for %i%%", (percent) => {
-    const progress = KEY_FACE_CONTRACT.progress;
-    const hue = progress.hue_start + ((percent - progress.minimum) / (progress.maximum - progress.minimum)) * (progress.hue_end - progress.hue_start);
-    expect(progressBarColor(percent)).toBe(`hsl(${Number(hue.toFixed(progress.round_decimals))} ${progress.saturation}% ${progress.lightness}%)`);
+  it.each(vectors.states)("renders $bucket with the parity-table state tokens", (vector) => {
+    const bucket = vector.bucket as (typeof BUCKET_IDS)[number];
+    const key = firstAgentKey(agent(bucket));
+
+    expect(key).toMatchObject({
+      kind: "agent",
+      style: {
+        accent: vector.accent,
+        glow: vector.glow,
+        face: vector.face,
+        label: vector.label,
+        ...(vector.pulse_seconds === null ? {} : { pulseSeconds: vector.pulse_seconds }),
+      },
+    });
+    if (vector.pulse_seconds === null) expect(key.style).not.toHaveProperty("pulseSeconds");
+    expect(bucketRank(bucket)).toBe(vector.rank);
+    expect(bucketContract(bucket).rank).toBe(vector.rank);
   });
 
-  it.each(BADGE_IDS)("uses the shared direction-badge colour for %s", (badge) => {
-    expect(badgeColor(badge)).toBe(KEY_FACE_CONTRACT.direction_badges[badge].color);
-    expect(directionBadgeColor(badge)).toBe(KEY_FACE_CONTRACT.direction_badges[badge].color);
+  it.each(vectors.progress)("maps $percent%% progress to the parity-table hue", (vector) => {
+    expect(progressBarColor(vector.percent)).toBe(vector.color);
   });
 
-  it("renders an agent with absent readiness as blocked", () => {
-    const key = layoutKeys([agent("queued")], 0)[0];
-    expect(key).toMatchObject({ kind: "agent", footer: { kind: "queued", unblocked: false, statusLabel: KEY_FACE_CONTRACT.footers.queued.blocked_label } });
+  it.each(vectors.direction_badges)("uses the parity-table colour for $badge", (vector) => {
+    const badge = vector.badge as DirectionBadge;
+    expect(badgeColor(badge)).toBe(vector.color);
+    expect(directionBadgeColor(badge)).toBe(vector.color);
+  });
+
+  it.each(vectors.footers)("builds the $bucket footer for readiness $dependency_ready", (vector) => {
+    const bucket = vector.bucket as (typeof BUCKET_IDS)[number];
+    const readiness = vector.dependency_ready === "absent" ? {} : { dependency_ready: vector.dependency_ready as boolean };
+    const key = firstAgentKey(agent(bucket, readiness));
+
+    expect(key.footer.kind).toBe(vector.kind);
+
+    if (vector.kind === "queued") {
+      expect(key.footer).toMatchObject({ label: vector.label, statusLabel: vector.dependency, unblocked: vector.dependency === KEY_FACE_CONTRACT.footers.queued.ready_label });
+    } else {
+      expect(vector.dependency).toBeNull();
+      expect(key.footer).not.toHaveProperty("statusLabel");
+      expect(key.style.label).toBe(vector.label);
+    }
   });
 
   it("does not silently default an unhandled runtime state", () => {

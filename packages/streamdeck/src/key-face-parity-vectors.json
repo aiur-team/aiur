@@ -1,0 +1,73 @@
+{
+  "states": [
+    {
+      "bucket": "alert",
+      "rank": 0,
+      "accent": "#ffcf87",
+      "glow": "linear-gradient(180deg,#ffc061,#e08a1e)",
+      "face": "linear-gradient(180deg,#241d0e,#15110a)",
+      "label": "Needs input",
+      "pulse_seconds": 1.6
+    },
+    {
+      "bucket": "stuck",
+      "rank": 1,
+      "accent": "#ff9a90",
+      "glow": "linear-gradient(180deg,#ff6a5e,#c0392b)",
+      "face": "linear-gradient(180deg,#271317,#160c0e)",
+      "label": "Stuck",
+      "pulse_seconds": 1.4
+    },
+    {
+      "bucket": "running",
+      "rank": 2,
+      "accent": "#9fd0ff",
+      "glow": "linear-gradient(180deg,#3f8bff,#7b4bf5)",
+      "face": "linear-gradient(180deg,#18212d,#0f151d)",
+      "label": "Running",
+      "pulse_seconds": null
+    },
+    {
+      "bucket": "paused",
+      "rank": 3,
+      "accent": "#c2c6cf",
+      "glow": "linear-gradient(180deg,#4a4d55,#33363d)",
+      "face": "linear-gradient(180deg,#1e2025,#131419)",
+      "label": "Paused",
+      "pulse_seconds": null
+    },
+    {
+      "bucket": "queued",
+      "rank": 4,
+      "accent": "#9096a4",
+      "glow": "linear-gradient(180deg,#3a3f47,#23262c)",
+      "face": "linear-gradient(180deg,#191b21,#111318)",
+      "label": "Unstarted",
+      "pulse_seconds": null
+    }
+  ],
+  "progress": [
+    { "percent": -20, "color": "hsl(0 72% 50%)" },
+    { "percent": 0, "color": "hsl(0 72% 50%)" },
+    { "percent": 25, "color": "hsl(31 72% 50%)" },
+    { "percent": 50, "color": "hsl(63 72% 50%)" },
+    { "percent": 75, "color": "hsl(94 72% 50%)" },
+    { "percent": 99.5, "color": "hsl(124 72% 50%)" },
+    { "percent": 100, "color": "hsl(125 72% 50%)" },
+    { "percent": 140, "color": "hsl(125 72% 50%)" }
+  ],
+  "direction_badges": [
+    { "badge": "EMIT", "color": "#9fd0ff" },
+    { "badge": "CONSUME", "color": "#88e0a6" },
+    { "badge": "AGENT", "color": "#9fd0ff" },
+    { "badge": "SYSTEM", "color": "#ffcf87" },
+    { "badge": "INFO", "color": "#c2c6cf" }
+  ],
+  "footers": [
+    { "bucket": "running", "dependency_ready": "absent", "kind": "progress", "label": "Running", "dependency": null },
+    { "bucket": "running", "dependency_ready": false, "kind": "progress", "label": "Running", "dependency": null },
+    { "bucket": "queued", "dependency_ready": true, "kind": "queued", "label": "Unstarted", "dependency": "Unblocked" },
+    { "bucket": "queued", "dependency_ready": false, "kind": "queued", "label": "Unstarted", "dependency": "Blocked" },
+    { "bucket": "queued", "dependency_ready": "absent", "kind": "queued", "label": "Unstarted", "dependency": "Blocked" }
+  ]
+}
