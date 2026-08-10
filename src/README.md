@@ -230,7 +230,7 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
+| `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
 | `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
@@ -320,6 +320,16 @@ issue workspaces because they mutate pinned GitHub sandbox tickets; run them
 from the Executor repo root or a dedicated isolated harness. Foreground startup
 prints the resolved tmux socket/session, which non-TTY drivers should use
 instead of hard-coded socket names.
+
+### GitHub CI handoff safety
+
+After CI passes, Aiur persists the approved PR head before handing the ticket
+back to its agent. A later CI observation for that exact SHA cannot return the
+ticket from human review to rework, even when the poll retained a stale
+`ci-wait` issue snapshot from before the handoff. A CI failure for a different
+SHA supersedes the approval and remains eligible for the normal rework path.
+Check runs whose names end in `(non-blocking)` are advisory and do not affect
+the lifecycle decision.
 
 ## Dashboard
 
