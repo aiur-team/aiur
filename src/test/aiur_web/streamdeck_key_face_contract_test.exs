@@ -24,13 +24,12 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
            }
   end
 
-  test "labels match the deck renderer's bucket labels" do
+  test "bucket labels are the wording both renderers draw today" do
     assert Enum.map([:alert, :stuck, :running, :paused, :queued], &StreamdeckKeyFaceContract.label!/1) ==
              ["Alert", "Stuck", "Running", "Paused", "Queued"]
   end
 
   test "an unknown bucket has no label rather than a default one" do
-    refute StreamdeckKeyFaceContract.known_state?(:merged)
     assert_raise ArgumentError, fn -> StreamdeckKeyFaceContract.label!(:merged) end
   end
 end

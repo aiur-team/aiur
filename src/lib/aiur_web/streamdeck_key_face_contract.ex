@@ -38,19 +38,13 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     end
   end
 
-  @spec known_state?(atom() | String.t()) :: boolean()
-  def known_state?(bucket) do
-    label!(bucket)
-    true
-  rescue
-    ArgumentError -> false
+  @spec footer_for_agent(atom() | String.t(), map()) :: footer()
+  def footer_for_agent(bucket, agent) when is_map(agent) do
+    footer(bucket, Map.get(agent, :dependency_ready))
   end
 
-  @doc """
-  Builds the footer for a key face. Only queued keys carry dependency wording.
-  """
-  @spec footer(atom() | String.t(), term()) :: footer()
-  def footer(bucket, dependency_ready) do
+  # Only queued keys carry dependency wording.
+  defp footer(bucket, dependency_ready) do
     label = label!(bucket)
 
     if bucket in [:queued, "queued"] do
@@ -59,10 +53,5 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     else
       %{kind: "progress", label: label, dependency: nil}
     end
-  end
-
-  @spec footer_for_agent(atom() | String.t(), map()) :: footer()
-  def footer_for_agent(bucket, agent) when is_map(agent) do
-    footer(bucket, Map.get(agent, :dependency_ready))
   end
 end
