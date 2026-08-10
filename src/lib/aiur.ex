@@ -177,6 +177,10 @@ defmodule Aiur.Application do
       Aiur.Events.BranchRefStore,
       if(telemetry?, do: Aiur.RunTelemetry.Supervisor),
       Aiur.Events.Publisher,
+      # Per-repo delivery mode. Starts before anything that polls or receives
+      # so a repo always has a mode to read; with no configured repos every
+      # lookup answers "polling", which is exactly the pre-webhook behavior.
+      Aiur.Webhooks.ModeRegistry,
       Aiur.ProviderAccountGeneration,
       Aiur.ProviderMeters.Store,
       # Reads the store's observations and serves them to consumer surfaces

@@ -23,33 +23,88 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_title in Enum.map(invalid.diagnostics, & &1.code)
   end
 
-  test "derives catalog metrics from a root's direct GitHub members" do
-    root = root(1)
-
-    members = [
-      member(2, root, labels: ["phase:1", "build-lane:runtime"]),
-      member(3, root, labels: ["phase:2", "build-lane:runtime"]),
-      member(4, root, labels: ["phase:2", "build-lane:dashboard-ui"])
-    ]
-
-    root = Map.put(root, "subIssues", connection(members, 3, []))
+  # The members are shaped as the catalog query actually returns them —
+  # lifecycle only, no `labels` connection — so this pins the metrics the
+  # catalog can still claim once the per-member labels are gone (#1766).
+  test "derives catalog progress from a root's direct GitHub members" do
+    members = [catalog_member(2), catalog_member(3), catalog_member(4)]
+    root = Map.put(root(1), "subIssues", connection(members, 3, []))
 
     assert {:ok, %{candidate: %{entries: [entry]}}} =
              GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
 
     assert entry.member_count == 3
-    assert entry.epic_count == 2
-    assert entry.phase_count == 2
     assert entry.progress == 67
     assert entry.progress_resolution == :resolved
     assert entry.progress_resolved_count == 3
+
+    # Lane and phase are label-derived, and the catalog no longer buys the
+    # labels. Unreported, not zero, and not a dropped progress figure.
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+  end
+
+  # A response's headers report the balance left in the GraphQL points budget
+  # but never what the call just spent, which is why a 26x per-poll cost
+  # increase stayed invisible until it exhausted the budget (#1766). Pin that
+  # the query asks for its own cost and that the figure reaches the caller.
+  test "records the GraphQL point cost the response reports for the query" do
+    request_fun = fn %{body: %{"query" => query}} ->
+      assert query =~ "rateLimit { limit cost remaining resetAt }"
+
+      {:ok,
+       %{
+         status: 200,
+         headers: [{"x-ratelimit-remaining", "99"}],
+         body: %{
+           "data" => %{
+             "rateLimit" => %{"limit" => 5000, "cost" => 26, "remaining" => 4974, "resetAt" => "2026-08-10T19:00:25Z"},
+             "repository" => %{"issues" => connection([root(1)], 1, [])}
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %ProviderResult{rate_limit: rate_limit}} = GitHubGraph.fetch_catalog(base_opts(request_fun))
+
+    assert rate_limit.cost == 26
+    assert rate_limit.limit == 5000
+    assert rate_limit.reset_at == "2026-08-10T19:00:25Z"
+
+    # The body's own balance supersedes the header's, so the reported cost and
+    # the remaining budget describe the same call.
+    assert rate_limit.remaining == 4974
+  end
+
+  # A catalog poll spends points per page, so the figure that multiplies by the
+  # poll frequency into a per-hour number is what the whole read cost — not
+  # whatever the last page happened to charge.
+  test "accumulates the reported point cost across a paged read" do
+    pages = [
+      costed_catalog_response([root(1)], 2, 4, has_next?: true, cursor: "page-2"),
+      costed_catalog_response([root(2)], 2, 5, [])
+    ]
+
+    assert {:ok, %ProviderResult{pages: 2, rate_limit: rate_limit}} =
+             GitHubGraph.fetch_catalog(base_opts(queued_responses(pages)))
+
+    assert rate_limit.cost == 9
+  end
+
+  test "leaves the header rate-limit observation intact when a response reports no cost" do
+    assert {:ok, %ProviderResult{rate_limit: rate_limit}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root(1)], 1)))
+
+    assert rate_limit.remaining == 99
+    refute Map.has_key?(rate_limit, :cost)
   end
 
   # `Metadata.parse/1` maps a missing `build-lane:`/`phase:` label onto
   # `:unassigned`/`:unphased`, and the pack path counts that placeholder as one
   # distinct group. Pin the exact degenerate values so the GitHub path cannot
-  # drift away from that shared rule behind an `is_integer/1` assertion.
-  test "counts unlabelled catalog members as one distinct epic and wave" do
+  # drift away from that shared rule behind an `is_integer/1` assertion. These
+  # counts live on the selected-root path, whose query still carries labels.
+  test "counts unlabelled selected-root members as one distinct epic and wave" do
     labelled_root = root(1)
     unlabelled_root = root(5)
 
@@ -63,28 +118,31 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       member(7, unlabelled_root, labels: ["complexity:1"])
     ]
 
-    labelled_root = Map.put(labelled_root, "subIssues", connection(mixed, 2, []))
-    unlabelled_root = Map.put(unlabelled_root, "subIssues", connection(unlabelled, 2, []))
-
-    assert {:ok, %{candidate: %{entries: [mixed_entry, unlabelled_entry]}}} =
-             GitHubGraph.fetch_catalog(base_opts(catalog_response([labelled_root, unlabelled_root], 2)))
+    assert {:ok, %{candidate: %{root: mixed_summary}}} =
+             GitHubGraph.fetch_selected_root(identity(labelled_root), base_opts(selected_response(labelled_root, mixed, 2)))
 
     # One real lane plus the `:unassigned` placeholder are two distinct groups.
-    assert mixed_entry.epic_count == 2
-    assert mixed_entry.phase_count == 2
+    assert mixed_summary.epic_count == 2
+    assert mixed_summary.phase_count == 2
+
+    assert {:ok, %{candidate: %{root: unlabelled_summary}}} =
+             GitHubGraph.fetch_selected_root(
+               identity(unlabelled_root),
+               base_opts(selected_response(unlabelled_root, unlabelled, 2))
+             )
 
     # Every member unlabelled collapses onto the single placeholder group.
-    assert unlabelled_entry.member_count == 2
-    assert unlabelled_entry.epic_count == 1
-    assert unlabelled_entry.phase_count == 1
+    assert unlabelled_summary.member_count == 2
+    assert unlabelled_summary.epic_count == 1
+    assert unlabelled_summary.phase_count == 1
   end
 
   test "marks catalog progress unresolved when no member lifecycle can be resolved" do
     root = root(1)
 
     unresolved_members = [
-      member(2, root) |> Map.put("state", "UNRECOGNIZED"),
-      member(3, root) |> Map.delete("state")
+      catalog_member(2) |> Map.put("state", "UNRECOGNIZED"),
+      catalog_member(3) |> Map.delete("state")
     ]
 
     root = Map.put(root, "subIssues", connection(unresolved_members, 2, []))
@@ -93,39 +151,39 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
 
     assert entry.member_count == 2
-    assert entry.epic_count == 1
-    assert entry.phase_count == 1
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
     assert is_nil(entry.progress)
     assert entry.progress_resolution == :unresolved
     assert entry.progress_resolved_count == 0
   end
 
-  test "leaves catalog counts unresolved when member labels are truncated" do
+  test "leaves selected-root counts unresolved when member labels are truncated" do
     root = root(1)
 
-    member =
+    truncated =
       member(2, root)
       |> Map.put("labels", connection(Enum.map(1..20, &%{"name" => "label-#{&1}"}), 21, has_next?: true, cursor: "more-labels"))
 
-    root = Map.put(root, "subIssues", connection([member], 1, []))
+    # Truncated labels also make the member itself structurally invalid, so the
+    # read fails; the retained candidate is where the root's metrics are read.
+    assert {:error, %{error: :structurally_invalid, candidate: %{root: summary}}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [truncated], 1)))
 
-    assert {:ok, %{candidate: %{entries: [entry]}}} =
-             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
-
-    assert entry.member_count == 1
-    assert is_nil(entry.epic_count)
-    assert is_nil(entry.phase_count)
-    assert entry.progress == 100
-    assert entry.progress_resolution == :resolved
-    assert entry.progress_resolved_count == 1
+    assert summary.member_count == 1
+    assert is_nil(summary.epic_count)
+    assert is_nil(summary.phase_count)
+    assert summary.progress == 100
+    assert summary.progress_resolution == :resolved
+    assert summary.progress_resolved_count == 1
   end
 
   test "reports catalog progress over the members whose lifecycle resolved" do
     root = root(1)
 
     members = [
-      member(2, root),
-      member(3, root) |> Map.put("state", "UNRECOGNIZED")
+      catalog_member(2),
+      catalog_member(3) |> Map.put("state", "UNRECOGNIZED")
     ]
 
     root = Map.put(root, "subIssues", connection(members, 2, []))
@@ -141,8 +199,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
   test "keeps the member total but marks an incomplete catalog connection unresolved" do
     root = root(1)
-    members = [member(2, root)]
-    root = Map.put(root, "subIssues", connection(members, 101, has_next?: true, cursor: "next-page"))
+    root = Map.put(root, "subIssues", connection([catalog_member(2)], 101, has_next?: true, cursor: "next-page"))
 
     assert {:ok, %{candidate: %{entries: [entry]}}} =
              GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1)))
@@ -154,12 +211,9 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   end
 
   test "makes no member claim when a catalog connection carries no readable total" do
-    root = root(1)
-    members = [member(2, root)]
-
     root =
-      Map.put(root, "subIssues", %{
-        "nodes" => members,
+      Map.put(root(1), "subIssues", %{
+        "nodes" => [catalog_member(2)],
         "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
       })
 
@@ -1298,6 +1352,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
       request_fun = fn %{body: %{"query" => query}} ->
         refute query =~ "body"
+        assert query =~ "rateLimit { limit cost remaining resetAt }"
         selected_response(root, [], 0)
       end
 
@@ -1310,8 +1365,11 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
         refute query =~ "body"
         assert query =~ "subIssues(first: 100)"
 
+        # Lifecycle only. A nested `labels` connection under `subIssues` is
+        # billed per parent root, and reinstating it here is what took the
+        # measured page cost from 1 point to 26 (#1766).
         assert String.replace(query, ~r/\s+/, " ") =~
-                 "subIssues(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { state stateReason labels(first: 20)"
+                 "subIssues(first: 100) { totalCount pageInfo { hasNextPage endCursor } nodes { state stateReason } }"
 
         catalog_response([], 0)
       end
@@ -1394,6 +1452,15 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     end
   end
 
+  defp costed_catalog_response(nodes, total, cost, opts) do
+    graphql_response(%{
+      "data" => %{
+        "rateLimit" => %{"limit" => 5000, "cost" => cost, "remaining" => 4000, "resetAt" => "2026-08-10T19:00:25Z"},
+        "repository" => %{"issues" => connection(nodes, total, opts)}
+      }
+    })
+  end
+
   defp catalog_response(nodes, total, opts \\ []) do
     graphql_response(%{"data" => %{"repository" => %{"issues" => connection(nodes, total, opts)}}})
   end
@@ -1428,6 +1495,13 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   defp root(number, owner \\ "owner", repo \\ "repo") do
     issue_node(number, owner, repo)
     |> Map.put("labels", labels(["build-order"]))
+  end
+
+  # The catalog query's `subIssues` node shape: lifecycle only. Buying a
+  # `labels` connection per member here is what cost 26 points a page (#1766),
+  # so fixtures must not hand the normalizer labels the real query never gets.
+  defp catalog_member(number) do
+    number |> issue_node() |> Map.take(["state", "stateReason"])
   end
 
   defp member(number, root, opts \\ []) do

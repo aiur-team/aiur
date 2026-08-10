@@ -25,6 +25,7 @@ defmodule Aiur.Config.Schema do
     PrWatch,
     Server,
     Tracker,
+    Webhooks,
     Worker,
     Workspace
   }
@@ -55,6 +56,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:alerts, Alerts, on_replace: :update, defaults_to_struct: true)
     embeds_one(:pr_watch, PrWatch, on_replace: :update, defaults_to_struct: true)
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -128,6 +130,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:alerts, with: &Alerts.changeset/2)
     |> cast_embed(:pr_watch, with: &PrWatch.changeset/2)
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
+    |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
   end
 
   defp finalize_settings(settings) do
