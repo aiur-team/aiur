@@ -10,7 +10,7 @@ defmodule AiurWeb.StreamdeckControlAgreementTest do
   use Aiur.TestSupport
 
   alias Aiur.{Issue, TrackerIdentity}
-  alias Aiur.Orchestrator.{DispatchPolicy, PriorityControl, State, StatusReport}
+  alias Aiur.Orchestrator.{DispatchPolicy, PauseResume, PriorityControl, State, StatusReport}
   alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresenter}
   alias AiurWeb.StreamDeckGrid
 
@@ -24,14 +24,39 @@ defmodule AiurWeb.StreamdeckControlAgreementTest do
     assert status.work_state == :working
   end
 
-  test "a paused agent reads as paused on the key, in Units, and in aiurdev status" do
-    {key, unit, status} = three_sources(state_for([running_entry("1577", :paused)]), "1577")
+  test "pausing through the orchestrator reads as paused on the key, in Units, and in aiurdev status" do
+    state = state_for([running_entry("1577", :working)])
+
+    {key, unit, status} = three_sources(state, "1577")
+    assert key.bucket == :running
+    assert UnitsPolicy.condition?(:active, unit)
+    assert status.state == :running
+
+    paused_state = pause_through_orchestrator(state, "1577")
+
+    {key, unit, status} = three_sources(paused_state, "1577")
 
     assert key.bucket == :paused
     assert UnitsPolicy.condition?(:paused, unit)
     refute UnitsPolicy.condition?(:active, unit)
     assert status.state == :paused
     assert status.work_state == :paused
+  end
+
+  test "resuming through the orchestrator returns every surface to running" do
+    resumed_state =
+      [running_entry("1577", :working)]
+      |> state_for()
+      |> pause_through_orchestrator("1577")
+      |> resume_through_orchestrator("1577")
+
+    {key, unit, status} = three_sources(resumed_state, "1577")
+
+    assert key.bucket == :running
+    assert UnitsPolicy.condition?(:active, unit)
+    refute UnitsPolicy.condition?(:paused, unit)
+    assert status.state == :running
+    assert status.work_state == :working
   end
 
   test "prioritizing through the orchestrator moves the agent earlier and stars it on every surface" do
@@ -85,6 +110,40 @@ defmodule AiurWeb.StreamdeckControlAgreementTest do
     assert status.state == :running
     assert UnitsPolicy.condition?(:active, unit)
     refute "priority:1" in status_labels(deprioritized_state, "1577")
+  end
+
+  # Pause and resume settle in two steps in the real orchestrator: the control
+  # call submits the request, and the worker's control-state report is what
+  # actually flips the entry. Driving both here keeps this test honest — it
+  # never writes `:paused` into the state the surfaces then read back.
+  defp pause_through_orchestrator(%State{} = state, identifier) do
+    assert {:reply, {:ok, request_id}, state} = PauseResume.pause_agent_call(state, identifier)
+    assert is_integer(request_id)
+
+    confirm_pending_control(state, identifier, :paused)
+  end
+
+  defp resume_through_orchestrator(%State{} = state, identifier) do
+    assert {:reply, {:ok, request_id}, state} = PauseResume.request_control_call(state, identifier, :resume, 2)
+    assert is_integer(request_id)
+
+    confirm_pending_control(state, identifier, :working)
+  end
+
+  # The worker answers a control request with its own generation; replaying the
+  # pending request's real generation is what makes the orchestrator treat this
+  # as evidence for that request rather than an unrelated status report.
+  defp confirm_pending_control(%State{} = state, issue_id, status) do
+    request_id = state.control_lifecycle.pending[issue_id]
+    request = state.control_lifecycle.records[request_id]
+
+    assert {:noreply, state} =
+             PauseResume.handle_worker_control_state(state, issue_id, status, %{
+               request_id: request_id,
+               generation: request.generation
+             })
+
+    state
   end
 
   defp three_sources(%State{} = state, identifier) do
@@ -163,7 +222,14 @@ defmodule AiurWeb.StreamdeckControlAgreementTest do
         priority: Keyword.get(opts, :priority),
         tracker_identity: tracker_identity(identifier)
       },
-      control: %{can_interrupt: true, safe_checkpoints: [:notification], status: work_state},
+      control: %{
+        can_interrupt: true,
+        safe_checkpoints: [:notification],
+        status: work_state,
+        application_confirmation: :confirmed,
+        generation: 101,
+        version: 0
+      },
       session_id: "thread-#{identifier}",
       started_at: DateTime.utc_now(),
       agent_input_tokens: 0,

@@ -352,10 +352,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
       assert html =~ ~s(<li class="sd-cmd-item is-disabled">)
-      assert html =~ ~s(aria-disabled="true")
-      assert html =~ ~s(disabled)
+
+      # Element selectors rather than substring checks: a bare `html =~ "disabled"`
+      # also matches the `is-disabled` class, so it would pass on a button that is
+      # still clickable.
+      # 1352 is running and already prioritized, so the keys on offer are Pause
+      # and Deprioritize; both are fleet control and both must be inert.
+      for command <- ~w(pause deprioritize) do
+        assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled][aria-disabled="true"]))
+        refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][phx-click]))
+      end
+
       # Logs is navigation rather than fleet control, so it stays available.
-      assert html =~ ~s(data-streamdeck-command="logs" data-command-state="ready")
+      assert has_element?(view, ~s(button[data-streamdeck-command="logs"][phx-click="command-press"]))
+      refute has_element?(view, ~s(button[data-streamdeck-command="logs"][disabled]))
 
       html = render_click(view, "command-press", %{"command" => "pause"})
 
