@@ -505,7 +505,12 @@
     _setMic(active) {
       if (this._micActive === active) return;
       this._micActive = active;
-      var key = this._micKey;
+      // The held state renders as .sd-mic-key.mic-live on the key, not on the
+      // face the pointer handlers are bound to. Toggling it here on the same
+      // element the server renders it on keeps the optimistic class and the
+      // patched one identical, so the pulse starts on pointerdown rather than
+      // a round trip later.
+      var key = this._micKey && this._micKey.closest(".sd-mic-key");
       if (!key) return;
       if (active) {
         key.classList.add("mic-live");

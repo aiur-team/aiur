@@ -238,14 +238,20 @@ test('command mic activates on pointerdown and deactivates on pointerup', async 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
+  const micFace = micKey.locator('.sd-key-face')
   await expect(micKey).toBeVisible()
 
   await micKey.hover()
   await page.mouse.down()
   await expect(micKey).toHaveClass(/mic-live/, { timeout: 500 })
 
+  // The hold must actually pulse, not merely carry the class: .sd-mic-key
+  // .mic-live is only meaningful if the face resolves the design's animation.
+  await expect(micFace).toHaveCSS('animation-name', 'sd-mic-pulse')
+
   await page.mouse.up()
   await expect(micKey).not.toHaveClass(/mic-live/, { timeout: 500 })
+  await expect(micFace).not.toHaveCSS('animation-name', 'sd-mic-pulse')
 })
 
 test('command mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }) => {
