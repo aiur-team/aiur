@@ -138,7 +138,8 @@ defmodule AiurWeb.StreamDeckGridTest do
         agent("complete-child", blocked_by: [%{id: "complete-upstream"}]),
         agent("unknown-child", blocked_by: [%{id: "absent-upstream"}]),
         agent("independent-child", blocked_by: []),
-        agent("missing-data-child")
+        agent("missing-data-child"),
+        agent("unresolved-child", blocked_by: nil)
       ]
     }
 
@@ -155,7 +156,8 @@ defmodule AiurWeb.StreamDeckGridTest do
              "complete-child" => true,
              "unknown-child" => false,
              "independent-child" => true,
-             "missing-data-child" => false
+             "missing-data-child" => false,
+             "unresolved-child" => false
            }
   end
 

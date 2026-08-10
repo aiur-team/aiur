@@ -347,7 +347,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
-      blocked_by: Map.get(metadata.issue, :blocked_by, []),
+      blocked_by: known_blocked_by(metadata.issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
@@ -377,7 +377,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
-      blocked_by: Map.get(issue || %{}, :blocked_by, []),
+      blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
@@ -440,7 +440,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
           capacity_hold_active?: capacity_hold_active?(state)
         ),
-      blocked_by: issue.blocked_by,
+      blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),
@@ -836,6 +836,14 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp retry_snapshot_tracker_identity(retry, nil), do: Map.get(retry, :tracker_identity)
   defp retry_snapshot_tracker_identity(_retry, issue), do: Issue.tracker_identity(issue)
+
+  # Distinguishes "this issue has no upstreams" from "we never resolved this
+  # issue". Only the first is an empty list; the second is `nil`, which
+  # `StreamDeckGrid.dependency_ready?/2` treats as blocking. Defaulting the
+  # unknown case to `[]` would read as "no dependencies" and render the key
+  # `Unblocked` — the same fail-open this projection exists to remove.
+  defp known_blocked_by(%Issue{blocked_by: blockers}) when is_list(blockers), do: blockers
+  defp known_blocked_by(_issue), do: nil
 
   defp idle_issue_work_state(%Issue{} = issue) do
     if Issue.paused?(issue), do: :paused, else: :idle

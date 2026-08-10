@@ -2100,6 +2100,12 @@ defmodule Aiur.OrchestratorStatusTest do
            ] = snapshot.retrying
 
     assert due_in_ms > 0
+
+    # No issue was ever polled for "mt-500", so its upstream list is unknown
+    # rather than empty. `nil` is what makes the Stream Deck render the key
+    # `Blocked`; an `[]` here would read as "no dependencies" and render it
+    # `Unblocked` off data we never resolved.
+    assert [%{blocked_by: nil}] = snapshot.retrying
   end
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do
