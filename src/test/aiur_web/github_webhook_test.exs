@@ -121,6 +121,16 @@ defmodule AiurWeb.GithubWebhookTest do
       assert deliver(@payload, signature: upper).status == 202
     end
 
+    test "keys the HMAC off the configured secret verbatim" do
+      # Trimming the secret would silently verify against different key bytes
+      # than the operator configured on GitHub's side.
+      padded = " #{@secret} "
+      System.put_env(@secret_env, padded)
+
+      assert deliver(@payload, signature: github_signature(padded, @payload)).status == 202
+      assert deliver(@payload, signature: github_signature(@secret, @payload)).status == 401
+    end
+
     test "rejects a correctly signed body whose content type was never parsed" do
       # `pass: ["*/*"]` lets unparsed content types through, so no raw bytes are
       # captured. Without provable bytes the receiver must fail closed.
@@ -232,6 +242,18 @@ defmodule AiurWeb.GithubWebhookTest do
       assert log =~ "abc??fake-log-line"
       refute log =~ String.duplicate("e", 200)
     end
+
+    test "falls back to a placeholder when a header sanitizes to nothing" do
+      log =
+        ExUnit.CaptureLog.capture_log(fn ->
+          @payload
+          |> build_conn(signature: nil)
+          |> put_req_header("x-github-delivery", "")
+          |> call()
+        end)
+
+      assert log =~ "delivery=unknown event=unknown"
+    end
   end
 
   describe "payload size" do
@@ -289,7 +311,10 @@ defmodule AiurWeb.GithubWebhookTest do
     test "compares digests with a constant-time function" do
       # Asserted structurally as well as behaviourally: a naive `==` passes
       # every behavioural test above while leaking the signature by timing.
-      {:ok, {_module, [imports: imports]}} = :beam_lib.chunks(:code.which(Signature), [:imports])
+      # Read the object code rather than `:code.which/1`, which returns
+      # `:cover_compiled` under the coverage partition CI runs.
+      {_module, beam, _path} = :code.get_object_code(Signature)
+      {:ok, {_module, [imports: imports]}} = :beam_lib.chunks(beam, [:imports])
 
       assert {Plug.Crypto, :secure_compare, 2} in imports
     end

@@ -65,11 +65,13 @@ defmodule AiurWeb.GithubWebhook.Auth do
     end
   end
 
+  # The secret is used verbatim: GitHub signs with exactly the bytes configured
+  # on its side, so trimming here would silently key the HMAC off a different
+  # secret than the operator set. A blank value is treated as unconfigured.
   defp configured_secret(conn) do
     case System.get_env(@secret_env) do
       secret when is_binary(secret) ->
-        trimmed = String.trim(secret)
-        if trimmed == "", do: missing_secret(conn), else: {:ok, trimmed}
+        if String.trim(secret) == "", do: missing_secret(conn), else: {:ok, secret}
 
       _unset ->
         missing_secret(conn)

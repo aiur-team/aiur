@@ -23,10 +23,6 @@ defmodule AiurWeb.GithubWebhook do
   @spec path() :: String.t()
   def path, do: @path
 
-  @doc "`Plug.Conn` `path_info` segments for `path/0`."
-  @spec path_info() :: [String.t()]
-  def path_info, do: @path_info
-
   @doc "Largest delivery body the receiver will buffer for verification."
   @spec max_body_bytes() :: pos_integer()
   def max_body_bytes, do: @max_body_bytes
