@@ -652,7 +652,7 @@ defmodule AiurWeb.StreamdeckLive do
   defp window_freshness(_window), do: "unknown"
 
   defp meter_metadata(window, freshness) do
-    [window_metadata(window), if(freshness == "stale", do: "stale")]
+    [window_metadata(window), if(freshness == "stale", do: "stale"), stale_age_label(window, freshness)]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
     |> case do
@@ -660,6 +660,20 @@ defmodule AiurWeb.StreamdeckLive do
       metadata -> metadata
     end
   end
+
+  defp stale_age_label(window, "stale") when is_map(window) do
+    case get_value(window, "age_seconds") do
+      age_seconds when is_integer(age_seconds) and age_seconds >= 0 -> "#{age_label(age_seconds)} ago"
+      _ -> nil
+    end
+  end
+
+  defp stale_age_label(_window, _freshness), do: nil
+
+  defp age_label(age_seconds) when age_seconds < 60, do: "#{age_seconds}s"
+  defp age_label(age_seconds) when age_seconds < 3_600, do: "#{div(age_seconds, 60)}m"
+  defp age_label(age_seconds) when age_seconds < 86_400, do: "#{div(age_seconds, 3_600)}h"
+  defp age_label(age_seconds), do: "#{div(age_seconds, 86_400)}d"
 
   defp reset_label(%DateTime{} = reset), do: "#{weekday(reset)} #{hour_label(reset)}"
 
