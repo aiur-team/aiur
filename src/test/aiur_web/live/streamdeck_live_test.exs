@@ -152,6 +152,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="grid")
     assert html =~ ~s(id="sd-keys")
+    assert html =~ ~s(data-segment="pager")
+    refute html =~ ~s(class="sd-strip-cmd")
   end
 
   test "renders the focused command strip and its fixed-width BACK hint" do
@@ -161,6 +163,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert html =~ ~s(class="sd-screen sd-screen-cmd")
     assert html =~ ~s(class="sd-strip-cmd")
+    refute html =~ ~s(data-segment="pager")
     assert html =~ "CONTROLLING #1352"
     assert html =~ ~s(class="sd-strip-cmd-agent-icon")
     assert html =~ ~s(src="/provider-assets/codex-color.svg")
