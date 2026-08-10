@@ -108,6 +108,9 @@ defmodule Aiur.AgentControlCLITest do
   setup do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
+    original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
+
+    Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
 
     :sys.replace_state(pid, fn state ->
       %{state | running: %{}, last_polled_issues: %{}, session_max_concurrent_agents: nil}
@@ -116,6 +119,12 @@ defmodule Aiur.AgentControlCLITest do
     on_exit(fn ->
       if Process.alive?(pid) do
         :sys.replace_state(pid, fn _state -> original_state end)
+      end
+
+      if original_health_status_fun do
+        Application.put_env(:aiur, :supervision_health_status_fun, original_health_status_fun)
+      else
+        Application.delete_env(:aiur, :supervision_health_status_fun)
       end
     end)
 
@@ -409,6 +418,36 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "#88    running Issue "
     assert populated_output =~ "worker-alpha running Issue worker-alpha"
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "status makes degraded supervision explicit" do
+    Application.put_env(:aiur, :supervision_health_status_fun, fn ->
+      {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :supervision_health_status_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "SUPERVISION 1/2 — Aiur.Events.IdGenerator DOWN (last termination: :killed)"
+    refute output =~ "SUPERVISION 2/2 healthy"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
+  test "status prints healthy and unavailable supervision states" do
+    Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
+
+    healthy_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert healthy_output =~ "SUPERVISION 2/2 healthy"
+    assert healthy_output =~ "__AIUR_CONTROL_EXIT__:0"
+
+    Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:error, :unavailable} end)
+
+    unavailable_output = capture_io(fn -> AgentControlCLI.status() end)
+    assert unavailable_output =~ "SUPERVISION unavailable"
+    assert unavailable_output =~ "__AIUR_CONTROL_EXIT__:1"
+
+    on_exit(fn -> Application.delete_env(:aiur, :supervision_health_status_fun) end)
   end
 
   test "status names awaiting dispatch and transient retry causes", %{orchestrator: pid} do
@@ -956,6 +995,30 @@ defmodule Aiur.AgentControlCLITest do
     assert stderr =~ "aiur: failed to resume #45 (no running agent)"
   end
 
+  test "resume explains that a tracker label failure will not hold", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" ->
+      {:error, {:pause_override_clear_failed, :missing_permission}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        refute output =~ "aiur: resumed"
+      end)
+
+    assert stderr =~ "aiur: failed to resume #44"
+    assert stderr =~ "resume will not hold"
+    assert stderr =~ "agent:paused"
+    assert stderr =~ "missing_permission"
+  end
+
   test "running resume is a successful no-op", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
@@ -964,6 +1027,46 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
     assert output =~ "aiur: already running #44"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "running resume still clears a tracker pause that reconciliation has not applied", %{orchestrator: pid} do
+    parent = self()
+
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" ->
+      send(parent, :resume_called)
+      {:ok, :resumed}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    entry =
+      "issue-44"
+      |> running_entry("repo#44", :working)
+      |> put_in([:issue, Access.key(:paused)], true)
+      |> put_in([:issue, Access.key(:labels)], ["agent:in-progress", "agent:paused"])
+
+    :sys.replace_state(pid, fn state -> %{state | running: %{"issue-44" => entry}} end)
+
+    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+
+    assert_receive :resume_called
+    assert output =~ "aiur: resumed #44 (was: running)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "resume reports a reactivated agent as success", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, :reactivated} end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+
+    assert output =~ "aiur: reactivated #44 (was: paused)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 

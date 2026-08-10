@@ -1912,7 +1912,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
       refute DispatchPolicy.should_dispatch_issue?(issue, state)
     end
 
-    test "running issue pauses when the override appears" do
+    test "running issue pauses with an alert when the override appears" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_active_states: ["todo", "in-progress", "rework", "merging"],
         tracker_terminal_states: ["done", "cancelled", "canceled"]
@@ -1953,8 +1953,20 @@ defmodule Aiur.OrchestratorDeactivateTest do
         labels: ["agent:in-progress", "agent:paused"]
       }
 
+      Publisher.set_tracked_fn(fn _ -> true end)
+      divergence_topic = "ticket.#{identifier}.agent.attention.state_divergence"
+      :ok = Exchange.subscribe(divergence_topic)
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
       next = Reconciler.reconcile_running_issue_states([paused_issue], state)
 
+      assert_receive {:event, %{topic: ^divergence_topic} = event}
+      assert event["reason"] =~ "local=working tracker=agent:paused"
       assert_receive {:pause_agent, request_id, 101}
       assert get_in(next.running, [issue_id, :control, :status]) == :working
       assert next.running[issue_id].pending_pause_reason == %{request_id: request_id, reason: :label_override}
@@ -2041,7 +2053,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
                StatusReport.agent_statuses(resumed, fn _timeout -> {:unavailable, nil} end)
     end
 
-    test "resume clears the durable override before waking the agent" do
+    test "resume clears a durable override regardless of the local pause reason and survives reconciliation" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",
         tracker_active_states: ["todo", "in-progress", "rework", "merging"],
@@ -2075,7 +2087,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
               tracker_identity: tracker_identity(issue_id)
             },
             started_at: DateTime.add(DateTime.utc_now(), -30, :second),
-            paused_reason: :label_override,
+            paused_reason: :operator_pause,
             control: confirmed_control(:paused)
           }
         },
@@ -2087,12 +2099,24 @@ defmodule Aiur.OrchestratorDeactivateTest do
 
       assert {:reply, {:ok, :resumed}, next} = Orchestrator.handle_call({:resume_agent, identifier}, self(), state)
       assert_receive {:memory_tracker_remove_label, ^identifier, "agent:paused"}
-      assert_receive {:resume_agent, _request_id, 101}
+      assert_receive {:resume_agent, request_id, 101}
       resumed = next.running[issue_id]
       assert resumed.control.status == :paused
-      assert resumed.paused_reason == :label_override
+      assert resumed.paused_reason == :operator_pause
       refute resumed.issue.paused
       refute "agent:paused" in resumed.issue.labels
+
+      assert {:noreply, working} =
+               Orchestrator.handle_info(
+                 {:worker_control_state, issue_id, :working, %{request_id: request_id, generation: 101}},
+                 next
+               )
+
+      reconciled = Reconciler.reconcile_running_issue_states([working.running[issue_id].issue], working)
+
+      assert reconciled.running[issue_id].control.status == :working
+      refute Map.has_key?(reconciled.running[issue_id], :paused_reason)
+      refute_receive {:pause_agent, _request_id, _generation}, 100
     end
 
     test "resume leaves the worker paused when clearing the override fails" do
@@ -2128,7 +2152,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
             identifier: identifier,
             issue: %Issue{id: issue_id, identifier: identifier, state: "in-progress", paused: true, labels: ["agent:in-progress", "agent:paused"]},
             started_at: DateTime.add(DateTime.utc_now(), -30, :second),
-            paused_reason: :label_override,
+            paused_reason: :operator_pause,
             control: %{status: :paused}
           }
         },
