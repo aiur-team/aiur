@@ -46,17 +46,56 @@ defmodule Aiur.BuildOrder.SelectedRoot do
   def structurally_valid?(%__MODULE__{root: root, diagnostics: []}), do: RootSummary.valid?(root)
   def structurally_valid?(_selected), do: false
 
-  @spec status(term()) :: :ready | :structurally_invalid | :provider_stale | :provider_unavailable
-  def status(%__MODULE__{} = selected) do
+  @typedoc "An availability verdict, or `nil` when a structural verdict is meaningful."
+  @type availability :: :provider_stale | :provider_unavailable | :structurally_invalid | nil
+
+  @doc """
+  The provider-availability verdict for a selected root, or `nil` when the
+  provider delivered a complete generation and a structural verdict can be
+  trusted.
+
+  A graph the provider could not fetch is not a malformed graph: `members: 0` on
+  a failed read is an unknown count, not a real one. Callers must resolve this
+  before asking `structurally_valid?/1`, otherwise a transient outage is reported
+  to the operator as a defect in their Build Order.
+  """
+  @spec availability(term(), term()) :: availability()
+  def availability(selected, health \\ nil)
+
+  def availability(%__MODULE__{} = selected, health) do
+    health = provider_health(health || selected.provider)
+
     cond do
-      not structurally_valid?(selected) -> :structurally_invalid
-      ProviderHealth.usable?(selected.provider) -> :ready
-      match?(%ProviderHealth{state: :stale}, selected.provider) -> :provider_stale
+      health.state == :structurally_invalid -> :structurally_invalid
+      # A concrete structural defect was observed in data we did read (a
+      # duplicated identity, a malformed member, an overflowing member set).
+      # That is a real claim about the graph, so it outranks provider health —
+      # some producers deliberately mark the provider failed to fail closed on
+      # exactly these, and that marking must not be read as an outage.
+      structurally_defective?(selected) -> nil
+      ProviderHealth.usable?(health) and not provider_degraded?(selected) -> nil
+      health.state == :stale -> :provider_stale
       true -> :provider_unavailable
     end
   end
 
+  def availability(_selected, _health), do: :provider_unavailable
+
+  @spec status(term()) :: :ready | :structurally_invalid | :provider_stale | :provider_unavailable
+  def status(%__MODULE__{} = selected) do
+    case availability(selected, selected.provider) do
+      nil -> if structurally_valid?(selected), do: :ready, else: :structurally_invalid
+      availability -> availability
+    end
+  end
+
   def status(_selected), do: :structurally_invalid
+
+  defp provider_degraded?(%__MODULE__{diagnostics: diagnostics}),
+    do: Enum.any?(diagnostics, &Diagnostic.provider_sourced?/1)
+
+  defp structurally_defective?(%__MODULE__{diagnostics: diagnostics}),
+    do: Enum.any?(diagnostics, &(not Diagnostic.provider_sourced?(&1)))
 
   defp root_summary(%RootSummary{} = root), do: root
   defp root_summary(_root), do: RootSummary.new(%{})
