@@ -677,17 +677,11 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_one(:resume, %{state: :paused} = status) do
-    canonical = canonical_identifier(status)
+    resume_selected(status)
+  end
 
-    case resume_agent(canonical) do
-      {:ok, result} when result in [:resumed, :started] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: paused)")
-        :ok
-
-      {:error, reason} ->
-        print_failure(:resume, status, reason)
-        {:error, reason}
-    end
+  defp control_one(:resume, %{state: :running, tracker_paused: true} = status) do
+    resume_selected(status)
   end
 
   defp control_one(:resume, %{state: :running} = status) do
@@ -696,22 +690,26 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_one(:resume, %{state: :idle} = status) do
+    resume_selected(status)
+  end
+
+  defp control_one(:resume, status) do
+    print_failure(:resume, status, :no_running_agent)
+    {:error, :no_running_agent}
+  end
+
+  defp resume_selected(%{state: previous_state} = status) do
     canonical = canonical_identifier(status)
 
     case resume_agent(canonical) do
-      {:ok, result} when result in [:started, :resumed] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: idle)")
+      {:ok, result} when result in [:started, :resumed, :reactivated] ->
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
         :ok
 
       {:error, reason} ->
         print_failure(:resume, status, reason)
         {:error, reason}
     end
-  end
-
-  defp control_one(:resume, status) do
-    print_failure(:resume, status, :no_running_agent)
-    {:error, :no_running_agent}
   end
 
   defp print_status_table([]) do
@@ -1485,6 +1483,13 @@ defmodule Aiur.AgentControlCLI do
     "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
   end
 
+  defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do
+    IO.puts(
+      :stderr,
+      "aiur: failed to resume #{display_identifier(status)}; resume will not hold because agent:paused could not be removed (#{format_reason(reason)})"
+    )
+  end
+
   defp print_failure(action, status, reason) do
     IO.puts(:stderr, "aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})")
   end
@@ -1547,7 +1552,8 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp result_verb(result), do: Map.fetch!(%{resumed: "resumed", started: "started"}, result)
+  defp result_verb(result),
+    do: Map.fetch!(%{resumed: "resumed", started: "started", reactivated: "reactivated"}, result)
 
   defp format_reason(reason) do
     Map.get(
