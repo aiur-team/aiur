@@ -73,6 +73,43 @@ state rather than replaying an event log — so a longer interval delays a wake
 but does not lose one. The exception is comment-driven wakes, where a comment
 posted and answered between two polls is not distinguishable from no comment.
 
+## webhooks
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `webhooks.repos` | list of `owner/name` | `[]` | Repos expected to deliver webhooks. A hint only — a listed repo keeps polling at full rate until it actually delivers. |
+| `webhooks.silence_threshold_seconds` | integer | 900 | How long a proven repo may go without a delivery before it degrades back to full polling and raises a needs-attention alert. |
+| `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
+| `webhooks.poll_widen_factor` | float | 2.0 | Multiplier applied to `polling.interval_seconds` for repos proven webhook-backed. Values below 1.0 are rejected. |
+
+### How widening interacts with polling
+
+Webhooks are the fast path; polling is not removed, it is demoted to a
+reconciliation sweep. The widen factor is what demotes it, and it applies to one
+repo at a time based on that repo's observed state:
+
+| Repo state | Interval used |
+| --- | --- |
+| Never configured for webhooks | `interval_seconds` |
+| Configured but has never delivered | `interval_seconds` |
+| Proven — has delivered at least once | `interval_seconds × poll_widen_factor` |
+| Proven, then silent past the threshold | `interval_seconds` |
+
+Only an observed, signature-verified delivery promotes a repo to the widened
+interval. Configuration alone never does, because configuration says a webhook is
+*expected* and only a delivery proves the App install, the secret, and the ingress
+all work.
+
+The last row is the safety property worth stating on its own: when deliveries
+stop, the silence sweep degrades that repo, the alert names it, and the next poll
+tick is computed at the tighter interval automatically. There is no operator
+action and no separate restore path — a fleet that goes blind polls at full rate
+while it is blind. A delivery arriving later restores webhook mode on its own.
+
+`X-Poll-Interval` and connectivity backoffs remain floors on top of all of this:
+the tick actually used is the widest of the widened interval, GitHub's floor, and
+any active backoff.
+
 ## workspace
 
 | Key | Type | Default | Controls |
