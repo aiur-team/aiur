@@ -124,8 +124,12 @@ defmodule Aiur.BuildOrder.PackStatusTest do
         else: Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
     end)
 
-    # Before the projection exists tracker completion is unknown, never 0%.
-    assert overall_percent() == nil
+    # Before the projection exists only part of completion resolves. The zero
+    # is retained with an explicit partial state rather than becoming a bare,
+    # exact-looking percentage.
+    initial_completion = grid().overall_completion
+    assert initial_completion.progress == 0
+    assert initial_completion.progress_resolution == :partial
 
     poller =
       start_poller(
@@ -140,9 +144,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
 
     grid = grid()
-    assert grid.overall_pct > 0
+    assert grid.overall_completion.progress > 0
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
-    assert Enum.find(grid.cards, &(&1.id == "4101")).progress == 100
+    assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress == 100
     assert Enum.find(grid.cards, &(&1.id == "4103")).state != :merged
   end
 
@@ -229,7 +233,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
 
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
-    assert Enum.find(grid.cards, &(&1.id == "4101")).progress == 100
+    assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress == 100
   end
 
   test "preserves unrelated status keys and earlier members", context do
@@ -863,8 +867,6 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     |> BuildOrderPresenter.present(:unavailable, :unavailable)
     |> BuildOrderGridModel.build(nil)
   end
-
-  defp overall_percent, do: grid().overall_pct
 
   defp query_numbers(query) do
     ~r/i(\d+): issue\(number: (\d+)\)/
