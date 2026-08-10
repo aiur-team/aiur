@@ -535,6 +535,66 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-pager-page="0" aria-current="page")
   end
 
+  test "the pager renders as the design's dial segment rather than a logo-headed info segment" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "MORE AGENTS")
+    refute has_element?(view, ~s([data-segment="pager"].sd-seg-info))
+    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
+    refute has_element?(view, ~s([data-segment="pager"] .sd-hd-logo))
+
+    # The information segments keep their logo headers.
+    assert has_element?(view, ~s([data-segment="summary"].sd-seg-info .sd-info-hd .sd-hd-logo))
+    assert has_element?(view, ~s([data-segment="provider"].sd-seg-info .sd-info-hd .sd-hd-logo))
+
+    # Focusing a command hands the whole strip to the cmd page
+    # (streamdeck.design.css:103 spans .sd-cmd-page across grid-column 1 / -1),
+    # so the segment row — pager included — leaves rather than relabelling in
+    # place. The CONTROLLING relabel moves onto that page.
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    refute has_element?(view, ~s([data-segment="pager"]))
+    assert has_element?(view, ".sd-strip-cmd-pager", "CONTROLLING #1352")
+  end
+
+  test "the CONTROLLING relabel replaces MORE AGENTS while a command is focused" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "MORE AGENTS"
+    refute html =~ "CONTROLLING"
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert html =~ "CONTROLLING #1352"
+    refute html =~ "MORE AGENTS"
+    refute html =~ "data-pager-page="
+
+    # The logs page is the transcript window, so it carries the BACK/EVENTS
+    # hints rather than the CONTROLLING label; the strip is still the focused
+    # agent's, not the grid's.
+    html = render_click(view, "command-press", %{"command" => "logs"})
+    refute html =~ "MORE AGENTS"
+    assert html =~ ~s(class="sd-strip-logs")
+
+    # Backing all the way out restores the segment row and its pager dots.
+    render_click(view, "dial-press", %{"action" => "back"})
+    html = render_click(view, "dial-press", %{"action" => "back"})
+
+    assert html =~ "MORE AGENTS"
+    refute html =~ "CONTROLLING"
+    assert html =~ ~s(data-pager-page="0" aria-current="page")
+  end
+
+  test "the CONTROLLING label follows a focus change without leaving the previous agent behind" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert html =~ "CONTROLLING #1345"
+    refute html =~ "CONTROLLING #1352"
+  end
+
   test "renders the priority star, the mic indicator, and the live segment" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 

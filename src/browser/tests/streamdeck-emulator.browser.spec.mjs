@@ -301,6 +301,50 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
 })
 
+test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const pager = page.locator('[data-segment="pager"]')
+  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
+
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  expect(await pager.locator('.sd-seg-dlabel').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
+
+  const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  // streamdeck.design.css:103 gives .sd-cmd-page grid-column 1 / -1, so the
+  // focused command takes the whole strip and the segment row — pager
+  // included — steps aside. The CONTROLLING relabel travels with it.
+  await expect(pager).toHaveCount(0)
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
+
+  // The cmd page fills the strip rather than sharing it with segments.
+  const pageWidth = await page.locator('.sd-strip-cmd').evaluate((el) => Math.round(el.getBoundingClientRect().width))
+  const stripWidth = await page.locator('#sd-screen').evaluate((el) => Math.round(el.getBoundingClientRect().width))
+  expect(pageWidth).toBeGreaterThan(stripWidth * 0.9)
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  await expect(page.locator('.sd-strip-logs')).toBeVisible()
+  await expect(pager).toHaveCount(0)
+
+  // Dial A is the back press: logs -> cmd -> grid.
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
+  await dialA.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
+
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveCount(0)
+})
+
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -677,6 +721,38 @@ test('touch strip renders two provider meters and design segment geometry', asyn
   expect(geometry.padding).toBe('5.12px 8px')
   expect(geometry.headingFont).toContain('JetBrains Mono')
   expect(geometry.barHeight).toBe('3px')
+
+  // Both segment headings hold one ink. The design specifies 0.42, which
+  // measures under 4.5:1 here and fails the axe check below, so they sit at
+  // 0.55 together rather than one heading drifting from the other.
+  expect(await providers.first().locator('.sd-info-hd').evaluate((heading) => getComputedStyle(heading).color)).toBe('rgba(255, 255, 255, 0.55)')
+
+  // The pager is the design's dial segment (.sd-seg-d, streamdeck.design.css:153-154):
+  // a centred column on the brighter 0.04 ground, labelled by its own text and
+  // carrying no logo header.
+  const pagerShape = await page.locator('[data-segment="pager"]').evaluate((segment) => {
+    const label = segment.querySelector('.sd-seg-dlabel')
+
+    return {
+      align: getComputedStyle(segment).alignItems,
+      gap: getComputedStyle(segment).gap,
+      background: getComputedStyle(segment).backgroundColor,
+      labelSize: getComputedStyle(label).fontSize,
+      labelWeight: getComputedStyle(label).fontWeight,
+      labelColor: getComputedStyle(label).color,
+      headings: segment.querySelectorAll('.sd-info-hd').length,
+      logos: segment.querySelectorAll('.sd-hd-logo').length
+    }
+  })
+
+  expect(pagerShape.align).toBe('center')
+  expect(pagerShape.gap).toBe('5.12px')
+  expect(pagerShape.background).toBe('rgba(255, 255, 255, 0.04)')
+  expect(pagerShape.labelSize).toBe('8.64px')
+  expect(pagerShape.labelWeight).toBe('700')
+  expect(pagerShape.labelColor).toBe('rgba(255, 255, 255, 0.55)')
+  expect(pagerShape.headings).toBe(0)
+  expect(pagerShape.logos).toBe(0)
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
