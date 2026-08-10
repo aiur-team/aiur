@@ -311,7 +311,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
              "ticket.#{target}.issue.commented",
              target,
              comment,
-             GithubKeys.comment_dedup_key(repo, "issue_comment", String.to_integer(number), Map.get(comment, "id"))
+             GithubKeys.comment_dedup_key(repo, "issue_comment", String.to_integer(number), Map.get(comment, "id")),
+             if(pull_request?, do: review_context(Map.get(issue, "pull_request")))
            )
          ]}
     end
@@ -325,7 +326,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            "ticket.#{target}.pr.review_comment",
            target,
            review,
-           GithubKeys.pr_review_dedup_key(repo, pr_number, Map.get(review, "id"))
+           GithubKeys.pr_review_dedup_key(repo, pr_number, Map.get(review, "id")),
+           review_context(Map.get(payload, "pull_request"))
          )
        ]}
     end
@@ -339,7 +341,8 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            "ticket.#{target}.pr.review_comment",
            target,
            comment,
-           GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id"))
+           GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
+           payload |> Map.get("pull_request") |> review_context() |> approval_only_context()
          )
        ]}
     end
@@ -348,10 +351,16 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # GithubCommentsPoller.publish_comment/4: payload keyed by the ticket
   # identifier string, actor from the comment author, contamination bypassed so
   # an inbound human comment can reactivate a deactivated ticket.
-  defp comment_triple(topic, target, comment, dedup_key) do
+  defp comment_triple(topic, target, comment, dedup_key, review_context) do
     actor = get_in(comment, ["user", "login"])
 
-    {topic, %{issue_number: target, comment: comment},
+    payload =
+      case review_context do
+        %{} = context -> %{issue_number: target, comment: comment, pull_request: context}
+        nil -> %{issue_number: target, comment: comment}
+      end
+
+    {topic, payload,
      [
        issue_number: target,
        dedup_key: dedup_key,
@@ -359,6 +368,35 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
        bypass_contamination: true
      ]}
   end
+
+  # Review-staleness context for the orchestrator's rework gate
+  # (`Aiur.Orchestrator.ReviewFreshness`), mirroring
+  # GithubCommentsPoller.review_context/1 key for key.
+  #
+  # A webhook delivery carries the REST pull request object, which exposes
+  # neither `reviewDecision` nor the head commit date, so both read nil — the
+  # same fail-open state the poller publishes on its REST fallback path, where
+  # the gate stays inert and routing behaves as it did before the gate existed.
+  # Reading through `Map.get/2` rather than hardcoding nil keeps the two
+  # producers converging automatically if a delivery ever carries the fields.
+  #
+  # Failing open is also correct by construction here: a push delivery *is* the
+  # review or comment that just happened, so there is no stale judgement for the
+  # gate to suppress. See the PR discussion for the one residual divergence — a
+  # PR-attached issue comment on an already-APPROVED pull request.
+  defp review_context(pr) when is_map(pr) do
+    %{
+      "review_decision" => Map.get(pr, "review_decision"),
+      "head_committed_at" => Map.get(pr, "head_committed_at")
+    }
+  end
+
+  defp review_context(_pr), do: review_context(%{})
+
+  # An inline review thread stays actionable across pushes that did not touch
+  # it, so thread comments carry only the approval half — matching
+  # GithubCommentsPoller.approval_only_context/1.
+  defp approval_only_context(context), do: Map.delete(context, "head_committed_at")
 
   defp pull_request_triple(payload, pr, action, repo) do
     merged? = merged_pull_request?(action, Map.get(pr, "merged"))
