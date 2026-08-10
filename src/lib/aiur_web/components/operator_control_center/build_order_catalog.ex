@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.{Catalog, RootSummary}
+  alias Aiur.BuildOrder.{Catalog, ProgressRenderer, RootSummary}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.RouteState
@@ -107,79 +107,34 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
     """
   end
 
-  # Progress has four renderings, and no two of them may look alike. A pack
-  # whose completion could not be resolved is the state this surface used to
-  # lose: it rendered the same blank as "this provider never reported progress"
-  # and it was read as "nothing has happened". It now says so in words.
-  defp catalog_progress(%{entry: %RootSummary{progress_resolution: :unresolved}} = assigns) do
-    ~H"""
-    <span
-      class="bo-catalog-progress-unresolved"
-      data-progress-state="unresolved"
-      role="img"
-      aria-label={"Progress unknown: completion could not be resolved for #{unresolved_scope(@entry)}"}
-      title={"Completion could not be resolved for #{unresolved_scope(@entry)}. This is not zero progress — it is unknown progress."}
-    >
-      unknown
-    </span>
-    """
-  end
+  defp catalog_progress(assigns) do
+    assigns = assign(assigns, :progress, ProgressRenderer.html(assigns.entry))
 
-  defp catalog_progress(%{entry: %RootSummary{progress_resolution: :partial, progress: progress}} = assigns)
-       when is_integer(progress) do
     ~H"""
     <div
-      class="bo-catalog-progress bo-catalog-progress-partial"
-      data-progress-state="partial"
+      :if={is_integer(@progress.percent)}
+      class={["bo-catalog-progress", @progress.state == :partial && "bo-catalog-progress-partial"]}
+      data-progress-state={@progress.state}
       role="img"
-      aria-label={"#{@entry.progress}% complete across #{coverage_text(@entry)}"}
-      title={"#{@entry.progress}% of the tickets whose completion resolved. Coverage: #{coverage_text(@entry)}."}
+      aria-label={@progress.aria_label}
+      title={@progress.title}
     >
-      <span class="bo-catalog-progress-track"><i style={"width:#{@entry.progress}%"}></i></span>
-      <span class="bo-catalog-progress-label mono num">{@entry.progress}%</span>
-      <span class="bo-catalog-progress-coverage mono num">{coverage_ratio(@entry)}</span>
+      <span class="bo-catalog-progress-track"><i style={"width:#{@progress.percent}%"}></i></span>
+      <span class="bo-catalog-progress-label mono num">{@progress.label}</span>
+      <span :if={@progress.coverage} class="bo-catalog-progress-coverage mono num">{@progress.coverage}</span>
     </div>
-    """
-  end
-
-  defp catalog_progress(%{entry: %RootSummary{progress: progress}} = assigns) when is_integer(progress) do
-    ~H"""
-    <div class="bo-catalog-progress" data-progress-state="resolved" role="img" aria-label={"#{@entry.progress}% complete"}>
-      <span class="bo-catalog-progress-track"><i style={"width:#{@entry.progress}%"}></i></span>
-      <span class="bo-catalog-progress-label mono num">{@entry.progress}%</span>
-    </div>
-    """
-  end
-
-  # No progress was reported at all — the provider made no completion claim.
-  # Distinct from `:unresolved`, which is a claim that resolution was attempted
-  # and failed.
-  defp catalog_progress(assigns) do
-    ~H"""
-    <span class="bo-catalog-invalid" data-progress-state="not-reported" title="This provider reports no progress for this Build Order.">
-      —
+    <span
+      :if={is_nil(@progress.percent)}
+      class={if(@progress.state == :unresolved, do: "bo-catalog-progress-unresolved", else: "bo-catalog-invalid")}
+      data-progress-state={@progress.state}
+      role="img"
+      aria-label={@progress.aria_label}
+      title={@progress.title}
+    >
+      {@progress.label}
     </span>
     """
   end
-
-  defp coverage_ratio(%RootSummary{progress_resolved_count: resolved, member_count: total})
-       when is_integer(resolved) and is_integer(total),
-       do: "#{resolved}/#{total}"
-
-  defp coverage_ratio(%RootSummary{progress_resolved_count: resolved}) when is_integer(resolved), do: "#{resolved} resolved"
-  defp coverage_ratio(_entry), do: "partial"
-
-  defp coverage_text(%RootSummary{progress_resolved_count: resolved, member_count: total})
-       when is_integer(resolved) and is_integer(total),
-       do: "#{resolved} of #{total} tickets; #{total - resolved} unresolved"
-
-  defp coverage_text(%RootSummary{progress_resolved_count: resolved}) when is_integer(resolved),
-    do: "#{resolved} resolved tickets"
-
-  defp coverage_text(_entry), do: "an unknown share of this Build Order"
-
-  defp unresolved_scope(%RootSummary{member_count: total}) when is_integer(total), do: "any of its #{total} tickets"
-  defp unresolved_scope(_entry), do: "any of its tickets"
 
   defp count_display(count) when is_integer(count), do: Integer.to_string(count)
   defp count_display(_count), do: "—"
