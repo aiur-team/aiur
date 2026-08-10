@@ -6,6 +6,7 @@ visual_test="$(cd "$(dirname "$0")/../../../aiur-meta/scripts/tests" && pwd)/cap
 state_root="$(mktemp -d)"
 export AIUR_EXECUTOR_RETRO_FILE="$state_root/test-retros.md"
 export AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=0
+export AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=0
 trap 'rm -rf "$state_root"' EXIT
 
 fail() {
@@ -254,6 +255,78 @@ url_missing_status=$?
 set -e
 [ "$url_missing_status" -eq 67 ] || fail "missing dashboard URL did not return its explicit failure status"
 grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit attention evidence"
+
+# The terminal evidence is appended to the same narrative and retains the
+# command timing/output shape plus the pane/config coupling.
+fake_cli="$state_root/fake-cli"
+cat > "$fake_cli" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$1" in
+  status) printf 'ISSUE STATE   TITLE\nAGENTS 0/16 (binding: none)\n' ;;
+  agents) printf 'ISSUE  STATE      RUNTIME  ACTIVITY\n(no active agents)\n' ;;
+  alerts) printf '{"topic":"ticket.1.agent.progress","needs_attention":false}\n' ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$fake_cli"
+fake_tmux="$state_root/fake-tmux"
+cat > "$fake_tmux" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *" has-session "*) exit 0 ;;
+  *" list-panes "*) printf '%%1\n%%2\n%%3\n%%4\n%%5\n%%6\n' ;;
+  *" capture-pane "*) printf 'Agents: 0/16 ← →\n' ;;
+  *) exit 1 ;;
+esac
+EOF
+chmod +x "$fake_tmux"
+cli_retro="$state_root/cli-retrospective.md"
+cli_config="$state_root/cli-config"
+printf 'pre_warmed_sessions: 3\nagent:\n  max_concurrent_agents: 16\n' > "$cli_config"
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=cli \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$cli_retro" \
+  AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=1 \
+  AIUR_EXECUTOR_CLI_CHECK_DIR="$cli_retro.d/cli" \
+  AIUR_EXECUTOR_REPO_ROOT="$state_root" \
+  AIUR_EXECUTOR_CONFIG="$cli_config" \
+  AIUR_CMD="$fake_cli" \
+  AIUR_TMUX_BIN="$fake_tmux" \
+  AIUR_EXECUTOR_TMUX="$fake_tmux" \
+  AIUR_TMUX_SOCKET=aiur-test \
+  AIUR_TMUX_SESSION=aiur-test-default \
+  "$script" record "cli check" unchanged > "$state_root/cli.out"
+grep -q 'Interactive CLI check' "$cli_retro" || fail "CLI check heading was not appended"
+grep -q 'aiur status' "$cli_retro" || fail "CLI command evidence was not appended"
+grep -q 'elapsed_ms=' "$cli_retro" || fail "CLI elapsed time was not appended"
+grep -q 'first_lines:' "$cli_retro" || fail "CLI first output lines were not appended"
+grep -q 'panes=6' "$cli_retro" || fail "pane count was not appended"
+grep -q 'pre_warmed_sessions=3' "$cli_retro" || fail "warm-pool count was not appended"
+grep -q 'live_agent_cap=16' "$cli_retro" || fail "live cap was not appended"
+grep -q 'TUI: attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
+
+# Both optional checks are best-effort. An unavailable helper must degrade the
+# evidence, never terminate `record` after the timer has already advanced —
+# otherwise the caller loses the hourly report for the whole window.
+missing_retro="$state_root/missing-helper-retrospective.md"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=missing-helper \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$missing_retro" \
+  AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$state_root/absent-capture.mjs" \
+  AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=1 \
+  AIUR_EXECUTOR_CLI_CHECK_SCRIPT="$state_root/absent-cli-check.sh" \
+  "$script" record "missing helpers" unchanged > "$state_root/missing.out" 2>/dev/null
+missing_status=$?
+set -e
+[ "$missing_status" -eq 0 ] || fail "record exited $missing_status when an optional check helper was unavailable"
+jq -e '.type == "hourly_retrospective"' "$state_root/missing.out" >/dev/null ||
+  fail "record did not emit its hourly report when an optional check helper was unavailable"
 
 signal_bin="$state_root/signal-bin"
 signal_marker="$state_root/signal-date.started"

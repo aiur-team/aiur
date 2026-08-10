@@ -8,6 +8,7 @@ defmodule Aiur.JSONSafe do
 
   @spec normalize(term()) :: term()
   def normalize(%DateTime{} = value), do: DateTime.to_iso8601(value)
+  def normalize(%_{} = value), do: value |> Map.from_struct() |> normalize()
   def normalize(%{} = value), do: Map.new(value, fn {key, item} -> {key(key), normalize(item)} end)
   def normalize(value) when is_list(value), do: Enum.map(value, &normalize/1)
   def normalize(value) when is_tuple(value), do: value |> Tuple.to_list() |> normalize()
