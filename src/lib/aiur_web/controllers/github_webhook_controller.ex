@@ -87,12 +87,24 @@ defmodule AiurWeb.GithubWebhookController do
   # `application/x-www-form-urlencoded`, where the JSON body arrives as a single
   # `payload` field. Both content types are configured on the endpoint's parser,
   # so both reach here and both must resolve to the same map.
+  #
+  # The form branch is gated on the content type rather than on the presence of
+  # a `payload` key: a JSON delivery whose body happened to carry a top-level
+  # `payload` string would otherwise be decoded as a form and thrown away.
   defp payload(conn) do
-    case conn.body_params do
-      %{"payload" => encoded} when is_binary(encoded) -> decode_form_payload(encoded)
-      %Conn.Unfetched{} -> {:error, :body_not_parsed}
-      params when is_map(params) -> {:ok, params}
-      _other -> {:error, :unparseable_body}
+    case {form_encoded?(conn), conn.body_params} do
+      {true, %{"payload" => encoded}} when is_binary(encoded) -> decode_form_payload(encoded)
+      {true, _params} -> {:error, :form_payload_missing}
+      {false, %Conn.Unfetched{}} -> {:error, :body_not_parsed}
+      {false, params} when is_map(params) -> {:ok, params}
+      {false, _other} -> {:error, :unparseable_body}
+    end
+  end
+
+  defp form_encoded?(conn) do
+    case Conn.get_req_header(conn, "content-type") do
+      [content_type | _rest] -> String.contains?(content_type, "application/x-www-form-urlencoded")
+      [] -> false
     end
   end
 

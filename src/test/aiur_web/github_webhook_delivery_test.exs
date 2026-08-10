@@ -124,6 +124,20 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       assert from_json.issue_number == from_form.issue_number
       assert from_json.pull_request == from_form.pull_request
     end
+
+    test "a JSON delivery carrying a top-level payload key is not mistaken for a form" do
+      :ok = Exchange.subscribe(@topic)
+
+      # The form branch must key off the content type, not the presence of a
+      # `payload` field: keying off the field would decode this body as a form,
+      # fail, and silently drop a delivery the fleet should have woken on.
+      delivery = Map.put(review_delivery(), "payload", "not the body")
+
+      assert deliver("pull_request_review", delivery).status == 202
+
+      event = await_event(@topic)
+      assert event.comment["state"] == "CHANGES_REQUESTED"
+    end
   end
 
   describe "containment" do
