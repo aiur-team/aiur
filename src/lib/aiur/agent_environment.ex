@@ -197,18 +197,14 @@ defmodule Aiur.AgentEnvironment do
   # created, leave TMPDIR alone rather than pointing every tool at a directory
   # that is not there.
   defp scratch_env(workspace) do
-    case AgentScratch.install(workspace) do
-      :ok ->
-        scratch_dir = workspace |> AgentScratch.dir() |> String.to_charlist()
+    scratch_dir = AgentScratch.dir(workspace)
 
-        if File.dir?(AgentScratch.dir(workspace)) do
-          [{~c"TMPDIR", scratch_dir}, {~c"TMP", scratch_dir}, {~c"TEMP", scratch_dir}]
-        else
-          []
-        end
-
-      {:error, _reason} ->
-        []
+    with :ok <- AgentScratch.install(workspace),
+         true <- File.dir?(scratch_dir) do
+      value = String.to_charlist(scratch_dir)
+      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}]
+    else
+      _unavailable -> []
     end
   end
 

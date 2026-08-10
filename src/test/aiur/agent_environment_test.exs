@@ -519,8 +519,14 @@ defmodule Aiur.AgentEnvironmentTest do
       assert File.dir?(scratch)
     end
 
-    test "the export prefix keeps launching when the scratch dir cannot be created" do
-      prefix = AgentEnvironment.workspace_env_export_prefix("/proc/aiur-unwritable-1763", base_branch: "develop")
+    # A path whose parent component is a regular file always fails with ENOTDIR,
+    # for root as well as an ordinary user — unlike chmod bits, which root
+    # ignores, or `/proc`, which only exists on Linux.
+    test "the export prefix keeps launching when the scratch dir cannot be created", %{workspace: workspace} do
+      File.write!(Path.join(workspace, "blocker"), "regular file")
+      unwritable = Path.join(workspace, "blocker/nested")
+
+      prefix = AgentEnvironment.workspace_env_export_prefix(unwritable, base_branch: "develop")
 
       {resolved, 0} =
         System.cmd("bash", ["-c", "#{prefix} && printf '%s' \"$TMPDIR\""],
