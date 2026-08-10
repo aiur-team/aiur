@@ -377,6 +377,16 @@ membership source is unavailable. A periodic reconciliation also recovers
 agents that existed without a dispatch notification, so an unknown catalog is
 never presented as an exact zero.
 
+### Shared GitHub quota
+
+GitHub-backed runs meter the shared agent credential's core and GraphQL budgets
+in the dashboard, including remaining units, reset times, rolling read/write
+attribution, and the top ticket consumer. Aiur raises an Executor alert at 10%
+remaining and pauses new dispatch until the affected window resets. At zero,
+daemon requests are rejected locally and agent-launched `gh` commands wait on
+the recorded reset instead of retrying into the exhausted budget. Quota state
+that has not yet been observed fails open so startup is not blocked by a meter.
+
 ### Supervisor Decision API
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer

@@ -135,6 +135,7 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
           load_threshold: 1.5,
           build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
           provider_backends: [],
+          github_quota: :available,
           queued_demand?: true
         },
         overrides
@@ -157,6 +158,24 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert {:hold, %{signal: :load, measured: 25.0, threshold: 18.0}} =
                DispatchPolicy.admission_gate(gate_input(%{load: 25.0}))
+
+      reset_at = ~U[2026-08-09 22:00:00Z]
+
+      assert {:hold, %{signal: :github_quota, measured: %{resource: "core"}, threshold: :ten_percent_remaining}} =
+               DispatchPolicy.admission_gate(gate_input(%{github_quota: {:hold, %{resource: "core", remaining: 500, limit: 5000, reset_at: reset_at}}}))
+
+      build = %{enabled?: true, capacity: 1, active: 1, queued: 1}
+
+      assert {:hold, %{signal: :github_quota}} =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   github_quota: {:hold, %{resource: "graphql"}},
+                   run_queue_threshold: 1.0,
+                   runnable: 99,
+                   load: 99.0,
+                   build_status: build
+                 })
+               )
     end
 
     test "reports build pressure and provider limits in priority order" do
