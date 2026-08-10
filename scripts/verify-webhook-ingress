@@ -59,6 +59,12 @@ webhook_path="/api/v1/github/webhook"
 # and machine-write `/api/v1/*` routes. `/api/v1/` is included on purpose --
 # the router's trailing `match(:*, "/*path")` catch-all means an over-broad
 # ingress rule publishes far more than the paths enumerated here.
+#
+# Note the asymmetry: this check reads "answered with $deny_status" as "not
+# routed through", and the daemon's own router also answers 404 for some of
+# these. For a path the daemon 404s, a pass here is weak evidence. The
+# load-bearing entries are the ones the daemon answers 200 for -- the dashboard
+# routes and `/api/v1/state` -- because those cannot look like an edge deny.
 denied_paths=(
   "/"
   "/decisions"
