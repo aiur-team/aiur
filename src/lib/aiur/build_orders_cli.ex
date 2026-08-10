@@ -1,7 +1,16 @@
 defmodule Aiur.BuildOrdersCLI do
-  @moduledoc false
+  @moduledoc """
+  Terminal read of the `/build-orders` page: packs, members, completion, edges.
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
+  Completion is never formatted here. Every human string comes from
+  `Aiur.BuildOrder.ProgressRenderer.terminal/1` and every JSON object from
+  `ProgressRenderer.json/1`, so this command and the page cannot describe the
+  same pack differently. These call sites are enumerated in
+  `Aiur.Regression.ProgressRendererBoundaryTest`; adding one is a reviewed
+  change.
+  """
+
+  alias Aiur.BuildOrder.{Catalog, ProgressRenderer, ProviderHealth}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{JSONSafe, TrackerIdentity}
   alias AiurWeb.BuildOrder.{DataSource, Runtime}
@@ -107,7 +116,12 @@ defmodule Aiur.BuildOrdersCLI do
     %{
       status: model.status,
       summary: model.summary,
-      completion: grid.overall_pct,
+      completion: ProgressRenderer.json(grid.overall_completion),
+      # `ProgressRenderer.json/1` is the shared contract and carries no
+      # denominator. Publishing the member count beside it — never inside it —
+      # keeps the completion object byte-identical to every other surface while
+      # letting a reader say what a partial percentage is a percentage *of*.
+      member_count: grid.overall_completion.member_count,
       lanes: grid.columns,
       waves: grid.waves,
       members: members(model, grid),
@@ -132,8 +146,7 @@ defmodule Aiur.BuildOrdersCLI do
         state: node && node.plan.lifecycle.state,
         display_state: card.status_word,
         lifecycle: node && node.plan.lifecycle,
-        completion: if(card.completion_known, do: card.progress, else: nil),
-        completion_state: if(card.completion_known, do: :resolved, else: :unresolved),
+        completion: ProgressRenderer.json(card.completion),
         blocked_by: incoming |> Map.get(card.id, []) |> Enum.map(&%{from: &1.source, state: &1.state})
       }
     end)
@@ -213,14 +226,12 @@ defmodule Aiur.BuildOrdersCLI do
 
       Enum.each(entries, fn entry ->
         IO.puts(
-          "#{get_in(entry, ["identity", "identifier"]) || "unknown"}  #{entry["title"]}  #{completion(entry["progress"], entry["progress_resolution"], entry["progress_resolved_count"], entry["member_count"])}  #{entry["member_count"] || "unresolved"}  #{entry["epic_count"] || "unresolved"}  #{entry["phase_count"] || "unresolved"}"
+          "#{get_in(entry, ["identity", "identifier"]) || "unknown"}  #{entry["title"]}  #{ProgressRenderer.terminal(entry)}  #{entry["member_count"] || "unresolved"}  #{entry["epic_count"] || "unresolved"}  #{entry["phase_count"] || "unresolved"}"
         )
       end)
     else
       Enum.each(entries, fn entry ->
-        IO.puts(
-          "#{get_in(entry, ["identity", "identifier"]) || "unknown"}: #{entry["title"]} (completion #{completion(entry["progress"], entry["progress_resolution"], entry["progress_resolved_count"], entry["member_count"])}, members #{entry["member_count"] || "unresolved"})"
-        )
+        IO.puts("#{get_in(entry, ["identity", "identifier"]) || "unknown"}: #{entry["title"]} (completion #{ProgressRenderer.terminal(entry)}, members #{entry["member_count"] || "unresolved"})")
       end)
     end
   end
@@ -229,7 +240,7 @@ defmodule Aiur.BuildOrdersCLI do
 
   defp print_selected(envelope) do
     root = get_in(envelope, ["data", "root", "title"]) || "Build Order"
-    IO.puts(root)
+    IO.puts("#{root} (completion #{ProgressRenderer.terminal(root_completion(envelope))})")
 
     Enum.each(get_in(envelope, ["data", "graph", "members"]) || [], fn member ->
       blockers =
@@ -242,30 +253,18 @@ defmodule Aiur.BuildOrdersCLI do
 
       IO.puts("#{member["id"]}: #{member["title"]}")
       IO.puts("  Lane: #{member["lane"]}; Phase: #{member["phase"]}; Complexity: #{member["complexity"] || "unresolved"}; State: #{member["state"]}; Display state: #{member["display_state"]}")
-      IO.puts("  Completion: #{completion(member["completion"], member["completion_state"])}; blocked by #{blockers}")
+      IO.puts("  Completion: #{ProgressRenderer.terminal(member["completion"])}; blocked by #{blockers}")
     end)
   end
 
-  defp completion(value, resolution, resolved_count \\ nil, member_count \\ nil)
-
-  defp completion(value, resolution, _resolved_count, _member_count) when resolution in [:resolved, "resolved"] and is_integer(value),
-    do: "#{value}%"
-
-  defp completion(value, resolution, resolved_count, member_count)
-       when resolution in [:partial, "partial"] and is_integer(value) and is_integer(resolved_count) and is_integer(member_count),
-       do: "#{value}% (of #{resolved_count}/#{member_count} resolved)"
-
-  defp completion(value, resolution, resolved_count, _member_count)
-       when resolution in [:partial, "partial"] and is_integer(value) and is_integer(resolved_count),
-       do: "#{value}% (of #{resolved_count} resolved)"
-
-  defp completion(value, resolution, _resolved_count, _member_count) when resolution in [:partial, "partial"] and is_integer(value),
-    do: "#{value}% (partial; coverage unavailable)"
-
-  defp completion(_value, resolution, _resolved_count, _member_count) when resolution in [:resolved, "resolved", :partial, "partial", :unresolved, "unresolved"],
-    do: "unknown"
-
-  defp completion(_value, _resolution, _resolved_count, _member_count), do: "not reported"
+  # Reassembles the renderer's own input contract — the shared completion object
+  # plus the denominator published beside it — rather than formatting any field.
+  defp root_completion(envelope) do
+    case get_in(envelope, ["data", "graph", "completion"]) do
+      completion when is_map(completion) -> Map.put(completion, "member_count", get_in(envelope, ["data", "graph", "member_count"]))
+      other -> other
+    end
+  end
 
   defp plain(%DateTime{} = value), do: value
   defp plain(%{__struct__: _} = value), do: value |> Map.from_struct() |> plain()

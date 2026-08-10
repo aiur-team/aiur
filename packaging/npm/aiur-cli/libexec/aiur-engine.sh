@@ -317,8 +317,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
-        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
-        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
+       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines

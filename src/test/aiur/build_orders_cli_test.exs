@@ -109,10 +109,12 @@ defmodule Aiur.BuildOrdersCLITest do
            }
 
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(source: Source, now: @captured_at) end)
-    assert output =~ "completion 60%"
-    assert output =~ "completion 60% (of 21/35 resolved)"
-    assert output =~ "completion unknown"
-    assert output =~ "completion not reported"
+    # Vocabulary is ProgressRenderer's, so the CLI and the catalog page cannot
+    # describe the same pack differently. All four states stay distinguishable.
+    assert output =~ "Resolved (completion 60%,"
+    assert output =~ "Partial (completion 60% partial (21/35 resolved),"
+    assert output =~ "Unresolved (completion unresolved,"
+    assert output =~ "Not reported (completion unknown,"
 
     json = capture_io(fn -> assert 0 == BuildOrdersCLI.run(json: true, source: Source, now: @captured_at) end)
     [partial | _] = Jason.decode!(json)["data"]["catalog"]["entries"] |> Enum.filter(&(&1["title"] == "Partial"))
@@ -162,13 +164,13 @@ defmodule Aiur.BuildOrdersCLITest do
     assert envelope["data"]["root"]["title"] == "Build Order"
 
     members = Map.new(envelope["data"]["graph"]["members"], &{&1["id"], &1})
-    assert members["1"]["completion"] == 100
+    # Members carry ProgressRenderer.json/1 verbatim — one enum, not a second
+    # hand-rolled known/unresolved vocabulary.
+    assert members["1"]["completion"] == %{"progress" => 100, "progress_resolution" => "resolved", "progress_resolved_count" => 1}
     assert members["1"]["state"] == "closed"
     assert members["1"]["display_state"] == "merged"
-    assert members["2"]["completion"] == 0
-    assert members["3"]["completion"] == nil
-    assert members["3"]["completion_state"] == "unresolved"
-    assert members["2"]["completion_state"] == "resolved"
+    assert members["2"]["completion"] == %{"progress" => 0, "progress_resolution" => "resolved", "progress_resolved_count" => 1}
+    assert members["3"]["completion"] == %{"progress" => nil, "progress_resolution" => "unresolved", "progress_resolved_count" => 0}
     assert members["3"]["blocked_by"] == [%{"from" => "2", "state" => "blocking"}]
 
     assert envelope["data"]["graph"]["edges"] == [
@@ -176,12 +178,24 @@ defmodule Aiur.BuildOrdersCLITest do
              %{"direction" => "blocker_to_blocked", "from" => "2", "state" => "blocking", "to" => "3"}
            ]
 
+    # The aggregate is the same projection, so a pack whose members cannot all
+    # be resolved never renders as a confident percentage.
+    assert envelope["data"]["graph"]["completion"] == %{
+             "progress" => 50,
+             "progress_resolution" => "partial",
+             "progress_resolved_count" => 2
+           }
+
     output = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", source: Source, now: @captured_at) end)
-    assert output =~ "Completion: unknown"
+    assert output =~ "Build Order (completion 50% partial (2/3 resolved))"
+    assert output =~ "Completion: 100%;"
+    assert output =~ "Completion: unresolved;"
     assert output =~ "blocked by 2 (blocking)"
 
     json = capture_io(fn -> assert 0 == BuildOrdersCLI.run(root: "100", json: true, source: Source, now: @captured_at) end)
-    assert Jason.decode!(json)["data"]["graph"]["edges"] |> Enum.map(& &1["state"]) == ["cleared", "blocking"]
+    decoded = Jason.decode!(json)
+    assert decoded["data"]["graph"]["edges"] |> Enum.map(& &1["state"]) == ["cleared", "blocking"]
+    assert decoded["data"]["graph"]["completion"] == envelope["data"]["graph"]["completion"]
   end
 
   test "rejects an empty root selector before reading the source" do
