@@ -83,7 +83,7 @@ defmodule Aiur.Workspace.PushSafety do
       LC_ALL=C sort -u > "$updates.deleted"
     git log --format= --name-only "$merge_base..$local_sha" |
       sed '/^$/d' | LC_ALL=C sort -u > "$updates.touched"
-    comm -23 "$updates.deleted" "$updates.touched" > "$updates.untouched"
+    LC_ALL=C comm -23 "$updates.deleted" "$updates.touched" > "$updates.untouched"
     untouched_count="$(wc -l < "$updates.untouched" | tr -d ' ')"
 
     if [ "$untouched_count" -gt "$max_untouched" ]; then
