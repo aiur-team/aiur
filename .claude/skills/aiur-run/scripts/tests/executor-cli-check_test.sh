@@ -26,6 +26,18 @@ case "${FAKE_CLI_MODE:-healthy}:$1" in
   healthy:alerts)
     printf '{"topic":"ticket.1.agent.progress","needs_attention":false}\n'
     ;;
+  widecols:__identity)
+    printf 'AIUR_SESSION_PREFIX=aiur\nAIUR_INSTANCE_KEY=test-instance\nAIUR_RELEASE_NODE=aiur-test@127.0.0.1\n'
+    ;;
+  widecols:status)
+    printf 'ISSUE     STATE          TITLE\nAGENTS  0/16 (binding: none)\n'
+    ;;
+  widecols:agents)
+    printf 'ISSUE      STATE        RUNTIME   ACTIVITY\n(no active agents)\n'
+    ;;
+  widecols:alerts)
+    printf '{"topic":"ticket.1.agent.progress","needs_attention":false}\n'
+    ;;
   empty:status)
     ;;
   empty:agents)
@@ -81,6 +93,20 @@ jq -e '
   (.tui_surface.attached and .tui_surface.agents_row and .tui_surface.cap_controls) and
   (.findings == [])
 ' <<< "$healthy" >/dev/null || fail "healthy CLI check was not clean"
+
+# Column widths are cosmetic. A renderer that re-pads its headers must not make
+# every hourly check report malformed_output forever.
+widecols="$(
+  FAKE_CLI_MODE=widecols \
+  AIUR_CMD="$fixture/fake-cli" \
+  AIUR_EXECUTOR_REPO_ROOT="$fixture" \
+  AIUR_EXECUTOR_CONFIG="$fixture/config" \
+  AIUR_EXECUTOR_TMUX="$fixture/fake-tmux" \
+  "$script"
+)"
+jq -e '
+  (all(.commands[]; .well_formed)) and (.findings == [])
+' <<< "$widecols" >/dev/null || fail "re-padded headers were reported as malformed"
 
 empty="$(
   FAKE_CLI_MODE=empty \

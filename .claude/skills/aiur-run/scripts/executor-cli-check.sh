@@ -103,7 +103,8 @@ well_formed() {
   local name="$1" stdout_file="$2"
   case "$name" in
     status)
-      grep -q '^ISSUE STATE' "$stdout_file" && grep -q '^AGENTS ' "$stdout_file"
+      grep -Eq '^ISSUE[[:space:]]+STATE' "$stdout_file" &&
+        grep -Eq '^AGENTS[[:space:]]' "$stdout_file"
       ;;
     agents)
       grep -Eq '^ISSUE[[:space:]]+STATE[[:space:]]+RUNTIME[[:space:]]+ACTIVITY' "$stdout_file"

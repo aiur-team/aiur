@@ -278,6 +278,26 @@ grep -q 'pre_warmed_sessions=3' "$cli_retro" || fail "warm-pool count was not ap
 grep -q 'live_agent_cap=16' "$cli_retro" || fail "live cap was not appended"
 grep -q 'TUI: attached=true, agents_row=true, cap_controls=true' "$cli_retro" || fail "TUI surface was not appended"
 
+# Both optional checks are best-effort. An unavailable helper must degrade the
+# evidence, never terminate `record` after the timer has already advanced —
+# otherwise the caller loses the hourly report for the whole window.
+missing_retro="$state_root/missing-helper-retrospective.md"
+set +e
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=missing-helper \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$missing_retro" \
+  AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$state_root/absent-capture.mjs" \
+  AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK=1 \
+  AIUR_EXECUTOR_CLI_CHECK_SCRIPT="$state_root/absent-cli-check.sh" \
+  "$script" record "missing helpers" unchanged > "$state_root/missing.out" 2>/dev/null
+missing_status=$?
+set -e
+[ "$missing_status" -eq 0 ] || fail "record exited $missing_status when an optional check helper was unavailable"
+jq -e '.type == "hourly_retrospective"' "$state_root/missing.out" >/dev/null ||
+  fail "record did not emit its hourly report when an optional check helper was unavailable"
+
 signal_bin="$state_root/signal-bin"
 signal_marker="$state_root/signal-date.started"
 real_date="$(command -v date)"
