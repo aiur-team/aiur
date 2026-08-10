@@ -14,13 +14,11 @@ defmodule AiurWeb.StreamdeckLogs do
   @events_window_size 8
   @transcript_window_size 2
 
-  @direction_colours %{
-    "EMIT" => "#9fd0ff",
-    "CONSUME" => "#88e0a6",
-    "INFO" => "#c2c6cf",
-    "AGENT" => "#9fd0ff",
-    "SYSTEM" => "#ffcf87"
-  }
+  alias AiurWeb.StreamdeckKeyFaceContract
+
+  # The five direction categories and their colours live in the shared key-face
+  # contract so the web emulator and the packaged deck cannot drift apart.
+  @directions ~w(EMIT CONSUME INFO AGENT SYSTEM)
 
   @spec project([map()]) :: map()
   def project(entries) when is_list(entries) do
@@ -173,7 +171,7 @@ defmodule AiurWeb.StreamdeckLogs do
       id: event.id,
       index: event.index,
       badge: badge,
-      color: Map.fetch!(@direction_colours, badge),
+      color: StreamdeckKeyFaceContract.direction_badge!(badge)["color"],
       text: event.body,
       time: relative_time(event.timestamp)
     }
@@ -229,7 +227,7 @@ defmodule AiurWeb.StreamdeckLogs do
   end
 
   defp direction(badge) do
-    if Map.has_key?(@direction_colours, badge), do: badge, else: "INFO"
+    if badge in @directions, do: badge, else: "INFO"
   end
 
   defp relative_time(timestamp), do: relative_time(timestamp, DateTime.utc_now())
