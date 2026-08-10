@@ -72,7 +72,7 @@ defmodule Aiur.Events.Publisher do
   Options:
 
     * `:issue_number` — number used by the contamination filter; nil
-      bypasses filter (e.g. system topics like `system.main.branch.push`)
+      bypasses filter (e.g. system topics like `system.<base_branch>.branch.push`)
     * `:actor` — author login; if matches `bot_account`, drop
     * `:dedup_key` — stable source-specific key; if set, dedup is applied
     * `:bypass_contamination` — when `true`, skip the tracked-issue

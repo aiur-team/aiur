@@ -39,6 +39,7 @@ defmodule Aiur.WorkspaceMaterializeTest do
            "warm _build artifacts were not carried"
 
     assert branch(workspace) == "aiur/123"
+    assert rev_parse(workspace, "refs/aiur/branch-start") == rev_parse(workspace, "HEAD")
   end
 
   test "copies the warm base onto the generated ticket branch", %{tmp: tmp, base: base} do
@@ -203,5 +204,11 @@ defmodule Aiur.WorkspaceMaterializeTest do
       System.cmd("git", ["-C", workspace, "rev-parse", "--abbrev-ref", "HEAD"], stderr_to_stdout: true)
 
     String.trim(out)
+  end
+
+  defp rev_parse(workspace, ref) do
+    workspace
+    |> then(&git!(["-C", &1, "rev-parse", ref]))
+    |> String.trim()
   end
 end

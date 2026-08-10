@@ -130,6 +130,21 @@ defmodule Aiur.Events.GithubCIPollerTest do
              )
   end
 
+  test "ignores explicitly non-blocking check failures" do
+    check_runs = [
+      %{"name" => "test", "status" => "completed", "conclusion" => "success"},
+      %{
+        "name" => "quarantined tests (non-blocking)",
+        "status" => "completed",
+        "conclusion" => "failure"
+      },
+      %{"name" => "advisory scan (non-blocking)", "status" => "in_progress", "conclusion" => nil}
+    ]
+
+    assert %{decision: :passed, failures: []} =
+             GithubCIPoller.evaluate_for_test(check_runs, %{"state" => "pending", "statuses" => []})
+  end
+
   test "waits for every check before reporting the complete failure set" do
     partial_snapshot = [
       %{"name" => "lint", "status" => "completed", "conclusion" => "failure"},
@@ -590,6 +605,12 @@ defmodule Aiur.Events.GithubCIPollerTest do
                    "status" => "completed",
                    "conclusion" => "success",
                    "started_at" => started_at
+                 },
+                 %{
+                   "name" => "quarantined tests (non-blocking)",
+                   "status" => "completed",
+                   "conclusion" => "failure",
+                   "started_at" => "2026-07-14T22:00:00Z"
                  }
                ]
              }
