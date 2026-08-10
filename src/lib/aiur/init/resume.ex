@@ -3,6 +3,7 @@ defmodule Aiur.Init.Resume do
   Saved-config readback for a resume run — the saved-selections summary and the tracker/agents/routing readback from an existing config.
   """
 
+  alias Aiur.Config
   alias Aiur.Init.{Format, Prewarm, Questions}
 
   @gitignore_entry ".aiur/"
@@ -69,8 +70,8 @@ defmodule Aiur.Init.Resume do
 
   def format_routing(_routing), do: ""
 
-  @spec tracker_from_config(Aiur.Init.deps(), map()) :: map()
-  def tracker_from_config(deps, config) do
+  @spec tracker_from_config(Aiur.Init.deps(), map(), keyword()) :: map()
+  def tracker_from_config(deps, config, context \\ []) do
     tracker = config["tracker"] || %{}
 
     case tracker["kind"] do
@@ -82,18 +83,19 @@ defmodule Aiur.Init.Resume do
           kind: "github",
           repo: repo,
           label_prefix: label_prefix,
-          base_branch: tracker["base_branch"] || "main"
+          base_branch: Config.base_branch(tracker, context)
         }
 
       "linear" ->
         %{
           kind: "linear",
           api_key: get_in(config, ["tracker", "linear", "api_key"]),
-          project_slug: get_in(config, ["tracker", "linear", "project_slug"])
+          project_slug: get_in(config, ["tracker", "linear", "project_slug"]),
+          base_branch: Config.base_branch(tracker, context)
         }
 
       kind ->
-        %{kind: kind}
+        %{kind: kind, base_branch: Config.base_branch(tracker, context)}
     end
   end
 

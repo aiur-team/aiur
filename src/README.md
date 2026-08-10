@@ -230,7 +230,7 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
+| `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
 | `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
@@ -275,6 +275,11 @@ For tracker-level shelving, apply `agent:paused` in GitHub instead of changing
 the issue state. Aiur will not claim a paused `agent:todo` ticket, will
 cooperatively pause a running ticket when the label appears, and `aiurdev watch`
 shows the override as `paused`.
+
+`aiurdev resume <id>` removes `agent:paused` from the tracker before it resumes
+or starts the local agent. If the tracker refuses that removal, the command exits
+non-zero and explains that the resume will not hold; it does not report a plain
+success. A fleet-wide `aiurdev resume` still preserves per-ticket pause labels.
 
 By default the engine injects `--host 127.0.0.1` on the run path so the dashboard
 stays local. Pass `--host` explicitly to opt out.
@@ -321,6 +326,16 @@ from the Executor repo root or a dedicated isolated harness. Foreground startup
 prints the resolved tmux socket/session, which non-TTY drivers should use
 instead of hard-coded socket names.
 
+### GitHub CI handoff safety
+
+After CI passes, Aiur persists the approved PR head before handing the ticket
+back to its agent. A later CI observation for that exact SHA cannot return the
+ticket from human review to rework, even when the poll retained a stale
+`ci-wait` issue snapshot from before the handoff. A CI failure for a different
+SHA supersedes the approval and remains eligible for the normal rework path.
+Check runs whose names end in `(non-blocking)` are advisory and do not affect
+the lifecycle decision.
+
 ## Dashboard
 
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
@@ -334,6 +349,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   reducer, and self-contained renderer as the CLI artifact and is served with
   `Cache-Control: no-store`. Drag across any time chart to zoom the five
   time-series charts together; use Reset to return to the full selected range.
+
+The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider
+icons from `priv/static` before router dispatch. Explicit allowlists keep the
+dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and
+font files use long-lived caching, and provider icons derive from the coding-agent
+registry. Content-addressed layout vendor files remain on their verified router
+paths; vendor manifests, provenance, sources, and licenses are not exposed.
 
 The Units catalog reconciles retained current-run membership with the latest
 fresh orchestrator snapshot. After a daemon generation change, current agents

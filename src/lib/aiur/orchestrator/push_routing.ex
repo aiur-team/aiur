@@ -105,7 +105,7 @@ defmodule Aiur.Orchestrator.PushRouting do
   @spec maybe_notify_agents_on_default_branch_push(State.t(), String.t(), map()) :: State.t()
   def maybe_notify_agents_on_default_branch_push(%State{} = state, branch, event)
       when is_binary(branch) do
-    if branch == default_branch_name() do
+    if branch == Config.base_branch() do
       sha = Map.get(event, :sha) || Map.get(event, "sha")
 
       Logger.info(
@@ -266,13 +266,6 @@ defmodule Aiur.Orchestrator.PushRouting do
           acc
       end
     end)
-  end
-
-  defp default_branch_name do
-    case Config.settings!() do
-      %{tracker: %{base_branch: name}} when is_binary(name) and name != "" -> name
-      _ -> "main"
-    end
   end
 
   defp maybe_record_or_resume_for_topic(state, entry, blocker_identifier, topic, unblock_key) do

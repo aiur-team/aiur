@@ -116,7 +116,7 @@ defmodule Aiur.Init.Prewarm.Failure do
     """
     You are working in a repository managed by aiur, an agent-orchestration
     runtime. To avoid every agent cold-cloning and recompiling, aiur keeps one
-    shared, pre-installed checkout of this repo's main branch — the "warm base" —
+    shared, pre-installed checkout of this repo's configured base branch — the "warm base" —
     and materializes agent workspaces from it copy-on-write.
 
     Building the warm base just FAILED. Diagnose and fix it, then verify locally.

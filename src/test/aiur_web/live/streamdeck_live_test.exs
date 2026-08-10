@@ -4,7 +4,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{AgentEvents, AgentPubSub, IssueLog}
+  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, IssueLog}
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -51,17 +51,19 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
+    segment_count = length(CodingAgent.provider_descriptors()) + 2
 
     assert html =~ "Streamdeck+"
     assert html =~ "Stream Deck + control surface"
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
+    assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
-    assert html =~ "Summary"
+    assert html =~ "SUMMARY"
     assert html =~ "Claude"
     assert html =~ "Codex"
-    assert html =~ "Pager"
+    assert html =~ "MORE AGENTS"
   end
 
   test "opens and closes the Stream Deck installation modal without rendering credentials" do
@@ -482,7 +484,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     html = render_hook(view, "grid-page", %{"page" => "1"})
     assert html =~ ~s(data-grid-page="1")
-    assert html =~ ~s(data-page="1" aria-current="page")
+    assert html =~ ~s(data-pager-page="1" aria-current="page")
     assert html =~ ~s(data-streamdeck-identifier="1367")
 
     html = render_hook(view, "grid-page", %{"page" => "99"})
@@ -490,18 +492,56 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-streamdeck-identifier="1377")
   end
 
-  test "renders provider percentages and refreshes them from the live meter event", %{meter_agent: meter_agent} do
+  test "renders distinct session and weekly provider meters and refreshes them from the live meter event", %{meter_agent: meter_agent} do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "daily 30%"
-    assert html =~ "daily 50%"
+    assert html =~ "Session"
+    assert html =~ "Weekly"
+    assert html =~ "30% · 22m"
+    assert html =~ "47% · Thu 6PM"
+    assert html =~ "50% · 1h"
+    assert html =~ "75% · Fri 8PM"
 
     Agent.update(meter_agent, fn meters ->
-      put_in(meters["claude"]["windows"]["daily"]["used_percent"], 60)
+      put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "daily 60%"
+    assert render(view) =~ "60% · 22m"
+  end
+
+  test "renders an unobserved provider without treating it as zero percent", %{meter_agent: meter_agent} do
+    Agent.update(meter_agent, &Map.delete(&1, "claude"))
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-provider="claude")
+    assert html =~ ~s(data-observed="false")
+    refute html =~ "Claude 0%"
+    refute html =~ ~s(data-provider="claude" data-meter="session" data-percent="0")
+  end
+
+  test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
+    Agent.update(meter_agent, fn meters ->
+      put_in(meters["claude"]["windows"]["weekly"]["freshness"], "stale")
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
+    assert html =~ "47% · Thu 6PM · stale"
+    assert html =~ "Weekly · 47% · Thu 6PM · stale"
+  end
+
+  test "renders summary build space and pager dots inside touch-strip segments" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(src="/aiur-logo.png")
+    assert html =~ ~r/<b>1<\/b> live · <b>16<\/b> left/
+    assert html =~ "Build"
+    assert html =~ "MORE AGENTS"
+    assert length(Regex.scan(~r/data-pager-page=/, html)) == 3
+    assert html =~ ~s(data-pager-page="0" aria-current="page")
   end
 
   test "renders the priority star, the mic indicator, and the live segment" do
@@ -585,8 +625,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   defp fixture_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+      "claude" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
+        }
+      },
+      "codex" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
+        }
+      }
     }
   end
 
