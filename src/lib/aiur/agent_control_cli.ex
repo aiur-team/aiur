@@ -175,7 +175,7 @@ defmodule Aiur.AgentControlCLI do
 
   @spec build_orders(keyword()) :: :ok
   def build_orders(opts \\ []) do
-    BuildOrdersCLI.run(opts) |> exit_marker()
+    guarded("build-orders", fn -> BuildOrdersCLI.run(opts) |> exit_marker() end)
   end
 
   @spec analytics(keyword()) :: :ok
