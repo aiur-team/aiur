@@ -558,22 +558,33 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  // streamdeck.design.css:103 gives .sd-cmd-page grid-column 1 / -1, so the
-  // focused command takes the whole strip and the segment row — pager
-  // included — steps aside. The CONTROLLING relabel travels with it.
-  await expect(pager).toHaveCount(0)
+  // The page indicator must not survive into cmd mode: there is no page set on
+  // screen to indicate. The dots go, and the CONTROLLING relabel rides the cmd
+  // page. The dial-D column itself stays — #1607 identifies the controlled
+  // agent there, and `streamdeck-operator-flow.browser.spec.mjs` asserts that
+  // `.sd-pager-label` reads `#<id>` at this exact point in the flow.
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
+  await expect(pager.locator('.sd-seg-dlabel')).toHaveText('CONTROLLING')
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
   await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
 
-  // The cmd page fills the strip rather than sharing it with segments.
-  const pageWidth = await page.locator('.sd-strip-cmd').evaluate((el) => Math.round(el.getBoundingClientRect().width))
-  const stripWidth = await page.locator('#sd-screen').evaluate((el) => Math.round(el.getBoundingClientRect().width))
-  expect(pageWidth).toBeGreaterThan(stripWidth * 0.9)
+  // The cmd page takes every column left of dial D rather than sharing the
+  // strip with the info segments: it starts at the strip's content edge and
+  // stops where the pager column begins.
+  const cmdBox = await page.locator('.sd-strip-cmd').boundingBox()
+  const pagerBox = await pager.boundingBox()
+  const stripBox = await page.locator('#sd-screen').boundingBox()
+  expect(cmdBox.x + cmdBox.width).toBeLessThanOrEqual(pagerBox.x + 1)
+  expect(cmdBox.width).toBeGreaterThan(stripBox.width * 0.6)
+  await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('.sd-strip-logs')).toBeVisible()
-  await expect(pager).toHaveCount(0)
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+  await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   // Dial A is the back press: logs -> cmd -> grid.
   const dialA = page.locator('.sd-knob').first()
