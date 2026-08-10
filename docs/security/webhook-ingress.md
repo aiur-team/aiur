@@ -191,6 +191,31 @@ set, which W-3 finalises:
 
 Do not select "Send me everything."
 
+## Register the repo for webhook delivery
+
+Ingress only carries deliveries to the daemon. Telling the fleet that a repo is
+*expected* to be webhook-backed is a separate config key, added by #1734:
+
+```yaml
+webhooks:
+  repos:
+    - owner/name
+```
+
+Listing a repo is a hint, never a promise. It starts in `configured_unproven`
+and keeps polling at full rate until a verified delivery actually arrives; if a
+proven repo then goes silent past `silence_threshold_seconds` (default 900) it
+degrades back to full polling and raises a needs-attention alert naming the
+repo. `poll_widen_factor` defaults to `1.0`, so registering a repo here changes
+no poll interval on its own — widening intervals is the cutover ticket's call.
+
+It doubles as the end-to-end confirmation that ingress works: once a verified
+delivery lands, the agent-control `usage` view (`Aiur.AgentControlCLI.usage/2`,
+rows from `Aiur.Webhooks.ModePresenter`) prints an
+`events <repo> <mode> last delivery <age>` line. A repo still reading
+`configured_unproven` after a redelivery means the delivery is not reaching the
+receiver — check the ingress rules before suspecting the verifier.
+
 ## Verify the scoping
 
 Setting the ingress rules is not evidence that they hold. Run the guard against
