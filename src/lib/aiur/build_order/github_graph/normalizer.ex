@@ -139,6 +139,14 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
     %{member_count: 0, epic_count: 0, phase_count: 0, progress: 0, progress_resolution: :resolved, progress_resolved_count: 0}
   end
 
+  # Progress comes from `state`/`stateReason`; lane and phase counts come from
+  # each member's labels. That split is what lets the catalog query omit the
+  # per-member `labels` connection it cannot afford (#1766): with the labels
+  # absent, `member_metadata/1` reports `:unresolved`, `metric_count/2` reports
+  # an unreported `nil`, and the progress figure the Build Order page renders is
+  # untouched. The selected-root query still carries the labels, so it still
+  # reports both counts. Do not derive progress from metadata, and do not
+  # re-add the catalog's nested `labels` connection to recover the counts.
   defp metrics_from_members(members, total) do
     metadata = Enum.map(members, &member_metadata/1)
     lifecycles = Enum.map(members, &Lifecycle.from_github(Map.get(&1, "state"), Map.get(&1, "stateReason")))
