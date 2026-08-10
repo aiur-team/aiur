@@ -74,7 +74,9 @@ defmodule AiurWeb.DashboardCssThemeTest do
     --blocking-ink
     --blocking-soft
     --good
+    --good-ink
     --super
+    --ack
   )
 
   # Pinned to chassis-specific values rather than `:root` — the key face is

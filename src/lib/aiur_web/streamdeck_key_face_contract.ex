@@ -104,6 +104,9 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     "hsl(#{format_number(hue)} #{progress["saturation"]}% #{progress["lightness"]}%)"
   end
 
+  @spec direction_badges() :: %{String.t() => map()}
+  def direction_badges, do: @contract["direction_badges"]
+
   @spec direction_badge!(atom() | String.t()) :: map()
   def direction_badge!(badge) when is_atom(badge), do: direction_badge!(Atom.to_string(badge))
 
