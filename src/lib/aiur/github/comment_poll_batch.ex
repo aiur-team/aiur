@@ -272,7 +272,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
       "head" => %{"ref" => Map.get(pull_request, "headRefName"), "sha" => Map.get(pull_request, "headRefOid")},
       "base" => %{"ref" => Map.get(pull_request, "baseRefName")},
       # Review-staleness context for the rework gate (#1756). `reviewDecision`
-      # is nil until the first review lands; `head_committed_at` is the author
+      # is nil until the first review lands; `head_committed_at` is the commit
       # date of the head commit the reviews are (or are not) talking about.
       "review_decision" => Map.get(pull_request, "reviewDecision"),
       "head_committed_at" => head_committed_at(pull_request),
