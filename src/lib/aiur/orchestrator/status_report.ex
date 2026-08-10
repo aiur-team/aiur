@@ -145,6 +145,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       approved_heads: %{},
       test_failure_heads: %{},
       base_repair_invalidations: %{},
+      approved_draft_alerts: MapSet.new(),
       poll_cache: poll_cache,
       rewakes: %{}
     }

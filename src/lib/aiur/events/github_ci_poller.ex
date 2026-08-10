@@ -100,22 +100,32 @@ defmodule Aiur.Events.GithubCIPoller do
         approved_draft_result(target, pr)
 
       _missing_or_invalid ->
-        case Client.fetch_open_pull_request_for_branch(target, opts) do
-          {:ok, nil} ->
-            no_open_pull_request_result(target, :open_pr_not_yet_visible)
+        poll_approved_draft_target_from_rest(target, opts)
+    end
+  end
 
-          {:ok, pr} when is_map(pr) ->
-            with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")) do
-              target
-              |> approved_draft_result(pr, false)
-              |> merge_rest_pull_request_review_state(pr, pr_number, opts)
-            else
-              {:error, reason} -> poll_error(target, reason)
-            end
+  defp poll_approved_draft_target_from_rest(target, opts) do
+    case Client.fetch_open_pull_request_for_branch(target, opts) do
+      {:ok, nil} ->
+        no_open_pull_request_result(target, :open_pr_not_yet_visible)
 
-          {:error, reason} ->
-            poll_error(target, {:pr_lookup, reason})
-        end
+      {:ok, pr} when is_map(pr) ->
+        rest_approved_draft_result(target, pr, opts)
+
+      {:error, reason} ->
+        poll_error(target, {:pr_lookup, reason})
+    end
+  end
+
+  defp rest_approved_draft_result(target, pr, opts) do
+    case positive_integer(Map.get(pr, "number")) do
+      {:ok, pr_number} ->
+        target
+        |> approved_draft_result(pr, false)
+        |> merge_rest_pull_request_review_state(pr, pr_number, opts)
+
+      {:error, reason} ->
+        poll_error(target, reason)
     end
   end
 

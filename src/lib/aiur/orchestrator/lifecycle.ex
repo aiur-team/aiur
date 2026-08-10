@@ -97,10 +97,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
-      ci_lifecycle:
-        CIApprovalStore.load()
-        |> Map.put(:poll_cache, %{})
-        |> Map.put(:rewakes, %{}),
+      # Start from the struct's own empty lifecycle so every in-memory key
+      # (poll cache, rewakes, approved-draft alert memo) is present at boot and
+      # a newly added key cannot go missing here; only the persisted heads and
+      # invalidations come back from disk.
+      ci_lifecycle: Map.merge(%State{}.ci_lifecycle, CIApprovalStore.load()),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
       control_lifecycle: control_lifecycle
