@@ -2104,7 +2104,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do
     orchestrator_name = Module.concat(__MODULE__, :TrackerIdentityOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)

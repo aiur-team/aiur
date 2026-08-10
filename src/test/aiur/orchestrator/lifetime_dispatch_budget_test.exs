@@ -273,6 +273,17 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   @tag config: @enabled
   test "resume against a latched idle ticket reports the latch instead of no-opping" do
     issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    previous_memory_issues = Application.get_env(:aiur, :memory_tracker_issues)
+    Application.put_env(:aiur, :memory_tracker_issues, [issue])
+
+    on_exit(fn ->
+      if is_nil(previous_memory_issues) do
+        Application.delete_env(:aiur, :memory_tracker_issues)
+      else
+        Application.put_env(:aiur, :memory_tracker_issues, previous_memory_issues)
+      end
+    end)
+
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
 
     state =

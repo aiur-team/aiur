@@ -32,7 +32,7 @@ defmodule Aiur.GitHub.ClientTest do
   end
 
   describe "fetch_candidate_issues/1" do
-    test "fetches configured active state labels including rework" do
+    test "fetches one open snapshot and filters configured active states including rework" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "github",
         tracker_repo: "owner/repo",
@@ -49,36 +49,36 @@ defmodule Aiur.GitHub.ClientTest do
           # Dispatch authorization checks trigger-label provenance after fetch.
           {:ok, %{status: 200, body: []}}
         else
-          state =
-            cond do
-              decoded_url =~ "labels=sym:todo" -> "todo"
-              decoded_url =~ "labels=sym:in-progress" -> "in-progress"
-              decoded_url =~ "labels=sym:rework" -> "rework"
-              decoded_url =~ "labels=sym:merging" -> "merging"
-              true -> flunk("unexpected labels query: #{decoded_url}")
-            end
+          assert decoded_url =~ "/repos/owner/repo/issues?state=open&per_page=100"
+          refute decoded_url =~ "labels="
+          send(parent, :candidate_request)
 
-          send(parent, {:label_request, state})
-
-          body =
-            if state == "rework" do
-              [
-                %{
-                  "number" => 35,
-                  "title" => "Fix review feedback",
-                  "body" => nil,
-                  "html_url" => "https://github.com/owner/repo/issues/35",
-                  "labels" => [%{"name" => "sym:rework"}],
-                  "assignee" => nil,
-                  "created_at" => "2026-06-23T00:00:00Z",
-                  "updated_at" => "2026-06-23T01:00:00Z"
-                }
-              ]
-            else
-              []
-            end
-
-          {:ok, %{status: 200, body: body}}
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 35,
+                 "title" => "Fix review feedback",
+                 "body" => nil,
+                 "html_url" => "https://github.com/owner/repo/issues/35",
+                 "labels" => [%{"name" => "sym:rework"}],
+                 "assignee" => nil,
+                 "created_at" => "2026-06-23T00:00:00Z",
+                 "updated_at" => "2026-06-23T01:00:00Z"
+               },
+               %{
+                 "number" => 36,
+                 "title" => "Waiting for CI",
+                 "body" => nil,
+                 "html_url" => "https://github.com/owner/repo/issues/36",
+                 "labels" => [%{"name" => "sym:ci-wait"}],
+                 "assignee" => nil,
+                 "created_at" => "2026-06-23T00:00:00Z",
+                 "updated_at" => "2026-06-23T01:00:00Z"
+               }
+             ]
+           }}
         end
       end
 
@@ -86,10 +86,8 @@ defmodule Aiur.GitHub.ClientTest do
       assert issue.id == "35"
       assert issue.state == "rework"
 
-      assert_received {:label_request, "todo"}
-      assert_received {:label_request, "in-progress"}
-      assert_received {:label_request, "rework"}
-      assert_received {:label_request, "merging"}
+      assert_received :candidate_request
+      refute_received :candidate_request
     end
 
     test "deduplicates an issue carrying multiple active-state labels" do
@@ -130,9 +128,9 @@ defmodule Aiur.GitHub.ClientTest do
           url =~ "/timeline" ->
             {:ok, %{status: 200, body: []}}
 
-          # Each label is queried separately; return issue only for sym:todo
-          url =~ "sym:todo" or url =~ "sym%3Atodo" ->
+          URI.decode(url) =~ "/repos/owner/repo/issues?state=open&per_page=100" ->
             assert url =~ "state=open"
+            refute URI.decode(url) =~ "labels="
 
             {:ok,
              %{

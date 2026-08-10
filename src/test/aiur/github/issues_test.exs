@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.IssuesTest do
   use Aiur.TestSupport
 
-  alias Aiur.{Issue, GitHub.Issues}
+  alias Aiur.{GitHub.Issues, Issue}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 

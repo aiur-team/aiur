@@ -1639,6 +1639,14 @@ defmodule Aiur.Orchestrator.PauseResume do
     terminal_states = DispatchPolicy.terminal_state_set()
     tracker_state = DispatchPolicy.normalize_issue_state(issue.state)
 
+    with :ok <- tracker_issue_resumability(issue, active_states, terminal_states, tracker_state),
+         :ok <- dependency_resumability(issue, terminal_states),
+         :ok <- queued_issue_runtime_resumability(state, issue, tracker_state) do
+      :ok
+    end
+  end
+
+  defp tracker_issue_resumability(issue, active_states, terminal_states, tracker_state) do
     cond do
       Issue.paused?(issue) ->
         {:error, :tracker_paused}
@@ -1653,9 +1661,21 @@ defmodule Aiur.Orchestrator.PauseResume do
           DispatchPolicy.terminal_issue_state?(issue.state, terminal_states) ->
         {:error, {:tracker_state_not_resumable, tracker_state}}
 
-      DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states) ->
-        {:error, :waiting_for_dependencies}
+      true ->
+        :ok
+    end
+  end
 
+  defp dependency_resumability(issue, terminal_states) do
+    if DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states) do
+      {:error, :waiting_for_dependencies}
+    else
+      :ok
+    end
+  end
+
+  defp queued_issue_runtime_resumability(state, issue, tracker_state) do
+    cond do
       MapSet.member?(state.claimed, issue.id) ->
         {:error, :already_claimed}
 
