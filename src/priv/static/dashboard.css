@@ -8150,6 +8150,101 @@ html[data-theme="light"] .sd-device {
   letter-spacing: 0.04em;
 }
 
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
+}
+
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
+  color: var(--muted);
+}
+
+/* The LIVE key is the design's one green key (streamdeck.design.css:128-139).
+   Its inks are scoped to the key rather than themed :root tokens: the Stream
+   Deck chassis is painted dark in both themes, so these greens are correct
+   against the near-black key face and must not flip with the light palette. */
+.sd-live-key {
+  --sd-live: #4ade80;
+  --sd-live-ink: #8fe0a8;
+  --sd-live-sel-ink: #eafff3;
+  background: linear-gradient(180deg, #227a4d, #17583a);
+}
+
+.sd-live-key .sd-key-face {
+  background: linear-gradient(180deg, #132420, #0d1713);
+}
+
+.sd-live-key.is-selected {
+  border-color: #37d97e;
+  background: linear-gradient(180deg, #37d97e, #1f9c56);
+  box-shadow: 0 0 16px rgba(55, 217, 126, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--sd-live);
+  box-shadow: 0 0 0.65rem var(--sd-live);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-key.is-selected .sd-live-dot {
+  background: var(--sd-live-sel-ink);
+  box-shadow: 0 0 0.65rem rgba(255, 255, 255, 0.85);
+}
+
+.sd-live-label {
+  color: var(--sd-live-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.sd-live-key.is-selected .sd-live-label {
+  color: var(--sd-live-sel-ink);
+}
+
 /* Read-only mode. The button also carries the `disabled` attribute, so this is
    presentation only — it must never be the sole thing stopping a press. */
 .sd-cmd-key.is-disabled .sd-key-face {

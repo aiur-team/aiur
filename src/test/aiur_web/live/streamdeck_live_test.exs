@@ -709,6 +709,37 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
   end
 
+  # The LIVE key is the design's one visually distinct key, and it is selected
+  # by default. Without its own chassis it renders as an ordinary log key with
+  # the blue `.sd-log-key.is-selected` glow — the #1671 shape, a design rule
+  # with no counterpart in the implementation. Assert both halves: the markup
+  # carries the class, and dashboard.css actually styles it, selected included.
+  test "the LIVE key carries the design's green chassis, not the ordinary log key's" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = enter_logs(view)
+
+    assert html =~ ~r/class="sd-key sd-log-key sd-live-key is-live is-selected"/,
+           "the LIVE key must carry sd-live-key and be selected on entering logs mode"
+
+    css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+
+    for selector <- [
+          ".sd-live-key {",
+          ".sd-live-key .sd-key-face {",
+          ".sd-live-key.is-selected {",
+          ".sd-live-key.is-selected .sd-live-label {"
+        ] do
+      assert css =~ selector,
+             "dashboard.css has no `#{selector}` rule, so the LIVE key falls back to the plain log key chassis"
+    end
+
+    # The design's greens (streamdeck.design.css:128-139), not a re-derived hue.
+    assert css =~ "linear-gradient(180deg, #227a4d, #17583a)"
+    assert css =~ "linear-gradient(180deg, #37d97e, #1f9c56)"
+    assert css =~ "--sd-live: #4ade80;"
+    assert css =~ "--sd-live-ink: #8fe0a8;"
+  end
+
   test "projects classified AgentEventFeed entries through the flattened two-line window" do
     with_production_feed(fn ->
       write_feed("1352", [
@@ -731,6 +762,84 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
       assert html =~ "older message"
       assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+    end)
+  end
+
+  test "rebuilds LIVE and event starts from the durable feed when the relay receives a new event" do
+    with_production_feed(fn ->
+      write_feed("1352", [
+        feed_event("assistant", "older durable event", "turn-1"),
+        feed_event("assistant", "newest durable event", "turn-2")
+      ])
+
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      enter_logs(view)
+
+      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "live durable event"))
+
+      Task.start(fn ->
+        Process.sleep(10)
+
+        write_feed("1352", [
+          feed_event("assistant", "older durable event", "turn-1"),
+          feed_event("assistant", "newest durable event", "turn-2"),
+          feed_event("assistant", "live durable event", "turn-3")
+        ])
+      end)
+
+      assert eventually(fn -> render(view) =~ "live durable event" end)
+
+      logs = streamdeck_assigns(view).logs
+      assert [%{kind: :live} | [%{text: "live durable event"} | _]] = logs.event_keys
+
+      html = render_hook(view, "log-key-select", %{"index" => "3"})
+      selected = streamdeck_assigns(view).logs
+
+      assert selected.transcript_offset == selected.event_starts[3]
+      assert [%{kind: :event_header, body: "older durable event"} | _] = selected.transcript_visible
+      assert strip(html) =~ "older durable event"
+    end)
+  end
+
+  test "refreshes relative event times while logs mode remains open" do
+    with_production_feed(fn ->
+      timestamp = DateTime.utc_now() |> DateTime.add(-59, :second) |> DateTime.to_iso8601()
+      write_feed("1352", [feed_event("assistant", "recent durable event", "turn-1", timestamp: timestamp)])
+
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      assert enter_logs(view) =~ "now"
+
+      assert eventually(fn -> render(view) =~ "1m" end)
+    end)
+  end
+
+  # Both handlers reload the logs from the durable feed, so the observable proof
+  # is new feed content reaching the view — not merely that render/1 still works.
+  test "relay alerts and control updates reload the logs from the durable feed" do
+    with_production_feed(fn ->
+      write_feed("1352", [feed_event("assistant", "first durable entry", "turn-1")])
+
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = enter_logs(view)
+      assert html =~ "first durable entry"
+      refute html =~ "entry after the alert"
+
+      write_feed("1352", [
+        feed_event("assistant", "first durable entry", "turn-1"),
+        feed_event("assistant", "entry after the alert", "turn-2")
+      ])
+
+      AgentPubSub.broadcast_alert("1352", AgentEvents.alert_event("deploy", "Needs attention"))
+      assert eventually(fn -> render(view) =~ "entry after the alert" end)
+
+      write_feed("1352", [
+        feed_event("assistant", "first durable entry", "turn-1"),
+        feed_event("assistant", "entry after the alert", "turn-2"),
+        feed_event("assistant", "entry after the control update", "turn-3")
+      ])
+
+      AgentPubSub.broadcast_control_lifecycle("1352", %{request_id: "request-1", status: :paused})
+      assert eventually(fn -> render(view) =~ "entry after the control update" end)
     end)
   end
 
@@ -906,11 +1015,17 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "data-pager-page="
 
     # Descending into logs keeps the same command focused, so the label holds.
+    # #1662 gives the transcript the info segments but keeps the pager segment,
+    # so dial D stays labelled with the agent being read.
     html = render_click(view, "command-press", %{"command" => "logs"})
+    assert html =~ ~s(data-pager-focus="#1352")
+    assert html =~ ~s(data-segment="pager")
+
+    html = render_click(view, "dial-press", %{"action" => "back"})
+    assert html =~ "CONTROLLING"
     assert html =~ ~s(data-pager-focus="#1352")
 
     # Backing all the way out restores the pager dots.
-    render_click(view, "dial-press", %{"action" => "back"})
     html = render_click(view, "dial-press", %{"action" => "back"})
 
     assert html =~ "MORE AGENTS"
@@ -1046,15 +1161,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
     }
   end
 
-  defp feed_event(role, body, turn_id, payload \\ nil) do
+  defp feed_event(role, body, turn_id, opts \\ [])
+
+  defp feed_event(role, body, turn_id, payload) when is_map(payload),
+    do: feed_event(role, body, turn_id, payload: payload)
+
+  defp feed_event(role, body, turn_id, opts) when is_list(opts) do
     %{
       "role" => role,
       "body" => body,
-      "timestamp" => "2026-08-02T00:00:00Z",
+      "timestamp" => Keyword.get(opts, :timestamp, "2026-08-02T00:00:00Z"),
       "msg_id" => nil,
       "sequence" => 1,
       "turn_id" => turn_id,
-      "payload" => payload
+      "payload" => Keyword.get(opts, :payload)
     }
   end
 
@@ -1097,6 +1217,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
   end
 
   defp streamdeck_assigns(view), do: :sys.get_state(view.pid).socket.assigns
+
+  defp eventually(fun, attempts \\ 30)
+  defp eventually(_fun, 0), do: false
+
+  defp eventually(fun, attempts) do
+    if fun.() do
+      true
+    else
+      Process.sleep(100)
+      eventually(fun, attempts - 1)
+    end
+  end
 
   defp enter_logs(view, identifier \\ "1352") do
     render_hook(view, "key-press", %{"identifier" => identifier})
