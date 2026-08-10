@@ -146,7 +146,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
 
-  def handle_event("command-press", %{"command" => command}, socket) when command in ["pause", "priority", "logs"] do
+  # "logs" never reaches here — the clause above owns it and enters log mode.
+  def handle_event("command-press", %{"command" => command}, socket) when command in ["pause", "priority"] do
     {:noreply, assign(socket, :control_feedback, "#{command_label(command)} selected")}
   end
 
@@ -762,7 +763,6 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp command_label("pause"), do: "Pause"
   defp command_label("priority"), do: "Priority"
-  defp command_label("logs"), do: "Logs"
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do
