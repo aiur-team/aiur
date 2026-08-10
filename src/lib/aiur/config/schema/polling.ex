@@ -7,7 +7,15 @@ defmodule Aiur.Config.Schema.Polling do
 
   @primary_key false
   embedded_schema do
-    field(:interval_seconds, :integer, default: 30)
+    # The tracker sweep and the repo-events firehose share this tick, so the
+    # GitHub GraphQL spend of polling scales as 1/interval. Measured against a
+    # 5,000 point/hour budget: 30s costs roughly 5,800 points/hour on its own —
+    # more than the entire budget before a single agent runs — while 60s costs
+    # ~2,900 and 120s ~1,450. Widening past 120s buys progressively less (300s
+    # saves only another ~870) for a proportionally worse worst-case wake.
+    # 120s keeps the whole poll component under a third of the budget and stays
+    # far inside the Executor's 15-minute sweep.
+    field(:interval_seconds, :integer, default: 120)
     # Usage endpoint allows ~1 request/2min, per account. Measured floor 120s.
     field(:usage_interval_seconds, :integer, default: 300)
   end

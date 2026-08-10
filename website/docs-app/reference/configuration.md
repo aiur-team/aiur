@@ -40,8 +40,32 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `polling.interval_seconds` | integer | 30 | Seconds between tracker polls. |
+| `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
+
+### Choosing a poll interval
+
+Polling spends GitHub GraphQL points at a rate inversely proportional to the
+interval, and that spend is fixed cost — it does not depend on how many agents
+are running. Against GitHub's 5,000 point/hour budget:
+
+| `interval_seconds` | Approximate poll spend | Worst-case wake latency |
+| --- | --- | --- |
+| 30 | ~5,800 points/hour | 30s |
+| 60 | ~2,900 points/hour | 60s |
+| 120 | ~1,450 points/hour | 2m |
+| 300 | ~580 points/hour | 5m |
+
+At 30 seconds the poll loop alone can exhaust the hourly budget before a single
+agent makes a request, which is why the default is 120. Tightening it below 60
+is only safe on a small fleet.
+
+Widening past 120 seconds is the flat part of the curve: each further step
+saves less quota than the last while the wake latency grows proportionally.
+Aiur's poll is state-based — it reads current issue labels and pull request
+state rather than replaying an event log — so a longer interval delays a wake
+but does not lose one. The exception is comment-driven wakes, where a comment
+posted and answered between two polls is not distinguishable from no comment.
 
 ## workspace
 
