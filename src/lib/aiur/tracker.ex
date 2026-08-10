@@ -55,12 +55,17 @@ defmodule Aiur.Tracker do
 
     if Code.ensure_loaded?(tracker_adapter) and
          function_exported?(tracker_adapter, :fetch_issue_states_by_ids_conditional, 2) do
-      fetch_conditional = Function.capture(tracker_adapter, :fetch_issue_states_by_ids_conditional, 2)
-      fetch_conditional.(issue_ids, cache)
+      dispatch_fetch_issue_states_by_ids_conditional(tracker_adapter, issue_ids, cache)
     else
       with {:ok, issues} <- tracker_adapter.fetch_issue_states_by_ids(issue_ids),
            do: {:ok, issues, cache}
     end
+  end
+
+  @spec dispatch_fetch_issue_states_by_ids_conditional(module(), [String.t()], map()) ::
+          {:ok, [term()], map()} | {:error, term()} | {:error, term(), map()}
+  defp dispatch_fetch_issue_states_by_ids_conditional(tracker_adapter, issue_ids, cache) do
+    tracker_adapter.fetch_issue_states_by_ids_conditional(issue_ids, cache)
   end
 
   @spec create_comment(String.t(), String.t()) :: :ok | {:error, term()}
