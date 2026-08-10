@@ -15,6 +15,12 @@ defmodule Aiur.Config.Schema.Polling do
     # saves only another ~870) for a proportionally worse worst-case wake.
     # 120s keeps the whole poll component under a third of the budget and stays
     # far inside the Executor's 15-minute sweep.
+    #
+    # Those costs assume the interval is the one actually used. GitHub's
+    # `X-Poll-Interval` (60s by default) is a competing floor, and
+    # `TrackerHealth.next_poll_delay_ms/1` takes the wider of the two — so a
+    # value under 60 mostly does not tighten the loop, and the real saving from
+    # this 120s default is measured against an effective 60s, not against 30s.
     field(:interval_seconds, :integer, default: 120)
     # Usage endpoint allows ~1 request/2min, per account. Measured floor 120s.
     field(:usage_interval_seconds, :integer, default: 300)

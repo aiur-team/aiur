@@ -60,6 +60,12 @@ At 30 seconds the poll loop alone can exhaust the hourly budget before a single
 agent makes a request, which is why the default is 120. Tightening it below 60
 is only safe on a small fleet.
 
+The figures above are what each interval costs if it is actually applied. GitHub
+also sends an `X-Poll-Interval` header on the repo-events endpoint — 60 seconds
+by default — and Aiur treats it as a floor. The interval actually used is the
+wider of the two, so setting `interval_seconds` below 60 generally does not
+speed polling up, while setting it above 60 does slow polling down.
+
 Widening past 120 seconds is the flat part of the curve: each further step
 saves less quota than the last while the wake latency grows proportionally.
 Aiur's poll is state-based — it reads current issue labels and pull request

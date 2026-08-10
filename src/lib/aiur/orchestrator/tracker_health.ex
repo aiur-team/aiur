@@ -72,9 +72,24 @@ defmodule Aiur.Orchestrator.TrackerHealth do
 
   def note_github_poll_interval(%State{} = state, _source, _seconds), do: state
 
+  # GitHub's delays are floors, not targets: `X-Poll-Interval` says "do not poll
+  # faster than this" and a connectivity backoff says "wait at least this long".
+  # The configured interval is a floor too. So the next tick is the widest of
+  # them, never the narrowest — returning a GitHub floor outright would let a
+  # 60s header override a deliberately widened `polling.interval_seconds` and
+  # quietly undo the quota saving it was set to buy.
   @spec next_poll_delay_ms(State.t()) :: non_neg_integer()
   def next_poll_delay_ms(%State{} = state) do
-    github_next_poll_delay_ms(state) || state.poll_interval_ms
+    case github_next_poll_delay_ms(state) do
+      github_ms when is_integer(github_ms) and is_integer(state.poll_interval_ms) ->
+        max(github_ms, state.poll_interval_ms)
+
+      github_ms when is_integer(github_ms) ->
+        github_ms
+
+      _none ->
+        state.poll_interval_ms
+    end
   end
 
   @doc false
