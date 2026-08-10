@@ -1,0 +1,232 @@
+defmodule Aiur.Webhooks.ModeRegistry do
+  @moduledoc """
+  Per-repo delivery-mode store, silence sweep, and operator alerting.
+
+  The fleet may track several repos at once, each in a different mode, so mode
+  lives per repo in this registry and nothing anywhere may assume one mode
+  fleet-wide.
+
+  ## The seam
+
+  `record_delivery/3` is the single entry point a webhook receiver calls when a
+  delivery has been received *and verified*. Everything else — proving a repo,
+  recovering it from degradation, keeping its silence timer alive — follows from
+  that one call. Nothing else may promote a repo to webhook mode.
+
+  ## Degradation
+
+  A timer sweeps proven repos. A repo silent past
+  `webhooks.silence_threshold_seconds` drops back to full polling and raises a
+  needs-attention alert naming the repo, because silently degrading to "no
+  events at all" is strictly worse than never having built webhooks. Recovery is
+  automatic: the next delivery restores webhook mode and emits an informational
+  alert. No operator action in either direction.
+
+  Reads never block on the sweep and never fail loudly: an unknown repo reads
+  back as an unconfigured polling repo, which is exactly today's behavior.
+  """
+
+  use GenServer
+
+  require Logger
+
+  alias Aiur.{Alerts, Config}
+  alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
+  alias Aiur.Webhooks.DeliveryMode
+
+  @type server :: GenServer.server()
+
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts \\ []) do
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+  end
+
+  @doc """
+  Records one observed, verified webhook delivery for `repo`.
+
+  Idempotent with respect to mode: repeated deliveries keep a repo
+  webhook-backed and refresh its silence timer.
+  """
+  @spec record_delivery(String.t(), keyword()) :: {:ok, DeliveryMode.t()}
+  def record_delivery(repo, opts \\ []) when is_binary(repo) do
+    {server, opts} = Keyword.pop(opts, :server, __MODULE__)
+    at = Keyword.get(opts, :at) || DateTime.utc_now()
+    GenServer.call(server, {:record_delivery, repo, at})
+  end
+
+  @doc "Current mode for `repo`. Unknown repos read back as never-configured."
+  @spec mode(String.t(), server()) :: DeliveryMode.t()
+  def mode(repo, server \\ __MODULE__) when is_binary(repo) do
+    GenServer.call(server, {:mode, repo})
+  end
+
+  @doc "Transport currently serving `repo` — `:webhook` only once proven."
+  @spec transport(String.t(), server()) :: DeliveryMode.transport()
+  def transport(repo, server \\ __MODULE__) when is_binary(repo) do
+    repo |> mode(server) |> DeliveryMode.transport()
+  end
+
+  @doc "Why `repo` is polling, or `nil` when it is proven webhook-backed."
+  @spec polling_reason_for(String.t(), server()) :: DeliveryMode.polling_reason()
+  def polling_reason_for(repo, server \\ __MODULE__) when is_binary(repo) do
+    repo |> mode(server) |> DeliveryMode.polling_reason()
+  end
+
+  @doc """
+  Marks whether config expects a webhook for `repo`.
+
+  Never promotes a repo to webhook mode; the most it can do is move a repo to
+  `configured_unproven`, which still polls at full rate.
+  """
+  @spec configure(String.t(), boolean(), server()) :: {:ok, DeliveryMode.t()}
+  def configure(repo, configured?, server \\ __MODULE__) when is_binary(repo) and is_boolean(configured?) do
+    GenServer.call(server, {:configure, repo, configured?})
+  end
+
+  @doc "Every known repo's mode, ordered by repo name."
+  @spec list(server()) :: [DeliveryMode.t()]
+  def list(server \\ __MODULE__), do: GenServer.call(server, :list)
+
+  @doc """
+  Runs the silence sweep immediately and returns the repos that degraded.
+
+  The registry sweeps on its own timer; this is the deterministic hook for
+  tests and for an operator-triggered refresh.
+  """
+  @spec sweep(server(), DateTime.t() | nil) :: {:ok, [String.t()]}
+  def sweep(server \\ __MODULE__, now \\ nil) do
+    GenServer.call(server, {:sweep, now || DateTime.utc_now()})
+  end
+
+  @doc "Silence threshold in milliseconds currently in force."
+  @spec silence_threshold_ms(server()) :: pos_integer()
+  def silence_threshold_ms(server \\ __MODULE__), do: GenServer.call(server, :silence_threshold_ms)
+
+  @impl true
+  def init(opts) do
+    settings = webhook_settings(opts)
+
+    state = %{
+      repos: initial_repos(opts, settings),
+      silence_threshold_ms: Keyword.get(opts, :silence_threshold_ms) || settings.silence_threshold_seconds * 1_000,
+      sweep_interval_ms: Keyword.get(opts, :sweep_interval_ms) || settings.sweep_interval_seconds * 1_000,
+      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
+      sweep_timer: nil
+    }
+
+    {:ok, schedule_sweep(state)}
+  end
+
+  defp initial_repos(opts, settings) do
+    opts
+    |> Keyword.get(:configured_repos, settings.repos)
+    |> Enum.filter(&is_binary/1)
+    |> Enum.map(&String.trim/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Map.new(&{&1, DeliveryMode.new(&1, configured?: true)})
+  end
+
+  # Config is unavailable in some boot and test contexts. Falling back to the
+  # schema defaults keeps the registry startable there, and the defaults are
+  # the conservative ones: no configured repos, no widening.
+  defp webhook_settings(opts) do
+    case Keyword.get(opts, :settings) do
+      %{} = settings -> settings
+      _missing -> Config.settings().webhooks
+    end
+  rescue
+    _error -> %WebhookSettings{}
+  catch
+    _kind, _reason -> %WebhookSettings{}
+  end
+
+  @impl true
+  def handle_call({:record_delivery, repo, at}, _from, state) do
+    current = fetch(state, repo)
+    {updated, transition} = DeliveryMode.record_delivery(current, at)
+    announce(state, updated, transition)
+
+    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+  end
+
+  def handle_call({:mode, repo}, _from, state), do: {:reply, fetch(state, repo), state}
+
+  def handle_call({:configure, repo, configured?}, _from, state) do
+    {updated, _transition} = state |> fetch(repo) |> DeliveryMode.configure(configured?)
+    {:reply, {:ok, updated}, put_in(state.repos[repo], updated)}
+  end
+
+  def handle_call(:list, _from, state) do
+    {:reply, state.repos |> Map.values() |> Enum.sort_by(& &1.repo), state}
+  end
+
+  def handle_call({:sweep, now}, _from, state) do
+    {state, degraded} = run_sweep(state, now)
+    {:reply, {:ok, degraded}, state}
+  end
+
+  def handle_call(:silence_threshold_ms, _from, state), do: {:reply, state.silence_threshold_ms, state}
+
+  @impl true
+  def handle_info(:sweep, state) do
+    {state, _degraded} = run_sweep(state, DateTime.utc_now())
+    {:noreply, schedule_sweep(state)}
+  end
+
+  def handle_info(_message, state), do: {:noreply, state}
+
+  defp run_sweep(state, now) do
+    {repos, degraded} =
+      Enum.reduce(state.repos, {%{}, []}, fn {repo, mode}, {acc, degraded} ->
+        {updated, transition} = DeliveryMode.sweep(mode, now, state.silence_threshold_ms)
+        announce(state, updated, transition)
+
+        {Map.put(acc, repo, updated), if(transition == :degraded, do: [repo | degraded], else: degraded)}
+      end)
+
+    {%{state | repos: repos}, Enum.sort(degraded)}
+  end
+
+  defp schedule_sweep(state) do
+    if state.sweep_timer, do: Process.cancel_timer(state.sweep_timer)
+    %{state | sweep_timer: Process.send_after(self(), :sweep, state.sweep_interval_ms)}
+  end
+
+  defp fetch(state, repo), do: Map.get_lazy(state.repos, repo, fn -> DeliveryMode.new(repo) end)
+
+  # The degradation alert names the repo because an operator reading "webhooks
+  # degraded" across a multi-repo fleet cannot act on it otherwise.
+  defp announce(state, %DeliveryMode{repo: repo}, :degraded) do
+    seconds = div(state.silence_threshold_ms, 1_000)
+
+    emit(
+      state,
+      "webhook.degraded",
+      "#{repo} webhook silent for over #{seconds}s — reverting to full polling",
+      reason: "No verified webhook delivery for #{repo} within the silence threshold. Aiur restored full polling for that repo automatically; check the webhook secret, App install, and ingress.",
+      needs_attention: true,
+      severity: "warning"
+    )
+  end
+
+  defp announce(state, %DeliveryMode{repo: repo}, :recovered) do
+    emit(
+      state,
+      "webhook.recovered",
+      "#{repo} webhook deliveries resumed — back to webhook mode",
+      reason: "A verified delivery arrived for #{repo} after degradation. Webhook mode was restored with no operator action.",
+      needs_attention: false,
+      severity: "info"
+    )
+  end
+
+  defp announce(_state, _mode, _transition), do: :ok
+
+  defp emit(state, name, message, opts) do
+    state.alert_fun.(name, message, opts)
+  rescue
+    error -> Logger.warning("Webhooks.ModeRegistry alert #{name} failed: #{Exception.message(error)}")
+  catch
+    :exit, reason -> Logger.warning("Webhooks.ModeRegistry alert #{name} exited: #{inspect(reason)}")
+  end
+end
