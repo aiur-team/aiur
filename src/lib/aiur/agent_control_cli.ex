@@ -1,7 +1,23 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, AnalyticsCLI, Asks, BuildGate, BuildOrdersCLI, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase, SupervisionHealth}
+  alias Aiur.{
+    AgentChat,
+    AlertFeed,
+    AnalyticsCLI,
+    Asks,
+    BuildGate,
+    BuildOrdersCLI,
+    CommandsCLI,
+    Config,
+    ExecutorEvents,
+    Orchestrator,
+    PauseContainment,
+    ProviderMeterProjection,
+    RepoBase,
+    SupervisionHealth
+  }
+
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
