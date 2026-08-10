@@ -8,6 +8,7 @@ import { dashboardCredentials } from './support/layout-worker.mjs'
 // not merely when the page fails to render.
 
 const CONTROLLED = '1352'
+const CMD_COMMANDS = ['Run tests', 'Deploy staging', 'View logs', 'Open PR']
 
 async function openStreamdeck(page) {
   await page.goto('/auth/read_only')
@@ -52,6 +53,17 @@ function visibleIdentifiers(page) {
 
 async function dialValue(knob) {
   return Number.parseInt(await knob.getAttribute('aria-valuenow'), 10)
+}
+
+// The server's echo of the dial value it was last pushed. Unlike the knob's own
+// `aria-valuenow`, this only moves when `grid-page` actually reaches the
+// LiveView, so it distinguishes a real round trip from a client-side redraw.
+async function gridDialEcho(keys) {
+  return Number.parseInt(await keys.getAttribute('data-grid-dial-value'), 10)
+}
+
+function commandLabels(page) {
+  return page.locator('#sd-cmd-view .sd-cmd-item').allInnerTexts()
 }
 
 // Free dial turns move the column offset without landing on a window boundary,
@@ -112,15 +124,27 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(pager.locator('[aria-current="page"]')).toHaveAttribute('data-pager-page', '1')
   expect(await visibleIdentifiers(page)).not.toEqual(openingPage)
 
+  // The knob writes its own `aria-valuenow` client-side before it notifies the
+  // server, so that attribute alone would stay green with the grid-page round
+  // trip deleted. `data-grid-dial-value` is the server's echo of the value the
+  // dial pushed, so assert the wheel and the keyboard each reach the fleet.
   const afterDrag = await dialValue(dialD)
+  const echoAfterDrag = await gridDialEcho(keys)
   await dialD.hover()
   await page.mouse.wheel(0, 100)
   await expect.poll(() => dialValue(dialD)).toBeLessThan(afterDrag)
+  await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialValue(dialD)))
+  expect(await gridDialEcho(keys)).toBeLessThan(echoAfterDrag)
 
   const afterWheel = await dialValue(dialD)
+  const echoAfterWheel = await gridDialEcho(keys)
+  // Arrow keys are the accessible route into paging, so prove that leg reaches
+  // the server too rather than only redrawing the knob.
   await dialD.focus()
   await page.keyboard.press('ArrowDown')
   await expect.poll(() => dialValue(dialD)).toBeLessThan(afterWheel)
+  await expect(keys).toHaveAttribute('data-grid-dial-value', String(await dialValue(dialD)))
+  expect(await gridDialEcho(keys)).toBeLessThan(echoAfterWheel)
 
   // A press is not a turn: it cycles the window and leaves the mode alone.
   const pageBeforePress = Number.parseInt(await keys.getAttribute('data-grid-page'), 10)
@@ -139,6 +163,10 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
+  // Cmd mode replaces the key faces, it does not merely relabel the strip: the
+  // agent grid is gone and the operator is looking at the command set.
+  await expect(keys).toHaveCount(0)
+  expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
 
   // Back out and confirm the fleet itself moved — the agent is now bucketed as
   // paused and its key offers resume. Feedback text alone would not prove this.
@@ -153,6 +181,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
   await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
+  await expect(keys).toHaveCount(0)
+  expect(await commandLabels(page)).toEqual(CMD_COMMANDS)
 
   // ---------------------------------------------------------------- step 5 --
   // Descend from cmd into the focused agent's logs.
