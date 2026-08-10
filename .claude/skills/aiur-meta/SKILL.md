@@ -58,12 +58,18 @@ full-page PNGs, `report.json`, and a short `verdict.md` beside the run's
 retrospective, then appends that verdict to the narrative log:
 
 ```bash
-AIUR_DASHBOARD_URL="http://127.0.0.1:4099" \
 .claude/skills/aiur-run/scripts/executor-retrospective.sh visual-check
 ```
 
+The runner reads the daemon-published `@aiur_control_url` from its tmux socket,
+rather than guessing a fixed port. Set `AIUR_DASHBOARD_URL` only when running
+outside that tmux session; if neither source is available it records an explicit
+attention verdict without attempting the wrong dashboard.
+
 Pass `AIUR_META_EXPECTED_CAPACITY` when the configured cap is known; it catches
 a page reporting a stale cap as well as a peak greater than the displayed cap.
+Pass `AIUR_META_EXPECTED_ACTIVE_AGENTS` when the run's current active-agent
+count is known so a Units zero-state is only accepted for a confirmed idle run.
 `AIUR_META_KNOWN_NOISE` accepts a JSON array of narrow `{kind, status, path}`
 rules for a confirmed recurring browser error. The default only ignores the
 known missing `conversation-drawer-hook.js`; never baseline all 404s.

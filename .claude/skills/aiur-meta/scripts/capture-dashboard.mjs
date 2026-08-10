@@ -10,7 +10,9 @@
 // It writes <page>.png, report.json, and verdict.md to the output directory
 // and prints the JSON report. The runner resolves Playwright from src/browser,
 // where it is vendored, rather than assuming the skill directory has a
-// node_modules tree.
+// node_modules tree. Basic auth must use Playwright's httpCredentials (not URL
+// userinfo), and each page must settle after domcontentloaded because LiveView
+// otherwise leaves the static shell looking falsely empty.
 
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
@@ -20,12 +22,13 @@ import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '../../../../')
-const BASE = process.env.AIUR_DASHBOARD_URL || 'http://127.0.0.1:4099'
+const BASE = process.env.AIUR_DASHBOARD_URL
 const USER = process.env.AIUR_DASHBOARD_USERNAME || 'aiur'
 const PASS = process.env.AIUR_DASHBOARD_PASSWORD
 const OUT = process.argv[2] || './meta-captures'
 const SETTLE_MS = positiveInteger(process.env.AIUR_META_SETTLE_MS, 6000)
 const EXPECTED_CAPACITY = positiveInteger(process.env.AIUR_META_EXPECTED_CAPACITY, null)
+const EXPECTED_ACTIVE_AGENTS = nonNegativeInteger(process.env.AIUR_META_EXPECTED_ACTIVE_AGENTS, null)
 const PLAYWRIGHT_ROOT = process.env.AIUR_META_PLAYWRIGHT_ROOT || path.join(REPOSITORY_ROOT, 'src/browser')
 const BOOTSTRAP_PATH = process.env.AIUR_META_BOOTSTRAP_PATH
 
@@ -45,13 +48,20 @@ const DEFAULT_KNOWN_NOISE = [
   { kind: 'requestfailed', path: '/conversation-drawer-hook.js' }
 ]
 
-export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null) {
+export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null, expectedActiveAgents = null) {
   const issues = []
   const metricColumns = snapshot.tables.flatMap((table) => tableMetricIssues(table))
 
   for (const issue of metricColumns) issues.push(issue)
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
-  for (const emptyState of snapshot.emptyStates) issues.push({ kind: 'empty-state', detail: emptyState })
+  for (const emptyState of snapshot.emptyStates) {
+    // A settled Units empty-state can be legitimate only when the run itself
+    // confirms that it has no active agents. With no external count, retain it
+    // as attention rather than silently accepting a confidently-rendered zero.
+    if (name !== 'units' || expectedActiveAgents === null || expectedActiveAgents > 0) {
+      issues.push({ kind: 'empty-state', detail: emptyState })
+    }
+  }
   for (const table of snapshot.tables.filter((table) => table.hasBody && table.rows.length === 0)) {
     issues.push({ kind: 'empty-table', detail: table.label || 'unnamed table' })
   }
@@ -170,6 +180,12 @@ function positiveInteger(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function nonNegativeInteger(value, fallback) {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number.parseInt(value, 10)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback
+}
+
 function knownNoiseRules() {
   const raw = process.env.AIUR_META_KNOWN_NOISE
   if (!raw) return DEFAULT_KNOWN_NOISE
@@ -219,10 +235,10 @@ async function inspectPage(page) {
       value: card.querySelector('.an-kpi-val')?.innerText.trim() || '',
       sub: card.querySelector('.an-kpi-sub')?.innerText.trim() || ''
     }))
-    const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state'))
+    const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state:not(.filtered-empty)'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /no build orders|no run telemetry/i.test(value))
+      .filter((value) => /no build orders|no run telemetry|no units have been observed|no active agents|loading units/i.test(value))
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
 
@@ -241,6 +257,12 @@ async function inspectPage(page) {
 }
 
 async function main() {
+  if (!BASE) {
+    console.error('AIUR_DASHBOARD_URL is required; run through executor-retrospective.sh to discover the daemon URL.')
+    process.exitCode = 64
+    return
+  }
+
   if (!PASS) {
     console.error('AIUR_DASHBOARD_PASSWORD is required.')
     process.exitCode = 64
@@ -303,7 +325,7 @@ async function main() {
       snapshot.status = status
       snapshot.navigationError ||= navigationError
       snapshot.capacityReadings = extractCapacityReadings(snapshot.kpis || [], snapshot.text)
-      const assessment = analyzeDashboardSnapshot(name, snapshot, EXPECTED_CAPACITY)
+      const assessment = analyzeDashboardSnapshot(name, snapshot, EXPECTED_CAPACITY, EXPECTED_ACTIVE_AGENTS)
       const unexpectedConsoleErrors = consoleErrors.filter((entry) => !isKnownNoise(entry, knownNoise))
       const unexpectedFailedRequests = failedRequests.filter((entry) => !isKnownNoise(entry, knownNoise))
 
@@ -338,6 +360,7 @@ async function main() {
     viewport: { width: 1600, height: 1200 },
     settleMs: SETTLE_MS,
     expectedCapacity: EXPECTED_CAPACITY,
+    expectedActiveAgents: EXPECTED_ACTIVE_AGENTS,
     verdict: pages.every((page) => page.verdict === 'healthy') ? 'healthy' : 'attention',
     pages
   }

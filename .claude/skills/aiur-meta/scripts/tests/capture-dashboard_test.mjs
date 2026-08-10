@@ -62,6 +62,19 @@ test('reports visible staleness, empty tables, and configured-cap contradictions
   assert.match(renderVerdict({ verdict: result.verdict, pages: [result] }), /Units may be stale/)
 })
 
+test('flags a settled Units zero-state while agents are active, but allows a confirmed idle run', () => {
+  const emptyUnits = structuredClone(healthySnapshot)
+  emptyUnits.emptyStates = ['No units have been observed in this run.']
+
+  const activeRun = analyzeDashboardSnapshot('units', emptyUnits, 14, 9)
+  assert.deepEqual(activeRun.issues.filter((issue) => issue.kind === 'empty-state').map((issue) => issue.detail), [
+    'No units have been observed in this run.'
+  ])
+
+  const idleRun = analyzeDashboardSnapshot('units', emptyUnits, 14, 0)
+  assert.equal(idleRun.verdict, 'healthy')
+})
+
 test('extracts the peak card value separately from current concurrency and its cap', () => {
   const readings = extractCapacityReadings([
     { label: 'Peak concurrency', value: '33', sub: '20 now / 32 cap' }
