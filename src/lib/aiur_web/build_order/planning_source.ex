@@ -116,6 +116,11 @@ defmodule AiurWeb.BuildOrder.PlanningSource do
   def load_sources, do: DataSource.load_sources()
 
   @impl true
+  def load_runtime_sources, do: DataSource.load_runtime_sources()
+
+  # A live-only root has no pack here, so context must come from the live
+  # source; answering `:unavailable` would render a selectable union row blank.
+  @impl true
   def load_context(identity), do: DataSource.load_context(identity)
 
   # --- subscriptions ----------------------------------------------------------
