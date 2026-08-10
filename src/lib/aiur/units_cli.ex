@@ -291,8 +291,7 @@ defmodule Aiur.UnitsCLI do
   defp table_line(row, widths) do
     row
     |> Enum.zip(widths)
-    |> Enum.map(fn {cell, width} -> String.pad_trailing(cell, width) end)
-    |> Enum.join("  ")
+    |> Enum.map_join("  ", fn {cell, width} -> String.pad_trailing(cell, width) end)
     |> String.trim_trailing()
   end
 
