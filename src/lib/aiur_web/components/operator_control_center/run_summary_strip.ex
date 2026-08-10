@@ -23,18 +23,33 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
+    cards = provider_cards(assigns.usage, assigns.meters)
+
     assigns =
       assigns
       |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
-      |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
+      |> assign(:cards, cards)
+      |> assign(:compressed?, compressed?(cards))
 
     ~H"""
-    <section class="run-summary" aria-label="Provider and GitHub usage">
+    <section :if={@compressed?} class="run-summary is-compressed" aria-label="Provider and GitHub usage">
+      <.compressed_meters cards={@cards} github_quota={@github_quota} now={@now} />
+    </section>
+    <section :if={not @compressed?} class="run-summary" aria-label="Provider and GitHub usage">
       <.github_quota_card quota={@github_quota} now={@now} />
       <.vendor_card :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
     </section>
     """
   end
+
+  # The strip is a quota glance, not a dashboard: past four panes the row stops
+  # reading as one thing, so it collapses into a single grouped table. The
+  # GitHub pane counts — it occupies a pane like any provider — so today's four
+  # (GitHub plus three model providers) stay exactly as they are and the fifth
+  # provider is what trips the compressed form.
+  @max_panes 4
+
+  defp compressed?(cards), do: length(cards) + 1 > @max_panes
 
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
@@ -201,6 +216,203 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     </div>
     """
   end
+
+  # --- compressed (>4 panes) -----------------------------------------------
+
+  # The compressed strip is one pane holding two named groups. The grouping is
+  # rendered, not implied by order: an operator scanning for "is my model
+  # provider out of quota" should not have to know that the GitHub row happens
+  # to sort last.
+  attr(:cards, :list, required: true)
+  attr(:github_quota, :map, required: true)
+  attr(:now, :any, required: true)
+
+  defp compressed_meters(assigns) do
+    assigns =
+      assigns
+      |> assign(:agent_rows, Enum.map(assigns.cards, &compressed_provider_row(&1, assigns.now)))
+      |> assign(:other_rows, [compressed_github_row(assigns.github_quota, assigns.now)])
+
+    ~H"""
+    <div class="rs-block rs-compressed">
+      <.compressed_group title="Agent APIs" rows={@agent_rows} />
+      <.compressed_group title="Other" rows={@other_rows} />
+    </div>
+    """
+  end
+
+  attr(:title, :string, required: true)
+  attr(:rows, :list, required: true)
+
+  defp compressed_group(assigns) do
+    ~H"""
+    <div class="rs-group">
+      <div class="rs-group-head">
+        <span class="rs-group-title">{@title}</span>
+        <span class="rs-group-count">{provider_count_label(length(@rows))}</span>
+      </div>
+      <div class="rs-group-rows">
+        <div :for={row <- @rows} class="rs-row">
+          <div class="rs-row-id">
+            <img :if={row.logo} class="rs-logo" src={row.logo} alt="" aria-hidden="true" />
+            <span :if={is_nil(row.logo)} class="rs-logo rs-github-logo" aria-hidden="true">GH</span>
+            <span class="rs-row-name">{row.name}</span>
+          </div>
+          <div class="rs-row-meters">
+            <div :for={line <- row.lines} class="rs-row-meter">
+              <span class="rs-limit-label">{line.label}</span>
+              <div :if={line.percent} class="rs-meter"><i class={line.class} style={"width:#{line.percent}%"}></i></div>
+              <span :if={is_nil(line.percent)} class="rs-meter rs-meter-none"></span>
+              <span class="rs-limit-meta">{line.meta}</span>
+            </div>
+          </div>
+          <%!-- The state chip is the compressed row's staleness signal. A row
+                that lost it would read a last-known-good or unavailable value
+                as a live one (the failure mode of issue #1564), so it renders
+                for every row, including the healthy ones. --%>
+          <span class={["rs-state", row.state_class]}>{row.state_label}</span>
+        </div>
+      </div>
+    </div>
+    """
+  end
+
+  defp provider_count_label(1), do: "1 provider"
+  defp provider_count_label(count), do: "#{count} providers"
+
+  defp compressed_provider_row(card, now) do
+    {state_label, state_class} = compressed_state(card)
+
+    %{
+      logo: provider_logo(card.provider),
+      name: card.provider_label,
+      lines: compressed_provider_lines(card, now),
+      state_label: state_label,
+      state_class: state_class
+    }
+  end
+
+  defp compressed_provider_lines(card, now) do
+    case meter_windows(card) do
+      [] -> [compressed_fallback_line(card, now)]
+      windows -> Enum.map(windows, &compressed_window_line(&1, windows, now))
+    end
+  end
+
+  defp compressed_window_line(window, windows, now) do
+    percent = meter_percent(window)
+
+    %{
+      label: window_label(window, windows),
+      percent: percent,
+      class: meter_class(percent),
+      meta: compressed_window_meta(window, now)
+    }
+  end
+
+  defp compressed_fallback_line(card, now) do
+    case durable_record(card) do
+      # No live window and no durable record is not a zero-consumed reading —
+      # it is the absence of one. The line carries no bar at all rather than an
+      # empty track, which would read exactly like a healthy 0%.
+      nil ->
+        %{label: "Limits", percent: nil, class: "", meta: provider_status(card)}
+
+      record ->
+        %{label: "Limits", percent: durable_percent(record), class: meter_class(durable_percent(record)), meta: durable_meta(record, now)}
+    end
+  end
+
+  # The compressed row trades the card's headroom for a wider meter line, so
+  # the line carries the counts the card left implicit: an exact
+  # remaining-of-limit reading where the window reports one, and the percentage
+  # form otherwise. A window the probe marked stale says so here — a stale
+  # remaining count and a live one must never render identically.
+  defp compressed_window_meta(window, now) do
+    meta = compressed_window_base_meta(window, now)
+
+    # `window_meta/2` already appends its own stale clause for a credit balance
+    # past its freshness horizon, so the probe-reported window freshness is only
+    # added when the meta does not already say it.
+    if Map.get(window, :freshness) == :stale and not String.contains?(meta, "stale") do
+      meta <> " (stale)"
+    else
+      meta
+    end
+  end
+
+  defp compressed_window_base_meta(%{kind: kind, remaining: remaining, limit: limit} = window, now)
+       when kind != :credit and is_number(remaining) and is_number(limit) do
+    "#{remaining}/#{limit} left · #{reset_text(Map.get(window, :resets_at), now)}"
+  end
+
+  defp compressed_window_base_meta(window, now), do: window_meta(window, now)
+
+  defp compressed_github_row(quota, now) do
+    windows = github_windows(quota)
+    backoffs = github_backoffs(quota)
+    {state_label, state_class} = compressed_github_state(windows, backoffs)
+
+    %{
+      logo: nil,
+      name: "GitHub API",
+      lines: compressed_github_lines(windows, backoffs, now),
+      state_label: state_label,
+      state_class: state_class
+    }
+  end
+
+  defp compressed_github_lines([], backoffs, now) do
+    [%{label: "Quota", percent: 0, class: "", meta: "Awaiting GitHub response"}] ++ compressed_backoff_lines(backoffs, now)
+  end
+
+  defp compressed_github_lines(windows, backoffs, now) do
+    Enum.map(windows, fn window ->
+      %{
+        label: github_window_label(window),
+        percent: window.used_percent,
+        class: meter_class(window.used_percent, 90),
+        meta: github_window_meta(window, now)
+      }
+    end) ++ compressed_backoff_lines(backoffs, now)
+  end
+
+  # A backoff is a live stoppage rather than a measured window, so it renders
+  # as a note line with no bar: a fabricated meter width would be the kind of
+  # confident wrong number this strip must not invent.
+  defp compressed_backoff_lines(backoffs, _now) do
+    Enum.map(backoffs, fn backoff ->
+      %{
+        label: "#{github_window_label(backoff)} backoff",
+        percent: nil,
+        class: "",
+        meta: "Secondary limit · #{backoff.seconds_remaining}s left"
+      }
+    end)
+  end
+
+  defp compressed_github_state([], _backoffs), do: {"Awaiting", "is-nodata"}
+  defp compressed_github_state(_windows, [_ | _]), do: {"Backoff", "is-partial"}
+  defp compressed_github_state(_windows, _backoffs), do: {"Observed", "is-healthy"}
+
+  # A card whose only standing is the durable dispatch ledger is stale by
+  # construction, whatever its live state says.
+  defp compressed_state(card) do
+    case durable_record(card) do
+      nil -> state_chip(Map.get(card, :state), Map.get(card, :status_label))
+      _record -> {"Stale", "is-stale"}
+    end
+  end
+
+  defp state_chip(:healthy, _label), do: {"Healthy", "is-healthy"}
+  defp state_chip(:partial, _label), do: {"Partial", "is-partial"}
+  defp state_chip(:stale, _label), do: {"Stale", "is-stale"}
+  defp state_chip(:loading, _label), do: {"Loading…", "is-nodata"}
+  defp state_chip(:unknown, _label), do: {"No data", "is-nodata"}
+  defp state_chip(:error, _label), do: {"Provider error", "is-unavailable"}
+  defp state_chip(:unavailable, _label), do: {"Unavailable", "is-unavailable"}
+  defp state_chip(_state, label) when is_binary(label) and label != "", do: {label, "is-nodata"}
+  defp state_chip(_state, _label), do: {"N/A", "is-nodata"}
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
     cards

@@ -1597,6 +1597,90 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
   end
 end
 
+# The provider meter row above Units collapses into a single grouped table once
+# it would otherwise render more than four panes. The threshold is what this
+# fixture exists to exercise, so it carries five panes — the GitHub pane plus
+# four model providers — which is the first configuration that trips it.
+defmodule Aiur.BrowserHarness.MeterRowLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+
+  @now ~U[2026-07-18 11:30:00Z]
+  @reset ~U[2026-07-18 12:00:00Z]
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell" data-meter-row-fixture="true">
+      <h1 class="sr-only">Provider meter row fixture</h1>
+      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+    </main>
+    """
+  end
+
+  defp run, do: %{state: :ready, counts: %{remaining: 4}, progress: %{kind: :exact, percent: 60}, elapsed: %{label: "20m"}, eta: %{label: "About 8m remaining"}}
+
+  defp usage do
+    %{
+      state: :ready,
+      providers: %{
+        codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "2.50"}]},
+        claude: %{tokens: %{total: 2_000}, api_equivalent: [%{currency: "USD", amount: "6.25"}]}
+      }
+    }
+  end
+
+  # One provider per freshness state the compressed row has to keep
+  # distinguishable: a fresh reading, a fresh zero, a stale last-known-good, and
+  # a provider that reported nothing at all.
+  defp meters do
+    %{
+      state: :authorized,
+      cards: [
+        card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
+        card(:claude, "Claude", :stale, "Stale (last known-good)", [window("Session", 62, 1_900, 5_000, :stale)]),
+        card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
+        card(:kimi, "Kimi", :unavailable, "Unavailable", [])
+      ]
+    }
+  end
+
+  defp card(provider, label, state, status_label, windows) do
+    %{provider: provider, provider_label: label, state: state, status_label: status_label, auth_mode: %{value: :api_key}, windows: windows}
+  end
+
+  defp window(name, percent, remaining, limit, freshness) do
+    %{
+      kind: :rate_limit,
+      name: name,
+      coverage_label: "Supported",
+      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      used: percent,
+      used_percent: percent,
+      remaining: remaining,
+      limit: limit,
+      freshness: freshness,
+      resets_at: @reset
+    }
+  end
+
+  defp github_quota do
+    %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 3_750, limit: 5_000, used_percent: 25.0, reset_at: @reset},
+        "graphql" => %{resource: "graphql", remaining: 500, limit: 5_000, used_percent: 90.0, reset_at: @reset}
+      },
+      attribution: [],
+      backoffs: []
+    }
+  end
+end
+
 defmodule Aiur.BrowserHarness.FixtureRouter do
   use Phoenix.Router
   import Phoenix.LiveView.Router
@@ -1646,6 +1730,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
     live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
+    live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)

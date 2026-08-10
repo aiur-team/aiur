@@ -928,6 +928,195 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(class="is-critical" style="width:100%")
   end
 
+  # ---- compressed row (more than four panes) ----
+  #
+  # The GitHub pane counts as a pane, so today's four (GitHub plus three model
+  # providers) stay as they are and the fifth provider is what trips the
+  # compressed form.
+
+  test "four panes keep the existing provider panes" do
+    with_deepseek_key(fn ->
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: run_view(),
+          usage: usage_view(),
+          meters: %{state: :authorized, cards: Enum.take(compressed_cards(), 3)},
+          github_quota: github_quota_view(),
+          now: @now
+        })
+
+      refute html =~ "is-compressed"
+      refute html =~ "Agent APIs"
+      assert html =~ ~s(<section class="run-summary" aria-label="Provider and GitHub usage">)
+      # The unchanged panes: a GitHub card plus one card per provider.
+      assert pane_count(html) == 4
+    end)
+  end
+
+  test "a fifth pane collapses the row into one grouped table" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: github_quota_view(),
+            now: @now
+          })
+
+        assert html =~ ~s(<section class="run-summary is-compressed")
+        # Exactly one pane, holding every provider.
+        assert pane_count(html) == 1
+
+        # The grouping is rendered, not implied by ordering: the agent APIs sit
+        # under their own heading and GitHub under "Other".
+        assert html =~ "Agent APIs"
+        assert html =~ "4 providers"
+        assert html =~ "1 provider"
+
+        compacted = compact(html)
+        [_, after_agent] = String.split(compacted, "Agent APIs", parts: 2)
+        [agent_group, other_group] = String.split(after_agent, "Other", parts: 2)
+
+        for provider <- ["DeepSeek", "Codex", "Claude", "Kimi"], do: assert(agent_group =~ provider)
+        refute agent_group =~ "GitHub API"
+        assert other_group =~ "GitHub API"
+      end)
+    end)
+  end
+
+  test "the compressed row carries remaining, limit, and reset for each provider" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: github_quota_view(),
+            now: @now
+          })
+
+        assert html =~ "3000/5000 left · resets in 30m"
+        assert html =~ "5000/5000 left · resets in 30m"
+        # GitHub keeps its own remaining/limit and reset in the compressed row.
+        assert html =~ "3750/5000 left · resets in 30m"
+      end)
+    end)
+  end
+
+  # The distinction the compressed row exists to preserve (issue #1564): a
+  # stale or unavailable reading must never render like a healthy zero.
+  test "the compressed row distinguishes stale and unavailable from a healthy zero" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: github_quota_view(),
+            now: @now
+          })
+
+        compacted = compact(html)
+
+        # DeepSeek is a real, fresh zero-consumed reading.
+        assert compacted =~ ~s(DeepSeek</span>)
+        assert html =~ ~s(<span class="rs-state is-healthy">Healthy</span>)
+
+        # Claude's window is stale: the reading is labelled rather than
+        # presented as current.
+        assert html =~ "1900/5000 left · resets in 30m (stale)"
+        assert html =~ ~s(<span class="rs-state is-stale">Stale</span>)
+
+        # Kimi reported nothing at all, which is neither healthy nor a zero: it
+        # gets the hollow no-measurement track, not an empty bar.
+        assert html =~ ~s(<span class="rs-state is-unavailable">Unavailable</span>)
+        assert html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
+        assert compacted =~ ~s(<span class="rs-meter rs-meter-none"></span> <span class="rs-limit-meta">Unavailable</span>)
+
+        # DeepSeek's real zero keeps a drawn bar, so the two never read alike.
+        assert html =~ ~s(<div class="rs-meter"><i class="" style="width:0%"></i></div>)
+      end)
+    end)
+  end
+
+  test "a secondary-limit backoff renders as a note with no fabricated meter width" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        quota = Map.put(github_quota_view(), :backoffs, [%{resource: "core", seconds_remaining: 45}])
+
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: quota,
+            now: @now
+          })
+
+        assert html =~ "Core backoff"
+        assert html =~ "Secondary limit · 45s left"
+        assert html =~ ~s(class="rs-meter rs-meter-none")
+        assert html =~ ~s(<span class="rs-state is-partial">Backoff</span>)
+      end)
+    end)
+  end
+
+  # Every pane in the strip is an `.rs-block`, whether it is the GitHub card, a
+  # vendor card, or the single compressed pane.
+  defp pane_count(html), do: length(String.split(html, "rs-block")) - 1
+
+  defp compressed_cards do
+    [
+      compressed_card(:codex, "Codex", :healthy, "Healthy", [compressed_window("Session", 40, remaining: 3000, limit: 5000)]),
+      compressed_card(:claude, "Claude", :stale, "Stale (last known-good)", [
+        compressed_window("Session", 62, remaining: 1900, limit: 5000, freshness: :stale)
+      ]),
+      compressed_card(:deepseek, "DeepSeek", :healthy, "Healthy", [compressed_window("Session", 0, remaining: 5000, limit: 5000)]),
+      compressed_card(:kimi, "Kimi", :unavailable, "Unavailable", [])
+    ]
+  end
+
+  defp compressed_card(provider, label, state, status_label, windows) do
+    %{
+      provider: provider,
+      provider_label: label,
+      state: state,
+      status_label: status_label,
+      auth_mode: %{value: :api_key},
+      windows: windows
+    }
+  end
+
+  defp compressed_window(name, percent, opts) do
+    %{
+      kind: :rate_limit,
+      name: name,
+      coverage_label: "Supported",
+      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      used: percent,
+      used_percent: percent,
+      remaining: Keyword.get(opts, :remaining),
+      limit: Keyword.get(opts, :limit),
+      freshness: Keyword.get(opts, :freshness, :fresh),
+      resets_at: DateTime.add(@now, 30, :minute)
+    }
+  end
+
+  defp github_quota_view do
+    %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 3750, limit: 5000, used_percent: 25.0, reset_at: DateTime.add(@now, 30, :minute)}
+      },
+      attribution: [],
+      backoffs: []
+    }
+  end
+
   defp run_view do
     %{
       state: :ready,
