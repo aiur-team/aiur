@@ -3,8 +3,9 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, RepoBase}
+  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, RepoBase}
   alias Aiur.GitHub.CiReadiness
+  alias Aiur.Orchestrator.State
 
   defp capture_todo(ids, opts) do
     parent = self()
@@ -486,6 +487,27 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
+  test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do
+    write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      max_dispatches_per_ticket: 40
+    )
+
+    issue_id = "issue-latched-status"
+    issue = %Issue{id: issue_id, identifier: "repo#1712", state: "error", title: "Terminal latch"}
+    maximum = Config.agent_max_dispatches_per_ticket()
+    :ok = DispatchBudgetStore.put_lifetime(issue_id, maximum)
+
+    on_exit(fn -> DispatchBudgetStore.reset(issue_id) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | last_polled_issues: %{issue_id => issue}, dispatch_recovery: %State{}.dispatch_recovery}
+    end)
+
+    assert capture_io(fn -> AgentControlCLI.status() end) =~
+             "#1712  idle    Terminal latch (latched #{maximum}/#{maximum})"
+  end
+
   test "status names a tracker pause as operator-paused", %{orchestrator: pid} do
     paused = %Issue{
       id: "issue-19",
@@ -898,27 +920,33 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "reset-budget" do
-    test "clears the lifetime dispatch latch and reports success", %{orchestrator: pid} do
+    test "queues the lifetime dispatch reset without a status lookup", %{orchestrator: pid} do
       issue = %Issue{id: "issue-49", identifier: "repo#49", state: "error", title: "Latched"}
+      :ok = DispatchBudgetStore.put_lifetime(issue.id, 40)
 
       :sys.replace_state(pid, fn state ->
-        %{state | running: %{}, last_polled_issues: %{"issue-49" => issue}}
+        state = put_in(state.dispatch_recovery.codex_thrash_budget[issue.id], %{lifetime: 40, count: 0})
+        %{state | running: %{}, last_polled_issues: %{issue.id => issue}}
       end)
 
       output = capture_io(fn -> AgentControlCLI.reset_budget(["49"]) end)
 
-      assert output =~ "aiur: reset lifetime dispatch budget for #49"
+      assert output =~ "aiur: queued lifetime dispatch budget reset for #49"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+
+      # Barrier behind the cast: the bare issue number was resolved inside the
+      # orchestrator, without a blocking CLI status request.
+      state = :sys.get_state(pid)
+      assert get_in(state.dispatch_recovery.codex_thrash_budget, [issue.id]) == nil
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(issue.id)
     end
 
-    test "reports an unknown issue without a crash", %{orchestrator: _pid} do
-      stderr =
-        capture_io(:stderr, fn ->
-          output = capture_io(fn -> AgentControlCLI.reset_budget(["9999"]) end)
-          assert output =~ "__AIUR_CONTROL_EXIT__:0"
-        end)
+    test "reports an unknown issue as queued rather than timing out", %{orchestrator: pid} do
+      output = capture_io(fn -> AgentControlCLI.reset_budget(["9999"]) end)
 
-      assert stderr =~ "failed to reset_budget #9999 (unknown issue)"
+      assert output =~ "aiur: queued lifetime dispatch budget reset for #9999"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      _state = :sys.get_state(pid)
     end
   end
 

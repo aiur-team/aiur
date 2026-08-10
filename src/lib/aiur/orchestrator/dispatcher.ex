@@ -487,6 +487,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()
   def emit_tracker_preflight_alert(%State{} = state, reason) do
+    state = put_tracker_preflight_hold(state, reason)
+
     case tracker_preflight_alert_context(reason) do
       {:ok, signature, formatted_reason} ->
         emit_tracker_preflight_alert(state, signature, formatted_reason)
@@ -525,7 +527,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @doc false
   @spec clear_tracker_preflight_alert(State.t()) :: State.t()
   def clear_tracker_preflight_alert(%State{tracker_preflight_alert_resolution_emitted: true} = state),
-    do: %{state | tracker_preflight_alert_signature: nil}
+    do: %{state | tracker_preflight_alert_signature: nil, dispatch_hold: nil}
 
   def clear_tracker_preflight_alert(%State{} = state) do
     active? =
@@ -538,13 +540,52 @@ defmodule Aiur.Orchestrator.Dispatcher do
              needs_attention: false,
              severity: "info"
            ) do
-        :ok -> %{state | tracker_preflight_alert_signature: nil, tracker_preflight_alert_resolution_emitted: true}
-        {:error, _reason} -> state
+        :ok ->
+          %{
+            state
+            | tracker_preflight_alert_signature: nil,
+              tracker_preflight_alert_resolution_emitted: true,
+              dispatch_hold: nil
+          }
+
+        {:error, _reason} ->
+          %{state | dispatch_hold: nil}
       end
     else
-      %{state | tracker_preflight_alert_signature: nil, tracker_preflight_alert_resolution_emitted: true}
+      %{
+        state
+        | tracker_preflight_alert_signature: nil,
+          tracker_preflight_alert_resolution_emitted: true,
+          dispatch_hold: nil
+      }
     end
   end
+
+  defp put_tracker_preflight_hold(%State{} = state, reason) do
+    detail = tracker_preflight_detail(reason)
+
+    held_since_ms =
+      case state.dispatch_hold do
+        %{reason: :tracker_preflight, held_since_ms: held_since_ms} -> held_since_ms
+        _other -> System.monotonic_time(:millisecond)
+      end
+
+    %{
+      state
+      | dispatch_hold: %{
+          reason: :tracker_preflight,
+          detail: detail,
+          held_since_ms: held_since_ms
+        }
+    }
+  end
+
+  defp tracker_preflight_detail({:github_auth_preflight_failed, diagnostic}) when is_map(diagnostic) do
+    Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
+  end
+
+  defp tracker_preflight_detail(reason) when is_atom(reason), do: reason
+  defp tracker_preflight_detail(_reason), do: :unknown
 
   defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
        when is_map(diagnostic) do
@@ -704,31 +745,53 @@ defmodule Aiur.Orchestrator.Dispatcher do
     active_states = DispatchPolicy.active_state_set()
     terminal_states = DispatchPolicy.terminal_state_set()
     initial_dispatch_cycle? = state.initial_dispatch_cycle == true
+    visible_issue_ids = MapSet.new(issues, & &1.id)
+    state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
     {state, _startup_todo_index} =
       issues
       |> DispatchPolicy.sort_issues_for_dispatch()
       |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        if DispatchPolicy.should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
-          next_state = dispatch_issue(state_acc, issue)
+        case DispatchPolicy.dispatch_decision(issue, state_acc, active_states, terminal_states) do
+          :dispatch ->
+            next_state = dispatch_issue(state_acc, issue)
 
-          startup_todo_index =
-            maybe_schedule_startup_todo_alert(
-              state_acc,
-              next_state,
-              issue,
-              startup_todo_index,
-              initial_dispatch_cycle?
-            )
+            startup_todo_index =
+              maybe_schedule_startup_todo_alert(
+                state_acc,
+                next_state,
+                issue,
+                startup_todo_index,
+                initial_dispatch_cycle?
+              )
 
-          {next_state, startup_todo_index}
-        else
-          {state_acc, startup_todo_index}
+            {next_state, startup_todo_index}
+
+          {:skip, reason} ->
+            {maybe_emit_dispatch_decline(state_acc, issue, reason), startup_todo_index}
         end
       end)
 
     state
   end
+
+  defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
+       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime] do
+    if Slots.available_slots(state) > 0 do
+      record_dispatch_decline(
+        state,
+        issue,
+        reason,
+        "Ticket #{issue.identifier} was not selected despite free fleet slots: #{reason}",
+        reason == :claimed_without_runtime
+      )
+    else
+      state
+    end
+  end
+
+  defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, _reason),
+    do: clear_dispatch_decline(state, issue)
 
   @spec dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
@@ -739,30 +802,96 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
-    case revalidate_issue_for_dispatch(
-           issue,
-           &Tracker.fetch_issue_states_by_ids/1,
-           DispatchPolicy.terminal_state_set()
-         ) do
+    issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+
+    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set()) do
       {:ok, %Issue{} = refreshed_issue} ->
-        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host, opts)
+        state
+        |> clear_dispatch_decline(refreshed_issue)
+        |> do_dispatch_issue(refreshed_issue, attempt, preferred_worker_host, opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
 
-        state
+        emit_dispatch_attempt_decline(state, issue, :missing_after_revalidation, false)
 
       {:skip, %Issue{} = refreshed_issue} ->
         Logger.info("Skipping stale dispatch after issue refresh: #{State.issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
 
-        state
+        reason =
+          case DispatchPolicy.dispatch_decision(refreshed_issue, state) do
+            {:skip, reason} -> {:stale_after_revalidation, reason}
+            :dispatch -> :stale_after_revalidation
+          end
+
+        emit_dispatch_attempt_decline(state, refreshed_issue, reason, false)
 
       {:error, reason} ->
         Logger.warning("Skipping dispatch; issue refresh failed for #{State.issue_context(issue)}: #{inspect(reason)}")
 
-        state
+        emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
     end
   end
+
+  defp emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
+    record_dispatch_decline(
+      state,
+      issue,
+      reason,
+      "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}",
+      attention?
+    )
+  end
+
+  defp record_dispatch_decline(%State{} = state, %Issue{} = issue, reason, alert_reason, attention?) do
+    if Map.get(state.dispatch_declines, issue.id) == reason do
+      state
+    else
+      state = maybe_resolve_dispatch_decline(state, issue)
+
+      Alerts.emit_custom(
+        dispatch_decline_topic(issue, attention?),
+        "Dispatch declined for #{issue.identifier}: #{inspect(reason)}.",
+        issue: issue.identifier,
+        reason: alert_reason,
+        needs_attention: attention?,
+        severity: if(attention?, do: "warning", else: "info"),
+        event_source: :system
+      )
+
+      %{state | dispatch_declines: Map.put(state.dispatch_declines, issue.id, reason)}
+    end
+  end
+
+  defp clear_dispatch_decline(%State{} = state, %Issue{} = issue) do
+    state = maybe_resolve_dispatch_decline(state, issue)
+    %{state | dispatch_declines: Map.delete(state.dispatch_declines, issue.id)}
+  end
+
+  defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.dispatch_declines, issue.id) do
+      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed] ->
+        Alerts.emit_custom(
+          dispatch_decline_topic(issue, true) <> ".resolved",
+          "Dispatch decline cleared for #{issue.identifier}.",
+          issue: issue.identifier,
+          reason: "Ticket #{issue.identifier} is no longer blocked by #{reason}.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
+
+      _other ->
+        :ok
+    end
+
+    state
+  end
+
+  defp dispatch_decline_topic(%Issue{id: issue_id}, true),
+    do: "ticket.#{issue_id}.agent.attention.dispatch-declined"
+
+  defp dispatch_decline_topic(_issue, false), do: "dispatch.candidate_declined"
 
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
@@ -1234,9 +1363,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
           %{String.t() => :none | {:lifetime, non_neg_integer(), pos_integer()}}
   def dispatch_latch_statuses(%State{} = state, issue_ids) when is_list(issue_ids) do
     max = Config.agent_max_dispatches_per_ticket()
+    latch_enabled? = max > 0
 
     persisted =
-      if max > 0 do
+      if latch_enabled? do
         read_lifetimes_once()
       else
         %{}
@@ -1246,7 +1376,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), Map.get(persisted, issue_id, 0))
 
       status =
-        if max > 0 and lifetime >= max do
+        if latch_enabled? and lifetime >= max do
           {:lifetime, lifetime, max}
         else
           :none
