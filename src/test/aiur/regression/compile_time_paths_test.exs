@@ -64,10 +64,6 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     ],
     "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
       "@external_resource path"
-    ],
-    "aiur_web/streamdeck_key_face_contract.ex" => [
-      "@contract_path Path.expand(\"../../../packages/streamdeck/src/key-face-contract.json\", __DIR__)",
-      "@external_resource @contract_path"
     ]
   }
 

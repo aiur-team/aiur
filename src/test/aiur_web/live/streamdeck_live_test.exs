@@ -4,7 +4,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
-  alias Aiur.{AgentEvents, AgentPubSub, IssueLog}
+  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, IssueLog}
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -51,17 +51,19 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
+    segment_count = length(CodingAgent.provider_descriptors()) + 2
 
     assert html =~ "Streamdeck+"
     assert html =~ "Stream Deck + control surface"
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
+    assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
-    assert html =~ "Summary"
+    assert html =~ "SUMMARY"
     assert html =~ "Claude"
     assert html =~ "Codex"
-    assert html =~ "Pager"
+    assert html =~ "MORE AGENTS"
   end
 
   test "opens and closes the Stream Deck installation modal without rendering credentials" do
@@ -204,9 +206,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
              ["1363", "1367", "1371", "1373", "1366", "1370", "1372", "1374"]
   end
 
-  test "preserves raw dial value while deriving offset across fleet shrink and grow", %{
-    snapshot_agent: snapshot_agent
-  } do
+  test "preserves raw dial value while deriving offset across fleet shrink and grow", %{snapshot_agent: snapshot_agent} do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     html = render_hook(view, "grid-page", %{"value" => "50"})
@@ -230,10 +230,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
     assert html =~ "Live running"
 
-    Agent.update(snapshot_agent, fn _ ->
-      %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]}
-    end)
-
+    Agent.update(snapshot_agent, fn _ -> %{running: [], retrying: [], idle: [fixture_agent("1400", "Live replacement", "codex")]} end)
     send(view.pid, {:running_changed, []})
 
     html = render(view)
@@ -340,12 +337,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
         feed_event("assistant", "older message", "turn-1"),
         feed_event("tool", "edit lib/example.ex", "turn-1", %{
           "tool" => "edit",
-          "changes" => [
-            %{
-              "path" => "lib/example.ex",
-              "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"
-            }
-          ]
+          "changes" => [%{"path" => "lib/example.ex", "diff" => "--- a/lib/example.ex\n+++ b/lib/example.ex\n-old\n+new"}]
         }),
         feed_event("assistant", "newest message", "turn-2")
       ])
@@ -381,11 +373,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       assert html =~ "new focused entry"
       refute html =~ "old focused entry"
 
-      AgentPubSub.broadcast_transcript(
-        "1352",
-        AgentEvents.transcript_event(:assistant, "stale topic")
-      )
-
+      AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
       Process.sleep(20)
       html = render(view)
       refute html =~ "stale topic"
@@ -415,11 +403,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
         refute_receive {:streamdeck_pause, _identifier}
         refute_receive {:streamdeck_resume, _identifier}
 
-        AgentPubSub.broadcast_transcript(
-          "1352",
-          AgentEvents.transcript_event(:assistant, "stale topic")
-        )
-
+        AgentPubSub.broadcast_transcript("1352", AgentEvents.transcript_event(:assistant, "stale topic"))
         Process.sleep(20)
         html = render(view)
         refute html =~ "stale topic"
@@ -439,7 +423,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     html = render_hook(view, "grid-page", %{"page" => "1"})
     assert html =~ ~s(data-grid-page="1")
-    assert html =~ ~s(data-page="1" aria-current="page")
+    assert html =~ ~s(data-pager-page="1" aria-current="page")
     assert html =~ ~s(data-streamdeck-identifier="1367")
 
     html = render_hook(view, "grid-page", %{"page" => "99"})
@@ -447,20 +431,56 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-streamdeck-identifier="1377")
   end
 
-  test "renders provider percentages and refreshes them from the live meter event", %{
-    meter_agent: meter_agent
-  } do
+  test "renders distinct session and weekly provider meters and refreshes them from the live meter event", %{meter_agent: meter_agent} do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ "daily 30%"
-    assert html =~ "daily 50%"
+    assert html =~ "Session"
+    assert html =~ "Weekly"
+    assert html =~ "30% · 22m"
+    assert html =~ "47% · Thu 6PM"
+    assert html =~ "50% · 1h"
+    assert html =~ "75% · Fri 8PM"
 
     Agent.update(meter_agent, fn meters ->
-      put_in(meters["claude"]["windows"]["daily"]["used_percent"], 60)
+      put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
     end)
 
     send(view.pid, {:provider_meter_changed, %{}})
-    assert render(view) =~ "daily 60%"
+    assert render(view) =~ "60% · 22m"
+  end
+
+  test "renders an unobserved provider without treating it as zero percent", %{meter_agent: meter_agent} do
+    Agent.update(meter_agent, &Map.delete(&1, "claude"))
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-provider="claude")
+    assert html =~ ~s(data-observed="false")
+    refute html =~ "Claude 0%"
+    refute html =~ ~s(data-provider="claude" data-meter="session" data-percent="0")
+  end
+
+  test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
+    Agent.update(meter_agent, fn meters ->
+      put_in(meters["claude"]["windows"]["weekly"]["freshness"], "stale")
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
+    assert html =~ "47% · Thu 6PM · stale"
+    assert html =~ "Weekly · 47% · Thu 6PM · stale"
+  end
+
+  test "renders summary build space and pager dots inside touch-strip segments" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(src="/aiur-logo.png")
+    assert html =~ ~r/<b>1<\/b> live · <b>16<\/b> left/
+    assert html =~ "Build"
+    assert html =~ "MORE AGENTS"
+    assert length(Regex.scan(~r/data-pager-page=/, html)) == 3
+    assert html =~ ~s(data-pager-page="0" aria-current="page")
   end
 
   test "renders the priority star, the mic indicator, and the live segment" do
@@ -497,9 +517,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
 
     assert render_click(view, "toggle-nav", %{}) =~ ~s(data-nav-collapsed="true")
-
-    assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~
-             ~s(data-nav-collapsed="false")
+    assert render_hook(view, "restore-nav", %{"collapsed" => false}) =~ ~s(data-nav-collapsed="false")
   end
 
   defp fixture_snapshot do
@@ -547,8 +565,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   defp fixture_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+      "claude" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
+        }
+      },
+      "codex" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
+        }
+      }
     }
   end
 
@@ -588,12 +618,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     previous_endpoint_config = Application.get_env(:aiur, Endpoint, [])
 
     Phoenix.Config.put(Endpoint, :streamdeck_logs_fun, nil)
-
-    Application.put_env(
-      :aiur,
-      Endpoint,
-      Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil)
-    )
+    Application.put_env(:aiur, Endpoint, Keyword.put(previous_endpoint_config, :streamdeck_logs_fun, nil))
 
     try do
       fun.()

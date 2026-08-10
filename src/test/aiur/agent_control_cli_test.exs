@@ -995,6 +995,30 @@ defmodule Aiur.AgentControlCLITest do
     assert stderr =~ "aiur: failed to resume #45 (no running agent)"
   end
 
+  test "resume explains that a tracker label failure will not hold", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" ->
+      {:error, {:pause_override_clear_failed, :missing_permission}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+        refute output =~ "aiur: resumed"
+      end)
+
+    assert stderr =~ "aiur: failed to resume #44"
+    assert stderr =~ "resume will not hold"
+    assert stderr =~ "agent:paused"
+    assert stderr =~ "missing_permission"
+  end
+
   test "running resume is a successful no-op", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
@@ -1003,6 +1027,46 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
 
     assert output =~ "aiur: already running #44"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "running resume still clears a tracker pause that reconciliation has not applied", %{orchestrator: pid} do
+    parent = self()
+
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" ->
+      send(parent, :resume_called)
+      {:ok, :resumed}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    entry =
+      "issue-44"
+      |> running_entry("repo#44", :working)
+      |> put_in([:issue, Access.key(:paused)], true)
+      |> put_in([:issue, Access.key(:labels)], ["agent:in-progress", "agent:paused"])
+
+    :sys.replace_state(pid, fn state -> %{state | running: %{"issue-44" => entry}} end)
+
+    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+
+    assert_receive :resume_called
+    assert output =~ "aiur: resumed #44 (was: running)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "resume reports a reactivated agent as success", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, :reactivated} end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+
+    assert output =~ "aiur: reactivated #44 (was: paused)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 

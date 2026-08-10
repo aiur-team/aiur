@@ -272,7 +272,15 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   @tag config: @enabled
   test "resume against a latched idle ticket reports the latch instead of no-opping" do
-    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    issue = %Issue{
+      id: @issue_id,
+      identifier: "repo#lifetime",
+      title: "Latched",
+      state: "in-progress",
+      paused: true,
+      labels: ["agent:in-progress", "agent:paused"]
+    }
+
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
 
     state =
@@ -281,8 +289,11 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     # `resume_issue/2` routes a no-running-agent resume to the queued path,
     # which must name the latch (not a generic `:dispatch_failed`).
-    assert {{:error, :lifetime_dispatch_latch}, _state} =
+    assert {{:error, :lifetime_dispatch_latch}, next_state} =
              PauseResume.resume_issue(state, "repo#lifetime")
+
+    assert next_state.last_polled_issues[@issue_id].paused
+    assert "agent:paused" in next_state.last_polled_issues[@issue_id].labels
   end
 
   @tag config: @enabled
