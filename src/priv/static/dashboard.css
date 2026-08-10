@@ -3650,6 +3650,204 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--warning, #d08a2a);
 }
 
+/* ---- compressed meter row (more than four panes) ----
+   Past four panes the strip stops reading as one thing, so it collapses into a
+   single pane holding two named groups. It deliberately reuses the pane
+   vocabulary above — same logo size, same monospace label scale, same meter
+   bar — so the compressed form reads as the same strip rather than a second
+   visual language. */
+.run-summary.is-compressed {
+  display: block;
+}
+
+.rs-compressed {
+  gap: 1rem;
+}
+
+.rs-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+/* The group name is the whole point of the compressed form: an operator must
+   see that a row is an agent API rather than infer it from where it sorted.
+   The hairline carries the eye across to the count without a heavy divider. */
+.rs-group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.rs-group-title {
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.rs-group-head::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.rs-group-count {
+  order: 3;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.63rem;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rs-group-rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* One provider per row, three columns: identity, meters, state. The identity
+   column is a fixed track so the logos and the meter lines align down the
+   group — that alignment is what makes it read as a table without needing
+   rules or zebra striping. `minmax(0, 1fr)` on the meter track keeps a long
+   meta string inside the pane instead of widening the row. */
+.rs-row {
+  display: grid;
+  grid-template-columns: 10.5rem minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.6rem 1rem;
+  padding: 0.5rem 0;
+  min-width: 0;
+}
+
+.rs-row + .rs-row {
+  border-top: 1px solid var(--line);
+}
+
+.rs-row-id {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.rs-row-name {
+  font-weight: 700;
+  font-size: 0.85rem;
+  letter-spacing: -0.01em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-row-meters {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+}
+
+/* The meter line runs label, bar, meta on one line so a row stays one line
+   tall. The bar is the flexible middle: the label and the meta are read, the
+   bar is glanced at. */
+/* The meta track is a fixed width rather than `auto` so every bar in the pane
+   ends at the same x. That shared edge is what makes the group scan as a
+   column of comparable quotas instead of a ragged list. */
+.rs-row-meter {
+  display: grid;
+  grid-template-columns: 5.5rem minmax(3rem, 1fr) 17rem;
+  align-items: center;
+  gap: 0.6rem;
+  min-width: 0;
+}
+
+.rs-row-meter .rs-limit-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.rs-row-meter .rs-limit-meta {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* A line with no measured value — an unavailable provider, or a secondary-limit
+   backoff — draws a hollow dashed track instead of a bar. A solid empty track
+   would be indistinguishable from a real 0%-consumed reading, which is exactly
+   the confusion the compressed row must not introduce. */
+.rs-meter-none {
+  display: block;
+  height: 0.34rem;
+  border: 1px dashed var(--line);
+  border-radius: 999px;
+  background: none;
+}
+
+/* The freshness chip. Every row carries one, so a stale or unavailable reading
+   can never be mistaken for a healthy zero — the distinction the compressed
+   row exists to preserve. */
+.rs-state {
+  justify-self: end;
+  padding: 0.14rem 0.5rem;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.rs-state.is-healthy {
+  border-color: color-mix(in srgb, var(--good-ink) 30%, transparent);
+  background: color-mix(in srgb, var(--good-ink) 10%, transparent);
+  color: var(--good-ink);
+}
+
+.rs-state.is-partial,
+.rs-state.is-stale {
+  border-color: color-mix(in srgb, var(--warning, #d08a2a) 35%, transparent);
+  background: color-mix(in srgb, var(--warning, #d08a2a) 12%, transparent);
+  color: var(--warning, #d08a2a);
+}
+
+.rs-state.is-unavailable {
+  border-color: color-mix(in srgb, var(--blocking) 30%, transparent);
+  background: color-mix(in srgb, var(--blocking) 10%, transparent);
+  color: var(--blocking);
+}
+
+.rs-state.is-nodata {
+  border-color: var(--line);
+  background: var(--surface-3);
+  color: var(--muted);
+}
+
+/* Narrow widths: the identity column stops being a fixed track and the state
+   chip moves under the meters, so the row wraps rather than scrolling. */
+@media (max-width: 720px) {
+  .rs-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.4rem 0.6rem;
+  }
+
+  .rs-row-meters {
+    grid-column: 1 / -1;
+  }
+
+  .rs-row-meter {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .rs-row-meter .rs-meter {
+    grid-column: 1 / -1;
+  }
+}
+
 .rs-progress {
   margin-top: auto;
 }
