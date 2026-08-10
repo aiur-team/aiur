@@ -23,7 +23,6 @@ defmodule Aiur.Config do
   {% endif %}
   """
 
-  @default_base_branch "main"
   @default_telemetry_retention_max_bytes 64 * 1024 * 1024
   @default_telemetry_retention_max_age_days 30
   @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
@@ -81,13 +80,52 @@ defmodule Aiur.Config do
     settings!().tracker.kind
   end
 
-  @doc "The configured tracker integration branch, defaulting to `main`."
+  @doc "The configured tracker integration branch. Raises when it cannot be resolved safely."
   @spec base_branch() :: String.t()
-  def base_branch do
-    case settings() do
-      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
-      _ -> @default_base_branch
+  @spec base_branch(term()) :: String.t()
+  @spec base_branch(term(), keyword()) :: String.t()
+  def base_branch(source \\ settings(), context \\ [])
+
+  def base_branch({:ok, %{tracker: tracker}}, context), do: base_branch(tracker, context)
+
+  def base_branch({:error, reason}, context) do
+    raise_unresolved_base_branch({:config_error, reason}, context)
+  end
+
+  def base_branch(opts, context) when is_list(opts) do
+    case Keyword.fetch(opts, :base_branch) do
+      {:ok, branch} -> require_base_branch(branch, context)
+      :error -> base_branch(settings(), context)
     end
+  end
+
+  def base_branch(%{tracker: tracker}, context), do: base_branch(tracker, context)
+  def base_branch(%{"tracker" => tracker}, context), do: base_branch(tracker, context)
+  def base_branch(%{base_branch: branch}, context), do: require_base_branch(branch, context)
+  def base_branch(%{"base_branch" => branch}, context), do: require_base_branch(branch, context)
+  def base_branch(%{}, context), do: raise_unresolved_base_branch(:missing, context)
+  def base_branch(source, context), do: raise_unresolved_base_branch({:invalid_source, source}, context)
+
+  defp require_base_branch(branch, context) when is_binary(branch) and byte_size(branch) > 0 do
+    case String.trim(branch) do
+      "" -> raise_unresolved_base_branch(:empty, context)
+      trimmed -> trimmed
+    end
+  end
+
+  defp require_base_branch(branch, context), do: raise_unresolved_base_branch({:invalid, branch}, context)
+
+  defp raise_unresolved_base_branch(reason, context) do
+    cwd = context |> Keyword.get_lazy(:cwd, &File.cwd!/0) |> Path.expand()
+
+    config_path =
+      context
+      |> Keyword.get_lazy(:config_path, &Workflow.workflow_file_path/0)
+      |> Path.expand(cwd)
+
+    raise ArgumentError,
+          "tracker.base_branch could not be resolved; config path searched: #{config_path}; " <>
+            "resolved working directory: #{cwd}; reason: #{inspect(reason)}"
   end
 
   @spec agent_kind() :: String.t()
@@ -645,8 +683,9 @@ defmodule Aiur.Config do
 
   @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
   @spec telemetry_enabled?() :: boolean()
-  def telemetry_enabled? do
-    case settings_uncached() do
+  @spec telemetry_enabled?(term()) :: boolean()
+  def telemetry_enabled?(settings \\ settings_uncached()) do
+    case settings do
       {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
     end

@@ -533,6 +533,21 @@ defmodule AiurEngineTest do
     assert out =~ "commands --filter requires a value"
   end
 
+  test "build-orders routes its selector and JSON mode through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
+  end
+
+  test "build-orders rejects multiple roots" do
+    {out, 64} = run_sourced_engine(~s|cmd_build_orders 1363 1467|, [])
+    assert out =~ "build-orders accepts at most one root"
+  end
+
   test "analytics routes an explicit window through the control rpc" do
     {out, 0} =
       run_sourced_engine(
@@ -584,6 +599,49 @@ defmodule AiurEngineTest do
       assert out =~ "queued"
       refute out =~ "returned no exit marker"
     end
+  end
+
+  test "control rpc reports timeouts and missing exit markers instead of silently succeeding" do
+    base = """
+    resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
+    prepare_distribution() { :; }
+    resolve_control_identity_from_records() { :; }
+    probe_node_liveness() { printf up; }
+    """
+
+    timeout_script =
+      base <>
+        """
+        run_release_rpc_with_timeout() {
+          AIUR_CONTROL_RPC_OUTPUT=''
+          AIUR_CONTROL_RPC_TIMED_OUT=1
+          return 124
+        }
+        code=0
+        run_control_rpc "Aiur.AgentControlCLI.resume([\"44\"])" || code=$?
+        echo "CODE=$code"
+        """
+
+    {timeout_output, 0} = run_sourced_engine(timeout_script, [])
+    assert timeout_output =~ "control rpc to aiur-test@127.0.0.1 timed out after 10s"
+    assert timeout_output =~ "CODE=124"
+
+    missing_marker_script =
+      base <>
+        """
+        run_release_rpc_with_timeout() {
+          AIUR_CONTROL_RPC_OUTPUT=''
+          AIUR_CONTROL_RPC_TIMED_OUT=0
+          return 0
+        }
+        code=0
+        run_control_rpc "Aiur.AgentControlCLI.resume([\"44\"])" || code=$?
+        echo "CODE=$code"
+        """
+
+    {missing_marker_output, 0} = run_sourced_engine(missing_marker_script, [])
+    assert missing_marker_output =~ "returned no exit marker; command output may be incomplete"
+    assert missing_marker_output =~ "CODE=1"
   end
 
   test "streaming control rpc reports a stopped daemon" do

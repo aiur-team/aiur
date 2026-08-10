@@ -21,6 +21,35 @@ defmodule AiurWeb.Endpoint do
     longpoll: false
   )
 
+  plug(:authenticate_static_asset)
+
+  plug(Plug.Static,
+    at: "/",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.revalidated_static_paths(),
+    cache_control_for_etags: "private, max-age=0, must-revalidate",
+    cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
+  )
+
+  plug(Plug.Static,
+    at: "/",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.long_lived_static_paths(),
+    cache_control_for_etags: "public, max-age=31536000",
+    cache_control_for_vsn_requests: "public, max-age=31536000"
+  )
+
+  plug(Plug.Static,
+    at: "/provider-assets",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.provider_asset_paths(),
+    cache_control_for_etags: "private, max-age=0, must-revalidate",
+    cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
+  )
+
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
 
@@ -34,4 +63,12 @@ defmodule AiurWeb.Endpoint do
   plug(Plug.Head)
   plug(Plug.Session, @session_options)
   plug(AiurWeb.Router)
+
+  @doc false
+  @spec authenticate_static_asset(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
+  def authenticate_static_asset(conn, opts) do
+    if AiurWeb.StaticAssets.served_path?(conn.path_info),
+      do: AiurWeb.FinancialDataAccess.authenticate_request(conn, opts),
+      else: conn
+  end
 end

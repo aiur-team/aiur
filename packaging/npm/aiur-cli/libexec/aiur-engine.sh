@@ -317,6 +317,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
@@ -332,6 +333,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
+       aiur guard-pr-deletions [base-branch]  refuse PRs with excessive untouched deletions
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
@@ -2024,6 +2026,41 @@ cmd_commands() {
   run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
 }
 
+# `aiur build-orders` — read the dashboard Build Order projection without a
+# second GitHub or API derivation. A root selector switches from catalog to the
+# selected-root graph view.
+cmd_build_orders() {
+  local json=0 root="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      -*) echo "aiur: build-orders received an unknown option: $arg" >&2; exit 64 ;;
+      *)
+        if [ -n "$root" ]; then
+          echo "aiur: build-orders accepts at most one root" >&2
+          exit 64
+        fi
+        root="$arg"
+        ;;
+    esac
+    shift
+  done
+
+  local opts=""
+  [ "$json" -eq 1 ] && opts="json: true"
+
+  if [ -n "$root" ]; then
+    local encoded
+    encoded="$(printf '%s' "$root" | base64 | tr -d '\n')"
+    [ -n "$opts" ] && opts="$opts, "
+    opts="${opts}root: Base.decode64!(\"$encoded\")"
+  fi
+
+  run_control_rpc "Aiur.AgentControlCLI.build_orders([$opts])"
+}
+
 # `aiur analytics` — render the dashboard analytics projection for an explicit
 # time window. This is read-only and obtains the same durable telemetry snapshot
 # the page uses through the running node.
@@ -2507,6 +2544,10 @@ aiur_engine_main() {
     findings)
       run_findings "$@"
       ;;
+    guard-pr-deletions)
+      shift
+      "$engine_dir/guard-pr-deletions.sh" "$@"
+      ;;
     ask | asks)
       run_asks "$@"
       ;;
@@ -2532,6 +2573,10 @@ aiur_engine_main() {
     commands)
       shift
       cmd_commands "$@"
+      ;;
+    build-orders)
+      shift
+      cmd_build_orders "$@"
       ;;
     analytics)
       shift
