@@ -7606,7 +7606,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-info-live b {
-  color: #fff;
+  color: var(--fg);
   font-weight: 700;
 }
 
@@ -7649,12 +7649,21 @@ html[data-theme="light"] .toggle-icon .moon {
   background: linear-gradient(90deg, #3f8bff, #8fbcff);
 }
 
+/* A stale reading is an attention state, the same as every other stale
+   surface in the dashboard (provider meters, run/usage freshness badges),
+   so it paints with the themed --attention family rather than a literal.
+   The chassis pins --attention-ink to the dark :root value, so the hatch
+   stays legible on the near-black key face in both themes. */
 .sd-mini.is-stale .sd-mini-r {
-  color: #ffbb6e;
+  color: var(--attention-ink);
 }
 
 .sd-mini.is-stale .sd-mini-bar > i {
-  background: repeating-linear-gradient(135deg, #bd7a29 0 3px, #ffbb6e 3px 6px);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--attention) 0 3px,
+    var(--attention-ink) 3px 6px
+  );
 }
 
 .sd-pager {
@@ -7814,6 +7823,7 @@ html[data-theme="light"] .sd-device {
   --muted: #969aa4;
   --accent: #2f86ff;
   --accent-ink: #8fbcff;
+  --attention: #e3b341;
   --attention-ink: #f1cf6f;
   --blocking-ink: #ffa39c;
   --blocking-soft: rgba(255, 123, 114, 0.14);
