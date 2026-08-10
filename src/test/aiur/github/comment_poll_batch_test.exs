@@ -209,6 +209,73 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
     assert [%{"body" => "new"}] = batch.issue_comments
   end
 
+  # #1756: the rework gate reads the review decision and the head commit's
+  # authored date off the published comment event. The batch is the only place
+  # those two facts are fetched, so they must survive normalization.
+  test "carries the review decision and head commit date into the pull request payload" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "reviewDecision"
+      assert body["query"] =~ "commits(last: 1) { nodes { commit { committedDate } } }"
+
+      pull_request =
+        77
+        |> pull_request("aiur/42-comment-batch", [])
+        |> Map.put("reviewDecision", "CHANGES_REQUESTED")
+        |> Map.put("commits", %{"nodes" => [%{"commit" => %{"committedDate" => "2026-08-10T04:29:00Z"}}]})
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue([]),
+               "branch_0_0" => %{"pageInfo" => %{"hasNextPage" => false}, "nodes" => [pull_request]}
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
+    assert batch.open_pull_request["review_decision"] == "CHANGES_REQUESTED"
+    assert batch.open_pull_request["head_committed_at"] == "2026-08-10T04:29:00Z"
+  end
+
+  test "leaves the review context nil for a pull request with no reviews or commits" do
+    request_fun = fn %{method: :post} ->
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "target_0" => issue([]),
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request(77, "aiur/42-comment-batch", [])]
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CommentPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-comment-batch"}
+             )
+
+    assert batch.open_pull_request["review_decision"] == nil
+    assert batch.open_pull_request["head_committed_at"] == nil
+  end
+
   defp issue(comments), do: %{"comments" => %{"nodes" => comments}}
 
   defp pull_request(number, branch, comments) do

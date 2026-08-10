@@ -83,6 +83,79 @@ defmodule Aiur.Orchestrator.CommentWakeTest do
     end
   end
 
+  # #1756: a CHANGES_REQUESTED review whose findings were addressed keeps
+  # reading CHANGES_REQUESTED forever, so routing on it deadlocks the ticket in
+  # `agent:rework`. The fixture is the real shape — the review predates the head
+  # commit that fixed it. A skipped transition never touches the tracker, so
+  # these assert both the reason and that `Tracker.update_issue_state` is not
+  # reached (an unset tracker would fail loudly otherwise).
+  describe "maybe_transition_idle_issue_to_rework/5 review-freshness gate" do
+    @head_committed_at "2026-08-10T04:29:00Z"
+    @stale_submitted_at "2026-08-08T21:15:00Z"
+
+    defp stale_review_event(pull_request) do
+      %{
+        author_trusted?: true,
+        comment: %{"state" => "CHANGES_REQUESTED", "body" => "please fix", "submitted_at" => @stale_submitted_at},
+        pull_request: pull_request
+      }
+    end
+
+    test "does not route a ticket whose CHANGES_REQUESTED review predates the head commit" do
+      state = base_state()
+
+      event =
+        stale_review_event(%{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at})
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.maybe_transition_idle_issue_to_rework(state, "1583", :pr_review, event, 1) == state
+        end)
+
+      assert log =~ "ignored for idle issue"
+      assert log =~ ":stale_review"
+    end
+
+    test "does not route a ticket whose pull request is APPROVED" do
+      state = base_state()
+
+      event =
+        %{
+          author_trusted?: true,
+          comment: %{"body" => "nice work", "submitted_at" => "2026-08-10T06:00:00Z"},
+          pull_request: %{"review_decision" => "APPROVED", "head_committed_at" => @head_committed_at}
+        }
+
+      log =
+        capture_log(fn ->
+          assert CommentWake.maybe_transition_idle_issue_to_rework(state, "1747", :pr_comment, event, 1) == state
+        end)
+
+      assert log =~ "ignored for idle issue"
+      assert log =~ ":approved_pull_request"
+    end
+
+    test "still routes a review submitted against the current head" do
+      # Guards the gate against over-skipping: a live CHANGES_REQUESTED review
+      # must reach the tracker update rather than be silently swallowed.
+      state = base_state()
+
+      event =
+        %{
+          author_trusted?: true,
+          comment: %{"state" => "CHANGES_REQUESTED", "body" => "please fix", "submitted_at" => "2026-08-10T05:00:00Z"},
+          pull_request: %{"review_decision" => "CHANGES_REQUESTED", "head_committed_at" => @head_committed_at}
+        }
+
+      log =
+        capture_log(fn ->
+          CommentWake.maybe_transition_idle_issue_to_rework(state, "1583", :pr_review, event, 1)
+        end)
+
+      refute log =~ "ignored for idle issue"
+    end
+  end
+
   describe "comment_rework_retry_delay_ms/1" do
     test "returns base delay for attempt 1" do
       assert CommentWake.comment_rework_retry_delay_ms(1) == 2_000
