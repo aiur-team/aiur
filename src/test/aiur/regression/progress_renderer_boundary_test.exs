@@ -24,6 +24,14 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
   ]
 
   @renderer_calls %{
+    "aiur/build_orders_cli.ex" => [
+      "ProgressRenderer.terminal(",
+      "ProgressRenderer.terminal(",
+      "ProgressRenderer.terminal(",
+      "ProgressRenderer.terminal(",
+      "ProgressRenderer.json(",
+      "ProgressRenderer.json("
+    ],
     "aiur_web/components/operator_control_center/build_order_catalog.ex" => ["ProgressRenderer.html("],
     "aiur_web/components/operator_control_center/build_order_graph.ex" => ["ProgressRenderer.html("]
   }
