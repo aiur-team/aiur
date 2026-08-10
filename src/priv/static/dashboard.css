@@ -7762,6 +7762,14 @@ html[data-theme="light"] .toggle-icon .moon {
   transform: scale(1.25);
 }
 
+.sd-pager-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.82);
+}
+
 .sd-mic {
   position: absolute;
   top: 0.34rem;

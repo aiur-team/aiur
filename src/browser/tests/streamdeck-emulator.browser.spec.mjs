@@ -296,6 +296,47 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
   await expect(page.locator('#sd-cmd-view')).toHaveCount(0)
 })
 
+test('pager segment relabels to CONTROLLING with the focused agent and restores its dots on back', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const pager = page.locator('[data-segment="pager"]')
+  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
+
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
+
+  const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+
+  await expect(pager).toContainText('CONTROLLING')
+  await expect(pager).not.toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+
+  // The relabelled segment still shares the strip's row and heading geometry.
+  const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
+  expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
+  expect(await pager.locator('.sd-info-hd').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
+
+  const dialD = page.locator('.sd-knob').nth(3)
+  await dialD.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+
+  // Dial A is the back press: logs -> cmd -> grid.
+  const dialA = page.locator('.sd-knob').first()
+  await dialA.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await dialA.click()
+  await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
+
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
+})
+
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
   await openStreamdeck(page)
 
