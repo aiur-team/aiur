@@ -21,7 +21,17 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+
+  alias AiurWeb.{
+    Endpoint,
+    StreamDeckGrid,
+    StreamdeckKeyFaceContract,
+    StreamdeckLogs,
+    StreamdeckProjection,
+    StreamdeckStrip,
+    StreamdeckTranscriptRelay
+  }
+
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
 
   @relative_time_refresh_ms 1_000
@@ -143,7 +153,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_event("log-key-select", %{"index" => index}, socket) do
-    {:noreply, assign(socket, :logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0)))}
+    {:noreply, socket |> assign(:logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0))) |> refresh_knobs()}
   end
 
   def handle_event("key-press", params, socket) do
@@ -387,29 +397,75 @@ defmodule AiurWeb.StreamdeckLive do
                 </div>
               </li>
             </ul>
+            <%!-- SP-203 turned the event window into the key faces above, so this
+                  pane no longer paints event lines. It stays as the event
+                  window's state mirror — the same role #sd-log-transcript plays
+                  below, both hidden by .sd-log-body — so the offset bounds that
+                  drive the dial-D EVENTS hint remain observable. --%>
+            <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
+              <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
+              <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
+            </div>
+            <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
+              <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
+              <p :for={entry <- @logs.transcript_visible} class="sd-log-line" data-log-kind={entry.kind}>{StreamdeckLogs.line(entry)}</p>
+              <p :if={@logs.transcript_visible == []} class="sd-log-line">No recent transcript.</p>
+              <span id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
+            </div>
           </div>
           <% end %>
 
           <div
             id="sd-screen"
-            class={["sd-screen", @sd_mode == :logs && "is-logs"]}
+            class={["sd-screen", "sd-screen-#{@sd_mode}"]}
             style={"--sd-screen-segments: #{length(@screen)}"}
             data-transcript-offset={@logs.transcript_offset}
             data-transcript-max-offset={@logs.transcript_max_offset}
             role="group"
             aria-label="Touch strip"
           >
-            <span :if={@sd_mode == :logs} id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
-            <div :if={@sd_mode == :logs} :for={entry <- @logs.transcript_visible} class="sd-screen-segment sd-log-strip-entry" data-log-kind={entry.kind}>
-              <span>{StreamdeckLogs.line(entry)}</span>
+            <%= if @sd_mode == :cmd do %>
+            <% command = StreamdeckStrip.command(@sd_active) %>
+            <div class={["sd-strip-cmd", "st-#{@sd_active.bucket}"]} style={"--sd-accent: #{command.accent}"} data-mode-view="cmd-strip">
+              <div class="sd-strip-cmd-heading">
+                <span class="sd-strip-cmd-agent-icon" aria-hidden="true">{command.icon}</span>
+                <img :if={command.provider_logo} class="sd-cmd-provider-logo" src={command.provider_logo} alt={command.provider} />
+                <span class="sd-strip-cmd-provider">{String.upcase(command.provider)}</span>
+                <span class="sd-strip-cmd-pager">CONTROLLING #{command.number}</span>
+              </div>
+              <div class="sd-strip-cmd-body">
+                <span class="sd-strip-cmd-ticket">#{command.number}</span>
+                <span class="sd-strip-cmd-title">{command.title}</span>
+                <span class="sd-strip-cmd-status">{command.status}</span>
+                <span class="sd-strip-cmd-percent">{command.percent}%</span>
+              </div>
+              <span class="sd-strip-cmd-progress" role="progressbar" aria-valuenow={command.percent} aria-valuemin="0" aria-valuemax="100">
+                <i style={"width: #{command.percent}%; background: #{command.progress_colour}"}></i>
+              </span>
             </div>
-            <div :if={@sd_mode == :logs and @logs.transcript_visible == []} class="sd-screen-segment sd-log-strip-entry is-empty">
-              <span>No recent transcript.</span>
+            <% end %>
+            <div :if={@sd_mode == :logs} class="sd-strip-logs" data-mode-view="logs-strip">
+              <div :for={entry <- StreamdeckStrip.entries(@logs.transcript_visible)} class={["sd-log-strip-entry", "sd-log-entry-#{entry.shape}"]} data-log-kind={entry.shape}>
+                <div :if={entry.shape == :evhdr} class="sd-log-evhdr">
+                  <span class="sd-log-evhdr-direction" style={"color: #{entry.colour}"}>{entry.direction}</span>
+                  <span class="sd-log-evhdr-text">{entry.text}</span>
+                  <span class="sd-log-evhdr-time">{entry.time}</span>
+                </div>
+                <div :if={entry.shape == :diff} class="sd-log-diff">
+                  <span class="sd-log-diff-file">{entry.file}</span>
+                  <span class="sd-log-diff-counts"><b>+{entry.additions}</b> <b>-{entry.deletions}</b></span>
+                  <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
+                </div>
+                <div :if={entry.shape == :message} class="sd-log-message">
+                  <span class={["sd-log-speaker", "is-#{entry.speaker}"]}>{entry.speaker}</span>
+                  <span class="sd-log-message-text">{entry.text}</span>
+                </div>
+              </div>
+              <p :if={@logs.transcript_visible == []} class="sd-log-strip-empty">No recent transcript.</p>
             </div>
-            <span :if={@sd_mode == :logs} id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             <div
-              :if={@sd_mode != :logs or segment.kind == :pager}
               :for={segment <- @screen}
+              :if={@sd_mode == :grid or segment.kind == :pager}
               class={[
                 "sd-screen-segment",
                 "sd-seg",
@@ -486,7 +542,10 @@ defmodule AiurWeb.StreamdeckLive do
                   <span class="sd-knob-marker" aria-hidden="true"></span>
                   <span class="sd-knob-inner">{knob.value}</span>
                 </div>
-                <span aria-hidden="true">{knob.label}</span>
+                <span :if={is_nil(knob.hint)} aria-hidden="true">{knob.label}</span>
+                <span :if={knob.hint} class="sd-dial-hint">
+                  <span style={"visibility: " <> if(knob.hint.older?, do: "visible", else: "hidden")}>‹</span>{knob.hint.label}<span style={"visibility: " <> if(knob.hint.newer?, do: "visible", else: "hidden")}>›</span>
+                </span>
               </div>
             </div>
           </div>
@@ -599,7 +658,7 @@ defmodule AiurWeb.StreamdeckLive do
     |> assign(:sd_active, sd_active)
     |> assign(:keys, key_descriptors(grid.agents, column_offset))
     |> assign(:screen, screen_descriptors(grid, usage, page, mode_pager_focus(socket.assigns.sd_mode, sd_active)))
-    |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
+    |> refresh_knobs()
   end
 
   defp assign_grid_dial(socket, value), do: assign_grid(socket, socket.assigns.grid, 0, nil, clamp(value, 0, 100))
@@ -974,18 +1033,18 @@ defmodule AiurWeb.StreamdeckLive do
   defp enter_cmd(socket, %{"identifier" => identifier}) when socket.assigns.sd_mode == :grid do
     case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       nil -> socket
-      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent) |> refresh_pager()
+      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent) |> refresh_pager() |> refresh_knobs()
     end
   end
 
   defp enter_cmd(socket, _params), do: socket
 
   defp enter_logs(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active),
-    do: assign(socket, :sd_mode, :logs)
+    do: socket |> assign(:sd_mode, :logs) |> refresh_knobs()
 
   defp enter_logs(socket), do: socket
 
-  defp back(%{assigns: %{sd_mode: :logs}} = socket), do: assign(socket, :sd_mode, :cmd)
+  defp back(%{assigns: %{sd_mode: :logs}} = socket), do: socket |> assign(:sd_mode, :cmd) |> refresh_knobs()
 
   defp back(%{assigns: %{sd_mode: :cmd}} = socket) do
     previous_identifier = socket.assigns.selected_identifier
@@ -1001,7 +1060,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp update_logs(socket, axis, delta) do
     axis = String.to_existing_atom(axis)
-    assign(socket, :logs, StreamdeckLogs.scroll(socket.assigns.logs, axis, delta))
+    socket |> assign(:logs, StreamdeckLogs.scroll(socket.assigns.logs, axis, delta)) |> refresh_knobs()
   rescue
     _ -> socket
   end
@@ -1014,7 +1073,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp reload_logs(socket, identifier) do
     logs = StreamdeckLogs.refresh(socket.assigns.logs, load_log_entries(identifier))
-    assign(socket, :logs, logs)
+    socket |> assign(:logs, logs) |> refresh_knobs()
   end
 
   defp load_log_entries(identifier) do
@@ -1240,15 +1299,32 @@ defmodule AiurWeb.StreamdeckLive do
     _ -> false
   end
 
-  defp knob_descriptors(dial_value \\ 0, windows \\ 0) do
+  defp refresh_knobs(socket) do
+    assign(socket, :knobs, knob_descriptors(socket.assigns.grid_dial_value, socket.assigns.grid.windows, socket.assigns.sd_mode, socket.assigns.logs))
+  end
+
+  defp knob_descriptors(dial_value \\ 0, windows \\ 0, mode \\ :grid, logs \\ %{}) do
+    back_hint =
+      case mode do
+        :cmd -> StreamdeckStrip.hint(0, 0, "BACK")
+        :logs -> StreamdeckStrip.hint(Map.get(logs, :transcript_offset, 0), Map.get(logs, :transcript_max_offset, 0), "BACK")
+        _ -> nil
+      end
+
+    events_hint =
+      if mode == :logs,
+        do: StreamdeckStrip.hint(Map.get(logs, :events_offset, 0), Map.get(logs, :events_max_offset, 0), "EVENTS"),
+        else: nil
+
     [
-      %{label: "Focus", value: "62", angle: 138},
-      %{label: "Volume", value: "74", angle: 174},
-      %{label: "Speed", value: "48", angle: 78},
+      %{label: "Focus", value: "62", angle: 138, hint: back_hint},
+      %{label: "Volume", value: "74", angle: 174, hint: nil},
+      %{label: "Speed", value: "48", angle: 78, hint: nil},
       %{
         label: "Page",
         value: String.pad_leading(to_string(dial_value), 2, "0"),
-        angle: if(windows > 0, do: dial_value / 100 * 270 - 135, else: -135)
+        angle: if(windows > 0, do: dial_value / 100 * 270 - 135, else: -135),
+        hint: events_hint
       }
     ]
   end
@@ -1273,6 +1349,7 @@ defmodule AiurWeb.StreamdeckLive do
     socket
     |> assign(:logs, load_logs(identifier))
     |> replace_transcript_relay(previous_identifier, identifier)
+    |> refresh_knobs()
   end
 
   defp focus_logs(socket, _previous_identifier, _identifier), do: socket
