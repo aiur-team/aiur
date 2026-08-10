@@ -251,8 +251,13 @@ delivery id and event type.
   #1676's route sets `log: false` to keep payloads out of the debug log.
 - **An attacker who learns the hostname can do nothing.** They reach one route
   that answers 401 to anything lacking a valid `X-Hub-Signature-256` over the
-  exact raw bytes. `scripts/verify-webhook-ingress` is the check for that claim
-  rather than the assertion of it.
+  exact raw bytes. Both halves of that claim are checked rather than asserted:
+  `scripts/verify-webhook-ingress` proves the *edge* publishes only this route,
+  and `src/test/aiur_web/github_webhook_test.exs` (#1676) proves the *receiver*
+  fails closed — no signature, mismatched digest, malformed or duplicated
+  header, legacy SHA-1 header, a body altered after signing, a blank secret and
+  a truncated read of an oversized body are each rejected, and the digests are
+  compared in constant time.
 
 Optional defence in depth, free on Cloudflare's plan: a WAF rule limiting the
 hostname to GitHub's published hook ranges (`GET /meta` → `.hooks`). Signature
