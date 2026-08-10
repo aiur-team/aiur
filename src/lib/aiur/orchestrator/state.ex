@@ -90,6 +90,7 @@ defmodule Aiur.Orchestrator.State do
           codex_rate_limits: map() | nil,
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
+          sweep_observed_at: DateTime.t() | nil,
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
@@ -180,6 +181,10 @@ defmodule Aiur.Orchestrator.State do
     codex_rate_limits: nil,
     events_etag: nil,
     events_last_id: nil,
+    # Last successful firehose reconciliation sweep, restored from the durable
+    # watermark at boot. `nil` means "no prior sweep on record", which keeps the
+    # firehose on its boot-cutoff default.
+    sweep_observed_at: nil,
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},

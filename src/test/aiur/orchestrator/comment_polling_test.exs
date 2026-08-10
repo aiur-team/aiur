@@ -1,7 +1,9 @@
 defmodule Aiur.Orchestrator.CommentPollingTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.{CommentPolling, State}
+  alias Aiur.SweepWatermarkStore
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -163,6 +165,111 @@ defmodule Aiur.Orchestrator.CommentPollingTest do
       assert Agent.get(attempts, & &1) == 3
       refute_receive {:persistence_alert, _, _, _}
     end
+  end
+
+  # The reconciliation sweep has to recover what push delivery and the previous
+  # daemon lifetime missed. Before the durable watermark, the firehose dropped
+  # everything created before this boot, so an event that arrived while the
+  # daemon was down was indistinguishable from no event at all.
+  describe "poll_github_firehose/2 daemon-down recovery" do
+    setup do
+      path = Path.join(System.tmp_dir!(), "aiur-sweep-watermark-#{System.unique_integer([:positive])}.json")
+      on_exit(fn -> File.rm(path) end)
+
+      {:ok, watermark_path: path}
+    end
+
+    test "recovers an event created while the daemon was down", %{watermark_path: path} do
+      :ok = Exchange.subscribe("ticket.4711.pr.merged")
+
+      state = %{base_state() | sweep_observed_at: ~U[2026-07-12 17:00:00Z]}
+
+      result =
+        CommentPolling.poll_github_firehose(state,
+          request_fun: gap_event_request_fun(4_711, "gap-4711", "2026-07-12T17:30:00Z"),
+          recent_merge_fun: fn _merge -> :ok end,
+          sweep_watermark_path: path
+        )
+
+      assert_receive {:event, %{topic: "ticket.4711.pr.merged"}}, 500
+      assert result.events_last_id == "gap-4711"
+    end
+
+    test "keeps dropping pre-boot history when no sweep is on record", %{watermark_path: path} do
+      :ok = Exchange.subscribe("ticket.4712.pr.merged")
+
+      state = base_state()
+      assert is_nil(state.sweep_observed_at)
+
+      CommentPolling.poll_github_firehose(state,
+        request_fun: gap_event_request_fun(4_712, "gap-4712", "2026-07-12T17:30:00Z"),
+        recent_merge_fun: fn _merge -> :ok end,
+        sweep_watermark_path: path
+      )
+
+      refute_receive {:event, %{topic: "ticket.4712.pr.merged"}}, 200
+    end
+
+    test "an explicit boot_time still wins over the restored sweep cutoff", %{watermark_path: path} do
+      :ok = Exchange.subscribe("ticket.4713.pr.merged")
+
+      state = %{base_state() | sweep_observed_at: ~U[2026-07-12 17:00:00Z]}
+
+      CommentPolling.poll_github_firehose(state,
+        request_fun: gap_event_request_fun(4_713, "gap-4713", "2026-07-12T17:30:00Z"),
+        recent_merge_fun: fn _merge -> :ok end,
+        boot_time: DateTime.to_unix(~U[2026-07-12 19:00:00Z]),
+        sweep_watermark_path: path
+      )
+
+      refute_receive {:event, %{topic: "ticket.4713.pr.merged"}}, 200
+    end
+
+    test "persists the cursors a restart needs to resume from", %{watermark_path: path} do
+      state = %{
+        base_state()
+        | sweep_observed_at: ~U[2026-07-12 17:00:00Z],
+          github_comments_since: %{"41" => "2026-07-12T17:10:00Z"},
+          pr_review_seen_at: %{"41" => "2026-07-12T17:05:00Z"}
+      }
+
+      swept_at = ~U[2026-07-12 18:00:00Z]
+
+      CommentPolling.poll_github_firehose(state,
+        request_fun: gap_event_request_fun(4_714, "gap-4714", "2026-07-12T17:30:00Z"),
+        recent_merge_fun: fn _merge -> :ok end,
+        now: swept_at,
+        sweep_watermark_path: path
+      )
+
+      assert %{
+               events_last_id: "gap-4714",
+               comment_cursors: %{"41" => "2026-07-12T17:10:00Z"},
+               pr_review_seen_at: %{"41" => "2026-07-12T17:05:00Z"},
+               observed_at: ^swept_at
+             } = SweepWatermarkStore.load(sweep_watermark_path: path)
+    end
+  end
+
+  defp gap_event_request_fun(pr_number, event_id, created_at) do
+    event = %{
+      "id" => event_id,
+      "type" => "PullRequestEvent",
+      "created_at" => created_at,
+      "repo" => %{"name" => "owner/repo"},
+      "payload" => %{
+        "action" => "closed",
+        "pull_request" => %{
+          "number" => pr_number,
+          "title" => "Merged while the daemon was down",
+          "merged" => true,
+          "merged_at" => created_at,
+          "head" => %{"ref" => "aiur/#{pr_number}-gap", "sha" => "head-#{pr_number}"}
+        }
+      }
+    }
+
+    fn _request -> {:ok, %{status: 200, headers: [{"ETag", "etag-#{event_id}"}], body: [event]}} end
   end
 
   describe "human_review_comment_target_limit behavior" do
