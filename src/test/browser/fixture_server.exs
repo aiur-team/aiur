@@ -1792,18 +1792,34 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     }
   end
 
+  # Seeded once per harness boot, not once per disk lifetime. `File.exists?/1`
+  # alone made the feed sticky: a local run reused whatever a previous run had
+  # written, so editing this fixture silently had no effect on the tests that
+  # read it. The snapshot callbacks fire on every poll, hence the guard.
   defp write_feed_if_missing(identifier) when is_binary(identifier) do
-    path = IssueLog.transcript_path(identifier)
-    if File.exists?(path), do: :ok, else: write_feed(path)
+    key = {__MODULE__, :seeded_feed, identifier}
+
+    if :persistent_term.get(key, false) do
+      :ok
+    else
+      write_feed(IssueLog.transcript_path(identifier))
+      :persistent_term.put(key, true)
+    end
   end
 
   defp write_feed(path) do
     File.mkdir_p!(Path.dirname(path))
 
+    # A mix of roles, not ten assistants: the roles are what `AgentEventFeed`
+    # maps onto the five Stream Deck direction badges, so a single-role feed
+    # would let a log key assert its badge without the mapping being wired at
+    # all. Events 1..5 cover AGENT, CONSUME, SYSTEM, INFO and EMIT in order.
+    roles = %{1 => "assistant", 2 => "user", 3 => "system", 4 => "reasoning", 5 => "command"}
+
     events =
       Enum.map(10..1, fn index ->
         %{
-          "role" => "assistant",
+          "role" => Map.get(roles, index, "assistant"),
           "body" => "event-#{index}",
           "timestamp" => "2026-08-02T00:00:00Z",
           "msg_id" => nil,

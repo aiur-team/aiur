@@ -7904,6 +7904,7 @@ html[data-theme="light"] .sd-device {
   --blocking-ink: #ffa39c;
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --good: #3fb950;
+  --good-ink: #74d47f;
   --super: #c69bff;
   --ack: #4fd6c4;
 }
@@ -7957,8 +7958,11 @@ html[data-theme="light"] .sd-device {
   display: none;
 }
 
-.sd-device[data-mode="cmd"] .sd-keys,
-.sd-device[data-mode="logs"] .sd-keys {
+/* `:not(.sd-log-keys)` rather than relying on source order: the logs key grid
+   is also a `.sd-keys`, and an equal-specificity un-hiding rule below would
+   lose to a future reorder and blank the eight keys. */
+.sd-device[data-mode="cmd"] .sd-keys:not(.sd-log-keys),
+.sd-device[data-mode="logs"] .sd-keys:not(.sd-log-keys) {
   display: none;
 }
 
@@ -8001,10 +8005,6 @@ html[data-theme="light"] .sd-device {
   background: rgba(255, 255, 255, 0.06);
 }
 
-.sd-log-body {
-  display: none;
-}
-
 .sd-device[data-mode="logs"] .sd-log-keys {
   display: grid;
   margin: 0 0 0.65rem;
@@ -8028,6 +8028,30 @@ html[data-theme="light"] .sd-device {
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.52rem;
   font-weight: 800;
+}
+
+/* The five directions from #1576. Themed tokens rather than per-key inline
+   hex: an inline `style` attribute evades `dashboard_css_theme_test.exs` by
+   construction, and a literal hex cannot adapt across the chassis themes. */
+.sd-log-dir {
+  color: var(--muted);
+}
+
+.sd-log-dir[data-dir="EMIT"],
+.sd-log-dir[data-dir="AGENT"] {
+  color: var(--accent-ink);
+}
+
+.sd-log-dir[data-dir="INFO"] {
+  color: var(--muted);
+}
+
+.sd-log-dir[data-dir="CONSUME"] {
+  color: var(--good-ink);
+}
+
+.sd-log-dir[data-dir="SYSTEM"] {
+  color: var(--attention-ink);
 }
 
 .sd-log-text {
@@ -8057,8 +8081,8 @@ html[data-theme="light"] .sd-device {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  background: #4fd6c4;
-  box-shadow: 0 0 0.65rem #4fd6c4;
+  background: var(--ack);
+  box-shadow: 0 0 0.65rem var(--ack);
   animation: sd-pulse 1.25s ease-in-out infinite;
 }
 
@@ -8070,10 +8094,54 @@ html[data-theme="light"] .sd-device {
   letter-spacing: 0.12em;
 }
 
-.sd-log-line {
-  margin: 0;
-  color: var(--muted);
+/* The strip is the transcript surface for logs mode: clicking an event key
+   positions it here, so the line has to be readable. `.sd-screen` is a
+   four-column 88px grid built for provider segments; a transcript line takes
+   the full row, reads left-aligned, and ellipsises rather than being clipped
+   mid-column. SP-302 owns the richer treatment on top of this. */
+.sd-screen.is-logs {
+  grid-template-columns: 1fr;
+  align-content: start;
+  padding: 0.3rem 0.5rem;
+  row-gap: 0.1rem;
+  overflow: hidden;
+}
+
+.sd-log-strip-entry {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  color: var(--fg);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.62rem;
-  line-height: 1.5;
+  line-height: 1.45;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-log-strip-entry > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-log-strip-entry[data-log-kind="event_header"] {
+  font-weight: 800;
+}
+
+.sd-log-strip-entry.is-empty {
+  color: var(--muted);
+}
+
+.sd-screen.is-logs .sd-log-hint {
+  color: var(--muted);
+  font-size: 0.55rem;
+  line-height: 1;
+  text-align: right;
+}
+
+.sd-screen.is-logs .sd-log-hint[aria-hidden="true"] {
+  visibility: hidden;
 }

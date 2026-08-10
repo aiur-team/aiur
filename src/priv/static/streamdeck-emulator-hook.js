@@ -419,7 +419,10 @@
 
           // Log keys index the flattened transcript instead of selecting an
           // agent. The server owns the resulting transcript offset.
-          if (self._mode === "logs" && logEventIndex !== null) {
+          // `data-log-event-index` is authoritative on its own; the
+          // client-tracked `_mode` only reconciles at the end of updated(),
+          // so gating on it would silently drop a click while it lagged.
+          if (logEventIndex !== null) {
             self.pushEvent("log-key-select", { index: Number(logEventIndex) });
             return;
           }

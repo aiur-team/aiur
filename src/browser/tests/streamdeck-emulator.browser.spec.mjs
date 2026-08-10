@@ -581,18 +581,40 @@ test('clicking a logs event key positions the flattened transcript at that event
 
   const logKeys = page.locator('#sd-log-keys')
   await expect(logKeys.locator('.sd-key')).toHaveCount(8)
+  // Index 0 is LIVE, never an event row.
   await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('LIVE')
-  await expect(logKeys.locator('[data-log-event-index="2"] .sd-log-dir')).toContainText('AGENT')
-  await expect(page.locator('#sd-screen')).toContainText('event-1')
+  await expect(logKeys.locator('[data-log-event-index="0"] .sd-log-dir')).toHaveCount(0)
+  await expect(logKeys.locator('[data-log-event-index="0"] .sd-live-dot')).toHaveCount(1)
+
+  // The fixture feed gives events 1..5 the five roles that map onto the five
+  // direction badges, so each badge — and each badge's colour — is exercised.
+  const directions = ['AGENT', 'CONSUME', 'SYSTEM', 'INFO', 'EMIT']
+  const inks = new Set()
+  for (const [slot, direction] of directions.entries()) {
+    const badge = logKeys.locator(`[data-log-event-index="${slot + 1}"] .sd-log-dir`)
+    await expect(badge).toContainText(direction)
+    await expect(badge).toHaveAttribute('data-dir', direction)
+    inks.add(await badge.evaluate((el) => getComputedStyle(el).color))
+  }
+  // EMIT and AGENT share one blue by design; the other three are distinct.
+  expect(inks.size).toBe(4)
+
+  const strip = page.locator('#sd-screen')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toContainText('event-1')
 
   await logKeys.locator('[data-log-event-index="2"]').click()
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
-  await expect(page.locator('#sd-log-transcript')).toContainText('event-2')
-  await expect(page.locator('#sd-screen')).toContainText('event-2')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '2')
+  await expect(strip).toContainText('event-2')
+  // The strip moved off the pre-click head rather than merely gaining a line.
+  // `event-1` starts at offset 0 and `event-10` at 18, so neither belongs in
+  // the two-line window at offset 2.
+  await expect(strip).not.toContainText('event-1')
   await expect(logKeys.locator('[data-log-event-index="2"]')).toHaveAttribute('aria-current', 'true')
 
   await logKeys.locator('[data-log-event-index="1"]').press('Enter')
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(strip).toContainText('event-1')
 })
 
 test('dial A pointer direction controls transcript scroll direction in logs mode', async ({ page }) => {
@@ -605,10 +627,10 @@ test('dial A pointer direction controls transcript scroll direction in logs mode
 
   const dialA = page.locator('.sd-knob').first()
   await dragDialThroughAngles(page, dialA, [-90, 0, 90])
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '1')
+  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '1')
 
   await dragDialThroughAngles(page, dialA, [90, 0, -90])
-  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
+  await expect(page.locator('#sd-screen')).toHaveAttribute('data-transcript-offset', '0')
 })
 
 test('dial D pointer direction controls event scroll direction in logs mode', async ({ page }) => {

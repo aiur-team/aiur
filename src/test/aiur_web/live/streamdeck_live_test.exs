@@ -316,24 +316,58 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="sd-log-keys")
     assert html =~ ~s(data-log-event-index="0")
     assert length(Regex.scan(~r/class="sd-key sd-log-key/, html)) == 8
-    assert log_pane(html, "sd-log-transcript") =~ "event-1"
+    assert strip(html) =~ "event-1"
     assert html =~ ~s(data-log-kind="event_header")
     assert html =~ ~s(data-log-kind="message")
 
     html = render_hook(view, "log-key-select", %{"index" => "2"})
-    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
-    assert log_pane(html, "sd-log-transcript") =~ "event-2"
+    assert strip_offset(html) == 2
+    assert strip(html) =~ "event-2"
+    # The strip moved off the pre-click head rather than merely gaining a line.
+    # `event-1` starts at offset 0 and `event-10` at 18, so neither is in the
+    # two-line window at offset 2.
+    refute strip(html) =~ "event-1"
     assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
-    assert log_pane(html, "sd-screen") =~ "event-2"
+  end
+
+  test "a relay flush keeps the operator's transcript position instead of snapping to the event header" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    _html = enter_logs(view)
+
+    html = render_hook(view, "log-key-select", %{"index" => "2"})
+    assert strip_offset(html) == 2
+
+    # Scroll one line into the selected event, then let the relay flush. The
+    # position, not just the selected event, has to survive.
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "1"})
+    assert strip_offset(html) == 3
 
     send(view.pid, {:streamdeck_transcript, "1352", %{}})
     html = render(view)
-    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
+    assert strip_offset(html) == 3
     assert html =~ ~r/data-log-event-index="2"[^>]*aria-current="true"/
+  end
+
+  test "a relay flush keeps the key window the operator scrolled to" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    _html = enter_logs(view)
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "2"})
+    assert html =~ ~r{id="sd-log-keys"[^>]*data-offset="2"}
+
+    send(view.pid, {:streamdeck_transcript, "1352", %{}})
+    html = render(view)
+    assert html =~ ~r{id="sd-log-keys"[^>]*data-offset="2"}
+  end
+
+  test "scrolling the transcript to the end pins the strip at its max offset" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    _html = enter_logs(view)
 
     html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
-    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="18"[^>]*data-max-offset="18"}
-    assert log_pane(html, "sd-log-transcript") =~ "event-1"
+    assert strip_offset(html) == 18
+    assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="18"/s
+    assert strip(html) =~ "event-1"
     assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
   end
 
@@ -352,9 +386,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
       html = enter_logs(view)
 
       assert html =~ "[AGENT] newest message"
-      assert html =~ ~s(class="sd-log-dir" style="color:#9fd0ff">EMIT)
+      assert html =~ ~s(<span class="sd-log-dir" data-dir="EMIT">EMIT</span>)
       assert html =~ "lib/example.ex"
-      assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="3"}
+      assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="3"/s
 
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
       assert html =~ "older message"
@@ -630,10 +664,20 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
-  defp log_pane(html, id) do
-    case Regex.run(~r{<div id="#{id}"[^>]*>.*?</div>}s, html) do
+  # The touch strip is the transcript surface in logs mode, so its contents run
+  # from the `#sd-screen` tag to the well that follows it. A non-greedy
+  # `</div>` would stop at the first strip entry.
+  defp strip(html) do
+    case Regex.run(~r{id="sd-screen".*?class="sd-well"}s, html) do
       [pane | _] -> pane
-      nil -> flunk("missing log pane ##{id}")
+      nil -> flunk("missing #sd-screen touch strip")
+    end
+  end
+
+  defp strip_offset(html) do
+    case Regex.run(~r/id="sd-screen"[^>]*?data-transcript-offset="(\d+)"/s, html) do
+      [_full, offset] -> String.to_integer(offset)
+      nil -> flunk("#sd-screen carries no data-transcript-offset")
     end
   end
 

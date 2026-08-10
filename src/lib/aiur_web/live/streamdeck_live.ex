@@ -8,8 +8,12 @@ defmodule AiurWeb.StreamdeckLive do
   orchestrator remains the authority for the resulting pause/resume state.
 
   Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
-  and projects the durable classified feed (`AgentEventFeed`) through the
-  flattened two-line model in `StreamdeckLogs`. The production path reads the
+  and projects the durable classified feed (`AgentEventFeed`) through
+  `StreamdeckLogs`. That projection is one newest-first document read at two
+  granularities: the eight keys are the event index (LIVE first, then a
+  scrolling window of event rows) and the touch strip is the transcript text at
+  the selected event's offset. Selecting a key positions the strip; scrolling
+  the strip reselects the event under the cursor. The production path reads the
   real feed; `streamdeck_logs_fun` exists only as a test seam.
   """
 
@@ -240,7 +244,7 @@ defmodule AiurWeb.StreamdeckLive do
             <ul id="sd-log-keys" class="sd-keys sd-log-keys" aria-label="Log event keys" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <li
                 :for={key <- @logs.event_keys_visible}
-                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "is-live", key.index == @logs.selected_event_index && "is-selected"]}
+                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.index == @logs.selected_event_index && "is-selected"]}
                 data-log-event-index={key.index}
                 aria-hidden={to_string(key.kind == :empty)}
                 aria-current={if key.index == @logs.selected_event_index, do: "true", else: "false"}
@@ -254,18 +258,12 @@ defmodule AiurWeb.StreamdeckLive do
                   <span class="sd-live-label">{key.label}</span>
                 </div>
                 <div :if={key.kind == :event} class="sd-key-face sd-log-key-face">
-                  <span class="sd-log-dir" style={"color:#{key.color}"}>{key.badge}</span>
+                  <span class="sd-log-dir" data-dir={key.badge}>{key.badge}</span>
                   <span class="sd-log-text">{key.text}</span>
                   <span class="sd-log-time">{key.time}</span>
                 </div>
               </li>
             </ul>
-            <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
-              <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
-              <p :for={entry <- @logs.transcript_visible} class="sd-log-line" data-log-kind={entry.kind}>{StreamdeckLogs.line(entry)}</p>
-              <p :if={@logs.transcript_visible == []} class="sd-log-line">No recent transcript.</p>
-              <span id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
-            </div>
           </div>
           <% end %>
 
@@ -274,15 +272,18 @@ defmodule AiurWeb.StreamdeckLive do
             class={["sd-screen", @sd_mode == :logs && "is-logs"]}
             style={"--sd-screen-segments: #{length(@screen)}"}
             data-transcript-offset={@logs.transcript_offset}
+            data-transcript-max-offset={@logs.transcript_max_offset}
             role="group"
             aria-label="Touch strip"
           >
+            <span :if={@sd_mode == :logs} id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
             <div :if={@sd_mode == :logs} :for={entry <- @logs.transcript_visible} class="sd-screen-segment sd-log-strip-entry" data-log-kind={entry.kind}>
               <span>{StreamdeckLogs.line(entry)}</span>
             </div>
             <div :if={@sd_mode == :logs and @logs.transcript_visible == []} class="sd-screen-segment sd-log-strip-entry is-empty">
               <span>No recent transcript.</span>
             </div>
+            <span :if={@sd_mode == :logs} id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             <div :if={@sd_mode != :logs} :for={segment <- @screen} class={["sd-screen-segment", "sd-seg", "sd-seg-info", segment.observed? && "is-live"]} data-segment={segment.kind}>
               <div class="sd-info-hd">
                 <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
