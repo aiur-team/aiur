@@ -3198,6 +3198,16 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--provider-unit-background, var(--pill-bg));
 }
 
+/* The provider pill carries the vendor mark instead of its name. Sized to the
+   pill's 0.66rem type so rows keep their existing height, and squared so a
+   wide mark (Codex) and a tall one (Claude) occupy the same box. */
+.u-agent-logo {
+  display: block;
+  width: 0.95rem;
+  height: 0.95rem;
+  object-fit: contain;
+}
+
 .u-cx {
   color: var(--accent-ink);
 }

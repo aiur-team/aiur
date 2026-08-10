@@ -97,7 +97,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(agent_family(row))}</span>
+                  <span
+                    class={["u-pill", "u-agent", agent_class(agent_family(row))]}
+                    style={agent_style(agent_family(row))}
+                    title={agent_label(agent_family(row))}
+                  >
+                    <img
+                      :if={agent_logo(agent_family(row))}
+                      class="u-agent-logo"
+                      src={agent_logo(agent_family(row))}
+                      alt={agent_label(agent_family(row))}
+                    />
+                    <span :if={is_nil(agent_logo(agent_family(row)))}>{agent_label(agent_family(row))}</span>
+                  </span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
@@ -328,6 +340,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     case CodingAgent.provider_descriptor(family) do
       %{label: label} -> label
       _ -> "Agent"
+    end
+  end
+
+  # The pill shows the provider's mark rather than its name. `logo` comes from
+  # the registry descriptor, so a new backend renders its own mark with no edit
+  # here — the same reason `agent_family/1` matches the registry instead of a
+  # hardcoded [:claude, :codex].
+  defp agent_logo(family) do
+    case CodingAgent.provider_descriptor(family) do
+      %{logo: logo} when is_binary(logo) and logo != "" -> logo
+      _ -> nil
     end
   end
 
