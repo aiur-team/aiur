@@ -19,8 +19,9 @@ defmodule Aiur.Workspace.Provisioner do
   # support files through one idempotent SSH script.
   @spec maybe_install_agent_support(Path.t(), String.t() | nil) :: :ok | {:error, term()}
   def maybe_install_agent_support(workspace, nil) do
-    with :ok <- Aiur.AgentSkills.install(workspace) do
-      Aiur.AgentGitHubGuard.install(workspace)
+    with :ok <- Aiur.AgentSkills.install(workspace),
+         :ok <- Aiur.AgentGitHubGuard.install(workspace) do
+      Aiur.AgentScratch.install(workspace)
     end
   end
 
@@ -47,7 +48,9 @@ defmodule Aiur.Workspace.Provisioner do
 
   defp remote_agent_support_script(workspace) do
     Aiur.AgentSkills.remote_install_script(workspace) <>
-      "\n" <> Aiur.AgentGitHubGuard.remote_install_script(workspace)
+      "\n" <>
+      Aiur.AgentGitHubGuard.remote_install_script(workspace) <>
+      "\n" <> Aiur.AgentScratch.remote_install_script(workspace)
   end
 
   @type worker_host :: String.t() | nil
