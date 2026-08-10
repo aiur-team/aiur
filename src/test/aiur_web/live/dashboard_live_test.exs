@@ -2946,7 +2946,11 @@ defmodule AiurWeb.DashboardLiveTest do
     assert {:ok, %{id: ^revision_queue_id} = revision_item} =
              OperatorMessages.claim_next_queue_item(orchestrator, "987")
 
-    assert {:ok, revision_queued} = DecisionStore.get(decision.decision_id, store)
+    # `:agent_queue_updated` is broadcast by the dispatch task while it is still
+    # enqueueing; the store only records `:revision_dispatched` once that task
+    # reports back. Await the store's own transition instead of reading through
+    # the queue signal.
+    assert {:ok, revision_queued} = await_dispatched_revision(store, decision.decision_id)
     revised_answer = Decision.active_answer(revision_queued)
 
     assert revision_queued.revision_sequence == 1
@@ -5064,6 +5068,16 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp eventually(_fun, 0), do: false
+
+  defp await_dispatched_revision(store, decision_id) do
+    assert eventually(
+             fn -> match?({:ok, %{revision_result: :dispatched}}, DecisionStore.get(decision_id, store)) end,
+             200
+           ),
+           "the store never recorded the revision dispatch: #{inspect(DecisionStore.get(decision_id, store))}"
+
+    DecisionStore.get(decision_id, store)
+  end
 
   defp reload_view(view) do
     send(view.pid, :reload_payload)
