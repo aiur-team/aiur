@@ -267,8 +267,19 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <div id="sd-screen" class="sd-screen" style={"--sd-screen-segments: #{length(@screen)}"} role="group" aria-label="Touch strip">
-            <div :for={segment <- @screen} class={["sd-screen-segment", "sd-seg", "sd-seg-info", segment.observed? && "is-live"]} data-segment={segment.kind}>
-              <div class="sd-info-hd">
+            <div
+              :for={segment <- @screen}
+              class={[
+                "sd-screen-segment",
+                "sd-seg",
+                if(segment.kind == :pager, do: "sd-seg-d", else: "sd-seg-info"),
+                segment.observed? && "is-live"
+              ]}
+              data-segment={segment.kind}
+            >
+              <span :if={segment.kind == :pager} class="sd-seg-dlabel">{segment.label}</span>
+
+              <div :if={segment.kind != :pager} class="sd-info-hd">
                 <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
                 <span>{segment.label}</span>
                 <span :if={segment.kind == :provider and segment.provider == "claude"} class="sd-mic" aria-hidden="true"></span>
@@ -304,13 +315,14 @@ defmodule AiurWeb.StreamdeckLive do
                 <span class="sd-mini-bar" role="img" aria-label={meter_aria_label(meter)}><i :if={meter.observed?} style={"width: #{meter.percent}%"}></i></span>
               </div>
 
-              <div :if={segment.kind == :pager} class="sd-pager" role="group" aria-label="Agent pages">
+              <div :if={segment.kind == :pager} class="sd-pager" role="group" aria-label={if segment.focus_label, do: "Controlled agent", else: "Agent pages"}>
                 <span
                   :for={page <- segment.pages}
                   class={["sd-pager-dot", page == segment.current_page && "is-active"]}
                   data-pager-page={page}
                   aria-current={if page == segment.current_page, do: "page", else: nil}
                 ></span>
+                <span :if={segment.focus_label} class="sd-pager-label" data-pager-focus={segment.focus_label}>{segment.focus_label}</span>
               </div>
             </div>
           </div>
@@ -444,7 +456,7 @@ defmodule AiurWeb.StreamdeckLive do
     |> assign(:selected_identifier, selected_identifier)
     |> assign(:sd_active, sd_active)
     |> assign(:keys, key_descriptors(grid.agents, column_offset))
-    |> assign(:screen, screen_descriptors(grid, usage, page))
+    |> assign(:screen, screen_descriptors(grid, usage, page, mode_pager_focus(socket.assigns.sd_mode, sd_active)))
     |> assign(:knobs, knob_descriptors(dial_value, grid.windows))
   end
 
@@ -508,13 +520,56 @@ defmodule AiurWeb.StreamdeckLive do
   defp empty_key(slot),
     do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
 
-  defp screen_descriptors(grid, usage, current_page) do
+  defp screen_descriptors(grid, usage, current_page, focus) do
     live = live_count(grid)
 
     [
       %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live, remaining: max(grid.total - live, 0), meters: []}
       | Enum.map(CodingAgent.provider_descriptors(), &provider_segment(&1, usage))
-    ] ++ [%{kind: :pager, label: "MORE AGENTS", logo: "/aiur-logo.png", observed?: grid.windows > 1, pages: pager_pages(grid.windows), current_page: current_page, meters: []}]
+    ] ++ [pager_segment(grid, current_page, focus)]
+  end
+
+  # A focused command takes the pager segment over: the dots give way to the
+  # agent being controlled, matching the design's CONTROLLING relabel.
+  defp pager_segment(_grid, current_page, focus) when not is_nil(focus) do
+    %{
+      kind: :pager,
+      label: "CONTROLLING",
+      observed?: true,
+      pages: [],
+      current_page: current_page,
+      focus_label: "##{focus.identifier}",
+      meters: []
+    }
+  end
+
+  defp pager_segment(grid, current_page, _focus) do
+    %{
+      kind: :pager,
+      label: "MORE AGENTS",
+      observed?: grid.windows > 1,
+      pages: pager_pages(grid.windows),
+      current_page: current_page,
+      focus_label: nil,
+      meters: []
+    }
+  end
+
+  defp pager_focus(%{assigns: %{sd_mode: mode, sd_active: active}}), do: mode_pager_focus(mode, active)
+
+  defp mode_pager_focus(mode, active) when mode in [:cmd, :logs] and not is_nil(active), do: active
+  defp mode_pager_focus(_mode, _active), do: nil
+
+  defp refresh_pager(socket) do
+    focus = pager_focus(socket)
+
+    screen =
+      Enum.map(socket.assigns.screen, fn
+        %{kind: :pager} = segment -> pager_segment(socket.assigns.grid, segment.current_page, focus)
+        segment -> segment
+      end)
+
+    assign(socket, :screen, screen)
   end
 
   defp live_count(grid), do: Enum.count(grid.agents, &(&1.bucket == :running))
@@ -571,7 +626,7 @@ defmodule AiurWeb.StreamdeckLive do
   defp window_freshness(_window), do: "unknown"
 
   defp meter_metadata(window, freshness) do
-    [window_metadata(window), if(freshness == "stale", do: "stale")]
+    [window_metadata(window), if(freshness == "stale", do: "stale"), stale_age_label(window, freshness)]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
     |> case do
@@ -579,6 +634,20 @@ defmodule AiurWeb.StreamdeckLive do
       metadata -> metadata
     end
   end
+
+  defp stale_age_label(window, "stale") when is_map(window) do
+    case get_value(window, "age_seconds") do
+      age_seconds when is_integer(age_seconds) and age_seconds >= 0 -> "#{age_label(age_seconds)} ago"
+      _ -> nil
+    end
+  end
+
+  defp stale_age_label(_window, _freshness), do: nil
+
+  defp age_label(age_seconds) when age_seconds < 60, do: "#{age_seconds}s"
+  defp age_label(age_seconds) when age_seconds < 3_600, do: "#{div(age_seconds, 60)}m"
+  defp age_label(age_seconds) when age_seconds < 86_400, do: "#{div(age_seconds, 3_600)}h"
+  defp age_label(age_seconds), do: "#{div(age_seconds, 86_400)}d"
 
   defp reset_label(%DateTime{} = reset), do: "#{weekday(reset)} #{hour_label(reset)}"
 
@@ -705,12 +774,12 @@ defmodule AiurWeb.StreamdeckLive do
   defp select_agent_from_params(socket, _params), do: socket
 
   defp maybe_assign_active(%{assigns: %{sd_mode: :grid}} = socket, _agent), do: socket
-  defp maybe_assign_active(socket, agent), do: assign(socket, :sd_active, agent)
+  defp maybe_assign_active(socket, agent), do: socket |> assign(:sd_active, agent) |> refresh_pager()
 
   defp enter_cmd(socket, %{"identifier" => identifier}) when socket.assigns.sd_mode == :grid do
     case Enum.find(socket.assigns.grid.agents, &(to_string(&1.identifier) == identifier)) do
       nil -> socket
-      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent)
+      agent -> socket |> assign(:sd_mode, :cmd) |> assign(:sd_active, agent) |> refresh_pager()
     end
   end
 

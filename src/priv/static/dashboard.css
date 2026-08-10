@@ -7658,6 +7658,28 @@ html[data-theme="light"] .toggle-icon .moon {
   padding: 0.32rem 0.5rem;
 }
 
+/* The pager is the design's dial-style segment, not an info segment: a
+   centred column on a slightly brighter ground, labelled by its own text
+   rather than by a logo header. */
+.sd-screen-segment.sd-seg-d {
+  align-items: center;
+  justify-content: center;
+  gap: 0.32rem;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Structure, size and tracking follow the design. The ink does not: the
+   design's rgba(255,255,255,0.42) measures 4.09:1 on this ground, under the
+   4.5:1 the Stream Deck axe check enforces, so both segment headings hold at
+   0.55 — the same uplift .sd-info-hd already carries. */
+.sd-seg-dlabel {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
 .sd-info-hd {
   display: flex;
   align-items: center;
@@ -7760,6 +7782,14 @@ html[data-theme="light"] .toggle-icon .moon {
 .sd-pager-dot.is-active {
   background: #fff;
   transform: scale(1.25);
+}
+
+.sd-pager-label {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.82);
 }
 
 .sd-mic {
