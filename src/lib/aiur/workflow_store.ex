@@ -11,6 +11,7 @@ defmodule Aiur.WorkflowStore do
   alias Aiur.Workflow
 
   @poll_interval_ms 1_000
+  @call_timeout_ms 5_000
   @reload_attempts 3
   @reload_retry_delay_ms 50
   @configuration_topic "workflow_store:configuration"
@@ -49,26 +50,29 @@ defmodule Aiur.WorkflowStore do
     end
   end
 
+  # The store is a cache over one small config file, so ANY failure to reach it
+  # — including a `:timeout` on a saturated host — degrades correctly to reading
+  # that same file from disk. Leaving `:timeout` uncaught used to kill the
+  # calling process instead: on the `aiur status` read path that killed the RPC
+  # evaluator itself, which the operator saw as a non-zero exit with an empty
+  # buffer (#1684). Match on this exact call so unrelated exits still propagate.
   defp current_from(pid) do
-    GenServer.call(pid, :current)
+    GenServer.call(pid, :current, call_timeout())
   catch
-    :exit, {reason, {GenServer, :call, [^pid, :current, _timeout]}} when reason in [:normal, :noproc, :shutdown] ->
-      Workflow.load()
-
-    :exit, {{:shutdown, _reason}, {GenServer, :call, [^pid, :current, _timeout]}} ->
+    :exit, {_reason, {GenServer, :call, [^pid, :current, _timeout]}} ->
       Workflow.load()
   end
 
   defp current_with_generation_from(pid) do
-    GenServer.call(pid, :current_with_generation)
+    GenServer.call(pid, :current_with_generation, call_timeout())
   catch
-    :exit, {reason, {GenServer, :call, [^pid, :current_with_generation, _timeout]}}
-    when reason in [:normal, :noproc, :shutdown] ->
-      with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
-
-    :exit, {{:shutdown, _reason}, {GenServer, :call, [^pid, :current_with_generation, _timeout]}} ->
+    :exit, {_reason, {GenServer, :call, [^pid, :current_with_generation, _timeout]}} ->
       with {:ok, workflow} <- Workflow.load(), do: {:ok, workflow, :unknown}
   end
+
+  # Overridable so the saturation repro can stall the store without a real
+  # five-second wait.
+  defp call_timeout, do: Application.get_env(:aiur, :workflow_store_call_timeout_ms, @call_timeout_ms)
 
   @spec force_reload() :: :ok | {:error, term()}
   def force_reload do

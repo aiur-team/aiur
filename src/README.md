@@ -244,6 +244,7 @@ on your `PATH`:
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
+| `aiurdev units [--scope live\|unfinished\|all\|none] [--condition active\|alert\|paused\|queued\|finished]... [--format auto\|table\|records] [--json]` | Render the dashboard's Units ticket view, including its filters and source freshness; `--format` picks the human layout (`auto` uses a table only on a wide terminal); `--json` emits the stable envelope |
 | `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
@@ -251,7 +252,7 @@ on your `PATH`:
 | `aiurdev init [--force]` | Scaffold `.aiurconfig` in the current repo |
 | `aiurdev build` | Force-rebuild the local release (dev shim only) |
 
-Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`,
+Pure control commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `units`,
 and `stop`) reuse the existing dev release when it is complete, even if sources
 are newer. They control the already-running node, so a stale-source rebuild would
 not update that session. Run/start paths and explicit `aiurdev build` still
@@ -268,6 +269,13 @@ If a control command times out while the daemon is still live, the host may be
 scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,
 then start it again; this is a session-level recovery action, not a cooperative
 single-agent pause.
+
+Read-only fleet queries never use an empty buffer to mean success: `status`,
+`agents`, and `watch` print an affirmative empty-fleet row when no agents are
+active. Query failures print one stderr diagnostic and exit 1. Bounded query
+timeouts name their budget, warn that the daemon may be scheduler-saturated,
+and exit 124; any partial fleet output captured before an outer RPC timeout is
+discarded rather than presented as a trustworthy snapshot.
 
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
@@ -376,6 +384,16 @@ remain visible while membership catches up; counts are marked partial if that
 membership source is unavailable. A periodic reconciliation also recovers
 agents that existed without a dispatch notification, so an unknown catalog is
 never presented as an exact zero.
+
+### Shared GitHub quota
+
+GitHub-backed runs meter the shared agent credential's core and GraphQL budgets
+in the dashboard, including remaining units, reset times, rolling read/write
+attribution, and the top ticket consumer. Aiur raises an Executor alert at 10%
+remaining and pauses new dispatch until the affected window resets. At zero,
+daemon requests are rejected locally and agent-launched `gh` commands wait on
+the recorded reset instead of retrying into the exhausted budget. Quota state
+that has not yet been observed fails open so startup is not blocked by a meter.
 
 ### Supervisor Decision API
 

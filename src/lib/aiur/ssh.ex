@@ -1,10 +1,32 @@
 defmodule Aiur.SSH do
   @moduledoc false
 
+  alias Aiur.Shell
+
   @spec run(String.t(), String.t(), keyword()) :: {:ok, {String.t(), non_neg_integer()}} | {:error, term()}
   def run(host, command, opts \\ []) when is_binary(host) and is_binary(command) do
     with {:ok, executable} <- ssh_executable() do
       {:ok, System.cmd(executable, ssh_args(host, command), opts)}
+    end
+  end
+
+  @spec run_script(String.t(), String.t(), keyword()) :: {:ok, {String.t(), non_neg_integer()}} | {:error, term()}
+  def run_script(host, script, opts \\ []) when is_binary(host) and is_binary(script) do
+    with_script(host, script, opts, fn command -> command.() end)
+  end
+
+  @doc false
+  @spec with_script(String.t(), String.t(), keyword(), ((-> term()) -> term())) :: term()
+  def with_script(host, script, opts, fun)
+      when is_binary(host) and is_binary(script) and is_list(opts) and is_function(fun, 1) do
+    staged_script = temporary_script_path()
+
+    with :ok <- stage_script(staged_script, script) do
+      try do
+        fun.(fn -> run_staged_script(host, staged_script, opts) end)
+      after
+        File.rm(staged_script)
+      end
     end
   end
 
@@ -38,14 +60,61 @@ defmodule Aiur.SSH do
     end
   end
 
+  defp temporary_script_path do
+    suffix = :crypto.strong_rand_bytes(18) |> Base.url_encode64(padding: false)
+    Path.join(System.tmp_dir!(), "aiur-ssh-script-#{suffix}.sh")
+  end
+
+  defp stage_script(path, script) do
+    case File.open(path, [:write, :binary, :exclusive], &IO.binwrite(&1, script)) do
+      {:ok, :ok} ->
+        case File.chmod(path, 0o600) do
+          :ok -> :ok
+          {:error, reason} -> cleanup_staging_failure(path, reason)
+        end
+
+      {:ok, {:error, reason}} ->
+        cleanup_staging_failure(path, reason)
+
+      {:error, reason} ->
+        {:error, {:ssh_script_staging_failed, reason}}
+    end
+  end
+
+  defp cleanup_staging_failure(path, reason) do
+    File.rm(path)
+    {:error, {:ssh_script_staging_failed, reason}}
+  end
+
+  defp run_staged_script(host, path, opts) do
+    with {:ok, executable} <- ssh_executable(),
+         shell when is_binary(shell) <- System.find_executable("sh") do
+      command =
+        [executable | ssh_script_args(host)]
+        |> Enum.map_join(" ", &Shell.escape/1)
+        |> Kernel.<>(" < #{Shell.escape(path)}")
+
+      {:ok, System.cmd(shell, ["-c", command], opts)}
+    else
+      nil -> {:error, :shell_not_found}
+      error -> error
+    end
+  end
+
   defp ssh_args(host, command) do
+    ssh_target_args(host) ++ [remote_shell_command(command)]
+  end
+
+  defp ssh_script_args(host), do: ssh_target_args(host) ++ [remote_shell_command("bash -s")]
+
+  defp ssh_target_args(host) do
     %{destination: destination, port: port} = parse_target(host)
 
     []
     |> maybe_put_config()
     |> Kernel.++(["-T"])
     |> maybe_put_port(port)
-    |> Kernel.++([destination, remote_shell_command(command)])
+    |> Kernel.++([destination])
   end
 
   defp maybe_put_line_option(port_opts, nil), do: port_opts

@@ -34,6 +34,8 @@ if config_env() == :test do
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
+  config :aiur, :github_quota_refresh?, false
+  config :aiur, :github_quota_status_override, :available
 
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production
