@@ -316,14 +316,12 @@ defmodule Aiur.Events.GithubCommentsPoller do
   # Review-staleness context the orchestrator's rework gate reads off the event
   # (`Aiur.Orchestrator.ReviewFreshness`). Only the GraphQL batch resolves these
   # fields; the REST fallback path publishes `nil` and the gate stays inert.
-  defp review_context(pr) when is_map(pr) do
+  defp review_context(pr) do
     %{
       "review_decision" => Map.get(pr, "review_decision"),
       "head_committed_at" => Map.get(pr, "head_committed_at")
     }
   end
-
-  defp review_context(_pr), do: %{}
 
   defp poll_unaddressed_pr_review_threads(target, pr_number, repo, review_context, opts) do
     case batch_value(opts, target, :review_thread_comments) do
@@ -353,10 +351,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
   # resolution protocol, and it stays actionable across pushes that did not
   # touch it — so thread comments carry only the approval half of the context.
   # An APPROVED pull request is never rework; an old thread comment still is.
-  defp approval_only_context(review_context) when is_map(review_context),
+  defp approval_only_context(review_context),
     do: Map.delete(review_context, "head_committed_at")
-
-  defp approval_only_context(_review_context), do: %{}
 
   defp batch_value(opts, target, key) do
     with %{} = batch <- Keyword.get(opts, :comment_batch),
