@@ -7688,6 +7688,161 @@ html[data-theme="light"] .toggle-icon .moon {
   animation: sd-live-pulse 1.2s ease-in-out infinite;
 }
 
+/* Cmd and logs keep the strip's dial columns so the pager segment stays under
+   dial D where the operator reads which agent they are controlling. The page
+   itself takes every column left of it — full width in every practical sense,
+   without evicting the dial-D label. */
+.sd-screen.sd-screen-cmd,
+.sd-screen.sd-screen-logs {
+  display: grid;
+}
+
+.sd-strip-cmd,
+.sd-strip-logs {
+  height: 100%;
+  min-width: 0;
+  grid-column: 1 / -2;
+}
+
+.sd-strip-cmd {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.28rem;
+  padding: 0.42rem 0.55rem;
+}
+
+.sd-strip-cmd-heading,
+.sd-strip-cmd-body,
+.sd-log-evhdr,
+.sd-log-diff,
+.sd-log-message {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  min-width: 0;
+}
+
+.sd-strip-cmd-heading,
+.sd-log-evhdr,
+.sd-log-diff {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.53rem;
+  font-weight: 800;
+}
+
+.sd-cmd-provider-logo {
+  width: 0.9rem;
+  height: 0.9rem;
+  object-fit: contain;
+}
+
+/* The icon and the status wording take the focused agent's own state accent,
+   set inline from key-face-contract.json, so the strip and the key for the
+   same agent cannot disagree. */
+.sd-strip-cmd-agent-icon {
+  color: var(--sd-accent);
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.sd-strip-cmd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  color: var(--sd-accent);
+  font-size: 0.56rem;
+  letter-spacing: 0.08em;
+}
+
+/* The design's leading state dot (streamdeck.design.css:112). currentColor
+   means it tracks --sd-accent without naming a colour twice. */
+.sd-strip-cmd-status::before {
+  content: "";
+  flex: none;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.sd-strip-cmd-provider {
+  color: var(--accent-ink);
+  letter-spacing: 0.08em;
+}
+
+.sd-strip-cmd-pager {
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.sd-strip-cmd-ticket,
+.sd-strip-cmd-percent {
+  color: var(--fg);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.68rem;
+  font-weight: 800;
+}
+
+.sd-strip-cmd-title {
+  overflow: hidden;
+  flex: 1;
+  color: var(--fg);
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sd-strip-cmd-progress {
+  display: block;
+  height: 0.34rem;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.sd-strip-cmd-progress > i {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+}
+
+.sd-strip-logs {
+  display: grid;
+  grid-template-rows: repeat(2, minmax(0, 1fr));
+  gap: 0.22rem;
+  padding: 0.3rem 0.45rem;
+}
+
+.sd-log-strip-entry {
+  display: grid;
+  min-width: 0;
+  padding: 0.18rem 0.3rem;
+  overflow: hidden;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+/* Ink is set inline per badge from key-face-contract.json. */
+.sd-log-evhdr-text,
+.sd-log-message-text { overflow: hidden; flex: 1; color: var(--fg); text-overflow: ellipsis; white-space: nowrap; }
+.sd-log-evhdr-time { color: var(--muted); }
+.sd-log-diff-file { color: var(--fg); }
+.sd-log-diff-counts { margin-left: auto; color: var(--muted); }
+.sd-log-diff-counts b:first-child,
+.sd-log-diff-line.is-addition { color: #88e0a6; }
+.sd-log-diff-counts b:last-child,
+.sd-log-diff-line.is-deletion { color: #ff8b8b; }
+.sd-log-diff-line { overflow: hidden; color: var(--muted); font-size: 0.54rem; text-overflow: ellipsis; white-space: nowrap; }
+.sd-log-message { font-size: 0.62rem; }
+.sd-log-speaker { font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace; font-size: 0.52rem; font-weight: 800; text-transform: uppercase; }
+.sd-log-speaker.is-agent { color: #9fd0ff; }
+.sd-log-speaker.is-tool { color: #ffcf87; }
+.sd-log-speaker.is-ci { color: #88e0a6; }
+.sd-log-speaker.is-you { color: #c69bff; }
+.sd-log-strip-empty { align-self: center; margin: 0; color: var(--muted); font-size: 0.62rem; }
+.sd-dial-hint { display: inline-flex; justify-content: center; gap: 0.08rem; min-width: 5.2em; color: var(--muted); }
+
 /* The touch strip carries compact status information rather than glyphs. */
 .sd-screen-segment.sd-seg {
   align-items: center;
@@ -8150,6 +8305,10 @@ html[data-theme="light"] .sd-device {
   letter-spacing: 0.04em;
 }
 
+.sd-log-body {
+  display: none;
+}
+
 .sd-device[data-mode="logs"] .sd-log-keys {
   display: grid;
   margin: 0 0 0.65rem;
@@ -8359,75 +8518,6 @@ html[data-theme="light"] .sd-device {
   font-size: 0.66rem;
   font-weight: 800;
   letter-spacing: 0.12em;
-}
-
-/* The strip is the transcript surface for logs mode: clicking an event key
-   positions it here, so the line has to be readable. `.sd-screen` is a
-   four-column 88px grid built for provider segments; a transcript line takes
-   the full row, reads left-aligned, and ellipsises rather than being clipped
-   mid-column. SP-302 owns the richer treatment on top of this. */
-.sd-screen.is-logs {
-  grid-template-columns: 1fr;
-  align-content: start;
-  padding: 0.3rem 0.5rem;
-  row-gap: 0.1rem;
-  overflow: hidden;
-}
-
-/* Logs mode replaces the fleet segments with the transcript, but the pager
-   segment stays: it names the agent whose transcript you are reading, and
-   #1580's focus label has to survive the descent into logs. It sits above the
-   transcript rather than in source order at the end of the strip. */
-.sd-screen.is-logs [data-segment="pager"] {
-  order: -1;
-  display: block;
-  padding: 0;
-  text-align: left;
-}
-
-.sd-screen.is-logs [data-segment="pager"] .sd-seg-dlabel {
-  color: var(--muted);
-  font-size: 0.55rem;
-  letter-spacing: 0.1em;
-}
-
-.sd-log-strip-entry {
-  display: block;
-  min-width: 0;
-  padding: 0;
-  color: var(--fg);
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.62rem;
-  line-height: 1.45;
-  text-align: left;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sd-log-strip-entry > span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.sd-log-strip-entry[data-log-kind="event_header"] {
-  font-weight: 800;
-}
-
-.sd-log-strip-entry.is-empty {
-  color: var(--muted);
-}
-
-.sd-screen.is-logs .sd-log-hint {
-  color: var(--muted);
-  font-size: 0.55rem;
-  line-height: 1;
-  text-align: right;
-}
-
-.sd-screen.is-logs .sd-log-hint[aria-hidden="true"] {
-  visibility: hidden;
 }
 
 .sd-log-badge {

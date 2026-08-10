@@ -3,7 +3,7 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentGitHubGuard, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
   alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -172,6 +172,7 @@ defmodule Aiur.AgentEnvironment do
         # between observations, instead of the two picking separate rhythms.
         {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
+        scratch_env(workspace) ++
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
@@ -183,6 +184,29 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env(_, _opts), do: []
+
+  # Concurrent agents share the host's /tmp. Two agents staging a comment body at
+  # the same obvious path (`/tmp/wp_new.md`) silently clobber each other, and the
+  # loser publishes the other ticket's workpad under its own comment id (#1763).
+  # A workspace-private TMPDIR fixes that for every tool the agent launches, not
+  # just the paths someone remembered to make unique; TMP/TEMP follow it so tools
+  # reading those land in the same place.
+  #
+  # Created here as well as at provisioning time so workspaces provisioned before
+  # this existed get a usable scratch dir on their next launch. If it cannot be
+  # created, leave TMPDIR alone rather than pointing every tool at a directory
+  # that is not there.
+  defp scratch_env(workspace) do
+    scratch_dir = AgentScratch.dir(workspace)
+
+    with :ok <- AgentScratch.install(workspace),
+         true <- File.dir?(scratch_dir) do
+      value = String.to_charlist(scratch_dir)
+      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}]
+    else
+      _unavailable -> []
+    end
+  end
 
   @doc """
   Shell-export prefix for the same vars `workspace_env/1` injects into
@@ -216,10 +240,20 @@ defmodule Aiur.AgentEnvironment do
         |> Enum.join("\n")
       end)
 
+    # Workspace-private scratch, so concurrent agents cannot clobber each
+    # other's staged files through the shared host /tmp (#1763). The `mkdir`
+    # covers workspaces provisioned before this existed; only redirect TMPDIR
+    # when it succeeds, so an unwritable path leaves the launch working rather
+    # than pointing every tool at a directory that is not there.
     "{\n#{sidecar_exports}\nAIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\nexport AIUR_REAL_GH\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
-      "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n{ #{scrub_shell_prefix()}; } && " <>
+      "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
+      "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
+      "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
+      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
+      "  export TMPDIR TMP TEMP\nfi\nunset aiur_scratch_dir\n" <>
+      "{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}\n}"
   end

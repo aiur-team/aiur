@@ -198,7 +198,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
     # Per-key values that depend on live fleet state stay inline.
     assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
-    assert enter_logs(view) =~ "--sd-log-badge: #9fd0ff"
+    # The log key list replaced the badge paragraph this originally asserted, so
+    # the same contract ink is now checked where it renders: the event key badge
+    # and the logs strip's own event header.
+    logs = enter_logs(view)
+    assert logs =~ ~s(<span class="sd-log-dir sd-log-badge" data-dir="AGENT" style="--sd-log-badge: #9fd0ff">AGENT</span>)
+    assert logs =~ ~s(<span class="sd-log-evhdr-direction" style="color: #9fd0ff">AGENT</span>)
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -240,6 +245,73 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert %{sd_mode: :grid, sd_active: nil} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="grid")
     assert html =~ ~s(id="sd-keys")
+    assert html =~ ~s(data-segment="pager")
+    refute html =~ ~s(class="sd-strip-cmd")
+  end
+
+  test "renders the focused command strip and its fixed-width BACK hint" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert html =~ ~s(class="sd-screen sd-screen-cmd")
+    assert html =~ ~s(class="sd-strip-cmd st-running")
+    # The info segments step aside for the full-width panel; the dial-D pager
+    # segment stays, relabelled with the agent being controlled (#1607).
+    refute html =~ ~s(data-segment="summary")
+    assert html =~ ~s(data-pager-focus="#1352")
+    assert html =~ "CONTROLLING #1352"
+    assert html =~ ~s(class="sd-strip-cmd-agent-icon")
+    assert html =~ ~s(src="/provider-assets/codex-color.svg")
+    assert html =~ ~s(aria-valuenow="50")
+    # Panel accent, status wording and bar fill all come from the shared
+    # key-face contract, not from a second copy of the tokens.
+    assert html =~ ~s(style="--sd-accent: #9fd0ff")
+    assert html =~ ~s(<span class="sd-strip-cmd-status">Running</span>)
+    assert html =~ "background: hsl(63 72% 50%)"
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
+  end
+
+  test "the command panel takes the focused agent's own state accent", %{snapshot_agent: snapshot_agent} do
+    Agent.update(snapshot_agent, fn _ ->
+      %{running: [], retrying: [], idle: [fixture_agent("1400", "Needs a decision", "codex", open_decision_count: 2)]}
+    end)
+
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = render_hook(view, "key-press", %{"identifier" => "1400"})
+
+    assert html =~ ~s(class="sd-strip-cmd st-alert")
+    assert html =~ ~s(style="--sd-accent: #ffcf87")
+    assert html =~ ~s(<span class="sd-strip-cmd-status">Needs input</span>)
+    refute html =~ ~s(style="--sd-accent: #9fd0ff")
+  end
+
+  test "renders bounded BACK and EVENTS hint arrows in logs mode" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = enter_logs(view)
+
+    assert html =~ ~s(class="sd-screen sd-screen-logs")
+    assert html =~ ~s(class="sd-strip-logs")
+    assert html =~ ~s(data-log-kind="evhdr")
+    assert html =~ ~s(data-log-kind="message")
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: visible">›<\/span>/
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>EVENTS<span style="visibility: visible">›<\/span>/
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
+
+    html = render_hook(view, "logs-scroll", %{"axis" => "events", "delta" => "99"})
+
+    assert html =~
+             ~r/<span class="sd-dial-hint">\s*<span style="visibility: visible">‹<\/span>EVENTS<span style="visibility: hidden">›<\/span>/
   end
 
   test "cycle-window enters logs only from command mode" do
@@ -655,11 +727,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-log-event-index="0")
     assert length(Regex.scan(~r/class="sd-key sd-log-key/, html)) == 8
     assert strip(html) =~ "event-1"
+    assert log_pane(html, "sd-log-transcript") =~ "event-1"
     assert html =~ ~s(data-log-kind="event_header")
     assert html =~ ~s(data-log-kind="message")
 
     html = render_hook(view, "log-key-select", %{"index" => "2"})
     assert strip_offset(html) == 2
+    # The mirror pane is what makes the offset bounds behind the dial hints
+    # observable, so it has to track the strip rather than drift from it.
+    assert html =~ ~r{id="sd-log-transcript"[^>]*data-offset="2"}
+    assert log_pane(html, "sd-log-transcript") =~ "event-2"
     assert strip(html) =~ "event-2"
     # The strip moved off the pre-click head rather than merely gaining a line.
     # `event-1` starts at offset 0 and `event-10` at 18, so neither is in the
@@ -758,10 +835,14 @@ defmodule AiurWeb.StreamdeckLiveTest do
       assert html =~ ~s(<span class="sd-log-dir sd-log-badge" data-dir="EMIT" style="--sd-log-badge: #9fd0ff">EMIT</span>)
       assert html =~ "lib/example.ex"
       assert html =~ ~r/id="sd-screen"[^>]*?data-transcript-max-offset="3"/s
+      assert html =~ ~r{id="sd-log-transcript"[^>]*data-max-offset="3"}
 
       html = render_hook(view, "logs-scroll", %{"axis" => "transcript", "delta" => "99"})
       assert html =~ "older message"
       assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
+      assert html =~ "sd-log-entry-diff"
+      assert html =~ ~s(class="sd-log-diff-line is-addition")
+      assert html =~ "+new"
     end)
   end
 
@@ -994,14 +1075,19 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert has_element?(view, ~s([data-segment="summary"].sd-seg-info .sd-info-hd .sd-hd-logo))
     assert has_element?(view, ~s([data-segment="provider"].sd-seg-info .sd-info-hd .sd-hd-logo))
 
-    # Focusing a command relabels in place; the shape does not change.
+    # Focusing a command hands the strip to the cmd page. The information
+    # segments step aside for it, but the dial-D pager segment stays and takes
+    # the focused agent as its label (#1607), so the operator can read which
+    # agent they are controlling from either surface.
     render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "CONTROLLING")
-    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
+    refute has_element?(view, ~s([data-segment="summary"]))
+    refute has_element?(view, ~s([data-segment="provider"]))
+    assert has_element?(view, ~s([data-segment="pager"] .sd-pager-label), "#1352")
+    assert has_element?(view, ".sd-strip-cmd-pager", "CONTROLLING #1352")
   end
 
-  test "the pager segment relabels to CONTROLLING with the focused agent and drops its dots" do
+  test "the CONTROLLING relabel replaces MORE AGENTS while a command is focused" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ "MORE AGENTS"
@@ -1009,23 +1095,24 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
-    assert html =~ "CONTROLLING"
-    assert html =~ ~s(data-pager-focus="#1352")
+    assert html =~ "CONTROLLING #1352"
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
 
-    # Descending into logs keeps the same command focused, so the label holds.
-    # #1662 gives the transcript the info segments but keeps the pager segment,
-    # so dial D stays labelled with the agent being read.
+    # Descending into logs swaps the strip to this ticket's three-shape
+    # transcript window, but #1662/#1707 keep the pager segment so dial D stays
+    # labelled with the agent being read. Both hold at once.
     html = render_click(view, "command-press", %{"command" => "logs"})
+    assert html =~ ~s(class="sd-strip-logs")
+    refute html =~ "MORE AGENTS"
     assert html =~ ~s(data-pager-focus="#1352")
     assert html =~ ~s(data-segment="pager")
 
+    # Backing out of logs restores the cmd page and its CONTROLLING relabel.
     html = render_click(view, "dial-press", %{"action" => "back"})
     assert html =~ "CONTROLLING"
-    assert html =~ ~s(data-pager-focus="#1352")
 
-    # Backing all the way out restores the pager dots.
+    # Backing all the way out restores the segment row and its pager dots.
     html = render_click(view, "dial-press", %{"action" => "back"})
 
     assert html =~ "MORE AGENTS"
@@ -1039,8 +1126,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
     render_hook(view, "key-press", %{"identifier" => "1352"})
     html = render_hook(view, "key-press", %{"identifier" => "1345"})
 
-    assert html =~ ~s(data-pager-focus="#1345")
-    refute html =~ ~s(data-pager-focus="#1352")
+    assert html =~ "CONTROLLING #1345"
+    refute html =~ "CONTROLLING #1352"
   end
 
   test "renders the priority icon, the mic indicator, and the live segment" do
@@ -1213,6 +1300,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
     case Regex.run(~r/id="sd-screen"[^>]*?data-transcript-offset="(\d+)"/s, html) do
       [_full, offset] -> String.to_integer(offset)
       nil -> flunk("#sd-screen carries no data-transcript-offset")
+    end
+  end
+
+  defp log_pane(html, id) do
+    case Regex.run(~r{<div id="#{id}"[^>]*>.*?</div>}s, html) do
+      [pane | _] -> pane
+      nil -> flunk("missing log pane ##{id}")
     end
   end
 
