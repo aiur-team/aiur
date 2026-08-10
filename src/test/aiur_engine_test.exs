@@ -539,6 +539,20 @@ defmodule AiurEngineTest do
              "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"dW5maW5pc2hlZA==\"), conditions: [Base.decode64!(\"cXVldWVk\"), Base.decode64!(\"YWxlcnQ=\")], json: true])"
   end
 
+  test "units forwards the human layout format" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\"), format: Base.decode64!(\"cmVjb3Jkcw==\")])"
+
+    {err, 64} = run_sourced_engine(~s|cmd_units --format|, [])
+    assert err =~ "units --format requires a value"
+  end
+
   test "bare units invocation routes an empty condition list" do
     {out, 0} =
       run_sourced_engine(

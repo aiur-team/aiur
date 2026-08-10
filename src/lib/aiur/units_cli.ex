@@ -1,16 +1,21 @@
 defmodule Aiur.UnitsCLI do
   @moduledoc false
 
+  require Logger
+
   alias Aiur.JSONSafe
   alias AiurWeb.OperatorControlCenter.{PayloadLoader, UnitsPolicy, UnitsPresentation, UnitsPresenter}
 
+  @formats [:auto, :table, :records]
+  @table_min_width 120
+
   @spec run(keyword()) :: 0 | 1
   def run(opts \\ []) do
-    case build(opts) do
-      {:ok, envelope} ->
-        if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: print_human(envelope)
-        0
-
+    with {:ok, format} <- format(opts),
+         {:ok, envelope} <- build(opts) do
+      if Keyword.get(opts, :json, false), do: IO.puts(Jason.encode!(envelope)), else: print_human(envelope, format)
+      0
+    else
       {:error, reason} ->
         IO.puts(:stderr, "aiur: units #{reason}")
         1
@@ -66,6 +71,23 @@ defmodule Aiur.UnitsCLI do
 
   defp scope(_scope), do: {:error, "accepts --scope live, unfinished, all, or none"}
 
+  defp format(opts) do
+    case Keyword.get(opts, :format, :auto) do
+      format when format in @formats -> {:ok, format}
+      format when is_binary(format) -> named_format(String.downcase(String.trim(format)))
+      _format -> format_error()
+    end
+  end
+
+  defp named_format(format) do
+    case Enum.find(@formats, &(Atom.to_string(&1) == format)) do
+      nil -> format_error()
+      format -> {:ok, format}
+    end
+  end
+
+  defp format_error, do: {:error, "accepts --format auto, table, or records"}
+
   defp conditions(conditions) do
     normalized =
       conditions
@@ -102,9 +124,13 @@ defmodule Aiur.UnitsCLI do
       _payload -> {:ok, unavailable_catalog()}
     end
   rescue
-    _error -> {:ok, unavailable_catalog()}
+    error ->
+      Logger.warning("units CLI could not read the Units catalog: #{Exception.message(error)}")
+      {:ok, unavailable_catalog()}
   catch
-    _kind, _reason -> {:ok, unavailable_catalog()}
+    kind, reason ->
+      Logger.warning("units CLI could not read the Units catalog: #{inspect(kind)} #{inspect(reason)}")
+      {:ok, unavailable_catalog()}
   end
 
   defp unavailable_catalog do
@@ -190,14 +216,14 @@ defmodule Aiur.UnitsCLI do
 
   defp public_view(view, captured_at) do
     view
-    |> Map.update(:rows, [], fn rows -> Enum.map(rows, &present_row(&1, captured_at)) end)
+    |> Map.update(:rows, nil, fn rows -> Enum.map(rows, &present_row(&1, captured_at)) end)
     |> Map.drop([:snapshot])
     |> then(fn view -> if Map.get(view, :status) == :unavailable, do: Map.put(view, :rows, nil), else: view end)
   end
 
   defp present_row(row, captured_at), do: Map.put(row, :presentation, UnitsPresentation.present(row, captured_at))
 
-  defp print_human(envelope) do
+  defp print_human(envelope, format) do
     captured_at = get_in(envelope, ["snapshot", "captured_at"])
     source = get_in(envelope, ["sources", "units_catalog"])
 
@@ -208,7 +234,7 @@ defmodule Aiur.UnitsCLI do
     case get_in(envelope, ["data", "view", "rows"]) do
       nil -> IO.puts("Units catalog unavailable; units have not been observed.")
       [] -> print_empty(envelope)
-      rows when is_list(rows) -> print_rows(rows)
+      rows when is_list(rows) -> print_rows(rows, format)
     end
   end
 
@@ -230,17 +256,44 @@ defmodule Aiur.UnitsCLI do
     end
   end
 
-  defp print_rows(rows) do
-    if IO.ANSI.enabled?() do
-      IO.puts("ID  UNIT  TICKET  LATEST  COMMAND")
-      Enum.each(rows, &print_table_row/1)
-    else
-      Enum.each(rows, &print_record/1)
+  defp print_rows(rows, format) do
+    case resolve_format(format) do
+      :table -> print_table(rows)
+      :records -> Enum.each(rows, &print_record/1)
     end
   end
 
-  defp print_table_row(row) do
-    IO.puts("#{identifier(row)}  #{unit_label(row)}  #{ticket_label(row)}  #{latest_label(row)}  #{command_label(row)}")
+  # `auto` prefers the table only on a real terminal wide enough to hold it.
+  # `:io.columns/0` answers both questions; ANSI support answers neither.
+  defp resolve_format(:table), do: :table
+  defp resolve_format(:records), do: :records
+
+  defp resolve_format(:auto) do
+    case :io.columns() do
+      {:ok, width} when width >= @table_min_width -> :table
+      _narrow_or_not_a_terminal -> :records
+    end
+  end
+
+  defp print_table(rows) do
+    cells = Enum.map(rows, &[identifier(&1), unit_label(&1), ticket_label(&1), latest_label(&1), command_label(&1)])
+    widths = column_widths([["ID", "UNIT", "TICKET", "LATEST", "COMMAND"] | cells])
+
+    Enum.each([["ID", "UNIT", "TICKET", "LATEST", "COMMAND"] | cells], &IO.puts(table_line(&1, widths)))
+  end
+
+  defp column_widths(rows) do
+    Enum.reduce(rows, List.duplicate(0, 5), fn row, widths ->
+      Enum.zip_with(row, widths, fn cell, width -> max(String.length(cell), width) end)
+    end)
+  end
+
+  defp table_line(row, widths) do
+    row
+    |> Enum.zip(widths)
+    |> Enum.map(fn {cell, width} -> String.pad_trailing(cell, width) end)
+    |> Enum.join("  ")
+    |> String.trim_trailing()
   end
 
   defp print_record(row) do

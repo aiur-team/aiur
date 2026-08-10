@@ -264,6 +264,51 @@ defmodule Aiur.UnitsCLITest do
     assert zero_result_output =~ "No units match this valid scope and condition selection."
   end
 
+  test "selects the human layout from --format rather than from colour support" do
+    table_output =
+      capture_io(fn ->
+        assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: mixed_catalog()} end, scope: :all, format: "table")
+      end)
+
+    [header | body] = String.split(String.trim_trailing(table_output), "\n", trim: true) |> Enum.drop(2)
+
+    assert header =~ ~r/^ID\s+UNIT\s+TICKET\s+LATEST\s+COMMAND$/
+    assert length(body) == 5
+
+    # Every column starts at the same offset on every row, which a space-joined
+    # table cannot guarantee.
+    unit_offsets =
+      Enum.map([header | body], fn line ->
+        [_identifier, rest] = String.split(line, ~r/\s{2,}/, parts: 2)
+        String.length(line) - String.length(rest)
+      end)
+
+    assert Enum.uniq(unit_offsets) == [hd(unit_offsets)]
+
+    records_output =
+      capture_io(fn ->
+        assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: mixed_catalog()} end, scope: :all, format: :records)
+      end)
+
+    refute records_output =~ "ID  UNIT"
+    assert records_output =~ "ID: 1600"
+
+    # `auto` under a non-terminal (captured) device degrades to records.
+    auto_output =
+      capture_io(fn ->
+        assert 0 == UnitsCLI.run(payload_fun: fn -> %{units: mixed_catalog()} end, scope: :all)
+      end)
+
+    assert auto_output =~ "ID: 1600"
+
+    error_output =
+      capture_io(:stderr, fn ->
+        assert 1 == UnitsCLI.run(payload_fun: fn -> %{units: mixed_catalog()} end, format: "wide")
+      end)
+
+    assert error_output =~ "aiur: units accepts --format auto, table, or records"
+  end
+
   defp mixed_catalog do
     %{
       status: :ready,
