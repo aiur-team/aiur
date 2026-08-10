@@ -448,8 +448,12 @@ defmodule Aiur.Orchestrator do
   @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?, do: GlobalPause.globally_paused?()
 
-  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status, do: GlobalPause.global_pause_status()
+
+  @spec global_pause_status(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
+  def global_pause_status(server, timeout_ms), do: GlobalPause.global_pause_status(server, timeout_ms)
 
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)
