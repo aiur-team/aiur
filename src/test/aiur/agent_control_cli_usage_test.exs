@@ -4,6 +4,7 @@ defmodule Aiur.AgentControlCLIUsageTest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, ProviderMeterProjection}
+  alias Aiur.Webhooks.{DeliveryMode, ModePresenter}
 
   setup do
     # Start a private projection rather than fighting the app-supervised one
@@ -130,14 +131,12 @@ defmodule Aiur.AgentControlCLIUsageTest do
   end
 
   defp delivery_mode_rows do
-    alias Aiur.Webhooks.DeliveryMode
-
     {proven, :proven} = "aiur-team/proven" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 12:00:00Z])
 
     {fallen, :proven} = "aiur-team/degraded" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 11:00:00Z])
     {fallen, :degraded} = DeliveryMode.sweep(fallen, ~U[2026-07-27 12:00:00Z], 900_000)
 
-    Aiur.Webhooks.ModePresenter.rows(
+    ModePresenter.rows(
       modes: [
         proven,
         fallen,

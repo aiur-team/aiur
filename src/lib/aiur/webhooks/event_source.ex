@@ -18,6 +18,8 @@ defmodule Aiur.Webhooks.EventSource do
   every consumer test against both implementations unchanged.
   """
 
+  alias Aiur.Events.Exchange
+
   @typedoc "Normalized event published onto the bus, identical across transports."
   @type event :: %{topic: String.t(), payload: map()}
 
@@ -49,7 +51,7 @@ defmodule Aiur.Webhooks.EventSource do
   def publish(%{topic: topic, payload: payload} = event, opts) do
     case Keyword.get(opts, :publish_fun) do
       fun when is_function(fun, 1) -> fun.(event)
-      _default -> Aiur.Events.Exchange.publish(topic, payload)
+      _default -> Exchange.publish(topic, payload)
     end
 
     {:ok, event}
