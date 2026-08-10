@@ -86,6 +86,7 @@ lock_dir="$run_dir/.retrospective-lock"
 lock_owner_marker=""
 lock_claim_marker=""
 lock_pending_owner_marker=""
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 mkdir -p "$run_dir"
 
 now_epoch() {
@@ -490,7 +491,105 @@ record() {
   ' <<< "$current")"
   write_state "$payload"
   unlock
+
+  # A retrospective is not complete until it has checked the operator-facing
+  # dashboard. Capture failure is itself durable attention evidence, but must
+  # not discard the completed wake/outcome summary.
+  if [ "${AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK:-1}" != "0" ]; then
+    visual_check visual-check >/dev/null 2>&1 || true
+  fi
+
   printf '%s\n' "$event"
+}
+
+dashboard_url() {
+  local url tmux_bin
+
+  if [ -n "${AIUR_DASHBOARD_URL:-}" ]; then
+    printf '%s\n' "$AIUR_DASHBOARD_URL"
+    return 0
+  fi
+
+  tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 1
+
+  if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
+    url="$("$tmux_bin" -L "$AIUR_TMUX_SOCKET" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  else
+    url="$("$tmux_bin" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  fi
+
+  case "$url" in
+    http://*|https://*) printf '%s\n' "$url" ;;
+    *) return 1 ;;
+  esac
+}
+
+# Capture the four operator-facing reports and append their compact verdict to
+# the same durable narrative as the hourly retrospective. The browser work is
+# intentionally outside the retrospective lock: a Playwright startup must not
+# block a concurrent observation or a timer-state update. Only the append is
+# serialized.
+visual_check() {
+  local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
+  [ "$#" -eq 1 ] || {
+    printf 'usage: %s visual-check\n' "$0" >&2
+    return 64
+  }
+
+  capture_script="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT:-$script_dir/../../aiur-meta/scripts/capture-dashboard.mjs}"
+  if [ ! -f "$capture_script" ]; then
+    printf 'dashboard capture script is unavailable: %s\n' "$capture_script" >&2
+    return 66
+  fi
+
+  timestamp="$(now_epoch)"
+  capture_dir="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_DIR:-${retro_file}.d/dashboard-$timestamp}"
+  mkdir -p "$capture_dir"
+
+  dashboard_base_url="$(dashboard_url || true)"
+  if [ -z "$dashboard_base_url" ]; then
+    capture_status=67
+    verdict="$capture_dir/verdict.md"
+    cat > "$verdict" <<EOF
+# Dashboard visual check
+
+- capture: **attention** — could not discover the daemon dashboard URL; set AIUR_DASHBOARD_URL or run from the Aiur tmux session.
+
+Overall: **attention**. Captures were not attempted.
+EOF
+  else
+    set +e
+    AIUR_DASHBOARD_URL="$dashboard_base_url" node "$capture_script" "$capture_dir" > "$capture_dir/capture-output.json" 2> "$capture_dir/capture-error.log"
+    capture_status=$?
+    set -e
+  fi
+
+  verdict="$capture_dir/verdict.md"
+  if [ "$capture_status" -ne 0 ] && [ ! -s "$verdict" ]; then
+    cat > "$verdict" <<EOF
+# Dashboard visual check
+
+- capture: **attention** — browser check exited with status $capture_status; inspect capture-error.log.
+
+Overall: **attention**. Captures may be incomplete.
+EOF
+  fi
+
+  acquire_lock
+  mkdir -p "$(dirname "$retro_file")"
+  {
+    printf '### Dashboard visual check %s\n\n' "$(now_iso)"
+    sed '1{/^# Dashboard visual check$/d;}' "$verdict"
+    printf '\n- Evidence: %s\n\n' "$capture_dir"
+  } >> "$retro_file"
+  unlock
+
+  if [ "$capture_status" -ne 0 ]; then
+    return "$capture_status"
+  fi
+
+  cat "$capture_dir/report.json"
 }
 
 ensure_state
@@ -502,5 +601,6 @@ case "$mode" in
   observe) observe "$@" ;;
   plan-wait) plan_wait "$@" ;;
   record) record "$@" ;;
-  *) printf 'usage: %s arm|due|summarize|observe|plan-wait|record\n' "$0" >&2; exit 64 ;;
+  visual-check) visual_check "$@" ;;
+  *) printf 'usage: %s arm|due|summarize|observe|plan-wait|record|visual-check\n' "$0" >&2; exit 64 ;;
 esac
