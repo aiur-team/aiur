@@ -87,6 +87,7 @@ defmodule Aiur.Init.Templates do
   def build_fills(d) do
     %{
       "{{TRACKER_KIND}}" => d.tracker.kind,
+      "{{BASE_BRANCH}}" => d.tracker |> Aiur.Config.base_branch() |> Jason.encode!(),
       "{{TRACKER_PROVIDER}}" => tracker_provider_block(d.tracker),
       "{{AGENT_KIND}}" => Questions.primary_kind(d.agents),
       "{{MAX_AGENTS}}" => Integer.to_string(d.max_agents),
