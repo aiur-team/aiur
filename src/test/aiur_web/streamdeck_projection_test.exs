@@ -1,8 +1,9 @@
 defmodule AiurWeb.StreamdeckProjectionTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.CodingAgent
+  alias Aiur.{CodingAgent, ProviderMeterSnapshot}
   alias AiurWeb.StreamdeckProjection
+  alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter, as: ProviderMetersPresenter
 
   @now ~U[2026-08-09 12:00:00Z]
 
@@ -75,6 +76,31 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert view["kimi"]["state"] == "observed"
     assert get_in(view, ["kimi", "windows", "session", "used_percent"]) == 25
     assert get_in(view, ["kimi", "windows", "weekly", "used_percent"]) == 45
+  end
+
+  test "uses the dashboard provider readings without changing their percentages" do
+    snapshot = %ProviderMeterSnapshot{
+      provider: :codex,
+      backend: :app_server,
+      provider_account_generation: "gen-codex",
+      observed_at: @now,
+      freshness: :fresh,
+      health: %{state: :healthy, failure: nil, last_observed_at: @now, last_source_version: 1},
+      windows: %{
+        "primary" => rate_window(50, 60, @now, :fresh),
+        "secondary" => rate_window(75, 10_080, @now, :fresh)
+      }
+    }
+
+    deck = StreamdeckProjection.provider_meters(%{codex: snapshot}, @now)
+
+    dashboard =
+      ProviderMetersPresenter.present(%{state: :authorized}, %{codex: snapshot})
+      |> Map.fetch!(:cards)
+      |> Enum.find(&(&1.provider == :codex))
+
+    assert get_in(deck, ["codex", "windows", "session", "used_percent"]) == dashboard.windows |> Enum.find(&(&1.limit_id == "primary")) |> Map.fetch!(:used_percent)
+    assert get_in(deck, ["codex", "windows", "weekly", "used_percent"]) == dashboard.windows |> Enum.find(&(&1.limit_id == "secondary")) |> Map.fetch!(:used_percent)
   end
 
   defp observed_meter(session_id, session_percent, session_duration, weekly_id, weekly_percent, weekly_duration, opts \\ []) do
