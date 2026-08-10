@@ -2,8 +2,8 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{CodingAgent, ProviderMeterSnapshot}
+  alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter
   alias AiurWeb.StreamdeckProjection
-  alias AiurWeb.OperatorControlCenter.ProviderMetersPresenter, as: ProviderMetersPresenter
 
   @now ~U[2026-08-09 12:00:00Z]
 
