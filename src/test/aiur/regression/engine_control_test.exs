@@ -244,7 +244,7 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "CODE=1"
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
-      assert out =~ "control RPC failed with exit 1 and returned no diagnostic output"
+      assert out =~ "failed with exit 1 and returned no diagnostic output"
       refute out =~ "returned no exit marker"
       refute out =~ "no running aiur node"
     end
@@ -382,6 +382,72 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
       assert out =~ "aiur: streaming control RPC failed with exit 9"
+    end
+
+    test "an rpc that dies without a word names the command instead of pointing at nothing (#1684)" do
+      rel = fake_release()
+      state = tmp_state()
+      # `elixir --rpc-eval` kills itself with no message when the evaluated
+      # expression exits — what a GenServer call timing out against a saturated
+      # daemon does. This is the shape that produced exit 1 with an empty buffer.
+      File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\nexit 1\n")
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured(
+          "Aiur.AgentControlCLI.status()",
+          [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}],
+          ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND=status|
+        )
+
+      assert out =~ "CODE=1"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "aiur: status failed against"
+      assert out =~ "with no output (node is running); the daemon may be scheduler-saturated"
+      refute out =~ "see the error above"
+    end
+
+    test "every read-only command surfaces a diagnostic on each silent-failure shape (#1684)" do
+      state = tmp_state()
+      on_exit(fn -> File.rm_rf(state) end)
+
+      shapes = [
+        {"silent nonzero exit", "#!/usr/bin/env bash\nexit 1\n", "1"},
+        {"nonzero marker, no output", "#!/usr/bin/env bash\necho \"__AIUR_CONTROL_EXIT__:1\"\n", "1"},
+        {"no marker at all", "#!/usr/bin/env bash\n", "1"},
+        {"hung rpc", "#!/usr/bin/env bash\nsleep 5\n", "1"}
+      ]
+
+      for command <- ~w(status agents watch alerts usage commands analytics),
+          {shape, body, timeout_seconds} <- shapes do
+        rel = fake_release()
+        File.write!(Path.join([rel, "bin", "aiur"]), body)
+        File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+        on_exit(fn -> File.rm_rf(rel) end)
+
+        {out, 0} =
+          run_control_rpc_captured(
+            "Aiur.AgentControlCLI.#{command}()",
+            [
+              {"AIUR_RELEASE_DIR", rel},
+              {"AIUR_BG_STATE_DIR", state},
+              {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", timeout_seconds}
+            ],
+            ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND=#{command}|
+          )
+
+        context = "#{command} / #{shape}: #{out}"
+
+        refute out =~ "CODE=0", context
+        assert out =~ ~r/STDERR_LINES=[1-9]/, context
+        assert out =~ "aiur: #{command} ", context
+      end
     end
 
     test "the marker and readiness literals are pinned across both languages" do
@@ -629,11 +695,11 @@ defmodule Aiur.Regression.EngineControlTest do
     )
   end
 
-  defp run_control_rpc_captured(expression, env) do
-    run_control_captured("run_control_rpc", expression, env)
+  defp run_control_rpc_captured(expression, env, prelude \\ "") do
+    run_control_captured("run_control_rpc", expression, env, prelude)
   end
 
-  defp run_control_captured(function, expression, env) do
+  defp run_control_captured(function, expression, env, prelude \\ "") do
     stdout_path = Path.join(System.tmp_dir!(), "aiur-control-stdout-#{System.unique_integer([:positive])}")
     stderr_path = Path.join(System.tmp_dir!(), "aiur-control-stderr-#{System.unique_integer([:positive])}")
 
@@ -643,6 +709,7 @@ defmodule Aiur.Regression.EngineControlTest do
     end)
 
     script = """
+    #{prelude}
     if "$CONTROL_FUNCTION" "$CONTROL_EXPRESSION" >"$STDOUT_PATH" 2>"$STDERR_PATH"; then
       code=0
     else

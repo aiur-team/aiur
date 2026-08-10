@@ -12,9 +12,13 @@ defmodule Aiur.AgentControlCLI do
   @exit_marker "__AIUR_CONTROL_EXIT__:"
   @error_marker "__AIUR_CONTROL_ERROR__:"
   @status_timeout_ms 5_000
-  # Leave the launcher watchdog two seconds to receive and render the daemon's
-  # explicit timeout result instead of racing it at the shared 10-second edge.
-  @agents_timeout_ms 8_000
+  # Leave the launcher watchdog room to receive and render the daemon's explicit
+  # timeout result instead of racing it at the shared 10-second edge. Eight
+  # seconds was not enough: RPC BEAM startup costs ~2s, so a saturated snapshot
+  # measured 10335ms and lost the race — the launcher killed it at 10s and the
+  # operator got a truncated fleet listing plus exit 124 instead of one honest
+  # "agents query timed out after 8s" line (#1684).
+  @agents_timeout_ms 6_000
 
   # RepoBase phases that mean the warm base is still becoming dispatchable
   # (the gate holds new work). Anything else with prewarm enabled — :ready
@@ -31,36 +35,40 @@ defmodule Aiur.AgentControlCLI do
 
   @spec status(keyword()) :: :ok
   def status(opts \\ []) do
-    timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
+    guarded("status", fn ->
+      timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-    case Orchestrator.status(Orchestrator, timeout_ms) do
-      statuses when is_list(statuses) ->
-        case print_global_pause_banner(opts, timeout_ms) do
-          :ok ->
-            print_codeowners_trust()
+      case Orchestrator.status(Orchestrator, timeout_ms) do
+        statuses when is_list(statuses) ->
+          case print_global_pause_banner(opts, timeout_ms) do
+            :ok ->
+              print_codeowners_trust()
 
-            statuses
-            |> Enum.filter(&visible_status_row?/1)
-            |> print_status_table()
+              tracker_states = tracker_state_sets()
 
-            print_capacity_status(Orchestrator.max_concurrent_agents())
+              statuses
+              |> Enum.filter(&visible_status_row?(&1, tracker_states))
+              |> print_status_table()
 
-            supervision_exit_code = print_supervision_health()
-            print_ci_readiness()
-            print_build_gate_status()
-            print_prewarm_status()
-            print_blocking_asks(opts)
-            exit_marker(supervision_exit_code)
+              print_capacity_status(Orchestrator.max_concurrent_agents())
 
-          {:error, error} ->
-            print_control_query_error(error, "status", timeout_ms)
-            exit_marker(control_query_exit_code(error))
-        end
+              supervision_exit_code = print_supervision_health()
+              print_ci_readiness()
+              print_build_gate_status()
+              print_prewarm_status()
+              print_blocking_asks(opts)
+              exit_marker(supervision_exit_code)
 
-      error ->
-        print_control_query_error(error, "status", timeout_ms)
-        exit_marker(control_query_exit_code(error))
-    end
+            {:error, error} ->
+              print_control_query_error(error, "status", timeout_ms)
+              exit_marker(control_query_exit_code(error))
+          end
+
+        error ->
+          print_control_query_error(error, "status", timeout_ms)
+          exit_marker(control_query_exit_code(error))
+      end
+    end)
   end
 
   # Concise one-line-per-agent activity summary — the built-in, headless
@@ -69,21 +77,23 @@ defmodule Aiur.AgentControlCLI do
   # activity) and prints state + what each agent is doing right now.
   @spec agents(keyword()) :: :ok
   def agents(opts \\ []) do
-    timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
+    guarded("agents", fn ->
+      timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
-    case Orchestrator.snapshot(Orchestrator, timeout_ms) do
-      %{running: running} when is_list(running) ->
-        print_agents_table(running)
-        exit_marker(0)
+      case Orchestrator.snapshot(Orchestrator, timeout_ms) do
+        %{running: running} when is_list(running) ->
+          print_agents_table(running)
+          exit_marker(0)
 
-      error when error in [:timeout, :unavailable] ->
-        print_control_query_error(error, "agents", timeout_ms)
-        exit_marker(control_query_exit_code(error))
+        error when error in [:timeout, :unavailable] ->
+          print_control_query_error(error, "agents", timeout_ms)
+          exit_marker(control_query_exit_code(error))
 
-      _other ->
-        print_control_query_error(:unavailable, "agents", timeout_ms)
-        exit_marker(1)
-    end
+        _other ->
+          print_control_query_error(:unavailable, "agents", timeout_ms)
+          exit_marker(1)
+      end
+    end)
   end
 
   # `aiur watch` — the server-side status board. Compiles one row per active
@@ -95,55 +105,61 @@ defmodule Aiur.AgentControlCLI do
   # changed since the previous call, keeping the periodic Executor pull cheap.
   @spec watch(keyword()) :: :ok
   def watch(opts \\ []) do
-    timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
+    guarded("watch", fn ->
+      timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-    case Orchestrator.status(Orchestrator, timeout_ms) do
-      statuses when is_list(statuses) ->
-        case print_global_pause_banner(opts, timeout_ms) do
-          :ok ->
-            print_prewarm_status()
+      case Orchestrator.status(Orchestrator, timeout_ms) do
+        statuses when is_list(statuses) ->
+          case print_global_pause_banner(opts, timeout_ms) do
+            :ok ->
+              print_prewarm_status()
 
-            rows =
-              statuses
-              |> Enum.filter(&visible_status_row?/1)
-              |> Enum.map(&watch_row/1)
-              |> Enum.sort_by(& &1.sort_key)
+              tracker_states = tracker_state_sets()
 
-            alerts = latest_attention_alerts(opts)
-            blocking_asks = blocking_asks(opts)
-            mode = Keyword.get(opts, :mode, :changes)
-            {changed, removed} = update_watch_baseline(rows)
-            render_watch(rows, alerts, blocking_asks, mode, changed, removed)
-            exit_marker(0)
+              rows =
+                statuses
+                |> Enum.filter(&visible_status_row?(&1, tracker_states))
+                |> Enum.map(&watch_row/1)
+                |> Enum.sort_by(& &1.sort_key)
 
-          {:error, error} ->
-            print_control_query_error(error, "watch", timeout_ms)
-            exit_marker(control_query_exit_code(error))
-        end
+              alerts = latest_attention_alerts(opts)
+              blocking_asks = blocking_asks(opts)
+              mode = Keyword.get(opts, :mode, :changes)
+              {changed, removed} = update_watch_baseline(rows)
+              render_watch(rows, alerts, blocking_asks, mode, changed, removed)
+              exit_marker(0)
 
-      error ->
-        print_control_query_error(error, "watch", timeout_ms)
-        exit_marker(control_query_exit_code(error))
-    end
+            {:error, error} ->
+              print_control_query_error(error, "watch", timeout_ms)
+              exit_marker(control_query_exit_code(error))
+          end
+
+        error ->
+          print_control_query_error(error, "watch", timeout_ms)
+          exit_marker(control_query_exit_code(error))
+      end
+    end)
   end
 
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    opts
-    |> AlertFeed.list()
-    |> Enum.each(&IO.puts(Jason.encode!(&1)))
+    guarded("alerts", fn ->
+      opts
+      |> AlertFeed.list()
+      |> Enum.each(&IO.puts(Jason.encode!(&1)))
 
-    exit_marker(0)
+      exit_marker(0)
+    end)
   end
 
   @spec commands(keyword()) :: :ok
   def commands(opts \\ []) do
-    CommandsCLI.run(opts) |> exit_marker()
+    guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
   end
 
   @spec analytics(keyword()) :: :ok
   def analytics(opts \\ []) do
-    AnalyticsCLI.run(opts) |> exit_marker()
+    guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
@@ -797,12 +813,14 @@ defmodule Aiur.AgentControlCLI do
   """
   @spec usage(GenServer.server()) :: :ok
   def usage(server \\ ProviderMeterProjection) do
-    server
-    |> ProviderMeterProjection.snapshot()
-    |> Enum.sort_by(fn {provider, _view} -> provider end)
-    |> Enum.each(&print_provider_usage/1)
+    guarded("usage", fn ->
+      server
+      |> ProviderMeterProjection.snapshot()
+      |> Enum.sort_by(fn {provider, _view} -> provider end)
+      |> Enum.each(&print_provider_usage/1)
 
-    exit_marker(0)
+      exit_marker(0)
+    end)
   end
 
   defp print_provider_usage({provider, %{state: :unknown}}) do
@@ -1045,44 +1063,41 @@ defmodule Aiur.AgentControlCLI do
     :exit, _ -> {:idle, nil}
   end
 
-  defp visible_status_row?(%{work_state: :deactivated}), do: false
-  defp visible_status_row?(%{work_state: "deactivated"}), do: false
+  defp visible_status_row?(%{work_state: :deactivated}, _tracker_states), do: false
+  defp visible_status_row?(%{work_state: "deactivated"}, _tracker_states), do: false
 
-  defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}) do
-    active_tracker_state?(tracker_state) and not terminal_tracker_state?(tracker_state)
+  defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}, tracker_states) do
+    in_tracker_state_set?(tracker_state, tracker_states.active) and
+      not in_tracker_state_set?(tracker_state, tracker_states.terminal)
   end
 
-  defp visible_status_row?(%{tracker_state: tracker_state}) do
-    not terminal_tracker_state?(tracker_state)
+  defp visible_status_row?(%{tracker_state: tracker_state}, tracker_states) do
+    not in_tracker_state_set?(tracker_state, tracker_states.terminal)
   end
 
-  defp visible_status_row?(_status), do: true
+  defp visible_status_row?(_status, _tracker_states), do: true
 
-  defp active_tracker_state?(tracker_state) when is_binary(tracker_state) do
-    tracker_state
-    |> normalized_tracker_state()
-    |> then(&MapSet.member?(active_tracker_states(), &1))
+  defp in_tracker_state_set?(tracker_state, set) when is_binary(tracker_state) do
+    MapSet.member?(set, normalized_tracker_state(tracker_state))
   end
 
-  defp active_tracker_state?(_tracker_state), do: false
+  defp in_tracker_state_set?(_tracker_state, _set), do: false
 
-  defp terminal_tracker_state?(tracker_state) when is_binary(tracker_state) do
-    tracker_state
-    |> normalized_tracker_state()
-    |> then(&MapSet.member?(terminal_tracker_states(), &1))
+  # Read the configured tracker states ONCE per command. Resolving them per row
+  # meant two `Config.settings!/0` reads per agent, and each of those is a
+  # `WorkflowStore` GenServer call — nine agents turned one status render into
+  # eighteen chances to stall on a saturated daemon (#1684).
+  defp tracker_state_sets do
+    tracker = Config.settings!().tracker
+
+    %{
+      active: normalized_tracker_state_set(tracker.active_states),
+      terminal: normalized_tracker_state_set(tracker.terminal_states)
+    }
   end
 
-  defp terminal_tracker_state?(_tracker_state), do: false
-
-  defp active_tracker_states do
-    Config.settings!().tracker.active_states
-    |> Enum.map(&normalized_tracker_state/1)
-    |> Enum.reject(&(&1 == ""))
-    |> MapSet.new()
-  end
-
-  defp terminal_tracker_states do
-    Config.settings!().tracker.terminal_states
+  defp normalized_tracker_state_set(states) do
+    states
     |> Enum.map(&normalized_tracker_state/1)
     |> Enum.reject(&(&1 == ""))
     |> MapSet.new()
@@ -1464,6 +1479,38 @@ defmodule Aiur.AgentControlCLI do
 
   defp control_query_exit_code(:timeout), do: 124
   defp control_query_exit_code(_error), do: 1
+
+  # Last-resort guard for the read-only query commands (#1684). An unexpected
+  # raise or process exit inside a command body used to kill the RPC evaluator
+  # outright, and the operator saw a non-zero exit with an empty buffer — the
+  # one failure mode indistinguishable from a healthy idle fleet. Whatever goes
+  # wrong, the command now says what failed in one line and still emits an exit
+  # marker, so the launcher never has to guess.
+  @spec guarded(String.t(), (-> :ok)) :: :ok
+  defp guarded(query, fun) do
+    fun.()
+  rescue
+    error -> report_control_query_crash(query, Exception.message(error))
+  catch
+    :exit, {:timeout, {GenServer, :call, [_server, _request, timeout_ms]}} when is_integer(timeout_ms) ->
+      print_control_query_error(:timeout, query, timeout_ms)
+      exit_marker(control_query_exit_code(:timeout))
+
+    :exit, reason ->
+      report_control_query_crash(query, "process exited: #{inspect(reason)}")
+
+    kind, payload ->
+      report_control_query_crash(query, "#{kind}: #{inspect(payload)}")
+  end
+
+  defp report_control_query_crash(query, detail) do
+    IO.puts("#{@error_marker}aiur: #{query} query failed (#{single_line(detail)})")
+    exit_marker(1)
+  end
+
+  defp single_line(text) do
+    text |> to_string() |> String.replace(~r/\s+/, " ") |> String.trim() |> String.slice(0, 300)
+  end
 
   defp control_query_timeout(opts, key, default) do
     case Keyword.get(opts, key, default) do

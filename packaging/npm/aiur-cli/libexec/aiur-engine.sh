@@ -1751,9 +1751,49 @@ run_release_rpc_with_timeout() {
   return "$status"
 }
 
+control_command_label() {
+  printf '%s' "${AIUR_CONTROL_COMMAND:-control rpc}"
+}
+
+# Every line a control RPC surfaces to the operator routes through one of these
+# two helpers, so `run_control_rpc` can prove it never returns non-zero while
+# saying nothing (#1684): a silent failure is indistinguishable from a healthy
+# idle fleet, and nobody reads exit codes interactively.
+control_rpc_say() {
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
+control_rpc_echo_output() {
+  [ -n "$1" ] || return 0
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
+#
+# Wrapper contract: a non-zero return ALWAYS carries at least one stderr line
+# naming the command that failed. EX_TEMPFAIL (75) is exempt — it is the dev
+# shim's internal rebuild-and-retry signal, never an operator-visible outcome.
 run_control_rpc() {
+  local status=0
+
+  AIUR_CONTROL_RPC_DIAGNOSED=0
+  run_control_rpc_dispatch "$@" || status=$?
+
+  if [ "$status" -ne 0 ] && [ "$status" -ne 75 ] && [ "${AIUR_CONTROL_RPC_DIAGNOSED:-0}" -ne 1 ]; then
+    if [ "$status" -eq 124 ]; then
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated"
+    else
+      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no output; the daemon may be scheduler-saturated"
+    fi
+  fi
+
+  return "$status"
+}
+
+run_control_rpc_dispatch() {
   local expression="$1"
   resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
@@ -1779,7 +1819,7 @@ run_control_rpc() {
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && partial_suffix="; partial output was discarded"
-    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again"
     return 124
   fi
 
@@ -1792,17 +1832,31 @@ run_control_rpc() {
     # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
     # node failed for a real reason, and an `unknown` probe must not be assumed
     # down — in both of those cases surface the actual rpc output, never mask it.
+    #
+    # An empty buffer is its own case: `--rpc-eval` kills itself without a word
+    # when the evaluated expression exits (a GenServer call timing out against a
+    # saturated daemon does exactly that), so "see the error above" would point
+    # at nothing (#1684). Name the failure instead.
     case "$(probe_node_liveness)" in
       down)
         print_control_down_message
+        AIUR_CONTROL_RPC_DIAGNOSED=1
         ;;
       up)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (node is running); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (node is running); the daemon may be scheduler-saturated"
+        fi
         ;;
       *)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (could not query epmd to confirm node state); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (could not query epmd to confirm node state)"
+        fi
         ;;
     esac
     return 1
@@ -1816,23 +1870,25 @@ run_control_rpc() {
         ;;
       "$error_marker"*)
         saw_error=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
         printf '%s\n' "${line#"$error_marker"}" >&2
         ;;
       :ok | "") ;;
       *)
         saw_output=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
         printf '%s\n' "$line"
         ;;
     esac
   done <<<"$output"
 
   if [ "$saw_marker" -ne 1 ]; then
-    echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} returned no exit marker; command output may be incomplete"
     return 1
   fi
 
   if [ "$exit_code" -ne 0 ] && [ "$saw_error" -ne 1 ] && [ "$saw_output" -ne 1 ]; then
-    echo "aiur: control RPC failed with exit ${exit_code} and returned no diagnostic output" >&2
+    control_rpc_say "aiur: $(control_command_label) failed with exit ${exit_code} and returned no diagnostic output"
   fi
 
   return "$exit_code"
@@ -2501,6 +2557,9 @@ dispatch_run() {
 
 aiur_engine_main() {
   local cmd="${1:-}"
+  # Names the running subcommand in control-RPC diagnostics so a failure says
+  # which command failed instead of a generic "control rpc" (#1684).
+  AIUR_CONTROL_COMMAND="${cmd:-run}"
   case "$cmd" in
     __identity)
       aiur_print_identity
