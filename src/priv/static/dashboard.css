@@ -8029,13 +8029,14 @@ html[data-theme="light"] .sd-device {
   color: var(--sd-accent);
 }
 
+/* Stroke and fill stay on the icon markup: the design's icon set mixes filled
+   glyphs (pause, play) with stroked line art at two different widths, so a
+   blanket stroke rule here would override the per-icon presentation. */
 .sd-cmd-ic svg {
   width: 38px;
   height: 38px;
-  stroke: currentColor;
   stroke-linecap: round;
   stroke-linejoin: round;
-  stroke-width: 1.75;
 }
 
 .sd-cmd-label {

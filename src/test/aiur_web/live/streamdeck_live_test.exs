@@ -292,6 +292,22 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert command_key(html, "priority") =~ "Prioritize"
   end
 
+  test "command key icons track pause and priority state alongside their labels" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert command_icon(html, "pause") == "pause"
+    assert command_icon(html, "priority") == "down"
+    assert command_icon(html, "logs") == "logs"
+    assert command_icon(html, "mic") == "mic"
+
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_icon(html, "pause") == "play"
+    assert command_icon(html, "priority") == "up"
+  end
+
   test "command presses report intent and mic-hold state persists through patches" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     render_hook(view, "key-press", %{"identifier" => "1352"})
@@ -680,6 +696,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp command_key(html, command) do
     [key] = Regex.run(~r{<button[^>]*data-streamdeck-command="#{command}".*?</button>}s, html)
     key
+  end
+
+  defp command_icon(html, command) do
+    [_key, icon] = Regex.run(~r/data-streamdeck-icon="([^"]+)"/, command_key(html, command))
+    icon
   end
 
   defp fleet_snapshot(total) do
