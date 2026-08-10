@@ -7610,7 +7610,7 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .sd-screen {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(var(--sd-screen-segments, 4), minmax(0, 1fr));
   height: 88px;
   gap: 4px;
   padding: 6px;
@@ -7660,6 +7660,130 @@ html[data-theme="light"] .toggle-icon .moon {
   box-shadow: 0 0 0.45rem var(--good);
   content: "";
   animation: sd-live-pulse 1.2s ease-in-out infinite;
+}
+
+/* The touch strip carries compact status information rather than glyphs. */
+.sd-screen-segment.sd-seg {
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: rgba(255, 255, 255, 0.02);
+  cursor: default;
+}
+
+.sd-screen-segment.sd-seg.is-live::after {
+  display: none;
+}
+
+.sd-screen-segment.sd-seg-info {
+  align-items: stretch;
+  justify-content: center;
+  gap: 0.24rem;
+  padding: 0.32rem 0.5rem;
+}
+
+.sd-info-hd {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.5rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: rgba(255, 255, 255, 0.55);
+}
+
+.sd-hd-logo {
+  display: block;
+  width: 12px;
+  height: 12px;
+}
+
+.sd-info-live {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  color: rgba(255, 255, 255, 0.82);
+}
+
+.sd-info-live b {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.sd-mini {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sd-mini-top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 4px;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.5rem;
+}
+
+.sd-mini-lbl {
+  color: rgba(255, 255, 255, 0.5);
+}
+
+.sd-mini-r {
+  color: rgba(255, 255, 255, 0.82);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.sd-mini-bar {
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.sd-mini-bar > i {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #3f8bff, #8fbcff);
+}
+
+/* A stale reading is an attention state, the same as every other stale
+   surface in the dashboard (provider meters, run/usage freshness badges),
+   so it paints with the themed --attention family rather than a literal.
+   The chassis pins --attention-ink to the dark :root value, so the hatch
+   stays legible on the near-black key face in both themes. */
+.sd-mini.is-stale .sd-mini-r {
+  color: var(--attention-ink);
+}
+
+.sd-mini.is-stale .sd-mini-bar > i {
+  background: repeating-linear-gradient(
+    135deg,
+    var(--attention) 0 3px,
+    var(--attention-ink) 3px 6px
+  );
+}
+
+.sd-pager {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+}
+
+.sd-pager-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.28);
+  transition: background 0.14s ease, transform 0.14s ease;
+}
+
+.sd-pager-dot.is-active {
+  background: #fff;
+  transform: scale(1.25);
 }
 
 .sd-mic {
@@ -7799,6 +7923,7 @@ html[data-theme="light"] .sd-device {
   --muted: #969aa4;
   --accent: #2f86ff;
   --accent-ink: #8fbcff;
+  --attention: #e3b341;
   --attention-ink: #f1cf6f;
   --blocking-ink: #ffa39c;
   --blocking-soft: rgba(255, 123, 114, 0.14);
