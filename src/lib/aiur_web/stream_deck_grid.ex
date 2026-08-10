@@ -10,11 +10,11 @@ defmodule AiurWeb.StreamDeckGrid do
   """
 
   alias Aiur.{AgentEvents, AgentList.Summaries, BuildOrder.Metadata, CodingAgent, Orchestrator}
+  alias AiurWeb.StreamdeckKeyFaceContract
 
   @columns_per_page 4
   @rows_per_column 2
   @agents_per_page @columns_per_page * @rows_per_column
-  @bucket_rank %{alert: 0, stuck: 1, running: 2, paused: 3, queued: 4}
 
   @spec payload(GenServer.name(), timeout()) :: map()
   def payload(orchestrator, snapshot_timeout_ms) do
@@ -45,7 +45,7 @@ defmodule AiurWeb.StreamDeckGrid do
     agents =
       fleet
       |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
-      |> Enum.filter(fn {_entry, bucket} -> Map.has_key?(@bucket_rank, bucket) end)
+      |> Enum.filter(fn {_entry, bucket} -> StreamdeckKeyFaceContract.known_state?(bucket) end)
       |> Enum.map(fn {entry, bucket} -> agent_payload(entry, bucket, readiness_fun) end)
       |> stable_rank()
 
@@ -103,7 +103,7 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp sort_key(%{bucket: bucket, identifier: identifier} = agent) do
     dependency_ready = Map.get(agent, :dependency_ready)
-    {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
+    {StreamdeckKeyFaceContract.bucket_rank!(bucket), if(bucket == :queued and dependency_ready == true, do: 0, else: 1), Summaries.identifier_sort_key(identifier)}
   end
 
   defp provider(entry) do
@@ -131,11 +131,22 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
 
-  @doc "Returns whether every explicit upstream dependency is complete in the fleet."
+  @doc """
+  Returns whether every explicit upstream dependency is complete in the fleet.
+
+  Readiness has to be earned twice over. The orchestrator's own
+  `:waiting_for_dependency` verdict blocks on its own, and beyond that every
+  entry in `:blocked_by` must resolve to a fleet member that is merged or at
+  100%. An absent `:blocked_by`, an upstream missing from the fleet, or an
+  upstream still in flight all read as blocked — the deck never infers
+  readiness from a field it did not get.
+  """
   @spec dependency_ready?(map(), [map()]) :: boolean()
   def dependency_ready?(agent, fleet) when is_map(agent) and is_list(fleet) do
-    case Map.fetch(agent, :blocked_by) do
-      {:ok, blockers} when is_list(blockers) -> Enum.all?(blockers, &dependency_satisfied?(&1, fleet))
+    with false <- Map.get(agent, :waiting_reason) == :waiting_for_dependency,
+         {:ok, blockers} when is_list(blockers) <- Map.fetch(agent, :blocked_by) do
+      Enum.all?(blockers, &dependency_satisfied?(&1, fleet))
+    else
       _ -> false
     end
   end
