@@ -278,7 +278,7 @@ defmodule AiurWeb.StreamdeckLive do
                 <span class="sd-strip-cmd-provider">{String.upcase(command.provider)}</span>
                 <span class="sd-strip-cmd-pager">CONTROLLING #{command.number}</span>
               </div>
-              <div class="sd-strip-cmd-main">
+              <div class="sd-strip-cmd-body">
                 <span class="sd-strip-cmd-ticket">#{command.number}</span>
                 <span class="sd-strip-cmd-title">{command.title}</span>
                 <span class="sd-strip-cmd-status">{command.status}</span>
