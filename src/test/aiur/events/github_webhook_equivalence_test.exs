@@ -189,13 +189,24 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     assert_indistinguishable(polled, pushed)
   end
 
-  test "pull request opened: firehose and webhook publish indistinguishable events" do
+  # The two producers take `timestamp` from different places, so the fixture
+  # deliberately gives them *different* values rather than one shared literal:
+  # the firehose stamps the Events API envelope's `created_at`, and a webhook
+  # body has no envelope, so the normalizer falls back to the pull request's own
+  # `updated_at`. Making them equal in the fixture would hide that.
+  #
+  # Everything else must still match exactly. The gap is bounded — both describe
+  # the same transition moments apart — and `RunTelemetry.Lifecycle` reads
+  # `pr.created_at` / `pr.merged_at` ahead of `event.timestamp`, so the field is
+  # a last-resort fallback for the one consumer that reads it at all.
+  test "pull request opened: firehose and webhook publish indistinguishable events apart from timestamp source" do
     :ok = Exchange.subscribe("ticket.55.pr.opened")
 
     pr = %{
       "number" => 901,
       "title" => "W-3 webhooks",
-      "updated_at" => "2026-06-24T12:00:00Z",
+      "created_at" => "2026-06-24T11:59:58Z",
+      "updated_at" => "2026-06-24T11:59:59Z",
       "head" => %{"ref" => "aiur/55", "sha" => "deadbeef"}
     }
 
@@ -227,6 +238,65 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
 
     pushed = await_event("ticket.55.pr.opened")
 
+    # Each producer's documented source, with the fixture keeping them distinct.
+    assert polled.timestamp == "2026-06-24T12:00:00Z"
+    assert pushed.timestamp == "2026-06-24T11:59:59Z"
+
+    # Everything a consumer routes, filters, or renders on is still identical —
+    # including `pr`, `action`, the dedup key's inputs, and actor trust.
+    assert Map.drop(polled, [:id, :ticket_observation, :timestamp]) ==
+             Map.drop(pushed, [:id, :ticket_observation, :timestamp])
+  end
+
+  # `GET /pulls/N/reviews` reports `state` upper case; a `pull_request_review`
+  # delivery reports it lower case. The earlier review-submission case uses one
+  # shared review map, so it cannot see that. This one gives each producer its
+  # real casing.
+  test "realistic producer shapes: a lower-case delivery state is published as the poller's upper case" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    polled_review = %{
+      "id" => 55_003,
+      "state" => "CHANGES_REQUESTED",
+      "body" => "this needs a test",
+      "submitted_at" => "2026-06-24T12:00:00Z",
+      "user" => %{"login" => "its-everdred"}
+    }
+
+    request_fun = fn %{url: url} ->
+      if String.contains?(url, "/pulls/901/reviews") do
+        {:ok, %{status: 200, body: [polled_review]}}
+      else
+        {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 1}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: @repo,
+               request_fun: request_fun,
+               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+               comment_batch: %{"42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
+             )
+
+    polled = await_event("ticket.42.pr.review_comment")
+    clear_dedup()
+
+    delivery = %{
+      "action" => "submitted",
+      "repository" => %{"full_name" => @repo},
+      "review" => %{polled_review | "state" => "changes_requested"},
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "sender" => %{"login" => "its-everdred"}
+    }
+
+    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+             GithubWebhook.handle_delivery("pull_request_review", delivery, repo: @repo)
+
+    pushed = await_event("ticket.42.pr.review_comment")
+
+    assert pushed.comment["state"] == "CHANGES_REQUESTED"
     assert_indistinguishable(polled, pushed)
   end
 

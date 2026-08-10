@@ -331,7 +331,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
          comment_triple(
            "ticket.#{target}.pr.review_comment",
            target,
-           review,
+           upcase_review_state(review),
            GithubKeys.pr_review_dedup_key(repo, pr_number, Map.get(review, "id")),
            review_context(Map.get(payload, "pull_request"))
          )
@@ -597,6 +597,21 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   end
 
   defp ticket_identifier(_number), do: nil
+
+  # The poller reads reviews from `GET /pulls/N/reviews`, which reports `state`
+  # in upper case; a `pull_request_review` delivery reports the same states in
+  # lower case. `actionable_review?/1` already folds case so the *filter* agrees,
+  # but the published review carried the delivery's own casing, so a consumer
+  # matching `"CHANGES_REQUESTED"` on the event would see it only on the polling
+  # path. Nothing reads it off the event today; this keeps it that way by
+  # accident rather than by luck.
+  #
+  # Upper case is the shape to converge on because it is the poller's, and this
+  # is a no-op when a delivery already agrees.
+  defp upcase_review_state(%{"state" => state} = review) when is_binary(state),
+    do: Map.put(review, "state", String.upcase(state))
+
+  defp upcase_review_state(review), do: review
 
   # Same rule as GithubCommentsPoller.actionable_review?/1.
   defp actionable_review?(%{"state" => state} = review) when is_binary(state) do
