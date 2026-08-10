@@ -65,4 +65,23 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
     assert_raise ArgumentError, ~r/unhandled Stream Deck direction badge/, fn -> StreamdeckKeyFaceContract.direction_badge!("UNKNOWN") end
     refute StreamdeckKeyFaceContract.known_state?(:unknown)
   end
+
+  # The parity table pins `true`, `false` and absent. These are the values that
+  # would read as ready under a looser comparison than the contract's own.
+  test "only a literal true reads as ready" do
+    for not_ready <- [nil, "true", "Unblocked", 1, :true_ish] do
+      footer = StreamdeckKeyFaceContract.footer_for_agent(:queued, %{dependency_ready: not_ready})
+      assert footer.dependency == "Blocked", "#{inspect(not_ready)} must not read as ready"
+      refute footer.ready?
+    end
+
+    assert StreamdeckKeyFaceContract.footer_for_agent(:queued, %{dependency_ready: true}).dependency == "Unblocked"
+  end
+
+  test "the readiness flag agrees with the wording it labels" do
+    for dependency_ready <- [true, false, nil, "true"] do
+      footer = StreamdeckKeyFaceContract.footer_for_agent(:queued, %{dependency_ready: dependency_ready})
+      assert footer.ready? == (footer.dependency == "Unblocked")
+    end
+  end
 end
