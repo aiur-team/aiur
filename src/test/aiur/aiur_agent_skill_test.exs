@@ -341,6 +341,11 @@ defmodule Aiur.AiurAgentSkillTest do
       assert source =~ "DISMISSED"
     end
 
+    # The no-redraft invariant must be findable on its own, not buried inside an
+    # unrelated section a future edit could rewrite out from under it.
+    shared_prompt_raw = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
+    assert shared_prompt_raw =~ "### Never re-draft a reviewed pull request"
+
     assert dev_loop =~ "keep an unreviewed PR as a draft"
     assert dev_loop =~ "trust the delivered result without re-polling"
     assert dev_loop =~ "delivered failed-check names and excerpt"

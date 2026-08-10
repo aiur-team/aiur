@@ -135,7 +135,7 @@ Rules:
 - One check-in per request — don't fan out multiple. If two requests arrived in the same digest, reply to the most recent.
 - After replying, continue whatever you were doing.
 
-### Planning-to-work auto-transition
+### Never re-draft a reviewed pull request
 
 Once a PR has been ready for review, approved, or entered the merge queue,
 never convert it back to draft. This includes approval history GitHub reports
@@ -144,6 +144,8 @@ rules prevent merging. Automated agents must not use `gh pr ready --undo`,
 `convertPullRequestToDraft`, or review-dismissal APIs. If an exceptional draft
 transition is genuinely unavoidable, comment on the PR with the reason and ask
 the Executor to perform it; never make the transition silently.
+
+### Planning-to-work auto-transition
 
 When you complete `ce-plan` on a ticket that is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if `ce-plan` surfaced an unresolved operator decision, a dependency blocker, or a scope question that genuinely requires human input before implementation can begin. Interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
 
