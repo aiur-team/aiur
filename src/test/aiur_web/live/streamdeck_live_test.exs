@@ -690,6 +690,61 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-pager-page="0" aria-current="page")
   end
 
+  test "the pager renders as the design's dial segment rather than a logo-headed info segment" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "MORE AGENTS")
+    refute has_element?(view, ~s([data-segment="pager"].sd-seg-info))
+    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
+    refute has_element?(view, ~s([data-segment="pager"] .sd-hd-logo))
+
+    # The information segments keep their logo headers.
+    assert has_element?(view, ~s([data-segment="summary"].sd-seg-info .sd-info-hd .sd-hd-logo))
+    assert has_element?(view, ~s([data-segment="provider"].sd-seg-info .sd-info-hd .sd-hd-logo))
+
+    # Focusing a command relabels in place; the shape does not change.
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "CONTROLLING")
+    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
+  end
+
+  test "the pager segment relabels to CONTROLLING with the focused agent and drops its dots" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "MORE AGENTS"
+    refute html =~ "CONTROLLING"
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert html =~ "CONTROLLING"
+    assert html =~ ~s(data-pager-focus="#1352")
+    refute html =~ "MORE AGENTS"
+    refute html =~ "data-pager-page="
+
+    # Descending into logs keeps the same command focused, so the label holds.
+    html = render_click(view, "command-press", %{"command" => "logs"})
+    assert html =~ ~s(data-pager-focus="#1352")
+
+    # Backing all the way out restores the pager dots.
+    render_click(view, "dial-press", %{"action" => "back"})
+    html = render_click(view, "dial-press", %{"action" => "back"})
+
+    assert html =~ "MORE AGENTS"
+    refute html =~ "CONTROLLING"
+    assert html =~ ~s(data-pager-page="0" aria-current="page")
+  end
+
+  test "the CONTROLLING label follows a focus change without leaving the previous agent behind" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert html =~ ~s(data-pager-focus="#1345")
+    refute html =~ ~s(data-pager-focus="#1352")
+  end
+
   test "renders the priority star, the mic indicator, and the live segment" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
