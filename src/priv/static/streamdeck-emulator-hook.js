@@ -413,7 +413,12 @@
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      var keys = Array.prototype.slice.call(this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty)"));
+      // #1607 scoped this to #sd-keys so command clicks cannot reach the agent
+      // key path. The logs-mode event keys live in their own #sd-log-keys grid
+      // and still need the same press/flash binding, so name both containers.
+      var keys = Array.prototype.slice.call(
+        this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty), #sd-log-keys .sd-key:not(.is-empty)")
+      );
       keys.forEach(function (key) {
         var timer = null;
         var handler = function () {

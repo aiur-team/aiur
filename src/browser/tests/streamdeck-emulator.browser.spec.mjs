@@ -194,9 +194,10 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
 
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(page.locator('#sd-cmd-view')).toBeVisible()
-  // #1607 fills the cmd-mode grid with the four command keys, so the grid is no
-  // longer empty here; that PR owns the grid, this one owns the strip below.
+  // #1607 deleted the standalone #sd-cmd-view and fills the cmd-mode grid with
+  // the four command keys instead, so the grid is no longer empty here; that PR
+  // owns the grid, this one owns the strip below.
+  await expect(page.locator('#sd-keys[data-mode-view="cmd"]')).toBeVisible()
   await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(4)
   await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(4)
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
