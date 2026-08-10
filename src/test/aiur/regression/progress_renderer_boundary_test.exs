@@ -16,7 +16,10 @@ defmodule Aiur.Regression.ProgressRendererBoundaryTest do
 
   @lib_root Path.expand("../../../lib", __DIR__)
 
+  # These files define or populate the RootSummary progress contract itself
+  # rather than presenting it, so they name the resolution fields by necessity.
   @contract_boundary_files [
+    "aiur/build_order/github_graph/normalizer.ex",
     "aiur/build_order/progress_renderer.ex",
     "aiur/build_order/root_summary.ex",
     "aiur_web/build_order/planning_source.ex",
