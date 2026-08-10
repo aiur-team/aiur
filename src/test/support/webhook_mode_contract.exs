@@ -30,6 +30,8 @@ defmodule Aiur.WebhookModeContract do
       end
   """
 
+  alias Aiur.Webhooks.{EventSource, ModeRegistry}
+
   @modes [:polling, :webhook]
 
   @doc "Every mode a consumer test is generated for."
@@ -70,7 +72,7 @@ defmodule Aiur.WebhookModeContract do
     repo = "aiur-team/#{mode}-repo-#{System.unique_integer([:positive])}"
 
     {:ok, pid} =
-      Aiur.Webhooks.ModeRegistry.start_link(
+      ModeRegistry.start_link(
         name: name,
         configured_repos: configured_repos(mode, repo),
         silence_threshold_ms: 60_000,
@@ -80,7 +82,7 @@ defmodule Aiur.WebhookModeContract do
 
     ExUnit.Callbacks.on_exit(fn -> stop(pid) end)
 
-    %{mode: mode, repo: repo, server: name, source: Aiur.Webhooks.EventSource.for_transport(mode)}
+    %{mode: mode, repo: repo, server: name, source: EventSource.for_transport(mode)}
   end
 
   # A polling repo is one with no webhook at all — the untouched default. The

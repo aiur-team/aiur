@@ -30,7 +30,8 @@ defmodule Aiur.Webhooks.ModeRegistry do
 
   require Logger
 
-  alias Aiur.Config
+  alias Aiur.{Alerts, Config}
+  alias Aiur.Config.Schema.Webhooks, as: WebhookSettings
   alias Aiur.Webhooks.DeliveryMode
 
   @type server :: GenServer.server()
@@ -109,7 +110,7 @@ defmodule Aiur.Webhooks.ModeRegistry do
       repos: initial_repos(opts, settings),
       silence_threshold_ms: Keyword.get(opts, :silence_threshold_ms) || settings.silence_threshold_seconds * 1_000,
       sweep_interval_ms: Keyword.get(opts, :sweep_interval_ms) || settings.sweep_interval_seconds * 1_000,
-      alert_fun: Keyword.get(opts, :alert_fun, &Aiur.Alerts.emit_custom/3),
+      alert_fun: Keyword.get(opts, :alert_fun, &Alerts.emit_custom/3),
       sweep_timer: nil
     }
 
@@ -134,9 +135,9 @@ defmodule Aiur.Webhooks.ModeRegistry do
       _missing -> Config.settings().webhooks
     end
   rescue
-    _error -> %Aiur.Config.Schema.Webhooks{}
+    _error -> %WebhookSettings{}
   catch
-    _kind, _reason -> %Aiur.Config.Schema.Webhooks{}
+    _kind, _reason -> %WebhookSettings{}
   end
 
   @impl true
