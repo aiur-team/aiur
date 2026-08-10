@@ -48,11 +48,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           <p>{model_summary(@model)}</p>
         </div>
         <dl class="bo-summary-grid" aria-label="Build Order graph summary">
-          <div><dt>Members</dt><dd>{@model.summary.members}</dd></div>
-          <div><dt>Dependencies</dt><dd>{@model.summary.edges}</dd></div>
-          <div><dt>External</dt><dd>{@model.summary.external_edges}</dd></div>
-          <div><dt>Lanes</dt><dd>{map_size(@model.summary.lanes)}</dd></div>
-          <div><dt>Waves</dt><dd>{map_size(@model.summary.phases)}</dd></div>
+          <div><dt>Members</dt><dd>{metric(@model.summary, @model.summary.members)}</dd></div>
+          <div><dt>Dependencies</dt><dd>{metric(@model.summary, @model.summary.edges)}</dd></div>
+          <div><dt>External</dt><dd>{metric(@model.summary, @model.summary.external_edges)}</dd></div>
+          <div><dt>Lanes</dt><dd>{metric(@model.summary, map_size(@model.summary.lanes))}</dd></div>
+          <div><dt>Waves</dt><dd>{metric(@model.summary, map_size(@model.summary.phases))}</dd></div>
         </dl>
 
         <div :if={@model.status == :empty} class="bo-state-card" role="status">
@@ -98,6 +98,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     """
   end
 
+  # An unresolved graph has no counts to show. Rendering the zeros of an empty
+  # model would state a number we never read — "Unresolved" is the honest cell.
+  defp metric(%{resolved?: false}, _value), do: "Unresolved"
+  defp metric(_summary, value), do: value
+
   defp selected_title(_status, %Snapshot{data: %SelectedRoot{root: root}}, _identifier), do: root.title
   defp selected_title(_status, _snapshot, identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
   defp selected_title(_status, _snapshot, _identifier), do: "Build Order"
@@ -121,7 +126,10 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_message(:not_found), do: "This Build Order is not in the catalog."
   defp state_message(:invalid_catalog), do: "This link matches more than one repository. Pick a specific one."
   defp state_message(:selected_loading), do: "The exact root is selected; its graph snapshot is loading."
-  defp state_message(:selected_unavailable), do: "No validated selected-root snapshot is available."
+
+  defp state_message(:selected_unavailable),
+    do: "GitHub planning data could not be fetched for this root. This is a provider problem, not a malformed Build Order."
+
   defp state_message(:selected_stale), do: "The provider is stale and has no selected-root last-known-good snapshot."
   defp state_message(:selected_invalid), do: "The selected-root provider response failed structural validation."
   defp state_message(_status), do: "Planning data is temporarily unavailable."
@@ -134,8 +142,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp positive_generation(_snapshot), do: 1
 
   defp model_summary(%{status: :provider_stale}), do: "Showing the last saved plan while live data catches up."
-  defp model_summary(%{status: :structurally_invalid}), do: "The selected planning graph is structurally invalid."
-  defp model_summary(%{status: :provider_unavailable}), do: "The selected planning graph is unavailable."
+
+  defp model_summary(%{status: :structurally_invalid}),
+    do: "The selected planning graph is malformed and needs fixing in the Build Order itself."
+
+  defp model_summary(%{status: :provider_unavailable}),
+    do:
+      "GitHub planning data could not be fetched, so this graph is unresolved. " <>
+        "The Build Order itself is not known to be malformed — retry once the provider recovers."
 
   defp model_state_title(%{status: :provider_stale}), do: "Stale last-known-good graph"
   defp model_state_title(%{status: :structurally_invalid}), do: "Structurally invalid graph"

@@ -165,13 +165,19 @@ defmodule AiurWeb.BuildOrderPresenter do
     %{model | relationships: relationships(model, selection, capabilities)}
   end
 
+  # Availability first: a graph the provider could not deliver cannot support a
+  # structural claim about the operator's Build Order.
   defp selected_status(selected, health) do
-    cond do
-      not SelectedRoot.structurally_valid?(selected) -> :structurally_invalid
-      match?(%ProviderHealth{state: :stale}, health) -> :provider_stale
-      not ProviderHealth.usable?(health) -> :provider_unavailable
-      selected.members == [] -> :empty
-      true -> :ready
+    case SelectedRoot.availability(selected, health) do
+      nil ->
+        cond do
+          not SelectedRoot.structurally_valid?(selected) -> :structurally_invalid
+          selected.members == [] -> :empty
+          true -> :ready
+        end
+
+      availability ->
+        availability
     end
   end
 
@@ -779,6 +785,7 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp summary(nodes, edges, lane_groups, phase_groups, graph) do
     %{
+      resolved?: true,
       members: length(nodes),
       edges: length(edges),
       external_edges: Enum.count(edges, &(&1.kind == :external)),
@@ -792,8 +799,12 @@ defmodule AiurWeb.BuildOrderPresenter do
     }
   end
 
+  # No graph was resolved, so every count here is unknown rather than zero. The
+  # `resolved?: false` flag is what stops the surface rendering `MEMBERS 0` for a
+  # Build Order whose real membership was simply never fetched.
   defp empty_summary do
     %{
+      resolved?: false,
       members: 0,
       edges: 0,
       external_edges: 0,
