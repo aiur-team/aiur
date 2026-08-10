@@ -979,24 +979,71 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def record_dispatch_committed(%State{} = state, issue_id) when is_binary(issue_id) do
     case Config.agent_max_dispatches_per_ticket() do
       max when is_integer(max) and max > 0 ->
-        lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), persisted_lifetime(issue_id)) + 1
         entry = Map.get(thrash_budget(state), issue_id, %{})
+        head_sha = observed_head_sha(state, issue_id)
 
-        # The in-memory count is updated even when the durable write fails so
-        # the latch still bounds a stuck ticket within this daemon generation
-        # while the store is broken (the fail-open `persisted_lifetime/1` keeps
-        # it from latching every ticket fleet-wide).
-        case DispatchBudgetStore.put_lifetime(issue_id, lifetime) do
-          :ok ->
-            put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
-
-          {:error, reason} ->
-            Logger.error("Dispatch budget commit failed (in-memory count retained): issue_id=#{issue_id} reason=#{inspect(reason)}")
-            put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
+        if noop_redispatch?(entry, head_sha) do
+          skip_noop_lifetime_bill(state, issue_id, head_sha)
+        else
+          bill_lifetime_dispatch(state, issue_id, entry, head_sha)
         end
 
       _ ->
         state
+    end
+  end
+
+  # The previous dispatch of this ticket left the pull request head exactly
+  # where it found it, so that turn produced no pushed work. A rework turn with
+  # nothing to rework must not walk the ticket toward the terminal lifetime
+  # latch (#1756) — bill nothing and let the head sha stand, so an unbounded
+  # run of no-op turns costs exactly the one unit already billed for the head.
+  defp noop_redispatch?(entry, head_sha) do
+    is_binary(head_sha) and head_sha != "" and Map.get(entry, :billed_head_sha) == head_sha
+  end
+
+  defp skip_noop_lifetime_bill(%State{} = state, issue_id, head_sha) do
+    Logger.info("Lifetime dispatch unit withheld; previous turn pushed nothing: issue_id=#{issue_id} head_sha=#{head_sha}")
+
+    state
+  end
+
+  defp bill_lifetime_dispatch(%State{} = state, issue_id, entry, head_sha) do
+    lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), persisted_lifetime(issue_id)) + 1
+    entry = put_billed_head_sha(entry, head_sha)
+
+    # The in-memory count is updated even when the durable write fails so
+    # the latch still bounds a stuck ticket within this daemon generation
+    # while the store is broken (the fail-open `persisted_lifetime/1` keeps
+    # it from latching every ticket fleet-wide).
+    case DispatchBudgetStore.put_lifetime(issue_id, lifetime) do
+      :ok ->
+        put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
+
+      {:error, reason} ->
+        Logger.error("Dispatch budget commit failed (in-memory count retained): issue_id=#{issue_id} reason=#{inspect(reason)}")
+        put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
+    end
+  end
+
+  defp put_billed_head_sha(entry, head_sha) when is_binary(head_sha) and head_sha != "",
+    do: Map.put(entry, :billed_head_sha, head_sha)
+
+  # An unknown head (no PR yet, an unreadable poll, the REST fallback) bills
+  # normally and clears the marker, so the next dispatch cannot be mistaken for
+  # a repeat of this one.
+  defp put_billed_head_sha(entry, _head_sha), do: Map.delete(entry, :billed_head_sha)
+
+  # Last pull request head the CI poller observed for this ticket. `poll_cache`
+  # is refreshed on every CI poll of an active ticket and survives the agent's
+  # turn ending, which is what makes it a usable before/after marker here.
+  defp observed_head_sha(%State{} = state, issue_id) do
+    with %Issue{} = issue <- Map.get(state.last_polled_issues, issue_id),
+         target when is_binary(target) <- CiLifecycle.ci_target_for_issue(issue),
+         %{head_sha: head_sha} <- state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(target) do
+      head_sha
+    else
+      _other -> nil
     end
   end
 
@@ -1054,14 +1101,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
     previous = Map.get(thrash_budget(state), issue_id)
     lifetime = max(lifetime_of(previous), persisted_lifetime(issue_id))
 
-    case previous do
-      %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
-        %{window_start_ms: start, count: count + 1, lifetime: lifetime}
+    next =
+      case previous do
+        %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
+          %{window_start_ms: start, count: count + 1, lifetime: lifetime}
 
-      _ ->
-        %{window_start_ms: now_ms, count: 1, lifetime: lifetime}
-    end
+        _ ->
+          %{window_start_ms: now_ms, count: 1, lifetime: lifetime}
+      end
+
+    # The window rolls, the head marker does not: it records which pull request
+    # head the lifetime counter was last billed for, and only a new head clears
+    # it (see `noop_redispatch?/2`).
+    carry_billed_head_sha(next, previous)
   end
+
+  defp carry_billed_head_sha(next, %{billed_head_sha: head_sha}) when is_binary(head_sha),
+    do: Map.put(next, :billed_head_sha, head_sha)
+
+  defp carry_billed_head_sha(next, _previous), do: next
 
   defp lifetime_of(%{lifetime: lifetime}) when is_integer(lifetime), do: lifetime
   defp lifetime_of(_entry), do: 0

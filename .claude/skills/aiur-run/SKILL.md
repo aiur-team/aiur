@@ -234,6 +234,14 @@ export AIUR_EXECUTOR_RUN_ID="<stable-build-order-or-run-id>"
 "$RETRO" record "<assessment>" "<adjustment-or-unchanged>"
 ```
 
+`record` also runs the settled four-page dashboard check and appends its PNG
+evidence plus a short verdict to the same run retrospective. Set
+`AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=0` only for an intentionally
+dashboard-less test harness; a real hourly run must retain the visual check.
+The read-only CLI probe runs alongside it with one control-RPC timeout per
+command, so a normal record may spend up to roughly 30 seconds on terminal
+evidence before the browser capture completes.
+
 Take the recorded assessment's count language from the atomic
 `summary.count_sentence` that `record` embeds (or the one `summarize` prints in
 the same call), not from an earlier separate poll. `summarize` and `record` each
