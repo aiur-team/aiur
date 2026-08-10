@@ -107,6 +107,11 @@ defmodule AiurWeb.BuildOrder.DataSourceTest do
 
     assert DataSource.subscribe_sources(opts) == :ok
 
+    assert DataSource.load_runtime_sources(opts) == %{
+             activity: :activity_snapshots,
+             execution: :execution_snapshot
+           }
+
     assert DataSource.load_sources(opts) == %{
              activity: :activity_snapshots,
              execution: :execution_snapshot,
