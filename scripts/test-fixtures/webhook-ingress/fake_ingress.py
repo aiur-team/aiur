@@ -9,6 +9,10 @@ Modes model the postures `scripts/verify-webhook-ingress` has to tell apart:
   wide-open  the failure this ticket exists to prevent: the tunnel forwards the
              origin root, so the dashboard and every /api/v1/* route answer 200.
   unsigned   the receiver is reachable but accepts a delivery with no signature.
+  misrouted  the catch-all answers everything, including the webhook path: a
+             tunnel that is scoped so tightly it delivers nothing. Every
+             not-publicly-routable assertion passes here, so the reachability
+             assertion is the only thing that can catch it.
 
 Prints the bound port on stdout, then serves until killed.
 """
@@ -34,6 +38,8 @@ def build_handler(mode):
         def do_GET(self):
             if mode == "wide-open":
                 self._reply(200)
+            elif mode == "misrouted":
+                self._reply(404)
             elif self.path.split("?")[0] == WEBHOOK_PATH:
                 # GitHub only ever POSTs here; the guard does not GET it.
                 self._reply(405)
@@ -45,7 +51,9 @@ def build_handler(mode):
             if length:
                 self.rfile.read(length)
 
-            if self.path.split("?")[0] != WEBHOOK_PATH:
+            if mode == "misrouted":
+                self._reply(404)
+            elif self.path.split("?")[0] != WEBHOOK_PATH:
                 self._reply(200 if mode == "wide-open" else 404)
             elif mode == "unsigned":
                 self._reply(202)
@@ -56,8 +64,10 @@ def build_handler(mode):
 
 
 def main():
-    if len(sys.argv) != 2 or sys.argv[1] not in {"scoped", "wide-open", "unsigned"}:
-        print("usage: fake_ingress.py <scoped|wide-open|unsigned>", file=sys.stderr)
+    modes = {"scoped", "wide-open", "unsigned", "misrouted"}
+
+    if len(sys.argv) != 2 or sys.argv[1] not in modes:
+        print("usage: fake_ingress.py <%s>" % "|".join(sorted(modes)), file=sys.stderr)
         return 2
 
     server = HTTPServer(("127.0.0.1", 0), build_handler(sys.argv[1]))

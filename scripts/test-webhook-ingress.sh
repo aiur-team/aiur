@@ -123,6 +123,12 @@ expect_failure "wide-open" "PUBLICLY REACHABLE"
 # Reachable receiver that accepts a delivery carrying no signature at all.
 expect_failure "unsigned" "ACCEPTED an unsigned delivery"
 
+# An ingress rule that never matches the webhook path, so the catch-all answers
+# it too. Every "not publicly routable" assertion passes in this posture -- the
+# reachability assertion is the only thing standing between a tunnel that
+# silently delivers nothing and a green guard.
+expect_failure "misrouted" "is the ingress rule matching this exact path?"
+
 # Nothing listening: a dead tunnel must not read as "everything is scoped out".
 dead_base="http://127.0.0.1:1"
 
