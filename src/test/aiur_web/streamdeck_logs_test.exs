@@ -126,6 +126,18 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert refreshed.transcript_offset == 4
   end
 
+  test "refreshes key-relative times as the view remains open" do
+    now = DateTime.utc_now()
+    timestamp = now |> DateTime.add(-1, :second) |> DateTime.to_iso8601()
+    logs = StreamdeckLogs.project([entry("recent", "turn-1", "INFO", timestamp)])
+
+    assert [%{kind: :live} | [%{time: "now"}]] = logs.event_keys
+
+    refreshed = StreamdeckLogs.refresh_relative_times(logs, DateTime.add(now, 60, :second))
+
+    assert [%{kind: :live} | [%{time: "1m"}]] = refreshed.event_keys
+  end
+
   test "refresh keeps how far into the selected event the transcript is scrolled" do
     entries = Enum.map(1..4, &entry("event-#{&1}", "turn-#{&1}", "INFO"))
 
@@ -161,13 +173,13 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert Enum.map(refreshed.event_keys_visible, & &1.index) == Enum.to_list(3..10)
   end
 
-  defp entry(body, turn_id, badge) do
+  defp entry(body, turn_id, badge, timestamp \\ "2026-08-02T00:00:00Z") do
     %{
       type: "message",
       badge: badge,
       role: "assistant",
       body: body,
-      timestamp: "2026-08-02T00:00:00Z",
+      timestamp: timestamp,
       turn_id: turn_id
     }
   end

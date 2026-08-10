@@ -32,6 +32,9 @@ defmodule AiurWeb.StreamdeckLogs do
     event_keys = [%{kind: :live, id: :live, index: 0, label: "LIVE"} | Enum.map(events, &event_key/1)]
 
     %{
+      # Retained so `refresh_relative_times/2` can re-derive each key's age from
+      # the real timestamp without rebuilding the feed.
+      events: events,
       event_keys: event_keys,
       event_starts: event_starts,
       transcript: flat,
@@ -92,6 +95,28 @@ defmodule AiurWeb.StreamdeckLogs do
       :live -> restore_events_offset(refreshed, logs)
       _ -> refreshed
     end
+  end
+
+  @doc """
+  Re-derives the age shown on each event key against `now`.
+
+  `refresh/2` only runs when the feed changes, so on an idle agent a key face
+  would otherwise read "now" indefinitely. This recomputes the relative times
+  from the events' real timestamps without rebuilding the feed, leaving the
+  selection, both offsets and the flattened transcript untouched.
+  """
+  @spec refresh_relative_times(map(), DateTime.t()) :: map()
+  def refresh_relative_times(logs, now \\ DateTime.utc_now()) do
+    times = Map.new(logs.events, fn event -> {event.index, relative_time(event.timestamp, now)} end)
+
+    logs
+    |> Map.update!(:event_keys, fn keys ->
+      Enum.map(keys, fn
+        %{kind: :event, index: index} = key -> Map.put(key, :time, Map.fetch!(times, index))
+        key -> key
+      end)
+    end)
+    |> visible()
   end
 
   @doc "Scrolls one logs surface while keeping the selected event coherent."
@@ -247,14 +272,15 @@ defmodule AiurWeb.StreamdeckLogs do
     if badge in @directions, do: badge, else: "INFO"
   end
 
-  # Frozen at projection time: a key face reads "3m" until the next relay flush
-  # re-projects it, rather than ticking on its own. The relay flushes several
-  # times a second on an active agent, so the staleness is bounded by how idle
-  # the feed is.
-  defp relative_time(timestamp) when is_binary(timestamp) do
+  # `now` is injected rather than read inline so `refresh_relative_times/2` can
+  # re-age every key against a single instant, and so a test can assert that the
+  # faces advance without sleeping.
+  defp relative_time(timestamp), do: relative_time(timestamp, DateTime.utc_now())
+
+  defp relative_time(timestamp, now) when is_binary(timestamp) and is_struct(now, DateTime) do
     case DateTime.from_iso8601(timestamp) do
       {:ok, event_at, _offset} ->
-        seconds = max(DateTime.diff(DateTime.utc_now(), event_at), 0)
+        seconds = max(DateTime.diff(now, event_at), 0)
 
         cond do
           seconds < 60 -> "now"
@@ -270,7 +296,7 @@ defmodule AiurWeb.StreamdeckLogs do
     end
   end
 
-  defp relative_time(_timestamp), do: ""
+  defp relative_time(_timestamp, _now), do: ""
 
   defp entry(entry) do
     case value(entry, :type) do

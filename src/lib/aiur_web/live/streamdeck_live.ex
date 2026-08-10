@@ -34,6 +34,10 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
 
+  @relative_time_refresh_ms 1_000
+  @durable_feed_retry_attempts 2
+  @durable_feed_retry_ms 50
+
   # The two fleet-control commands. Each is a single key whose direction the
   # server resolves from orchestrator state, so the client never names the
   # action — it only names the key it pressed.
@@ -98,7 +102,10 @@ defmodule AiurWeb.StreamdeckLive do
         :ok = AgentPubSub.subscribe_status()
         :ok = ProviderMeterEvents.subscribe_observed()
         maybe_subscribe_fixture_fleet()
-        replace_transcript_relay(socket, nil, socket.assigns.selected_identifier)
+
+        socket
+        |> replace_transcript_relay(nil, socket.assigns.selected_identifier)
+        |> schedule_relative_time_refresh()
       else
         socket
       end
@@ -220,10 +227,46 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
-      {:noreply, reload_logs(socket, identifier)}
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info({:streamdeck_alert, identifier, _event}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:streamdeck_control, identifier, _payload}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:refresh_streamdeck_durable_feed, identifier, attempts}, socket)
+      when is_binary(identifier) and is_integer(attempts) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier, attempts)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(:refresh_streamdeck_relative_times, socket) do
+    socket =
+      if socket.assigns.sd_mode == :logs do
+        assign(socket, :logs, StreamdeckLogs.refresh_relative_times(socket.assigns.logs))
+      else
+        socket
+      end
+
+    {:noreply, schedule_relative_time_refresh(socket)}
   end
 
   @impl true
@@ -334,7 +377,7 @@ defmodule AiurWeb.StreamdeckLive do
             <ul id="sd-log-keys" class="sd-keys sd-log-keys" aria-label="Log event keys" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <li
                 :for={key <- @logs.event_keys_visible}
-                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "is-live", key.index == @logs.selected_event_index && "is-selected"]}
+                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "sd-live-key is-live", key.index == @logs.selected_event_index && "is-selected"]}
                 data-log-event-index={key.index}
                 aria-hidden={to_string(key.kind == :empty)}
                 aria-current={if key.index == @logs.selected_event_index, do: "true", else: "false"}
@@ -422,7 +465,7 @@ defmodule AiurWeb.StreamdeckLive do
             </div>
             <div
               :for={segment <- @screen}
-              :if={@sd_mode == :grid}
+              :if={@sd_mode == :grid or segment.kind == :pager}
               class={[
                 "sd-screen-segment",
                 "sd-seg",
@@ -434,6 +477,7 @@ defmodule AiurWeb.StreamdeckLive do
               <span :if={segment.kind == :pager} class="sd-seg-dlabel">{segment.label}</span>
 
               <div :if={segment.kind != :pager} class="sd-info-hd">
+
                 <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
                 <span>{segment.label}</span>
                 <span :if={segment.kind == :provider and segment.provider == "claude"} class="sd-mic" aria-hidden="true"></span>
@@ -1056,6 +1100,21 @@ defmodule AiurWeb.StreamdeckLive do
   defp log_key_label(%{kind: :live}), do: "LIVE"
   defp log_key_label(%{kind: :event, badge: badge, text: text, time: time}), do: "#{badge}: #{text}, #{time}"
   defp log_key_label(_key), do: nil
+
+  defp schedule_relative_time_refresh(socket) do
+    Process.send_after(self(), :refresh_streamdeck_relative_times, @relative_time_refresh_ms)
+    socket
+  end
+
+  defp schedule_durable_feed_refresh(socket, identifier, attempts \\ @durable_feed_retry_attempts)
+
+  defp schedule_durable_feed_refresh(socket, identifier, attempts)
+       when is_binary(identifier) and is_integer(attempts) and attempts > 0 do
+    Process.send_after(self(), {:refresh_streamdeck_durable_feed, identifier, attempts - 1}, @durable_feed_retry_ms)
+    socket
+  end
+
+  defp schedule_durable_feed_refresh(socket, _identifier, _attempts), do: socket
 
   defp maybe_subscribe_fixture_fleet do
     if endpoint_config(:streamdeck_fixture_fleet) do

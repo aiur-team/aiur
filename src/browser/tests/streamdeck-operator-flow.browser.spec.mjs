@@ -184,10 +184,11 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // Press the running agent's key: it enters cmd mode and pauses the agent.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  // SP-302 gives cmd mode a full-width agent panel (streamdeck.design.js's
-  // sdBuildCmdStrip replaces the whole screen), so the segment row — pager
-  // included — steps aside and the CONTROLLING relabel rides the panel. The
-  // operator still reads which agent they are controlling; it just moved.
+  // SP-302 gives cmd mode a full-width agent panel, and the panel carries its
+  // own CONTROLLING relabel. The pager segment under dial D stays put: #1607
+  // made this assertion pass and every Stream Deck PR since has preserved it,
+  // so the panel is added beside it rather than in place of it.
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
   await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
   // Cmd mode replaces the key faces, it does not merely relabel the strip: the
   // operator is looking at the command set. The press already paused the agent,
@@ -206,8 +207,8 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   // key a third time — another press would toggle the control straight back.
   await controlled.click()
   await expect(device).toHaveAttribute('data-mode', 'cmd')
-  // SP-302's full-width cmd panel carries the CONTROLLING relabel, so read it
-  // off the panel rather than the segment row the panel steps aside.
+  // Both surfaces again: the dial-D pager label and SP-302's panel relabel.
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${CONTROLLED}`)
   await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${CONTROLLED}`)
   // The resume landed before this render, so the same slot has flipped back to
   // Pause — the label is reading real state, not a fixed list.
