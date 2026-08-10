@@ -54,37 +54,33 @@ defmodule Aiur.AgentControlCLI do
     guarded("status", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-      case Orchestrator.status(Orchestrator, timeout_ms) do
-        statuses when is_list(statuses) ->
-          case print_global_pause_banner(opts, timeout_ms) do
-            :ok ->
-              print_codeowners_trust()
-
-              tracker_states = tracker_state_sets()
-
-              statuses
-              |> Enum.filter(&visible_status_row?(&1, tracker_states))
-              |> print_status_table()
-
-              print_capacity_status(Orchestrator.max_concurrent_agents())
-
-              supervision_exit_code = print_supervision_health()
-              print_ci_readiness()
-              print_build_gate_status()
-              print_prewarm_status()
-              print_blocking_asks(opts)
-              exit_marker(supervision_exit_code)
-
-            {:error, error} ->
-              print_control_query_error(error, "status", timeout_ms)
-              exit_marker(control_query_exit_code(error))
-          end
-
-        error ->
-          print_control_query_error(error, "status", timeout_ms)
-          exit_marker(control_query_exit_code(error))
+      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
+           :ok <- print_global_pause_banner(opts, timeout_ms) do
+        print_status_report(statuses, opts)
+      else
+        {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
+        error -> report_control_query_failure(error, "status", timeout_ms)
       end
     end)
+  end
+
+  defp print_status_report(statuses, opts) do
+    print_codeowners_trust()
+
+    tracker_states = tracker_state_sets()
+
+    statuses
+    |> Enum.filter(&visible_status_row?(&1, tracker_states))
+    |> print_status_table()
+
+    print_capacity_status(Orchestrator.max_concurrent_agents())
+
+    supervision_exit_code = print_supervision_health()
+    print_ci_readiness()
+    print_build_gate_status()
+    print_prewarm_status()
+    print_blocking_asks(opts)
+    exit_marker(supervision_exit_code)
   end
 
   # Concise one-line-per-agent activity summary — the built-in, headless
@@ -102,12 +98,10 @@ defmodule Aiur.AgentControlCLI do
           exit_marker(0)
 
         error when error in [:timeout, :unavailable] ->
-          print_control_query_error(error, "agents", timeout_ms)
-          exit_marker(control_query_exit_code(error))
+          report_control_query_failure(error, "agents", timeout_ms)
 
         _other ->
-          print_control_query_error(:unavailable, "agents", timeout_ms)
-          exit_marker(1)
+          report_control_query_failure(:unavailable, "agents", timeout_ms)
       end
     end)
   end
@@ -124,37 +118,33 @@ defmodule Aiur.AgentControlCLI do
     guarded("watch", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-      case Orchestrator.status(Orchestrator, timeout_ms) do
-        statuses when is_list(statuses) ->
-          case print_global_pause_banner(opts, timeout_ms) do
-            :ok ->
-              print_prewarm_status()
-
-              tracker_states = tracker_state_sets()
-
-              rows =
-                statuses
-                |> Enum.filter(&visible_status_row?(&1, tracker_states))
-                |> Enum.map(&watch_row/1)
-                |> Enum.sort_by(& &1.sort_key)
-
-              alerts = latest_attention_alerts(opts)
-              blocking_asks = blocking_asks(opts)
-              mode = Keyword.get(opts, :mode, :changes)
-              {changed, removed} = update_watch_baseline(rows)
-              render_watch(rows, alerts, blocking_asks, mode, changed, removed)
-              exit_marker(0)
-
-            {:error, error} ->
-              print_control_query_error(error, "watch", timeout_ms)
-              exit_marker(control_query_exit_code(error))
-          end
-
-        error ->
-          print_control_query_error(error, "watch", timeout_ms)
-          exit_marker(control_query_exit_code(error))
+      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
+           :ok <- print_global_pause_banner(opts, timeout_ms) do
+        print_watch_board(statuses, opts)
+      else
+        {:error, error} -> report_control_query_failure(error, "watch", timeout_ms)
+        error -> report_control_query_failure(error, "watch", timeout_ms)
       end
     end)
+  end
+
+  defp print_watch_board(statuses, opts) do
+    print_prewarm_status()
+
+    tracker_states = tracker_state_sets()
+
+    rows =
+      statuses
+      |> Enum.filter(&visible_status_row?(&1, tracker_states))
+      |> Enum.map(&watch_row/1)
+      |> Enum.sort_by(& &1.sort_key)
+
+    alerts = latest_attention_alerts(opts)
+    blocking_asks = blocking_asks(opts)
+    mode = Keyword.get(opts, :mode, :changes)
+    {changed, removed} = update_watch_baseline(rows)
+    render_watch(rows, alerts, blocking_asks, mode, changed, removed)
+    exit_marker(0)
   end
 
   @spec alerts(keyword()) :: :ok
@@ -1500,6 +1490,11 @@ defmodule Aiur.AgentControlCLI do
 
   defp control_query_exit_code(:timeout), do: 124
   defp control_query_exit_code(_error), do: 1
+
+  defp report_control_query_failure(error, query, timeout_ms) do
+    print_control_query_error(error, query, timeout_ms)
+    exit_marker(control_query_exit_code(error))
+  end
 
   # Last-resort guard for the read-only query commands (#1684). An unexpected
   # raise or process exit inside a command body used to kill the RPC evaluator
