@@ -4,7 +4,8 @@ How GitHub reaches the daemon's webhook receiver from the public internet, what
 that does and does not expose, and how to set it up on a new machine.
 
 The receiver itself — the route, the HMAC verification, the secret name — is
-documented in [the configuration reference](../../website/docs-app/reference/configuration.md).
+documented by [#1676](https://github.com/aiur-team/aiur/issues/1676) in
+[the configuration reference](../../website/docs-app/reference/configuration.md).
 This document covers only the ingress in front of it.
 
 > **Status.** The recommendation below is Cloudflare Tunnel with path-scoped
@@ -221,8 +222,8 @@ delivery id and event type.
   makes an outbound connection. There is no port forward and no firewall hole.
 - **The secret** lives in `~/.aiur/.env` at mode 600 as
   `AIUR_GITHUB_WEBHOOK_SECRET`, distinct from `GITHUB_TOKEN`,
-  `GITHUB_APP_PRIVATE_KEY` and `AIUR_SUPERVISOR_TOKEN`. It is never logged — the
-  webhook route sets `log: false` to keep payloads out of the debug log.
+  `GITHUB_APP_PRIVATE_KEY` and `AIUR_SUPERVISOR_TOKEN`. It is never logged —
+  #1676's route sets `log: false` to keep payloads out of the debug log.
 - **An attacker who learns the hostname can do nothing.** They reach one route
   that answers 401 to anything lacking a valid `X-Hub-Signature-256` over the
   exact raw bytes. `scripts/verify-webhook-ingress` is the check for that claim
