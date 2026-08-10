@@ -174,7 +174,10 @@ defmodule Aiur.BuildOrder.GitHubGraph.Normalizer do
     }
   end
 
-  defp connection_total(%{} = connection), do: Connection.total(connection)
+  # Only an explicitly valid `totalCount` is a member claim. `Connection.total/1`
+  # fails open to 0, which would report "this root has no tickets" for a
+  # connection we could not read at all; nil keeps that cell unreported instead.
+  defp connection_total(%{"totalCount" => total}) when is_integer(total) and total >= 0, do: total
   defp connection_total(_connection), do: nil
 
   defp member_metadata(member) do
