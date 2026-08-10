@@ -7440,14 +7440,15 @@ html[data-theme="light"] .toggle-icon .moon {
   width: 30px;
   height: 30px;
   box-sizing: border-box;
-  padding: 5px;
+  display: grid;
+  place-items: center;
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 8px;
   background: rgba(255, 255, 255, 0.08);
   color: var(--sd-accent);
 }
 
-.sd-ag-ic svg { width: 100%; height: 100%; }
+.sd-ag-ic svg { width: 20px; height: 20px; }
 
 .sd-ag-vendor,
 .sd-ag-vendor-fallback {
@@ -7998,11 +7999,8 @@ html[data-theme="light"] .sd-device {
   }
 
   .sd-ag-ic {
-    display: grid;
     width: 26px;
     height: 26px;
-    padding: 0;
-    place-items: center;
   }
 
   .sd-ag-ic svg { width: 17px; height: 17px; }

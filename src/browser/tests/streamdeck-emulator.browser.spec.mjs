@@ -200,6 +200,7 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   const geometry = await key.evaluate((element) => {
     const face = element.querySelector('.sd-key-face')
     const icon = element.querySelector('.sd-ag-ic')
+    const iconGlyph = icon.querySelector('svg')
     const vendor = element.querySelector('.sd-ag-vendor')
     const bar = element.querySelector('.sd-ag-bar')
     const fill = bar.querySelector('i')
@@ -216,6 +217,7 @@ test('agent key face matches the design geometry and hue-mapped progress', async
       key: element.getBoundingClientRect().toJSON(),
       faceRadius: css(face).borderRadius,
       icon: { width: css(icon).width, height: css(icon).height },
+      iconGlyph: { width: css(iconGlyph).width, height: css(iconGlyph).height },
       vendor: { width: css(vendor).width, height: css(vendor).height },
       barHeight: css(bar).height,
       topChildrenFit,
@@ -227,6 +229,9 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   expect(Math.abs(geometry.key.width - geometry.key.height)).toBeLessThan(1)
   expect(geometry.faceRadius).toBe('12px')
   expect(geometry.icon).toEqual({ width: '30px', height: '30px' })
+  // The design centres a fixed 20px glyph in the 30px box (streamdeck.design.css:42-43).
+  // Asserting the box alone passed while the glyph rendered at 18px.
+  expect(geometry.iconGlyph).toEqual({ width: '20px', height: '20px' })
   expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
   expect(geometry.barHeight).toBe('6px')
   expect(geometry.topChildrenFit).toBe(true)
