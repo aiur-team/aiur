@@ -42,7 +42,7 @@ defmodule Aiur.GitHub.CiReadiness do
   def check(opts \\ []) do
     with {:ok, {owner, repo}} <- resolve_repo(Keyword.get(opts, :repo)),
          {:ok, token} <- Transport.require_token(opts) do
-      base_branch = Keyword.get(opts, :base_branch, "main")
+      base_branch = Config.base_branch(opts)
 
       request_fun =
         opts
@@ -75,7 +75,7 @@ defmodule Aiur.GitHub.CiReadiness do
   defp check_workflow_presence(opts) do
     case check(Keyword.put(opts, :workflow_presence_only, true)) do
       {:error, :ci_readiness_operator_token_required} ->
-        {:ok, unavailable(Keyword.get(opts, :base_branch, "main"), :ci_readiness_operator_token_required)}
+        {:ok, unavailable(Config.base_branch(opts), :ci_readiness_operator_token_required)}
 
       result ->
         result
@@ -157,13 +157,20 @@ defmodule Aiur.GitHub.CiReadiness do
   defp cache_scope(result, opts) do
     repo = Keyword.get(opts, :repo, GitHubConfig.repo()) || ""
 
-    base_branch =
-      Keyword.get(opts, :base_branch) ||
-        (is_map(result) && Map.get(result, :base_branch)) ||
-        Config.base_branch() || "main"
+    base_branch = resolve_scope_base_branch(result, opts)
 
     {repo, base_branch, config_fingerprint(opts)}
   end
+
+  defp resolve_scope_base_branch(result, opts) do
+    case Keyword.fetch(opts, :base_branch) do
+      {:ok, _branch} -> Config.base_branch(opts)
+      :error -> resolve_result_base_branch(result)
+    end
+  end
+
+  defp resolve_result_base_branch(%{base_branch: _branch} = result), do: Config.base_branch(result)
+  defp resolve_result_base_branch(_result), do: Config.base_branch()
 
   defp config_fingerprint(opts) do
     case Keyword.get(opts, :config_fingerprint) do

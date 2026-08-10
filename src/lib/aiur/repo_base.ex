@@ -1,6 +1,6 @@
 defmodule Aiur.RepoBase do
   @moduledoc """
-  Maintains one warm, pre-compiled base checkout of the target repo's base branch (`tracker.base_branch`, default `main`) at
+  Maintains one warm, pre-compiled base checkout of the target repo's configured `tracker.base_branch` at
   `~/.aiur/repo/<owner>/<name>/latest` so per-issue workspaces materialize from it
   (copy-on-write) instead of cold-cloning + recompiling on every dispatch.
 
@@ -202,8 +202,8 @@ defmodule Aiur.RepoBase do
   def refresh_for_dispatch, do: GenServer.call(__MODULE__, :refresh_for_dispatch)
 
   @doc """
-  The branch the warm base tracks: `tracker.base_branch` from config, falling
-  back to `"main"` when unset, empty, or the config cannot be loaded.
+  The branch the warm base tracks. Missing or empty `tracker.base_branch`
+  configuration raises instead of guessing a destructive default.
   """
   @spec base_branch() :: String.t()
   def base_branch, do: Config.base_branch()
@@ -269,7 +269,7 @@ defmodule Aiur.RepoBase do
   end
 
   # The build worker reports the head it locked in before the (expensive) build,
-  # so a later ls-remote probe can tell whether main advanced past it.
+  # so a later ls-remote probe can tell whether the base branch advanced past it.
   def handle_info({:build_head, pid, head}, %{build: %{pid: pid} = build} = state) do
     {:noreply, %{state | build: %{build | head: head}}}
   end
@@ -354,7 +354,7 @@ defmodule Aiur.RepoBase do
     end
   end
 
-  # An ls-remote probe answers "did main advance?" without touching the base
+  # An ls-remote probe answers "did the base branch advance?" without touching the base
   # working tree, so it is safe to run alongside an in-flight build.
   defp ensure_probe(%{probe: nil} = state, repo_url) do
     parent = self()
@@ -376,7 +376,7 @@ defmodule Aiur.RepoBase do
     |> Map.put(:phase, :checking)
   end
 
-  # main advanced past what the base reflects -> preempt any in-flight build and
+  # the base branch advanced past what the warm checkout reflects -> preempt any in-flight build and
   # rebuild fresh; otherwise stay put.
   defp on_remote_head(state, {:ok, head}) do
     if advanced?(state, head), do: trigger_build(state), else: confirm_freshness(state)
@@ -402,7 +402,7 @@ defmodule Aiur.RepoBase do
        when is_binary(build_head) and is_binary(head),
        do: head != build_head
 
-  # base is ready but main moved past it
+  # base is ready but the configured branch moved past it
   defp advanced?(%{build: nil, phase: phase, ready_head: ready_head}, head)
        when phase in [:ready, :checking] and is_binary(head),
        do: head != ready_head

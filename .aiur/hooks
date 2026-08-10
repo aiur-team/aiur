@@ -2,7 +2,7 @@
 timeout_ms: 600000
 after_create: |
   set -e
-  base_branch="${THIS_BASE_BRANCH:-develop}"
+  base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}"
   workspace_root="$(pwd -P)"
   git_toplevel="$(git rev-parse --show-toplevel 2>/dev/null || true)"
   if [ -n "$git_toplevel" ]; then
@@ -24,6 +24,7 @@ after_create: |
   else
     git checkout -B "$AIUR_TICKET_BRANCH" "origin/$base_branch"
   fi
+  git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"
@@ -58,7 +59,7 @@ after_create: |
   fi
 before_run: |
   set -e
-  base_branch="${THIS_BASE_BRANCH:-develop}"
+  base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}"
   cache_root="${AIUR_REPO_STATE_PATH:?Aiur must provide a repository state path}"
   mkdir -p "$cache_root/.aiur-hex" "$cache_root/.aiur-mix" "$cache_root/.aiur-npm-cache" "$cache_root/meta/retros"
   touch "$cache_root/meta/findings.ndjson"
@@ -122,6 +123,9 @@ before_run: |
       fi
     fi
     git merge --no-edit "origin/$base_branch"
+  fi
+  if ! git rev-parse --verify --quiet 'refs/aiur/branch-start^{commit}' >/dev/null; then
+    git update-ref refs/aiur/branch-start "$(git merge-base "origin/$base_branch" HEAD)"
   fi
   if [ -f mise.toml ]; then
     mise trust mise.toml >/dev/null 2>&1 || true

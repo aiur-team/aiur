@@ -92,7 +92,7 @@ defmodule Aiur.AgentList.Renderer.Table do
 
   @spec prewarm_label(term()) :: term()
   def prewarm_label(:cloning), do: "cloning"
-  def prewarm_label(:fetching), do: "fetching main"
+  def prewarm_label(:fetching), do: "fetching base"
   def prewarm_label(:building), do: "compiling"
   def prewarm_label(_phase), do: "warming up"
 
