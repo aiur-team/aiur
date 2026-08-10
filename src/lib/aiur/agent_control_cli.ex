@@ -1,7 +1,7 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, AnalyticsCLI, Asks, BuildGate, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase}
+  alias Aiur.{AgentChat, AlertFeed, AnalyticsCLI, Asks, BuildGate, CommandsCLI, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection, RepoBase, SupervisionHealth}
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
@@ -38,11 +38,12 @@ defmodule Aiur.AgentControlCLI do
 
             print_capacity_status(Orchestrator.max_concurrent_agents())
 
+            supervision_exit_code = print_supervision_health()
             print_ci_readiness()
             print_build_gate_status()
             print_prewarm_status()
             print_blocking_asks(opts)
-            exit_marker(0)
+            exit_marker(supervision_exit_code)
 
           {:error, :unavailable} ->
             exit_marker(1)
@@ -965,6 +966,24 @@ defmodule Aiur.AgentControlCLI do
 
       _ ->
         :ok
+    end
+  end
+
+  defp print_supervision_health do
+    health_status = Application.get_env(:aiur, :supervision_health_status_fun, &SupervisionHealth.status/0)
+
+    case health_status.() do
+      {:ok, %{missing: []} = snapshot} ->
+        IO.puts(SupervisionHealth.format(snapshot))
+        0
+
+      {:ok, snapshot} ->
+        IO.puts(SupervisionHealth.format(snapshot))
+        1
+
+      {:error, :unavailable} ->
+        IO.puts("SUPERVISION unavailable")
+        1
     end
   end
 
