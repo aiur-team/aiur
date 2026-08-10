@@ -233,6 +233,63 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
       assert MapSet.member?(retried.claimed, identifier)
     end
 
+    # #1747: the retry chain runs on the long-lived orchestrator for ~60s at the
+    # default delays. A missing token cannot clear by being asked five more
+    # times, so retrying it only sprays warnings across every test that happens
+    # to be running a global `capture_log` assertion at the time.
+    test "permanent tracker auth failure fails fast instead of scheduling a retry" do
+      identifier = "7417"
+      isolated_subscription_store(identifier)
+      previous_github_client = Application.get_env(:aiur, :github_client_module)
+      previous_recipient = Application.get_env(:aiur, :hermetic_rework_recipient)
+      previous_agent = Application.get_env(:aiur, :hermetic_rework_agent)
+      previous_issues = Application.get_env(:aiur, :hermetic_rework_issues)
+      previous_delay = Application.get_env(:aiur, :comment_rework_retry_delay_ms)
+      {:ok, agent} = Agent.start_link(fn -> [{:error, :missing_github_token}, :ok] end)
+
+      Application.put_env(:aiur, :comment_rework_retry_delay_ms, 0)
+
+      on_exit(fn ->
+        restore_app_env(:github_client_module, previous_github_client)
+        restore_app_env(:hermetic_rework_recipient, previous_recipient)
+        restore_app_env(:hermetic_rework_agent, previous_agent)
+        restore_app_env(:hermetic_rework_issues, previous_issues)
+        restore_app_env(:comment_rework_retry_delay_ms, previous_delay)
+        if Process.alive?(agent), do: Agent.stop(agent)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "owner/repo",
+        tracker_active_states: ["todo", "in-progress", "human-review", "rework", "merging"],
+        tracker_terminal_states: ["done", "cancelled", "canceled"]
+      )
+
+      Application.put_env(:aiur, :github_client_module, HermeticReworkGitHubClient)
+      Application.put_env(:aiur, :hermetic_rework_recipient, self())
+      Application.put_env(:aiur, :hermetic_rework_agent, agent)
+
+      Application.put_env(:aiur, :hermetic_rework_issues, [
+        %Issue{id: identifier, identifier: identifier, state: "rework", title: "Rework"}
+      ])
+
+      event = comment_event(identifier, "issue.commented")
+
+      log =
+        capture_log(fn ->
+          assert {:noreply, next} = Orchestrator.handle_info({:event, event}, base_state())
+          assert_receive {:hermetic_rework_update, ^identifier, "rework"}, 2000
+          send(self(), {:permanent_failure_state, next})
+        end)
+
+      assert_receive {:permanent_failure_state, next}
+
+      refute_receive {:retry_comment_rework, ^identifier, "issue comment", ^event, _attempt}, 200
+      assert next.comment_rework_retries == %{}
+      assert log =~ "rework transition failed permanently"
+      refute log =~ "rework transition retry scheduled"
+    end
+
     test "pr.merged terminalizes the ticket to done and tears down the running entry" do
       issue_id = "7416"
       identifier = "7416"

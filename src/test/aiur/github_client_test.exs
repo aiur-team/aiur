@@ -1525,6 +1525,11 @@ defmodule Aiur.GitHub.ClientTest do
         send(test_pid, {:github_request, req})
 
         cond do
+          # No standing approval on this PR, so the #1756 approval override
+          # does not apply and the unresolved thread still blocks.
+          req.method == :get and req.url =~ "/pulls/77/reviews" ->
+            {:ok, %{status: 200, body: []}}
+
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok, %{status: 200, body: [%{"number" => 77}]}}
 
@@ -1619,6 +1624,10 @@ defmodule Aiur.GitHub.ClientTest do
                  "labels" => [%{"name" => "sym:in-progress"}]
                }
              }}
+
+          # No standing approval, so the #1756 approval override does not apply.
+          req.method == :get and req.url =~ "/pulls/77/reviews" ->
+            {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok, %{status: 200, body: [%{"number" => 77}]}}
