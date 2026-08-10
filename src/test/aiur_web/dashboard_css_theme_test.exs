@@ -69,6 +69,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @streamdeck_dark_root_pins ~w(
     --accent
     --accent-ink
+    --attention
     --attention-ink
     --blocking-ink
     --blocking-soft
