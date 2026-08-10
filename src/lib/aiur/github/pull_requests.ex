@@ -8,6 +8,16 @@ defmodule Aiur.GitHub.PullRequests do
   alias Aiur.{Codeowners, TicketBranch}
   alias Aiur.GitHub.{Comments, Errors, Transport}
 
+  @pull_request_review_decision_query """
+  query AiurPullRequestReviewDecision($owner: String!, $repo: String!, $number: Int!) {
+    repository(owner: $owner, name: $repo) {
+      pullRequest(number: $number) {
+        reviewDecision
+      }
+    }
+  }
+  """
+
   @spec fetch_pull_request_changed_paths(String.t() | integer(), keyword()) ::
           {:ok, [String.t()]} | {:error, term()}
   def fetch_pull_request_changed_paths(pr_number, opts \\ []) do
@@ -55,6 +65,33 @@ defmodule Aiur.GitHub.PullRequests do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/pulls/#{pr_number}/reviews?per_page=100"
 
       Transport.fetch_json_list(request_fun, token, url)
+    end
+  end
+
+  @doc "Fetches GitHub's aggregate review decision for one pull request."
+  @spec fetch_pull_request_review_decision(String.t() | integer(), keyword()) ::
+          {:ok, String.t() | nil} | {:error, term()}
+  def fetch_pull_request_review_decision(pr_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts),
+         {:ok, number} <- positive_integer(pr_number) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      variables = %{"owner" => owner, "repo" => repo, "number" => number}
+
+      case Transport.github_graphql(request_fun, token, @pull_request_review_decision_query, variables) do
+        {:ok, %{"data" => %{"repository" => %{"pullRequest" => %{"reviewDecision" => decision}}}}}
+        when is_binary(decision) or is_nil(decision) ->
+          {:ok, decision}
+
+        {:ok, %{"data" => %{"repository" => %{"pullRequest" => nil}}}} ->
+          {:error, :pull_request_not_found}
+
+        {:ok, _body} ->
+          {:error, :invalid_pull_request_review_decision_response}
+
+        {:error, _reason} = error ->
+          error
+      end
     end
   end
 

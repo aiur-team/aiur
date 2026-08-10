@@ -442,6 +442,164 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute resolved_opts[:needs_attention]
     end
 
+    test "a rework watch snapshot overrides a stale CI-wait snapshot for the same target" do
+      identifier = unique_identifier("approved-draft-rework-watch")
+      issue = issue(identifier, "rework")
+      stale_issue = %{issue | state: "ci-wait"}
+      topic = "ticket.#{identifier}.pr.approved_draft"
+      RecordingGitHubClient.record_to(self())
+
+      state =
+        CiLifecycle.poll_github_ci(%State{},
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [stale_issue]} end,
+          approved_draft_issue_fetcher: fn ["in-progress", "rework", "merging"] ->
+            {:ok, [issue]}
+          end,
+          ci_poller: fn [^identifier], opts ->
+            assert MapSet.member?(opts[:alert_only_targets], identifier)
+
+            result = %{
+              target: identifier,
+              decision: :failed,
+              draft?: true,
+              review_decision: "APPROVED",
+              head_sha: "approved-rework-head",
+              pr_number: 944,
+              failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+            }
+
+            {:ok, %{results: [result], errors: []}}
+          end,
+          alert_emitter: fn emitted_topic, opts ->
+            send(self(), {:approved_draft_alert, emitted_topic, opts})
+            :ok
+          end
+        )
+
+      assert_received {:approved_draft_alert, ^topic, alert_opts}
+      assert alert_opts[:needs_attention]
+      refute_received {:tracker_update, ^identifier, _state, _opts}
+      assert state.ci_lifecycle.poll_cache[identifier].draft?
+    end
+
+    test "the first CI poll reloads an active approved-draft attention after restart" do
+      identifier = unique_identifier("approved-draft-restart")
+      issue = issue(identifier, "ci-wait")
+      topic = "ticket.#{identifier}.pr.approved_draft"
+
+      alert_emitter = fn emitted_topic, opts ->
+        send(self(), {:approved_draft_alert, emitted_topic, opts})
+        :ok
+      end
+
+      poll = fn state, result ->
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [Map.put(result, :target, identifier)], errors: []}}
+          end,
+          attention_topics_loader: fn -> MapSet.new([topic]) end,
+          alert_emitter: alert_emitter
+        )
+      end
+
+      restarted_state = %State{}
+
+      approved_draft = %{
+        decision: :pending,
+        draft?: true,
+        review_decision: "APPROVED",
+        head_sha: "approved-head",
+        pr_number: 942
+      }
+
+      state = poll.(restarted_state, approved_draft)
+
+      refute_received {:approved_draft_alert, ^topic, _opts}
+
+      state = poll.(state, %{approved_draft | draft?: false})
+
+      assert_received {:approved_draft_alert, resolved_topic, resolved_opts}
+      assert resolved_topic == topic <> ".resolved"
+      refute resolved_opts[:needs_attention]
+      refute MapSet.member?(state.active_attention_topics, topic)
+    end
+
+    test "an approved-draft attention survives rework and resolves when the PR is ready" do
+      identifier = unique_identifier("approved-draft-rework")
+      issue = issue(identifier, "ci-wait")
+      topic = "ticket.#{identifier}.pr.approved_draft"
+      recorder = start_recorder(topic)
+
+      alert_emitter = fn emitted_topic, opts ->
+        send(self(), {:approved_draft_alert, emitted_topic, opts})
+        :ok
+      end
+
+      state = running_state(issue, recorder, :paused, paused_reason: :ci_wait)
+
+      failed_approved_draft = %{
+        target: identifier,
+        decision: :failed,
+        draft?: true,
+        review_decision: "APPROVED",
+        head_sha: "failed-head",
+        pr_number: 943,
+        failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+      }
+
+      state =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            {:ok, %{results: [failed_approved_draft], errors: []}}
+          end,
+          alert_emitter: alert_emitter
+        )
+
+      sync_recorder(recorder)
+
+      assert state.running[identifier].issue.state == "rework"
+      assert_received {:approved_draft_alert, ^topic, alert_opts}
+      assert alert_opts[:needs_attention]
+
+      state =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, []} end,
+          ci_poller: fn _targets, _opts -> flunk("rework tickets must not be polled") end,
+          alert_emitter: alert_emitter
+        )
+
+      assert MapSet.member?(state.ci_lifecycle.approved_draft_alerts, identifier)
+      assert MapSet.member?(state.active_attention_topics, topic)
+
+      ready_issue = %{issue | state: "human-review"}
+
+      state =
+        CiLifecycle.poll_github_ci(state,
+          ci_issue_fetcher: fn ["ci-wait", "human-review"] -> {:ok, [ready_issue]} end,
+          ci_poller: fn [^identifier], _opts ->
+            ready_result = %{
+              target: identifier,
+              decision: :passed,
+              draft?: false,
+              review_decision: "APPROVED",
+              head_sha: "ready-head",
+              pr_number: 943
+            }
+
+            {:ok, %{results: [ready_result], errors: []}}
+          end,
+          alert_emitter: alert_emitter
+        )
+
+      assert_received {:approved_draft_alert, resolved_topic, resolved_opts}
+      assert resolved_topic == topic <> ".resolved"
+      refute resolved_opts[:needs_attention]
+      refute MapSet.member?(state.ci_lifecycle.approved_draft_alerts, identifier)
+      refute MapSet.member?(state.active_attention_topics, topic)
+    end
+
     test "a pre-existing operator pause does not arm the CI fallback" do
       identifier = unique_identifier("ci-operator-paused")
       recorder = start_recorder()

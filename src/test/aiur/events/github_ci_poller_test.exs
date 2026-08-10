@@ -99,6 +99,282 @@ defmodule Aiur.Events.GithubCIPollerTest do
             }} = GithubCIPoller.poll(["42"], ci_batch: ci_batch, base_branch: "main")
   end
 
+  test "an alert-only target reads batched review state without evaluating or repairing CI" do
+    ci_batch = %{
+      "42" => %{
+        pull_request: %{
+          "number" => 71,
+          "head" => %{"sha" => "approved-draft-head"},
+          "base" => %{"ref" => "wrong-base"},
+          "draft" => true,
+          "review_decision" => "APPROVED"
+        },
+        check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "failure"}],
+        commit_status: %{"state" => "failure", "statuses" => []}
+      }
+    }
+
+    assert {:ok,
+            %{
+              errors: [],
+              results: [
+                %{
+                  decision: :pending,
+                  pending_reason: :alert_only,
+                  draft?: true,
+                  review_decision: "APPROVED",
+                  head_sha: "approved-draft-head",
+                  pr_number: 71
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["42"],
+               ci_batch: ci_batch,
+               alert_only_targets: MapSet.new(["42"]),
+               base_branch: "main"
+             )
+  end
+
+  test "an alert-only target clears draft state when the authoritative batch has no open PR" do
+    ci_batch = %{"42" => %{pull_request: nil}}
+
+    assert {:ok,
+            %{
+              errors: [],
+              results: [
+                %{
+                  decision: :pending,
+                  pending_reason: :open_pr_not_yet_visible,
+                  draft?: false
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["42"],
+               ci_batch: ci_batch,
+               alert_only_targets: MapSet.new(["42"])
+             )
+  end
+
+  test "an alert-only target clears draft state when REST reports no open PR" do
+    request_fun = fn %{method: :get, url: url} ->
+      assert String.contains?(url, "/pulls?")
+      {:ok, %{status: 200, body: []}}
+    end
+
+    assert {:ok,
+            %{
+              errors: [],
+              results: [
+                %{
+                  decision: :pending,
+                  pending_reason: :open_pr_not_yet_visible,
+                  draft?: false
+                }
+              ]
+            }} =
+             GithubCIPoller.poll(["42"],
+               request_fun: request_fun,
+               alert_only_targets: MapSet.new(["42"])
+             )
+  end
+
+  test "carries approved draft state through the REST fallback" do
+    request_fun = fn
+      %{method: :get, url: url} ->
+        cond do
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "number" => 71,
+                   "draft" => true,
+                   "head" => %{"sha" => "approved-draft-head"},
+                   "base" => %{"ref" => "main"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/check-runs?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "check_runs" => [
+                   %{"name" => "test", "status" => "completed", "conclusion" => "success"}
+                 ]
+               }
+             }}
+
+          String.ends_with?(url, "/status") ->
+            {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+        end
+
+      %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        assert body["query"] =~ "reviewDecision"
+        assert body["variables"] == %{"owner" => "owner", "repo" => "repo", "number" => 71}
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{"pullRequest" => %{"reviewDecision" => "APPROVED"}}
+             }
+           }
+         }}
+    end
+
+    assert {:ok,
+            %{
+              errors: [],
+              results: [
+                %{
+                  decision: :passed,
+                  draft?: true,
+                  review_decision: "APPROVED",
+                  head_sha: "approved-draft-head",
+                  pr_number: 71
+                }
+              ]
+            }} = GithubCIPoller.poll(["42"], request_fun: request_fun)
+  end
+
+  test "keeps draft review state unknown when the REST fallback review read fails" do
+    request_fun = fn
+      %{method: :get, url: url} ->
+        cond do
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "number" => 71,
+                   "draft" => true,
+                   "head" => %{"sha" => "unknown-review-head"},
+                   "base" => %{"ref" => "main"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/check-runs?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: %{
+                 "check_runs" => [
+                   %{"name" => "test", "status" => "completed", "conclusion" => "success"}
+                 ]
+               }
+             }}
+
+          String.ends_with?(url, "/status") ->
+            {:ok, %{status: 200, body: %{"state" => "pending", "statuses" => []}}}
+        end
+
+      %{method: :post, url: "https://api.github.com/graphql"} ->
+        {:ok, %{status: 502, body: %{}}}
+    end
+
+    assert {:ok, %{errors: [], results: [%{decision: :passed, draft?: true} = result]}} =
+             GithubCIPoller.poll(["42"], request_fun: request_fun)
+
+    refute Map.has_key?(result, :review_decision)
+  end
+
+  test "carries approved draft state when the CI read fails before the PR recheck" do
+    request_fun = fn
+      %{method: :get, url: url} ->
+        cond do
+          String.contains?(url, "/pulls?") ->
+            {:ok,
+             %{
+               status: 200,
+               body: [
+                 %{
+                   "number" => 71,
+                   "draft" => true,
+                   "head" => %{"sha" => "approved-draft-head"},
+                   "base" => %{"ref" => "main"}
+                 }
+               ]
+             }}
+
+          String.contains?(url, "/check-runs?") ->
+            {:ok, %{status: 502, body: %{}}}
+        end
+
+      %{method: :post, url: "https://api.github.com/graphql", body: body} ->
+        assert body["variables"] == %{"owner" => "owner", "repo" => "repo", "number" => 71}
+
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{"pullRequest" => %{"reviewDecision" => "APPROVED"}}
+             }
+           }
+         }}
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :pending,
+                  pending_reason: :ci_lookup_unavailable,
+                  draft?: true,
+                  review_decision: "APPROVED",
+                  pr_number: 71,
+                  head_sha: "approved-draft-head",
+                  error: reason
+                }
+              ],
+              errors: [{"42", reason}]
+            }} = GithubCIPoller.poll(["42"], request_fun: request_fun)
+  end
+
+  test "carries ready state without a review lookup when the CI read fails" do
+    request_fun = fn %{method: :get, url: url} ->
+      cond do
+        String.contains?(url, "/pulls?") ->
+          {:ok,
+           %{
+             status: 200,
+             body: [
+               %{
+                 "number" => 71,
+                 "draft" => false,
+                 "head" => %{"sha" => "ready-head"},
+                 "base" => %{"ref" => "main"}
+               }
+             ]
+           }}
+
+        String.contains?(url, "/check-runs?") ->
+          {:ok, %{status: 502, body: %{}}}
+      end
+    end
+
+    assert {:ok,
+            %{
+              results: [
+                %{
+                  decision: :pending,
+                  pending_reason: :ci_lookup_unavailable,
+                  draft?: false,
+                  pr_number: 71,
+                  head_sha: "ready-head",
+                  error: reason
+                }
+              ],
+              errors: [{"42", reason}]
+            }} = GithubCIPoller.poll(["42"], request_fun: request_fun)
+  end
+
   test "returns pending for no observed checks or in-progress work" do
     assert %{decision: :pending, failures: []} = GithubCIPoller.evaluate_for_test([], %{"statuses" => []})
 
@@ -396,6 +672,17 @@ defmodule Aiur.Events.GithubCIPollerTest do
       url = request.url
 
       cond do
+        request.method == :post and request.url == "https://api.github.com/graphql" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{"pullRequest" => %{"reviewDecision" => "APPROVED"}}
+               }
+             }
+           }}
+
         request.method == :get and String.contains?(url, "/pulls?") ->
           base = Agent.get_and_update(pull_reads, fn count -> {if(count == 0, do: "main", else: "v2"), count + 1} end)
 
@@ -405,6 +692,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
              body: [
                %{
                  "number" => 79,
+                 "draft" => true,
                  "head" => %{"sha" => "head-79"},
                  "base" => %{"ref" => base}
                }
@@ -441,6 +729,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [
                 %{
                   decision: :failed,
+                  draft?: true,
+                  review_decision: "APPROVED",
                   failures: [%{name: "pull request base branch", result: "repaired"}]
                 }
               ]
@@ -493,6 +783,17 @@ defmodule Aiur.Events.GithubCIPollerTest do
     parent = self()
 
     request_fun = fn
+      %{method: :post, url: "https://api.github.com/graphql"} ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{"pullRequest" => %{"reviewDecision" => "APPROVED"}}
+             }
+           }
+         }}
+
       %{method: :get, url: url} when is_binary(url) ->
         assert String.contains?(url, "/pulls?")
 
@@ -539,6 +840,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [
                 %{
                   decision: :failed,
+                  draft?: true,
+                  review_decision: "APPROVED",
                   pr_number: 1144,
                   head_sha: "head-after-concurrent-push",
                   base_repair_invalidation: %{
@@ -578,6 +881,17 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
     request_fun = fn request ->
       cond do
+        request.method == :post and request.url == "https://api.github.com/graphql" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{"pullRequest" => %{"reviewDecision" => nil}}
+               }
+             }
+           }}
+
         request.method == :get and String.contains?(request.url, "/pulls?") ->
           {:ok,
            %{
@@ -934,6 +1248,17 @@ defmodule Aiur.Events.GithubCIPollerTest do
     parent = self()
 
     request_fun = fn
+      %{method: :post, url: "https://api.github.com/graphql"} ->
+        {:ok,
+         %{
+           status: 200,
+           body: %{
+             "data" => %{
+               "repository" => %{"pullRequest" => %{"reviewDecision" => "APPROVED"}}
+             }
+           }
+         }}
+
       %{method: :get, url: url} ->
         assert String.contains?(url, "/pulls?")
 
@@ -961,6 +1286,8 @@ defmodule Aiur.Events.GithubCIPollerTest do
               results: [
                 %{
                   decision: :failed,
+                  draft?: true,
+                  review_decision: "APPROVED",
                   failures: [
                     %{
                       name: "pull request base branch",

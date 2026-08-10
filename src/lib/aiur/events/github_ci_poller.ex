@@ -81,10 +81,58 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target(target, opts) do
-    case ci_batch_value(opts, target) do
-      {:ok, batch} -> poll_batched_target(target, batch, opts)
-      :missing -> poll_target_from_rest(target, opts)
+    if alert_only_target?(target, opts) do
+      poll_approved_draft_target(target, opts)
+    else
+      case ci_batch_value(opts, target) do
+        {:ok, batch} -> poll_batched_target(target, batch, opts)
+        :missing -> poll_target_from_rest(target, opts)
+      end
     end
+  end
+
+  defp poll_approved_draft_target(target, opts) do
+    case ci_batch_value(opts, target) do
+      {:ok, %{pull_request: nil}} ->
+        no_open_pull_request_result(target, :open_pr_not_yet_visible)
+
+      {:ok, %{pull_request: pr}} when is_map(pr) ->
+        approved_draft_result(target, pr)
+
+      _missing_or_invalid ->
+        case Client.fetch_open_pull_request_for_branch(target, opts) do
+          {:ok, nil} ->
+            no_open_pull_request_result(target, :open_pr_not_yet_visible)
+
+          {:ok, pr} when is_map(pr) ->
+            with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")) do
+              target
+              |> approved_draft_result(pr, false)
+              |> merge_rest_pull_request_review_state(pr, pr_number, opts)
+            else
+              {:error, reason} -> poll_error(target, reason)
+            end
+
+          {:error, reason} ->
+            poll_error(target, {:pr_lookup, reason})
+        end
+    end
+  end
+
+  defp approved_draft_result(target, pr, include_review_state \\ true) do
+    with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
+         {:ok, head_sha} <- head_sha(pr) do
+      result = %{target: target, pr_number: pr_number, head_sha: head_sha, decision: :pending, pending_reason: :alert_only}
+      if include_review_state, do: Map.merge(result, pull_request_review_state(pr)), else: result
+    else
+      {:error, reason} -> poll_error(target, reason)
+    end
+  end
+
+  defp alert_only_target?(target, opts) do
+    opts
+    |> Keyword.get(:alert_only_targets, MapSet.new())
+    |> MapSet.member?(to_string(target))
   end
 
   defp poll_target_from_rest(target, opts) do
@@ -93,7 +141,7 @@ defmodule Aiur.Events.GithubCIPoller do
         # A newly finalized PR can take a short time to appear in GitHub's
         # branch-filtered listing. Fail closed so the tracker does not stay
         # human-review-ready before its current head can be evaluated.
-        %{target: target, decision: :pending, pending_reason: :open_pr_not_yet_visible}
+        no_open_pull_request_result(target, :open_pr_not_yet_visible)
 
       {:ok, pr} when is_map(pr) ->
         poll_open_pull_request(target, pr, opts)
@@ -104,7 +152,7 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_batched_target(target, %{pull_request: nil}, _opts) do
-    %{target: target, decision: :pending, pending_reason: :open_pr_not_yet_visible}
+    no_open_pull_request_result(target, :open_pr_not_yet_visible)
   end
 
   defp poll_batched_target(target, %{pull_request: pr, check_runs: check_runs, commit_status: commit_status}, opts)
@@ -129,10 +177,14 @@ defmodule Aiur.Events.GithubCIPoller do
           |> log_classification()
 
         {:ok, {:repaired, invalidation}} ->
-          base_branch_repaired(target, pr_number, invalidation, expected_base)
+          target
+          |> base_branch_repaired(pr_number, invalidation, expected_base)
+          |> Map.merge(pull_request_review_state(pr))
 
         {:error, reason, invalidation} ->
-          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+          target
+          |> base_branch_failure(pr_number, head_sha, expected_base, reason, invalidation)
+          |> Map.merge(pull_request_review_state(pr))
       end
     else
       {:error, reason} -> poll_error(target, reason)
@@ -164,41 +216,48 @@ defmodule Aiur.Events.GithubCIPoller do
 
       case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
         {:ok, :unchanged} ->
-          poll_open_pull_request_ci(target, pr_number, head_sha, opts)
+          poll_open_pull_request_ci(target, pr_number, head_sha, pr, opts)
 
         {:ok, {:unchanged, recovered_invalidation}} ->
           opts = put_base_repair_invalidation(opts, target, recovered_invalidation)
 
           target
-          |> poll_open_pull_request_ci(pr_number, head_sha, opts)
+          |> poll_open_pull_request_ci(pr_number, head_sha, pr, opts)
           |> Map.put(:base_repair_invalidation, recovered_invalidation)
 
         {:ok, {:repaired, invalidation}} ->
-          base_branch_repaired(target, pr_number, invalidation, expected_base)
+          target
+          |> base_branch_repaired(pr_number, invalidation, expected_base)
+          |> merge_rest_pull_request_review_state(pr, pr_number, opts)
 
         {:error, reason, invalidation} ->
-          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+          target
+          |> base_branch_failure(pr_number, head_sha, expected_base, reason, invalidation)
+          |> merge_rest_pull_request_review_state(pr, pr_number, opts)
       end
     else
       {:error, reason} -> poll_error(target, reason)
     end
   end
 
-  defp poll_open_pull_request_ci(target, pr_number, head_sha, opts) do
+  defp poll_open_pull_request_ci(target, pr_number, head_sha, initial_pr, opts) do
     case Client.fetch_commit_ci_status(head_sha, opts) do
       {:ok, %{check_runs: check_runs, commit_status: commit_status}} ->
         poll_current_head_result(target, pr_number, head_sha, check_runs, commit_status, opts)
 
       {:error, reason} ->
-        poll_error(target, reason)
+        target
+        |> poll_error(reason)
+        |> Map.merge(%{pr_number: pr_number, head_sha: head_sha})
+        |> merge_rest_pull_request_review_state(initial_pr, pr_number, opts)
     end
   end
 
   defp poll_current_head_result(target, pr_number, observed_head_sha, check_runs, commit_status, opts) do
     case Client.fetch_open_pull_request_for_branch(target, opts) do
       {:ok, current_pr} when is_map(current_pr) ->
-        poll_current_pull_request_result(
-          target,
+        target
+        |> poll_current_pull_request_result(
           pr_number,
           current_pr,
           observed_head_sha,
@@ -206,9 +265,10 @@ defmodule Aiur.Events.GithubCIPoller do
           commit_status,
           opts
         )
+        |> merge_rest_pull_request_review_state(current_pr, pr_number, opts)
 
       {:ok, nil} ->
-        %{target: target, decision: :pending, pending_reason: :open_pr_no_longer_visible}
+        no_open_pull_request_result(target, :open_pr_no_longer_visible)
 
       {:error, reason} ->
         poll_error(target, {:pr_recheck, reason})
@@ -285,6 +345,33 @@ defmodule Aiur.Events.GithubCIPoller do
       {:error, reason} ->
         poll_error(target, reason)
     end
+  end
+
+  defp merge_rest_pull_request_review_state(result, current_pr, pr_number, opts) do
+    case Map.fetch(current_pr, "draft") do
+      {:ok, false} ->
+        Map.put(result, :draft?, false)
+
+      {:ok, true} ->
+        result = Map.put(result, :draft?, true)
+
+        case Client.fetch_pull_request_review_decision(pr_number, opts) do
+          {:ok, decision} ->
+            Map.put(result, :review_decision, decision)
+
+          {:error, reason} ->
+            Logger.warning("Github CI review decision unavailable: pr=#{pr_number} reason=#{inspect(reason)}")
+
+            result
+        end
+
+      :error ->
+        result
+    end
+  end
+
+  defp no_open_pull_request_result(target, pending_reason) do
+    %{target: target, decision: :pending, pending_reason: pending_reason, draft?: false}
   end
 
   defp evaluate(check_runs, commit_status) do

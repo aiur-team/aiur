@@ -6,7 +6,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   require Logger
 
-  alias Aiur.{Alerts, CIApprovalStore, Config, Issue, Tracker}
+  alias Aiur.{AlertFeed, Alerts, CIApprovalStore, Config, Issue, Tracker}
+  alias Aiur.Config.Paths
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client}
 
@@ -28,6 +29,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   @human_review_state "human-review"
   @active_handoff_state "in-progress"
   @ci_poll_states [@ci_wait_state, @human_review_state]
+  @approved_draft_watch_states [@active_handoff_state, "rework", "merging"]
 
   @spec poll_github_ci(State.t(), keyword()) :: State.t()
   def poll_github_ci(%State{} = state, opts \\ []) do
@@ -36,7 +38,9 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       # configured cadence rather than widening on quiet, so CI detection
       # latency is unchanged at the same polling interval.
       "github" ->
-        do_poll_github_ci(state, opts)
+        state
+        |> refresh_active_attention_topics(opts)
+        |> do_poll_github_ci(opts)
 
       _ ->
         state
@@ -322,6 +326,8 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
     case fetch_ci_issues(state, opts) do
       {:ok, issues, state} ->
+        issues = merge_approved_draft_watch_issues(issues, opts)
+
         state
         |> prune_ci_lifecycle_state(issues)
         |> poll_github_ci_targets(issues, poller, opts)
@@ -361,6 +367,36 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
   end
 
+  defp merge_approved_draft_watch_issues(issues, opts) do
+    case fetch_approved_draft_watch_issues(opts) do
+      {:ok, watched_issues} when is_list(watched_issues) ->
+        (issues ++ watched_issues)
+        |> Enum.reverse()
+        |> Enum.uniq_by(&ci_target_for_issue/1)
+        |> Enum.reverse()
+
+      {:error, reason} ->
+        Logger.warning("Approved-draft watch target refresh skipped; reason=#{inspect(reason)}")
+        issues
+
+      other ->
+        Logger.warning("Approved-draft watch target refresh returned unexpected value=#{inspect(other)}")
+        issues
+    end
+  end
+
+  defp fetch_approved_draft_watch_issues(opts) do
+    case Keyword.fetch(opts, :approved_draft_issue_fetcher) do
+      {:ok, fetcher} ->
+        fetcher.(@approved_draft_watch_states)
+
+      :error ->
+        if Keyword.has_key?(opts, :ci_issue_fetcher),
+          do: {:ok, []},
+          else: Client.fetch_issues_by_states(@approved_draft_watch_states, opts)
+    end
+  end
+
   defp poll_github_ci_targets(%State{} = state, issues, poller, opts) do
     issues_by_target = ci_issues_by_target(issues)
     targets = Map.keys(issues_by_target)
@@ -374,11 +410,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp poll_github_ci_targets(state, issues_by_target, targets, poller, opts) do
     poll_opts =
-      Keyword.put(
-        opts,
+      opts
+      |> Keyword.put(
         :base_repair_invalidations,
         Map.get(state.ci_lifecycle, :base_repair_invalidations, %{})
       )
+      |> Keyword.put(:alert_only_targets, approved_draft_only_targets(issues_by_target))
 
     poll_opts = put_ci_batch(poll_opts, targets, issues_by_target)
 
@@ -461,6 +498,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     end)
   end
 
+  defp approved_draft_only_targets(issues_by_target) do
+    Enum.reduce(issues_by_target, MapSet.new(), fn {target, issue}, targets ->
+      if ci_transition_issue?(issue), do: targets, else: MapSet.put(targets, target)
+    end)
+  end
+
   defp note_ci_poll_connectivity(state, targets, errors) do
     if errors == [] or not all_ci_targets_failed?(targets, errors) do
       TrackerHealth.note_github_connectivity_success(state, :ci)
@@ -507,7 +550,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
         |> reconcile_base_repair_invalidation(issue, result)
         |> reconcile_approved_draft_alert(issue, result, opts)
         |> stash_last_ci_result(issue, result)
-        |> apply_ci_poll_result(issue, result)
+        |> maybe_apply_ci_poll_result(issue, result)
 
       _ ->
         state
@@ -535,11 +578,22 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp approved_draft_state(%{draft?: true, review_decision: _decision}), do: :clear
   defp approved_draft_state(_result), do: :unknown
 
+  defp maybe_apply_ci_poll_result(state, issue, result) do
+    if ci_transition_issue?(issue), do: apply_ci_poll_result(state, issue, result), else: state
+  end
+
+  defp ci_transition_issue?(%Issue{} = issue) do
+    ci_wait_state?(issue.state) or HumanReview.human_review_state?(issue.state)
+  end
+
+  defp ci_transition_issue?(_issue), do: false
+
   defp emit_approved_draft_alert(state, issue, result, target, active_alerts, opts) do
-    if MapSet.member?(active_alerts, target) do
+    topic = approved_draft_alert_topic(target)
+
+    if approved_draft_alert_active?(state, target, active_alerts) do
       state
     else
-      topic = approved_draft_alert_topic(target)
       pr_number = Map.get(result, :pr_number)
 
       message =
@@ -552,15 +606,17 @@ defmodule Aiur.Orchestrator.CiLifecycle do
              reason: message,
              needs_attention: true
            ) do
-        :ok -> put_approved_draft_alerts(state, MapSet.put(active_alerts, target))
+        :ok -> mark_approved_draft_alert_active(state, target, active_alerts, topic)
         {:error, reason} -> log_approved_draft_alert_error(state, topic, reason)
       end
     end
   end
 
   defp resolve_approved_draft_alert(state, issue, result, target, active_alerts, opts) do
-    if MapSet.member?(active_alerts, target) do
-      topic = approved_draft_alert_topic(target) <> ".resolved"
+    active_topic = approved_draft_alert_topic(target)
+
+    if approved_draft_alert_active?(state, target, active_alerts) do
+      topic = active_topic <> ".resolved"
       pr_number = Map.get(result, :pr_number)
       message = "Pull request ##{pr_number} is no longer both approved and draft."
 
@@ -571,7 +627,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
              reason: message,
              needs_attention: false
            ) do
-        :ok -> put_approved_draft_alerts(state, MapSet.delete(active_alerts, target))
+        :ok -> clear_approved_draft_alert(state, target, active_alerts, active_topic)
         {:error, reason} -> log_approved_draft_alert_error(state, topic, reason)
       end
     else
@@ -581,6 +637,55 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   defp approved_draft_alert_topic(target), do: "ticket.#{target}.pr.approved_draft"
   defp alert_emitter(opts), do: Keyword.get(opts, :alert_emitter, &Alerts.emit_system/2)
+
+  defp refresh_active_attention_topics(state, opts) do
+    cond do
+      Keyword.has_key?(opts, :attention_topics_loader) ->
+        opts
+        |> Keyword.fetch!(:attention_topics_loader)
+        |> then(&load_active_attention_topics(state, &1))
+
+      Keyword.has_key?(opts, :alert_emitter) ->
+        # Tests with an in-memory emitter maintain the cache directly below;
+        # there is no persisted ledger to reload between their poll calls.
+        state
+
+      true ->
+        load_active_attention_topics(state, fn ->
+          AlertFeed.list(log_roots: [Paths.log_root_dir()], needs_attention: true)
+        end)
+    end
+  end
+
+  defp load_active_attention_topics(state, loader) when is_function(loader, 0) do
+    case loader.() do
+      topics when is_list(topics) ->
+        %{state | active_attention_topics: MapSet.new(topics, &Map.get(&1, "topic"))}
+
+      %MapSet{} = topics ->
+        %{state | active_attention_topics: topics}
+
+      _other ->
+        state
+    end
+  end
+
+  defp approved_draft_alert_active?(state, target, active_alerts) do
+    MapSet.member?(active_alerts, target) or
+      MapSet.member?(state.active_attention_topics, approved_draft_alert_topic(target))
+  end
+
+  defp mark_approved_draft_alert_active(state, target, active_alerts, topic) do
+    state
+    |> put_approved_draft_alerts(MapSet.put(active_alerts, target))
+    |> Map.update!(:active_attention_topics, &MapSet.put(&1, topic))
+  end
+
+  defp clear_approved_draft_alert(state, target, active_alerts, topic) do
+    state
+    |> put_approved_draft_alerts(MapSet.delete(active_alerts, target))
+    |> Map.update!(:active_attention_topics, &MapSet.delete(&1, topic))
+  end
 
   defp put_approved_draft_alerts(%State{} = state, alerts) do
     %{state | ci_lifecycle: Map.put(state.ci_lifecycle, :approved_draft_alerts, alerts)}
@@ -948,15 +1053,11 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp prune_ci_lifecycle_state(%State{} = state, issues) do
     targets =
       issues
+      |> Enum.filter(&ci_transition_issue?/1)
       |> Enum.map(&ci_target_for_issue/1)
       |> Enum.filter(&is_binary/1)
 
     approved_heads = Map.take(state.ci_lifecycle.approved_heads, targets)
-
-    approved_draft_alerts =
-      state.ci_lifecycle
-      |> Map.get(:approved_draft_alerts, MapSet.new())
-      |> MapSet.intersection(MapSet.new(targets))
 
     test_failure_heads = Map.take(state.ci_lifecycle.test_failure_heads, targets)
     existing_poll_cache = Map.get(state.ci_lifecycle, :poll_cache, %{})
@@ -966,12 +1067,12 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       |> Map.take(targets)
       |> maybe_keep_issue_list_cache(existing_poll_cache)
 
-    # Base repair invalidations intentionally survive while their ticket is in
-    # rework (and therefore absent from this CI-only target list). The marker is
-    # cleared only when that ticket returns with a new head or post-repair CI.
+    # Approved-draft attentions and base repair invalidations intentionally
+    # survive while their ticket is in rework (and therefore absent from this
+    # CI-only target list). Each marker is cleared only after a definitive
+    # GitHub observation when the ticket returns to the CI lifecycle.
 
     if approved_heads == state.ci_lifecycle.approved_heads and
-         approved_draft_alerts == Map.get(state.ci_lifecycle, :approved_draft_alerts, MapSet.new()) and
          test_failure_heads == state.ci_lifecycle.test_failure_heads and
          poll_cache == existing_poll_cache do
       state
@@ -979,7 +1080,6 @@ defmodule Aiur.Orchestrator.CiLifecycle do
       ci_lifecycle =
         state.ci_lifecycle
         |> Map.put(:approved_heads, approved_heads)
-        |> Map.put(:approved_draft_alerts, approved_draft_alerts)
         |> Map.put(:test_failure_heads, test_failure_heads)
         |> Map.put(:poll_cache, poll_cache)
 
