@@ -119,6 +119,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           |> dispatch_or_hold(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
+          |> IssueSync.sync_fleet_capacity_starved_alert(issues)
 
         %{state | initial_dispatch_cycle: false}
 
@@ -429,8 +430,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun), do: state
 
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun)
-       when is_list(issues) and is_function(admission_probes_fun, 0),
-       do: record_capacity_constraints(state, admission_probes_fun.())
+       when is_list(issues) and is_function(admission_probes_fun, 0) do
+    probes = admission_probes_fun.()
+    state |> record_capacity_sample(probes) |> record_capacity_constraints(probes)
+  end
 
   @doc false
   @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
@@ -599,6 +602,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # constraint list is deliberately broader than the single binding signal
     # `admission_gate/1` returns below.
     state = record_capacity_constraints(state, probes)
+    state = record_capacity_sample(state, probes)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
@@ -1408,6 +1412,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
+  defp record_capacity_sample(%State{} = state, probes) do
+    %{
+      state
+      | dispatch_capacity_sample: %{
+          load: probes.load,
+          target: probes.target,
+          schedulers: probes.schedulers
+        }
+    }
+  end
+
   defp maybe_record_run_queue_constraint(state, :hold, probes) do
     record_capacity_constraint(
       state,
@@ -1710,8 +1725,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
         record_rework_resume(issue, lifecycle_attempt_id)
 
-        running =
-          Map.put(state.running, issue.id, %{
+        running_entry =
+          %{
             pid: pid,
             ref: ref,
             identifier: issue.identifier,
@@ -1740,7 +1755,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             prior_work: Keyword.get(opts, :prior_work, false),
             started_at: DateTime.utc_now()
-          })
+          }
+          |> inherit_redispatch_safety(Map.get(state.running, issue.id))
+
+        running = Map.put(state.running, issue.id, running_entry)
 
         %{
           state
@@ -1772,6 +1790,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
         "ticket-" <> (10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
     end
   end
+
+  # Backend replacement leaves a parked entry in place until a new Task is
+  # admitted. Transfer only the deliberately staged safety context; ordinary
+  # dispatches never carry arbitrary state from an older worker.
+  defp inherit_redispatch_safety(entry, %{redispatch_safety: safety} = previous) when is_map(safety) do
+    entry
+    |> Map.put(:redispatch_safety, safety)
+    |> Map.put(:rate_limit_fallback_replacement, Map.get(previous, :rate_limit_fallback_replacement) == true)
+    |> maybe_put_redispatch_fence(Map.get(previous, :lifecycle_fence))
+    |> maybe_put_redispatch_workspace(Map.get(safety, :workspace_path))
+  end
+
+  defp inherit_redispatch_safety(entry, _previous), do: entry
+
+  defp maybe_put_redispatch_fence(entry, fence) when is_map(fence), do: Map.put(entry, :lifecycle_fence, fence)
+  defp maybe_put_redispatch_fence(entry, _fence), do: entry
+
+  defp maybe_put_redispatch_workspace(entry, path) when is_binary(path), do: Map.put(entry, :workspace_path, path)
+  defp maybe_put_redispatch_workspace(entry, _path), do: entry
 
   # Attempt IDs are retained in Decision provenance, whose identity fields are
   # deliberately bounded and exclude arbitrary tracker payload. Hash the stable

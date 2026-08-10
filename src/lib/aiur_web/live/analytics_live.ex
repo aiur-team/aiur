@@ -9,13 +9,9 @@ defmodule AiurWeb.AnalyticsLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.BuildOrder.{Catalog, Member, RootSummary, SelectedRoot}
-  alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.{RunTelemetry, TrackerIdentity}
   alias Aiur.Usage.GroupedScopes
   alias Aiur.Usage.GroupedScopes.Scope
   alias Aiur.UsageAggregate
-  alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   alias AiurWeb.OperatorControlCenter.{
@@ -25,7 +21,7 @@ defmodule AiurWeb.AnalyticsLive do
     UsageSummaryPresenter
   }
 
-  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, Styles}
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Presenter, ScopeResolver, Styles}
 
   @usage_summary_max_age_ms 30_000
 
@@ -255,7 +251,7 @@ defmodule AiurWeb.AnalyticsLive do
         range: socket.assigns.range,
         session: session,
         telemetry_file: Application.get_env(:aiur, :analytics_telemetry_file)
-      ] ++ telemetry_scope_opts(socket.assigns.analytics_scope)
+      ] ++ ScopeResolver.telemetry_opts(socket.assigns.analytics_scope)
 
     socket = assign(socket, :provider_spend, provider_spend(socket))
 
@@ -356,7 +352,7 @@ defmodule AiurWeb.AnalyticsLive do
   defp load_provider_spend(context, analytics_scope) do
     usage_aggregate = usage_aggregate_source()
 
-    with {:ok, scope} <- usage_scope(analytics_scope),
+    with {:ok, scope} <- ScopeResolver.usage_scope(analytics_scope),
          {:ok, snapshot} <-
            FinancialData.fetch_usage_grouping(
              FinancialData,
@@ -390,48 +386,7 @@ defmodule AiurWeb.AnalyticsLive do
 
   defp provider_spend_view(_view), do: %{state: :unavailable}
 
-  defp analytics_scope(nil), do: :session
-
-  defp analytics_scope(root_number) when is_binary(root_number) do
-    source = Application.get_env(:aiur, :build_order_data_source, AiurWeb.BuildOrder.DataSource)
-
-    with %Snapshot{data: %Catalog{entries: entries}} <- Runtime.safe_source_call(source, :catalog, [], nil),
-         %RootSummary{identity: %TrackerIdentity{} = identity} <-
-           Enum.find(entries, &(TrackerIdentity.joinable?(&1.identity) and &1.identity.identifier == root_number)),
-         {:ok, %Snapshot{data: %SelectedRoot{members: members}}} <-
-           Runtime.safe_source_call(source, :demand, [identity], {:error, :unavailable}),
-         identities when identities != [] <- member_identities(members),
-         {:ok, usage_scope} <- Scope.intersection(RunTelemetry.boot_id(), identities) do
-      %{
-        kind: :build_order,
-        root_number: root_number,
-        tickets: MapSet.new(identities, & &1.identifier),
-        total: length(members),
-        usage_scope: usage_scope
-      }
-    else
-      _other -> :unavailable
-    end
-  end
-
-  defp analytics_scope(_root_number), do: :unavailable
-
-  defp member_identities(members) do
-    Enum.flat_map(members, fn
-      %Member{identity: %TrackerIdentity{} = identity} -> if(TrackerIdentity.joinable?(identity), do: [identity], else: [])
-      _other -> []
-    end)
-  end
-
-  defp telemetry_scope_opts(%{kind: :build_order, tickets: tickets, total: total}),
-    do: [tickets: MapSet.to_list(tickets), scope_total: total]
-
-  defp telemetry_scope_opts(:session), do: []
-  defp telemetry_scope_opts(:unavailable), do: [tickets: []]
-
-  defp usage_scope(%{kind: :build_order, usage_scope: scope}), do: {:ok, scope}
-  defp usage_scope(:session), do: Scope.this_run(RunTelemetry.boot_id())
-  defp usage_scope(:unavailable), do: {:error, :unavailable}
+  defp analytics_scope(root_number), do: ScopeResolver.resolve(root_number)
 
   defp scope_label(%{kind: :build_order, root_number: root_number}), do: "Build Order ##{root_number}, this session"
   defp scope_label(:session), do: "this session"

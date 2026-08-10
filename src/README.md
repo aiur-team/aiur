@@ -230,7 +230,8 @@ on your `PATH`:
 | `aiurdev --bg --no-dashboard` | Start a lean detached headless BEAM without the web dashboard |
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
-| `aiurdev status` | Show active agents and their running/paused/idle state, plus GitHub CI readiness |
+| `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
+| `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
 | `aiurdev resume <id...>` / `resume --all` | Resume paused agents by issue ID |
 | `aiurdev --todo <id...> [--only]` | Queue GitHub tickets; with `--only`, dequeue all other pending tickets |
@@ -333,6 +334,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   reducer, and self-contained renderer as the CLI artifact and is served with
   `Cache-Control: no-store`. Drag across any time chart to zoom the five
   time-series charts together; use Reset to return to the full selected range.
+
+The Units catalog reconciles retained current-run membership with the latest
+fresh orchestrator snapshot. After a daemon generation change, current agents
+remain visible while membership catches up; counts are marked partial if that
+membership source is unavailable. A periodic reconciliation also recovers
+agents that existed without a dispatch notification, so an unknown catalog is
+never presented as an exact zero.
 
 ### Supervisor Decision API
 

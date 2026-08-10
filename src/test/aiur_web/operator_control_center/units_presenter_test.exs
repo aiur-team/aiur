@@ -60,6 +60,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     refute_received :activity_read
   end
 
+  test "current orchestrator rows prevent a healthy empty membership from reporting Active 0" do
+    alpha = identity("NODE-restarted", "41")
+
+    catalog =
+      UnitsPresenter.load(payload(alpha),
+        membership_fun: fn -> membership([]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert catalog.status == :ready
+    assert [%{identity: ^alpha}] = catalog.snapshot.rows
+    assert view.counts.active == 1
+    refute UnitsPresenter.announcement(view) =~ "No units have been observed"
+  end
+
   test "provider failure is named unavailable instead of becoming a healthy empty catalog" do
     catalog =
       UnitsPresenter.load(%{},
@@ -79,6 +96,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert Enum.all?(view.counts, fn {_name, count} -> is_nil(count) end)
     assert UnitsPresenter.announcement(view) =~ "Units catalog unavailable"
     refute UnitsPresenter.announcement(view) =~ "0 of 0"
+  end
+
+  test "unavailable membership with current agents reports unknown counts instead of zero" do
+    alpha = identity("NODE-membership-unavailable", "41")
+
+    catalog =
+      UnitsPresenter.load(payload(alpha),
+        membership_fun: fn -> raise "membership down" end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert catalog.status == :stale
+    assert [%{identity: ^alpha}] = catalog.snapshot.rows
+    assert view.count_status == :partial
+    assert view.counts.active == 1
+    assert catalog.message == "current-run membership is unavailable"
   end
 
   test "truncated membership qualifies every catalog count as a lower bound" do

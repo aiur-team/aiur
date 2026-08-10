@@ -3,6 +3,8 @@ defmodule Aiur.BuildOrder.RootSummary do
 
   alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, BuildOrder.Lifecycle, TrackerIdentity}
 
+  @type progress_resolution :: :resolved | :partial | :unresolved | :unknown
+
   @type t :: %__MODULE__{
           identity: TrackerIdentity.t() | nil,
           title: String.t(),
@@ -17,7 +19,7 @@ defmodule Aiur.BuildOrder.RootSummary do
           epic_count: non_neg_integer() | nil,
           phase_count: non_neg_integer() | nil,
           progress: non_neg_integer() | nil,
-          progress_resolution: :resolved | :partial | :unresolved | :unknown,
+          progress_resolution: progress_resolution(),
           progress_resolved_count: non_neg_integer() | nil,
           completed?: boolean(),
           diagnostics: [Diagnostic.t()]
