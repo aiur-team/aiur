@@ -357,8 +357,17 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert to_string(state_path) == Aiur.RepoBase.repo_path(repo_url)
 
+      assert {~c"AIUR_AGENT_BIN", ~c"/work/aiur/440/.aiur-runtime/bin"} =
+               List.keyfind(env, ~c"AIUR_AGENT_BIN", 0)
+
+      assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
+      assert is_list(real_gh) or real_gh == false
+
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
+
+      assert {~c"AIUR_AGENT_QUOTA_STATE_PATH", ~c"/work/aiur/440/.aiur-runtime/github-quota"} =
+               List.keyfind(env, ~c"AIUR_AGENT_QUOTA_STATE_PATH", 0)
 
       assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
                List.keyfind(env, ~c"AIUR_BASE_BRANCH", 0)
@@ -427,6 +436,10 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
+      assert prefix =~ "AIUR_REAL_GH=\"$(command -v gh"
+      assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
+      assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
+      assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
