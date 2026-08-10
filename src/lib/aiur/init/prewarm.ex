@@ -16,7 +16,7 @@ defmodule Aiur.Init.Prewarm do
   def prompt_prewarm(_io, _deps, :global), do: %{enabled: false, base_build: nil}
 
   def prompt_prewarm(io, deps, _location) do
-    if io.confirm.("Keep a pre-warmed copy of latest main so agents skip cloning + building?", true) do
+    if io.confirm.("Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?", true) do
       resolve_prewarm(io, deps)
     else
       %{enabled: false, base_build: nil}
@@ -86,7 +86,7 @@ defmodule Aiur.Init.Prewarm do
     You are working in a repository managed by aiur, an agent-orchestration
     runtime. aiur runs coding agents in isolated workspaces. To avoid every
     agent cold-cloning, installing dependencies, and compiling at the same time,
-    aiur can keep one shared, pre-installed checkout of this repo's main branch
+    aiur can keep one shared, pre-installed checkout of this repo's configured base branch
     called the warm base. Agent workspaces are materialized from that base with
     copy-on-write, so they inherit dependency caches and build artifacts.
 
@@ -95,8 +95,8 @@ defmodule Aiur.Init.Prewarm do
     describe the command.
 
     base_build conventions:
-    - It runs in a checkout of this repo's main branch, and aiur reruns it when
-      main changes. Make it idempotent and incremental.
+    - It runs in a checkout of this repo's configured base branch, and aiur
+      reruns it when that branch changes. Make it idempotent and incremental.
     - Route every tool call through `mise exec --` so Linux and macOS use the
       repo-pinned toolchain.
     - cd into the directory that holds the build manifest before running the
