@@ -259,7 +259,12 @@ the same hostname. It exits non-zero if any of that is untrue.
 
 Its own assertions are covered by `scripts/test-webhook-ingress.sh`, which runs
 the guard against loopback fixtures modelling a correctly scoped edge, a
-wide-open one, and a receiver that accepts unsigned deliveries. That runs in CI.
+wide-open one, a receiver that accepts unsigned deliveries, and an ingress rule
+that never matches the webhook path. That last case is the one worth knowing
+about when you are reading the guard's output: a tunnel scoped so tightly that
+it delivers nothing passes *every* "not publicly routable" assertion, so the
+reachability line at the top is the only thing that catches it. A run whose
+denied-path list is all `ok` is not a pass on its own. That harness runs in CI.
 
 Finally, confirm a real delivery: redeliver from the App's **Advanced →  Recent
 Deliveries** tab and check for a 2xx, then confirm the daemon logged the
