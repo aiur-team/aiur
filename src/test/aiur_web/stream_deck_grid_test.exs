@@ -72,7 +72,10 @@ defmodule AiurWeb.StreamDeckGridTest do
       StreamDeckGrid.project(%{
         running: [agent("running"), agent("paused", work_state: :paused), agent("alert", open_decision_count: 1), agent("stuck", work_state: :error)],
         retrying: [],
-        idle: [agent("queued-blocked", waiting_reason: :waiting_for_dependency), agent("queued-ready")]
+        idle: [
+          agent("queued-blocked", blocked_by: [%{id: "missing-upstream"}]),
+          agent("queued-ready", blocked_by: [])
+        ]
       })
 
     assert Enum.map(payload.agents, & &1.identifier) == [
@@ -119,6 +122,43 @@ defmodule AiurWeb.StreamDeckGridTest do
              {"ready", true},
              {"blocked", false}
            ]
+  end
+
+  test "derives queued readiness from complete fleet dependencies" do
+    snapshot = %{
+      running: [
+        agent("open-upstream", progress_percent: 99),
+        agent("merged-upstream", control: "Merged"),
+        agent("complete-upstream", progress_percent: 100)
+      ],
+      retrying: [],
+      idle: [
+        agent("open-child", blocked_by: [%{id: "open-upstream"}]),
+        agent("merged-child", blocked_by: [%{id: "merged-upstream"}]),
+        agent("complete-child", blocked_by: [%{id: "complete-upstream"}]),
+        agent("unknown-child", blocked_by: [%{id: "absent-upstream"}]),
+        agent("independent-child", blocked_by: []),
+        agent("missing-data-child"),
+        agent("unresolved-child", blocked_by: nil)
+      ]
+    }
+
+    readiness =
+      snapshot
+      |> StreamDeckGrid.project()
+      |> Map.fetch!(:agents)
+      |> Enum.filter(&(&1.bucket == :queued))
+      |> Map.new(&{&1.identifier, &1.dependency_ready})
+
+    assert readiness == %{
+             "open-child" => false,
+             "merged-child" => true,
+             "complete-child" => true,
+             "unknown-child" => false,
+             "independent-child" => true,
+             "missing-data-child" => false,
+             "unresolved-child" => false
+           }
   end
 
   property "renders agents in non-decreasing Stream Deck rank for any fleet" do

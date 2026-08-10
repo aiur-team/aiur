@@ -106,7 +106,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   def select_all_filters do
     UnitsPolicy.normalize_selection(%{
       scope: :unfinished,
-      conditions: [:active, :alert, :paused, :queued, :finished]
+      conditions: UnitsPolicy.visible_conditions()
     })
   end
 

@@ -163,6 +163,10 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_comment_rework, issue_number, source, event, attempt}, state)
       when is_integer(attempt) do
+    # The tracked timer has now fired; drop its ref before the attempt runs so a
+    # rescheduled retry replaces it rather than being cancelled as "superseded".
+    state = CommentWake.forget_comment_rework_retry(state, issue_number, source)
+
     {:noreply, CommentWake.maybe_reactivate_on_comment(state, issue_number, source, event, attempt)}
   end
 
