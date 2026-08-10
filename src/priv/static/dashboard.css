@@ -8143,6 +8143,52 @@ html[data-theme="light"] .sd-device {
   letter-spacing: 0.04em;
 }
 
+/* Read-only mode. The button also carries the `disabled` attribute, so this is
+   presentation only — it must never be the sole thing stopping a press. */
+.sd-cmd-key.is-disabled .sd-key-face {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Control feedback is screen-reader-only until there is something to report; a
+   failed control call is meant to be seen on the deck face, not just heard. */
+.sd-control-status {
+  margin: 0 0 0.4rem;
+  color: var(--attention-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.sd-cmd-label {
+  display: block;
+}
+
+.sd-cmd-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+/* Mic is press-and-hold: the key is held down rather than clicked, so it needs
+   a held-state affordance the click keys do not. */
+.sd-cmd-item.sd-mic-key {
+  touch-action: none;
+  user-select: none;
+}
+
+.sd-cmd-item.sd-mic-key.is-live {
+  border-color: var(--super);
+  box-shadow: 0 0 0.5rem var(--super);
+}
+
+.sd-cmd-item.sd-mic-key.is-live .sd-cmd-label {
+  color: var(--super);
+}
+
 .sd-log-body {
   max-height: 6rem;
   overflow-y: auto;
