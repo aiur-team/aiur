@@ -44,6 +44,8 @@ defmodule Aiur.Webhooks.ConsumerEquivalenceTest do
   mode_test "an empty payload is still delivered as an empty payload", ctx do
     {:ok, _event} = deliver(ctx, "ticket.1683.agent.progress", %{})
 
-    assert_received {:published, %{topic: "ticket.1683.agent.progress", payload: %{}}}
+    assert_received {:published, published}
+    assert published.topic == "ticket.1683.agent.progress"
+    assert published.payload == %{}, "an empty payload must arrive empty, not enriched by the transport"
   end
 end
