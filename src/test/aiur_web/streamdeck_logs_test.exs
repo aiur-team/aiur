@@ -1,9 +1,7 @@
 defmodule AiurWeb.StreamdeckLogsTest do
   use ExUnit.Case, async: true
 
-  alias AiurWeb.StreamdeckLogs
-
-  @css Path.expand("../../priv/static/dashboard.css", __DIR__)
+  alias AiurWeb.{StreamdeckKeyFaceContract, StreamdeckLogs}
 
   test "projects a LIVE key plus badged event keys and positions the flattened transcript" do
     logs =
@@ -40,26 +38,41 @@ defmodule AiurWeb.StreamdeckLogsTest do
              ["EMIT", "CONSUME", "INFO", "AGENT", "SYSTEM", "INFO"]
   end
 
-  # The colour lives in `dashboard.css` rather than in an inline `style`, so an
-  # inline hex cannot evade `dashboard_css_theme_test.exs`. Assert here that
-  # each direction the projection can emit actually has ink to render with, and
-  # that no two of the visually distinct directions collapse onto one token.
-  test "every projected direction has a themed colour rule in dashboard.css" do
-    css = File.read!(@css)
-
-    tokens =
+  # The shared key-face contract (#1726) owns the ink, so the packaged deck and
+  # the emulator paint one palette. Assert here that every direction the
+  # projection can emit has a colour there, and that no two of the visually
+  # distinct directions collapse onto one value.
+  test "every projected direction has a colour in the shared key-face contract" do
+    colors =
       Map.new(~w(EMIT CONSUME INFO AGENT SYSTEM), fn direction ->
-        {direction, direction_token(css, direction)}
+        {direction, StreamdeckKeyFaceContract.direction_badge!(direction)["color"]}
       end)
 
-    assert Enum.all?(tokens, fn {_direction, token} -> is_binary(token) end),
-           "directions without a `.sd-log-dir` colour rule: " <>
-             inspect(for {direction, nil} <- tokens, do: direction)
+    assert Enum.all?(colors, fn {_direction, color} -> is_binary(color) and color != "" end),
+           "directions without a contract colour: " <>
+             inspect(for {direction, color} <- colors, color in [nil, ""], do: direction)
 
-    assert tokens["EMIT"] == tokens["AGENT"], "#1576 specifies one blue for EMIT and AGENT"
+    assert colors["EMIT"] == colors["AGENT"], "#1576 specifies one blue for EMIT and AGENT"
 
-    distinct = tokens |> Map.take(~w(EMIT CONSUME INFO SYSTEM)) |> Map.values()
-    assert distinct == Enum.uniq(distinct), "two directions share one token: #{inspect(tokens)}"
+    distinct = colors |> Map.take(~w(EMIT CONSUME INFO SYSTEM)) |> Map.values()
+    assert distinct == Enum.uniq(distinct), "two directions share one colour: #{inspect(colors)}"
+  end
+
+  # The projection's direction set is the contract's, not a private copy.
+  test "the projection normalises exactly the contract's directions" do
+    contract_badges = StreamdeckKeyFaceContract.direction_badges() |> Map.keys() |> Enum.sort()
+
+    projected =
+      contract_badges
+      |> Enum.with_index(1)
+      |> Enum.map(fn {badge, index} -> entry("body #{index}", "turn-#{index}", badge) end)
+      |> StreamdeckLogs.project()
+      |> Map.fetch!(:event_keys)
+      |> Enum.filter(&(&1.kind == :event))
+      |> Enum.map(& &1.badge)
+      |> Enum.sort()
+
+    assert projected == contract_badges
   end
 
   test "projects an empty feed as a LIVE-only window with no transcript" do
@@ -146,16 +159,6 @@ defmodule AiurWeb.StreamdeckLogsTest do
 
     assert refreshed.events_offset == 3
     assert Enum.map(refreshed.event_keys_visible, & &1.index) == Enum.to_list(3..10)
-  end
-
-  # `.sd-log-dir[data-dir="EMIT"] { color: var(--accent-ink); }` -> "--accent-ink"
-  defp direction_token(css, direction) do
-    ~r/\.sd-log-dir\[data-dir="#{direction}"\][^{]*\{[^}]*color:\s*var\((--[a-z0-9-]+)\)/s
-    |> Regex.run(css, capture: :all_but_first)
-    |> case do
-      [token] -> token
-      nil -> nil
-    end
   end
 
   defp entry(body, turn_id, badge) do

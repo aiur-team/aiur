@@ -14,10 +14,10 @@ defmodule AiurWeb.StreamdeckLogs do
   @events_window_size 8
   @transcript_window_size 2
 
-  # The five directions the ticket names. The badge is the only thing the
-  # projection emits; `dashboard.css` maps `[data-dir=...]` onto a themed token
-  # so the ink stays legible on both chassis themes.
-  @directions ~w(EMIT CONSUME INFO AGENT SYSTEM)
+  # The badge is the only thing the projection emits; the shared key-face
+  # contract owns both the set of directions and the colour each one paints
+  # with, so the emulator and the packaged deck cannot drift apart.
+  @directions Map.keys(AiurWeb.StreamdeckKeyFaceContract.direction_badges())
 
   @spec project([map()]) :: map()
   def project(entries) when is_list(entries) do
