@@ -7905,7 +7905,6 @@ html[data-theme="light"] .sd-device {
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --good: #3fb950;
   --super: #c69bff;
-  --ack: #4fd6c4;
 }
 
 @media (max-width: 560px) {
@@ -8047,6 +8046,27 @@ html[data-theme="light"] .sd-device {
   color: var(--muted);
 }
 
+/* The LIVE key is the design's one green key (streamdeck.design.css:128-139).
+   Its inks are scoped to the key rather than themed :root tokens: the Stream
+   Deck chassis is painted dark in both themes, so these greens are correct
+   against the near-black key face and must not flip with the light palette. */
+.sd-live-key {
+  --sd-live: #4ade80;
+  --sd-live-ink: #8fe0a8;
+  --sd-live-sel-ink: #eafff3;
+  background: linear-gradient(180deg, #227a4d, #17583a);
+}
+
+.sd-live-key .sd-key-face {
+  background: linear-gradient(180deg, #132420, #0d1713);
+}
+
+.sd-live-key.is-selected {
+  border-color: #37d97e;
+  background: linear-gradient(180deg, #37d97e, #1f9c56);
+  box-shadow: 0 0 16px rgba(55, 217, 126, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
 .sd-live-key-face {
   place-content: center;
   justify-items: center;
@@ -8057,17 +8077,26 @@ html[data-theme="light"] .sd-device {
   width: 0.6rem;
   height: 0.6rem;
   border-radius: 50%;
-  background: #4fd6c4;
-  box-shadow: 0 0 0.65rem #4fd6c4;
+  background: var(--sd-live);
+  box-shadow: 0 0 0.65rem var(--sd-live);
   animation: sd-pulse 1.25s ease-in-out infinite;
 }
 
+.sd-live-key.is-selected .sd-live-dot {
+  background: var(--sd-live-sel-ink);
+  box-shadow: 0 0 0.65rem rgba(255, 255, 255, 0.85);
+}
+
 .sd-live-label {
-  color: var(--ack);
+  color: var(--sd-live-ink);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.66rem;
   font-weight: 800;
   letter-spacing: 0.12em;
+}
+
+.sd-live-key.is-selected .sd-live-label {
+  color: var(--sd-live-sel-ink);
 }
 
 .sd-log-line {

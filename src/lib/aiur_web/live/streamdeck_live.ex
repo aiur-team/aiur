@@ -283,7 +283,7 @@ defmodule AiurWeb.StreamdeckLive do
             <ul id="sd-log-keys" class="sd-keys sd-log-keys" aria-label="Log event keys" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <li
                 :for={key <- @logs.event_keys_visible}
-                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "is-live", key.index == @logs.selected_event_index && "is-selected"]}
+                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "sd-live-key is-live", key.index == @logs.selected_event_index && "is-selected"]}
                 data-log-event-index={key.index}
                 aria-hidden={to_string(key.kind == :empty)}
                 aria-current={if key.index == @logs.selected_event_index, do: "true", else: "false"}

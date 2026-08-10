@@ -337,6 +337,37 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden="true")
   end
 
+  # The LIVE key is the design's one visually distinct key, and it is selected
+  # by default. Without its own chassis it renders as an ordinary log key with
+  # the blue `.sd-log-key.is-selected` glow — the #1671 shape, a design rule
+  # with no counterpart in the implementation. Assert both halves: the markup
+  # carries the class, and dashboard.css actually styles it, selected included.
+  test "the LIVE key carries the design's green chassis, not the ordinary log key's" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = enter_logs(view)
+
+    assert html =~ ~r/class="sd-key sd-log-key sd-live-key is-live is-selected"/,
+           "the LIVE key must carry sd-live-key and be selected on entering logs mode"
+
+    css = File.read!(Path.expand("../../../priv/static/dashboard.css", __DIR__))
+
+    for selector <- [
+          ".sd-live-key {",
+          ".sd-live-key .sd-key-face {",
+          ".sd-live-key.is-selected {",
+          ".sd-live-key.is-selected .sd-live-label {"
+        ] do
+      assert css =~ selector,
+             "dashboard.css has no `#{selector}` rule, so the LIVE key falls back to the plain log key chassis"
+    end
+
+    # The design's greens (streamdeck.design.css:128-139), not a re-derived hue.
+    assert css =~ "linear-gradient(180deg, #227a4d, #17583a)"
+    assert css =~ "linear-gradient(180deg, #37d97e, #1f9c56)"
+    assert css =~ "--sd-live: #4ade80;"
+    assert css =~ "--sd-live-ink: #8fe0a8;"
+  end
+
   test "projects classified AgentEventFeed entries through the flattened two-line window" do
     with_production_feed(fn ->
       write_feed("1352", [
@@ -410,14 +441,34 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end)
   end
 
-  test "relay alerts and control updates do not terminate the logs view" do
-    {:ok, view, _html} = live(build_conn(), "/streamdeck")
-    enter_logs(view)
+  # Both handlers reload the logs from the durable feed, so the observable proof
+  # is new feed content reaching the view — not merely that render/1 still works.
+  test "relay alerts and control updates reload the logs from the durable feed" do
+    with_production_feed(fn ->
+      write_feed("1352", [feed_event("assistant", "first durable entry", "turn-1")])
 
-    AgentPubSub.broadcast_alert("1352", AgentEvents.alert_event("deploy", "Needs attention"))
-    AgentPubSub.broadcast_control_lifecycle("1352", %{request_id: "request-1", status: :paused})
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = enter_logs(view)
+      assert html =~ "first durable entry"
+      refute html =~ "entry after the alert"
 
-    assert eventually(fn -> render(view) =~ "event-1" end)
+      write_feed("1352", [
+        feed_event("assistant", "first durable entry", "turn-1"),
+        feed_event("assistant", "entry after the alert", "turn-2")
+      ])
+
+      AgentPubSub.broadcast_alert("1352", AgentEvents.alert_event("deploy", "Needs attention"))
+      assert eventually(fn -> render(view) =~ "entry after the alert" end)
+
+      write_feed("1352", [
+        feed_event("assistant", "first durable entry", "turn-1"),
+        feed_event("assistant", "entry after the alert", "turn-2"),
+        feed_event("assistant", "entry after the control update", "turn-3")
+      ])
+
+      AgentPubSub.broadcast_control_lifecycle("1352", %{request_id: "request-1", status: :paused})
+      assert eventually(fn -> render(view) =~ "entry after the control update" end)
+    end)
   end
 
   test "focus switching rejects old feed topics and resets to the new agent projection" do
