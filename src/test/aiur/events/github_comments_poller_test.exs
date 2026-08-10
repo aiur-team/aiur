@@ -1210,6 +1210,69 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
     end
   end
 
+  # #1680 criterion 6: #1427's review poller has to keep working as the fallback
+  # path for review submissions, including across the outage webhooks cannot
+  # cover at all. `poll_pr_review_submissions/5` picks its cutoff as
+  # `pr_review_seen_at || current_target_since || boot cutoff`, so whether a
+  # review submitted while the daemon was down is recovered or silently dropped
+  # turns entirely on the restored watermark reaching this opt.
+  #
+  # The daemon is down 17:00 -> 18:00 and the review lands at 17:30. The two
+  # tests differ only in whether the cursor survived the restart, so the
+  # recovery assertion cannot pass for an unrelated reason.
+  describe "PR review submissions across a daemon outage" do
+    @outage_boot_time DateTime.to_unix(~U[2026-07-12 18:00:00Z])
+    @review_during_outage "2026-07-12T17:30:00Z"
+    @last_sweep_before_outage "2026-07-12T17:00:00Z"
+
+    test "recovers a review submitted while the daemon was down from the restored cursor" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_101, "its-everdred", "CHANGES_REQUESTED", "reviewed during the outage", @review_during_outage)
+
+      assert {:ok, %{count: 1, errors: [], pr_review_seen_at: seen_at}} =
+               GithubCommentsPoller.poll(["42"],
+                 repo: "owner/repo",
+                 boot_time: @outage_boot_time,
+                 pr_review_seen_at: %{"42" => @last_sweep_before_outage},
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      assert_receive {:event,
+                      %{
+                        topic: "ticket.42.pr.review_comment",
+                        author_trusted?: true,
+                        comment: %{"id" => 9_101, "state" => "CHANGES_REQUESTED"}
+                      }},
+                     500
+
+      # The cursor advances past the recovered review, so the next sweep does
+      # not republish it.
+      assert seen_at == %{"42" => @review_during_outage}
+
+      stop_codeowners(codeowners)
+    end
+
+    test "drops the same review when no cursor survived the restart" do
+      :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+      codeowners = ensure_codeowners!("* @its-everdred\n")
+
+      review = pr_review(9_102, "its-everdred", "CHANGES_REQUESTED", "reviewed during the outage", @review_during_outage)
+
+      assert {:ok, %{count: 0, errors: []}} =
+               GithubCommentsPoller.poll(["42"],
+                 repo: "owner/repo",
+                 boot_time: @outage_boot_time,
+                 request_fun: request_fun_with_reviews([review])
+               )
+
+      refute_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 200
+
+      stop_codeowners(codeowners)
+    end
+  end
+
   defp ensure_codeowners!(contents) do
     case Process.whereis(CodeOwners) do
       pid when is_pid(pid) ->
