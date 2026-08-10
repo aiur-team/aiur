@@ -24,6 +24,7 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Webhooks.ModePresenter
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
@@ -827,18 +828,39 @@ defmodule Aiur.AgentControlCLI do
   Every value carries the age of the observation, because meters are observed
   from live agent sessions: a number with no age cannot be told apart from a
   current one. A provider never observed prints as unknown, never as zero.
+
+  Per-repo event delivery mode prints alongside the meters, because the two
+  answer the same operator question — where is my quota going. A repo in
+  polling mode always says *why*: never configured, configured but never
+  delivered, or degraded after going silent. Repos with no webhooks anywhere
+  print nothing extra, so this section only appears once it has something to
+  say.
   """
-  @spec usage(GenServer.server()) :: :ok
-  def usage(server \\ ProviderMeterProjection) do
+  @spec usage(GenServer.server(), keyword()) :: :ok
+  def usage(server \\ ProviderMeterProjection, opts \\ []) do
     guarded("usage", fn ->
       server
       |> ProviderMeterProjection.snapshot()
       |> Enum.sort_by(fn {provider, _view} -> provider end)
       |> Enum.each(&print_provider_usage/1)
 
+      opts
+      |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
+      |> print_delivery_modes()
+
       exit_marker(0)
     end)
   end
+
+  defp print_delivery_modes([]), do: :ok
+
+  defp print_delivery_modes(rows) do
+    IO.puts("")
+    Enum.each(rows, &IO.puts("events  #{&1.repo}  #{&1.mode_label}  last delivery #{&1.last_delivery_label}#{polling_reason_suffix(&1)}"))
+  end
+
+  defp polling_reason_suffix(%{reason_label: nil}), do: ""
+  defp polling_reason_suffix(%{reason_label: label}), do: "  (#{label})"
 
   defp print_provider_usage({provider, %{state: :unknown}}) do
     IO.puts("#{provider_label(provider)}  no observation yet")
