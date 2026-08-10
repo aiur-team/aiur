@@ -63,6 +63,19 @@ to focus the active-agent limit, then use `Left` / `Right` to decrease or increa
 session-only maximum. The config file remains unchanged; restarting Aiur reloads the
 configured limit.
 
+## Inspecting Build Orders
+
+`aiur build-orders` prints the repository-scoped Build Order catalog with the
+captured-source freshness. Pass a root identifier to inspect its members,
+completion state, and directed dependency edges; `--json` returns the same read
+as a versioned JSON envelope. Unknown completion remains `unresolved` rather
+than being reported as zero.
+
+```bash
+aiur build-orders
+aiur build-orders 1363 --json
+```
+
 ## Quickstart
 
 ```bash
