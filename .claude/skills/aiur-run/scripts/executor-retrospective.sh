@@ -499,6 +499,13 @@ record() {
     visual_check visual-check >/dev/null 2>&1 || true
   fi
 
+  # The terminal is an operator-facing surface too. Keep this outside the
+  # retrospective lock because each control RPC has its own timeout and a
+  # saturated daemon must not prevent the timer state from advancing.
+  if [ "${AIUR_EXECUTOR_RETROSPECTIVE_CLI_CHECK:-1}" != "0" ]; then
+    cli_check cli-check >/dev/null 2>&1 || true
+  fi
+
   printf '%s\n' "$event"
 }
 
@@ -592,6 +599,61 @@ EOF
   cat "$capture_dir/report.json"
 }
 
+# Run the read-only CLI probe against this run's explicitly keyed daemon and
+# append its compact command/pane evidence to the same durable narrative.
+cli_check() {
+  local check_script check_dir timestamp check_status report
+  [ "$#" -eq 1 ] || {
+    printf 'usage: %s cli-check\n' "$0" >&2
+    exit 64
+  }
+
+  check_script="${AIUR_EXECUTOR_CLI_CHECK_SCRIPT:-$script_dir/executor-cli-check.sh}"
+  if [ ! -x "$check_script" ]; then
+    printf 'CLI check script is unavailable: %s\n' "$check_script" >&2
+    return 66
+  fi
+
+  timestamp="$(now_epoch)"
+  check_dir="${AIUR_EXECUTOR_CLI_CHECK_DIR:-${retro_file}.d/cli-$timestamp}"
+  mkdir -p "$check_dir"
+
+  set +e
+  "$check_script" > "$check_dir/report.json" 2> "$check_dir/check-error.log"
+  check_status=$?
+  set -e
+
+  report="$check_dir/report.json"
+  acquire_lock
+  mkdir -p "$(dirname "$retro_file")"
+  {
+    printf '### Interactive CLI check %s\n\n' "$(now_iso)"
+    if [ "$check_status" -eq 0 ] && [ -s "$report" ] && jq -e . "$report" >/dev/null 2>&1; then
+      jq -r '
+        .commands[] |
+        "- `aiur \(.command)`: answered=\(.answered), timed_out=\(.timed_out), elapsed_ms=\(.elapsed_ms), non_empty=\(.non_empty), well_formed=\(.well_formed)\n  first_lines: \((.first_lines // []) | join(" | "))"
+      ' "$report"
+      jq -r '"- Pane surface: session_present=\(.pane_surface.session_present), panes=\(.pane_surface.pane_count // "unknown"), pre_warmed_sessions=\(.pane_surface.pre_warmed_sessions // "unknown"), live_agent_cap=\(.pane_surface.live_agent_cap // "unknown")"' "$report"
+      jq -r '"- TUI: attached=\(.tui_surface.attached), agents_row=\(.tui_surface.agents_row), cap_controls=\(.tui_surface.cap_controls)"' "$report"
+      if jq -e '.findings | length > 0' "$report" >/dev/null; then
+        jq -r '.findings[] | "- Finding: \(.kind) \(.command // "pane") — \(.reason), elapsed_ms=\(.elapsed_ms // "n/a")"' "$report"
+      else
+        printf '%s\n' '- Findings: none.'
+      fi
+    else
+      printf '%s\n' "- Check: **attention** — CLI probe exited with status $check_status; inspect check-error.log."
+    fi
+    printf '\n- Evidence: %s\n\n' "$check_dir"
+  } >> "$retro_file"
+  unlock
+
+  if [ "$check_status" -ne 0 ]; then
+    return "$check_status"
+  fi
+
+  cat "$report"
+}
+
 ensure_state
 
 case "$mode" in
@@ -602,5 +664,6 @@ case "$mode" in
   plan-wait) plan_wait "$@" ;;
   record) record "$@" ;;
   visual-check) visual_check "$@" ;;
-  *) printf 'usage: %s arm|due|summarize|observe|plan-wait|record|visual-check\n' "$0" >&2; exit 64 ;;
+  cli-check) cli_check "$@" ;;
+  *) printf 'usage: %s arm|due|summarize|observe|plan-wait|record|visual-check|cli-check\n' "$0" >&2; exit 64 ;;
 esac
