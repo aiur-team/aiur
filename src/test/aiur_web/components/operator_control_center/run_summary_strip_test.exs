@@ -1065,6 +1065,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
+  test "a GitHub row still awaiting a response draws no bar rather than an empty one" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        quota = %{github_quota_view() | state: :loading, windows: %{}}
+
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: quota,
+            now: @now
+          })
+
+        assert html =~ ~s(<span class="rs-state is-nodata">Awaiting</span>)
+
+        # The unmeasured GitHub quota must not render the same drawn track that
+        # DeepSeek's genuine 0%-consumed reading does.
+        assert compact(html) =~
+                 ~s(<span class="rs-meter rs-meter-none"></span> <span class="rs-limit-meta">Awaiting GitHub response</span>)
+
+        refute html =~ ~s(<div class="rs-meter"><i class="" style="width:0%"></i></div><span class="rs-limit-meta">Awaiting)
+      end)
+    end)
+  end
+
   # Every pane in the strip is an `.rs-block`, whether it is the GitHub card, a
   # vendor card, or the single compressed pane.
   defp pane_count(html), do: length(String.split(html, "rs-block")) - 1

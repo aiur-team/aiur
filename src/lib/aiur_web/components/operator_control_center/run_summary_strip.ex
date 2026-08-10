@@ -363,7 +363,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp compressed_github_lines([], backoffs, now) do
-    [%{label: "Quota", percent: 0, class: "", meta: "Awaiting GitHub response"}] ++ compressed_backoff_lines(backoffs, now)
+    # No window yet is the absence of a reading, not a quota observed to be
+    # untouched. It draws the hollow track rather than a full-width empty one,
+    # so it cannot be read as a healthy 0% consumed.
+    [%{label: "Quota", percent: nil, class: "", meta: "Awaiting GitHub response"}] ++
+      compressed_backoff_lines(backoffs, now)
   end
 
   defp compressed_github_lines(windows, backoffs, now) do
