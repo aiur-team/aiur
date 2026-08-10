@@ -2,7 +2,6 @@ defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
   alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, State, TrackedSet}
-  alias Aiur.SweepWatermarkStore
   alias Aiur.TrackerIdentity
 
   test "orchestrator subscribes to explicit unblock readiness" do
@@ -120,78 +119,6 @@ defmodule Aiur.Orchestrator.LifecycleTest do
     assert ^state = TrackedSet.refresh(state)
     assert TrackedSet.member?("943")
     refute TrackedSet.member?("944")
-  end
-
-  describe "init/2 sweep watermark restore" do
-    setup do
-      path = Path.join(System.tmp_dir!(), "aiur-sweep-watermark-#{System.unique_integer([:positive])}.json")
-      on_exit(fn -> File.rm(path) end)
-
-      {:ok, watermark_path: path}
-    end
-
-    test "seeds the sweep cursors a restart has to resume from", %{watermark_path: path} do
-      observed_at = DateTime.add(DateTime.utc_now(), -600, :second) |> DateTime.truncate(:second)
-
-      :ok =
-        SweepWatermarkStore.save(
-          %{
-            events_last_id: "event-77",
-            comment_cursors: %{"41" => "2026-07-12T17:00:00Z"},
-            pr_review_seen_at: %{"41" => "2026-07-12T17:05:00Z"},
-            observed_at: observed_at
-          },
-          sweep_watermark_path: path
-        )
-
-      assert {:ok, state} =
-               Lifecycle.init([initial_poll?: false, sweep_watermark_path: path], fn _issue -> true end)
-
-      assert state.events_last_id == "event-77"
-      assert state.github_comments_since == %{"41" => "2026-07-12T17:00:00Z"}
-      assert state.pr_review_seen_at == %{"41" => "2026-07-12T17:05:00Z"}
-      assert state.sweep_observed_at == observed_at
-      # The ETag is deliberately not restored: a cached ETag answers 304 and the
-      # reconciliation sweep would learn nothing on the cycle that most needs to read.
-      assert is_nil(state.events_etag)
-    end
-
-    test "alerts when the recorded sweep predates the lookback bound", %{watermark_path: path} do
-      parent = self()
-
-      :ok =
-        SweepWatermarkStore.save(
-          %{SweepWatermarkStore.empty() | observed_at: DateTime.add(DateTime.utc_now(), -8 * 24 * 3_600, :second)},
-          sweep_watermark_path: path
-        )
-
-      assert {:ok, _state} =
-               Lifecycle.init(
-                 [
-                   initial_poll?: false,
-                   sweep_watermark_path: path,
-                   sweep_truncation_alert_fun: fn name, message, alert_opts ->
-                     send(parent, {:truncation_alert, name, message, alert_opts})
-                     :ok
-                   end
-                 ],
-                 fn _issue -> true end
-               )
-
-      assert_receive {:truncation_alert, "sweep_watermark.lookback_truncated", message, alert_opts}
-      assert message =~ "not recoverable by polling"
-      assert alert_opts[:needs_attention]
-    end
-
-    test "starts from this boot with no watermark on record", %{watermark_path: path} do
-      assert {:ok, state} =
-               Lifecycle.init([initial_poll?: false, sweep_watermark_path: path], fn _issue -> true end)
-
-      assert is_nil(state.events_last_id)
-      assert is_nil(state.sweep_observed_at)
-      assert state.github_comments_since == %{}
-      assert state.pr_review_seen_at == %{}
-    end
   end
 
   defp tracker_identity do

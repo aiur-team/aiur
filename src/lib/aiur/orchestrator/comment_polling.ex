@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   require Logger
 
-  alias Aiur.{Alerts, Config, SweepWatermarkStore}
+  alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
   alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
@@ -17,13 +17,10 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
-    swept_at = Keyword.get(opts, :now) || DateTime.utc_now()
-
     poll_opts =
       opts
       |> Keyword.put_new(:etag, state.events_etag)
       |> Keyword.put_new(:last_event_id, state.events_last_id)
-      |> put_sweep_cutoff(state)
 
     case GithubFirehose.poll(poll_opts) do
       {:ok, %{etag: etag, last_event_id: last_event_id, count: count} = result} ->
@@ -35,9 +32,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
           |> Orchestrator.note_github_poll_interval(:firehose, Map.get(result, :poll_interval))
           |> note_recent_merge_persistence_success(Map.get(result, :recent_merge_persistence))
 
-        state = %{state | events_etag: etag, events_last_id: last_event_id, sweep_observed_at: swept_at}
-
-        persist_sweep_watermark(state, opts)
+        %{state | events_etag: etag, events_last_id: last_event_id}
 
       {:error, {:recent_merge_persistence, reason, cursor}} ->
         note_recent_merge_persistence_failure(state, reason, cursor, opts)
@@ -49,43 +44,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
         Orchestrator.note_github_connectivity_failure(state, :firehose, reason)
     end
   end
-
-  # The firehose drops anything created before this boot so a restart cannot
-  # replay a day of Events API history into live agents. That drop is also what
-  # makes an event delivered while the daemon was down unrecoverable, so when a
-  # prior sweep is on record we hand the firehose that sweep time instead: the
-  # window becomes "since we last actually looked" rather than "since boot".
-  # With no prior sweep on record, the boot cutoff stands unchanged.
-  defp put_sweep_cutoff(poll_opts, %State{sweep_observed_at: %DateTime{} = observed_at}) do
-    Keyword.put_new(poll_opts, :boot_time, DateTime.to_unix(observed_at))
-  end
-
-  defp put_sweep_cutoff(poll_opts, %State{}), do: poll_opts
-
-  # Persisting after the publish keeps the cursor honest under a crash: a sweep
-  # that published events but died before writing re-reads that window on the
-  # next boot and republishes into an empty dedup table, which is recoverable.
-  # Recording the cursor first and then dying would lose the events outright.
-  defp persist_sweep_watermark(%State{} = state, opts) do
-    _ =
-      SweepWatermarkStore.save(
-        %{
-          events_last_id: state.events_last_id,
-          comment_cursors: comment_cursors(state),
-          pr_review_seen_at: state.pr_review_seen_at,
-          observed_at: state.sweep_observed_at
-        },
-        opts
-      )
-
-    state
-  end
-
-  # `github_comments_since` is a per-target cursor map in steady state, but the
-  # field also accepts a single legacy binary cursor. Only the per-target shape
-  # is durable; a bare binary is not attributable to a target on restore.
-  defp comment_cursors(%State{github_comments_since: %{} = cursors}), do: cursors
-  defp comment_cursors(%State{}), do: %{}
 
   defp note_recent_merge_persistence_success(state, :ok) do
     Orchestrator.note_github_connectivity_success(state, :recent_merge_store)
@@ -108,17 +66,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> maybe_alert_recent_merge_persistence(reason, retry_limit, opts)
 
     if advance? do
-      # The sweep read and published successfully; only the local outcome
-      # journal failed. Advance and persist the cursor, but leave the sweep
-      # timestamp alone so the next window stays wide rather than narrowing on
-      # the strength of a partially-failed cycle.
-      state = %{
+      %{
         state
         | events_etag: Map.get(cursor, :etag),
           events_last_id: Map.get(cursor, :last_event_id)
       }
-
-      persist_sweep_watermark(state, opts)
     else
       state
     end
@@ -237,7 +189,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
             Orchestrator.note_github_connectivity_success(state, :comments)
           end
 
-        state = %{
+        %{
           state
           | github_comments_since: TargetSelection.merge_comment_cursors(state.github_comments_since, since),
             github_comment_etags: Map.merge(state.github_comment_etags, etags),
@@ -249,11 +201,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
               ),
             pr_review_seen_at: Map.merge(state.pr_review_seen_at, new_review_seen_at)
         }
-
-        # Comment and review-submission cursors are per target, so restoring
-        # them is on its own enough to reopen the window a restart would
-        # otherwise close on #1427's review poller and on comment wakes.
-        persist_sweep_watermark(state, opts)
     end
   end
 

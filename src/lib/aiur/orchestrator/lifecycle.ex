@@ -5,9 +5,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
   Every function runs synchronously inside the orchestrator GenServer process.
   """
 
-  require Logger
-
-  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper, SweepWatermarkStore}
+  alias Aiur.{CIApprovalStore, Config, LiveConversation, ProcessReaper}
   alias Aiur.Events.{Exchange, Publisher}
 
   alias Aiur.Orchestrator.{
@@ -76,7 +74,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
     snapshot_key = Keyword.get(opts, :name, Aiur.Orchestrator)
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
-    watermark = restore_sweep_watermark(opts)
 
     state = %State{
       snapshot_key: snapshot_key,
@@ -107,16 +104,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
         |> Map.put(:rewakes, %{}),
       agent_totals: @empty_agent_totals,
       agent_rate_limits: nil,
-      control_lifecycle: control_lifecycle,
-      # Restored so the first sweep after a restart reconciles what arrived
-      # while the daemon was down instead of starting from this boot's clock.
-      # The ETag is deliberately not restored: a cached ETag would answer 304
-      # and the reconciliation sweep would learn nothing on the one cycle that
-      # most needs to read.
-      events_last_id: watermark.events_last_id,
-      github_comments_since: watermark.comment_cursors,
-      pr_review_seen_at: watermark.pr_review_seen_at,
-      sweep_observed_at: SweepWatermarkStore.restored_cutoff(watermark)
+      control_lifecycle: control_lifecycle
     }
 
     :ok =
@@ -137,36 +125,6 @@ defmodule Aiur.Orchestrator.Lifecycle do
     state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
 
     {:ok, state}
-  end
-
-  # A restart is the normal case, not an exceptional one, so the sweep has to
-  # resume from the last cursor it durably recorded. When the recorded sweep is
-  # older than the lookback bound the gap is only partly recoverable, and that
-  # has to be said out loud — a sweep that silently covers less than the outage
-  # is the failure mode this whole reconciliation path exists to prevent.
-  defp restore_sweep_watermark(opts) do
-    watermark = SweepWatermarkStore.load(opts)
-
-    if SweepWatermarkStore.lookback_truncated?(watermark) do
-      message =
-        "GitHub reconciliation sweep last recorded a cursor at " <>
-          "#{DateTime.to_iso8601(watermark.observed_at)}, beyond the sweep lookback bound. " <>
-          "Events from the earlier part of that gap are not recoverable by polling."
-
-      alert_fun = Keyword.get(opts, :sweep_truncation_alert_fun, &Aiur.Alerts.emit_custom/3)
-
-      _ = alert_fun.("sweep_watermark.lookback_truncated", message, reason: message, needs_attention: true, severity: "warning")
-    end
-
-    watermark
-  rescue
-    error ->
-      Logger.warning("Sweep watermark restore failed: #{Exception.message(error)}")
-      SweepWatermarkStore.empty()
-  catch
-    kind, reason ->
-      Logger.warning("Sweep watermark restore failed: #{inspect({kind, reason})}")
-      SweepWatermarkStore.empty()
   end
 
   defp initial_global_pause({:ok, persisted}) do

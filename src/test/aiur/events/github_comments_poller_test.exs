@@ -1211,21 +1211,25 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
   end
 
   # #1680 criterion 6: #1427's review poller has to keep working as the fallback
-  # path for review submissions, including across the outage webhooks cannot
-  # cover at all. `poll_pr_review_submissions/5` picks its cutoff as
-  # `pr_review_seen_at || current_target_since || boot cutoff`, so whether a
-  # review submitted while the daemon was down is recovered or silently dropped
-  # turns entirely on the restored watermark reaching this opt.
+  # path for review submissions. `poll_pr_review_submissions/5` picks its cutoff
+  # as `pr_review_seen_at || current_target_since || boot cutoff`, so a review is
+  # recovered exactly when a cursor predating it reaches this opt.
+  #
+  # These pin both halves of that rule, including the half the operator
+  # explicitly accepted on 2026-08-10: cursors do not survive a restart, so a
+  # review submitted while the daemon was down is dropped rather than recovered.
+  # That is the accepted cost of dropping gap detection, and the second test
+  # exists so the behavior is pinned rather than assumed.
   #
   # The daemon is down 17:00 -> 18:00 and the review lands at 17:30. The two
-  # tests differ only in whether the cursor survived the restart, so the
-  # recovery assertion cannot pass for an unrelated reason.
+  # tests differ only in whether a cursor was supplied, so the recovery
+  # assertion cannot pass for an unrelated reason.
   describe "PR review submissions across a daemon outage" do
     @outage_boot_time DateTime.to_unix(~U[2026-07-12 18:00:00Z])
     @review_during_outage "2026-07-12T17:30:00Z"
-    @last_sweep_before_outage "2026-07-12T17:00:00Z"
+    @cursor_before_outage "2026-07-12T17:00:00Z"
 
-    test "recovers a review submitted while the daemon was down from the restored cursor" do
+    test "recovers a review submitted while the daemon was down from a cursor predating it" do
       :ok = Exchange.subscribe("ticket.42.pr.review_comment")
       codeowners = ensure_codeowners!("* @its-everdred\n")
 
@@ -1235,7 +1239,7 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
                GithubCommentsPoller.poll(["42"],
                  repo: "owner/repo",
                  boot_time: @outage_boot_time,
-                 pr_review_seen_at: %{"42" => @last_sweep_before_outage},
+                 pr_review_seen_at: %{"42" => @cursor_before_outage},
                  request_fun: request_fun_with_reviews([review])
                )
 
