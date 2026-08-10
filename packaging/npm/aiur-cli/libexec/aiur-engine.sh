@@ -333,6 +333,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
        aiur findings --record <json> --repo <owner/repo>  append one validated finding
        aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
+       aiur guard-pr-deletions [base-branch]  refuse PRs with excessive untouched deletions
        aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
        aiur ask --done <id> [--note <text>]  create or resolve an operator request
        aiur asks [--open|--all] [--json]  inspect current-repository operator requests
@@ -2543,6 +2544,10 @@ aiur_engine_main() {
       ;;
     findings)
       run_findings "$@"
+      ;;
+    guard-pr-deletions)
+      shift
+      "$engine_dir/guard-pr-deletions.sh" "$@"
       ;;
     ask | asks)
       run_asks "$@"

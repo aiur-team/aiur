@@ -74,7 +74,7 @@ defmodule Aiur.Init do
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
         effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = Resume.tracker_from_config(deps, config)
+        tracker = Resume.tracker_from_config(deps, config, config_path: effective_target)
 
         case deps.setup_repo_state.(tracker) do
           :ok ->
@@ -150,7 +150,7 @@ defmodule Aiur.Init do
               io,
               deps,
               tracker
-              |> Map.put(:base_branch, configured_base_branch(config_yaml))
+              |> Map.put(:base_branch, Aiur.Config.base_branch(tracker))
               |> Map.put(:config_path, path),
               agents
             )
@@ -279,15 +279,6 @@ defmodule Aiur.Init do
     io.puts.("\n✅ aiur is set up. You can now:")
     io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
     io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
-  end
-
-  defp configured_base_branch(config_yaml) do
-    with {:ok, config} <- YamlElixir.read_from_string(config_yaml),
-         branch when is_binary(branch) and branch != "" <- get_in(config, ["tracker", "base_branch"]) do
-      branch
-    else
-      _ -> "main"
-    end
   end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do
