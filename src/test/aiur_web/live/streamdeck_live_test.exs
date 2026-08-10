@@ -204,8 +204,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"} = active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="cmd")
-    assert html =~ ~s(id="sd-cmd-view")
-    refute html =~ ~s(id="sd-keys")
+    assert html =~ ~s(id="sd-keys")
+    refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
 
     html = render_click(view, "command-press", %{"command" => "logs"})
@@ -213,7 +213,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="logs")
     assert html =~ ~s(id="sd-logs-view")
-    refute html =~ ~s(id="sd-cmd-view")
+    refute html =~ "data-streamdeck-command"
 
     html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
 
@@ -346,6 +346,53 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Resume requested for #1345"
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
     assert_receive {:streamdeck_resume, "1345"}
+  end
+
+  test "renders state-derived command keys with four disabled blank slots" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    refute html =~ "data-streamdeck-command"
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert command_key(html, "pause") =~ "Pause"
+    assert command_key(html, "priority") =~ "Deprioritize"
+    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 4
+    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 4
+
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_key(html, "pause") =~ "Play"
+    assert command_key(html, "priority") =~ "Prioritize"
+  end
+
+  test "command key icons track pause and priority state alongside their labels" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert command_icon(html, "pause") == "pause"
+    assert command_icon(html, "priority") == "down"
+    assert command_icon(html, "logs") == "logs"
+    assert command_icon(html, "mic") == "mic"
+
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_icon(html, "pause") == "play"
+    assert command_icon(html, "priority") == "up"
+  end
+
+  test "command presses report intent and mic-hold state persists through patches" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    html = render_hook(view, "command-press", %{"command" => "pause", "identifier" => "1352"})
+    assert html =~ "Pause selected"
+
+    html = render_hook(view, "mic-hold", %{"active" => true})
+    assert html =~ "sd-mic-key mic-live"
+
+    html = render_hook(view, "mic-hold", %{"active" => false})
+    refute html =~ "sd-mic-key mic-live"
   end
 
   test "initial mount creates one real PubSub transcript subscription" do
@@ -835,6 +882,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp slot_identifiers(html) do
     Regex.scan(~r/data-streamdeck-identifier="([^"]+)"/, html, capture: :all_but_first)
     |> List.flatten()
+  end
+
+  defp command_key(html, command) do
+    [key] = Regex.run(~r{<button[^>]*data-streamdeck-command="#{command}".*?</button>}s, html)
+    key
+  end
+
+  defp command_icon(html, command) do
+    [_key, icon] = Regex.run(~r/data-streamdeck-icon="([^"]+)"/, command_key(html, command))
+    icon
   end
 
   defp fleet_snapshot(total) do

@@ -66,63 +66,60 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
     end
 
     test "returns unverified_review_threads error when open PR has unaddressed comments" do
-      request_fun = fn req ->
-        cond do
-          req.method == :get and req.url =~ "/pulls?" ->
-            {:ok, %{status: 200, body: [%{"number" => 77}]}}
-
-          req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
-            {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}}}
-
-          req.method == :post and req.body["query"] =~ "AiurUnaddressedReviewThreads" ->
-            {:ok,
-             %{
-               status: 200,
-               body: %{
-                 "data" => %{
-                   "repository" => %{
-                     "pullRequest" => %{
-                       "reviewThreads" => %{
-                         "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
-                         "nodes" => [
-                           %{
-                             "id" => "PRRT_blocking",
-                             "isResolved" => false,
-                             "path" => "src/lib/aiur/github/client.ex",
-                             "line" => 5,
-                             "comments" => %{
-                               "nodes" => [
-                                 %{
-                                   "id" => "PRRC_1",
-                                   "databaseId" => 1,
-                                   "body" => "please fix this",
-                                   "createdAt" => "2026-06-25T04:13:21Z",
-                                   "updatedAt" => "2026-06-25T04:13:21Z",
-                                   "url" => "https://github.test/discussion_r1",
-                                   "author" => %{"login" => "its-everdred"}
-                                 }
-                               ]
-                             }
-                           }
-                         ]
-                       }
-                     }
-                   }
-                 }
-               }
-             }}
-        end
-      end
-
       assert {:error, {:unverified_review_threads, detail}} =
                HumanReviewGate.verify_human_review_ready("42",
-                 request_fun: request_fun,
+                 request_fun: blocking_thread_request_fun([]),
                  bot_account: "aiur-bot"
                )
 
       assert detail.pr_number == 77
       assert detail.count == 1
       assert "PRRT_blocking" in detail.review_thread_ids
+    end
+
+    # #1756: reverting an approved PR to rework deadlocks the ticket — the
+    # rework turn has nothing to fix, and its liveness push dismisses the
+    # approval that would have released it.
+    test "returns :ok when the pull request is approved despite an unaddressed thread" do
+      reviews = [
+        review("its-everdred", "CHANGES_REQUESTED", "2026-08-08T21:15:00Z"),
+        review("its-everdred", "APPROVED", "2026-08-10T10:47:00Z")
+      ]
+
+      assert :ok =
+               HumanReviewGate.verify_human_review_ready("42",
+                 request_fun: blocking_thread_request_fun(reviews),
+                 bot_account: "aiur-bot"
+               )
+    end
+
+    test "still blocks when another reviewer's standing verdict requests changes" do
+      reviews = [
+        review("its-everdred", "APPROVED", "2026-08-10T10:47:00Z"),
+        review("other-owner", "CHANGES_REQUESTED", "2026-08-10T11:00:00Z")
+      ]
+
+      assert {:error, {:unverified_review_threads, _detail}} =
+               HumanReviewGate.verify_human_review_ready("42",
+                 request_fun: blocking_thread_request_fun(reviews),
+                 bot_account: "aiur-bot"
+               )
+    end
+
+    test "fails closed to the block when the reviews read fails" do
+      request_fun = fn req ->
+        if req.method == :get and req.url =~ "/pulls/77/reviews" do
+          {:error, :timeout}
+        else
+          blocking_thread_request_fun([]).(req)
+        end
+      end
+
+      assert {:error, {:unverified_review_threads, _detail}} =
+               HumanReviewGate.verify_human_review_ready("42",
+                 request_fun: request_fun,
+                 bot_account: "aiur-bot"
+               )
     end
 
     test "returns :ok when no open PR exists (FI-GH-033)" do
@@ -139,5 +136,64 @@ defmodule Aiur.GitHub.HumanReviewGateTest do
                  bot_account: "aiur-bot"
                )
     end
+  end
+
+  # PR 77 with one unresolved thread from a code owner, plus whatever review
+  # submissions the caller wants standing on it.
+  defp blocking_thread_request_fun(reviews) do
+    fn req ->
+      cond do
+        req.method == :get and req.url =~ "/pulls/77/reviews" ->
+          {:ok, %{status: 200, body: reviews}}
+
+        req.method == :get and req.url =~ "/pulls?" ->
+          {:ok, %{status: 200, body: [%{"number" => 77}]}}
+
+        req.method == :post and req.body["query"] =~ "AiurViewerLogin" ->
+          {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "aiur-bot"}}}}}
+
+        req.method == :post and req.body["query"] =~ "AiurUnaddressedReviewThreads" ->
+          {:ok,
+           %{
+             status: 200,
+             body: %{
+               "data" => %{
+                 "repository" => %{
+                   "pullRequest" => %{
+                     "reviewThreads" => %{
+                       "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil},
+                       "nodes" => [
+                         %{
+                           "id" => "PRRT_blocking",
+                           "isResolved" => false,
+                           "path" => "src/lib/aiur/github/client.ex",
+                           "line" => 5,
+                           "comments" => %{
+                             "nodes" => [
+                               %{
+                                 "id" => "PRRC_1",
+                                 "databaseId" => 1,
+                                 "body" => "please fix this",
+                                 "createdAt" => "2026-06-25T04:13:21Z",
+                                 "updatedAt" => "2026-06-25T04:13:21Z",
+                                 "url" => "https://github.test/discussion_r1",
+                                 "author" => %{"login" => "its-everdred"}
+                               }
+                             ]
+                           }
+                         }
+                       ]
+                     }
+                   }
+                 }
+               }
+             }
+           }}
+      end
+    end
+  end
+
+  defp review(login, state, submitted_at) do
+    %{"id" => :erlang.phash2({login, state, submitted_at}), "user" => %{"login" => login}, "state" => state, "submitted_at" => submitted_at, "body" => ""}
   end
 end
