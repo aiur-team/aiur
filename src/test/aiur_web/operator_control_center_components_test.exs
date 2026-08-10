@@ -4,11 +4,14 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
   alias Aiur.BuildOrder.Icon
+  alias AiurWeb.BuildOrder.RouteState
+  alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
 
   alias AiurWeb.OperatorControlCenter.{
     BuildOrderGraph,
     BuildOrderIcon,
+    BuildOrderSelected,
     DecisionAction,
     DecisionCard,
     DecisionDetail,
@@ -841,6 +844,48 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Command latency"
     refute html =~ "Runtime provenance"
     refute html =~ "Links &amp; artifacts"
+  end
+
+  test "an unfetched Build Order shows unresolved counts and a provider explanation, not a structural verdict" do
+    html = render_selected(unresolved_model(:provider_unavailable))
+
+    # Zeros must never stand in for unknown: #1774 rendered `MEMBERS 0` for a
+    # Build Order with 27 members that was simply never fetched.
+    assert html =~ "Unresolved"
+    refute html =~ "<dd>0</dd>"
+
+    assert html =~ "Provider unavailable"
+    assert html =~ "could not be fetched"
+    refute html =~ "structurally invalid"
+  end
+
+  test "a genuinely malformed Build Order still shows its real counts and a structural verdict" do
+    html = render_selected(%{unresolved_model(:structurally_invalid) | summary: resolved_summary()})
+
+    assert html =~ "Structurally invalid graph"
+    assert html =~ "malformed"
+    assert html =~ "<dd>0</dd>"
+    refute html =~ "Unresolved"
+  end
+
+  defp render_selected(model) do
+    render_component(&BuildOrderSelected.build_order_selected/1, %{
+      route_state: RouteState.new("mount-1"),
+      model: model,
+      now: ~U[2026-08-10 12:00:00Z],
+      analytics_scope: %{state: :none},
+      usage_scope: %{state: :none}
+    })
+  end
+
+  defp unresolved_model(status) do
+    %BuildOrderViewModel{status: status, summary: unresolved_summary()}
+  end
+
+  defp unresolved_summary, do: %{resolved_summary() | resolved?: false}
+
+  defp resolved_summary do
+    %{resolved?: true, members: 0, edges: 0, external_edges: 0, lanes: %{}, phases: %{}}
   end
 
   defp action_decision(attrs) do
