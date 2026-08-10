@@ -71,8 +71,11 @@ a page reporting a stale cap as well as a peak greater than the displayed cap.
 Pass `AIUR_META_EXPECTED_ACTIVE_AGENTS` when the run's current active-agent
 count is known so a Units zero-state is only accepted for a confirmed idle run.
 `AIUR_META_KNOWN_NOISE` accepts a JSON array of narrow `{kind, status, path}`
-rules for a confirmed recurring browser error. The default only ignores the
-known missing `conversation-drawer-hook.js`; never baseline all 404s.
+rules for a confirmed recurring browser error. Nothing is baselined by default —
+the old `conversation-drawer-hook.js` 404 went away when #1681 landed. Only
+baseline a path that has an **open** issue, drop the rule when that issue
+closes, and never baseline all 404s. Whatever a rule suppresses is counted at
+the bottom of `verdict.md`, so a stale baseline stays visible.
 
 Then **look at the screenshots**. Reading extracted text is not the same as
 seeing the page; a table of em-dashes reads as "empty" in text and as "broken" on

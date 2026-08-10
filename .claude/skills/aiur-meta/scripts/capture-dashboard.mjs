@@ -39,14 +39,16 @@ const PAGES = [
   ['analytics', '/analytics']
 ]
 
-// The historic dashboard noise is one missing optional conversation hook. It
-// is intentionally narrow: baselining every 404 would hide a real broken
-// dashboard asset.
-const DEFAULT_KNOWN_NOISE = [
-  { kind: 'console', path: '/conversation-drawer-hook.js' },
-  { kind: 'response', status: 404, path: '/conversation-drawer-hook.js' },
-  { kind: 'requestfailed', path: '/conversation-drawer-hook.js' }
-]
+// No dashboard noise is baselined by default. The historic entry here was the
+// `/conversation-drawer-hook.js` 404 from the missing Plug.Static (#1681);
+// that issue is closed and the endpoint serves the asset, so keeping the rule
+// would silently re-arm for any future regression on the same path.
+//
+// A baseline must always name an open issue and be removed when it closes —
+// otherwise the check degrades into "ignore this URL forever". Add temporary
+// entries through AIUR_META_KNOWN_NOISE rather than here, and note that every
+// suppressed entry is counted in verdict.md so a baseline is never invisible.
+export const DEFAULT_KNOWN_NOISE = []
 
 export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null, expectedActiveAgents = null) {
   const issues = []
@@ -139,7 +141,21 @@ export function renderVerdict(report) {
   }
 
   lines.push('', `Overall: **${report.verdict}**. Captures: ${report.pages.map((page) => `${page.name}.png`).join(', ')}.`)
+
+  // A baseline that hides errors without saying so is how a suppression rule
+  // outlives the defect it was written for. Always report what was swallowed.
+  const suppressed = report.pages.reduce((count, page) => count + suppressedCount(page), 0)
+  if (suppressed > 0) {
+    lines.push('', `Baselined and not counted as issues: ${suppressed} browser error(s)/failed request(s). Drop the rule once its issue closes.`)
+  }
+
   return `${lines.join('\n')}\n`
+}
+
+function suppressedCount(page) {
+  const noise = page.knownNoise
+  if (!noise) return 0
+  return (noise.consoleErrors?.length || 0) + (noise.failedRequests?.length || 0)
 }
 
 function tableMetricIssues(table) {
@@ -194,7 +210,7 @@ function knownNoiseRules() {
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : DEFAULT_KNOWN_NOISE
   } catch {
-    console.error('AIUR_META_KNOWN_NOISE must be a JSON array; using the narrow favicon baseline.')
+    console.error('AIUR_META_KNOWN_NOISE must be a JSON array; baselining nothing instead.')
     return DEFAULT_KNOWN_NOISE
   }
 }
