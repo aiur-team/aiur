@@ -1271,11 +1271,13 @@ defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
 
   import Plug.Conn
 
+  alias Aiur.BrowserHarness.FixtureServer
+
   @modes %{"writable" => true, "read_only" => false}
 
   def configure(conn, %{"mode" => mode}) when is_map_key(@modes, mode) do
     Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Map.fetch!(@modes, mode))
-    Aiur.BrowserHarness.FixtureServer.reset_streamdeck_pauses()
+    FixtureServer.reset_streamdeck_pauses()
 
     conn
     |> put_resp_content_type("text/plain")
