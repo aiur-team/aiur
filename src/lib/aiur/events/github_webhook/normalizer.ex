@@ -380,10 +380,24 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
   # Reading through `Map.get/2` rather than hardcoding nil keeps the two
   # producers converging automatically if a delivery ever carries the fields.
   #
-  # Failing open is also correct by construction here: a push delivery *is* the
-  # review or comment that just happened, so there is no stale judgement for the
-  # gate to suppress. See the PR discussion for the one residual divergence — a
-  # PR-attached issue comment on an already-APPROVED pull request.
+  # For `head_committed_at` failing open is correct by construction: a push
+  # delivery *is* the review or comment that just happened, so it cannot be a
+  # judgement about an older head and there is nothing for the staleness half of
+  # the gate to suppress.
+  #
+  # `review_decision` is a genuine divergence, and a wider one than "PR-attached
+  # issue comments" — it applies to every comment topic this module publishes.
+  # `reviewDecision` is GraphQL-only, so no delivery can carry it: on an APPROVED
+  # pull request the poller's batch path publishes `"APPROVED"` and suppresses
+  # rework, while the webhook publishes nil and routes the ticket to rework for
+  # the same GitHub event. Pinned by the `review_decision` case in
+  # `github_webhook_equivalence_test.exs`.
+  #
+  # This is not closable inside the normalizer, which is pure: it needs a GraphQL
+  # fetch in the delivery path, which lands on the W-1 receiver's request path
+  # and interacts with W-4's ordering work. Reported on the PR rather than
+  # silently absorbed. Reading through `Map.get/2` rather than hardcoding nil
+  # means the fix is a matter of enriching the map before it reaches here.
   defp review_context(pr) when is_map(pr) do
     %{
       "review_decision" => Map.get(pr, "review_decision"),

@@ -11,11 +11,17 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   Only `:id` (a monotonic per-publish counter) and `:ticket_observation` (which
   stamps the wall clock of the publish itself) are excluded — everything a
   consumer routes, filters, or renders on must be identical.
+
+  The one known exception is `review_decision`, which is GraphQL-only and so
+  cannot ride on any delivery. The last test pins that divergence and the
+  consumer-visible behaviour difference it produces, so the gap stays visible
+  and cannot widen unnoticed.
   """
 
   use Aiur.TestSupport
 
   alias Aiur.Events.{Exchange, GithubCommentsPoller, GithubFirehose, GithubWebhook, Publisher}
+  alias Aiur.Orchestrator.ReviewFreshness
   alias Aiur.Workflow
 
   @repo "owner/repo"
@@ -247,6 +253,75 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
              )
 
     refute_receive {:event, %{topic: "ticket.42.issue.commented"}}, 200
+  end
+
+  # Known divergence, pinned deliberately. `reviewDecision` is a GraphQL field,
+  # so no webhook delivery can carry it. On an APPROVED pull request the poller's
+  # batch path publishes it and `ReviewFreshness` suppresses rework; the webhook
+  # path publishes nil and the same GitHub event routes the ticket to rework.
+  #
+  # W-3 makes the webhook the primary path, so this is the gate in #1756 losing
+  # its approved-PR half in the common case. Closing it needs a GraphQL fetch in
+  # the delivery path (the W-1 receiver's request path, and W-4's ordering work),
+  # which is why it is reported rather than absorbed here.
+  #
+  # If someone adds that fetch, this test fails and must be rewritten as a plain
+  # `assert_indistinguishable/2` case. That failure is the point.
+  test "known divergence: review_decision cannot ride on a delivery, and consumers can tell" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    review = %{
+      "id" => 55_002,
+      "state" => "COMMENTED",
+      "body" => "one nitpick on an already-approved PR",
+      "submitted_at" => "2026-06-24T12:00:00Z",
+      "user" => %{"login" => "its-everdred"}
+    }
+
+    request_fun = fn %{url: url} ->
+      if String.contains?(url, "/pulls/901/reviews") do
+        {:ok, %{status: 200, body: [review]}}
+      else
+        {:ok, %{status: 200, body: []}}
+      end
+    end
+
+    assert {:ok, %{count: 1}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: @repo,
+               request_fun: request_fun,
+               open_pull_requests_by_target: %{
+                 "42" => %{"number" => 901, "review_decision" => "APPROVED", "head_committed_at" => "2026-06-24T10:00:00Z"}
+               },
+               comment_batch: %{"42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: []}}
+             )
+
+    polled = await_event("ticket.42.pr.review_comment")
+    clear_dedup()
+
+    delivery = %{
+      "action" => "submitted",
+      "repository" => %{"full_name" => @repo},
+      "review" => review,
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "sender" => %{"login" => "its-everdred"}
+    }
+
+    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+             GithubWebhook.handle_delivery("pull_request_review", delivery, repo: @repo)
+
+    pushed = await_event("ticket.42.pr.review_comment")
+
+    # The payloads differ in exactly one key, and only in the GraphQL-only half.
+    assert %{"review_decision" => "APPROVED"} = polled.pull_request
+    assert %{"review_decision" => nil} = pushed.pull_request
+    assert Map.drop(polled, [:id, :ticket_observation, :pull_request]) == Map.drop(pushed, [:id, :ticket_observation, :pull_request])
+
+    # And the difference is consumer-visible: the same GitHub event suppresses
+    # rework on one path and triggers it on the other.
+    assert ReviewFreshness.rework_skip_reason(polled) == :approved_pull_request
+    assert ReviewFreshness.rework_skip_reason(pushed) == nil
   end
 
   defp assert_indistinguishable(polled, pushed) do
