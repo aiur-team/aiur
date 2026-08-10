@@ -1761,8 +1761,8 @@ run_control_rpc() {
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
 
-  local marker="__AIUR_CONTROL_EXIT__:"
-  local output status exit_code=0 saw_marker=0 line
+  local marker="__AIUR_CONTROL_EXIT__:" error_marker="__AIUR_CONTROL_ERROR__:"
+  local output status exit_code=0 saw_marker=0 saw_error=0 saw_output=0 line partial_suffix=""
 
   set +e
   run_release_rpc_with_timeout "$expression"
@@ -1777,9 +1777,8 @@ run_control_rpc() {
   fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
-    [ -n "$output" ] && printf '%s\n' "$output" >&2
-    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
-    echo "aiur: the daemon may be scheduler-saturated; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
+    [ -n "$output" ] && partial_suffix="; partial output was discarded"
+    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
     return 124
   fi
 
@@ -1814,14 +1813,25 @@ run_control_rpc() {
         saw_marker=1
         exit_code="${line#"$marker"}"
         ;;
+      "$error_marker"*)
+        saw_error=1
+        printf '%s\n' "${line#"$error_marker"}" >&2
+        ;;
       :ok | "") ;;
-      *) printf '%s\n' "$line" ;;
+      *)
+        saw_output=1
+        printf '%s\n' "$line"
+        ;;
     esac
   done <<<"$output"
 
   if [ "$saw_marker" -ne 1 ]; then
     echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
     return 1
+  fi
+
+  if [ "$exit_code" -ne 0 ] && [ "$saw_error" -ne 1 ] && [ "$saw_output" -ne 1 ]; then
+    echo "aiur: control RPC failed with exit ${exit_code} and returned no diagnostic output" >&2
   fi
 
   return "$exit_code"
@@ -1841,7 +1851,13 @@ run_control_stream() {
     print_control_down_message
     return 1
   fi
-  exec "$release_bin" rpc "$expression"
+  if "$release_bin" rpc "$expression"; then
+    return 0
+  else
+    local status=$?
+    echo "aiur: streaming control RPC failed with exit ${status}" >&2
+    return "$status"
+  fi
 }
 
 elixir_list_literal() {

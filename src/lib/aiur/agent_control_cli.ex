@@ -10,6 +10,11 @@ defmodule Aiur.AgentControlCLI do
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
+  @error_marker "__AIUR_CONTROL_ERROR__:"
+  @status_timeout_ms 5_000
+  # Leave the launcher watchdog two seconds to receive and render the daemon's
+  # explicit timeout result instead of racing it at the shared 10-second edge.
+  @agents_timeout_ms 8_000
 
   # RepoBase phases that mean the warm base is still becoming dispatchable
   # (the gate holds new work). Anything else with prewarm enabled — :ready
@@ -26,9 +31,11 @@ defmodule Aiur.AgentControlCLI do
 
   @spec status(keyword()) :: :ok
   def status(opts \\ []) do
-    case Orchestrator.status() do
+    timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
+
+    case Orchestrator.status(Orchestrator, timeout_ms) do
       statuses when is_list(statuses) ->
-        case print_global_pause_banner() do
+        case print_global_pause_banner(opts, timeout_ms) do
           :ok ->
             print_codeowners_trust()
 
@@ -44,13 +51,14 @@ defmodule Aiur.AgentControlCLI do
             print_blocking_asks(opts)
             exit_marker(0)
 
-          {:error, :unavailable} ->
-            exit_marker(1)
+          {:error, error} ->
+            print_control_query_error(error, "status", timeout_ms)
+            exit_marker(control_query_exit_code(error))
         end
 
       error ->
-        print_orchestrator_status_error(error)
-        exit_marker(1)
+        print_control_query_error(error, "status", timeout_ms)
+        exit_marker(control_query_exit_code(error))
     end
   end
 
@@ -58,19 +66,21 @@ defmodule Aiur.AgentControlCLI do
   # equivalent of the dashboard / `aiur-status` log-tailing skill. Pulls the
   # orchestrator snapshot (richer than `status/0`: work-state + latest
   # activity) and prints state + what each agent is doing right now.
-  @spec agents() :: :ok
-  def agents do
-    case Orchestrator.snapshot(Orchestrator, 10_000) do
+  @spec agents(keyword()) :: :ok
+  def agents(opts \\ []) do
+    timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
+
+    case Orchestrator.snapshot(Orchestrator, timeout_ms) do
       %{running: running} when is_list(running) ->
         print_agents_table(running)
         exit_marker(0)
 
       error when error in [:timeout, :unavailable] ->
-        print_orchestrator_status_error(error)
-        exit_marker(1)
+        print_control_query_error(error, "agents", timeout_ms)
+        exit_marker(control_query_exit_code(error))
 
       _other ->
-        print_orchestrator_status_error(:unavailable)
+        print_control_query_error(:unavailable, "agents", timeout_ms)
         exit_marker(1)
     end
   end
@@ -84,9 +94,11 @@ defmodule Aiur.AgentControlCLI do
   # changed since the previous call, keeping the periodic Executor pull cheap.
   @spec watch(keyword()) :: :ok
   def watch(opts \\ []) do
-    case Orchestrator.status() do
+    timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
+
+    case Orchestrator.status(Orchestrator, timeout_ms) do
       statuses when is_list(statuses) ->
-        case print_global_pause_banner() do
+        case print_global_pause_banner(opts, timeout_ms) do
           :ok ->
             print_prewarm_status()
 
@@ -103,13 +115,14 @@ defmodule Aiur.AgentControlCLI do
             render_watch(rows, alerts, blocking_asks, mode, changed, removed)
             exit_marker(0)
 
-          {:error, :unavailable} ->
-            exit_marker(1)
+          {:error, error} ->
+            print_control_query_error(error, "watch", timeout_ms)
+            exit_marker(control_query_exit_code(error))
         end
 
       error ->
-        print_orchestrator_status_error(error)
-        exit_marker(1)
+        print_control_query_error(error, "watch", timeout_ms)
+        exit_marker(control_query_exit_code(error))
     end
   end
 
@@ -882,8 +895,13 @@ defmodule Aiur.AgentControlCLI do
 
   # Surface the global pause switch above the status table so an operator sees
   # at a glance that the whole daemon is halted (silent otherwise).
-  defp print_global_pause_banner do
-    case Orchestrator.global_pause_status() do
+  defp print_global_pause_banner(opts, timeout_ms) do
+    result =
+      Keyword.get_lazy(opts, :global_pause_status, fn ->
+        Orchestrator.global_pause_status(Orchestrator, timeout_ms)
+      end)
+
+    case result do
       {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance = [format_pause_source(source), format_pause_time(paused_at)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
         suffix = if provenance == "", do: "", else: " (#{provenance})"
@@ -892,8 +910,11 @@ defmodule Aiur.AgentControlCLI do
       {:ok, _} ->
         :ok
 
+      {:error, :timeout} ->
+        {:error, :timeout}
+
       {:error, :orchestrator_unavailable} ->
-        print_global_pause_status_unavailable()
+        {:error, :unavailable}
     end
   end
 
@@ -1415,6 +1436,27 @@ defmodule Aiur.AgentControlCLI do
   defp print_orchestrator_status_error(error) do
     IO.puts(:stderr, Map.fetch!(%{timeout: "aiur: timed out while reading agent status", unavailable: "aiur: orchestrator is not running"}, error))
   end
+
+  defp print_control_query_error(:timeout, query, timeout_ms) do
+    IO.puts("#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}; daemon may be scheduler-saturated")
+  end
+
+  defp print_control_query_error(:unavailable, query, _timeout_ms) do
+    IO.puts("#{@error_marker}aiur: #{query} query failed because the orchestrator is not running")
+  end
+
+  defp control_query_exit_code(:timeout), do: 124
+  defp control_query_exit_code(_error), do: 1
+
+  defp control_query_timeout(opts, key, default) do
+    case Keyword.get(opts, key, default) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _invalid -> default
+    end
+  end
+
+  defp format_timeout_budget(timeout_ms) when rem(timeout_ms, 1_000) == 0, do: "#{div(timeout_ms, 1_000)}s"
+  defp format_timeout_budget(timeout_ms), do: "#{timeout_ms}ms"
 
   defp application_started? do
     Enum.any?(Application.started_applications(), fn {app, _description, _version} -> app == :aiur end)

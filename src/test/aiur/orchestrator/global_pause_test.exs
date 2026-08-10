@@ -284,6 +284,18 @@ defmodule Aiur.Orchestrator.GlobalPauseTest do
       assert {:error, :orchestrator_unavailable} = GlobalPause.globally_paused?(name)
       assert {:error, :orchestrator_unavailable} = GlobalPause.global_pause_status(name)
     end
+
+    test "distinguishes a timed-out status query from an unavailable orchestrator" do
+      name = Module.concat(__MODULE__, :SuspendedOrchestrator)
+      {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+      :sys.suspend(pid)
+
+      try do
+        assert {:error, :timeout} = GlobalPause.global_pause_status(name, 1)
+      after
+        :sys.resume(pid)
+      end
+    end
   end
 
   # Route a per-agent pause and apply the worker's confirming evidence.

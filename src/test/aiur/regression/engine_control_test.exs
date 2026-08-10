@@ -236,14 +236,48 @@ defmodule Aiur.Regression.EngineControlTest do
       end)
 
       {out, 0} =
-        run_sourced_engine(
-          ~s|if run_control_rpc "Aiur.AgentControlCLI.status()"; then code=0; else code=$?; fi; echo "CODE=$code"|,
-          [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}]
-        )
+        run_control_rpc_captured("Aiur.AgentControlCLI.status()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state}
+        ])
 
       assert out =~ "CODE=1"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "control RPC failed with exit 1 and returned no diagnostic output"
       refute out =~ "returned no exit marker"
       refute out =~ "no running aiur node"
+    end
+
+    test "a forwarded application error is printed without exposing its protocol marker" do
+      rel = fake_release()
+      state = tmp_state()
+
+      File.write!(Path.join([rel, "bin", "aiur"]), """
+      #!/usr/bin/env bash
+      echo "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 5s; daemon may be scheduler-saturated"
+      echo "__AIUR_CONTROL_EXIT__:124"
+      """)
+
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured("Aiur.AgentControlCLI.status()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state}
+        ])
+
+      assert out =~ "CODE=124"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "aiur: status query timed out after 5s; daemon may be scheduler-saturated"
+      refute out =~ "__AIUR_CONTROL_ERROR__"
+      refute out =~ "__AIUR_CONTROL_EXIT__"
     end
 
     test "a missing marker is an error" do
@@ -292,12 +326,72 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "timed out after 1s"
     end
 
+    test "a timed-out rpc discards partial command output and emits one diagnostic line" do
+      rel = fake_release()
+      state = tmp_state()
+
+      File.write!(Path.join([rel, "bin", "aiur"]), """
+      #!/usr/bin/env bash
+      echo "ISSUE  STATE"
+      echo "#44    working"
+      sleep 5
+      """)
+
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured("Aiur.AgentControlCLI.agents()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "1"}
+        ])
+
+      assert out =~ "CODE=124"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "timed out after 1s"
+      assert out =~ "daemon may be scheduler-saturated"
+      assert out =~ "partial output was discarded"
+      refute out =~ "ISSUE  STATE"
+      refute out =~ "#44    working"
+    end
+
+    test "a silent streaming rpc failure emits a diagnostic" do
+      rel = fake_release()
+      state = tmp_state()
+      File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\nexit 9\n")
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_captured("run_control_stream", "Aiur.AgentControlCLI.executor_listen()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state}
+        ])
+
+      assert out =~ "CODE=9"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "aiur: streaming control RPC failed with exit 9"
+    end
+
     test "the marker and readiness literals are pinned across both languages" do
       cli = File.read!(Path.expand("../../../lib/aiur/agent_control_cli.ex", __DIR__))
       engine = File.read!(@engine)
 
       assert cli =~ ~s|@exit_marker "__AIUR_CONTROL_EXIT__:"|
+      assert cli =~ ~s|@error_marker "__AIUR_CONTROL_ERROR__:"|
       assert engine =~ ~s|marker="__AIUR_CONTROL_EXIT__:"|
+      assert engine =~ ~s|error_marker="__AIUR_CONTROL_ERROR__:"|
       assert engine =~ "__AIUR_CONTROL_READY__"
       assert engine =~ "__AIUR_CONTROL_NOT_READY__"
     end
@@ -533,6 +627,40 @@ defmodule Aiur.Regression.EngineControlTest do
       env: [{"AIUR_ENGINE", @engine} | env],
       stderr_to_stdout: true
     )
+  end
+
+  defp run_control_rpc_captured(expression, env) do
+    run_control_captured("run_control_rpc", expression, env)
+  end
+
+  defp run_control_captured(function, expression, env) do
+    stdout_path = Path.join(System.tmp_dir!(), "aiur-control-stdout-#{System.unique_integer([:positive])}")
+    stderr_path = Path.join(System.tmp_dir!(), "aiur-control-stderr-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      File.rm(stdout_path)
+      File.rm(stderr_path)
+    end)
+
+    script = """
+    if "$CONTROL_FUNCTION" "$CONTROL_EXPRESSION" >"$STDOUT_PATH" 2>"$STDERR_PATH"; then
+      code=0
+    else
+      code=$?
+    fi
+    echo "CODE=$code"
+    echo "STDOUT_BYTES=$(wc -c < \"$STDOUT_PATH\")"
+    echo "STDERR_LINES=$(wc -l < \"$STDERR_PATH\")"
+    cat "$STDERR_PATH"
+    """
+
+    run_sourced_engine(script, [
+      {"CONTROL_FUNCTION", function},
+      {"CONTROL_EXPRESSION", expression},
+      {"STDOUT_PATH", stdout_path},
+      {"STDERR_PATH", stderr_path}
+      | env
+    ])
   end
 
   defp fake_tmux_script(body) do

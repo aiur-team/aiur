@@ -1130,12 +1130,7 @@ defmodule Aiur.AgentControlCLITest do
     Process.unregister(Orchestrator)
 
     try do
-      status_stderr =
-        capture_io(:stderr, fn ->
-          output = capture_io(fn -> AgentControlCLI.status() end)
-
-          assert output =~ "__AIUR_CONTROL_EXIT__:1"
-        end)
+      status_output = capture_io(fn -> AgentControlCLI.status() end)
 
       pause_stderr =
         capture_io(:stderr, fn ->
@@ -1144,11 +1139,38 @@ defmodule Aiur.AgentControlCLITest do
           assert output =~ "__AIUR_CONTROL_EXIT__:1"
         end)
 
-      assert status_stderr =~ "aiur: orchestrator is not running"
+      assert status_output =~ "__AIUR_CONTROL_ERROR__:aiur: status query failed because the orchestrator is not running"
+      assert status_output =~ "__AIUR_CONTROL_EXIT__:1"
       assert pause_stderr =~ "aiur: orchestrator is not running"
     after
       Process.register(pid, Orchestrator)
     end
+  end
+
+  test "status distinguishes a bounded query timeout", %{orchestrator: pid} do
+    :sys.suspend(pid)
+
+    try do
+      output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
+
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; daemon may be scheduler-saturated"
+      assert output =~ "__AIUR_CONTROL_EXIT__:124"
+    after
+      :sys.resume(pid)
+    end
+  end
+
+  test "status preserves a bounded global-pause query timeout" do
+    output =
+      capture_io(fn ->
+        AgentControlCLI.status(
+          status_timeout_ms: 1_000,
+          global_pause_status: {:error, :timeout}
+        )
+      end)
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; daemon may be scheduler-saturated"
+    assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
   describe "agents/0" do
@@ -1381,15 +1403,25 @@ defmodule Aiur.AgentControlCLITest do
       Process.unregister(Orchestrator)
 
       try do
-        stderr =
-          capture_io(:stderr, fn ->
-            output = capture_io(fn -> AgentControlCLI.agents() end)
-            assert output =~ "__AIUR_CONTROL_EXIT__:1"
-          end)
+        output = capture_io(fn -> AgentControlCLI.agents() end)
 
-        assert stderr =~ "aiur: orchestrator is not running"
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query failed because the orchestrator is not running"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
       after
         Process.register(pid, Orchestrator)
+      end
+    end
+
+    test "distinguishes a bounded query timeout", %{orchestrator: pid} do
+      :sys.suspend(pid)
+
+      try do
+        output = capture_io(fn -> AgentControlCLI.agents(snapshot_timeout_ms: 1) end)
+
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; daemon may be scheduler-saturated"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+      after
+        :sys.resume(pid)
       end
     end
   end
@@ -1498,6 +1530,32 @@ defmodule Aiur.AgentControlCLITest do
       on_exit(fn -> File.rm_rf!(root) end)
 
       {:ok, watch_root: root}
+    end
+
+    test "reports a clear error when the orchestrator is unavailable", %{orchestrator: pid} do
+      Process.unregister(Orchestrator)
+
+      try do
+        output = capture_io(fn -> AgentControlCLI.watch() end)
+
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: watch query failed because the orchestrator is not running"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      after
+        Process.register(pid, Orchestrator)
+      end
+    end
+
+    test "distinguishes a bounded query timeout", %{orchestrator: pid} do
+      :sys.suspend(pid)
+
+      try do
+        output = capture_io(fn -> AgentControlCLI.watch(status_timeout_ms: 1) end)
+
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms; daemon may be scheduler-saturated"
+        assert output =~ "__AIUR_CONTROL_EXIT__:124"
+      after
+        :sys.resume(pid)
+      end
     end
 
     test "full board renders state, complexity, and activity per agent", %{orchestrator: pid, watch_root: root} do
