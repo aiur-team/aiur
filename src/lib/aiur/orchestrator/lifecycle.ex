@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
     GlobalPauseStore,
@@ -156,7 +157,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # their subtrees are collectible — reap every running entry before the
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
-  def terminate(_reason, %State{running: running}) when is_map(running) do
+  def terminate(_reason, %State{running: running} = state) when is_map(running) do
+    # Comment-rework retries reschedule themselves for up to a minute with
+    # escalating delays. Cancel them here so a stopping orchestrator never leaves
+    # a timer firing — and logging — into whatever runs after it (#1747).
+    _ = CommentWake.cancel_comment_rework_retries(state)
+
     # Best-effort accelerator: sweep registered agent processes first.
     # drain: false is load-bearing — terminate/2 also runs on a supervised
     # crash-restart, and latching the app-lifetime reaper into draining
