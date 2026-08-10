@@ -57,6 +57,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Stream Deck + control surface"
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
+    # The grid container is a bare <div>, so it needs an explicit role for its
+    # aria-label to be exposed to assistive technology.
+    assert html =~ ~s(class="sd-keys" role="group")
     assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
@@ -103,14 +106,65 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(id="streamdeck-install-modal")
   end
 
-  test "renders the queued dependency chip and the active status dot footer" do
+  test "renders the complete agent key face" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    # Slot 5 is the only queued key and carries dependency: "Blocked".
+    assert html =~ "sd-ag-ic"
+    assert html =~ ~s(class="sd-ag-vendor" src="/provider-assets/codex-color.svg")
+    assert html =~ ~s(class="sd-ag-vendor" src="/provider-assets/claude-symbol.svg")
+    assert html =~ ~s(class="sd-ag-prio")
+    assert html =~ ~s(class="sd-ag-id">1352</span>)
+    assert html =~ ~s(class="sd-ag-title">Live running</span>)
+
+    # Slot 5 is queued and blocked by a dependency, so its footer is stacked.
     assert html =~ "Blocked"
+    assert html =~ ~s(class="sd-ag-foot col")
+    assert html =~ ~s(class="sd-ag-tag blocked")
     # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-status-dot")
-    assert html =~ ~s(class="sd-progress")
+    assert html =~ ~s(class="sd-ag-dot")
+    assert html =~ ~s(class="sr-only">Running</span>)
+    assert html =~ ~s(class="sd-ag-bar")
+  end
+
+  test "hue maps 0% red and 100% green progress, with neutral unknown providers", %{snapshot_agent: snapshot_agent} do
+    Agent.update(snapshot_agent, fn _ ->
+      %{
+        running: [fixture_agent("zero", "Zero progress", "codex", progress_percent: 0), fixture_agent("full", "Full progress", "nonesuch", progress_percent: 100)],
+        retrying: [],
+        idle: [fixture_agent("ready", "Ready queue", "claude")]
+      }
+    end)
+
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    send(view.pid, {:running_changed, []})
+    html = render(view)
+
+    assert html =~ ~s|width: 0%; background: hsl(0 72% 50%)|
+    assert html =~ ~s|width: 100%; background: hsl(125 72% 50%)|
+    assert html =~ ~s(class="sd-ag-vendor-fallback")
+    assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
+  end
+
+  test "renders every registry provider logo from its descriptor", %{snapshot_agent: snapshot_agent} do
+    providers = Aiur.CodingAgent.provider_descriptors()
+
+    Agent.update(snapshot_agent, fn _ ->
+      %{
+        running:
+          Enum.map(providers, fn provider ->
+            family = Atom.to_string(provider.provider)
+            fixture_agent(family, "#{provider.label} provider", family)
+          end),
+        retrying: [],
+        idle: []
+      }
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    for provider <- providers do
+      assert html =~ ~s(src="#{provider.logo}")
+    end
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -590,11 +644,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(data-pager-focus="#1352")
   end
 
-  test "renders the priority star, the mic indicator, and the live segment" do
+  test "renders the priority icon, the mic indicator, and the live segment" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     # Slots 1 and 4 carry priority?: true.
-    assert html =~ "★"
+    assert html =~ ~s(class="sd-ag-prio")
     # The Claude segment always shows the mic dot.
     assert html =~ ~s(class="sd-mic")
     # The Codex segment is live?: true.
