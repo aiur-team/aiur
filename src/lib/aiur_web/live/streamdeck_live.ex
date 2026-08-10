@@ -714,21 +714,24 @@ defmodule AiurWeb.StreamdeckLive do
     prioritized? = Map.get(agent || %{}, :priority) == true
 
     [
-      command_key(if(paused?, do: "resume", else: "pause"), if(paused?, do: "Play", else: "Pause"), if(paused?, do: "RESUME", else: "HOLD"), if(paused?, do: "paused", else: "running"), writable?),
-      command_key(
-        if(prioritized?, do: "deprioritize", else: "prioritize"),
-        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
-        if(prioritized?, do: "LOWER", else: "RAISE"),
-        if(prioritized?, do: "prioritized", else: "standard"),
-        writable?
-      ),
+      pause_command_key(paused?, writable?),
+      priority_command_key(prioritized?, writable?),
       command_key("logs", "Logs", "SCROLL", "ready", true),
       # Mic is the design's fourth command and the only press-and-hold one:
       # it carries no `phx-click`, so the hook drives it from pointer events
       # and a click can never fire it.
-      %{command_key("mic", "Mic", "HOLD", if(mic_live?, do: "live", else: "idle"), writable?) | hold?: true}
+      mic_command_key(mic_live?, writable?)
     ]
   end
+
+  defp pause_command_key(true, writable?), do: command_key("resume", "Play", "RESUME", "paused", writable?)
+  defp pause_command_key(false, writable?), do: command_key("pause", "Pause", "HOLD", "running", writable?)
+
+  defp priority_command_key(true, writable?), do: command_key("deprioritize", "Deprioritize", "LOWER", "prioritized", writable?)
+  defp priority_command_key(false, writable?), do: command_key("prioritize", "Prioritize", "RAISE", "standard", writable?)
+
+  defp mic_command_key(true, writable?), do: %{command_key("mic", "Mic", "HOLD", "live", writable?) | hold?: true}
+  defp mic_command_key(false, writable?), do: %{command_key("mic", "Mic", "HOLD", "idle", writable?) | hold?: true}
 
   defp command_key(command, label, sub, state, writable?),
     do: %{command: command, label: label, sub: sub, state: state, disabled?: not writable?, hold?: false}
