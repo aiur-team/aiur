@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, ReviewFreshness, State}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -738,6 +738,11 @@ defmodule Aiur.Orchestrator.CommentWake do
 
       benign_review_pass_comment?(event) ->
         {:skip, :benign_review_pass_comment}
+
+      # An APPROVED pull request, or a review that predates the current head, is
+      # not a request for rework — routing on it deadlocks the ticket (#1756).
+      reason = ReviewFreshness.rework_skip_reason(event) ->
+        {:skip, reason}
 
       true ->
         case Tracker.update_issue_state(to_string(issue_key), "rework") do

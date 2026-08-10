@@ -166,6 +166,54 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
   end
 
+  # #1756: a rework turn that finds nothing to rework produces no push, so the
+  # pull request head is unchanged at the next dispatch. Billing that turn walks
+  # the ticket to the terminal lifetime latch for doing nothing — #1583 climbed
+  # back to 43/40 twenty minutes after a reset entirely this way.
+  defp with_observed_head(state, head_sha) do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", state: "rework"}
+
+    %{
+      state
+      | last_polled_issues: Map.put(state.last_polled_issues, @issue_id, issue),
+        ci_lifecycle: Map.put(state.ci_lifecycle, :poll_cache, %{"repo#lifetime" => %{head_sha: head_sha, pr_number: 1667, decision: :passed}})
+    }
+  end
+
+  defp dispatch_at_head(state, head_sha, now_ms) do
+    {:ok, gated} = run(with_observed_head(state, head_sha), now_ms)
+    commit(gated)
+  end
+
+  @tag config: @enabled
+  test "a no-op rework turn does not bill a lifetime dispatch unit" do
+    state = dispatch_at_head(%Orchestrator.State{}, "aaa111", 1 * (@window_ms + 1))
+    assert {:ok, 1} = DispatchBudgetStore.lifetime(@issue_id)
+
+    # The turn ended without pushing: the head is still aaa111 on redispatch.
+    state = dispatch_at_head(state, "aaa111", 2 * (@window_ms + 1))
+    state = dispatch_at_head(state, "aaa111", 3 * (@window_ms + 1))
+
+    assert {:ok, 1} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 1} = thrash_budget(state)[@issue_id]
+
+    # A turn that actually pushed moves the head and bills normally again.
+    state = dispatch_at_head(state, "bbb222", 4 * (@window_ms + 1))
+    assert {:ok, 2} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 2} = thrash_budget(state)[@issue_id]
+  end
+
+  @tag config: @enabled
+  test "an unknown pull request head bills every dispatch as before" do
+    # No PR yet, an unreadable poll, or the REST fallback: without an observed
+    # head there is no evidence the turn was a no-op, so the latch still bounds
+    # the ticket exactly as it did pre-#1756.
+    state = dispatch_n(%Orchestrator.State{}, 3)
+
+    assert {:ok, 3} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 3} = thrash_budget(state)[@issue_id]
+  end
+
   @tag config: @enabled
   test "stays healthy below the lifetime budget" do
     state = dispatch_n(%Orchestrator.State{}, 8)

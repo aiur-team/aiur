@@ -54,6 +54,14 @@ one; otherwise reply concisely on the thread and change nothing. Over-eager codi
 on every comment is the failure mode to avoid — acknowledge, assess, then reply or
 change as the comment actually warrants.
 
+A rework turn with nothing to rework must not push. GitHub never clears
+`reviewDecision` when findings are addressed, so a ticket can be routed to
+`agent:rework` with every finding already fixed. When that happens, record it in
+the workpad, reply on the threads that are already satisfied, and end the turn.
+Do **not** merge the base and push to prove liveness: a push with no substantive
+change is not progress, and under a branch ruleset that dismisses stale
+approvals it destroys the approval that would have released the ticket.
+
 When a `pr.review_comment` event or unresolved review thread asks for a real code
 change, treat it as active feedback even if GitHub marks the thread outdated.
 Either make and push the requested change, or verify the current branch already
