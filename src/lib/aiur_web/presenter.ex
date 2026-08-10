@@ -50,6 +50,7 @@ defmodule AiurWeb.Presenter do
       agent_totals: public_agent_totals(snapshot.agent_totals),
       capacity: capacity_payload(Map.get(snapshot, :capacity)),
       capacity_hold: capacity_hold_payload(Map.get(snapshot, :capacity_hold)),
+      dispatch_hold: dispatch_hold_payload(Map.get(snapshot, :dispatch_hold)),
       globally_paused: globally_paused
     }
 
@@ -494,6 +495,18 @@ defmodule AiurWeb.Presenter do
 
   defp capacity_hold_payload(_hold),
     do: %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+
+  defp dispatch_hold_payload(%{held?: true} = hold) do
+    %{
+      held?: true,
+      reason: Map.get(hold, :reason),
+      detail: Map.get(hold, :detail),
+      held_for_seconds: non_negative_integer(Map.get(hold, :held_for_seconds))
+    }
+  end
+
+  defp dispatch_hold_payload(_hold),
+    do: %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: nil

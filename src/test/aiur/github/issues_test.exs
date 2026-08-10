@@ -382,6 +382,20 @@ defmodule Aiur.GitHub.IssuesTest do
       assert issue.state == "in-progress"
     end
 
+    test "does not choose between contradictory workflow state labels" do
+      gh = %{
+        "number" => 18,
+        "title" => "Contradictory labels",
+        "labels" => [%{"name" => "sym:error"}, %{"name" => "sym:todo"}],
+        "state" => "open"
+      }
+
+      issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
+
+      assert issue.state == nil
+      assert issue.state_labels == ["error", "todo"]
+    end
+
     test "keeps the fallback marker out of workflow state selection" do
       gh = %{
         "number" => 13,

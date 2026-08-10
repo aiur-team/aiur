@@ -1675,7 +1675,8 @@ defmodule Aiur.ExtensionsTest do
       "recent_merges",
       "analytics",
       "capacity",
-      "capacity_hold"
+      "capacity_hold",
+      "dispatch_hold"
     ])
   end
 

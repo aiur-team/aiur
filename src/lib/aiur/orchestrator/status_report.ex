@@ -115,6 +115,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :agent_rate_limits,
       :agent_totals,
       :capacity_hold,
+      :dispatch_hold,
       :effective_concurrent_agents,
       :global_pause,
       :globally_paused,
@@ -264,6 +265,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
       capacity_hold: capacity_hold_payload(state, now_ms),
+      dispatch_hold: dispatch_hold_payload(state, now_ms),
       globally_paused: state.globally_paused == true,
       global_pause: %{
         globally_paused: state.globally_paused == true,
@@ -296,6 +298,21 @@ defmodule Aiur.Orchestrator.StatusReport do
 
       _other ->
         %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+    end
+  end
+
+  defp dispatch_hold_payload(%State{} = state, now_ms) do
+    case state.dispatch_hold do
+      %{reason: reason, detail: detail, held_since_ms: held_since_ms} ->
+        %{
+          held?: true,
+          reason: reason,
+          detail: detail,
+          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+        }
+
+      _other ->
+        %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
     end
   end
 
@@ -438,6 +455,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           latched_lifetime: latch != :none,
           tracker_paused: Issue.paused?(issue),
           auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+          dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
           capacity_hold_active?: capacity_hold_active?(state)
         ),
       blocked_by: known_blocked_by(issue),
@@ -764,12 +782,19 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
     max_dispatches = Config.agent_max_dispatches_per_ticket()
 
-    state.last_polled_issues
-    |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue, prewarm_phase, max_dispatches) end)
+    idle_issues =
+      Enum.reject(state.last_polled_issues, fn {issue_id, _issue} ->
+        Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id)
+      end)
+
+    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {issue_id, _issue} -> issue_id end))
+
+    Enum.map(idle_issues, fn {issue_id, issue} ->
+      idle_status(state, issue, prewarm_phase, max_dispatches, Map.get(latch_statuses, issue_id, :none))
+    end)
   end
 
-  defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches) do
+  defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches, latch_status) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
@@ -797,18 +822,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
-      reason:
-        if work_state == :paused do
-          StatusReason.for_pause(pause_reason)
-        else
-          StatusReason.for_idle(
-            prewarm_blocked?,
-            Map.get(budget, :tripped),
-            Map.get(budget, :lifetime, 0),
-            max_dispatches
-          )
-        end
+      reason: idle_status_reason(work_state, pause_reason, prewarm_blocked?, budget, max_dispatches, latch_status)
     }
+  end
+
+  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, _max_dispatches, {:lifetime, lifetime, maximum}),
+    do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
+
+  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, _max_dispatches, :none),
+    do: StatusReason.for_pause(pause_reason)
+
+  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, max_dispatches, :none) do
+    StatusReason.for_idle(
+      prewarm_blocked?,
+      Map.get(budget, :tripped),
+      Map.get(budget, :lifetime, 0),
+      max_dispatches
+    )
   end
 
   @doc false

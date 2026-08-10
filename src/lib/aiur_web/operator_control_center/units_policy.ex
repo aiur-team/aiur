@@ -8,8 +8,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicy do
 
   @scopes [:live, :unfinished, :all, :none]
   @conditions [:active, :alert, :paused, :stuck, :queued, :finished]
-  @queue_reasons [:awaiting_dispatch, :waiting_for_dependency, :backing_off]
-  @stuck_reasons [:backing_off, :unresponsive]
+  @queue_reasons [:awaiting_dispatch, :waiting_for_dependency, :tracker_unavailable, :backing_off]
+  @stuck_reasons [:tracker_unavailable, :backing_off, :unresponsive]
 
   @type scope :: :live | :unfinished | :all | :none
   @type condition :: :active | :alert | :paused | :stuck | :queued | :finished
