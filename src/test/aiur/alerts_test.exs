@@ -234,7 +234,16 @@ defmodule Aiur.AlertsTest do
     assert File.read!(Path.join(workspace, "logs/agent.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(Path.join(log_root, "alerts.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(AlertLedger.path()) =~ "\"topic\":\"#{topic}\""
-    assert [%{"topic" => ^topic}] = AlertFeed.list(needs_attention: true)
+    # Containment, not an exact-list match. The ledger root is read from
+    # application env at write time, so anything emitted while this test holds
+    # `:log_file` — supervision noise, a late control-state alert from another
+    # test's orchestrator — lands in the same ledger and used to fail an
+    # assertion it has nothing to do with. Every other feed assertion in this
+    # file is already written this way.
+    assert Enum.any?(
+             AlertFeed.list(needs_attention: true, ledger_paths: [AlertLedger.path()]),
+             &(&1["topic"] == topic)
+           )
   end
 
   test "fleet dispatch alerts persist and appear in the Executor alert feed" do
@@ -320,9 +329,7 @@ defmodule Aiur.AlertsTest do
     orchestrator_name = Module.concat(__MODULE__, :PauseAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -389,9 +396,7 @@ defmodule Aiur.AlertsTest do
     orchestrator_name = Module.concat(__MODULE__, :ResumeSyncAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -437,6 +442,25 @@ defmodule Aiur.AlertsTest do
       end,
       20
     )
+  end
+
+  # A `:normal` exit signal is ignored by a process that is not trapping exits,
+  # so the orchestrator used to outlive its test and keep draining queued
+  # control-state messages. Those late alerts landed in the *next* test's alert
+  # ledger, because the ledger root is read from application env at write time.
+  defp stop_orchestrator!(pid) do
+    if Process.alive?(pid) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        1_000 -> flunk("orchestrator #{inspect(pid)} did not stop")
+      end
+    end
+
+    :ok
   end
 
   defp assert_eventually(fun, attempts) when attempts > 0 do
