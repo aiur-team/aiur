@@ -1,0 +1,164 @@
+#!/usr/bin/env bash
+# Prove that public webhook ingress is scoped to the webhook route alone.
+#
+# The daemon serves the LiveView dashboard, the Decision API and every other
+# `/api/v1/*` route from the same Phoenix endpoint as the webhook receiver, and
+# on a loopback bind that endpoint is unauthenticated by design (see
+# `Aiur.HttpServer.start_link/1`). A tunnel pointed at the origin root would
+# therefore publish an unauthenticated Aiur control plane. This script is the
+# check that we did not do that.
+#
+# It asserts two things against the PUBLIC base URL:
+#
+#   1. `POST /api/v1/github/webhook` is reachable and answers 401 to an
+#      unsigned body — the receiver is live and still fails closed.
+#   2. Every other sampled path is NOT routed through: the ingress catch-all
+#      answers instead, and the daemon never sees the request.
+#
+# Usage:
+#   scripts/verify-webhook-ingress https://hooks.example.com
+#   DENY_STATUS=403 scripts/verify-webhook-ingress https://hooks.example.com
+#
+# Exit status is 0 only when every assertion holds.
+
+set -euo pipefail
+
+if [[ "$#" -ne 1 ]]; then
+  echo "usage: $0 <public-base-url>" >&2
+  echo "  e.g. $0 https://hooks.example.com" >&2
+  exit 2
+fi
+
+base_url="${1%/}"
+
+if [[ ! "$base_url" =~ ^https:// ]]; then
+  # GitHub will deliver to http:// but the secret-bearing signature and the
+  # payload would then cross the network in the clear. Refuse rather than
+  # verify a posture we would not ship.
+  #
+  # The escape hatch exists so `scripts/test-webhook-ingress.sh` can exercise
+  # the assertions below against a loopback fixture server. It is deliberately
+  # long, loud, and never appropriate against a real tunnel.
+  if [[ "${AIUR_WEBHOOK_INGRESS_ALLOW_HTTP:-}" == "1" ]]; then
+    echo "webhook ingress guard: WARNING plaintext base URL permitted for testing only" >&2
+  else
+    echo "webhook ingress guard: base URL must be https://, got: $base_url" >&2
+    exit 2
+  fi
+fi
+
+# The status the ingress catch-all returns for an unpublished path. Cloudflare
+# Tunnel's `http_status:404` catch-all yields 404; a deny-by-WAF posture yields
+# 403. Anything in this set proves the request was answered at the edge.
+deny_status="${DENY_STATUS:-404}"
+
+webhook_path="/api/v1/github/webhook"
+
+# Paths that must NOT be publicly routable. Drawn from `AiurWeb.Router`: the
+# dashboard live_session, the Supervisor Decision API, and the agent-control
+# and machine-write `/api/v1/*` routes. `/api/v1/` is included on purpose --
+# the router's trailing `match(:*, "/*path")` catch-all means an over-broad
+# ingress rule publishes far more than the paths enumerated here.
+denied_paths=(
+  "/"
+  "/decisions"
+  "/build-orders"
+  "/analytics"
+  "/streamdeck"
+  "/dashboard.css"
+  "/api/v1/state"
+  "/api/v1/decisions"
+  "/api/v1/refresh"
+  "/api/v1/streamdeck/grid"
+  "/api/v1/streamdeck/token"
+  "/api/v1/pane/interrupt"
+  "/api/v1/github"
+  "/api/v1/"
+)
+
+failures=0
+
+# Print the HTTP status for a request, or `000` when curl could not complete
+# one. `--max-time` keeps a black-holed hostname from hanging the check.
+http_status() {
+  local method="$1"
+  local url="$2"
+  local code
+  shift 2
+
+  # curl already writes `000` via --write-out when no response was received, so
+  # its non-zero exit is swallowed rather than turned into a second value.
+  code="$(curl --silent --output /dev/null \
+    --write-out '%{http_code}' \
+    --max-time 15 \
+    --request "$method" \
+    "$@" \
+    "$url" 2>/dev/null)" || true
+
+  echo "${code:-000}"
+}
+
+pass() { printf '  ok    %s\n' "$1"; }
+
+fail() {
+  printf '  FAIL  %s\n' "$1" >&2
+  failures=$((failures + 1))
+}
+
+echo "webhook ingress guard: verifying $base_url"
+echo
+echo "webhook route is reachable and fails closed:"
+
+# An unsigned POST. W-1's verifier rejects a delivery whose signature header is
+# absent, so a live, correctly configured receiver answers 401 here. A 2xx would
+# mean the receiver is accepting unsigned deliveries, which is worse than an
+# unreachable endpoint.
+status="$(http_status POST "$base_url$webhook_path" \
+  --header 'Content-Type: application/json' \
+  --header 'X-GitHub-Event: ping' \
+  --data '{}')"
+
+case "$status" in
+  401)
+    pass "POST $webhook_path -> 401 (reachable, signature required)"
+    ;;
+  2??)
+    fail "POST $webhook_path -> $status (receiver ACCEPTED an unsigned delivery)"
+    ;;
+  000)
+    fail "POST $webhook_path -> no response (tunnel down, or origin port moved: pin server.port in .aiur/config)"
+    ;;
+  *)
+    fail "POST $webhook_path -> $status (expected 401; is the ingress rule matching this exact path?)"
+    ;;
+esac
+
+echo
+echo "every other route is not publicly routable:"
+
+for path in "${denied_paths[@]}"; do
+  # GET is what an attacker who learns the hostname reaches for first, and it
+  # is what would render the dashboard if the scoping were wrong.
+  status="$(http_status GET "$base_url$path")"
+
+  if [[ "$status" == "$deny_status" ]]; then
+    pass "GET $path -> $status"
+  elif [[ "$status" == "000" ]]; then
+    # The tunnel answering nothing is not proof of scoping -- it is more likely
+    # that the whole hostname is down, in which case the webhook assertion above
+    # has already failed and this result carries no information.
+    fail "GET $path -> no response (cannot distinguish scoped-out from tunnel-down)"
+  else
+    fail "GET $path -> $status (expected $deny_status; this path is PUBLICLY REACHABLE)"
+  fi
+done
+
+echo
+
+if [[ "$failures" -ne 0 ]]; then
+  echo "webhook ingress guard: $failures assertion(s) failed" >&2
+  echo "See docs/security/webhook-ingress.md for the intended ingress scoping." >&2
+  exit 1
+fi
+
+echo "webhook ingress guard: exposure is scoped to $webhook_path"
