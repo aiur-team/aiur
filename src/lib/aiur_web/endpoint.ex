@@ -53,9 +53,14 @@ defmodule AiurWeb.Endpoint do
   plug(Plug.RequestId)
   plug(Plug.Telemetry, event_prefix: [:phoenix, :endpoint])
 
+  # The custom body reader caches the raw request bytes for GitHub webhook
+  # deliveries. HMAC is computed over exactly what GitHub sent, and re-encoding
+  # the parsed map would produce different bytes and a signature that never
+  # matches. Every other path keeps the stock reader and the default limit.
   plug(Plug.Parsers,
     parsers: [:urlencoded, :multipart, :json],
     pass: ["*/*"],
+    body_reader: {AiurWeb.GithubWebhook.BodyReader, :read_body, []},
     json_decoder: Jason
   )
 
