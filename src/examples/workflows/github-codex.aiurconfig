@@ -1,5 +1,6 @@
 tracker:
   kind: github
+  base_branch: your-base-branch
   active_states:
     - todo
     - in-progress
@@ -64,7 +65,8 @@ hooks:
     # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
-    git checkout -b "aiur/${issue_id}" origin/main
+    git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
+    git update-ref refs/aiur/branch-start HEAD
   before_remove: |
     git status --short
 agent:
