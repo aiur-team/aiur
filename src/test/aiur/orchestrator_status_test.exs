@@ -1315,7 +1315,9 @@ defmodule Aiur.OrchestratorStatusTest do
     }
 
     orchestrator_name = Module.concat(__MODULE__, :PinnedExecutionOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    # This test injects `last_polled_issues` directly; an automatic poll would
+    # replace it with tracker truth and drop the undispatched fixture.
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid), do: Process.exit(pid, :normal)
