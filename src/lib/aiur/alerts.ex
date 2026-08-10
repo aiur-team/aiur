@@ -287,6 +287,11 @@ defmodule Aiur.Alerts do
     # Publisher GenServer may not be running during early-boot or test
     # configurations — never block the alert pipeline on its absence.
     _ -> :ok
+  catch
+    # A missing IdGenerator makes Publisher.publish/3 exit through its
+    # GenServer call. Alerts must still reach the local feed in that failure
+    # mode; otherwise the liveness signal itself disappears with the worker.
+    :exit, _reason -> :ok
   end
 
   defp issue_number_for(opts) do
