@@ -318,7 +318,7 @@ test('pager segment relabels to CONTROLLING with the focused agent and restores 
   // The relabelled segment still shares the strip's row and heading geometry.
   const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
   expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
-  expect(await pager.locator('.sd-info-hd').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
+  expect(await pager.locator('.sd-seg-dlabel').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.click()
@@ -711,6 +711,38 @@ test('touch strip renders two provider meters and design segment geometry', asyn
   expect(geometry.padding).toBe('5.12px 8px')
   expect(geometry.headingFont).toContain('JetBrains Mono')
   expect(geometry.barHeight).toBe('3px')
+
+  // Both segment headings hold one ink. The design specifies 0.42, which
+  // measures under 4.5:1 here and fails the axe check below, so they sit at
+  // 0.55 together rather than one heading drifting from the other.
+  expect(await providers.first().locator('.sd-info-hd').evaluate((heading) => getComputedStyle(heading).color)).toBe('rgba(255, 255, 255, 0.55)')
+
+  // The pager is the design's dial segment (.sd-seg-d, streamdeck.design.css:153-154):
+  // a centred column on the brighter 0.04 ground, labelled by its own text and
+  // carrying no logo header.
+  const pagerShape = await page.locator('[data-segment="pager"]').evaluate((segment) => {
+    const label = segment.querySelector('.sd-seg-dlabel')
+
+    return {
+      align: getComputedStyle(segment).alignItems,
+      gap: getComputedStyle(segment).gap,
+      background: getComputedStyle(segment).backgroundColor,
+      labelSize: getComputedStyle(label).fontSize,
+      labelWeight: getComputedStyle(label).fontWeight,
+      labelColor: getComputedStyle(label).color,
+      headings: segment.querySelectorAll('.sd-info-hd').length,
+      logos: segment.querySelectorAll('.sd-hd-logo').length
+    }
+  })
+
+  expect(pagerShape.align).toBe('center')
+  expect(pagerShape.gap).toBe('5.12px')
+  expect(pagerShape.background).toBe('rgba(255, 255, 255, 0.04)')
+  expect(pagerShape.labelSize).toBe('8.64px')
+  expect(pagerShape.labelWeight).toBe('700')
+  expect(pagerShape.labelColor).toBe('rgba(255, 255, 255, 0.55)')
+  expect(pagerShape.headings).toBe(0)
+  expect(pagerShape.logos).toBe(0)
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {

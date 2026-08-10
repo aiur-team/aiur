@@ -250,8 +250,19 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <div id="sd-screen" class="sd-screen" style={"--sd-screen-segments: #{length(@screen)}"} role="group" aria-label="Touch strip">
-            <div :for={segment <- @screen} class={["sd-screen-segment", "sd-seg", "sd-seg-info", segment.observed? && "is-live"]} data-segment={segment.kind}>
-              <div class="sd-info-hd">
+            <div
+              :for={segment <- @screen}
+              class={[
+                "sd-screen-segment",
+                "sd-seg",
+                if(segment.kind == :pager, do: "sd-seg-d", else: "sd-seg-info"),
+                segment.observed? && "is-live"
+              ]}
+              data-segment={segment.kind}
+            >
+              <span :if={segment.kind == :pager} class="sd-seg-dlabel">{segment.label}</span>
+
+              <div :if={segment.kind != :pager} class="sd-info-hd">
                 <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
                 <span>{segment.label}</span>
                 <span :if={segment.kind == :provider and segment.provider == "claude"} class="sd-mic" aria-hidden="true"></span>
@@ -507,7 +518,6 @@ defmodule AiurWeb.StreamdeckLive do
     %{
       kind: :pager,
       label: "CONTROLLING",
-      logo: "/aiur-logo.png",
       observed?: true,
       pages: [],
       current_page: current_page,
@@ -520,7 +530,6 @@ defmodule AiurWeb.StreamdeckLive do
     %{
       kind: :pager,
       label: "MORE AGENTS",
-      logo: "/aiur-logo.png",
       observed?: grid.windows > 1,
       pages: pager_pages(grid.windows),
       current_page: current_page,

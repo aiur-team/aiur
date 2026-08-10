@@ -483,6 +483,25 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(data-pager-page="0" aria-current="page")
   end
 
+  test "the pager renders as the design's dial segment rather than a logo-headed info segment" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "MORE AGENTS")
+    refute has_element?(view, ~s([data-segment="pager"].sd-seg-info))
+    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
+    refute has_element?(view, ~s([data-segment="pager"] .sd-hd-logo))
+
+    # The information segments keep their logo headers.
+    assert has_element?(view, ~s([data-segment="summary"].sd-seg-info .sd-info-hd .sd-hd-logo))
+    assert has_element?(view, ~s([data-segment="provider"].sd-seg-info .sd-info-hd .sd-hd-logo))
+
+    # Focusing a command relabels in place; the shape does not change.
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert has_element?(view, ~s([data-segment="pager"].sd-seg-d .sd-seg-dlabel), "CONTROLLING")
+    refute has_element?(view, ~s([data-segment="pager"] .sd-info-hd))
+  end
+
   test "the pager segment relabels to CONTROLLING with the focused agent and drops its dots" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
