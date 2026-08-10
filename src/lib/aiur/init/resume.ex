@@ -3,8 +3,8 @@ defmodule Aiur.Init.Resume do
   Saved-config readback for a resume run — the saved-selections summary and the tracker/agents/routing readback from an existing config.
   """
 
-  alias Aiur.Init.{Format, Prewarm, Questions}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.Init.{Format, Prewarm, Questions}
 
   @gitignore_entry ".aiur/"
 
