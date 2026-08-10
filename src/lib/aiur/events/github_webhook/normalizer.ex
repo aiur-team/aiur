@@ -333,6 +333,17 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     end
   end
 
+  # Dedup divergence, reported not absorbed. `GithubCommentsPoller` keys review
+  # thread comments on the GraphQL thread node id when it has one — which, on the
+  # batch path, is always — giving `{repo, "pr_review_thread:N", "PRRT_..."}`.
+  # A delivery carries no node id, so this can only produce
+  # `{repo, "pr_review_comment:N", "<comment id>"}`. The keys never match, so the
+  # webhook and the reconciliation poll each wake the agent for one comment.
+  #
+  # It is also a policy difference, not only a missing field: the poller dedups
+  # per thread, a delivery can only dedup per comment. Reconciling them means
+  # choosing one granularity and resolving the thread id, which needs a fetch in
+  # the delivery path. Pinned by `github_webhook_equivalence_test.exs`.
   defp review_comment_triple(payload, comment, repo) do
     with {:ok, target, pr_number} <- pull_request_identity(payload) do
       {:publish,

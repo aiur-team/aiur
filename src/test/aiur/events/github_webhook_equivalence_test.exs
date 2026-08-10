@@ -12,10 +12,17 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   stamps the wall clock of the publish itself) are excluded — everything a
   consumer routes, filters, or renders on must be identical.
 
-  The one known exception is `review_decision`, which is GraphQL-only and so
-  cannot ride on any delivery. The last test pins that divergence and the
-  consumer-visible behaviour difference it produces, so the gap stays visible
-  and cannot widen unnoticed.
+  Two known divergences are pinned rather than asserted away, both rooted in the
+  same cause — GraphQL-only values that no webhook delivery can carry:
+
+    * `review_decision`, which changes whether `ReviewFreshness` suppresses
+      rework on an APPROVED pull request.
+    * `review_thread_id`, which changes the dedup key for review thread comments
+      so the two producers wake the agent twice for one comment.
+
+  Each has a test asserting the current divergent behaviour. When either is
+  fixed, its test fails and must be rewritten as an equivalence or coalescing
+  assertion — that failure is the tripwire.
   """
 
   use Aiur.TestSupport
@@ -217,6 +224,70 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
     pushed = await_event("ticket.55.pr.opened")
 
     assert_indistinguishable(polled, pushed)
+  end
+
+  # Known divergence, pinned deliberately — the counterexample to the test above.
+  #
+  # Coalescing holds only where both producers derive the same dedup key. For
+  # review *thread* comments they do not. The GraphQL batch path stamps every
+  # thread comment with `review_thread_id` (`ReviewThreads.normalize_thread_comment/2`,
+  # from the thread node id), so the poller keys on
+  # `{repo, "pr_review_thread:901", "PRRT_..."}` while a delivery — which carries
+  # no GraphQL node id — can only key on `{repo, "pr_review_comment:901", "7007"}`.
+  #
+  # Different keys means the Publisher window never collapses them: the webhook
+  # wakes the agent, the reconciliation poll wakes it again for the same comment.
+  # The two are also semantically different policies — the poller dedups per
+  # *thread*, the webhook per *comment* — so this is a choice, not just a
+  # missing field, and it is not closable in the normalizer.
+  #
+  # The earlier review-comment equivalence case passes only because it injects a
+  # comment with no `review_thread_id`, which takes the poller's fallback branch.
+  # This case uses the shape the batch actually produces.
+  test "known divergence: review thread comments do not coalesce and wake twice" do
+    :ok = Exchange.subscribe("ticket.42.pr.review_comment")
+
+    polled_comment = %{
+      "id" => 7_007,
+      "review_thread_id" => "PRRT_kwDOabc123",
+      "body" => "extract this into a helper",
+      "created_at" => "2026-06-24T12:00:00Z",
+      "updated_at" => "2026-06-24T12:00:00Z",
+      "html_url" => "https://github.com/owner/repo/pull/901#discussion_r7007",
+      "path" => "lib/foo.ex",
+      "line" => 12,
+      "user" => %{"login" => "its-everdred"}
+    }
+
+    assert {:ok, %{count: 1}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: @repo,
+               review_submission_targets: MapSet.new([]),
+               open_pull_requests_by_target: %{"42" => %{"number" => 901}},
+               comment_batch: %{
+                 "42" => %{issue_comments: [], pr_issue_comments: [], review_thread_comments: [polled_comment]}
+               }
+             )
+
+    assert_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 500
+
+    # Dedup deliberately NOT cleared: if the keys agreed, this publish would be
+    # suppressed as a duplicate the way the issue-comment case above is.
+    delivery = %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "comment" => Map.delete(polled_comment, "review_thread_id"),
+      "pull_request" => %{"number" => 901, "head" => %{"ref" => "aiur/42-some-slug", "sha" => "deadbeef"}},
+      "sender" => %{"login" => "its-everdred"}
+    }
+
+    assert %{status: :published, published: ["ticket.42.pr.review_comment"]} =
+             GithubWebhook.handle_delivery("pull_request_review_comment", delivery, repo: @repo)
+
+    # The second wake. When this stops arriving, the divergence is fixed and this
+    # test must be rewritten as a coalescing assertion.
+    assert_receive {:event, %{topic: "ticket.42.pr.review_comment"}}, 500
   end
 
   test "the same event seen by both producers wakes a consumer exactly once" do
