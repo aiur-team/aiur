@@ -43,6 +43,32 @@ defmodule AiurWeb.StreamdeckProjectionTest do
     assert get_in(view, ["codex", "windows", "weekly", "freshness"]) == "stale"
   end
 
+  test "propagates a stale provider health state to otherwise fresh windows" do
+    meter =
+      observed_meter("primary", 80, 60, "secondary", 90, 10_080)
+      |> Map.put(:health, %{state: :stale})
+
+    view = StreamdeckProjection.provider_meters(%{codex: meter}, @now)
+
+    assert view["codex"]["freshness"] == "stale"
+    assert get_in(view, ["codex", "windows", "session", "freshness"]) == "stale"
+    assert get_in(view, ["codex", "windows", "weekly", "freshness"]) == "stale"
+  end
+
+  test "keeps a sole weekly source reading in the weekly slot" do
+    meter = %{
+      state: :observed,
+      observed_at: @now,
+      freshness: :fresh,
+      windows: %{"seven_day" => rate_window(47, 10_080, @now, :fresh)}
+    }
+
+    view = StreamdeckProjection.provider_meters(%{claude: meter}, @now)
+
+    refute get_in(view, ["claude", "windows", "session"])
+    assert get_in(view, ["claude", "windows", "weekly", "used_percent"]) == 47
+  end
+
   test "retains an observed meter for a configured provider without a dispatchable backend" do
     view = StreamdeckProjection.provider_meters(%{kimi: observed_meter("session", 25, 120, "weekly", 45, 10_080)}, @now)
 

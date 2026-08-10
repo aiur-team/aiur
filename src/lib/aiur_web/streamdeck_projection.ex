@@ -194,7 +194,7 @@ defmodule AiurWeb.StreamdeckProjection do
       plan: field(meter, :plan),
       freshness: freshness,
       health: field(meter, :health),
-      windows: normalized_windows(meter, observed_at, now)
+      windows: normalized_windows(meter, observed_at, now, freshness)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -211,13 +211,13 @@ defmodule AiurWeb.StreamdeckProjection do
     end
   end
 
-  defp normalized_windows(meter, provider_observed_at, now) do
+  defp normalized_windows(meter, provider_observed_at, now, provider_freshness) do
     meter
     |> field(:windows)
     |> rate_limit_windows()
     |> semantic_windows()
     |> Map.new(fn {slot, {_limit_id, window}} ->
-      {slot, normalize_window(window, provider_observed_at, now)}
+      {slot, normalize_window(window, provider_observed_at, now, provider_freshness)}
     end)
   end
 
@@ -232,16 +232,19 @@ defmodule AiurWeb.StreamdeckProjection do
   defp semantic_windows([]), do: []
 
   defp semantic_windows(windows) do
-    session = select_window(windows, @session_window_tokens, :shortest)
-    weekly = windows |> List.delete(session) |> select_window(@weekly_window_tokens, :longest)
+    session = Enum.find(windows, &window_matches?(&1, @session_window_tokens))
+    weekly = windows |> List.delete(session) |> Enum.find(&window_matches?(&1, @weekly_window_tokens))
+    remaining = unclassified_windows(windows) |> List.delete(session) |> List.delete(weekly)
+
+    session = session || fallback_window(remaining, :shortest)
+    weekly = weekly || remaining |> List.delete(session) |> fallback_window(:longest)
 
     [{"session", session}, {"weekly", weekly}]
     |> Enum.reject(fn {_slot, window} -> is_nil(window) end)
   end
 
-  defp select_window(windows, tokens, fallback) do
-    Enum.find(windows, &window_matches?(&1, tokens)) || fallback_window(windows, fallback)
-  end
+  defp unclassified_windows(windows),
+    do: Enum.reject(windows, &(window_matches?(&1, @session_window_tokens) or window_matches?(&1, @weekly_window_tokens)))
 
   defp window_matches?({limit_id, _window}, tokens) do
     limit_id
@@ -261,7 +264,7 @@ defmodule AiurWeb.StreamdeckProjection do
     end
   end
 
-  defp normalize_window(window, provider_observed_at, now) do
+  defp normalize_window(window, provider_observed_at, now, provider_freshness) do
     observed_at = window |> field(:observed_at) |> datetime() || provider_observed_at
 
     %{
@@ -270,7 +273,7 @@ defmodule AiurWeb.StreamdeckProjection do
       resets_at: window |> field(:resets_at) |> datetime(),
       observed_at: observed_at,
       age_seconds: age_seconds(observed_at, now),
-      freshness: window_freshness(window, observed_at, now)
+      freshness: window_freshness(window, observed_at, now, provider_freshness)
     }
     |> Enum.reject(fn {_key, value} -> is_nil(value) end)
     |> Map.new()
@@ -288,8 +291,8 @@ defmodule AiurWeb.StreamdeckProjection do
     end
   end
 
-  defp window_freshness(window, observed_at, now) do
-    if stale?(observed_at, now) or field(window, :freshness) in [:stale, "stale"] do
+  defp window_freshness(window, observed_at, now, provider_freshness) do
+    if provider_freshness == :stale or stale?(observed_at, now) or field(window, :freshness) in [:stale, "stale"] do
       :stale
     else
       case field(window, :freshness) do
