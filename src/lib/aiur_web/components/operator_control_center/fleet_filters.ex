@@ -4,7 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.FleetFilters do
   @filters [:running, :blocked, :paused, :stuck, :finished]
   @default_filters [:running, :blocked, :paused, :stuck]
   @blocked_reasons [:waiting_for_human, :waiting_for_supervisor, :waiting_for_dependency]
-  @stuck_reasons [:backing_off, :unresponsive]
+  @stuck_reasons [:tracker_unavailable, :backing_off, :unresponsive]
   @finished_states ["done", "closed", "cancelled", "canceled"]
 
   @spec default() :: map()

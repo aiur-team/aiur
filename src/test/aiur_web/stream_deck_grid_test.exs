@@ -121,6 +121,18 @@ defmodule AiurWeb.StreamDeckGridTest do
            ]
   end
 
+  test "tracker-unavailable queued work is stuck rather than ready" do
+    payload =
+      StreamDeckGrid.project(%{
+        running: [],
+        retrying: [],
+        idle: [agent("tracker-held", waiting_reason: :tracker_unavailable)]
+      })
+
+    assert [%{identifier: "tracker-held", bucket: :stuck} = held] = payload.agents
+    refute Map.has_key?(held, :dependency_ready)
+  end
+
   property "renders agents in non-decreasing Stream Deck rank for any fleet" do
     check all(bucket_sequence <- list_of(member_of([:alert, :stuck, :running, :paused, :queued]), max_length: 40), max_runs: 30) do
       snapshot = snapshot_for(bucket_sequence)

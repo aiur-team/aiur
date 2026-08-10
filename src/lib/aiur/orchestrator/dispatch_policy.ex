@@ -468,16 +468,47 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @spec should_dispatch_issue?(Issue.t(), State.t()) :: boolean()
   def should_dispatch_issue?(%Issue{} = issue, %State{} = state) do
-    should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+    dispatch_decision(issue, state) == :dispatch
   end
 
   @spec should_dispatch_issue?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
   def should_dispatch_issue?(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
-    dispatch_candidate?(issue, state, active_states, terminal_states) and
-      Slots.available_slots(state) > 0
+    dispatch_decision(issue, state, active_states, terminal_states) == :dispatch
   end
 
   def should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
+
+  @type dispatch_decline_reason ::
+          :invalid_issue
+          | :contradictory_state_labels
+          | :not_routable
+          | :unauthorized
+          | :paused
+          | :inactive_state
+          | :terminal_state
+          | :dependency
+          | :already_running
+          | :retry_backoff
+          | :model_fallback_waiting
+          | :workspace_ownership_waiting
+          | :claimed_without_runtime
+          | :state_capacity
+          | :worker_capacity
+          | :fleet_capacity
+
+  @spec dispatch_decision(term(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_decision(issue, %State{} = state) do
+    dispatch_decision(issue, state, active_state_set(), terminal_state_set())
+  end
+
+  @spec dispatch_decision(term(), State.t(), MapSet.t(), MapSet.t()) ::
+          :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_decision(issue, %State{} = state, active_states, terminal_states) do
+    case dispatch_candidate_decision(issue, state, active_states, terminal_states) do
+      :dispatch -> if(Slots.available_slots(state) > 0, do: :dispatch, else: {:skip, :fleet_capacity})
+      {:skip, _reason} = declined -> declined
+    end
+  end
 
   # All dispatch preconditions except the global active+paused slot reservation.
   # Polling layers `available_slots > 0` on top of this to honor paused-agent
@@ -486,22 +517,72 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # parallel paused agent is parked in the running map.
   @spec dispatch_candidate?(Issue.t(), State.t()) :: boolean()
   def dispatch_candidate?(%Issue{} = issue, %State{} = state) do
-    dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
+    dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set()) == :dispatch
   end
 
   @spec dispatch_candidate?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
   def dispatch_candidate?(
         %Issue{} = issue,
-        %State{running: running, claimed: claimed} = state,
+        %State{} = state,
         active_states,
         terminal_states
       ) do
-    candidate_issue?(issue, active_states, terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
-      !MapSet.member?(claimed, issue.id) and
-      !Map.has_key?(running, issue.id) and
-      state_slots_available?(issue, state) and
-      Slots.worker_slots_available?(state)
+    dispatch_candidate_decision(issue, state, active_states, terminal_states) == :dispatch
+  end
+
+  defp dispatch_candidate_decision(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
+    case issue_eligibility_decision(issue, active_states, terminal_states) do
+      :dispatch -> dispatch_state_decision(issue, state, terminal_states)
+      {:skip, _reason} = declined -> declined
+    end
+  end
+
+  defp dispatch_candidate_decision(_issue, _state, _active_states, _terminal_states), do: {:skip, :invalid_issue}
+
+  defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
+    is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
+  end
+
+  defp issue_eligibility_decision(%Issue{} = issue, active_states, terminal_states) do
+    cond do
+      match?([_, _ | _], issue.state_labels) -> {:skip, :contradictory_state_labels}
+      not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
+      not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
+      not issue_not_paused?(issue) -> {:skip, :paused}
+      terminal_issue_state?(issue.state, terminal_states) -> {:skip, :terminal_state}
+      not active_issue_state?(issue.state, active_states) -> {:skip, :inactive_state}
+      true -> :dispatch
+    end
+  end
+
+  defp dispatch_state_decision(%Issue{} = issue, %State{} = state, terminal_states) do
+    cond do
+      todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
+      Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
+      MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
+      not state_slots_available?(issue, state) -> {:skip, :state_capacity}
+      not Slots.worker_slots_available?(state) -> {:skip, :worker_capacity}
+      true -> :dispatch
+    end
+  end
+
+  defp claimed_decline_reason(%State{} = state, issue_id) do
+    cond do
+      Map.has_key?(state.retry_attempts, issue_id) -> :retry_backoff
+      MapSet.member?(state.model_fallback_waiting, issue_id) -> :model_fallback_waiting
+      workspace_ownership_waiting?(state, issue_id) -> :workspace_ownership_waiting
+      true -> :claimed_without_runtime
+    end
+  end
+
+  defp workspace_ownership_waiting?(%State{} = state, issue_id) do
+    state.dispatch_recovery.workspace_ownership.waits
+    |> Map.values()
+    |> Enum.any?(fn
+      envelope when is_map(envelope) -> Map.get(envelope, :issue_id) == issue_id
+      _other -> false
+    end)
   end
 
   @spec queued_dispatch_demand?([Issue.t()], State.t()) :: boolean()
@@ -564,11 +645,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         terminal_states
       )
       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
-    issue_routable_to_worker?(issue) and
-      issue_dispatch_authorized?(issue) and
-      issue_not_paused?(issue) and
-      active_issue_state?(state_name, active_states) and
-      !terminal_issue_state?(state_name, terminal_states)
+    issue_eligibility_decision(issue, active_states, terminal_states) == :dispatch
   end
 
   def candidate_issue?(_issue, _active_states, _terminal_states), do: false

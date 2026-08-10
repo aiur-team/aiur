@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
+  alias Aiur.{AgentPubSub, AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
@@ -299,6 +299,57 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
+  test "public reset queues while the orchestrator mailbox is unresponsive" do
+    name = Module.concat(__MODULE__, :SuspendedResetOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+    :sys.suspend(pid)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        try do
+          :sys.resume(pid)
+          Process.exit(pid, :normal)
+        catch
+          :exit, _reason -> :ok
+        end
+      end
+    end)
+
+    assert {:ok, :queued} = PauseResume.reset_dispatch_budget(name, "repo#lifetime")
+  end
+
+  @tag config: @enabled
+  test "queued reset processing emits completion and failure outcomes" do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+    :ok = AgentPubSub.subscribe_agent(@issue_id)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    reset = PauseResume.reset_dispatch_budget_cast(state, issue.identifier)
+    assert :none = Dispatcher.dispatch_latch_status(reset, @issue_id)
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.issue-lifetime.agent.attention.dispatch-budget-reset.resolved",
+                      needs_attention: false
+                    }},
+                   2_000
+
+    :ok = AgentPubSub.subscribe_agent("missing")
+    _unchanged = PauseResume.reset_dispatch_budget_cast(reset, "missing")
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.missing.agent.attention.dispatch-budget-reset",
+                      needs_attention: true
+                    }},
+                   2_000
   end
 
   @tag config: @enabled

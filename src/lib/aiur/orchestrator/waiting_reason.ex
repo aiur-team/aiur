@@ -20,6 +20,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :paused_operator
           | :paused_transient
           | :latched_lifetime
+          | :tracker_unavailable
           | :backing_off
           | :unresponsive
           | :active
@@ -75,6 +76,9 @@ defmodule Aiur.Orchestrator.WaitingReason do
     * `:capacity_hold_active?` — true when host-pressure admission is currently
       deferring dispatchable work, so a ready row reads as `:backing_off`
       (capacity) rather than `:active`
+    * `:dispatch_hold_reason` — the fleet-wide reason selection did not run;
+      `:tracker_preflight` renders an otherwise-ready row as
+      `:tracker_unavailable`
 
   Precedence: an open decision, then a dependency, then the more specific
   #1453 causes (latch > operator pause > pending transient resume), then a
@@ -97,6 +101,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
       Keyword.get(opts, :latched_lifetime, false) -> :latched_lifetime
       Keyword.get(opts, :tracker_paused, false) -> :paused_operator
       Keyword.get(opts, :auto_resume_retry_in_ms) != nil -> :paused_transient
+      Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight -> dispatch_hold_or_tracker_state(tracker_state)
       Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state)
       true -> by_tracker_state(tracker_state)
     end
@@ -107,6 +112,13 @@ defmodule Aiur.Orchestrator.WaitingReason do
   defp capacity_or_tracker_state(tracker_state) do
     case by_tracker_state(tracker_state) do
       :active -> :backing_off
+      other -> other
+    end
+  end
+
+  defp dispatch_hold_or_tracker_state(tracker_state) do
+    case by_tracker_state(tracker_state) do
+      :active -> :tracker_unavailable
       other -> other
     end
   end

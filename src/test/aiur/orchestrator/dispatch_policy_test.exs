@@ -460,6 +460,54 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       refute DispatchPolicy.state_slots_available?(issue("next", state: "todo"), state)
       assert DispatchPolicy.state_slots_available?(issue("other", state: "rework"), state)
     end
+
+    test "dispatch decisions name a binding per-state cap while fleet slots remain free" do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_agents: 4,
+        max_concurrent_agents_by_state: %{"todo" => 1}
+      )
+
+      state = %State{
+        max_concurrent_agents: 4,
+        effective_concurrent_agents: 4,
+        running: %{
+          "active" => %{issue: issue("active", state: "todo"), control: %{status: :working}}
+        }
+      }
+
+      assert Slots.available_slots(state) == 3
+      assert DispatchPolicy.dispatch_decision(issue("next", state: "todo"), state) == {:skip, :state_capacity}
+    end
+
+    test "dispatch decisions distinguish an orphaned claim from a live runner" do
+      claimed = issue("claimed", [])
+
+      assert DispatchPolicy.dispatch_decision(claimed, %State{claimed: MapSet.new([claimed.id])}) ==
+               {:skip, :claimed_without_runtime}
+
+      running = %{claimed.id => %{issue: claimed, control: %{status: :working}}}
+
+      assert DispatchPolicy.dispatch_decision(claimed, %State{claimed: MapSet.new([claimed.id]), running: running}) ==
+               {:skip, :already_running}
+    end
+
+    test "dispatch decisions distinguish a workspace ownership wait from an orphaned claim" do
+      claimed = issue("workspace-wait", [])
+
+      state = %State{
+        claimed: MapSet.new([claimed.id]),
+        dispatch_recovery: %{
+          workspace_ownership: %{
+            waits: %{claimed.identifier => %{issue_id: claimed.id}},
+            ready: %{}
+          },
+          codex_thrash_budget: %{}
+        }
+      }
+
+      assert DispatchPolicy.dispatch_decision(claimed, state) ==
+               {:skip, :workspace_ownership_waiting}
+    end
   end
 
   defp issue(id, attrs) do

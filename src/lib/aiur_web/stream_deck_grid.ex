@@ -115,6 +115,7 @@ defmodule AiurWeb.StreamDeckGrid do
   defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
 
   defp dependency_ready?(%{streamdeck_source: :queued, waiting_reason: :waiting_for_dependency}), do: false
+  defp dependency_ready?(%{streamdeck_source: :queued, waiting_reason: :tracker_unavailable}), do: false
   defp dependency_ready?(%{streamdeck_source: :queued}), do: true
 
   defp ceil_div(0, _divisor), do: 0

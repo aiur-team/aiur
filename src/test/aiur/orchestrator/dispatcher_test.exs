@@ -3,6 +3,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
@@ -37,6 +38,108 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end)
 
     :ok
+  end
+
+  test "candidate selection emits one reason when a ticket is declined despite free fleet slots" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      max_concurrent_agents: 4,
+      max_concurrent_agents_by_state: %{"todo" => 1}
+    )
+
+    candidate = issue("declined")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      running: %{
+        "active" => %{issue: issue("active"), identifier: "repo#active", control: %{status: :working}}
+      }
+    }
+
+    first = Dispatcher.choose_issues(state, [candidate])
+
+    assert first.dispatch_declines[candidate.id] == :state_capacity
+
+    assert_receive {:alert,
+                    %{
+                      name: "dispatch.candidate_declined",
+                      reason: reason,
+                      needs_attention: false
+                    }},
+                   2_000
+
+    assert reason =~ "state_capacity"
+
+    _same = Dispatcher.choose_issues(first, [candidate])
+    refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
+  end
+
+  test "a selected ticket emits the revalidation reason when dispatch aborts before provisioning" do
+    candidate = issue("refresh-failed")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    declined =
+      Dispatcher.dispatch_issue(%State{}, candidate, nil, nil,
+        issue_fetcher: fn [candidate_id] ->
+          assert candidate_id == candidate.id
+          {:error, :tracker_unavailable}
+        end
+      )
+
+    assert declined.dispatch_declines[candidate.id] == :tracker_revalidation_failed
+
+    assert_receive {:alert,
+                    %{
+                      name: name,
+                      reason: reason,
+                      needs_attention: true
+                    }},
+                   2_000
+
+    assert name == "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+    assert reason =~ "tracker_revalidation_failed"
+  end
+
+  test "a repeated post-selection decline is emitted once across polling cycles" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", max_concurrent_agents: 4)
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+    on_exit(fn -> Application.delete_env(:aiur, :memory_tracker_issues) end)
+
+    candidate = issue("missing-after-selection")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    first = Dispatcher.choose_issues(%State{effective_concurrent_agents: 4}, [candidate])
+    assert first.dispatch_declines[candidate.id] == :missing_after_revalidation
+    assert_receive {:alert, %{name: "dispatch.candidate_declined"}}, 2_000
+
+    _second = Dispatcher.choose_issues(first, [candidate])
+    refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
+  end
+
+  test "clearing an attention decline emits its matching resolution" do
+    candidate = issue("orphaned-claim")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    claimed = %State{effective_concurrent_agents: 4, claimed: MapSet.new([candidate.id])}
+    declined = Dispatcher.choose_issues(claimed, [candidate])
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.orphaned-claim.agent.attention.dispatch-declined",
+                      needs_attention: true
+                    }},
+                   2_000
+
+    recovered = %{declined | claimed: MapSet.new()}
+    _cleared = Dispatcher.choose_issues(recovered, [%{candidate | state: "done"}])
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.orphaned-claim.agent.attention.dispatch-declined.resolved",
+                      needs_attention: false
+                    }},
+                   2_000
   end
 
   defp dispatch_recovery(codex_thrash_budget) do

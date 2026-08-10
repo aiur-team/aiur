@@ -333,7 +333,10 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         fleet_row("AIUR-3", :paused)
       ],
       retrying: [fleet_row("AIUR-4", :backing_off)],
-      idle: [fleet_row("AIUR-5", :active, state: "done")]
+      idle: [
+        fleet_row("AIUR-5", :active, state: "done"),
+        fleet_row("AIUR-6", :tracker_unavailable)
+      ]
     }
 
     default_html =
@@ -347,6 +350,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert default_html =~ "AIUR-2"
     assert default_html =~ "AIUR-3"
     assert default_html =~ "AIUR-4"
+    assert default_html =~ "AIUR-6"
     refute default_html =~ "AIUR-5"
     assert default_html =~ ~s(phx-value-filter="finished")
     assert default_html =~ ~s(aria-label="Fleet filters")
@@ -364,6 +368,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute filtered_html =~ "AIUR-1"
     assert filtered_html =~ "AIUR-2"
     assert filtered_html =~ "AIUR-5"
+    assert filtered_html =~ "AIUR-6"
   end
 
   test "decision banner uses canonical retained counts and hides when none await input" do

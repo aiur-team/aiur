@@ -34,6 +34,13 @@ defmodule Aiur.Orchestrator.State do
               alerted?: boolean()
             }
             | nil,
+          dispatch_hold:
+            %{
+              reason: :tracker_preflight,
+              detail: atom(),
+              held_since_ms: integer()
+            }
+            | nil,
           next_poll_due_at_ms: integer() | nil,
           poll_check_in_progress: boolean() | nil,
           poll_frozen: boolean() | nil,
@@ -60,6 +67,7 @@ defmodule Aiur.Orchestrator.State do
           active_attention_topics: MapSet.t(),
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
+          dispatch_declines: %{optional(String.t()) => term()},
           dispatch_capacity_sample: %{load: number() | :unavailable, target: number() | nil, schedulers: pos_integer() | nil},
           capacity_starvation: %{
             since_ms: %{optional(String.t()) => integer()},
@@ -136,6 +144,7 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_result,
     load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
+    dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{
@@ -156,6 +165,7 @@ defmodule Aiur.Orchestrator.State do
     active_attention_topics: MapSet.new(),
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
+    dispatch_declines: %{},
     dispatch_capacity_sample: %{load: :unavailable, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
