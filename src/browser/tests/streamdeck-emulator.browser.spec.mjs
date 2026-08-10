@@ -551,7 +551,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   await expect(dialD).toHaveAttribute('aria-valuenow', String(dialValue))
   await expect(keys.locator('.sd-key:not(.is-empty)')).toHaveCount(8)
   await expect(keys.locator('[data-streamdeck-identifier="1352"]')).toHaveCount(0)
-  await expect(page.locator('#sd-pager-dots [aria-current="page"]')).toHaveAttribute('data-page', '1')
+  await expect(page.locator('[data-segment="pager"] [aria-current="page"]')).toHaveAttribute('data-pager-page', '1')
 
   const angleBeforeCycle = await dialD.evaluate((element) => element.style.getPropertyValue('--a'))
   await dialD.click()
@@ -701,13 +701,48 @@ test('dial D pointer direction controls event scroll direction in logs mode', as
   await expect(page.locator('#sd-log-events')).toHaveAttribute('data-offset', '0')
 })
 
-test('touch strip exposes provider percentages, not only window counts', async ({ page }) => {
+test('touch strip renders two provider meters and design segment geometry', async ({ page }) => {
   await openStreamdeck(page)
 
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' })).toContainText('30%')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' })).toContainText('50%')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Claude' }).locator('.sd-screen-value')).not.toContainText('windows')
-  await expect(page.locator('.sd-screen-segment').filter({ hasText: 'Codex' }).locator('.sd-screen-value')).not.toContainText('windows')
+  const providers = page.locator('[data-segment="provider"]')
+  const providerCount = await providers.count()
+  expect(providerCount).toBeGreaterThan(0)
+
+  for (let index = 0; index < providerCount; index += 1) {
+    const provider = providers.nth(index)
+    await expect(provider.locator('[data-meter="session"]')).toHaveCount(1)
+    await expect(provider.locator('[data-meter="weekly"]')).toHaveCount(1)
+    await expect(provider.locator('.sd-mini')).toHaveCount(2)
+  }
+
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="session"]')).toContainText('30% · 22m')
+  await expect(providers.filter({ hasText: 'Claude' }).locator('[data-meter="weekly"]')).toContainText('47% · Thu 6PM')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="session"]')).toContainText('50% · 1h')
+  await expect(providers.filter({ hasText: 'Codex' }).locator('[data-meter="weekly"]')).toContainText('75% · Fri 8PM')
+
+  const pagerDots = page.locator('[data-segment="pager"] .sd-pager-dot')
+  const pageCount = parseInt(await page.locator('#sd-keys').getAttribute('data-grid-page-count'), 10)
+  await expect(pagerDots).toHaveCount(pageCount)
+
+  const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
+  expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
+
+  const geometry = await providers.first().evaluate((segment) => {
+    const heading = segment.querySelector('.sd-info-hd')
+    const mini = segment.querySelector('.sd-mini')
+
+    return {
+      direction: getComputedStyle(segment).flexDirection,
+      padding: getComputedStyle(segment).padding,
+      headingFont: getComputedStyle(heading).fontFamily,
+      barHeight: getComputedStyle(mini.querySelector('.sd-mini-bar')).height
+    }
+  })
+
+  expect(geometry.direction).toBe('column')
+  expect(geometry.padding).toBe('5.12px 8px')
+  expect(geometry.headingFont).toContain('JetBrains Mono')
+  expect(geometry.barHeight).toBe('3px')
 })
 
 test('Stream Deck design geometry holds at desktop and mobile widths in both themes', async ({ page }, testInfo) => {
