@@ -757,43 +757,40 @@ defmodule AiurWeb.StreamdeckLive do
   # orchestrator rejects leaves the key showing the state that actually holds.
   defp command_keys(agent, mic_held?) do
     writable? = dashboard_writable?()
-    paused? = Map.get(agent, :bucket) == :paused
-    prioritized? = Map.get(agent, :priority, false)
 
     [
-      command_key(
-        "pause",
-        if(paused?, do: "Play", else: "Pause"),
-        if(paused?, do: "RESUME", else: "HOLD"),
-        icon: if(paused?, do: "play", else: "pause"),
-        state: if(paused?, do: "paused", else: "running"),
-        disabled?: not writable?
-      ),
-      command_key(
-        "priority",
-        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
-        if(prioritized?, do: "LOWER", else: "RAISE"),
-        icon: if(prioritized?, do: "down", else: "up"),
-        state: if(prioritized?, do: "prioritized", else: "standard"),
-        disabled?: not writable?
-      ),
+      pause_command_key(Map.get(agent, :bucket) == :paused, writable?),
+      priority_command_key(Map.get(agent, :priority) == true, writable?),
       # Logs is navigation rather than fleet control, so read-only leaves it
       # enabled: it changes what the operator sees, never what the fleet does.
       command_key("logs", "Logs", "SCROLL", icon: "logs", state: "ready"),
       # Mic is the design's fourth command and the only press-and-hold one: it
       # carries no click handler, so the hook drives it from pointer events.
-      command_key("mic", "Mic", "HOLD",
-        icon: "mic",
-        mic?: true,
-        state: if(mic_held?, do: "live", else: "idle"),
-        disabled?: not writable?
-      ),
+      mic_command_key(mic_held?, writable?),
       empty_command_key(),
       empty_command_key(),
       empty_command_key(),
       empty_command_key()
     ]
   end
+
+  defp pause_command_key(true, writable?),
+    do: command_key("pause", "Play", "RESUME", icon: "play", state: "paused", disabled?: not writable?)
+
+  defp pause_command_key(false, writable?),
+    do: command_key("pause", "Pause", "HOLD", icon: "pause", state: "running", disabled?: not writable?)
+
+  defp priority_command_key(true, writable?),
+    do: command_key("priority", "Deprioritize", "LOWER", icon: "down", state: "prioritized", disabled?: not writable?)
+
+  defp priority_command_key(false, writable?),
+    do: command_key("priority", "Prioritize", "RAISE", icon: "up", state: "standard", disabled?: not writable?)
+
+  defp mic_command_key(true, writable?),
+    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "live", disabled?: not writable?)
+
+  defp mic_command_key(false, writable?),
+    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "idle", disabled?: not writable?)
 
   defp command_key(command, label, sub, opts) do
     %{
