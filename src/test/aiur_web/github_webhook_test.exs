@@ -286,6 +286,26 @@ defmodule AiurWeb.GithubWebhookTest do
     end
   end
 
+  describe "setup documentation" do
+    test "the variable name .env.example tells an operator to set is the one the receiver reads" do
+      # `@secret_env` is private to `Auth`, so this pins the name the only way
+      # that matters to an operator: configure the daemon exactly as the setup
+      # docs say, and a correctly signed delivery has to be accepted. Renaming
+      # the variable in code without updating `.env.example` would leave every
+      # documented setup rejecting all deliveries with a 401 — and the rename
+      # would not fail any other test in this file, since they all read
+      # `@secret_env` directly.
+      documented = documented_secret_var()
+      secret = "operator-configured-secret"
+
+      System.delete_env(@secret_env)
+      System.put_env(documented, secret)
+      on_exit(fn -> System.delete_env(documented) end)
+
+      assert deliver(@payload, signature: github_signature(secret, @payload)).status == 202
+    end
+  end
+
   describe "payload size" do
     test "verifies and acknowledges a payload at the documented size limit inside GitHub's timeout" do
       body = payload_of_exactly(GithubWebhook.max_body_bytes())
@@ -371,6 +391,16 @@ defmodule AiurWeb.GithubWebhookTest do
 
   # GitHub's documented algorithm, written out here rather than delegated to the
   # module under test so the tests cannot agree with a wrong implementation.
+  defp documented_secret_var do
+    [_, name] =
+      "../../../.env.example"
+      |> Path.expand(__DIR__)
+      |> File.read!()
+      |> then(&Regex.run(~r/^([A-Z0-9_]*WEBHOOK_SECRET)=/m, &1))
+
+    name
+  end
+
   defp github_signature(secret, body) do
     "sha256=" <> Base.encode16(:crypto.mac(:hmac, :sha256, secret, body), case: :lower)
   end
