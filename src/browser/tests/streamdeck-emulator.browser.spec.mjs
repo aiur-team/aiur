@@ -533,16 +533,12 @@ test('pager segment relabels to CONTROLLING with the focused agent and restores 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
-  // Logs mode hands the whole touch strip to the transcript, so the pager is
-  // not rendered there (streamdeck.design.js:414 sdBuildLogStrip replaces
-  // #sd-screen wholesale). The focus still survives the descent.
-  await expect(pager).toHaveCount(0)
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
 
   // Dial A is the back press: logs -> cmd -> grid.
   const dialA = page.locator('.sd-knob').first()
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
