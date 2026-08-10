@@ -8022,6 +8022,33 @@ html[data-theme="light"] .sd-device {
   background: none;
 }
 
+.sd-cmd-label {
+  display: block;
+}
+
+.sd-cmd-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+/* Mic is press-and-hold: the key is held down rather than clicked, so it needs
+   a held-state affordance the click keys do not. */
+.sd-cmd-item.sd-mic-key {
+  touch-action: none;
+  user-select: none;
+}
+
+.sd-cmd-item.sd-mic-key.is-live {
+  border-color: var(--super);
+  box-shadow: 0 0 0.5rem var(--super);
+}
+
+.sd-cmd-item.sd-mic-key.is-live .sd-cmd-label {
+  color: var(--super);
+}
+
 .sd-log-body {
   max-height: 6rem;
   overflow-y: auto;

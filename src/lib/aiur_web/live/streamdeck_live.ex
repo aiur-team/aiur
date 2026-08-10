@@ -45,6 +45,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:transcript_relay, nil)
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
+      |> assign(:mic_live?, false)
       |> assign(:install_modal?, false)
       |> assign(:streamdeck_package, @streamdeck_package)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
@@ -136,8 +137,25 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
 
-  def handle_event("mic-hold", %{"active" => _active}, socket),
-    do: {:noreply, socket}
+  # Mic is press-and-hold, so the server tracks the held state rather than
+  # toggling it: a `pointerup`/`pointerleave`/`pointercancel` that never arrives
+  # must not leave the key latched live. Read-only refuses the hold outright,
+  # matching the server-side gate on the click-driven control commands.
+  def handle_event("mic-hold", %{"active" => active}, socket) do
+    cond do
+      not dashboard_writable?() ->
+        {:noreply,
+         socket
+         |> assign(:mic_live?, false)
+         |> assign(:control_feedback, "Read-only dashboard: controls are disabled")}
+
+      truthy?(active) ->
+        {:noreply, assign(socket, :mic_live?, true)}
+
+      true ->
+        {:noreply, assign(socket, :mic_live?, false)}
+    end
+  end
 
   @impl true
   def handle_info({:running_changed, _summaries}, socket) do
@@ -235,19 +253,21 @@ defmodule AiurWeb.StreamdeckLive do
             <p class="sd-mode-label">Commands</p>
             <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
             <ul class="sd-cmd-list" aria-label="Available commands">
-              <li :for={command <- command_keys(@sd_active)} class={["sd-cmd-item", command.disabled? && "is-disabled"]}>
+              <li :for={command <- command_keys(@sd_active, @mic_live?)} class={["sd-cmd-item", command.disabled? && "is-disabled", command.hold? && "sd-mic-key", command.hold? && command.state == "live" && "is-live"]}>
                 <button
                   type="button"
                   class="sd-cmd-button"
                   data-streamdeck-command={command.command}
                   data-command-state={command.state}
+                  data-command-hold={command.hold? && "true"}
                   data-streamdeck-identifier={@selected_identifier}
                   disabled={command.disabled?}
                   aria-disabled={to_string(command.disabled?)}
-                  phx-click={!command.disabled? && "command-press"}
+                  phx-click={!command.hold? && !command.disabled? && "command-press"}
                   phx-value-command={command.command}
                 >
-                  {command.label}
+                  <span class="sd-cmd-label">{command.label}</span>
+                  <span class="sd-cmd-sub" aria-hidden="true">{command.sub}</span>
                 </button>
               </li>
             </ul>
@@ -619,25 +639,30 @@ defmodule AiurWeb.StreamdeckLive do
   # The command keys are derived from the agent the orchestrator currently
   # reports, never from an optimistic local toggle, so a control call that the
   # orchestrator rejects leaves the key showing the state that actually holds.
-  defp command_keys(agent) do
+  defp command_keys(agent, mic_live?) do
     writable? = dashboard_writable?()
     paused? = Map.get(agent || %{}, :bucket) == :paused
     prioritized? = Map.get(agent || %{}, :priority) == true
 
     [
-      command_key(if(paused?, do: "resume", else: "pause"), if(paused?, do: "Play", else: "Pause"), if(paused?, do: "paused", else: "running"), writable?),
+      command_key(if(paused?, do: "resume", else: "pause"), if(paused?, do: "Play", else: "Pause"), if(paused?, do: "RESUME", else: "HOLD"), if(paused?, do: "paused", else: "running"), writable?),
       command_key(
         if(prioritized?, do: "deprioritize", else: "prioritize"),
         if(prioritized?, do: "Deprioritize", else: "Prioritize"),
+        if(prioritized?, do: "LOWER", else: "RAISE"),
         if(prioritized?, do: "prioritized", else: "standard"),
         writable?
       ),
-      command_key("logs", "View logs", "ready", true)
+      command_key("logs", "Logs", "SCROLL", "ready", true),
+      # Mic is the design's fourth command and the only press-and-hold one:
+      # it carries no `phx-click`, so the hook drives it from pointer events
+      # and a click can never fire it.
+      %{command_key("mic", "Mic", "HOLD", if(mic_live?, do: "live", else: "idle"), writable?) | hold?: true}
     ]
   end
 
-  defp command_key(command, label, state, writable?),
-    do: %{command: command, label: label, state: state, disabled?: not writable?}
+  defp command_key(command, label, sub, state, writable?),
+    do: %{command: command, label: label, sub: sub, state: state, disabled?: not writable?, hold?: false}
 
   defp invoke_command(socket, command) do
     case socket.assigns.sd_active do
@@ -849,6 +874,10 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp parse_integer(_value, fallback), do: fallback
+
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?(_value), do: false
 
   defp clamp(value, min, max), do: value |> max(min) |> min(max)
 

@@ -226,6 +226,57 @@ test('mic deactivates on pointerleave (not stuck on drag-exit)', async ({ page }
   await page.mouse.up()
 })
 
+test('cmd mode renders the design\'s four command keys with Mic excluded from the click path', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+  await expect(page.locator('#sd-cmd-view')).toBeVisible()
+
+  const buttons = page.locator('.sd-cmd-button')
+  await expect(buttons).toHaveCount(4)
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Prioritize', 'Logs', 'Mic'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'RAISE', 'SCROLL', 'HOLD'])
+
+  // Mic is press-and-hold, so it carries no click binding at all. The other
+  // three keep theirs. A Mic that fired on click would be a different control.
+  const micButton = page.locator('button[data-streamdeck-command="mic"]')
+  await expect(micButton).toHaveAttribute('data-command-hold', 'true')
+  expect(await micButton.getAttribute('phx-click')).toBeNull()
+
+  // Logs is the control here: it is enabled in this read-only fixture and keeps
+  // its click binding, so Mic's missing one is the design's exclusion rather
+  // than a side effect of read-only disabling.
+  const logsButton = page.locator('button[data-streamdeck-command="logs"]')
+  await expect(logsButton).toBeEnabled()
+  await expect(logsButton).toHaveAttribute('phx-click', 'command-press')
+  await expect(page.locator('.sd-cmd-button[data-command-hold="true"]')).toHaveCount(1)
+})
+
+// The browser fixture serves the dashboard read-only, so this is the read-only
+// half of the Mic contract: the key is visibly disabled and a hold on it is
+// inert. The writable hold/release path is covered server-side in
+// streamdeck_live_test.exs, and the shared pointer machinery it drives
+// (`pointerdown` / `pointerup` / `pointerleave` / `pointercancel`) is exercised
+// in a real browser by the `.sd-mic` segment tests above.
+test('the read-only mic command key renders disabled and a hold does not arm it', async ({ page }) => {
+  await openStreamdeck(page)
+
+  await page.locator('.sd-key:not(.is-empty)').first().click()
+
+  const micItem = page.locator('.sd-cmd-item.sd-mic-key')
+  const micButton = micItem.locator('button[data-streamdeck-command="mic"]')
+  await expect(micItem).toHaveClass(/is-disabled/)
+  await expect(micButton).toBeDisabled()
+
+  const box = await micItem.boundingBox()
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
+  await page.mouse.down()
+  await page.waitForTimeout(250)
+  await expect(micItem).not.toHaveClass(/is-live/)
+  await expect(micButton).toHaveAttribute('data-command-state', 'idle')
+  await page.mouse.up()
+})
+
 test('mode transitions: grid → cmd (key click) → logs (cycle-window) → back → back', async ({ page }) => {
   await openStreamdeck(page)
 

@@ -414,6 +414,74 @@ defmodule AiurWeb.StreamdeckLiveTest do
     end
   end
 
+  test "cmd mode offers the design's four command keys, with Mic as press-and-hold" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # Four keys, in the design's order, with the design's labels and sub lines.
+    assert [{"pause", "Pause", "HOLD"}, {"deprioritize", "Deprioritize", "LOWER"}, {"logs", "Logs", "SCROLL"}, {"mic", "Mic", "HOLD"}] ==
+             rendered_command_keys(html)
+
+    # The three click commands keep their phx-click; Mic deliberately has none,
+    # so a click cannot fire it — the hook drives it from pointer events.
+    for command <- ~w(pause deprioritize logs) do
+      assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][phx-click="command-press"]))
+    end
+
+    assert has_element?(view, ~s(button[data-streamdeck-command="mic"][data-command-hold="true"]))
+    refute has_element?(view, ~s(button[data-streamdeck-command="mic"][phx-click]))
+
+    # A click-shaped command-press for mic is inert server-side too, so the
+    # missing phx-click cannot be worked around from the client.
+    html = render_click(view, "command-press", %{"command" => "mic"})
+    assert html =~ ~s(data-command-state="idle")
+  end
+
+  test "holding the mic key marks it live and releasing clears it" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    html = render_hook(view, "mic-hold", %{"active" => true})
+    assert html =~ ~s(data-command-state="live")
+    assert has_element?(view, ~s(li.sd-cmd-item.sd-mic-key.is-live))
+
+    # Release must clear it. A hold that latched would leave the mic open after
+    # the operator let go, which is the failure press-and-hold exists to avoid.
+    html = render_hook(view, "mic-hold", %{"active" => false})
+    assert html =~ ~s(data-command-state="idle")
+    refute has_element?(view, ~s(li.sd-cmd-item.sd-mic-key.is-live))
+  end
+
+  test "read-only mode disables the mic key and refuses the hold" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      assert has_element?(view, ~s(button[data-streamdeck-command="mic"][disabled][aria-disabled="true"]))
+
+      html = render_hook(view, "mic-hold", %{"active" => true})
+
+      assert html =~ "Read-only dashboard: controls are disabled"
+      assert html =~ ~s(data-command-state="idle")
+      refute has_element?(view, ~s(li.sd-cmd-item.sd-mic-key.is-live))
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
+  end
+
+  defp rendered_command_keys(html) do
+    ~r/data-streamdeck-command="([a-z]+)"[^>]*>\s*<span class="sd-cmd-label">([^<]*)<\/span>\s*<span class="sd-cmd-sub"[^>]*>([^<]*)<\/span>/
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match, command, label, sub] -> {command, label, sub} end)
+  end
+
   test "initial mount creates one real PubSub transcript subscription" do
     {:ok, _view, _html} = live(build_conn(), "/streamdeck")
 

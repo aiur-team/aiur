@@ -435,16 +435,28 @@
 
     _bindMic() {
       var self = this;
-      var mic = this.el.querySelector(".sd-screen-segment .sd-mic");
-      if (!mic) {
-        mic = this.el.querySelector(".sd-mic");
+      // The Mic *command key* takes precedence when cmd mode is on screen: it is
+      // the design's fourth command, and it is press-and-hold rather than click,
+      // so it carries no phx-click and the binding lives here instead.
+      var micKey = this.el.querySelector('.sd-cmd-button[data-command-hold="true"]:not([disabled])');
+      // Bind on the enclosing item so the `is-live` class lands on the same
+      // element the server re-renders it on, and the two never disagree.
+      var micSegment = micKey ? micKey.closest(".sd-cmd-item") : null;
+
+      if (!micSegment) {
+        var mic = this.el.querySelector(".sd-screen-segment .sd-mic");
+        if (!mic) {
+          mic = this.el.querySelector(".sd-mic");
+        }
+        // Find the segment that contains the mic span.
+        micSegment = mic ? mic.closest(".sd-screen-segment") : null;
       }
-      // Find the segment that contains the mic span.
-      var micSegment = mic ? mic.closest(".sd-screen-segment") : null;
       if (!micSegment) return;
 
       this._micSegment = micSegment;
-      this._onMicDown = function () { self._setMic(true); };
+      // preventDefault keeps a press-and-hold from turning into a synthesized
+      // click, text selection, or a mobile long-press context menu.
+      this._onMicDown = function (e) { if (e && e.preventDefault) e.preventDefault(); self._setMic(true); };
       this._onMicUp = function () { self._setMic(false); };
 
       micSegment.addEventListener("pointerdown", this._onMicDown);
