@@ -19,10 +19,32 @@ defmodule AiurWeb.StreamdeckStripTest do
              provider: "codex",
              provider_logo: "/provider-assets/codex-color.svg",
              title: "Render the logs strip",
-             status: "RUNNING",
+             status: "Running",
+             accent: "#9fd0ff",
              percent: 50,
-             progress_colour: "hsl(62.5, 72%, 50%)"
+             progress_colour: "hsl(63 72% 50%)"
            }
+  end
+
+  test "every bucket takes its own accent and wording from the key-face contract" do
+    for {bucket, accent, label} <- [
+          {:alert, "#ffcf87", "Needs input"},
+          {:stuck, "#ff9a90", "Stuck"},
+          {:running, "#9fd0ff", "Running"},
+          {:paused, "#c2c6cf", "Paused"},
+          {:queued, "#9096a4", "Unstarted"}
+        ] do
+      command = StreamdeckStrip.command(%{identifier: "1", bucket: bucket, progress_percent: 0})
+
+      assert command.accent == accent
+      assert command.status == label
+    end
+  end
+
+  test "an unknown bucket fails closed rather than rendering a default colour" do
+    assert_raise ArgumentError, fn ->
+      StreamdeckStrip.command(%{identifier: "1", bucket: :retired, progress_percent: 0})
+    end
   end
 
   test "uses stable-width hint state at both bounds and in the middle" do
@@ -44,7 +66,14 @@ defmodule AiurWeb.StreamdeckStripTest do
         %{kind: :message, role: "user", body: "please continue"}
       ])
 
-    assert header == %{shape: :evhdr, direction: "EMIT", text: "tool finished", time: "not-a-time"}
+    assert header == %{
+             shape: :evhdr,
+             direction: "EMIT",
+             colour: "#9fd0ff",
+             text: "tool finished",
+             time: "not-a-time"
+           }
+
     assert %{shape: :diff, file: "lib/strip.ex", additions: 0, deletions: 0, line_kind: :context} = diff
     assert %{shape: :diff, line: "+added", line_kind: :addition} = addition
     assert %{shape: :diff, line: "-removed", line_kind: :deletion} = deletion

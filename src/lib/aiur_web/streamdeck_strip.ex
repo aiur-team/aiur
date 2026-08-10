@@ -5,7 +5,13 @@ defmodule AiurWeb.StreamdeckStrip do
   Keeping these descriptions independent of the LiveView lets the command and
   logs pages share the same bounded-navigation rules while the grid strip
   remains owned by its dedicated renderer.
+
+  The command panel's accent, status wording and progress fill all come from
+  `AiurWeb.StreamdeckKeyFaceContract`, so the strip cannot say one thing while
+  the key for the same agent says another.
   """
+
+  alias AiurWeb.StreamdeckKeyFaceContract
 
   @type hint :: %{label: String.t(), older?: boolean(), newer?: boolean()}
 
@@ -13,16 +19,19 @@ defmodule AiurWeb.StreamdeckStrip do
   @spec command(map()) :: map()
   def command(agent) when is_map(agent) do
     percent = agent |> Map.get(:progress_percent, 0) |> percent()
+    bucket = Map.fetch!(agent, :bucket)
+    state = StreamdeckKeyFaceContract.state!(bucket)
 
     %{
-      icon: agent_icon(Map.get(agent, :bucket)),
+      icon: agent_icon(bucket),
       number: to_string(Map.get(agent, :identifier, "")),
       provider: Map.get(agent, :vendor, "unknown") |> to_string(),
       provider_logo: provider_logo(Map.get(agent, :vendor, "unknown")),
       title: Map.get(agent, :title, "Untitled agent") |> to_string(),
-      status: status(Map.get(agent, :bucket)),
+      status: state["label"],
+      accent: state["accent"],
       percent: percent,
-      progress_colour: "hsl(#{percent / 100 * 125}, 72%, 50%)"
+      progress_colour: StreamdeckKeyFaceContract.progress_color(percent)
     }
   end
 
@@ -40,7 +49,15 @@ defmodule AiurWeb.StreamdeckStrip do
   def entries(entries) when is_list(entries), do: Enum.map(entries, &entry/1)
 
   defp entry(%{kind: :event_header, badge: badge, body: body, timestamp: timestamp}) do
-    %{shape: :evhdr, direction: to_string(badge), text: to_string(body), time: relative_time(timestamp)}
+    direction = to_string(badge)
+
+    %{
+      shape: :evhdr,
+      direction: direction,
+      colour: StreamdeckKeyFaceContract.direction_badge!(direction)["color"],
+      text: to_string(body),
+      time: relative_time(timestamp)
+    }
   end
 
   defp entry(%{kind: :diff, path: path, additions: additions, deletions: deletions, line: line}) do
@@ -68,19 +85,13 @@ defmodule AiurWeb.StreamdeckStrip do
   defp percent(value) when is_float(value), do: value |> round() |> percent()
   defp percent(_value), do: 0
 
-  defp status(:running), do: "RUNNING"
-  defp status(:paused), do: "PAUSED"
-  defp status(:queued), do: "QUEUED"
-  defp status(:stuck), do: "STUCK"
-  defp status(:alert), do: "ATTENTION"
-  defp status(_bucket), do: "IDLE"
-
+  # Glyphs are the strip's own affordance; the wording beside them is the
+  # contract's `label`, so nothing here restates a state name.
   defp agent_icon(:running), do: "▶"
   defp agent_icon(:paused), do: "Ⅱ"
   defp agent_icon(:queued), do: "◌"
   defp agent_icon(:stuck), do: "!"
   defp agent_icon(:alert), do: "!"
-  defp agent_icon(_bucket), do: "●"
 
   defp provider_logo(provider) do
     case provider |> to_string() |> String.downcase() do

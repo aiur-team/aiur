@@ -139,8 +139,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     send(view.pid, {:running_changed, []})
     html = render(view)
 
-    assert html =~ ~s|width: 0%; background: hsl(0 72% 50%)|
-    assert html =~ ~s|width: 100%; background: hsl(125 72% 50%)|
+    # The bar fill is the contract's progress colour, carried per key as
+    # --sd-progress-fill rather than an hsl() the template restates.
+    assert html =~ ~s|--sd-progress-fill: hsl(0 72% 50%)|
+    assert html =~ ~s|--sd-progress-fill: hsl(125 72% 50%)|
+    assert html =~ ~s|<i style="width: 0%">|
+    assert html =~ ~s|<i style="width: 100%">|
     assert html =~ ~s(class="sd-ag-vendor-fallback")
     assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
   end
@@ -165,6 +169,25 @@ defmodule AiurWeb.StreamdeckLiveTest do
     for provider <- providers do
       assert html =~ ~s(src="#{provider.logo}")
     end
+  end
+
+  test "renders contract-derived state, progress, and log badge styles" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    # State colours reach the page as a contract-derived stylesheet keyed by the
+    # same st-<bucket> class the packaged deck keys its bitmaps by.
+    assert html =~ ".sd-key.st-running{--sd-accent:#9fd0ff;"
+    assert html =~ "--sd-face:linear-gradient(180deg,#18212d,#0f151d);}"
+    assert html =~ ".sd-agent-key.st-alert .sd-ag-dot,.sd-agent-key.st-alert .sd-ag-stat::before{animation:sd-pulse 1.6s ease-in-out infinite;}"
+    refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
+    # Per-key values that depend on live fleet state stay inline.
+    assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
+    # `develop` replaced the badge paragraph this originally asserted with the
+    # log key list, so the same contract ink is now checked where it renders:
+    # the event key badge and the logs strip's own event header.
+    logs = enter_logs(view)
+    assert logs =~ ~s(<span class="sd-log-dir" style="color:#9fd0ff">AGENT</span>)
+    assert logs =~ ~s(<span class="sd-log-evhdr-direction" style="color: #9fd0ff">AGENT</span>)
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -216,16 +239,34 @@ defmodule AiurWeb.StreamdeckLiveTest do
     html = render_hook(view, "key-press", %{"identifier" => "1352"})
 
     assert html =~ ~s(class="sd-screen sd-screen-cmd")
-    assert html =~ ~s(class="sd-strip-cmd")
+    assert html =~ ~s(class="sd-strip-cmd st-running")
     refute html =~ ~s(data-segment="pager")
     assert html =~ "CONTROLLING #1352"
     assert html =~ ~s(class="sd-strip-cmd-agent-icon")
     assert html =~ ~s(src="/provider-assets/codex-color.svg")
     assert html =~ ~s(aria-valuenow="50")
-    assert html =~ "background: hsl(62.5, 72%, 50%)"
+    # Panel accent, status wording and bar fill all come from the shared
+    # key-face contract, not from a second copy of the tokens.
+    assert html =~ ~s(style="--sd-accent: #9fd0ff")
+    assert html =~ ~s(<span class="sd-strip-cmd-status">Running</span>)
+    assert html =~ "background: hsl(63 72% 50%)"
 
     assert html =~
              ~r/<span class="sd-dial-hint">\s*<span style="visibility: hidden">‹<\/span>BACK<span style="visibility: hidden">›<\/span>/
+  end
+
+  test "the command panel takes the focused agent's own state accent", %{snapshot_agent: snapshot_agent} do
+    Agent.update(snapshot_agent, fn _ ->
+      %{running: [], retrying: [], idle: [fixture_agent("1400", "Needs a decision", "codex", open_decision_count: 2)]}
+    end)
+
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    html = render_hook(view, "key-press", %{"identifier" => "1400"})
+
+    assert html =~ ~s(class="sd-strip-cmd st-alert")
+    assert html =~ ~s(style="--sd-accent: #ffcf87")
+    assert html =~ ~s(<span class="sd-strip-cmd-status">Needs input</span>)
+    refute html =~ ~s(style="--sd-accent: #9fd0ff")
   end
 
   test "renders bounded BACK and EVENTS hint arrows in logs mode" do

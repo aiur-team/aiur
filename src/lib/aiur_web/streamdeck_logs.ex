@@ -11,16 +11,15 @@ defmodule AiurWeb.StreamdeckLogs do
   transcript at that event's recorded start offset.
   """
 
+  alias AiurWeb.StreamdeckKeyFaceContract
+
   @events_window_size 8
   @transcript_window_size 2
 
-  @direction_colours %{
-    "EMIT" => "#9fd0ff",
-    "CONSUME" => "#88e0a6",
-    "INFO" => "#c2c6cf",
-    "AGENT" => "#9fd0ff",
-    "SYSTEM" => "#ffcf87"
-  }
+  # Badge inks are stated once, in key-face-contract.json, so the emulator and
+  # the packaged deck cannot disagree about what an EMIT looks like.
+  @direction_colours StreamdeckKeyFaceContract.direction_badges()
+                     |> Map.new(fn {badge, badge_face} -> {badge, badge_face["color"]} end)
 
   @spec project([map()]) :: map()
   def project(entries) when is_list(entries) do

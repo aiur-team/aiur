@@ -187,6 +187,11 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   const key = page.locator('.sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
+  // The key the operator pressed and the panel it opens must agree about the
+  // state's accent — that is the whole point of the shared key-face contract.
+  const keyState = await key.evaluate((element) => [...element.classList].find((name) => name.startsWith('st-')))
+  const keyAccent = await key.evaluate((element) => getComputedStyle(element).getPropertyValue('--sd-accent').trim())
+
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
   await expect(page.locator('#sd-cmd-view')).toBeVisible()
@@ -195,6 +200,21 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
   await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
   await expect(page.locator('.sd-strip-cmd-progress')).toHaveAttribute('aria-valuenow', /\d+/)
+
+  const panel = page.locator('.sd-strip-cmd')
+  await expect(panel).toHaveClass(new RegExp(`\\b${keyState}\\b`))
+
+  const accents = await panel.evaluate((element) => ({
+    panel: getComputedStyle(element).getPropertyValue('--sd-accent').trim(),
+    icon: getComputedStyle(element.querySelector('.sd-strip-cmd-agent-icon')).color,
+    status: getComputedStyle(element.querySelector('.sd-strip-cmd-status')).color
+  }))
+
+  expect(accents.panel).toBe(keyAccent)
+  // Both inks resolve from --sd-accent, so neither can be a hardcoded green.
+  expect(accents.icon).toBe(accents.status)
+  expect(accents.icon).not.toBe('rgb(0, 0, 0)')
+
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
 
