@@ -693,9 +693,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def no_agent_work_state?(_state_name), do: false
 
-  @spec no_agent_work_states() :: [String.t()]
-  def no_agent_work_states, do: @no_agent_work_states
-
   @spec active_issue_state?(term(), MapSet.t()) :: boolean()
   def active_issue_state?(state_name, active_states) when is_binary(state_name) do
     MapSet.member?(active_states, normalize_issue_state(state_name))
