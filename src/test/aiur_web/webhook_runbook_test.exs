@@ -85,6 +85,52 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  describe "guard denied-path list" do
+    # The guard's own header explains the asymmetry it lives with: it reads
+    # "answered with $deny_status" as "not routed through", and the daemon 404s
+    # some of these paths itself, so those entries are weak evidence. The
+    # load-bearing entries are the ones the daemon answers for — a forwarding
+    # tunnel cannot make those look like an edge deny.
+    #
+    # That distinction is exactly what a route rename erases. Rename
+    # `/analytics` and the guard still probes `/analytics`, the router's trailing
+    # `/*path` catch-all 404s it, and the assertion passes — vacuously, on a path
+    # nothing serves, while the real route goes unprobed. Nothing else notices:
+    # the guard still exits 0 and still prints `exposure is scoped`.
+    @load_bearing ~w(/ /decisions /build-orders /analytics /streamdeck /api/v1/state)
+
+    test "the load-bearing entries all resolve to real routes, not the catch-all" do
+      for path <- @load_bearing do
+        assert path in guard_denied_paths(),
+               "#{path} is load-bearing for the guard but is no longer in its denied_paths list"
+
+        assert real_route?(path),
+               "#{path} no longer resolves to a real route, so the guard's assertion about it " <>
+                 "now passes vacuously via the router's /*path catch-all"
+      end
+    end
+
+    test "the webhook path is not in the denied list" do
+      # It is the one path that must be reachable; asserting it is denied would
+      # invert the whole check.
+      refute GithubWebhook.path() in guard_denied_paths()
+    end
+  end
+
+  defp real_route?(path) do
+    case Phoenix.Router.route_info(AiurWeb.Router, "GET", path, "localhost") do
+      :error -> false
+      %{route: route} -> route != "/*path"
+      _other -> false
+    end
+  end
+
+  defp guard_denied_paths do
+    [_, block] = Regex.run(~r/^denied_paths=\((.*?)^\)/ms, File.read!(@guard_path))
+
+    Regex.scan(~r/"([^"]+)"/, block) |> Enum.map(fn [_, p] -> p end)
+  end
+
   defp supported?(event), do: not match?({:drop, {:unsupported_event, _}}, normalize(event))
 
   # An otherwise-empty payload is enough: a supported event type falls through to
