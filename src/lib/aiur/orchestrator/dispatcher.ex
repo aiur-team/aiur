@@ -1363,7 +1363,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
           %{String.t() => :none | {:lifetime, non_neg_integer(), pos_integer()}}
   def dispatch_latch_statuses(%State{} = state, issue_ids) when is_list(issue_ids) do
     max = Config.agent_max_dispatches_per_ticket()
-    latch_enabled? = is_integer(max) and max > 0
+    latch_enabled? = max > 0
 
     persisted =
       if latch_enabled? do

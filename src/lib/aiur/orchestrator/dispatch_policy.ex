@@ -603,12 +603,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp issue_eligibility_decision(%Issue{} = issue, active_states, terminal_states) do
+    case issue_identity_decision(issue) do
+      :dispatch -> issue_state_decision(issue, active_states, terminal_states)
+      {:skip, _reason} = declined -> declined
+    end
+  end
+
+  defp issue_identity_decision(%Issue{} = issue) do
     cond do
       match?([_, _ | _], issue.state_labels) -> {:skip, :contradictory_state_labels}
       not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
       not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
       not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
       not issue_not_paused?(issue) -> {:skip, :paused}
+      true -> :dispatch
+    end
+  end
+
+  defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
+    cond do
       terminal_issue_state?(issue.state, terminal_states) -> {:skip, :terminal_state}
       no_agent_work_state?(issue.state) -> {:skip, :no_agent_work_state}
       not active_issue_state?(issue.state, active_states) -> {:skip, :inactive_state}
