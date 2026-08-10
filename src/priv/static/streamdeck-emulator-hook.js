@@ -413,9 +413,10 @@
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      // #1607 scoped this to #sd-keys so command clicks cannot reach the agent
-      // key path. The logs-mode event keys live in their own #sd-log-keys grid
-      // and still need the same press/flash binding, so name both containers.
+      // Both key grids bind here: #sd-keys carries the agent keys (and, in cmd
+      // mode, the command keys) and #sd-log-keys carries the eight logs keys.
+      // Scoping to the two grids keeps stray .sd-key markup elsewhere in the
+      // device out of the agent key-press path.
       var keys = Array.prototype.slice.call(
         this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty), #sd-log-keys .sd-key:not(.is-empty)")
       );
@@ -434,7 +435,10 @@
 
           // Log keys index the flattened transcript instead of selecting an
           // agent. The server owns the resulting transcript offset.
-          if (self._mode === "logs" && logEventIndex !== null) {
+          // `data-log-event-index` is authoritative on its own; the
+          // client-tracked `_mode` only reconciles at the end of updated(),
+          // so gating on it would silently drop a click while it lagged.
+          if (logEventIndex !== null) {
             self.pushEvent("log-key-select", { index: Number(logEventIndex) });
             return;
           }
@@ -471,9 +475,16 @@
       var keys = Array.prototype.slice.call(this.el.querySelectorAll("[data-streamdeck-command]"));
       keys.forEach(function (key) {
         var command = key.getAttribute("data-streamdeck-command");
+        // Read-only mode renders fleet-control keys `disabled`. Skip binding them
+        // entirely so a read-only dashboard emits no control call at all, rather
+        // than relying on the server to refuse one the client still sent.
+        if (key.disabled) return;
+
         if (command === "mic") {
           self._micKey = key;
-          self._onMicDown = function () { self._setMic(true); };
+          // preventDefault keeps a press-and-hold from turning into a synthesized
+          // click, text selection, or a mobile long-press context menu.
+          self._onMicDown = function (e) { if (e && e.preventDefault) e.preventDefault(); self._setMic(true); };
           self._onMicUp = function () { self._setMic(false); };
           key.addEventListener("pointerdown", self._onMicDown);
           key.addEventListener("pointerup", self._onMicUp);

@@ -74,6 +74,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
     --blocking-ink
     --blocking-soft
     --good
+    --good-ink
     --super
     --ack
   )
