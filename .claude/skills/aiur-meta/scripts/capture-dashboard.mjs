@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '../../../../')
-const BASE = process.env.AIUR_DASHBOARD_URL || 'http://127.0.0.1:4099'
+const BASE = process.env.AIUR_DASHBOARD_URL || configuredDashboardUrl()
 const USER = process.env.AIUR_DASHBOARD_USERNAME || 'aiur'
 const PASS = process.env.AIUR_DASHBOARD_PASSWORD
 const OUT = process.argv[2] || './meta-captures'
@@ -44,6 +44,27 @@ const DEFAULT_KNOWN_NOISE = [
   { kind: 'response', status: 404, path: '/conversation-drawer-hook.js' },
   { kind: 'requestfailed', path: '/conversation-drawer-hook.js' }
 ]
+
+function configuredDashboardUrl() {
+  const configPath = process.env.AIUR_CONFIG || path.join(REPOSITORY_ROOT, '.aiur', 'config')
+  let config
+  try {
+    config = fs.readFileSync(configPath, 'utf8')
+  } catch {
+    return null
+  }
+
+  const host = config.match(/^\s+host:\s*([^\s#]+)/m)?.[1]
+  const port = config.match(/^\s+port:\s*(\d+)/m)?.[1]
+  if (!port) return null
+
+  const localHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host || '127.0.0.1'
+  return `http://${localHost}:${port}`
+}
+
+export function isRelevantEmptyState(value) {
+  return /no build orders|no run telemetry|no units have been observed in this run/i.test(value)
+}
 
 export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null) {
   const issues = []
@@ -222,7 +243,7 @@ async function inspectPage(page) {
     const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /no build orders|no run telemetry/i.test(value))
+      .filter((value) => /no build orders|no run telemetry|no units have been observed in this run/i.test(value))
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
 
@@ -241,6 +262,12 @@ async function inspectPage(page) {
 }
 
 async function main() {
+  if (!BASE) {
+    console.error('AIUR_DASHBOARD_URL is required when .aiur/config does not define server.host and server.port.')
+    process.exitCode = 64
+    return
+  }
+
   if (!PASS) {
     console.error('AIUR_DASHBOARD_PASSWORD is required.')
     process.exitCode = 64

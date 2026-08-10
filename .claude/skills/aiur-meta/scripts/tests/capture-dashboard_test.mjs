@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { analyzeDashboardSnapshot, extractCapacityReadings, renderVerdict } from '../capture-dashboard.mjs'
+import { analyzeDashboardSnapshot, extractCapacityReadings, isRelevantEmptyState, renderVerdict } from '../capture-dashboard.mjs'
 
 const healthySnapshot = {
   title: 'Aiur',
@@ -47,6 +47,14 @@ test('keeps a healthy dashboard healthy across repeated settled observations', (
     const result = analyzeDashboardSnapshot('analytics', healthySnapshot, 14)
     assert.equal(result.verdict, 'healthy', `attempt ${attempt + 1}`)
   }
+})
+
+test('treats the units zero-state as an observable empty-state finding', () => {
+  assert.equal(isRelevantEmptyState('No units have been observed in this run.'), true)
+  const result = analyzeDashboardSnapshot('units', { ...healthySnapshot, emptyStates: ['No units have been observed in this run.'] }, 14)
+
+  assert.equal(result.verdict, 'attention')
+  assert.deepEqual(result.issues, [{ kind: 'empty-state', detail: 'No units have been observed in this run.' }])
 })
 
 test('reports visible staleness, empty tables, and configured-cap contradictions', () => {

@@ -58,9 +58,14 @@ full-page PNGs, `report.json`, and a short `verdict.md` beside the run's
 retrospective, then appends that verdict to the narrative log:
 
 ```bash
-AIUR_DASHBOARD_URL="http://127.0.0.1:4099" \
+AIUR_DASHBOARD_URL="http://<this-run-dashboard-host>:<this-run-dashboard-port>" \
 .claude/skills/aiur-run/scripts/executor-retrospective.sh visual-check
 ```
+
+Set `AIUR_DASHBOARD_URL` to this run's actual dashboard listener; do not use a
+default or a port belonging to another Aiur instance. When it is omitted, the
+capture helper derives the URL from this repository's `.aiur/config` when that
+file defines `server.host` and `server.port`.
 
 Pass `AIUR_META_EXPECTED_CAPACITY` when the configured cap is known; it catches
 a page reporting a stale cap as well as a peak greater than the displayed cap.

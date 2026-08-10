@@ -524,7 +524,7 @@ visual_check() {
   capture_script="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT:-$script_dir/../../aiur-meta/scripts/capture-dashboard.mjs}"
   if [ ! -f "$capture_script" ]; then
     printf 'dashboard capture script is unavailable: %s\n' "$capture_script" >&2
-    exit 66
+    return 66
   fi
 
   timestamp="$(now_epoch)"
@@ -575,7 +575,7 @@ cli_check() {
   check_script="${AIUR_EXECUTOR_CLI_CHECK_SCRIPT:-$script_dir/executor-cli-check.sh}"
   if [ ! -x "$check_script" ]; then
     printf 'CLI check script is unavailable: %s\n' "$check_script" >&2
-    exit 66
+    return 66
   fi
 
   timestamp="$(now_epoch)"

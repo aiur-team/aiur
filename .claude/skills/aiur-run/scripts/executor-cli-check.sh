@@ -58,20 +58,33 @@ json_lines() {
 }
 
 run_cli() {
-  local name="$1" stdout_file="$2" stderr_file="$3" pid started now status timed_out=0
+  local name="$1" stdout_file="$2" stderr_file="$3" pid started now status timed_out=0 process_group=0
   started="$(now_ms)"
-  (
-    AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" "$name" >"$stdout_file" 2>"$stderr_file"
-  ) &
+  if command -v setsid >/dev/null 2>&1; then
+    setsid env AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" "$name" >"$stdout_file" 2>"$stderr_file" &
+    process_group=1
+  else
+    (
+      AIUR_REPO_ROOT="$repo_root" "${cli_parts[@]}" "$name" >"$stdout_file" 2>"$stderr_file"
+    ) &
+  fi
   pid=$!
 
   while kill -0 "$pid" 2>/dev/null; do
     now="$(now_ms)"
     if [ $((now - started)) -ge $((timeout_seconds * 1000)) ]; then
       timed_out=1
-      kill -TERM "$pid" 2>/dev/null || true
+      if [ "$process_group" -eq 1 ]; then
+        kill -TERM -- "-$pid" 2>/dev/null || true
+      else
+        kill -TERM "$pid" 2>/dev/null || true
+      fi
       sleep 0.1
-      kill -KILL "$pid" 2>/dev/null || true
+      if [ "$process_group" -eq 1 ]; then
+        kill -KILL -- "-$pid" 2>/dev/null || true
+      else
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
       break
     fi
     sleep 0.05
@@ -93,7 +106,7 @@ well_formed() {
       grep -q '^ISSUE STATE' "$stdout_file" && grep -q '^AGENTS ' "$stdout_file"
       ;;
     agents)
-      grep -q '^ISSUE  STATE      RUNTIME  ACTIVITY' "$stdout_file"
+      grep -Eq '^ISSUE[[:space:]]+STATE[[:space:]]+RUNTIME[[:space:]]+ACTIVITY' "$stdout_file"
       ;;
     alerts)
       [ -s "$stdout_file" ] || return 1
