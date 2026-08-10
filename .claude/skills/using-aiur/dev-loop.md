@@ -65,6 +65,11 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
 6. Push to the exact branch returned by `git branch --show-current`.
+   Immediately before pushing, run
+   `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
+   configured base and refuses a PR when its tree deletes more than 50 base
+   files that none of the feature commits touched. Never bypass a refusal:
+   repair the wrong or stale base, or alert the Executor.
 7. **Open the PR as a draft** with that branch as `--head` and the authoritative
    integration branch as `--base`: `gh pr create --draft --head "$branch"
    --base "$AIUR_BASE_BRANCH" ...` (not ready for review yet). If a PR already
