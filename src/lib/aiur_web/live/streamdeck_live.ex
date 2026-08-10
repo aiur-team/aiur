@@ -70,6 +70,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:control_feedback, nil)
       |> assign(:install_modal?, false)
       |> assign(:streamdeck_package, @streamdeck_package)
+      |> assign(:mic_held?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> refresh_grid()
@@ -156,8 +157,15 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
 
-  def handle_event("mic-hold", %{"active" => _active}, socket),
-    do: {:noreply, socket}
+  # "logs" never reaches here — the clause above owns it and enters log mode.
+  def handle_event("command-press", %{"command" => command}, socket) when command in ["pause", "priority"] do
+    {:noreply, assign(socket, :control_feedback, "#{command_label(command)} selected")}
+  end
+
+  def handle_event("mic-hold", %{"active" => active}, socket) when is_boolean(active),
+    do: {:noreply, assign(socket, :mic_held?, active)}
+
+  def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_info({:running_changed, _summaries}, socket) do
@@ -298,16 +306,26 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands">
-            <p class="sd-mode-label">Commands</p>
-            <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
-            <ul class="sd-cmd-list" aria-label="Available commands">
-              <li class="sd-cmd-item">Run tests</li>
-              <li class="sd-cmd-item">Deploy staging</li>
-              <li class="sd-cmd-item" phx-click="command-press" phx-value-command="logs">View logs</li>
-              <li class="sd-cmd-item">Open PR</li>
-            </ul>
-          </div>
+          <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
+          <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
+            <li :for={key <- command_keys(@sd_active)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
+              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
+                <span class="sd-cmd">
+                  <span class="sd-cmd-ic" aria-hidden="true">
+                    <svg :if={key.icon == "pause"} data-streamdeck-icon="pause" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/></svg>
+                    <svg :if={key.icon == "play"} data-streamdeck-icon="play" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13l11-6.5z"/></svg>
+                    <svg :if={key.icon == "up"} data-streamdeck-icon="up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+                    <svg :if={key.icon == "down"} data-streamdeck-icon="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+                    <svg :if={key.icon == "logs"} data-streamdeck-icon="logs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                    <svg :if={key.icon == "mic"} data-streamdeck-icon="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>
+                  </span>
+                  <span class="sd-cmd-label">{key.label}</span>
+                  <span class="sd-cmd-sub">{key.sub}</span>
+                </span>
+              </button>
+              <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
+            </li>
+          </ul>
           <% end %>
 
           <%= if @sd_mode == :logs do %>
@@ -772,6 +790,52 @@ defmodule AiurWeb.StreamdeckLive do
   defp control_action(:running), do: "pause"
   defp control_action(:paused), do: "resume"
   defp control_action(_bucket), do: nil
+
+  # Without a focused agent there is no real pause or priority state to render.
+  # Blank every slot rather than showing a control whose label would be a guess.
+  defp command_keys(nil), do: List.duplicate(empty_command_key(), 8)
+
+  defp command_keys(agent) do
+    paused? = Map.get(agent, :bucket) == :paused
+    prioritized? = Map.get(agent, :priority, false)
+
+    [
+      command_key(
+        "pause",
+        if(paused?, do: "Play", else: "Pause"),
+        if(paused?, do: "RESUME", else: "HOLD"),
+        icon: if(paused?, do: "play", else: "pause")
+      ),
+      command_key(
+        "priority",
+        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
+        if(prioritized?, do: "LOWER", else: "RAISE"),
+        icon: if(prioritized?, do: "down", else: "up")
+      ),
+      command_key("logs", "Logs", "SCROLL", icon: "logs"),
+      command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true),
+      empty_command_key(),
+      empty_command_key(),
+      empty_command_key(),
+      empty_command_key()
+    ]
+  end
+
+  defp command_key(command, label, sub, opts) do
+    %{
+      command: command,
+      label: label,
+      sub: sub,
+      icon: Keyword.fetch!(opts, :icon),
+      mic?: Keyword.get(opts, :mic?, false),
+      empty?: false
+    }
+  end
+
+  defp empty_command_key, do: %{empty?: true, mic?: false}
+
+  defp command_label("pause"), do: "Pause"
+  defp command_label("priority"), do: "Priority"
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do
