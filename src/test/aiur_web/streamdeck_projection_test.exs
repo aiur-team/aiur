@@ -71,11 +71,19 @@ defmodule AiurWeb.StreamdeckProjectionTest do
   end
 
   test "retains an observed meter for a configured provider without a dispatchable backend" do
-    view = StreamdeckProjection.provider_meters(%{kimi: observed_meter("session", 25, 120, "weekly", 45, 10_080)}, @now)
+    # The premise is asserted rather than assumed: this criterion is only
+    # exercised if the chosen family really is non-dispatchable. If the registry
+    # default ever flips, this fails loudly instead of quietly passing against a
+    # provider that was dispatchable all along.
+    dispatchable = CodingAgent.dispatchable_backends(%{}) |> MapSet.new()
+    refute MapSet.member?(dispatchable, "deepseek")
+    assert :deepseek in CodingAgent.provider_families()
 
-    assert view["kimi"]["state"] == "observed"
-    assert get_in(view, ["kimi", "windows", "session", "used_percent"]) == 25
-    assert get_in(view, ["kimi", "windows", "weekly", "used_percent"]) == 45
+    view = StreamdeckProjection.provider_meters(%{deepseek: observed_meter("session", 25, 120, "weekly", 45, 10_080)}, @now)
+
+    assert view["deepseek"]["state"] == "observed"
+    assert get_in(view, ["deepseek", "windows", "session", "used_percent"]) == 25
+    assert get_in(view, ["deepseek", "windows", "weekly", "used_percent"]) == 45
   end
 
   test "uses the dashboard provider readings without changing their percentages" do

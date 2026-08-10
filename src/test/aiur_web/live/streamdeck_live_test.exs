@@ -460,6 +460,17 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(data-provider="claude" data-meter="session" data-percent="0")
   end
 
+  test "renders a segment for a registry provider that was never observed at all" do
+    # The meter fixture only carries claude and codex, so this provider has no
+    # reading of any kind. It must still get its own segment, and both of its
+    # meters must say so rather than showing an invented value.
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ ~s(data-provider="deepseek" data-meter="session" data-observed="false" data-freshness="unknown")
+    assert html =~ ~s(data-provider="deepseek" data-meter="weekly" data-observed="false" data-freshness="unknown")
+    refute html =~ ~s(data-provider="deepseek" data-meter="session" data-percent=)
+  end
+
   test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
     Agent.update(meter_agent, fn meters ->
       stale_at = DateTime.add(DateTime.utc_now(), -601, :second)
