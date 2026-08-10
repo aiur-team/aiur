@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLErrors
+  alias Aiur.GitHub.Quota
 
   require Logger
 
@@ -63,7 +64,7 @@ defmodule Aiur.GitHub.Transport do
         etag -> [{"If-None-Match", etag} | github_headers(token, req)]
       end
 
-    Req.get(url, request_options(headers, req))
+    quota_request(req, fn -> Req.get(url, request_options(headers, req)) end)
   end
 
   def default_request_fun(%{method: :post, url: url, token: token, body: body} = req) do
@@ -73,19 +74,53 @@ defmodule Aiur.GitHub.Transport do
       |> request_options(req)
       |> Keyword.put(:json, body)
 
-    Req.post(url, options)
+    quota_request(req, fn -> Req.post(url, options) end)
   end
 
   def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
-    Req.patch(url,
-      headers: github_headers(token, req),
-      json: body,
-      connect_options: [timeout: 30_000]
-    )
+    quota_request(req, fn ->
+      Req.patch(url,
+        headers: github_headers(token, req),
+        json: body,
+        connect_options: [timeout: 30_000]
+      )
+    end)
   end
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
-    Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000])
+    quota_request(req, fn -> Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000]) end)
+  end
+
+  defp quota_request(request, request_fun) do
+    quota = Application.get_env(:aiur, :github_quota_server, Quota)
+
+    case quota_preflight(quota, request) do
+      :ok ->
+        result = request_fun.()
+        quota_observe(quota, request, result)
+        result
+
+      {:hold, hold} ->
+        {:ok, held_response(hold)}
+    end
+  end
+
+  defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
+  defp quota_observe(quota, request, result), do: Quota.observe(quota, request, result)
+
+  defp held_response(hold) do
+    reset_unix = DateTime.to_unix(hold.reset_at)
+
+    %{
+      status: 429,
+      headers: [
+        {"x-ratelimit-resource", hold.resource},
+        {"x-ratelimit-limit", Integer.to_string(hold.limit)},
+        {"x-ratelimit-remaining", Integer.to_string(hold.remaining)},
+        {"x-ratelimit-reset", Integer.to_string(reset_unix)}
+      ],
+      body: %{"message" => "GitHub #{hold.resource} quota is exhausted locally; retry after #{DateTime.to_iso8601(hold.reset_at)}"}
+    }
   end
 
   defp request_options(headers, req) do
