@@ -277,7 +277,9 @@
       this._micActive = false;
       this._knobState = null;
       this._keyHandlers = [];
-      this._micSegment = null;
+      this._flashingCommand = null;
+      this._flashTimer = null;
+      this._micKey = null;
       this._onMicDown = null;
       this._onMicUp = null;
       this._mode = "grid";
@@ -288,7 +290,7 @@
       this._modeVersion = 0;
 
       this._bindKeys();
-      this._bindMic();
+      this._bindCommandKeys();
       this._bindKnobs();
     },
 
@@ -303,13 +305,13 @@
       this._pendingModeVersion = this._modeVersion;
       this._destroyKnobs(true);
       this._unbindKeys();
-      this._unbindMic();
+      this._unbindCommandKeys();
     },
 
     updated() {
       // Re-bind after patch and restore local state so patches don't revert dials.
       this._bindKeys();
-      this._bindMic();
+      this._bindCommandKeys();
       this._bindKnobs();
       if (this._knobState) {
         var state = this._knobState;
@@ -348,9 +350,17 @@
       // Use _restoringMic flag to suppress the redundant server pushEvent —
       // the server already knows mic is active.
       if (this._pendingMicActive) {
-        this._restoringMic = true;
-        this._setMic(true);
-        this._restoringMic = false;
+        if (this._micKey) {
+          this._restoringMic = true;
+          this._setMic(true);
+          this._restoringMic = false;
+        } else {
+          // A mode transition removed the held Mic key. Its eventual pointerup
+          // cannot reach the detached node, so clear the server state now
+          // rather than restoring a hold that can no longer be released.
+          this._micActive = false;
+          this.pushEvent("mic-hold", { active: false });
+        }
         this._pendingMicActive = false;
       }
     },
@@ -358,7 +368,7 @@
     destroyed() {
       this._destroyKnobs();
       this._unbindKeys();
-      this._unbindMic();
+      this._unbindCommandKeys();
     },
 
     _bindKnobs() {
@@ -403,7 +413,7 @@
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      var keys = Array.prototype.slice.call(this.el.querySelectorAll(".sd-key:not(.is-empty)"));
+      var keys = Array.prototype.slice.call(this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty)"));
       keys.forEach(function (key) {
         var timer = null;
         var handler = function () {
@@ -433,34 +443,68 @@
       this._keyHandlers = [];
     },
 
-    _bindMic() {
+    _bindCommandKeys() {
       var self = this;
-      var mic = this.el.querySelector(".sd-screen-segment .sd-mic");
-      if (!mic) {
-        mic = this.el.querySelector(".sd-mic");
-      }
-      // Find the segment that contains the mic span.
-      var micSegment = mic ? mic.closest(".sd-screen-segment") : null;
-      if (!micSegment) return;
+      this._commandHandlers = [];
+      var keys = Array.prototype.slice.call(this.el.querySelectorAll("[data-streamdeck-command]"));
+      keys.forEach(function (key) {
+        var command = key.getAttribute("data-streamdeck-command");
+        // Read-only mode renders fleet-control keys `disabled`. Skip binding them
+        // entirely so a read-only dashboard emits no control call at all, rather
+        // than relying on the server to refuse one the client still sent.
+        if (key.disabled) return;
 
-      this._micSegment = micSegment;
-      this._onMicDown = function () { self._setMic(true); };
-      this._onMicUp = function () { self._setMic(false); };
+        if (command === "mic") {
+          self._micKey = key;
+          // preventDefault keeps a press-and-hold from turning into a synthesized
+          // click, text selection, or a mobile long-press context menu.
+          self._onMicDown = function (e) { if (e && e.preventDefault) e.preventDefault(); self._setMic(true); };
+          self._onMicUp = function () { self._setMic(false); };
+          key.addEventListener("pointerdown", self._onMicDown);
+          key.addEventListener("pointerup", self._onMicUp);
+          key.addEventListener("pointerleave", self._onMicUp);
+          key.addEventListener("pointercancel", self._onMicUp);
+          return;
+        }
 
-      micSegment.addEventListener("pointerdown", this._onMicDown);
-      micSegment.addEventListener("pointerup", this._onMicUp);
-      micSegment.addEventListener("pointerleave", this._onMicUp);
-      micSegment.addEventListener("pointercancel", this._onMicUp);
+        if (self._flashingCommand === command) key.classList.add("is-flashing");
+        var handler = function () {
+          clearTimeout(self._flashTimer);
+          self._flashingCommand = command;
+          key.classList.remove("is-flashing");
+          void key.offsetWidth;
+          key.classList.add("is-flashing");
+          self._flashTimer = setTimeout(function () {
+            var active = self.el.querySelector('[data-streamdeck-command="' + command + '"]');
+            if (active) active.classList.remove("is-flashing");
+            self._flashingCommand = null;
+            self._flashTimer = null;
+          }, 500);
+          var push = function () {
+            self.pushEvent("command-press", { command: command, identifier: key.getAttribute("data-streamdeck-identifier") });
+          };
+          // Logs replaces the command keys, so leave its flash visible before
+          // asking the server-authoritative mode machine to enter logs.
+          if (command === "logs") setTimeout(push, 500);
+          else push();
+        };
+        key.addEventListener("click", handler);
+        self._commandHandlers.push({ el: key, handler: handler });
+      });
     },
 
-    _unbindMic() {
-      var seg = this._micSegment;
-      if (!seg) return;
-      seg.removeEventListener("pointerdown", this._onMicDown);
-      seg.removeEventListener("pointerup", this._onMicUp);
-      seg.removeEventListener("pointerleave", this._onMicUp);
-      seg.removeEventListener("pointercancel", this._onMicUp);
-      this._micSegment = null;
+    _unbindCommandKeys() {
+      (this._commandHandlers || []).forEach(function (entry) {
+        entry.el.removeEventListener("click", entry.handler);
+      });
+      this._commandHandlers = [];
+      var key = this._micKey;
+      if (!key) return;
+      key.removeEventListener("pointerdown", this._onMicDown);
+      key.removeEventListener("pointerup", this._onMicUp);
+      key.removeEventListener("pointerleave", this._onMicUp);
+      key.removeEventListener("pointercancel", this._onMicUp);
+      this._micKey = null;
       this._onMicDown = null;
       this._onMicUp = null;
     },
@@ -468,12 +512,17 @@
     _setMic(active) {
       if (this._micActive === active) return;
       this._micActive = active;
-      var seg = this._micSegment;
-      if (!seg) return;
+      // The held state renders as .sd-mic-key.mic-live on the key, not on the
+      // face the pointer handlers are bound to. Toggling it here on the same
+      // element the server renders it on keeps the optimistic class and the
+      // patched one identical, so the pulse starts on pointerdown rather than
+      // a round trip later.
+      var key = this._micKey && this._micKey.closest(".sd-mic-key");
+      if (!key) return;
       if (active) {
-        seg.classList.add("is-live");
+        key.classList.add("mic-live");
       } else {
-        seg.classList.remove("is-live");
+        key.classList.remove("mic-live");
       }
       // Skip the server push when restoring across a patch — the server already
       // knows the mic state; a duplicate push would double-fire mic-hold.

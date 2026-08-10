@@ -33,4 +33,30 @@ defmodule Aiur.WorkflowStoreTest do
     assert :ok = WorkflowStore.force_reload()
     assert {:ok, %{prewarm: %{base_build: "echo rebuilt"}}} = Config.settings()
   end
+
+  # Regression for #1684: the store is a cache over one small config file, so a
+  # stalled store must degrade to reading that file, never kill its caller. When
+  # `:timeout` fell through the catch, `Config.settings!/0` — reached from the
+  # `aiur status` render path — killed the RPC evaluator, and the operator saw a
+  # non-zero exit with an empty buffer.
+  test "a stalled store falls back to the config file instead of killing the caller" do
+    ensure_workflow_store_running()
+
+    pid = Process.whereis(WorkflowStore)
+    Application.put_env(:aiur, :workflow_store_call_timeout_ms, 25)
+    :sys.suspend(pid)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: :sys.resume(pid)
+      Application.delete_env(:aiur, :workflow_store_call_timeout_ms)
+    end)
+
+    assert {:ok, %{config: config}} = WorkflowStore.current()
+    assert is_map(config)
+
+    assert {:ok, %{}, :unknown} = WorkflowStore.current_with_generation()
+
+    # The whole point: a saturated store must not take the read path down with it.
+    assert %Aiur.Config.Schema{} = Config.settings!()
+  end
 end

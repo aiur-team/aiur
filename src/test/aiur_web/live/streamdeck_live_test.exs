@@ -27,13 +27,28 @@ defmodule AiurWeb.StreamdeckLiveTest do
         streamdeck_snapshot_fun: fn -> Agent.get(snapshot_agent, & &1) end,
         streamdeck_provider_meters_fun: fn -> Agent.get(meter_agent, & &1) end,
         streamdeck_logs_fun: &fixture_logs/1,
+        # The control seams stand in for the orchestrator: they settle the
+        # shared snapshot the same way a real control call would, so the view
+        # can only render the new state by re-reading that snapshot.
         agent_chat_pause_fun: fn identifier ->
           send(test_pid, {:streamdeck_pause, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, work_state: :paused))
           {:ok, 1}
         end,
         agent_chat_resume_fun: fn identifier ->
           send(test_pid, {:streamdeck_resume, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, work_state: :working))
           {:ok, :resumed}
+        end,
+        agent_chat_prioritize_fun: fn identifier ->
+          send(test_pid, {:streamdeck_prioritize, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, priority: 1))
+          {:ok, :prioritized}
+        end,
+        agent_chat_deprioritize_fun: fn identifier ->
+          send(test_pid, {:streamdeck_deprioritize, identifier})
+          Agent.update(snapshot_agent, &put_fixture_agent(&1, identifier, priority: nil))
+          {:ok, :deprioritized}
         end
       )
 
@@ -57,6 +72,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Stream Deck + control surface"
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
+    # The grid container is a bare <div>, so it needs an explicit role for its
+    # aria-label to be exposed to assistive technology.
+    assert html =~ ~s(class="sd-keys" role="group")
     assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
@@ -103,14 +121,84 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(id="streamdeck-install-modal")
   end
 
-  test "renders the queued dependency chip and the active status dot footer" do
+  test "renders the complete agent key face" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    # Slot 5 is the only queued key and carries dependency: "Blocked".
+    assert html =~ "sd-ag-ic"
+    assert html =~ ~s(class="sd-ag-vendor" src="/provider-assets/codex-color.svg")
+    assert html =~ ~s(class="sd-ag-vendor" src="/provider-assets/claude-symbol.svg")
+    assert html =~ ~s(class="sd-ag-prio")
+    assert html =~ ~s(class="sd-ag-id">1352</span>)
+    assert html =~ ~s(class="sd-ag-title">Live running</span>)
+
+    # Slot 5 is queued and blocked by a dependency, so its footer is stacked.
     assert html =~ "Blocked"
+    assert html =~ ~s(class="sd-ag-foot col")
+    assert html =~ ~s(class="sd-ag-tag blocked")
     # Every non-queued, non-empty key renders the status dot + progress footer.
-    assert html =~ ~s(class="sd-status-dot")
-    assert html =~ ~s(class="sd-progress")
+    assert html =~ ~s(class="sd-ag-dot")
+    assert html =~ ~s(class="sr-only">Running</span>)
+    assert html =~ ~s(class="sd-ag-bar")
+  end
+
+  test "hue maps 0% red and 100% green progress, with neutral unknown providers", %{snapshot_agent: snapshot_agent} do
+    Agent.update(snapshot_agent, fn _ ->
+      %{
+        running: [fixture_agent("zero", "Zero progress", "codex", progress_percent: 0), fixture_agent("full", "Full progress", "nonesuch", progress_percent: 100)],
+        retrying: [],
+        # No upstreams at all, so this queued key is the ready side of the badge.
+        idle: [fixture_agent("ready", "Ready queue", "claude", blocked_by: [])]
+      }
+    end)
+
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+    send(view.pid, {:running_changed, []})
+    html = render(view)
+
+    # The bar fill is the contract's progress colour, carried per key as
+    # --sd-progress-fill rather than an hsl() the template restates.
+    assert html =~ ~s|--sd-progress-fill: hsl(0 72% 50%)|
+    assert html =~ ~s|--sd-progress-fill: hsl(125 72% 50%)|
+    assert html =~ ~s|<i style="width: 0%">|
+    assert html =~ ~s|<i style="width: 100%">|
+    assert html =~ ~s(class="sd-ag-vendor-fallback")
+    assert html =~ ~s(class="sd-ag-tag ready">Unblocked</span>)
+  end
+
+  test "renders every registry provider logo from its descriptor", %{snapshot_agent: snapshot_agent} do
+    providers = Aiur.CodingAgent.provider_descriptors()
+
+    Agent.update(snapshot_agent, fn _ ->
+      %{
+        running:
+          Enum.map(providers, fn provider ->
+            family = Atom.to_string(provider.provider)
+            fixture_agent(family, "#{provider.label} provider", family)
+          end),
+        retrying: [],
+        idle: []
+      }
+    end)
+
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    for provider <- providers do
+      assert html =~ ~s(src="#{provider.logo}")
+    end
+  end
+
+  test "renders contract-derived state, progress, and log badge styles" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    # State colours reach the page as a contract-derived stylesheet keyed by the
+    # same st-<bucket> class the packaged deck keys its bitmaps by.
+    assert html =~ ".sd-key.st-running{--sd-accent:#9fd0ff;"
+    assert html =~ "--sd-face:linear-gradient(180deg,#18212d,#0f151d);}"
+    assert html =~ ".sd-agent-key.st-alert .sd-ag-dot,.sd-agent-key.st-alert .sd-ag-stat::before{animation:sd-pulse 1.6s ease-in-out infinite;}"
+    refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
+    # Per-key values that depend on live fleet state stay inline.
+    assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
+    assert enter_logs(view) =~ "--sd-log-badge: #9fd0ff"
   end
 
   test "renders the live grid projection instead of preview descriptors" do
@@ -131,8 +219,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1352"} = active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="cmd")
-    assert html =~ ~s(id="sd-cmd-view")
-    refute html =~ ~s(id="sd-keys")
+    assert html =~ ~s(id="sd-keys")
+    refute html =~ "data-grid-total"
     refute html =~ ~s(id="sd-logs-view")
 
     html = render_click(view, "command-press", %{"command" => "logs"})
@@ -140,7 +228,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert %{sd_mode: :logs, sd_active: ^active} = streamdeck_assigns(view)
     assert html =~ ~s(data-mode="logs")
     assert html =~ ~s(id="sd-logs-view")
-    refute html =~ ~s(id="sd-cmd-view")
+    refute html =~ "data-streamdeck-command"
 
     html = render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
 
@@ -273,6 +361,256 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Resume requested for #1345"
     assert %{sd_mode: :cmd, sd_active: %{identifier: "1345"}} = streamdeck_assigns(view)
     assert_receive {:streamdeck_resume, "1345"}
+  end
+
+  test "the pause command key controls the agent and adopts the state the orchestrator settles on" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # The key-press pause already settled the snapshot, but the view has not
+    # re-read it yet, so the key still reads Pause.
+    assert command_key(html, "pause") =~ "Pause"
+    assert command_key(html, "pause") =~ ~s(data-command-state="running")
+
+    html = render_hook(view, "command-press", %{"command" => "pause"})
+
+    assert_receive {:streamdeck_pause, "1352"}
+    assert html =~ "Pause requested for #1352"
+    # The key adopts the state the orchestrator settled on, not the one the
+    # press assumed: it now offers Play, with the paused state and icon.
+    assert command_key(html, "pause") =~ "Play"
+    assert command_key(html, "pause") =~ ~s(data-command-state="paused")
+    assert command_icon(html, "pause") == "play"
+
+    # Pressing the same key again resolves to resume server-side, because the
+    # direction is read from orchestrator state rather than from the client.
+    html = render_hook(view, "command-press", %{"command" => "pause"})
+
+    assert_receive {:streamdeck_resume, "1352"}
+    assert html =~ "Resume requested for #1352"
+    assert command_key(html, "pause") =~ "Pause"
+    assert command_key(html, "pause") =~ ~s(data-command-state="running")
+    assert command_icon(html, "pause") == "pause"
+  end
+
+  test "the priority command key changes real dispatch priority and re-renders the star" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # Slot 1 is the prioritized running agent, so the key offers Deprioritize.
+    assert command_key(html, "priority") =~ "Deprioritize"
+
+    html = render_hook(view, "command-press", %{"command" => "priority"})
+
+    assert_receive {:streamdeck_deprioritize, "1352"}
+    assert html =~ "Deprioritize requested for #1352"
+    assert command_key(html, "priority") =~ "Prioritize"
+    assert command_key(html, "priority") =~ ~s(data-command-state="standard")
+    assert command_icon(html, "priority") == "up"
+
+    # The `★` is the SP-201 rendering of the same priority the grid sorts on, and
+    # it lives on the grid keys rather than the command keys, so backing out to
+    # grid mode is what proves the control reached the shared priority state and
+    # not merely the command key's own label.
+    assert render_hook(view, "dial-press", %{"index" => "0", "action" => "back"}) =~
+             ~s(class="sd-keys")
+
+    refute has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    html = render_hook(view, "command-press", %{"command" => "priority"})
+
+    assert_receive {:streamdeck_prioritize, "1352"}
+    assert html =~ "Prioritize requested for #1352"
+    assert command_key(html, "priority") =~ "Deprioritize"
+    assert command_key(html, "priority") =~ ~s(data-command-state="prioritized")
+    assert command_icon(html, "priority") == "down"
+
+    render_hook(view, "dial-press", %{"index" => "0", "action" => "back"})
+    assert has_element?(view, ~s(.sd-agent-key[data-streamdeck-identifier="1352"] .sd-ag-prio))
+  end
+
+  test "read-only mode renders the command keys disabled and refuses the control call" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      assert html =~ "sd-cmd-key is-disabled"
+
+      # Element selectors rather than substring checks: a bare `html =~ "disabled"`
+      # also matches the `is-disabled` class, so it would pass on a button that is
+      # still clickable. The hook skips `disabled` keys, so a disabled attribute
+      # is what actually stops the press from ever being emitted.
+      for command <- ~w(pause priority mic) do
+        assert has_element?(view, ~s(button[data-streamdeck-command="#{command}"][disabled][aria-disabled="true"]))
+      end
+
+      # Logs is navigation rather than fleet control, so it stays available.
+      # It is the negative control: it proves the disabling above is the
+      # read-only gate and not simply every key being rendered inert.
+      assert has_element?(view, ~s(button[data-streamdeck-command="logs"][aria-disabled="false"]))
+      refute has_element?(view, ~s(button[data-streamdeck-command="logs"][disabled]))
+
+      # A forged press that bypasses the client gate is still refused server-side.
+      html = render_hook(view, "command-press", %{"command" => "pause"})
+
+      assert html =~ "Read-only dashboard: controls are disabled"
+      refute_receive {:streamdeck_pause, "1352"}
+
+      render_hook(view, "command-press", %{"command" => "priority"})
+      refute_receive {:streamdeck_deprioritize, "1352"}
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
+  end
+
+  test "a failed command control call surfaces in the status region instead of being swallowed" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+
+    failing_config =
+      Keyword.merge(endpoint_config,
+        agent_chat_pause_fun: fn _identifier -> {:error, :tracker_unavailable} end,
+        agent_chat_prioritize_fun: fn _identifier -> raise "tracker exploded" end
+      )
+
+    Endpoint.config_change(%{Endpoint => failing_config}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      html = render_hook(view, "command-press", %{"command" => "pause"})
+
+      assert html =~ "Pause failed: :tracker_unavailable"
+      # The failed call must not flip the key: the agent is still running.
+      assert command_key(html, "pause") =~ "Pause"
+      assert command_key(html, "pause") =~ ~s(data-command-state="running")
+
+      # The status region carries the failure visibly rather than staying
+      # screen-reader-only, so the operator sees a swallowed control call.
+      assert html =~ ~s(id="sd-control-status" class="sd-control-status")
+
+      html = render_hook(view, "command-press", %{"command" => "priority"})
+      assert html =~ "Deprioritize requested for #1352"
+
+      # Now standard, so the same key resolves to prioritize — which raises.
+      html = render_hook(view, "command-press", %{"command" => "priority"})
+
+      assert html =~ "Prioritize failed:"
+      assert html =~ "tracker exploded"
+      assert command_key(html, "priority") =~ "Prioritize"
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
+  end
+
+  test "cmd mode offers the design's four command keys, with Mic as press-and-hold" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    # Four keys, in the design's order, with the design's labels and sub lines.
+    assert [{"pause", "Pause", "HOLD"}, {"priority", "Deprioritize", "LOWER"}, {"logs", "Logs", "SCROLL"}, {"mic", "Mic", "HOLD"}] ==
+             rendered_command_keys(html)
+
+    # Mic is the only press-and-hold key, so it is the only one the hook drives
+    # from pointer events rather than a click.
+    assert has_element?(view, ~s(button[data-streamdeck-command="mic"][data-command-hold="true"]))
+
+    for command <- ~w(pause priority logs) do
+      refute has_element?(view, ~s(button[data-streamdeck-command="#{command}"][data-command-hold]))
+    end
+
+    # A click-shaped command-press for mic is inert server-side, so the
+    # press-and-hold contract cannot be worked around from the client: "mic"
+    # is not a control command and reaches the catch-all clause.
+    html = render_hook(view, "command-press", %{"command" => "mic"})
+    assert command_key(html, "mic") =~ ~s(data-command-state="idle")
+    refute_receive {:streamdeck_pause, "1352"}
+  end
+
+  test "holding the mic key marks it live and releasing clears it" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    render_hook(view, "key-press", %{"identifier" => "1352"})
+    assert_receive {:streamdeck_pause, "1352"}
+
+    html = render_hook(view, "mic-hold", %{"active" => true})
+    assert command_key(html, "mic") =~ ~s(data-command-state="live")
+    assert html =~ "sd-mic-key mic-live"
+
+    # Release must clear it. A hold that latched would leave the mic open after
+    # the operator let go, which is the failure press-and-hold exists to avoid.
+    html = render_hook(view, "mic-hold", %{"active" => false})
+    assert command_key(html, "mic") =~ ~s(data-command-state="idle")
+    refute html =~ "sd-mic-key mic-live"
+  end
+
+  test "read-only mode disables the mic key and refuses the hold" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :dashboard_writable, false)}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      render_hook(view, "key-press", %{"identifier" => "1352"})
+
+      assert has_element?(view, ~s(button[data-streamdeck-command="mic"][disabled][aria-disabled="true"]))
+
+      html = render_hook(view, "mic-hold", %{"active" => true})
+
+      assert html =~ "Read-only dashboard: controls are disabled"
+      assert command_key(html, "mic") =~ ~s(data-command-state="idle")
+      refute html =~ "sd-mic-key mic-live"
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
+  end
+
+  test "renders state-derived command keys with four disabled blank slots" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+
+    refute html =~ "data-streamdeck-command"
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert command_key(html, "pause") =~ "Pause"
+    assert command_key(html, "priority") =~ "Deprioritize"
+    assert length(Regex.scan(~r/data-streamdeck-command=/, html)) == 4
+    assert length(Regex.scan(~r/<button[^>]*disabled[^>]*aria-hidden="true"[^>]*>/, html)) == 4
+
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_key(html, "pause") =~ "Play"
+    assert command_key(html, "priority") =~ "Prioritize"
+  end
+
+  test "command key icons track pause and priority state alongside their labels" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    html = render_hook(view, "key-press", %{"identifier" => "1352"})
+
+    assert command_icon(html, "pause") == "pause"
+    assert command_icon(html, "priority") == "down"
+    assert command_icon(html, "logs") == "logs"
+    assert command_icon(html, "mic") == "mic"
+
+    html = render_hook(view, "key-press", %{"identifier" => "1345"})
+
+    assert command_icon(html, "pause") == "play"
+    assert command_icon(html, "priority") == "up"
+  end
+
+  defp rendered_command_keys(html) do
+    ~r/data-streamdeck-command="([a-z]+)".*?<span class="sd-cmd-label">([^<]*)<\/span>\s*<span class="sd-cmd-sub">([^<]*)<\/span>/s
+    |> Regex.scan(html)
+    |> Enum.map(fn [_match, command, label, sub] -> {command, label, sub} end)
   end
 
   test "initial mount creates one real PubSub transcript subscription" do
@@ -553,11 +891,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(data-pager-focus="#1352")
   end
 
-  test "renders the priority star, the mic indicator, and the live segment" do
+  test "renders the priority icon, the mic indicator, and the live segment" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     # Slots 1 and 4 carry priority?: true.
-    assert html =~ "★"
+    assert html =~ ~s(class="sd-ag-prio")
     # The Claude segment always shows the mic dot.
     assert html =~ ~s(class="sd-mic")
     # The Codex segment is live?: true.
@@ -615,6 +953,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     }
   end
 
+  defp put_fixture_agent(snapshot, identifier, attrs) do
+    Map.new(snapshot, fn {bucket, entries} ->
+      {bucket, Enum.map(entries, fn entry -> if entry.identifier == identifier, do: Map.merge(entry, Map.new(attrs)), else: entry end)}
+    end)
+  end
+
   defp fixture_agent(identifier, title, backend, attrs \\ []) do
     Map.merge(
       %{
@@ -626,7 +970,8 @@ defmodule AiurWeb.StreamdeckLiveTest do
         waiting_reason: :active,
         tracker_paused: false,
         progress_percent: 50,
-        priority: nil
+        priority: nil,
+        blocked_by: [%{id: "missing-upstream"}]
       },
       Map.new(attrs)
     )
@@ -714,6 +1059,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp slot_identifiers(html) do
     Regex.scan(~r/data-streamdeck-identifier="([^"]+)"/, html, capture: :all_but_first)
     |> List.flatten()
+  end
+
+  defp command_key(html, command) do
+    [key] = Regex.run(~r{<button[^>]*data-streamdeck-command="#{command}".*?</button>}s, html)
+    key
+  end
+
+  defp command_icon(html, command) do
+    [_key, icon] = Regex.run(~r/data-streamdeck-icon="([^"]+)"/, command_key(html, command))
+    icon
   end
 
   defp fleet_snapshot(total) do
