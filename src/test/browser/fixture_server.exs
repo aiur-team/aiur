@@ -28,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
@@ -37,6 +38,28 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
+            window.BrowserHarnessHooks.NavToggle = {
+              mounted: function () {
+                try {
+                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
+                  if (stored === "true" || stored === "false") {
+                    var collapsed = stored === "true";
+                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
+                      this.pushEvent("restore-nav", { collapsed: collapsed });
+                    }
+                  }
+                } catch (_error) {}
+              },
+              updated: function () {
+                try {
+                  window.localStorage.setItem(
+                    "aiur-nav-collapsed",
+                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
+                  );
+                } catch (_error) {}
+              }
+            };
+
             window.BrowserHarnessHooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
@@ -55,6 +78,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurTicketContextDialogHook) {
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
+
+            if (window.AiurConversationDrawerHook) {
+              window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
 
             if (window.AiurBuildOrderGridHook) {
@@ -84,13 +111,14 @@ end
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:analytics, analytics(%{}))
+     |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
@@ -102,6 +130,9 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
+  def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -111,6 +142,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
         routes={RouteRegistry.routes(@analytics)}
         tracker_kind="fixture"
         agent_kind="fixture"
+        nav_collapsed={@nav_collapsed}
       >
         <section class="section-card" aria-labelledby="route-shell-fixture-title">
           <h2 id="route-shell-fixture-title">Route shell fixture</h2>
@@ -800,6 +832,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
   alias AiurWeb.OperatorControlCenter.{
+    ConversationDrawer,
     DecisionPath,
     TicketContext,
     UnitsFilters,
@@ -807,6 +840,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     UnitsTable,
     UnitsURL
   }
+
+  alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @now ~U[2026-07-17 12:00:00Z]
 
@@ -818,6 +853,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:selection, UnitsURL.default_selection())
      |> assign(:now, @now)
      |> assign(:context, nil)
+     |> assign(:conversation_drawer, nil)
      |> assign(:selected_row, nil)
      |> assign(:generation, 1)}
   end
@@ -859,7 +895,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
-  def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
+  def handle_event("read-conversation", %{"unit" => token}, socket) do
+    case UnitsPresenter.lookup(socket.assigns.catalog, token) do
+      {:ok, row} ->
+        drawer = %{
+          origin_id: "units-conversation-#{token}",
+          view: ConversationPresenter.present(row, conversation_snapshot())
+        }
+
+        {:noreply, assign(socket, :conversation_drawer, drawer)}
+
+      {:error, :not_found} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-conversation", _params, socket), do: {:noreply, assign(socket, :conversation_drawer, nil)}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
@@ -940,6 +991,15 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         context={@context}
         close_event="close-ticket-context"
         fallback_focus_id="units-title"
+      />
+
+      <ConversationDrawer.conversation_drawer
+        :if={@conversation_drawer}
+        id="units-fixture-conversation-drawer"
+        view={@conversation_drawer.view}
+        close_event="close-conversation"
+        fallback_focus_id="units-title"
+        origin_id={@conversation_drawer.origin_id}
       />
     </main>
     """
@@ -1034,6 +1094,28 @@ defmodule Aiur.BrowserHarness.UnitsLive do
           latest_evidence: %{status: :unknown}
         })
       end)
+  end
+
+  defp conversation_snapshot do
+    %{
+      state: :live,
+      health: :healthy,
+      freshness: :current,
+      messages: [
+        %{
+          id: "fixture-message",
+          role: "agent",
+          title: "Assistant",
+          body: "Conversation drawer hook is running.",
+          occurred_at: @now,
+          observed_at: @now
+        }
+      ],
+      observed_at: @now,
+      truncated?: false,
+      evicted_count: 0,
+      source: %{worker_generation: 1, session_id: "fixture-session"}
+    }
   end
 
   defp row(identity, overrides) do
@@ -1558,6 +1640,33 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
   @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
   socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
+
+  plug(Plug.Static,
+    at: "/",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.revalidated_static_paths(),
+    cache_control_for_etags: "private, max-age=0, must-revalidate",
+    cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
+  )
+
+  plug(Plug.Static,
+    at: "/",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.long_lived_static_paths(),
+    cache_control_for_etags: "public, max-age=31536000",
+    cache_control_for_vsn_requests: "public, max-age=31536000"
+  )
+
+  plug(Plug.Static,
+    at: "/provider-assets",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.provider_asset_paths(),
+    cache_control_for_etags: "private, max-age=0, must-revalidate",
+    cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
+  )
 
   plug(Plug.RequestId)
   plug(Plug.Session, @session_options)

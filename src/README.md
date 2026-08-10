@@ -345,6 +345,13 @@ When `server.port` (or CLI `--port`) is set, Aiur exposes:
   `Cache-Control: no-store`. Drag across any time chart to zoom the five
   time-series charts together; use Reset to return to the full selected range.
 
+The endpoint serves packaged dashboard hooks, styles, fonts, logos, and provider
+icons from `priv/static` before router dispatch. Explicit allowlists keep the
+dashboard Basic Auth boundary intact: runtime assets revalidate, stable logo and
+font files use long-lived caching, and provider icons derive from the coding-agent
+registry. Content-addressed layout vendor files remain on their verified router
+paths; vendor manifests, provenance, sources, and licenses are not exposed.
+
 The Units catalog reconciles retained current-run membership with the latest
 fresh orchestrator snapshot. After a daemon generation change, current agents
 remain visible while membership catches up; counts are marked partial if that
