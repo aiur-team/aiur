@@ -20,7 +20,6 @@ defmodule Mix.Tasks.Aiur.AffectedTests do
 
   1. `AIUR_BASE_BRANCH` environment variable (set in agent processes)
   2. `tracker.base_branch` from the `.aiur/config` file (`Aiur.Config.base_branch/0`)
-  3. Falls back to `"main"`
 
   The resolved name is prefixed with `origin/` and used as the merge-base ref.
   """

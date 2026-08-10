@@ -37,6 +37,25 @@ defmodule Aiur.Init.GitHubTest do
     end
   end
 
+  describe "detect_default_branch/2" do
+    test "reads the repository default branch from the GitHub API" do
+      command_fun = fn "gh", ["api", "repos/o/r", "--jq", ".default_branch"], [stderr_to_stdout: true] ->
+        {"develop\n", 0}
+      end
+
+      assert GitHub.detect_default_branch("o/r", command_fun) == "develop"
+    end
+
+    test "returns nil when the API request fails or has no branch" do
+      assert GitHub.detect_default_branch("o/r", fn _command, _args, _opts -> {"denied", 1} end) == nil
+      assert GitHub.detect_default_branch("o/r", fn _command, _args, _opts -> {"\n", 0} end) == nil
+    end
+
+    test "does not derive a repository-specific default for global config" do
+      assert GitHub.detect_default_branch(nil, fn _command, _args, _opts -> flunk("GitHub API should not be called") end) == nil
+    end
+  end
+
   describe "ensure_ci_readiness/3" do
     test "keeps CI-readiness administration access separate from the daemon token" do
       io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
