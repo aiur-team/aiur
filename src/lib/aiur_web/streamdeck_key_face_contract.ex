@@ -26,7 +26,7 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   @ready_label "Unblocked"
   @blocked_label "Blocked"
 
-  @type footer :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil}
+  @type footer :: %{kind: String.t(), label: String.t(), dependency: String.t() | nil, ready?: boolean()}
 
   @spec label!(atom() | String.t()) :: String.t()
   def label!(bucket) when is_binary(bucket), do: label!(String.to_existing_atom(bucket))
@@ -48,10 +48,11 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
     label = label!(bucket)
 
     if bucket in [:queued, "queued"] do
-      dependency = if dependency_ready === @ready_when, do: @ready_label, else: @blocked_label
-      %{kind: "queued", label: label, dependency: dependency}
+      ready? = dependency_ready === @ready_when
+      dependency = if ready?, do: @ready_label, else: @blocked_label
+      %{kind: "queued", label: label, dependency: dependency, ready?: ready?}
     else
-      %{kind: "progress", label: label, dependency: nil}
+      %{kind: "progress", label: label, dependency: nil, ready?: false}
     end
   end
 end

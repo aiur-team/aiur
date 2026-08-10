@@ -7,7 +7,8 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
     assert StreamdeckKeyFaceContract.footer_for_agent(:queued, %{}) == %{
              kind: "queued",
              label: "Queued",
-             dependency: "Blocked"
+             dependency: "Blocked",
+             ready?: false
            }
 
     assert StreamdeckKeyFaceContract.footer_for_agent(:queued, %{dependency_ready: nil}).dependency == "Blocked"
@@ -16,11 +17,19 @@ defmodule AiurWeb.StreamdeckKeyFaceContractTest do
     assert StreamdeckKeyFaceContract.footer_for_agent(:queued, %{dependency_ready: true}).dependency == "Unblocked"
   end
 
+  test "the badge flag agrees with the wording it labels" do
+    for dependency_ready <- [true, false, nil, "true"] do
+      footer = StreamdeckKeyFaceContract.footer_for_agent(:queued, %{dependency_ready: dependency_ready})
+      assert footer.ready? == (footer.dependency == "Unblocked")
+    end
+  end
+
   test "non-queued footer does not expose dependency state" do
     assert StreamdeckKeyFaceContract.footer_for_agent(:running, %{}) == %{
              kind: "progress",
              label: "Running",
-             dependency: nil
+             dependency: nil,
+             ready?: false
            }
   end
 

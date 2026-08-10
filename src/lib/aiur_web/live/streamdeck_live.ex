@@ -18,7 +18,7 @@ defmodule AiurWeb.StreamdeckLive do
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
 
   @streamdeck_package %{
     version: "0.0.0-dev.0098e3ac86a2",
@@ -187,34 +187,42 @@ defmodule AiurWeb.StreamdeckLive do
           </header>
 
           <%= if @sd_mode == :grid do %>
-          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
-            <li
+          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
+            <button
               :for={key <- @keys}
-              class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
+              type="button"
+              class={["sd-key", "sd-agent-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
+              disabled={key.empty?}
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
               data-streamdeck-identifier={key.identifier}
               data-control-action={key.control_action}
             >
-              <div class="sd-key-face">
-                <div :if={!key.empty?} class="sd-key-topline">
-                  <span class="sd-key-vendor">{key.vendor}</span>
-                  <span :if={key.priority?} class="sd-key-priority" aria-label="Priority">★</span>
+              <div class={["sd-key-face", !key.empty? && "sd-agent"]}>
+                <div :if={!key.empty?} class="sd-agent-top">
+                  <BuildOrderEpicIcon.build_order_epic_icon lane={key.icon} class="sd-ag-ic" />
+                  <img :if={key.vendor_logo} class="sd-ag-vendor" src={key.vendor_logo} alt="" />
+                  <span :if={!key.vendor_logo} class="sd-ag-vendor-fallback" role="img" aria-label="Unknown provider">◌</span>
+                  <span class="sd-ag-idwrap">
+                    <span :if={key.priority?} class="sd-ag-prio" aria-label="Prioritized">
+                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.6 5.7 6.2.6-4.7 4.2 1.4 6.1L12 17l-5.5 2.6 1.4-6.1L3.2 9.3l6.2-.6z" /></svg>
+                    </span>
+                    <span class="sd-ag-id">{key.ticket}</span>
+                  </span>
                 </div>
-                <div :if={!key.empty?} class="sd-key-main">
-                  <span class="sd-key-ticket">#{key.ticket}</span>
-                  <span class="sd-key-title">{key.title}</span>
+                <span :if={!key.empty?} class="sd-ag-title">{key.title}</span>
+                <div :if={!key.empty? and key.bucket == "queued"} class="sd-ag-foot col">
+                  <span class="sd-ag-stat">{key.label}</span>
+                  <span class={["sd-ag-tag", key.dependency_ready? && "ready", !key.dependency_ready? && "blocked"]}>{key.dependency}</span>
                 </div>
-                <div :if={!key.empty? and key.bucket == "queued"} class="sd-key-footer">
-                  <span>{key.label}</span><b>{key.dependency}</b>
-                </div>
-                <div :if={!key.empty? and key.bucket != "queued"} class="sd-key-footer">
-                  <span class="sd-status-dot" aria-hidden="true"></span><span>{key.label}</span>
-                  <span class="sd-progress" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
+                <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
+                  <span class="sd-ag-dot" aria-hidden="true"></span>
+                  <span class="sr-only">{key.label}</span>
+                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%; background: hsl(#{key.progress_hue} 72% 50%)"}></i></span>
                 </div>
               </div>
-            </li>
-          </ul>
+            </button>
+          </div>
 
           <% end %>
 
@@ -471,7 +479,6 @@ defmodule AiurWeb.StreamdeckLive do
     key(
       slot,
       Atom.to_string(bucket),
-      Map.get(agent, :vendor, "unknown"),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
       footer.label,
@@ -479,20 +486,26 @@ defmodule AiurWeb.StreamdeckLive do
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
+      icon: Map.get(agent, :icon),
+      vendor_logo: Map.get(agent, :vendor_logo),
+      dependency_ready?: footer.ready?,
       dependency: footer.dependency
     )
   end
 
-  defp key(slot, bucket, vendor, ticket, title, label, progress, opts) do
+  defp key(slot, bucket, ticket, title, label, progress, opts) do
     %{
       slot: slot,
       bucket: bucket,
-      vendor: vendor,
       ticket: ticket,
       title: title,
       label: label,
       progress: progress,
+      progress_hue: round(progress / 100 * 125),
       priority?: Keyword.get(opts, :priority?, false),
+      dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
+      icon: Keyword.get(opts, :icon),
+      vendor_logo: Keyword.get(opts, :vendor_logo),
       dependency: Keyword.get(opts, :dependency),
       identifier: Keyword.get(opts, :identifier, ticket),
       control_action: Keyword.get(opts, :control_action),
