@@ -2,6 +2,7 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
   use ExUnit.Case, async: true
 
   alias Aiur.Orchestrator.{State, TrackerHealth}
+  alias Aiur.Webhooks.ModeRegistry
 
   test "uses the base interval when no GitHub delay is active" do
     assert TrackerHealth.next_poll_delay_ms(%State{poll_interval_ms: 1_000, github_poll_delays: %{}}) == 1_000
@@ -34,5 +35,79 @@ defmodule Aiur.Orchestrator.TrackerHealthTest do
     state = %State{poll_interval_ms: 120_000, github_poll_delays: %{firehose: 60_000, comments: 900_000}}
 
     assert TrackerHealth.next_poll_delay_ms(state) == 900_000
+  end
+
+  # Criterion 5 of #1680: delivery silence past the threshold must raise an
+  # alert *and* restore the tighter poll interval automatically. These drive the
+  # real `ModeRegistry` rather than stubbing a transport, because the thing worth
+  # proving is that the orchestrator's own tick reads the registry the silence
+  # sweep writes to — a stubbed transport would pass against a `next_poll_delay_ms`
+  # that never consults it.
+  describe "webhook-backed widening and automatic restore" do
+    @repo "aiur-team/webhook-cutover"
+
+    defp start_registry(opts \\ []) do
+      test = self()
+      name = :"tracker_health_registry_#{System.unique_integer([:positive])}"
+
+      defaults = [
+        name: name,
+        configured_repos: [@repo],
+        silence_threshold_ms: 900_000,
+        sweep_interval_ms: 3_600_000,
+        alert_fun: fn alert_name, message, alert_opts ->
+          send(test, {:alert, alert_name, message, alert_opts})
+          :ok
+        end
+      ]
+
+      {:ok, _pid} = start_supervised({ModeRegistry, Keyword.merge(defaults, opts)})
+      name
+    end
+
+    defp at(seconds), do: DateTime.add(~U[2026-08-10 12:00:00Z], seconds, :second)
+
+    defp delay(registry, state), do: TrackerHealth.next_poll_delay_ms(state, repo: @repo, server: registry, widen_factor: 2.0)
+
+    test "a proven repo widens, silence degrades it, and the base interval comes back" do
+      registry = start_registry()
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}}
+
+      # Configured but never delivered: full rate, unchanged by this epic.
+      assert delay(registry, state) == 120_000
+
+      {:ok, _mode} = ModeRegistry.record_delivery(@repo, server: registry, at: at(0))
+      assert delay(registry, state) == 240_000
+
+      {:ok, [@repo]} = ModeRegistry.sweep(registry, at(1_000))
+
+      assert_received {:alert, "webhook.degraded", message, alert_opts}
+      assert message =~ @repo
+      assert alert_opts[:needs_attention]
+
+      # The restore is the point: no operator action, no separate code path.
+      assert delay(registry, state) == 120_000
+
+      # And a delivery after degradation widens it again.
+      {:ok, _mode} = ModeRegistry.record_delivery(@repo, server: registry, at: at(1_001))
+      assert_received {:alert, "webhook.recovered", _message, _opts}
+      assert delay(registry, state) == 240_000
+    end
+
+    test "a GitHub floor wider than the widened interval still wins" do
+      registry = start_registry()
+      {:ok, _mode} = ModeRegistry.record_delivery(@repo, server: registry, at: at(0))
+
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{comments: 900_000}}
+
+      assert delay(registry, state) == 900_000
+    end
+
+    test "widening never applies to a repo that only polls" do
+      registry = start_registry(configured_repos: [])
+      state = %State{poll_interval_ms: 120_000, github_poll_delays: %{}}
+
+      assert delay(registry, state) == 120_000
+    end
   end
 end

@@ -12,6 +12,7 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.State
+  alias Aiur.Webhooks.IntervalPolicy
 
   @spec note_github_connectivity_success(State.t(), atom()) :: State.t()
   def note_github_connectivity_success(%State{} = state, source) do
@@ -78,19 +79,46 @@ defmodule Aiur.Orchestrator.TrackerHealth do
   # them, never the narrowest — returning a GitHub floor outright would let a
   # 60s header override a deliberately widened `polling.interval_seconds` and
   # quietly undo the quota saving it was set to buy.
-  @spec next_poll_delay_ms(State.t()) :: non_neg_integer()
-  def next_poll_delay_ms(%State{} = state) do
+  #
+  # The base floor is the *webhook-adjusted* interval rather than the raw
+  # configured one. `IntervalPolicy` widens it only for a repo proven
+  # webhook-backed, so this is the seam where the cutover actually happens —
+  # and, more importantly, where it comes back. When W-6's silence sweep
+  # degrades a repo, its transport reverts to `:polling`, `IntervalPolicy`
+  # returns the base interval again, and the very next tick is computed at the
+  # tighter value. Nothing has to remember to restore it.
+  #
+  # `opts` are a test seam (`:repo`, `:server`, `:transport`, `:widen_factor`)
+  # forwarded to `IntervalPolicy`; production calls this with none and reads
+  # the live registry.
+  @spec next_poll_delay_ms(State.t(), keyword()) :: non_neg_integer()
+  def next_poll_delay_ms(%State{} = state, opts \\ []) do
+    base_ms = webhook_adjusted_interval_ms(state, opts)
+
     case github_next_poll_delay_ms(state) do
-      github_ms when is_integer(github_ms) and is_integer(state.poll_interval_ms) ->
-        max(github_ms, state.poll_interval_ms)
+      github_ms when is_integer(github_ms) and is_integer(base_ms) ->
+        max(github_ms, base_ms)
 
       github_ms when is_integer(github_ms) ->
         github_ms
 
       _none ->
-        state.poll_interval_ms
+        base_ms
     end
   end
+
+  # A repo we cannot name cannot be looked up, so it keeps the configured
+  # interval — the same default-to-polling answer `Aiur.Webhooks` gives for an
+  # unknown repo.
+  defp webhook_adjusted_interval_ms(%State{poll_interval_ms: base_ms}, opts)
+       when is_integer(base_ms) and base_ms > 0 do
+    case Keyword.get_lazy(opts, :repo, &Aiur.GitHub.Config.repo/0) do
+      repo when is_binary(repo) -> IntervalPolicy.poll_interval_ms(base_ms, repo, opts)
+      _unknown -> base_ms
+    end
+  end
+
+  defp webhook_adjusted_interval_ms(%State{poll_interval_ms: base_ms}, _opts), do: base_ms
 
   @doc false
   @spec github_next_poll_delay_ms(State.t()) :: non_neg_integer() | nil
