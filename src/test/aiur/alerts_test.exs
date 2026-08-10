@@ -320,9 +320,7 @@ defmodule Aiur.AlertsTest do
     orchestrator_name = Module.concat(__MODULE__, :PauseAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -389,9 +387,7 @@ defmodule Aiur.AlertsTest do
     orchestrator_name = Module.concat(__MODULE__, :ResumeSyncAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -449,6 +445,24 @@ defmodule Aiur.AlertsTest do
   end
 
   defp assert_eventually(_fun, 0), do: flunk("condition was not met in time")
+
+  # The orchestrator traps exits, so `Process.exit(pid, :normal)` only queues
+  # an `{:EXIT, _, :normal}` message and leaves it running. It then keeps
+  # appending to the workspace log while the sibling `on_exit` removes that
+  # directory, and under partition load `File.rm_rf!/1` fails with `:eexist`
+  # on the tree still being written. Wait for the writer to actually be gone.
+  defp stop_orchestrator!(pid) do
+    if Process.alive?(pid) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        5_000 -> flunk("orchestrator #{inspect(pid)} did not stop")
+      end
+    end
+  end
 
   describe "definition_for_topic/1 glob matching" do
     setup do
