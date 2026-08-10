@@ -11,8 +11,12 @@ defmodule Aiur.BuildOrder.GitHubGraph.Queries do
   # GraphQL point cost bills a connection per *parent*, not per requested item,
   # so a nested `labels` connection here costs 25 roots x 100 sub-issues =
   # 2,500 of the page's 2,551 request-units. Measured against this repository,
-  # that took the page from 1 point to 26, and the recurring catalog poll from
-  # ~240 to ~6,240 points/hour against a 5,000/hour ceiling (#1766).
+  # that took the page from 1 point to 26. The catalog poll is recurring, so
+  # that per-poll figure multiplies by `polling.interval_seconds` against a
+  # 5,000-points/hour ceiling: at the 5s interval in force when the budget was
+  # exhausted, ~720 polls/hour x 26 = ~18,720 points/hour, and even at the
+  # current 30s default ~120 x 26 = ~3,120 would spend most of the hourly
+  # budget on this one poller (#1766).
   # `state`/`stateReason` are all the catalog's progress figure needs. Lane and
   # phase counts stay on the selected-root path, whose query already runs for a
   # single root and can afford the labels.
