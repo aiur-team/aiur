@@ -523,6 +523,75 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
            )
   end
 
+  # One poll cycle as the orchestrator runs it: consult dispatch eligibility, and
+  # only when it admits do the gate + commit that bill a lifetime unit. Both
+  # halves are the production functions (`should_dispatch_issue?/2` is the poll
+  # loop's per-issue gate in `Dispatcher.choose_issues/2`;
+  # `record_dispatch_committed/2` is the sole lifetime billing point), so removing
+  # the #1759 guard makes this helper bill and the assertions below fail.
+  defp poll_cycle(state, %Issue{} = issue, cycle) do
+    if DispatchPolicy.should_dispatch_issue?(issue, state) do
+      {:ok, gated} = Dispatcher.check_thrash_budget(state, issue.id, cycle * (@window_ms + 1))
+      Dispatcher.record_dispatch_committed(gated, issue.id)
+    else
+      state
+    end
+  end
+
+  defp parked_issue(id, state_name) do
+    %Issue{id: id, identifier: "repo##{id}", title: "Approved and queued", state: state_name}
+  end
+
+  @tag config: """
+       tracker:
+         kind: memory
+         active_states:
+           - todo
+           - in-progress
+           - rework
+           - merging
+           - ci-wait
+       agent:
+         kind: codex
+         max_dispatches_per_ticket: 10
+       """
+  test "a merging or ci-wait ticket holds a steady lifetime count across poll cycles" do
+    # #1759 acceptance: #1573 sat in `agent:merging` with PR #1607 approved and in
+    # the merge queue and still burned 48 lifetime dispatches in ~50 minutes,
+    # latching a ticket whose work was already finished and approved. The config
+    # above reproduces that operator config — `merging` listed as an active state.
+    for {id, state_name} <- [{"issue-merging", "merging"}, {"issue-ci-wait", "ci-wait"}] do
+      issue = parked_issue(id, state_name)
+      state = %Orchestrator.State{max_concurrent_agents: 5, last_polled_issues: %{id => issue}}
+
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(id)
+
+      state =
+        Enum.reduce(1..4, state, fn cycle, acc ->
+          acc = poll_cycle(acc, issue, cycle)
+          assert {:ok, 0} = DispatchBudgetStore.lifetime(id)
+          acc
+        end)
+
+      # Four poll cycles later the ticket is still nowhere near the latch, and no
+      # in-memory lifetime was accrued either.
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(id)
+      assert :none = Dispatcher.dispatch_latch_status(state, id)
+      refute Map.has_key?(thrash_budget(state), id)
+    end
+
+    # Control: an otherwise identical ticket in a real work state does bill, so
+    # the steady counts above are the guard doing its job and not a harness that
+    # never bills anything.
+    working = parked_issue("issue-rework", "rework")
+    working_state = %Orchestrator.State{max_concurrent_agents: 5, last_polled_issues: %{"issue-rework" => working}}
+
+    working_state = Enum.reduce(1..4, working_state, &poll_cycle(&2, working, &1))
+
+    assert {:ok, 4} = DispatchBudgetStore.lifetime("issue-rework")
+    assert %{lifetime: 4} = thrash_budget(working_state)["issue-rework"]
+  end
+
   @tag config: """
        tracker:
          kind: memory
