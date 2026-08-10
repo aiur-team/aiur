@@ -80,26 +80,30 @@ consider_hold() {
   fi
 }
 
-if [ "$resource" != none ] && [ -n "$quota_dir" ]; then
-  case "$resource" in
-    core) consider_hold "$quota_dir/core-hold" ;;
-    graphql) consider_hold "$quota_dir/graphql-hold" ;;
+# Both hold kinds gate a call: `-hold` is the exhausted primary window, and
+# `-secondary-hold` is a secondary/abuse-limit backoff, which GitHub raises
+# while the primary window still reads healthy.
+consider_resource_holds() {
+  case "$2" in
+    core|graphql)
+      consider_hold "$1/$2-hold"
+      consider_hold "$1/$2-secondary-hold"
+      ;;
     *)
-      consider_hold "$quota_dir/core-hold"
-      consider_hold "$quota_dir/graphql-hold"
+      consider_hold "$1/core-hold"
+      consider_hold "$1/core-secondary-hold"
+      consider_hold "$1/graphql-hold"
+      consider_hold "$1/graphql-secondary-hold"
       ;;
   esac
+}
+
+if [ "$resource" != none ] && [ -n "$quota_dir" ]; then
+  consider_resource_holds "$quota_dir" "$resource"
 fi
 
 if [ "$resource" != none ] && [ -n "$agent_quota_dir" ] && [ "$agent_quota_dir" != "$quota_dir" ]; then
-  case "$resource" in
-    core) consider_hold "$agent_quota_dir/core-hold" ;;
-    graphql) consider_hold "$agent_quota_dir/graphql-hold" ;;
-    *)
-      consider_hold "$agent_quota_dir/core-hold"
-      consider_hold "$agent_quota_dir/graphql-hold"
-      ;;
-  esac
+  consider_resource_holds "$agent_quota_dir" "$resource"
 fi
 
 if [ "$hold_until" -gt "$now" ]; then
@@ -140,6 +144,7 @@ fi
 if [ "$status" -ne 0 ] && [ -n "$agent_quota_dir" ] && [ -n "$error_file" ] && grep -Eiq 'rate.?limit|rate_limit' "$error_file"; then
   observation=$("$real_gh" api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
   set -- $observation
+  exhausted=0
 
   if [ "$#" -eq 4 ]; then
     core_remaining=$1
@@ -148,13 +153,39 @@ if [ "$status" -ne 0 ] && [ -n "$agent_quota_dir" ] && [ -n "$error_file" ] && g
     graphql_reset=$4
 
     case "$core_remaining:$core_reset" in
-      0:[0-9]*) printf '%s\n' "$core_reset" > "$agent_quota_dir/core-hold" 2>/dev/null || true ;;
+      0:[0-9]*)
+        printf '%s\n' "$core_reset" > "$agent_quota_dir/core-hold" 2>/dev/null || true
+        exhausted=1
+        ;;
     esac
     case "$graphql_remaining:$graphql_reset" in
-      0:[0-9]*) printf '%s\n' "$graphql_reset" > "$agent_quota_dir/graphql-hold" 2>/dev/null || true ;;
+      0:[0-9]*)
+        printf '%s\n' "$graphql_reset" > "$agent_quota_dir/graphql-hold" 2>/dev/null || true
+        exhausted=1
+        ;;
     esac
 
-    printf '%s\n' 'aiur: GitHub quota exhausted; exact reset backoff recorded' >&2
+    if [ "$exhausted" -eq 1 ]; then
+      printf '%s\n' 'aiur: GitHub quota exhausted; exact reset backoff recorded' >&2
+    fi
+  fi
+
+  # A rate-limit refusal while both primary windows still read healthy is a
+  # secondary (abuse) limit. Nothing in the primary windows records it, so
+  # without its own backoff the next call retries straight into another
+  # rejection. GitHub does not report a reset for these, hence the fixed wait.
+  if [ "$exhausted" -eq 0 ]; then
+    secondary_until=$(( $(date -u +%s) + 60 ))
+
+    case "$resource" in
+      core|graphql) printf '%s\n' "$secondary_until" > "$agent_quota_dir/$resource-secondary-hold" 2>/dev/null || true ;;
+      *)
+        printf '%s\n' "$secondary_until" > "$agent_quota_dir/core-secondary-hold" 2>/dev/null || true
+        printf '%s\n' "$secondary_until" > "$agent_quota_dir/graphql-secondary-hold" 2>/dev/null || true
+        ;;
+    esac
+
+    printf '%s\n' 'aiur: GitHub secondary rate limit; backing off 60s before the next call' >&2
   fi
 fi
 

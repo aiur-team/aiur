@@ -670,7 +670,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:usage_summary_drill_trigger, nil)
       |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
       |> Map.put_new(:provider_meters_announcement, nil)
-      |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: []})
+      |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], backoffs: []})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))

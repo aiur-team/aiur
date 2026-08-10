@@ -115,6 +115,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(class="is-warning" style="width:90.0%")
   end
 
+  test "names an active secondary-limit backoff, which the primary meters cannot show" do
+    github_quota = %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 4077, limit: 5000, used_percent: 18.5, reset_at: DateTime.add(@now, 30, :minute)}
+      },
+      attribution: [],
+      backoffs: [%{resource: "core", until: DateTime.add(@now, 45, :second), seconds_remaining: 45}]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        github_quota: github_quota,
+        now: @now
+      })
+
+    # The window still reads healthy — the backoff row is the only thing that
+    # explains why calls are being refused.
+    assert html =~ "4077/5000 left"
+    assert html =~ "Core backoff"
+    assert html =~ "Secondary limit · 45s left"
+  end
+
   test "names unavailable values instead of presenting synthetic zeroes" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{

@@ -65,6 +65,41 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(Path.join(context.state_path, "github-quota/graphql-hold"))
   end
 
+  # The field failure: `gh` refused with a rate-limit error while both primary
+  # windows still read healthy. Without a secondary hold the guard recorded
+  # nothing and the next call went straight back out.
+  test "a rate-limit failure with healthy primary windows records a secondary backoff", context do
+    reset = System.os_time(:second) + 3600
+    before = System.os_time(:second)
+
+    assert {output, 1} =
+             run_guard(context, ["api", "repos/owner/repo/issues"],
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "HTTP 403: You have exceeded a secondary rate limit",
+               FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
+             )
+
+    assert output =~ "secondary rate limit"
+
+    quota_dir = Path.join(context.state_path, "github-quota")
+    refute File.exists?(Path.join(quota_dir, "core-hold"))
+
+    held_until = quota_dir |> Path.join("core-secondary-hold") |> File.read!() |> String.trim() |> String.to_integer()
+    assert held_until >= before + 60
+    assert held_until <= System.os_time(:second) + 60
+  end
+
+  test "a secondary hold prevents an immediate retry of the real gh command", context do
+    hold_file = Path.join(context.state_path, "github-quota/core-secondary-hold")
+    File.mkdir_p!(Path.dirname(hold_file))
+    File.write!(hold_file, "#{System.os_time(:second) + 60}\n")
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+    {_output, 124} = System.cmd(timeout, ["0.2", context.wrapper, "api", "repos/owner/repo/issues/1670"], env: guard_env(context), stderr_to_stdout: true)
+
+    refute File.exists?(context.calls)
+  end
+
   test "a retained hold prevents the real gh command from being retried immediately", context do
     hold_file = Path.join(context.state_path, "github-quota/core-hold")
     File.mkdir_p!(Path.dirname(hold_file))

@@ -175,6 +175,105 @@ defmodule Aiur.GitHub.QuotaTest do
     refute File.exists?(Path.join(hold_dir, "core-hold"))
   end
 
+  # The exact failure observed in the field: `gh` began returning 403 "API rate
+  # limit exceeded" while `GET /rate_limit` still reported 4077/5000 core
+  # remaining. The primary window is healthy, so nothing held the caller back
+  # and every rejected call was retried straight away.
+  test "a secondary limit holds the resource even though the primary window reads healthy" do
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+    quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4077))
+    assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, 45))
+
+    assert {:hold, hold} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+    assert hold.resource == "core"
+    assert hold.reset_at == DateTime.add(@now, 45, :second)
+    # The backoff is resource-scoped; GraphQL was never refused.
+    assert :ok = Quota.preflight(quota, graphql_request("query { viewer { login } }", %{}))
+
+    Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
+    assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+  end
+
+  test "a secondary limit alerts, sheds dispatch, publishes a shell hold, and resolves on expiry" do
+    parent = self()
+    hold_dir = Path.join(System.tmp_dir!(), "aiur-gh-secondary-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf(hold_dir) end)
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+
+    quota =
+      start_quota(
+        clock: fn -> Agent.get(clock, & &1) end,
+        hold_dir: hold_dir,
+        emit_fun: fn name, opts ->
+          send(parent, {:alert, name, opts})
+          :ok
+        end
+      )
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, 45))
+
+    assert_receive {:alert, "system.github.quota.core.secondary", opts}
+    assert opts[:needs_attention]
+    assert opts[:reason] =~ "secondary rate limit"
+    assert opts[:reason] =~ DateTime.to_iso8601(DateTime.add(@now, 45, :second))
+
+    # A backoff must shed new dispatch, not merely block in-flight callers.
+    assert {:hold, %{resource: "core"}} = Quota.dispatch_status(quota)
+    assert File.read!(Path.join(hold_dir, "core-secondary-hold")) == "#{DateTime.to_unix(DateTime.add(@now, 45, :second))}\n"
+
+    assert [%{resource: "core", seconds_remaining: 45}] = Quota.snapshot(quota).backoffs
+
+    Agent.update(clock, fn _ -> DateTime.add(@now, 46, :second) end)
+    assert Quota.snapshot(quota).backoffs == []
+    assert_receive {:alert, "system.github.quota.core.secondary.resolved", _opts}
+    refute File.exists?(Path.join(hold_dir, "core-secondary-hold"))
+  end
+
+  test "a secondary limit without Retry-After falls back to a bounded wait and never shortens an active hold" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, nil))
+
+    assert {:hold, %{reset_at: reset_at}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+    assert reset_at == DateTime.add(@now, 60, :second)
+
+    # A later, shorter rejection must not pull the deadline back in.
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 4077, 5))
+    assert {:hold, %{reset_at: ^reset_at}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+  end
+
+  test "an exhausted-window rejection is left to the window hold rather than double-counted as secondary" do
+    quota = start_quota()
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), secondary_response("core", 0, 45))
+
+    assert Quota.snapshot(quota).backoffs == []
+    assert {:hold, %{reset_at: @reset}} = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+  end
+
+  # A false positive here would stall every agent for a minute on an ordinary
+  # permission error, so the backoff must key off the rate-limit signal alone.
+  test "an ordinary 403 permission denial does not back the fleet off" do
+    quota = start_quota()
+
+    denial =
+      {:ok,
+       %{
+         status: 403,
+         headers: [{"x-ratelimit-resource", "core"}, {"x-ratelimit-limit", "5000"}, {"x-ratelimit-remaining", "4077"}],
+         body: %{"message" => "Resource not accessible by integration"}
+       }}
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), denial)
+
+    assert Quota.snapshot(quota).backoffs == []
+    assert :ok = Quota.preflight(quota, request(:get, "/repos/owner/repo/issues"))
+  end
+
   test "refreshes immediately and schedules the next probe after completion" do
     parent = self()
 
@@ -204,6 +303,26 @@ defmodule Aiur.GitHub.QuotaTest do
       token: "secret",
       body: %{"query" => query, "variables" => variables}
     }
+  end
+
+  # GitHub answers a secondary/abuse limit with a 403 whose body carries the
+  # rate-limit wording, a still-healthy `x-ratelimit-remaining`, and usually a
+  # `Retry-After` in seconds.
+  defp secondary_response(resource, remaining, retry_after) do
+    headers =
+      [
+        {"x-ratelimit-resource", resource},
+        {"x-ratelimit-limit", "5000"},
+        {"x-ratelimit-remaining", Integer.to_string(remaining)},
+        {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
+      ] ++ if(retry_after, do: [{"retry-after", Integer.to_string(retry_after)}], else: [])
+
+    {:ok,
+     %{
+       status: 403,
+       headers: headers,
+       body: %{"message" => "You have exceeded a secondary rate limit. Please wait a few minutes before you try again."}
+     }}
   end
 
   defp response(resource, limit, remaining) do

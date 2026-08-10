@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
-  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: []})
+  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], backoffs: []})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -45,6 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:windows, github_windows(assigns.quota))
       |> assign(:attribution, github_attribution(assigns.quota))
       |> assign(:top_consumer, github_top_consumer(assigns.quota))
+      |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
     <div class="rs-block github-quota-card">
@@ -74,6 +75,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <div class="rs-meter">
             <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
           </div>
+        </div>
+        <div :for={backoff <- @backoffs} class="github-quota-backoff">
+          <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
+          <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
         </div>
         <div :if={@top_consumer} class="github-quota-attribution">
           <span class="rs-limit-label">Top consumer</span>
@@ -224,6 +229,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp github_windows(_quota), do: []
+
+  defp github_backoffs(%{backoffs: backoffs}) when is_list(backoffs), do: backoffs
+  defp github_backoffs(_quota), do: []
 
   defp github_attribution(%{attribution: attribution}) when is_list(attribution) and attribution != [] do
     Enum.reduce(attribution, %{reads: 0, writes: 0}, fn entry, totals ->

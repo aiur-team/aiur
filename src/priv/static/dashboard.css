@@ -3635,12 +3635,19 @@ html[data-theme="light"] .toggle-icon .moon {
   background: var(--warning, #d08a2a);
 }
 
-.github-quota-attribution {
+.github-quota-attribution,
+.github-quota-backoff {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
   gap: 0.25rem 0.5rem;
+}
+
+/* A secondary-limit backoff is a live stoppage, not a statistic: it reads in
+   the same warning colour the meters use as they approach their ceiling. */
+.github-quota-backoff {
+  color: var(--warning, #d08a2a);
 }
 
 .rs-progress {

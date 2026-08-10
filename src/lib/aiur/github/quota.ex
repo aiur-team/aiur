@@ -6,12 +6,20 @@ defmodule Aiur.GitHub.Quota do
   process retains those snapshots, rejects requests against an exhausted
   resource until its reset, sheds new dispatch at the low-water floor, and
   keeps coarse rolling attribution for the shared credential.
+
+  The primary windows are not the only way GitHub refuses a call. Secondary
+  (abuse) rate limits reject with `403`/`429` while `x-ratelimit-remaining`
+  still reads healthy, so nothing in the primary windows records the refusal
+  and the caller is free to retry straight into another rejection. Those
+  rejections are tracked separately as a per-resource backoff honouring
+  `Retry-After`, which holds callers off exactly as an exhausted window does.
   """
 
   use GenServer
 
   alias Aiur.{Alerts, Config}
   alias Aiur.GitHub.Config, as: GitHubConfig
+  alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Transport
   alias Aiur.RepoBase
   alias Aiur.Workspace.Layout
@@ -22,7 +30,13 @@ defmodule Aiur.GitHub.Quota do
   @refresh_interval_ms 60_000
   @shell_refresh_interval_seconds 60
 
-  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: []}
+  # GitHub does not always say how long a secondary limit lasts. Its own
+  # guidance is to wait at least a minute, and the ceiling keeps a hostile or
+  # malformed `Retry-After` from parking the whole fleet for hours.
+  @secondary_backoff_seconds 60
+  @max_secondary_backoff_seconds 60 * 60
+
+  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], backoffs: []}
 
   @type request :: map()
   @type hold :: %{resource: String.t(), remaining: non_neg_integer(), limit: pos_integer(), reset_at: DateTime.t()}
@@ -67,6 +81,7 @@ defmodule Aiur.GitHub.Quota do
 
     state = %{
       windows: %{},
+      backoffs: %{},
       observations: [],
       shell_observations: [],
       shell_refreshed_at: nil,
@@ -90,7 +105,9 @@ defmodule Aiur.GitHub.Quota do
 
     state =
       state
+      |> prune_backoffs(now)
       |> observe_response(result, now)
+      |> observe_rejection(request, result, now)
       |> attribute_request(request, result, now)
       |> maybe_alert()
 
@@ -100,18 +117,21 @@ defmodule Aiur.GitHub.Quota do
   @impl true
   def handle_call(:snapshot, _from, state) do
     now = state.clock.()
-    state = state |> prune_observations(now) |> refresh_shell_observations(now)
+    state = state |> prune_backoffs(now) |> prune_observations(now) |> refresh_shell_observations(now)
 
     snapshot = %{
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
       windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
-      attribution: summarize_attribution(state.observations ++ state.shell_observations)
+      attribution: summarize_attribution(state.observations ++ state.shell_observations),
+      backoffs: present_backoffs(state, now)
     }
 
     {:reply, snapshot, state}
   end
 
   def handle_call({:preflight, request}, _from, state) do
+    state = prune_backoffs(state, state.clock.())
+
     reply =
       if rate_limit_endpoint?(request) do
         :ok
@@ -126,6 +146,8 @@ defmodule Aiur.GitHub.Quota do
   end
 
   def handle_call(:dispatch_status, _from, state) do
+    state = prune_backoffs(state, state.clock.())
+
     status =
       Enum.find_value(@primary_resources, :available, fn resource ->
         case resource_status(state, resource, @low_water_percent) do
@@ -236,10 +258,20 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp resource_status(state, resource, floor_percent) do
+    now = state.clock.()
+
+    case Map.get(state.backoffs, resource) do
+      %{until: until} ->
+        if DateTime.compare(now, until) == :lt, do: {:hold, backoff_hold(state, resource, until)}, else: window_status(state, resource, floor_percent, now)
+
+      nil ->
+        window_status(state, resource, floor_percent, now)
+    end
+  end
+
+  defp window_status(state, resource, floor_percent, now) do
     case Map.get(state.windows, resource) do
       %{reset_at: reset_at} = window ->
-        now = state.clock.()
-
         if DateTime.compare(now, reset_at) == :lt and below_floor?(window, floor_percent) do
           {:hold, Map.take(window, [:resource, :remaining, :limit, :reset_at])}
         else
@@ -250,6 +282,102 @@ defmodule Aiur.GitHub.Quota do
         :available
     end
   end
+
+  # A secondary limit says nothing about the primary budget, so the hold
+  # reports the window's real counters when one has been observed and simply
+  # substitutes the backoff deadline for the reset. Callers only need to know
+  # they must not call until then.
+  defp backoff_hold(state, resource, until) do
+    case Map.get(state.windows, resource) do
+      %{limit: limit, remaining: remaining} -> %{resource: resource, remaining: remaining, limit: limit, reset_at: until}
+      nil -> %{resource: resource, remaining: 0, limit: 1, reset_at: until}
+    end
+  end
+
+  # GitHub signals a secondary limit with a 403 or 429 whose primary window is
+  # still healthy. A rejection that *did* drain the window is already covered
+  # by the window hold, so only the former needs its own backoff.
+  defp observe_rejection(state, request, {:ok, %{status: status} = response}, now) when status in [403, 429] do
+    if rate_limit_endpoint?(request) or not secondary_limit?(response) do
+      state
+    else
+      put_backoff(state, request_resource(request), backoff_until(response, now), now)
+    end
+  end
+
+  defp observe_rejection(state, _request, _result, _now), do: state
+
+  defp secondary_limit?(response) do
+    GraphQLErrors.rate_limited_response?(response, :unknown) and GraphQLErrors.rate_limit_remaining(response) != 0
+  end
+
+  # Only `Retry-After` describes a secondary limit. The `x-ratelimit-reset` on
+  # the same response belongs to the primary window — often an hour out — and
+  # using it would park the fleet far longer than the limit actually lasts.
+  defp backoff_until(response, now) do
+    seconds =
+      case GraphQLErrors.retry_after(response) do
+        seconds when is_integer(seconds) and seconds > 0 -> min(seconds, @max_secondary_backoff_seconds)
+        _absent -> @secondary_backoff_seconds
+      end
+
+    DateTime.add(now, seconds, :second)
+  end
+
+  defp put_backoff(state, resource, until, now) do
+    case Map.get(state.backoffs, resource) do
+      %{until: current} when current != nil ->
+        if DateTime.compare(current, until) == :lt, do: store_backoff(state, resource, until, now), else: state
+
+      nil ->
+        store_backoff(state, resource, until, now)
+    end
+  end
+
+  defp store_backoff(state, resource, until, now) do
+    message =
+      "GitHub #{resource} hit a secondary rate limit; holding all calls until #{DateTime.to_iso8601(until)} (#{DateTime.diff(until, now, :second)}s)"
+
+    state.emit_fun.(secondary_topic(resource),
+      message: message,
+      reason: message,
+      severity: "warning",
+      needs_attention: true
+    )
+
+    %{state | backoffs: Map.put(state.backoffs, resource, %{resource: resource, until: until, observed_at: now})}
+    |> write_hold_file("#{resource}-secondary-hold", DateTime.to_unix(until))
+  end
+
+  defp prune_backoffs(state, now) do
+    Enum.reduce(state.backoffs, state, fn {resource, backoff}, acc ->
+      if DateTime.compare(now, backoff.until) == :lt do
+        acc
+      else
+        message = "GitHub #{resource} secondary rate-limit backoff cleared"
+
+        acc.emit_fun.(secondary_topic(resource) <> ".resolved",
+          message: message,
+          reason: message,
+          severity: "info",
+          needs_attention: false
+        )
+
+        %{acc | backoffs: Map.delete(acc.backoffs, resource)}
+        |> remove_hold_file("#{resource}-secondary-hold")
+      end
+    end)
+  end
+
+  defp present_backoffs(state, now) do
+    state.backoffs
+    |> Enum.map(fn {resource, backoff} ->
+      %{resource: resource, until: backoff.until, seconds_remaining: max(DateTime.diff(backoff.until, now, :second), 0)}
+    end)
+    |> Enum.sort_by(& &1.resource)
+  end
+
+  defp secondary_topic(resource), do: "system.github.quota.#{resource}.secondary"
 
   defp attribute_request(state, request, {:ok, %{status: status}}, now) when is_integer(status) do
     if rate_limit_endpoint?(request) do
@@ -483,20 +611,31 @@ defmodule Aiur.GitHub.Quota do
 
   defp alert_topic(resource, threshold), do: "system.github.quota.#{resource}.#{threshold}"
 
-  defp sync_hold_file(%{hold_dir: nil} = state, _resource, _window), do: state
-
   defp sync_hold_file(state, resource, window) do
-    path = Path.join(state.hold_dir, "#{resource}-hold")
-
     if window.remaining == 0 and DateTime.compare(state.clock.(), window.reset_at) == :lt do
-      :ok = File.mkdir_p(state.hold_dir)
-      temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
-      :ok = File.write(temporary, Integer.to_string(DateTime.to_unix(window.reset_at)) <> "\n")
-      :ok = File.rename(temporary, path)
+      write_hold_file(state, "#{resource}-hold", DateTime.to_unix(window.reset_at))
     else
-      _ = File.rm(path)
+      remove_hold_file(state, "#{resource}-hold")
     end
+  end
 
+  defp write_hold_file(%{hold_dir: nil} = state, _name, _unix), do: state
+
+  defp write_hold_file(state, name, unix) do
+    path = Path.join(state.hold_dir, name)
+    :ok = File.mkdir_p(state.hold_dir)
+    temporary = path <> ".#{System.unique_integer([:positive])}.tmp"
+    :ok = File.write(temporary, Integer.to_string(unix) <> "\n")
+    :ok = File.rename(temporary, path)
+    state
+  rescue
+    _unavailable -> state
+  end
+
+  defp remove_hold_file(%{hold_dir: nil} = state, _name), do: state
+
+  defp remove_hold_file(state, name) do
+    _ = File.rm(Path.join(state.hold_dir, name))
     state
   rescue
     _unavailable -> state
