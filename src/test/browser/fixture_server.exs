@@ -1669,15 +1669,15 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       "claude" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
-          "weekly" => %{"used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
+          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
         }
       },
       "codex" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
-          "weekly" => %{"used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
+          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
         }
       }
     }

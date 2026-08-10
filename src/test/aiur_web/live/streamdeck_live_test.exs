@@ -462,14 +462,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
     Agent.update(meter_agent, fn meters ->
-      put_in(meters["claude"]["windows"]["weekly"]["freshness"], "stale")
+      stale_at = DateTime.add(DateTime.utc_now(), -601, :second)
+
+      meters
+      |> put_in(["claude", "observed_at"], stale_at)
+      |> put_in(["claude", "windows", "weekly", "observed_at"], stale_at)
     end)
 
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ ~s(data-meter="weekly" data-percent="47" data-observed="true" data-freshness="stale")
-    assert html =~ "47% · Thu 6PM · stale"
-    assert html =~ "Weekly · 47% · Thu 6PM · stale"
+    assert html =~ "47% · Thu 6PM · stale · 10m ago"
+    assert html =~ "Weekly · 47% · Thu 6PM · stale · 10m ago"
   end
 
   test "renders summary build space and pager dots inside touch-strip segments" do
@@ -567,15 +571,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
       "claude" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
-          "weekly" => %{"used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
+          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
         }
       },
       "codex" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
-          "weekly" => %{"used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
+          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
         }
       }
     }
