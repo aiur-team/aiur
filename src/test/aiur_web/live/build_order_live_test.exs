@@ -215,7 +215,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
         progress_resolved_count: 34,
         member_count: 35
       ),
-      root(identity(54, "NODE-54"), "Pack with no progress reported")
+      progress_root(identity(54, "NODE-54"), "Pack with no resolution claim", progress: 91)
     ]
 
     :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
@@ -226,15 +226,15 @@ defmodule AiurWeb.BuildOrderLiveTest do
     unresolved = progress_cell(document, "Pack that cannot resolve")
     empty = progress_cell(document, "Pack that is genuinely empty")
     partial = progress_cell(document, "Pack that is partly resolved")
-    not_reported = progress_cell(document, "Pack with no progress reported")
+    unknown = progress_cell(document, "Pack with no resolution claim")
 
     assert progress_state(unresolved) == "unresolved"
     assert progress_state(empty) == "resolved"
     assert progress_state(partial) == "partial"
-    assert progress_state(not_reported) == "not-reported"
+    assert progress_state(unknown) == "unknown"
 
-    # An operator reads a word, not a blank and not a zero.
-    assert Floki.text(unresolved) =~ "unknown"
+    # An operator reads the resolution failure, not a blank and not a zero.
+    assert Floki.text(unresolved) =~ "unresolved"
     refute Floki.text(unresolved) =~ "0%"
     refute Floki.text(unresolved) =~ "—"
 
@@ -246,8 +246,14 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert Floki.text(partial) =~ "97%"
     assert Floki.text(partial) =~ "34/35"
 
+    # Unknown makes no assertion that resolution failed and suppresses the
+    # legacy raw number because no source stands behind it.
+    assert Floki.text(unknown) =~ "unknown"
+    refute Floki.text(unknown) =~ "unresolved"
+    refute Floki.text(unknown) =~ "91%"
+
     # Every rendering is distinguishable from every other one.
-    rendered = Enum.map([unresolved, empty, partial, not_reported], &Floki.raw_html/1)
+    rendered = Enum.map([unresolved, empty, partial, unknown], &Floki.raw_html/1)
     assert length(Enum.uniq(rendered)) == 4
   end
 
