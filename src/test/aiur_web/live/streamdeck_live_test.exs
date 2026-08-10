@@ -182,9 +182,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ".sd-agent-key.st-running .sd-ag-dot"
     # Per-key values that depend on live fleet state stay inline.
     assert html =~ "--sd-progress-fill: hsl(63 72% 50%)"
-    # `develop` replaced the badge paragraph this originally asserted with the
-    # log key list, so the same contract ink is now checked where it renders:
-    # the event key badge and the logs strip's own event header.
+    # The log key list replaced the badge paragraph this originally asserted, so
+    # the same contract ink is now checked where it renders: the event key badge
+    # and the logs strip's own event header.
     logs = enter_logs(view)
     assert logs =~ ~s(<span class="sd-log-dir" style="color:#9fd0ff">AGENT</span>)
     assert logs =~ ~s(<span class="sd-log-evhdr-direction" style="color: #9fd0ff">AGENT</span>)

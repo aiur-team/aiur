@@ -8315,3 +8315,8 @@ html[data-theme="light"] .sd-device {
   font-size: 0.62rem;
   line-height: 1.5;
 }
+
+.sd-log-badge {
+  color: var(--sd-log-badge);
+  font-weight: 800;
+}
