@@ -655,6 +655,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       load_threshold: hard_threshold,
       build_status: DispatchPolicy.read_build_status(),
       provider_backends: DispatchPolicy.read_provider_backends(),
+      github_quota: DispatchPolicy.read_github_quota(),
       cpu_snapshot: cpu_snapshot,
       target: target
     }
@@ -1367,6 +1368,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Logger.info("aiur_perf provider_hold surface=dispatch backends=#{inspect(backends)} status=all_usage_limited")
   end
 
+  defp log_admission_hold(%{signal: :github_quota, measured: quota, threshold: _}) do
+    Logger.info(
+      "aiur_perf github_quota_hold surface=dispatch resource=#{quota.resource} " <>
+        "remaining=#{quota.remaining} limit=#{quota.limit} reset_at=#{DateTime.to_iso8601(quota.reset_at)}"
+    )
+  end
+
   defp log_fd_hold(:exhausted) do
     Logger.info(
       "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown " <>
@@ -1410,6 +1418,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       DispatchPolicy.provider_gate(probes.provider_backends),
       probes.provider_backends
     )
+    |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))
   end
 
   defp record_capacity_sample(%State{} = state, probes) do
@@ -1443,6 +1452,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do: record_capacity_constraint(state, :provider, "backends=#{inspect(backends)}")
 
   defp maybe_record_provider_constraint(state, _gate, _backends), do: state
+
+  defp maybe_record_github_quota_constraint(state, {:hold, quota}) do
+    record_capacity_constraint(
+      state,
+      :github_quota,
+      "resource=#{quota.resource} remaining=#{quota.remaining} limit=#{quota.limit} reset_at=#{DateTime.to_iso8601(quota.reset_at)}"
+    )
+  end
+
+  defp maybe_record_github_quota_constraint(state, _status), do: state
 
   defp record_fallback_binding_constraint(%State{dispatch_capacity_constraints: []} = state, %{signal: signal} = reason)
        when is_atom(signal) do
