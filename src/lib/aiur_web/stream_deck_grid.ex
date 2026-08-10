@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamDeckGrid do
   client page without re-deriving fleet state.
   """
 
-  alias Aiur.{AgentEvents, AgentList.Summaries, CodingAgent, Orchestrator}
+  alias Aiur.{AgentEvents, AgentList.Summaries, BuildOrder.Metadata, CodingAgent, Orchestrator}
 
   @columns_per_page 4
   @rows_per_column 2
@@ -69,10 +69,14 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   defp base_agent_payload(entry, bucket) do
+    provider = provider(entry)
+
     %{
       identifier: Map.get(entry, :identifier),
       title: Map.get(entry, :title),
-      vendor: vendor(entry),
+      icon: build_order_icon(entry),
+      vendor: provider.name,
+      vendor_logo: provider.logo,
       bucket: bucket,
       progress_percent: progress_percent(entry),
       priority: priority?(entry)
@@ -96,13 +100,20 @@ defmodule AiurWeb.StreamDeckGrid do
     {@bucket_rank[bucket], if(bucket == :queued and dependency_ready == true, do: 0, else: 1), priority_rank, Summaries.identifier_sort_key(identifier)}
   end
 
-  defp vendor(entry) do
+  defp provider(entry) do
     family = Map.get(entry, :agent_family) || CodingAgent.family_for(Map.get(entry, :backend))
 
     case CodingAgent.provider_descriptor(family) do
-      %{provider: provider} -> Atom.to_string(provider)
-      _ -> "unknown"
+      %{provider: provider, logo: logo} -> %{name: Atom.to_string(provider), logo: logo}
+      _ -> %{name: family || "unknown", logo: nil}
     end
+  end
+
+  defp build_order_icon(entry) do
+    entry
+    |> Map.get(:labels, [])
+    |> Metadata.parse()
+    |> Map.fetch!(:lane)
   end
 
   defp progress_percent(entry) do
