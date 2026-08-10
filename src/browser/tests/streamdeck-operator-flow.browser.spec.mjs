@@ -213,42 +213,48 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(device).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('#sd-logs-view')).toHaveAttribute('data-focused-identifier', CONTROLLED)
 
-  // Hint arrows start at the real top bound of both panes.
-  const events = page.locator('#sd-log-events')
-  const transcript = page.locator('#sd-log-transcript')
+  // Both surfaces start at their real top bound. The event window is the eight
+  // keys; the transcript is the touch strip itself.
+  const events = page.locator('#sd-log-keys')
+  const transcript = page.locator('#sd-screen')
   await expect(events).toHaveAttribute('data-offset', '0')
-  await expect(page.locator('#sd-events-hint-up')).toHaveAttribute('aria-hidden', 'true')
+  await expect(transcript).toHaveAttribute('data-transcript-offset', '0')
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'true')
+  // At the top of the window, slot 0 is the LIVE key rather than an event row.
+  await expect(events.locator('[data-log-event-index="0"] .sd-live-dot')).toHaveCount(1)
 
-  // Dial D scrolls the events pane; dial A scrolls the transcript.
+  // Dial D scrolls the event window; dial A scrolls the transcript.
   await dialD.hover()
   await page.mouse.wheel(0, -100)
   await expect(events).toHaveAttribute('data-offset', '1')
-  await expect(page.locator('#sd-events-hint-up')).toHaveAttribute('aria-hidden', 'false')
-  await expect(transcript).toHaveAttribute('data-offset', '0')
+  // Scrolling past the top carries the LIVE key out of the window.
+  await expect(events.locator('[data-log-event-index="0"]')).toHaveCount(0)
+  await expect(transcript).toHaveAttribute('data-transcript-offset', '0')
 
-  // Each wheel notch is one discrete step, so overshoot the pane deliberately:
-  // the offset clamps to the real bound and the down arrow hides there.
+  // Each wheel notch is one discrete step, so overshoot the window deliberately:
+  // the offset clamps to the real bound.
   const eventsMax = Number.parseInt(await events.getAttribute('data-max-offset'), 10)
   expect(eventsMax).toBeGreaterThan(0)
   for (let step = 0; step < eventsMax + 3; step += 1) {
     await page.mouse.wheel(0, -100)
   }
   await expect(events).toHaveAttribute('data-offset', String(eventsMax))
-  await expect(page.locator('#sd-events-hint-down')).toHaveAttribute('aria-hidden', 'true')
 
   await dialA.hover()
   await page.mouse.wheel(0, -100)
-  await expect(transcript).toHaveAttribute('data-offset', '1')
+  await expect(transcript).toHaveAttribute('data-transcript-offset', '1')
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'false')
 
   // The transcript clamps at its own, different bound.
-  const transcriptMax = Number.parseInt(await transcript.getAttribute('data-max-offset'), 10)
+  const transcriptMax = Number.parseInt(
+    await transcript.getAttribute('data-transcript-max-offset'),
+    10
+  )
   expect(transcriptMax).toBeGreaterThan(0)
   for (let step = 0; step < transcriptMax + 3; step += 1) {
     await page.mouse.wheel(0, -100)
   }
-  await expect(transcript).toHaveAttribute('data-offset', String(transcriptMax))
+  await expect(transcript).toHaveAttribute('data-transcript-offset', String(transcriptMax))
   await expect(page.locator('#sd-transcript-hint-down')).toHaveAttribute('aria-hidden', 'true')
 
   // ---------------------------------------------------------------- step 6 --
