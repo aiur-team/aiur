@@ -269,6 +269,13 @@ scheduler-saturated. Run `aiurdev stop` to interrupt that session and its worker
 then start it again; this is a session-level recovery action, not a cooperative
 single-agent pause.
 
+Read-only fleet queries never use an empty buffer to mean success: `status`,
+`agents`, and `watch` print an affirmative empty-fleet row when no agents are
+active. Query failures print one stderr diagnostic and exit 1. Bounded query
+timeouts name their budget, warn that the daemon may be scheduler-saturated,
+and exit 124; any partial fleet output captured before an outer RPC timeout is
+discarded rather than presented as a trustworthy snapshot.
+
 Pause and resume target issue IDs, not process IDs. Space-separated and
 comma-separated forms are both accepted:
 

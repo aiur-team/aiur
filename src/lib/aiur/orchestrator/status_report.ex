@@ -752,13 +752,21 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
   defp tracker_paused?(_issue), do: false
 
+  # `Config.agent_max_dispatches_per_ticket/0` is a `WorkflowStore` GenServer
+  # call that re-stats and re-reads the config file, so resolving it per idle
+  # row turned one status render into one round-trip per backlog ticket, all
+  # serialized inside this handle_call. That is why `status` and `agents` were
+  # slow (and `alerts`, which never touches the orchestrator, was not) — #1684.
+  # Read it once per snapshot.
   defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
+    max_dispatches = Config.agent_max_dispatches_per_ticket()
+
     state.last_polled_issues
     |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue, prewarm_phase) end)
+    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue, prewarm_phase, max_dispatches) end)
   end
 
-  defp idle_status(%State{} = state, issue, prewarm_phase) do
+  defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
@@ -794,7 +802,7 @@ defmodule Aiur.Orchestrator.StatusReport do
             prewarm_blocked?,
             Map.get(budget, :tripped),
             Map.get(budget, :lifetime, 0),
-            Config.agent_max_dispatches_per_ticket()
+            max_dispatches
           )
         end
     }
