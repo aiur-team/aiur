@@ -219,12 +219,42 @@ AIUR_EXECUTOR_STATE_DIR="$state_root" \
   AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
   AIUR_EXECUTOR_RETRO_FILE="$visual_retro" \
   AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_DASHBOARD_URL="http://127.0.0.1:4017" \
   AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
   "$script" record "visual check" unchanged > "$state_root/visual.out"
 jq -e '.type == "hourly_retrospective"' "$state_root/visual.out" >/dev/null || fail "record did not preserve its hourly report"
 grep -q 'metric-column-missing' "$visual_retro" || fail "visual verdict was not appended to retrospective"
 visual_evidence_dir="$visual_retro.d"
 find "$visual_evidence_dir" -name build-orders.png -print -quit | grep -q . || fail "visual capture was not retained beside retrospective"
+
+# A missing capture helper is attention evidence, not a process exit: `record`
+# still has to print the event whose durable state it has already written.
+missing_capture_out="$state_root/missing-capture.out"
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=missing-capture \
+  AIUR_EXECUTOR_RETROSPECTIVE_SECONDS=1 \
+  AIUR_EXECUTOR_RETRO_FILE="$state_root/missing-capture.md" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$state_root/does-not-exist.mjs" \
+  AIUR_EXECUTOR_RETROSPECTIVE_VISUAL_CHECK=1 \
+  "$script" record "missing capture" unchanged > "$missing_capture_out"
+jq -e '.type == "hourly_retrospective"' "$missing_capture_out" >/dev/null || fail "record lost its hourly report when the capture helper was missing"
+
+# A missing daemon-published URL is recorded as an explicit attention verdict;
+# the runner must never fall back to a guessed port.
+url_missing_retro="$state_root/url-missing-retrospective.md"
+AIUR_EXECUTOR_STATE_DIR="$state_root" \
+  AIUR_EXECUTOR_RUN_ID=url-missing \
+  AIUR_EXECUTOR_RETRO_FILE="$url_missing_retro" \
+  AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT="$fake_capture" \
+  AIUR_TMUX_SOCKET="no-such-aiur-tmux-socket" \
+  "$script" visual-check >/dev/null 2>&1 &
+url_missing_pid=$!
+set +e
+wait "$url_missing_pid"
+url_missing_status=$?
+set -e
+[ "$url_missing_status" -eq 67 ] || fail "missing dashboard URL did not return its explicit failure status"
+grep -q 'could not discover the daemon dashboard URL' "$url_missing_retro" || fail "missing dashboard URL did not produce explicit attention evidence"
 
 # The terminal evidence is appended to the same narrative and retains the
 # command timing/output shape plus the pane/config coupling.

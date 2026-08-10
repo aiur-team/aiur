@@ -10,7 +10,9 @@
 // It writes <page>.png, report.json, and verdict.md to the output directory
 // and prints the JSON report. The runner resolves Playwright from src/browser,
 // where it is vendored, rather than assuming the skill directory has a
-// node_modules tree.
+// node_modules tree. Basic auth must use Playwright's httpCredentials (not URL
+// userinfo), and each page must settle after domcontentloaded because LiveView
+// otherwise leaves the static shell looking falsely empty.
 
 import { createRequire } from 'node:module'
 import fs from 'node:fs'
@@ -20,12 +22,13 @@ import { fileURLToPath } from 'node:url'
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url))
 const REPOSITORY_ROOT = path.resolve(SCRIPT_DIR, '../../../../')
-const BASE = process.env.AIUR_DASHBOARD_URL || configuredDashboardUrl()
+const BASE = process.env.AIUR_DASHBOARD_URL
 const USER = process.env.AIUR_DASHBOARD_USERNAME || 'aiur'
 const PASS = process.env.AIUR_DASHBOARD_PASSWORD
 const OUT = process.argv[2] || './meta-captures'
 const SETTLE_MS = positiveInteger(process.env.AIUR_META_SETTLE_MS, 6000)
 const EXPECTED_CAPACITY = positiveInteger(process.env.AIUR_META_EXPECTED_CAPACITY, null)
+const EXPECTED_ACTIVE_AGENTS = nonNegativeInteger(process.env.AIUR_META_EXPECTED_ACTIVE_AGENTS, null)
 const PLAYWRIGHT_ROOT = process.env.AIUR_META_PLAYWRIGHT_ROOT || path.join(REPOSITORY_ROOT, 'src/browser')
 const BOOTSTRAP_PATH = process.env.AIUR_META_BOOTSTRAP_PATH
 
@@ -36,43 +39,31 @@ const PAGES = [
   ['analytics', '/analytics']
 ]
 
-// The historic dashboard noise is one missing optional conversation hook. It
-// is intentionally narrow: baselining every 404 would hide a real broken
-// dashboard asset.
-const DEFAULT_KNOWN_NOISE = [
-  { kind: 'console', path: '/conversation-drawer-hook.js' },
-  { kind: 'response', status: 404, path: '/conversation-drawer-hook.js' },
-  { kind: 'requestfailed', path: '/conversation-drawer-hook.js' }
-]
+// No dashboard noise is baselined by default. The historic entry here was the
+// `/conversation-drawer-hook.js` 404 from the missing Plug.Static (#1681);
+// that issue is closed and the endpoint serves the asset, so keeping the rule
+// would silently re-arm for any future regression on the same path.
+//
+// A baseline must always name an open issue and be removed when it closes —
+// otherwise the check degrades into "ignore this URL forever". Add temporary
+// entries through AIUR_META_KNOWN_NOISE rather than here, and note that every
+// suppressed entry is counted in verdict.md so a baseline is never invisible.
+export const DEFAULT_KNOWN_NOISE = []
 
-function configuredDashboardUrl() {
-  const configPath = process.env.AIUR_CONFIG || path.join(REPOSITORY_ROOT, '.aiur', 'config')
-  let config
-  try {
-    config = fs.readFileSync(configPath, 'utf8')
-  } catch {
-    return null
-  }
-
-  const host = config.match(/^\s+host:\s*([^\s#]+)/m)?.[1]
-  const port = config.match(/^\s+port:\s*(\d+)/m)?.[1]
-  if (!port) return null
-
-  const localHost = host === '0.0.0.0' || host === '::' ? '127.0.0.1' : host || '127.0.0.1'
-  return `http://${localHost}:${port}`
-}
-
-export function isRelevantEmptyState(value) {
-  return /no build orders|no run telemetry|no units have been observed in this run/i.test(value)
-}
-
-export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null) {
+export function analyzeDashboardSnapshot(name, snapshot, expectedCapacity = null, expectedActiveAgents = null) {
   const issues = []
   const metricColumns = snapshot.tables.flatMap((table) => tableMetricIssues(table))
 
   for (const issue of metricColumns) issues.push(issue)
   for (const banner of snapshot.staleBanners) issues.push({ kind: 'stale-banner', detail: banner })
-  for (const emptyState of snapshot.emptyStates) issues.push({ kind: 'empty-state', detail: emptyState })
+  for (const emptyState of snapshot.emptyStates) {
+    // A settled Units empty-state can be legitimate only when the run itself
+    // confirms that it has no active agents. With no external count, retain it
+    // as attention rather than silently accepting a confidently-rendered zero.
+    if (name !== 'units' || expectedActiveAgents === null || expectedActiveAgents > 0) {
+      issues.push({ kind: 'empty-state', detail: emptyState })
+    }
+  }
   for (const table of snapshot.tables.filter((table) => table.hasBody && table.rows.length === 0)) {
     issues.push({ kind: 'empty-table', detail: table.label || 'unnamed table' })
   }
@@ -150,7 +141,21 @@ export function renderVerdict(report) {
   }
 
   lines.push('', `Overall: **${report.verdict}**. Captures: ${report.pages.map((page) => `${page.name}.png`).join(', ')}.`)
+
+  // A baseline that hides errors without saying so is how a suppression rule
+  // outlives the defect it was written for. Always report what was swallowed.
+  const suppressed = report.pages.reduce((count, page) => count + suppressedCount(page), 0)
+  if (suppressed > 0) {
+    lines.push('', `Baselined and not counted as issues: ${suppressed} browser error(s)/failed request(s). Drop the rule once its issue closes.`)
+  }
+
   return `${lines.join('\n')}\n`
+}
+
+function suppressedCount(page) {
+  const noise = page.knownNoise
+  if (!noise) return 0
+  return (noise.consoleErrors?.length || 0) + (noise.failedRequests?.length || 0)
 }
 
 function tableMetricIssues(table) {
@@ -191,6 +196,12 @@ function positiveInteger(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback
 }
 
+function nonNegativeInteger(value, fallback) {
+  if (value === undefined || value === '') return fallback
+  const parsed = Number.parseInt(value, 10)
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : fallback
+}
+
 function knownNoiseRules() {
   const raw = process.env.AIUR_META_KNOWN_NOISE
   if (!raw) return DEFAULT_KNOWN_NOISE
@@ -199,7 +210,7 @@ function knownNoiseRules() {
     const parsed = JSON.parse(raw)
     return Array.isArray(parsed) ? parsed : DEFAULT_KNOWN_NOISE
   } catch {
-    console.error('AIUR_META_KNOWN_NOISE must be a JSON array; using the narrow favicon baseline.')
+    console.error('AIUR_META_KNOWN_NOISE must be a JSON array; baselining nothing instead.')
     return DEFAULT_KNOWN_NOISE
   }
 }
@@ -240,10 +251,10 @@ async function inspectPage(page) {
       value: card.querySelector('.an-kpi-val')?.innerText.trim() || '',
       sub: card.querySelector('.an-kpi-sub')?.innerText.trim() || ''
     }))
-    const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state'))
+    const emptyStates = Array.from(document.querySelectorAll('.bo-state-card, .an-empty, .units-state.empty-state:not(.filtered-empty)'))
       .filter(visible)
       .map((element) => element.innerText.replace(/\s+/g, ' ').trim())
-      .filter((value) => /no build orders|no run telemetry|no units have been observed in this run/i.test(value))
+      .filter((value) => /no build orders|no run telemetry|no units have been observed|no active agents|loading units/i.test(value))
     const metricCells = tables.flatMap((table) => table.rows.flatMap((row, rowIndex) => row.map((value, index) => ({ value, header: table.headers[index], rowIndex }))))
     const hasNAInMetric = metricCells.some((cell) => cell.value.trim() === 'N/A' && /progress|ticket|epic|wave|member|active|complete|capacity|concurrency|cpu|cost|count|total/i.test(cell.header || ''))
 
@@ -263,7 +274,7 @@ async function inspectPage(page) {
 
 async function main() {
   if (!BASE) {
-    console.error('AIUR_DASHBOARD_URL is required when .aiur/config does not define server.host and server.port.')
+    console.error('AIUR_DASHBOARD_URL is required; run through executor-retrospective.sh to discover the daemon URL.')
     process.exitCode = 64
     return
   }
@@ -330,7 +341,7 @@ async function main() {
       snapshot.status = status
       snapshot.navigationError ||= navigationError
       snapshot.capacityReadings = extractCapacityReadings(snapshot.kpis || [], snapshot.text)
-      const assessment = analyzeDashboardSnapshot(name, snapshot, EXPECTED_CAPACITY)
+      const assessment = analyzeDashboardSnapshot(name, snapshot, EXPECTED_CAPACITY, EXPECTED_ACTIVE_AGENTS)
       const unexpectedConsoleErrors = consoleErrors.filter((entry) => !isKnownNoise(entry, knownNoise))
       const unexpectedFailedRequests = failedRequests.filter((entry) => !isKnownNoise(entry, knownNoise))
 
@@ -365,6 +376,7 @@ async function main() {
     viewport: { width: 1600, height: 1200 },
     settleMs: SETTLE_MS,
     expectedCapacity: EXPECTED_CAPACITY,
+    expectedActiveAgents: EXPECTED_ACTIVE_AGENTS,
     verdict: pages.every((page) => page.verdict === 'healthy') ? 'healthy' : 'attention',
     pages
   }

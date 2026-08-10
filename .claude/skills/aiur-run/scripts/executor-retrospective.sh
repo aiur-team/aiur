@@ -509,16 +509,39 @@ record() {
   printf '%s\n' "$event"
 }
 
+dashboard_url() {
+  local url tmux_bin
+
+  if [ -n "${AIUR_DASHBOARD_URL:-}" ]; then
+    printf '%s\n' "$AIUR_DASHBOARD_URL"
+    return 0
+  fi
+
+  tmux_bin="$(command -v tmux || true)"
+  [ -n "$tmux_bin" ] || return 1
+
+  if [ -n "${AIUR_TMUX_SOCKET:-}" ]; then
+    url="$("$tmux_bin" -L "$AIUR_TMUX_SOCKET" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  else
+    url="$("$tmux_bin" show-options -gqv @aiur_control_url 2>/dev/null || true)"
+  fi
+
+  case "$url" in
+    http://*|https://*) printf '%s\n' "$url" ;;
+    *) return 1 ;;
+  esac
+}
+
 # Capture the four operator-facing reports and append their compact verdict to
 # the same durable narrative as the hourly retrospective. The browser work is
 # intentionally outside the retrospective lock: a Playwright startup must not
 # block a concurrent observation or a timer-state update. Only the append is
 # serialized.
 visual_check() {
-  local capture_script capture_dir timestamp capture_status verdict
+  local capture_script capture_dir dashboard_base_url timestamp capture_status verdict
   [ "$#" -eq 1 ] || {
     printf 'usage: %s visual-check\n' "$0" >&2
-    exit 64
+    return 64
   }
 
   capture_script="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_SCRIPT:-$script_dir/../../aiur-meta/scripts/capture-dashboard.mjs}"
@@ -531,13 +554,26 @@ visual_check() {
   capture_dir="${AIUR_EXECUTOR_DASHBOARD_CAPTURE_DIR:-${retro_file}.d/dashboard-$timestamp}"
   mkdir -p "$capture_dir"
 
-  set +e
-  node "$capture_script" "$capture_dir" > "$capture_dir/capture-output.json" 2> "$capture_dir/capture-error.log"
-  capture_status=$?
-  set -e
+  dashboard_base_url="$(dashboard_url || true)"
+  if [ -z "$dashboard_base_url" ]; then
+    capture_status=67
+    verdict="$capture_dir/verdict.md"
+    cat > "$verdict" <<EOF
+# Dashboard visual check
+
+- capture: **attention** — could not discover the daemon dashboard URL; set AIUR_DASHBOARD_URL or run from the Aiur tmux session.
+
+Overall: **attention**. Captures were not attempted.
+EOF
+  else
+    set +e
+    AIUR_DASHBOARD_URL="$dashboard_base_url" node "$capture_script" "$capture_dir" > "$capture_dir/capture-output.json" 2> "$capture_dir/capture-error.log"
+    capture_status=$?
+    set -e
+  fi
 
   verdict="$capture_dir/verdict.md"
-  if [ "$capture_status" -ne 0 ] || [ ! -s "$verdict" ]; then
+  if [ "$capture_status" -ne 0 ] && [ ! -s "$verdict" ]; then
     cat > "$verdict" <<EOF
 # Dashboard visual check
 
