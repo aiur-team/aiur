@@ -28,8 +28,9 @@ expect_rejected() {
   local expected_error="$3"
   local fixture="$test_dir/$name.json"
   local output
+  shift 3
 
-  jq "$jq_filter" "$declaration" >"$fixture"
+  jq "$@" "$jq_filter" "$declaration" >"$fixture"
 
   if output="$(run_drift_check "$fixture" 2>&1)"; then
     echo "expected drift check to reject $name" >&2
@@ -56,6 +57,36 @@ expect_accepted() {
 }
 
 run_drift_check "$declaration"
+
+while IFS= read -r field; do
+  expect_rejected \
+    "drifted-$field" \
+    '(.rules[] | select(.type == "merge_queue") | .parameters[$field]) |=
+      if type == "number" then . + 1
+      elif type == "string" then . + "_DRIFT"
+      elif type == "boolean" then not
+      else "DRIFT"
+      end' \
+    "ruleset merge_queue parameter mismatch: $field" \
+    --arg field "$field"
+done < <(jq -r '
+  .rules[] | select(.type == "merge_queue") | .parameters | keys[]
+' "$declaration")
+
+expect_rejected \
+  "unexpected-merge-queue-parameter" \
+  '(.rules[] | select(.type == "merge_queue") | .parameters.unexpected_parameter) = 1' \
+  "ruleset merge_queue parameter mismatch: unexpected_parameter"
+
+expect_rejected \
+  "missing-max-entries-to-build" \
+  'del(.rules[] | select(.type == "merge_queue") | .parameters.max_entries_to_build)' \
+  "ruleset merge_queue parameter mismatch: max_entries_to_build"
+
+expect_rejected \
+  "missing-merge-queue-rule" \
+  '.rules |= map(select(.type != "merge_queue"))' \
+  "live ruleset must contain exactly one merge_queue rule"
 
 # Regression: a live-ruleset query returning no required_status_checks rule
 # must fail the CI drift check (the ticket's acceptance criterion).
