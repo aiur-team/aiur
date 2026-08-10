@@ -57,6 +57,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Stream Deck + control surface"
     assert html =~ ~s(id="sd-keys")
     assert html =~ ~s(id="sd-screen")
+    # The grid container is a bare <div>, so it needs an explicit role for its
+    # aria-label to be exposed to assistive technology.
+    assert html =~ ~s(class="sd-keys" role="group")
     assert html =~ ~s(style="--sd-screen-segments: #{segment_count}")
     assert html =~ ~s(id="sd-knobs")
     assert length(Regex.scan(~r/data-streamdeck-key=/, html)) == 8
