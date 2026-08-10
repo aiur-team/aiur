@@ -15,7 +15,8 @@ defmodule Aiur.AgentControlCLI do
     PauseContainment,
     ProviderMeterProjection,
     RepoBase,
-    SupervisionHealth
+    SupervisionHealth,
+    UnitsCLI
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
@@ -161,6 +162,11 @@ defmodule Aiur.AgentControlCLI do
   @spec commands(keyword()) :: :ok
   def commands(opts \\ []) do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec units(keyword()) :: :ok
+  def units(opts \\ []) do
+    UnitsCLI.run(opts) |> exit_marker()
   end
 
   @spec build_orders(keyword()) :: :ok

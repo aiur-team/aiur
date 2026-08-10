@@ -14,7 +14,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsFilters do
     assigns =
       assigns
       |> assign(:scopes, [:unfinished])
-      |> assign(:conditions, Enum.reject(UnitsPolicy.conditions(), &(&1 == :stuck)))
+      |> assign(:conditions, UnitsPolicy.visible_conditions())
 
     ~H"""
     <div class="units-filters">
