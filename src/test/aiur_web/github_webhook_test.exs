@@ -371,6 +371,28 @@ defmodule AiurWeb.GithubWebhookTest do
       assert Jason.decode!(duplicate.resp_body) == %{"status" => "accepted"}
     end
 
+    test "a wedged store cannot hold the response past GitHub's retry deadline" do
+      # A store that never answers. Without the admission deadline the receiver
+      # would block on its 30s call timeout, GitHub would abandon the delivery at
+      # 10s, and the retry would arrive with the original still in flight.
+      wedged = start_supervised!({Task, fn -> Process.sleep(:infinity) end}, id: :wedged_store)
+      Application.put_env(:aiur, :webhook_delivery_log, wedged)
+      Application.put_env(:aiur, :webhook_admission_timeout_ms, 50)
+      on_exit(fn -> Application.delete_env(:aiur, :webhook_admission_timeout_ms) end)
+
+      body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      {microseconds, conn} =
+        :timer.tc(fn -> signed_delivery(body, "99999999-0000-0000-0000-000000000001") end)
+
+      assert conn.status == 202
+      assert microseconds < 5_000_000, "receiver took #{div(microseconds, 1000)}ms against a wedged store"
+
+      # Fails open: an unverifiable delivery is admitted rather than lost.
+      assert {:process, admission} = Map.fetch!(conn.private, GithubWebhook.admission_key())
+      assert admission.delivery_id == "99999999-0000-0000-0000-000000000001"
+    end
+
     test "a delivery that fails signature verification never reaches the store", %{log: log} do
       body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
 
