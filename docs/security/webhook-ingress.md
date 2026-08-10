@@ -115,6 +115,14 @@ chmod 600 ~/.aiur/.env
 Read the value back out of `~/.aiur/.env` when configuring the webhook in
 GitHub. Never paste it into a commit, a ticket, a PR, or a log line.
 
+To rotate it: change it on the GitHub side, change it in `~/.aiur/.env`, then
+restart the daemon. `AiurWeb.GithubWebhook.Auth` reads the variable on every
+request rather than caching it at boot, so the daemon does not need a code
+change to pick up a new value — but the launcher sources `~/.aiur/.env` when it
+starts the app, so a file edit alone does not reach the running process.
+Deliveries signed with the old secret during the gap are rejected, which is why
+rotation wants a quiet moment rather than a busy one.
+
 ## Set up the tunnel
 
 Assumes a domain whose DNS is served by Cloudflare. `<domain>` is that domain
@@ -169,12 +177,31 @@ sudo systemctl enable --now cloudflared
 
 ## Configure the GitHub webhook
 
-On the GitHub App (or the repository's webhook settings):
+Where this is registered depends on how the daemon authenticates, and the two
+are not equivalent. `Aiur.GitHub.Config.token/0` prefers a GitHub App
+installation token when `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and the
+App private key are set, and otherwise falls back to `GITHUB_TOKEN` or the `gh`
+CLI's credential.
+
+- **App deployment:** register once on the App. Every repo the installation
+  covers delivers to it, and a repo added later needs no webhook step.
+- **PAT / `gh` deployment (the common case):** there is no App to register on,
+  so add the webhook under **each repository's** Settings → Webhooks, using the
+  same payload URL and the same secret every time. This is per-repo work that
+  scales with the fleet — and it is the step most likely to be forgotten when a
+  repo is added to `webhooks.repos` later, which shows up as a repo stuck in
+  `configured_unproven`.
+
+Either way, the settings are:
 
 - **Payload URL:** `https://hooks.<domain>/api/v1/github/webhook`
 - **Content type:** `application/json`
 - **Secret:** the value of `AIUR_GITHUB_WEBHOOK_SECRET`
 - **SSL verification:** enabled
+
+One secret is shared across every registration. The receiver verifies against
+the single configured value, so a per-repo secret would not be checked against
+the right key.
 
 Subscribe only to the events the fleet consumes. Every unused event costs no
 quota but still costs parsing, log volume, and payload surface. The starting
