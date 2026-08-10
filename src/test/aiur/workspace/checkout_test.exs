@@ -48,6 +48,7 @@ defmodule Aiur.Workspace.CheckoutTest do
 
     assert :ok = Checkout.checkout_fresh_branch(repo)
     assert Checkout.current_branch(repo) == "aiur/123"
+    assert branch_start(repo) == head(repo)
   end
 
   test "checkout_fresh_branch uses the supplied generated ticket branch", %{root: root} do
@@ -77,6 +78,7 @@ defmodule Aiur.Workspace.CheckoutTest do
     assert :ok = Checkout.checkout_fresh_branch(workspace, branch)
     assert Checkout.current_branch(workspace) == branch
     assert File.read!(Path.join(workspace, "resume.txt")) == "remote ticket work\n"
+    assert branch_start(workspace) == git_sha!(workspace, ["merge-base", "origin/main", "HEAD"])
   end
 
   test "checkout_existing_pr_branch falls back to a local branch named the ref", %{root: root} do
@@ -100,5 +102,14 @@ defmodule Aiur.Workspace.CheckoutTest do
   defp git!(args) do
     {output, 0} = System.cmd("git", args, stderr_to_stdout: true)
     output
+  end
+
+  defp branch_start(workspace), do: git_sha!(workspace, ["rev-parse", "refs/aiur/branch-start"])
+  defp head(workspace), do: git_sha!(workspace, ["rev-parse", "HEAD"])
+
+  defp git_sha!(workspace, args) do
+    ["-C", workspace | args]
+    |> git!()
+    |> String.trim()
   end
 end

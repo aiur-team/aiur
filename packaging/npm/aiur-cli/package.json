@@ -18,6 +18,7 @@
   "files": [
     "bin/aiur.js",
     "libexec/aiur-engine.sh",
+    "libexec/guard-pr-deletions.sh",
     "scripts/postinstall.mjs",
     "share/aiur.tmux.conf"
   ],

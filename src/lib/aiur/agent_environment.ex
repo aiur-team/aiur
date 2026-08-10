@@ -272,12 +272,7 @@ defmodule Aiur.AgentEnvironment do
     ]
   end
 
-  defp configured_base_branch(opts) do
-    case Keyword.fetch(opts, :base_branch) do
-      {:ok, branch} when is_binary(branch) and branch != "" -> branch
-      _ -> Config.base_branch()
-    end
-  end
+  defp configured_base_branch(opts), do: Config.base_branch(opts)
 
   defp sidecar_paths(opts) do
     root = repo_url(opts) |> RepoBase.repo_path()
