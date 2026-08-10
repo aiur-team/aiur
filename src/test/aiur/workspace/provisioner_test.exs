@@ -20,6 +20,18 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert script =~ ".codex/skills/design-import"
     assert script =~ ".aiur-runtime/bin/gh"
     assert script =~ "chmod 755"
+    # Without a workspace-private scratch dir, remote agents fall back to the
+    # worker's shared /tmp and clobber each other's staged files (#1763).
+    assert script =~ ".aiur-runtime/tmp"
+  end
+
+  test "local workspaces get a private scratch directory" do
+    workspace = Path.join(System.tmp_dir!(), "aiur-provision-scratch-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf(workspace) end)
+
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
+    assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
   end
 
   test "remote support installation failures stop workspace preparation" do

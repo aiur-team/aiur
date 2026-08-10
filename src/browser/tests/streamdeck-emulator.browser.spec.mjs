@@ -192,12 +192,50 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   const key = page.locator('#sd-keys .sd-key:not(.is-empty)').first()
   await expect(key).toBeVisible()
 
+  // The key the operator pressed and the panel it opens must agree about the
+  // state's accent — that is the whole point of the shared key-face contract.
+  const keyState = await key.evaluate((element) => [...element.classList].find((name) => name.startsWith('st-')))
+  const keyAccent = await key.evaluate((element) => getComputedStyle(element).getPropertyValue('--sd-accent').trim())
+
   await key.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  // #1607 deleted the standalone #sd-cmd-view and fills the cmd-mode grid with
+  // the four command keys instead, so the grid is no longer empty here; that PR
+  // owns the grid, this one owns the strip below.
+  await expect(page.locator('#sd-keys[data-mode-view="cmd"]')).toBeVisible()
   await expect(page.locator('#sd-keys [data-streamdeck-command]')).toHaveCount(4)
   await expect(page.locator('#sd-keys .sd-key:not(.is-empty)')).toHaveCount(4)
   await expect(page.locator('#sd-keys')).not.toHaveAttribute('data-grid-total', /./)
   await expect(page.locator('[data-streamdeck-command]')).toHaveCount(4)
+  await expect(page.locator('.sd-strip-cmd')).toBeVisible()
+  await expect(page.locator('.sd-strip-cmd-pager')).toContainText('CONTROLLING')
+  await expect(page.locator('.sd-cmd-provider-logo')).toBeVisible()
+  await expect(page.locator('.sd-strip-cmd-progress')).toHaveAttribute('aria-valuenow', /\d+/)
+
+  const panel = page.locator('.sd-strip-cmd')
+  await expect(panel).toHaveClass(new RegExp(`\\b${keyState}\\b`))
+
+  const accents = await panel.evaluate((element) => ({
+    panel: getComputedStyle(element).getPropertyValue('--sd-accent').trim(),
+    icon: getComputedStyle(element.querySelector('.sd-strip-cmd-agent-icon')).color,
+    status: getComputedStyle(element.querySelector('.sd-strip-cmd-status')).color
+  }))
+
+  const dot = await panel.locator('.sd-strip-cmd-status').evaluate((element) => {
+    const marker = getComputedStyle(element, '::before')
+    return { background: marker.backgroundColor, width: marker.width, radius: marker.borderTopLeftRadius }
+  })
+
+  expect(accents.panel).toBe(keyAccent)
+  // The design's leading state dot tracks the status ink via currentColor.
+  expect(dot.background).toBe(accents.status)
+  expect(parseFloat(dot.width)).toBeGreaterThan(0)
+  expect(dot.radius).not.toBe('0px')
+  // Both inks resolve from --sd-accent, so neither can be a hardcoded green.
+  expect(accents.icon).toBe(accents.status)
+  expect(accents.icon).not.toBe('rgb(0, 0, 0)')
+
+  await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
 
 test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
@@ -506,7 +544,7 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
 // fleet-control command keys and a mic hold does not arm it' above, which
 // asserts the same gating plus the `is-disabled` face and the inert hold.
 
-test('pager segment relabels to CONTROLLING with the focused agent and restores its dots on back', async ({ page }) => {
+test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {
   await openStreamdeck(page)
 
   const pager = page.locator('[data-segment="pager"]')
@@ -514,37 +552,51 @@ test('pager segment relabels to CONTROLLING with the focused agent and restores 
 
   await expect(pager).toContainText('MORE AGENTS')
   await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
-  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
+  expect(await pager.locator('.sd-seg-dlabel').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
 
   const identifier = await page.locator('.sd-key:not(.is-empty)').first().getAttribute('data-streamdeck-identifier')
   await page.locator('.sd-key:not(.is-empty)').first().click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
 
-  await expect(pager).toContainText('CONTROLLING')
-  await expect(pager).not.toContainText('MORE AGENTS')
+  // The page indicator must not survive into cmd mode: there is no page set on
+  // screen to indicate. The dots go, and the CONTROLLING relabel rides the cmd
+  // page. The dial-D column itself stays — #1607 identifies the controlled
+  // agent there, and `streamdeck-operator-flow.browser.spec.mjs` asserts that
+  // `.sd-pager-label` reads `#<id>` at this exact point in the flow.
   await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
+  await expect(pager.locator('.sd-seg-dlabel')).toHaveText('CONTROLLING')
   await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
 
-  // The relabelled segment still shares the strip's row and heading geometry.
-  const segmentRows = await page.locator('#sd-screen > [data-segment]').evaluateAll((segments) => segments.map((segment) => Math.round(segment.getBoundingClientRect().top)))
-  expect(new Set(segmentRows)).toEqual(new Set([segmentRows[0]]))
-  expect(await pager.locator('.sd-seg-dlabel').evaluate((heading) => getComputedStyle(heading).fontFamily)).toContain('JetBrains Mono')
+  // The cmd page takes every column left of dial D rather than sharing the
+  // strip with the info segments: it starts at the strip's content edge and
+  // stops where the pager column begins.
+  const cmdBox = await page.locator('.sd-strip-cmd').boundingBox()
+  const pagerBox = await pager.boundingBox()
+  const stripBox = await page.locator('#sd-screen').boundingBox()
+  expect(cmdBox.x + cmdBox.width).toBeLessThanOrEqual(pagerBox.x + 1)
+  expect(cmdBox.width).toBeGreaterThan(stripBox.width * 0.6)
+  await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+  await expect(page.locator('.sd-strip-logs')).toBeVisible()
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
   await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+  await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   // Dial A is the back press: logs -> cmd -> grid.
   const dialA = page.locator('.sd-knob').first()
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')
 
   await expect(pager).toContainText('MORE AGENTS')
   await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
-  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
+  await expect(page.locator('.sd-strip-cmd-pager')).toHaveCount(0)
 })
 
 test('dial drag + mode transition both work in the same session', async ({ page }) => {
@@ -854,8 +906,18 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(strip).toHaveAttribute('data-transcript-offset', '0')
   await expect(strip).toContainText('event-1')
 
+  // SP-302's three entry shapes, not a single flattened line per row.
+  await expect(page.locator('.sd-log-entry-evhdr')).toBeVisible()
+  await expect(page.locator('.sd-log-entry-message')).toBeVisible()
+
+  // Dial A's hint arrows are state: at the head of the transcript there is
+  // nothing older, so the left arrow is hidden and the right one is not.
+  await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
+  await expect(page.locator('.sd-dial-hint').first().locator('span').last()).toHaveCSS('visibility', 'visible')
+
   await logKeys.locator('[data-log-event-index="2"]').click()
   await expect(strip).toHaveAttribute('data-transcript-offset', '2')
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '2')
   await expect(strip).toContainText('event-2')
   // The strip moved off the pre-click head rather than merely gaining a line.
   // `event-1` starts at offset 0 and `event-10` at 18, so neither belongs in
@@ -865,6 +927,7 @@ test('clicking a logs event key positions the flattened transcript at that event
 
   await logKeys.locator('[data-log-event-index="1"]').press('Enter')
   await expect(strip).toHaveAttribute('data-transcript-offset', '0')
+  await expect(page.locator('#sd-log-transcript')).toHaveAttribute('data-offset', '0')
   await expect(strip).toContainText('event-1')
 })
 
