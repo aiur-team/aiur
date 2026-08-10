@@ -8,8 +8,12 @@ defmodule AiurWeb.StreamdeckLive do
   orchestrator remains the authority for the resulting pause/resume state.
 
   Logs mode subscribes the focused agent through `StreamdeckTranscriptRelay`
-  and projects the durable classified feed (`AgentEventFeed`) through the
-  flattened two-line model in `StreamdeckLogs`. The production path reads the
+  and projects the durable classified feed (`AgentEventFeed`) through
+  `StreamdeckLogs`. That projection is one newest-first document read at two
+  granularities: the eight keys are the event index (LIVE first, then a
+  scrolling window of event rows) and the touch strip is the transcript text at
+  the selected event's offset. Selecting a key positions the strip; scrolling
+  the strip reselects the event under the cursor. The production path reads the
   real feed; `streamdeck_logs_fun` exists only as a test seam.
   """
 
@@ -19,6 +23,15 @@ defmodule AiurWeb.StreamdeckLive do
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
+
+  @relative_time_refresh_ms 1_000
+  @durable_feed_retry_attempts 2
+  @durable_feed_retry_ms 50
+
+  # The two fleet-control commands. Each is a single key whose direction the
+  # server resolves from orchestrator state, so the client never names the
+  # action — it only names the key it pressed.
+  @control_commands ~w(pause priority)
 
   @streamdeck_package %{
     version: "0.0.0-dev.0098e3ac86a2",
@@ -79,7 +92,10 @@ defmodule AiurWeb.StreamdeckLive do
         :ok = AgentPubSub.subscribe_status()
         :ok = ProviderMeterEvents.subscribe_observed()
         maybe_subscribe_fixture_fleet()
-        replace_transcript_relay(socket, nil, socket.assigns.selected_identifier)
+
+        socket
+        |> replace_transcript_relay(nil, socket.assigns.selected_identifier)
+        |> schedule_relative_time_refresh()
       else
         socket
       end
@@ -126,6 +142,10 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, update_logs(socket, axis, parse_integer(delta, 0))}
   end
 
+  def handle_event("log-key-select", %{"index" => index}, socket) do
+    {:noreply, assign(socket, :logs, StreamdeckLogs.select_event(socket.assigns.logs, parse_integer(index, 0)))}
+  end
+
   def handle_event("key-press", params, socket) do
     socket = select_agent_from_params(socket, params)
     socket = enter_cmd(socket, params)
@@ -139,6 +159,16 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("command-press", %{"command" => "logs"}, socket), do: {:noreply, enter_logs(socket)}
 
+  def handle_event("command-press", %{"command" => command}, socket) when command in @control_commands do
+    if dashboard_writable?() do
+      {:noreply, invoke_command(socket, command)}
+    else
+      {:noreply, assign(socket, :control_feedback, "Read-only dashboard: controls are disabled")}
+    end
+  end
+
+  def handle_event("command-press", _params, socket), do: {:noreply, socket}
+
   def handle_event("dial-press", %{"action" => "back"}, socket), do: {:noreply, back(socket)}
 
   def handle_event("dial-press", %{"action" => "cycle-window"}, socket),
@@ -146,13 +176,25 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
 
-  # "logs" never reaches here — the clause above owns it and enters log mode.
-  def handle_event("command-press", %{"command" => command}, socket) when command in ["pause", "priority"] do
-    {:noreply, assign(socket, :control_feedback, "#{command_label(command)} selected")}
-  end
+  # Mic is press-and-hold, so the server tracks the held state rather than
+  # toggling it: a `pointerup`/`pointerleave`/`pointercancel` that never arrives
+  # must not leave the key latched live. Read-only refuses the hold outright,
+  # matching the server-side gate on the click-driven control commands.
+  def handle_event("mic-hold", %{"active" => active}, socket) do
+    cond do
+      not dashboard_writable?() ->
+        {:noreply,
+         socket
+         |> assign(:mic_held?, false)
+         |> assign(:control_feedback, "Read-only dashboard: controls are disabled")}
 
-  def handle_event("mic-hold", %{"active" => active}, socket) when is_boolean(active),
-    do: {:noreply, assign(socket, :mic_held?, active)}
+      truthy?(active) ->
+        {:noreply, assign(socket, :mic_held?, true)}
+
+      true ->
+        {:noreply, assign(socket, :mic_held?, false)}
+    end
+  end
 
   def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
@@ -175,10 +217,46 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
     if socket.assigns.selected_identifier == identifier do
-      {:noreply, assign(socket, :logs, load_logs(identifier))}
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
     else
       {:noreply, socket}
     end
+  end
+
+  def handle_info({:streamdeck_alert, identifier, _event}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:streamdeck_control, identifier, _payload}, socket) when is_binary(identifier) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info({:refresh_streamdeck_durable_feed, identifier, attempts}, socket)
+      when is_binary(identifier) and is_integer(attempts) do
+    if socket.assigns.selected_identifier == identifier do
+      {:noreply, socket |> reload_logs(identifier) |> schedule_durable_feed_refresh(identifier, attempts)}
+    else
+      {:noreply, socket}
+    end
+  end
+
+  def handle_info(:refresh_streamdeck_relative_times, socket) do
+    socket =
+      if socket.assigns.sd_mode == :logs do
+        assign(socket, :logs, StreamdeckLogs.refresh_relative_times(socket.assigns.logs))
+      else
+        socket
+      end
+
+    {:noreply, schedule_relative_time_refresh(socket)}
   end
 
   @impl true
@@ -259,10 +337,13 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
+          <%!-- The live region stays screen-reader-only until there is something to
+               say, so a control failure becomes visible on the deck face rather than
+               being announced only to assistive tech. --%>
+          <p id="sd-control-status" class={[!@control_feedback && "sr-only", @control_feedback && "sd-control-status"]} role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
           <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
-            <li :for={key <- command_keys(@sd_active)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
-              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
+            <li :for={key <- command_keys(@sd_active, @mic_held?)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty", !key.empty? && key.disabled? && "is-disabled"]} aria-hidden={to_string(key.empty?)}>
+              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-command-state={key.state} data-command-hold={key.mic? && "true"} data-streamdeck-identifier={@selected_identifier} disabled={key.disabled?} aria-disabled={to_string(key.disabled?)} aria-label={key.label}>
                 <span class="sd-cmd">
                   <span class="sd-cmd-ic" aria-hidden="true">
                     <svg :if={key.icon == "pause"} data-streamdeck-icon="pause" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/></svg>
@@ -283,24 +364,51 @@ defmodule AiurWeb.StreamdeckLive do
 
           <%= if @sd_mode == :logs do %>
           <div id="sd-logs-view" class="sd-logs-view" data-mode-view="logs" data-focused-identifier={@sd_active.identifier} role="log" aria-label="Agent logs">
-            <p class="sd-mode-label">Logs</p>
-            <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
-              <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-              <p :for={event <- @logs.events_visible} class={["sd-log-line", "sd-log-badge"]} style={log_badge_style(event.badge)}>{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
-              <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
-              <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
-            </div>
-            <div id="sd-log-transcript" class="sd-log-body" data-offset={@logs.transcript_offset} data-max-offset={@logs.transcript_max_offset}>
-              <span id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
-              <p :for={entry <- @logs.transcript_visible} class="sd-log-line" data-log-kind={entry.kind}>{StreamdeckLogs.line(entry)}</p>
-              <p :if={@logs.transcript_visible == []} class="sd-log-line">No recent transcript.</p>
-              <span id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
-            </div>
+            <ul id="sd-log-keys" class="sd-keys sd-log-keys" aria-label="Log event keys" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
+              <li
+                :for={key <- @logs.event_keys_visible}
+                class={["sd-key", "sd-log-key", key.kind == :empty && "is-empty", key.kind == :live && "sd-live-key is-live", key.index == @logs.selected_event_index && "is-selected"]}
+                data-log-event-index={key.index}
+                aria-hidden={to_string(key.kind == :empty)}
+                aria-current={if key.index == @logs.selected_event_index, do: "true", else: "false"}
+                aria-label={log_key_label(key)}
+                role={if key.kind == :empty, do: nil, else: "button"}
+                tabindex={if key.kind == :empty, do: nil, else: "0"}
+              >
+                <div :if={key.kind == :empty} class="sd-key-face"></div>
+                <div :if={key.kind == :live} class="sd-key-face sd-live-key-face">
+                  <span class="sd-live-dot" aria-hidden="true"></span>
+                  <span class="sd-live-label">{key.label}</span>
+                </div>
+                <div :if={key.kind == :event} class="sd-key-face sd-log-key-face">
+                  <span class="sd-log-dir sd-log-badge" data-dir={key.badge} style={log_badge_style(key.badge)}>{key.badge}</span>
+                  <span class="sd-log-text">{key.text}</span>
+                  <span class="sd-log-time">{key.time}</span>
+                </div>
+              </li>
+            </ul>
           </div>
           <% end %>
 
-          <div id="sd-screen" class="sd-screen" style={"--sd-screen-segments: #{length(@screen)}"} role="group" aria-label="Touch strip">
+          <div
+            id="sd-screen"
+            class={["sd-screen", @sd_mode == :logs && "is-logs"]}
+            style={"--sd-screen-segments: #{length(@screen)}"}
+            data-transcript-offset={@logs.transcript_offset}
+            data-transcript-max-offset={@logs.transcript_max_offset}
+            role="group"
+            aria-label="Touch strip"
+          >
+            <span :if={@sd_mode == :logs} id="sd-transcript-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset == 0)}>↑</span>
+            <div :if={@sd_mode == :logs} :for={entry <- @logs.transcript_visible} class="sd-screen-segment sd-log-strip-entry" data-log-kind={entry.kind}>
+              <span>{StreamdeckLogs.line(entry)}</span>
+            </div>
+            <div :if={@sd_mode == :logs and @logs.transcript_visible == []} class="sd-screen-segment sd-log-strip-entry is-empty">
+              <span>No recent transcript.</span>
+            </div>
+            <span :if={@sd_mode == :logs} id="sd-transcript-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.transcript_offset >= @logs.transcript_max_offset)}>↓</span>
             <div
+              :if={@sd_mode != :logs or segment.kind == :pager}
               :for={segment <- @screen}
               class={[
                 "sd-screen-segment",
@@ -313,6 +421,7 @@ defmodule AiurWeb.StreamdeckLive do
               <span :if={segment.kind == :pager} class="sd-seg-dlabel">{segment.label}</span>
 
               <div :if={segment.kind != :pager} class="sd-info-hd">
+
                 <img class="sd-hd-logo" src={segment.logo} alt="" aria-hidden="true" />
                 <span>{segment.label}</span>
                 <span :if={segment.kind == :provider and segment.provider == "claude"} class="sd-mic" aria-hidden="true"></span>
@@ -720,33 +829,47 @@ defmodule AiurWeb.StreamdeckLive do
 
   # Without a focused agent there is no real pause or priority state to render.
   # Blank every slot rather than showing a control whose label would be a guess.
-  defp command_keys(nil), do: List.duplicate(empty_command_key(), 8)
+  defp command_keys(nil, _mic_held?), do: List.duplicate(empty_command_key(), 8)
 
-  defp command_keys(agent) do
-    paused? = Map.get(agent, :bucket) == :paused
-    prioritized? = Map.get(agent, :priority, false)
+  # The command keys are derived from the agent the orchestrator currently
+  # reports, never from an optimistic local toggle, so a control call that the
+  # orchestrator rejects leaves the key showing the state that actually holds.
+  defp command_keys(agent, mic_held?) do
+    writable? = dashboard_writable?()
 
     [
-      command_key(
-        "pause",
-        if(paused?, do: "Play", else: "Pause"),
-        if(paused?, do: "RESUME", else: "HOLD"),
-        icon: if(paused?, do: "play", else: "pause")
-      ),
-      command_key(
-        "priority",
-        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
-        if(prioritized?, do: "LOWER", else: "RAISE"),
-        icon: if(prioritized?, do: "down", else: "up")
-      ),
-      command_key("logs", "Logs", "SCROLL", icon: "logs"),
-      command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true),
+      pause_command_key(Map.get(agent, :bucket) == :paused, writable?),
+      priority_command_key(Map.get(agent, :priority) == true, writable?),
+      # Logs is navigation rather than fleet control, so read-only leaves it
+      # enabled: it changes what the operator sees, never what the fleet does.
+      command_key("logs", "Logs", "SCROLL", icon: "logs", state: "ready"),
+      # Mic is the design's fourth command and the only press-and-hold one: it
+      # carries no click handler, so the hook drives it from pointer events.
+      mic_command_key(mic_held?, writable?),
       empty_command_key(),
       empty_command_key(),
       empty_command_key(),
       empty_command_key()
     ]
   end
+
+  defp pause_command_key(true, writable?),
+    do: command_key("pause", "Play", "RESUME", icon: "play", state: "paused", disabled?: not writable?)
+
+  defp pause_command_key(false, writable?),
+    do: command_key("pause", "Pause", "HOLD", icon: "pause", state: "running", disabled?: not writable?)
+
+  defp priority_command_key(true, writable?),
+    do: command_key("priority", "Deprioritize", "LOWER", icon: "down", state: "prioritized", disabled?: not writable?)
+
+  defp priority_command_key(false, writable?),
+    do: command_key("priority", "Prioritize", "RAISE", icon: "up", state: "standard", disabled?: not writable?)
+
+  defp mic_command_key(true, writable?),
+    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "live", disabled?: not writable?)
+
+  defp mic_command_key(false, writable?),
+    do: command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true, state: "idle", disabled?: not writable?)
 
   defp command_key(command, label, sub, opts) do
     %{
@@ -755,14 +878,34 @@ defmodule AiurWeb.StreamdeckLive do
       sub: sub,
       icon: Keyword.fetch!(opts, :icon),
       mic?: Keyword.get(opts, :mic?, false),
+      state: Keyword.get(opts, :state, "ready"),
+      disabled?: Keyword.get(opts, :disabled?, false),
       empty?: false
     }
   end
 
   defp empty_command_key, do: %{empty?: true, mic?: false}
 
-  defp command_label("pause"), do: "Pause"
-  defp command_label("priority"), do: "Priority"
+  defp invoke_command(socket, command) do
+    case socket.assigns.sd_active do
+      %{identifier: identifier} = agent when not is_nil(identifier) ->
+        socket
+        |> invoke_agent_control(to_string(identifier), control_action_for(command, agent))
+        |> refresh_grid()
+
+      _agent ->
+        assign(socket, :control_feedback, "No agent selected")
+    end
+  end
+
+  # Each control key is a single toggle, and the direction is resolved from the
+  # state the orchestrator reports rather than from the label the client
+  # happened to be rendering. A stale key still reading "Pause" therefore cannot
+  # re-pause an agent the orchestrator has already paused.
+  defp control_action_for("pause", %{bucket: :paused}), do: :resume
+  defp control_action_for("pause", _agent), do: :pause
+  defp control_action_for("priority", %{priority: true}), do: :deprioritize
+  defp control_action_for("priority", _agent), do: :prioritize
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do
@@ -778,6 +921,20 @@ defmodule AiurWeb.StreamdeckLive do
     case safe_control_call(fn -> resume_agent(identifier) end) do
       {:ok, _result} -> assign(socket, :control_feedback, "Resume requested for ##{identifier}")
       {:error, reason} -> assign(socket, :control_feedback, "Resume failed: #{inspect(reason)}")
+    end
+  end
+
+  defp invoke_agent_control(socket, identifier, :prioritize) do
+    case safe_control_call(fn -> prioritize_agent(identifier) end) do
+      {:ok, _result} -> assign(socket, :control_feedback, "Prioritize requested for ##{identifier}")
+      {:error, reason} -> assign(socket, :control_feedback, "Prioritize failed: #{inspect(reason)}")
+    end
+  end
+
+  defp invoke_agent_control(socket, identifier, :deprioritize) do
+    case safe_control_call(fn -> deprioritize_agent(identifier) end) do
+      {:ok, _result} -> assign(socket, :control_feedback, "Deprioritize requested for ##{identifier}")
+      {:error, reason} -> assign(socket, :control_feedback, "Deprioritize failed: #{inspect(reason)}")
     end
   end
 
@@ -843,29 +1000,31 @@ defmodule AiurWeb.StreamdeckLive do
   defp back(socket), do: socket
 
   defp update_logs(socket, axis, delta) do
-    logs = socket.assigns.logs
-    offset_key = String.to_existing_atom("#{axis}_offset")
-    max_key = String.to_existing_atom("#{axis}_max_offset")
-    offset = clamp(Map.fetch!(logs, offset_key) + delta, 0, Map.fetch!(logs, max_key))
-    assign(socket, :logs, logs |> Map.put(offset_key, offset) |> StreamdeckLogs.visible())
+    axis = String.to_existing_atom(axis)
+    assign(socket, :logs, StreamdeckLogs.scroll(socket.assigns.logs, axis, delta))
   rescue
     _ -> socket
   end
 
   defp load_logs(identifier) when is_binary(identifier) do
-    entries =
-      case endpoint_config(:streamdeck_logs_fun) do
-        fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
-        fun when is_function(fun, 0) -> safe_call(fun, [])
-        _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
-      end
-
-    entries
-    |> log_entries()
-    |> StreamdeckLogs.project()
+    identifier |> load_log_entries() |> StreamdeckLogs.project()
   end
 
   defp load_logs(_identifier), do: StreamdeckLogs.project([])
+
+  defp reload_logs(socket, identifier) do
+    logs = StreamdeckLogs.refresh(socket.assigns.logs, load_log_entries(identifier))
+    assign(socket, :logs, logs)
+  end
+
+  defp load_log_entries(identifier) do
+    case endpoint_config(:streamdeck_logs_fun) do
+      fun when is_function(fun, 1) -> safe_call(fn -> fun.(identifier) end, [])
+      fun when is_function(fun, 0) -> safe_call(fun, [])
+      _ -> safe_call(fn -> agent_event_feed(identifier) end, [])
+    end
+    |> log_entries()
+  end
 
   defp agent_event_feed(identifier) do
     case AgentEventFeed.list(identifier, %{"limit" => 50}) do
@@ -878,6 +1037,25 @@ defmodule AiurWeb.StreamdeckLive do
   defp log_entries(%{"events" => events}) when is_list(events), do: events
   defp log_entries(entries) when is_list(entries), do: entries
   defp log_entries(_entries), do: []
+
+  defp log_key_label(%{kind: :live}), do: "LIVE"
+  defp log_key_label(%{kind: :event, badge: badge, text: text, time: time}), do: "#{badge}: #{text}, #{time}"
+  defp log_key_label(_key), do: nil
+
+  defp schedule_relative_time_refresh(socket) do
+    Process.send_after(self(), :refresh_streamdeck_relative_times, @relative_time_refresh_ms)
+    socket
+  end
+
+  defp schedule_durable_feed_refresh(socket, identifier, attempts \\ @durable_feed_retry_attempts)
+
+  defp schedule_durable_feed_refresh(socket, identifier, attempts)
+       when is_binary(identifier) and is_integer(attempts) and attempts > 0 do
+    Process.send_after(self(), {:refresh_streamdeck_durable_feed, identifier, attempts - 1}, @durable_feed_retry_ms)
+    socket
+  end
+
+  defp schedule_durable_feed_refresh(socket, _identifier, _attempts), do: socket
 
   defp maybe_subscribe_fixture_fleet do
     if endpoint_config(:streamdeck_fixture_fleet) do
@@ -944,6 +1122,10 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp parse_integer(_value, fallback), do: fallback
 
+  defp truthy?(true), do: true
+  defp truthy?("true"), do: true
+  defp truthy?(_value), do: false
+
   defp clamp(value, min, max), do: value |> max(min) |> min(max)
 
   defp get_value(map, key, default \\ nil) do
@@ -977,6 +1159,20 @@ defmodule AiurWeb.StreamdeckLive do
     case endpoint_config(:agent_chat_resume_fun) do
       fun when is_function(fun, 1) -> fun.(identifier)
       _fun -> AgentChat.resume(identifier)
+    end
+  end
+
+  defp prioritize_agent(identifier) do
+    case endpoint_config(:agent_chat_prioritize_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.prioritize(identifier)
+    end
+  end
+
+  defp deprioritize_agent(identifier) do
+    case endpoint_config(:agent_chat_deprioritize_fun) do
+      fun when is_function(fun, 1) -> fun.(identifier)
+      _fun -> AgentChat.deprioritize(identifier)
     end
   end
 

@@ -7984,7 +7984,9 @@ html[data-theme="light"] .sd-device {
   --blocking-ink: #ffa39c;
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --good: #3fb950;
+  --good-ink: #74d47f;
   --super: #c69bff;
+  --ack: #4fd6c4;
 }
 
 @media (max-width: 560px) {
@@ -8044,7 +8046,12 @@ html[data-theme="light"] .sd-device {
   display: none;
 }
 
-.sd-device[data-mode="logs"] > #sd-keys {
+/* Only logs mode hides the key grid: since #1607 the cmd controls render as
+   `.sd-keys` themselves, so a cmd-mode clause here would blank them.
+   `:not(.sd-log-keys)` rather than relying on source order: the logs key grid
+   is also a `.sd-keys`, and an equal-specificity un-hiding rule below would
+   lose to a future reorder and blank the eight keys. */
+.sd-device[data-mode="logs"] .sd-keys:not(.sd-log-keys) {
   display: none;
 }
 
@@ -8143,17 +8150,284 @@ html[data-theme="light"] .sd-device {
   letter-spacing: 0.04em;
 }
 
-.sd-log-body {
-  max-height: 6rem;
-  overflow-y: auto;
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
 }
 
-.sd-log-line {
-  margin: 0;
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
   color: var(--muted);
+}
+
+/* The LIVE key is the design's one green key (streamdeck.design.css:128-139).
+   Its inks are scoped to the key rather than themed :root tokens: the Stream
+   Deck chassis is painted dark in both themes, so these greens are correct
+   against the near-black key face and must not flip with the light palette. */
+.sd-live-key {
+  --sd-live: #4ade80;
+  --sd-live-ink: #8fe0a8;
+  --sd-live-sel-ink: #eafff3;
+  background: linear-gradient(180deg, #227a4d, #17583a);
+}
+
+.sd-live-key .sd-key-face {
+  background: linear-gradient(180deg, #132420, #0d1713);
+}
+
+.sd-live-key.is-selected {
+  border-color: #37d97e;
+  background: linear-gradient(180deg, #37d97e, #1f9c56);
+  box-shadow: 0 0 16px rgba(55, 217, 126, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--sd-live);
+  box-shadow: 0 0 0.65rem var(--sd-live);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-key.is-selected .sd-live-dot {
+  background: var(--sd-live-sel-ink);
+  box-shadow: 0 0 0.65rem rgba(255, 255, 255, 0.85);
+}
+
+.sd-live-label {
+  color: var(--sd-live-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.sd-live-key.is-selected .sd-live-label {
+  color: var(--sd-live-sel-ink);
+}
+
+/* Read-only mode. The button also carries the `disabled` attribute, so this is
+   presentation only — it must never be the sole thing stopping a press. */
+.sd-cmd-key.is-disabled .sd-key-face {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+/* Control feedback is screen-reader-only until there is something to report; a
+   failed control call is meant to be seen on the deck face, not just heard. */
+.sd-control-status {
+  margin: 0 0 0.4rem;
+  color: var(--attention-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.sd-cmd-label {
+  display: block;
+}
+
+.sd-cmd-sub {
+  display: block;
+  color: var(--muted);
+  font-size: 0.58rem;
+  letter-spacing: 0.08em;
+}
+
+/* Mic is press-and-hold: the key is held down rather than clicked, so it needs
+   a held-state affordance the click keys do not. */
+.sd-cmd-item.sd-mic-key {
+  touch-action: none;
+  user-select: none;
+}
+
+.sd-cmd-item.sd-mic-key.is-live {
+  border-color: var(--super);
+  box-shadow: 0 0 0.5rem var(--super);
+}
+
+.sd-cmd-item.sd-mic-key.is-live .sd-cmd-label {
+  color: var(--super);
+}
+
+.sd-device[data-mode="logs"] .sd-log-keys {
+  display: grid;
+  margin: 0 0 0.65rem;
+}
+
+.sd-log-key {
+  cursor: pointer;
+}
+
+.sd-log-key.is-selected {
+  border-color: #9fd0ff;
+  box-shadow: 0 0 16px rgba(159, 208, 255, 0.5), inset 0 1px rgba(255, 255, 255, 0.12);
+}
+
+.sd-log-key-face {
+  grid-template-rows: auto 1fr auto;
+}
+
+.sd-log-dir,
+.sd-log-time {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.52rem;
+  font-weight: 800;
+}
+
+/* The five directions from #1576 take their colour from the shared key-face
+   contract (#1726) via the `--sd-log-badge` custom property `.sd-log-badge`
+   reads, so the packaged deck and the emulator cannot drift. `data-dir` stays
+   as a selector hook only — it carries no colour. */
+
+.sd-log-text {
+  display: -webkit-box;
+  overflow: hidden;
+  align-self: center;
+  color: var(--fg);
+  font-size: clamp(0.56rem, 1.3vw, 0.68rem);
+  font-weight: 700;
+  line-height: 1.15;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.sd-log-time {
+  justify-self: end;
+  color: var(--muted);
+}
+
+.sd-live-key-face {
+  place-content: center;
+  justify-items: center;
+  gap: 0.4rem;
+}
+
+.sd-live-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  border-radius: 50%;
+  background: var(--ack);
+  box-shadow: 0 0 0.65rem var(--ack);
+  animation: sd-pulse 1.25s ease-in-out infinite;
+}
+
+.sd-live-label {
+  color: var(--ack);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+/* The strip is the transcript surface for logs mode: clicking an event key
+   positions it here, so the line has to be readable. `.sd-screen` is a
+   four-column 88px grid built for provider segments; a transcript line takes
+   the full row, reads left-aligned, and ellipsises rather than being clipped
+   mid-column. SP-302 owns the richer treatment on top of this. */
+.sd-screen.is-logs {
+  grid-template-columns: 1fr;
+  align-content: start;
+  padding: 0.3rem 0.5rem;
+  row-gap: 0.1rem;
+  overflow: hidden;
+}
+
+/* Logs mode replaces the fleet segments with the transcript, but the pager
+   segment stays: it names the agent whose transcript you are reading, and
+   #1580's focus label has to survive the descent into logs. It sits above the
+   transcript rather than in source order at the end of the strip. */
+.sd-screen.is-logs [data-segment="pager"] {
+  order: -1;
+  display: block;
+  padding: 0;
+  text-align: left;
+}
+
+.sd-screen.is-logs [data-segment="pager"] .sd-seg-dlabel {
+  color: var(--muted);
+  font-size: 0.55rem;
+  letter-spacing: 0.1em;
+}
+
+.sd-log-strip-entry {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  color: var(--fg);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.62rem;
-  line-height: 1.5;
+  line-height: 1.45;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-log-strip-entry > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.sd-log-strip-entry[data-log-kind="event_header"] {
+  font-weight: 800;
+}
+
+.sd-log-strip-entry.is-empty {
+  color: var(--muted);
+}
+
+.sd-screen.is-logs .sd-log-hint {
+  color: var(--muted);
+  font-size: 0.55rem;
+  line-height: 1;
+  text-align: right;
+}
+
+.sd-screen.is-logs .sd-log-hint[aria-hidden="true"] {
+  visibility: hidden;
 }
 
 .sd-log-badge {

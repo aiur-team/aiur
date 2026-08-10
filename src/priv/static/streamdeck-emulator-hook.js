@@ -413,7 +413,13 @@
     _bindKeys() {
       var self = this;
       this._keyHandlers = [];
-      var keys = Array.prototype.slice.call(this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty)"));
+      // Both key grids bind here: #sd-keys carries the agent keys (and, in cmd
+      // mode, the command keys) and #sd-log-keys carries the eight logs keys.
+      // Scoping to the two grids keeps stray .sd-key markup elsewhere in the
+      // device out of the agent key-press path.
+      var keys = Array.prototype.slice.call(
+        this.el.querySelectorAll("#sd-keys .sd-key:not(.is-empty), #sd-log-keys .sd-key:not(.is-empty)")
+      );
       keys.forEach(function (key) {
         var timer = null;
         var handler = function () {
@@ -425,13 +431,32 @@
           key.classList.add("is-flashing");
           timer = setTimeout(function () { key.classList.remove("is-flashing"); }, 500);
 
+          var logEventIndex = key.getAttribute("data-log-event-index");
+
+          // Log keys index the flattened transcript instead of selecting an
+          // agent. The server owns the resulting transcript offset.
+          // `data-log-event-index` is authoritative on its own; the
+          // client-tracked `_mode` only reconciles at the end of updated(),
+          // so gating on it would silently drop a click while it lagged.
+          if (logEventIndex !== null) {
+            self.pushEvent("log-key-select", { index: Number(logEventIndex) });
+            return;
+          }
+
           var identifier = key.getAttribute("data-streamdeck-identifier");
           if (identifier) {
             self.pushEvent("key-press", { identifier: identifier });
           }
         };
+        var keydownHandler = function (event) {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            handler();
+          }
+        };
         key.addEventListener("click", handler);
-        self._keyHandlers.push({ el: key, handler: handler, timer: function () { return timer; } });
+        key.addEventListener("keydown", keydownHandler);
+        self._keyHandlers.push({ el: key, handler: handler, keydownHandler: keydownHandler, timer: function () { return timer; } });
       });
     },
 
@@ -439,6 +464,7 @@
       (this._keyHandlers || []).forEach(function (entry) {
         clearTimeout(entry.timer());
         entry.el.removeEventListener("click", entry.handler);
+        entry.el.removeEventListener("keydown", entry.keydownHandler);
       });
       this._keyHandlers = [];
     },
@@ -449,9 +475,16 @@
       var keys = Array.prototype.slice.call(this.el.querySelectorAll("[data-streamdeck-command]"));
       keys.forEach(function (key) {
         var command = key.getAttribute("data-streamdeck-command");
+        // Read-only mode renders fleet-control keys `disabled`. Skip binding them
+        // entirely so a read-only dashboard emits no control call at all, rather
+        // than relying on the server to refuse one the client still sent.
+        if (key.disabled) return;
+
         if (command === "mic") {
           self._micKey = key;
-          self._onMicDown = function () { self._setMic(true); };
+          // preventDefault keeps a press-and-hold from turning into a synthesized
+          // click, text selection, or a mobile long-press context menu.
+          self._onMicDown = function (e) { if (e && e.preventDefault) e.preventDefault(); self._setMic(true); };
           self._onMicUp = function () { self._setMic(false); };
           key.addEventListener("pointerdown", self._onMicDown);
           key.addEventListener("pointerup", self._onMicUp);
