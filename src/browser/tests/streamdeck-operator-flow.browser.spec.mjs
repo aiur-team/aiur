@@ -174,16 +174,24 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
   await expect(page.locator('#sd-events-hint-up')).toHaveAttribute('aria-hidden', 'false')
   await expect(transcript).toHaveAttribute('data-offset', '0')
 
+  // Each wheel notch is one discrete step, so overshoot the pane deliberately:
+  // the offset clamps to the real bound and the down arrow hides there.
+  const eventsMax = Number.parseInt(await events.getAttribute('data-max-offset'), 10)
+  expect(eventsMax).toBeGreaterThan(0)
+  for (let step = 0; step < eventsMax + 3; step += 1) {
+    await page.mouse.wheel(0, -100)
+  }
+  await expect(events).toHaveAttribute('data-offset', String(eventsMax))
+  await expect(page.locator('#sd-events-hint-down')).toHaveAttribute('aria-hidden', 'true')
+
   await dialA.hover()
   await page.mouse.wheel(0, -100)
   await expect(transcript).toHaveAttribute('data-offset', '1')
   await expect(page.locator('#sd-transcript-hint-up')).toHaveAttribute('aria-hidden', 'false')
 
-  // Scrolling past the far bound clamps and re-hides the arrow that no longer
-  // has anywhere to go.
+  // The transcript clamps at its own, different bound.
   const transcriptMax = Number.parseInt(await transcript.getAttribute('data-max-offset'), 10)
   expect(transcriptMax).toBeGreaterThan(0)
-  // Each wheel notch is one discrete step, so overshoot the pane deliberately.
   for (let step = 0; step < transcriptMax + 3; step += 1) {
     await page.mouse.wheel(0, -100)
   }
