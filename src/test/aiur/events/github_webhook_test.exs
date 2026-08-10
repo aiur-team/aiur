@@ -305,6 +305,39 @@ defmodule Aiur.Events.GithubWebhookTest do
                Normalizer.normalize("pull_request", delivery, repo: @repo)
     end
 
+    test "the orchestrator is nudged to poll now, and a delivery burst is coalesced into one nudge" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42, "updated_at" => "2026-06-24T12:00:00Z"}
+      }
+
+      for _ <- 1..3 do
+        assert %{status: :reconciled} =
+                 GithubWebhook.handle_delivery("issues", delivery, repo: @repo, orchestrator: self())
+      end
+
+      assert_receive :run_poll_cycle, 500
+      refute_receive :run_poll_cycle, 200
+    end
+
+    test "no orchestrator running is not an error" do
+      GithubWebhook.reset_reconcile_window()
+      on_exit(&GithubWebhook.reset_reconcile_window/0)
+
+      delivery = %{
+        "action" => "labeled",
+        "repository" => %{"full_name" => @repo},
+        "issue" => %{"number" => 42}
+      }
+
+      assert %{status: :reconciled} =
+               GithubWebhook.handle_delivery("issues", delivery, repo: @repo, orchestrator: :no_such_orchestrator)
+    end
+
     test "a check suite for an untracked branch is dropped" do
       delivery = %{
         "action" => "completed",

@@ -47,6 +47,8 @@ defmodule Aiur.Events.GithubWebhook do
 
     * `:publish_fun` — 3-arity override for `Publisher.publish/3` (test seam)
     * `:reconcile_fun` — 1-arity override for the orchestrator nudge
+    * `:orchestrator` — process name or pid to nudge; defaults to
+      `Aiur.Orchestrator`
   """
   @spec handle_delivery(term(), term(), keyword()) :: outcome()
   def handle_delivery(event_type, payload, opts \\ []) do
@@ -102,12 +104,12 @@ defmodule Aiur.Events.GithubWebhook do
   defp request_reconcile(hint, opts) do
     case Keyword.get(opts, :reconcile_fun) do
       fun when is_function(fun, 1) -> fun.(hint)
-      _other -> nudge_orchestrator()
+      _other -> nudge_orchestrator(Keyword.get(opts, :orchestrator, Aiur.Orchestrator))
     end
   end
 
-  defp nudge_orchestrator do
-    case Process.whereis(Aiur.Orchestrator) do
+  defp nudge_orchestrator(target) do
+    case resolve_orchestrator(target) do
       pid when is_pid(pid) ->
         if claim_reconcile_window() do
           send(pid, :run_poll_cycle)
@@ -119,6 +121,17 @@ defmodule Aiur.Events.GithubWebhook do
       nil ->
         :ok
     end
+  end
+
+  defp resolve_orchestrator(pid) when is_pid(pid), do: pid
+  defp resolve_orchestrator(name) when is_atom(name), do: Process.whereis(name)
+  defp resolve_orchestrator(_target), do: nil
+
+  @doc false
+  @spec reset_reconcile_window() :: :ok
+  def reset_reconcile_window do
+    :persistent_term.erase({__MODULE__, :last_reconcile_ms})
+    :ok
   end
 
   defp claim_reconcile_window do
