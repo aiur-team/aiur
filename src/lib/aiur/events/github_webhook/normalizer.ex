@@ -310,7 +310,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
            comment_triple(
              "ticket.#{target}.issue.commented",
              target,
-             comment,
+             poller_comment_shape(comment),
              GithubKeys.comment_dedup_key(repo, "issue_comment", String.to_integer(number), Map.get(comment, "id")),
              if(pull_request?, do: review_context(Map.get(issue, "pull_request")))
            )
@@ -318,6 +318,12 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
     end
   end
 
+  # Deliberately NOT projected through `poller_comment_shape/1`. Review
+  # submissions are the one comment topic the poller does not normalize: it
+  # fetches `/pulls/N/reviews` over REST and publishes the review object as-is,
+  # so the delivery's own REST review is already the matching shape. Projecting
+  # here would drop `state` and `submitted_at`, which decide CHANGES_REQUESTED
+  # routing and `ReviewFreshness` staleness respectively.
   defp review_submission_triple(payload, review, repo) do
     with {:ok, target, pr_number} <- pull_request_identity(payload) do
       {:publish,
@@ -351,7 +357,7 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
          comment_triple(
            "ticket.#{target}.pr.review_comment",
            target,
-           comment,
+           poller_comment_shape(comment),
            GithubKeys.comment_dedup_key(repo, "pr_review_comment", pr_number, Map.get(comment, "id")),
            payload |> Map.get("pull_request") |> review_context() |> approval_only_context()
          )
@@ -379,6 +385,42 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
        bypass_contamination: true
      ]}
   end
+
+  # Project a delivery's comment onto the shape the poller publishes.
+  #
+  # The poller never publishes GitHub's raw comment object: `CommentPollBatch`
+  # reads comments over GraphQL and `normalize_comments/1` reduces each to
+  # exactly these keys. A REST delivery carries roughly twice as many —
+  # `node_id`, `url`, `issue_url`, `author_association`, `reactions`,
+  # `performed_via_github_app` — and a full `user` object rather than a bare
+  # login. Publishing the delivery as-is therefore hands consumers a visibly
+  # different comment for the same GitHub event, which is precisely the drift
+  # this module exists to prevent.
+  #
+  # Keys are taken one for one from `CommentPollBatch.normalize_comments/1`,
+  # including its `body` and `updated_at` fallbacks. `line` and `path` ride along
+  # only when present, matching `ReviewThreads.normalize_thread_comment/2` for
+  # review threads while staying absent on issue comments, which is where the
+  # poller leaves them.
+  defp poller_comment_shape(comment) when is_map(comment) do
+    base = %{
+      "id" => Map.get(comment, "id"),
+      "body" => Map.get(comment, "body") || "",
+      "created_at" => Map.get(comment, "created_at"),
+      "updated_at" => Map.get(comment, "updated_at") || Map.get(comment, "created_at"),
+      "html_url" => Map.get(comment, "html_url"),
+      "user" => %{"login" => get_in(comment, ["user", "login"])}
+    }
+
+    Enum.reduce(["path", "line"], base, fn key, acc ->
+      case Map.fetch(comment, key) do
+        {:ok, value} -> Map.put(acc, key, value)
+        :error -> acc
+      end
+    end)
+  end
+
+  defp poller_comment_shape(comment), do: comment
 
   # Review-staleness context for the orchestrator's rework gate
   # (`Aiur.Orchestrator.ReviewFreshness`), mirroring

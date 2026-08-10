@@ -63,11 +63,14 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
   test "issue comment: polling and webhook publish indistinguishable events" do
     :ok = Exchange.subscribe("ticket.42.issue.commented")
 
+    # `html_url` is present because `CommentPollBatch.normalize_comments/1`
+    # always emits it; a fixture without it is a shape the poller never produces.
     comment = %{
       "id" => 1_001,
       "body" => "please rework this",
       "created_at" => "2026-06-24T12:00:00Z",
       "updated_at" => "2026-06-24T12:00:00Z",
+      "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-1001",
       "user" => %{"login" => "its-everdred"}
     }
 
@@ -152,6 +155,7 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
       "body" => "extract this into a helper",
       "created_at" => "2026-06-24T12:00:00Z",
       "updated_at" => "2026-06-24T12:00:00Z",
+      "html_url" => "https://github.com/owner/repo/pull/901#discussion_r7007",
       "user" => %{"login" => "its-everdred"}
     }
 
@@ -223,6 +227,78 @@ defmodule Aiur.Events.GithubWebhookEquivalenceTest do
 
     pushed = await_event("ticket.55.pr.opened")
 
+    assert_indistinguishable(polled, pushed)
+  end
+
+  # The cases above hand both producers the same comment map, which hides shape
+  # drift: the poller never publishes GitHub's raw comment object, it publishes
+  # `CommentPollBatch.normalize_comments/1` output. This case gives each producer
+  # the shape it actually sees in production — a 6-key normalized comment for the
+  # poller, GitHub's full REST object for the delivery — so the assertion is
+  # about the normalizer rather than about the fixture.
+  test "realistic producer shapes: a full REST delivery still matches the poller's normalized comment" do
+    :ok = Exchange.subscribe("ticket.42.issue.commented")
+
+    polled_comment = %{
+      "id" => 1_001,
+      "body" => "please rework this",
+      "created_at" => "2026-06-24T12:00:00Z",
+      "updated_at" => "2026-06-24T12:00:00Z",
+      "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-1001",
+      "user" => %{"login" => "its-everdred"}
+    }
+
+    assert {:ok, %{count: 1}} =
+             GithubCommentsPoller.poll(["42"],
+               since: "2026-06-24T11:00:00Z",
+               repo: @repo,
+               comment_batch: %{"42" => %{issue_comments: [polled_comment], open_pull_request: nil}}
+             )
+
+    polled = await_event("ticket.42.issue.commented")
+    clear_dedup()
+
+    # Everything GitHub actually puts on the wire, including the fields a
+    # consumer would notice: node_id, reactions, author_association, and a full
+    # user object rather than a bare login.
+    delivery = %{
+      "action" => "created",
+      "repository" => %{"full_name" => @repo},
+      "issue" => %{"number" => 42, "title" => "a ticket"},
+      "sender" => %{"login" => "its-everdred"},
+      "comment" => %{
+        "id" => 1_001,
+        "node_id" => "IC_kwDOabc123",
+        "url" => "https://api.github.com/repos/owner/repo/issues/comments/1001",
+        "html_url" => "https://github.com/owner/repo/issues/42#issuecomment-1001",
+        "issue_url" => "https://api.github.com/repos/owner/repo/issues/42",
+        "body" => "please rework this",
+        "created_at" => "2026-06-24T12:00:00Z",
+        "updated_at" => "2026-06-24T12:00:00Z",
+        "author_association" => "COLLABORATOR",
+        "performed_via_github_app" => nil,
+        "reactions" => %{"url" => "https://api.github.com/x", "total_count" => 0, "+1" => 0},
+        "user" => %{
+          "login" => "its-everdred",
+          "id" => 12_345,
+          "node_id" => "U_kgDOabc",
+          "avatar_url" => "https://avatars.githubusercontent.com/u/12345?v=4",
+          "type" => "User",
+          "site_admin" => false,
+          "url" => "https://api.github.com/users/its-everdred"
+        }
+      }
+    }
+
+    assert %{status: :published, published: ["ticket.42.issue.commented"]} =
+             GithubWebhook.handle_delivery("issue_comment", delivery, repo: @repo)
+
+    pushed = await_event("ticket.42.issue.commented")
+
+    # The delivery's extra fields must not reach consumers, and `user` must be
+    # the bare login the poller publishes.
+    assert Map.keys(pushed.comment) |> Enum.sort() == Map.keys(polled.comment) |> Enum.sort()
+    assert pushed.comment["user"] == %{"login" => "its-everdred"}
     assert_indistinguishable(polled, pushed)
   end
 
