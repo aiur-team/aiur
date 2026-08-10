@@ -166,6 +166,13 @@ GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that
 will run the agent.
 
+Inbound GitHub webhook deliveries authenticate with their own shared secret,
+`AIUR_GITHUB_WEBHOOK_SECRET`, which is distinct from `GITHUB_TOKEN` and from
+any App private key. Reaching the daemon from the internet is a deployment
+change, not a config toggle — see `docs/security/webhook-ingress.md`, which
+covers the ingress choice, the required `server.port` pin, and how to prove
+the exposure is scoped to the webhook route alone.
+
 ## Compound Engineering
 
 Repo-local CE settings live at `.compound-engineering/config.local.yaml`
