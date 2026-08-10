@@ -8,6 +8,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
   alias AiurWeb.BuildOrderPresenter
   alias AiurWeb.OperatorControlCenter.BuildOrderGridModel
 
+  # Async refresh completion crosses the task, poller mailbox, and PubSub.
+  @async_assert_timeout 2_000
+
   @pack """
   {
     "build_order_id": "acme/widgets:analytics-streamdeck",
@@ -121,8 +124,12 @@ defmodule Aiur.BuildOrder.PackStatusTest do
         else: Application.delete_env(:aiur, :build_order_planning_membership_snapshot)
     end)
 
-    # Before the projection exists tracker completion is unknown, never 0%.
-    assert overall_percent() == nil
+    # Before the projection exists only part of completion resolves. The zero
+    # is retained with an explicit partial state rather than becoming a bare,
+    # exact-looking percentage.
+    initial_completion = grid().overall_completion
+    assert initial_completion.progress == 0
+    assert initial_completion.progress_resolution == :partial
 
     poller =
       start_poller(
@@ -137,9 +144,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     assert {:ok, [_written]} = PackStatus.refresh_sync(poller)
 
     grid = grid()
-    assert grid.overall_pct > 0
+    assert grid.overall_completion.progress > 0
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
-    assert Enum.find(grid.cards, &(&1.id == "4101")).progress == 100
+    assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress == 100
     assert Enum.find(grid.cards, &(&1.id == "4103")).state != :merged
   end
 
@@ -192,9 +199,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     initial_generation = PlanningSource.catalog().generation
 
     assert :ok = PackStatus.refresh(poller)
-    assert_receive {:successful_request, successful_task}
+    assert_receive {:successful_request, successful_task}, @async_assert_timeout
     assert await_task(successful_task)
-    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :healthy}}
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :healthy}}, @async_assert_timeout
     assert %ProviderHealth{state: :healthy, complete?: true, last_success_at: ~U[2026-08-02 12:00:00Z]} = PackStatus.health(poller)
     healthy_snapshot = PlanningSource.catalog()
     assert healthy_snapshot.health.state == :healthy
@@ -204,9 +211,9 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     Agent.update(clock, fn _ -> ~U[2026-08-02 12:05:00Z] end)
 
     assert :ok = PackStatus.refresh(poller)
-    assert_receive {:failed_request, failed_task}
+    assert_receive {:failed_request, failed_task}, @async_assert_timeout
     assert await_task(failed_task)
-    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :stale}}
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :stale}}, @async_assert_timeout
 
     assert %ProviderHealth{
              state: :stale,
@@ -226,7 +233,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
 
     assert Enum.find(grid.cards, &(&1.id == "4101")).state == :merged
-    assert Enum.find(grid.cards, &(&1.id == "4101")).progress == 100
+    assert Enum.find(grid.cards, &(&1.id == "4101")).completion.progress == 100
   end
 
   test "preserves unrelated status keys and earlier members", context do
@@ -713,12 +720,12 @@ defmodule Aiur.BuildOrder.PackStatusTest do
       end)
 
     assert :ok = PackStatus.refresh(poller)
-    assert_receive {:refresh_started, task}
+    assert_receive {:refresh_started, task}, @async_assert_timeout
     assert {:error, :refresh_in_progress} = PackStatus.refresh_sync(poller)
 
     send(task, :finish_refresh)
     assert await_task(task)
-    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :healthy}}
+    assert_receive {:build_order_pack_status_changed, %ProviderHealth{state: :healthy}}, @async_assert_timeout
     assert PackStatus.health(poller).state == :healthy
   end
 
@@ -861,8 +868,6 @@ defmodule Aiur.BuildOrder.PackStatusTest do
     |> BuildOrderGridModel.build(nil)
   end
 
-  defp overall_percent, do: grid().overall_pct
-
   defp query_numbers(query) do
     ~r/i(\d+): issue\(number: (\d+)\)/
     |> Regex.scan(query, capture: :all_but_first)
@@ -892,7 +897,7 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
   defp await_task(task) do
     monitor = Process.monitor(task)
-    assert_receive {:DOWN, ^monitor, :process, ^task, reason}
+    assert_receive {:DOWN, ^monitor, :process, ^task, reason}, @async_assert_timeout
     reason in [:normal, :noproc]
   end
 end
