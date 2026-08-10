@@ -70,6 +70,7 @@ defmodule Aiur.Webhooks.DeliveryLog do
   @max_entries 200_000
   @compaction_floor 1_000
   @call_timeout 30_000
+  @max_key_bytes 512
 
   @type claim_result :: :new | {:duplicate, integer()}
   @type advance_result :: :ok | {:stale, integer()}
@@ -153,9 +154,19 @@ defmodule Aiur.Webhooks.DeliveryLog do
       fallback
   end
 
-  defp entry_key(scope, id) when is_atom(scope) and is_binary(id) and id != "", do: "#{scope}:#{id}"
+  defp entry_key(scope, id) when is_atom(scope) and is_binary(id) and id != "", do: bound("#{scope}:#{id}")
   defp entry_key(scope, id) when is_atom(scope) and is_integer(id), do: "#{scope}:#{id}"
   defp entry_key(_scope, _id), do: nil
+
+  # Semantic keys are built from payload fields (a ref name, for one), so their
+  # length is not ours to assume. Keeping every record small bounds the file as
+  # well as the map, and a digest stays collision-safe as a dedupe key.
+  defp bound(key) when byte_size(key) <= @max_key_bytes, do: key
+
+  defp bound(key) do
+    digest = :sha256 |> :crypto.hash(key) |> Base.encode16(case: :lower)
+    binary_part(key, 0, @max_key_bytes) <> ":sha256:" <> digest
+  end
 
   @impl true
   def init(opts) do

@@ -45,6 +45,18 @@ defmodule Aiur.Webhooks.DeliveryLogTest do
     assert :new == DeliveryLog.claim(:event, "same-id", log)
   end
 
+  test "an oversized key stays bounded without losing its identity", context do
+    log = start_log(context, :first)
+    long = String.duplicate("a", 4000)
+
+    assert :new == DeliveryLog.claim(:event, long, log)
+    assert {:duplicate, _at} = DeliveryLog.claim(:event, long, log)
+    assert :new == DeliveryLog.claim(:event, long <> "b", log)
+
+    path = Path.join(context.dir, "webhook_deliveries.ndjson")
+    assert path |> File.read!() |> String.split("\n", trim: true) |> Enum.all?(&(byte_size(&1) < 1000))
+  end
+
   test "claims survive a restart", context do
     log = start_log(context, :first)
     assert :new == DeliveryLog.claim(:delivery, "d-restart", log)
