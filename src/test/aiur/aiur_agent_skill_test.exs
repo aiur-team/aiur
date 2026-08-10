@@ -185,6 +185,24 @@ defmodule Aiur.AiurAgentSkillTest do
     assert taxonomy =~ "keep unrelated prep moving"
   end
 
+  # #1763: two agents staged a workpad body at `/tmp/wp_new.md`, the second write
+  # won, and one ticket's workpad was published carrying the other's plan and PR
+  # number. The `PATCH` returned 200, so only a body diff would have caught it.
+  test "staging guidance keeps comment bodies out of the shared /tmp" do
+    shared_prompt = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
+    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
+
+    assert shared_prompt =~ "Concurrent Aiur agents share the host's `/tmp`"
+    assert shared_prompt =~ "`TMPDIR` already points at"
+    assert shared_prompt =~ "Never write to a bare `/tmp/<generic-name>`"
+    assert shared_prompt =~ "Verifying a comment write means diffing, not checking the status code"
+    assert shared_prompt =~ "diff the returned body against the exact body you intended to publish"
+
+    assert repo_prompt =~ "Stage every temporary file in a workspace-local path"
+    assert repo_prompt =~ "Never write a GitHub comment or PR body to a bare `/tmp/<generic-name>`"
+    assert repo_prompt =~ "For a comment body this means diffing, not checking the status code"
+  end
+
   test "aiur run and status skill descriptions cover iarc and aiur triggers" do
     run_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md"))
     status_skill = File.read!(Path.join(@repo_root, ".claude/skills/aiur-monitor/SKILL.md"))
