@@ -193,6 +193,77 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-key:not(.is-empty)')).toHaveCount(0)
 })
 
+test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
+  await openStreamdeck(page)
+
+  const key = page.locator('.sd-agent-key:not(.is-empty)').first()
+  const geometry = await key.evaluate((element) => {
+    const face = element.querySelector('.sd-key-face')
+    const icon = element.querySelector('.sd-ag-ic')
+    const iconGlyph = icon.querySelector('svg')
+    const vendor = element.querySelector('.sd-ag-vendor')
+    const bar = element.querySelector('.sd-ag-bar')
+    const fill = bar.querySelector('i')
+    const top = element.querySelector('.sd-agent-top')
+    const css = window.getComputedStyle
+
+    const faceBox = face.getBoundingClientRect()
+    const topChildrenFit = Array.from(top.children).every((child) => {
+      const box = child.getBoundingClientRect()
+      return box.left >= faceBox.left && box.right <= faceBox.right
+    })
+
+    return {
+      key: element.getBoundingClientRect().toJSON(),
+      faceRadius: css(face).borderRadius,
+      icon: { width: css(icon).width, height: css(icon).height },
+      iconGlyph: { width: css(iconGlyph).width, height: css(iconGlyph).height },
+      vendor: { width: css(vendor).width, height: css(vendor).height },
+      barHeight: css(bar).height,
+      facePadding: {
+        top: css(face).paddingTop,
+        right: css(face).paddingRight,
+        bottom: css(face).paddingBottom,
+        left: css(face).paddingLeft
+      },
+      topGap: css(top).gap,
+      topChildrenFit,
+      progress: Number(bar.getAttribute('aria-valuenow')),
+      fill: css(fill).backgroundColor
+    }
+  })
+
+  expect(Math.abs(geometry.key.width - geometry.key.height)).toBeLessThan(1)
+  expect(geometry.faceRadius).toBe('12px')
+  expect(geometry.icon).toEqual({ width: '30px', height: '30px' })
+  // The design centres a fixed 20px glyph in the 30px box (streamdeck.design.css:42-43).
+  // Asserting the box alone passed while the glyph rendered at 18px.
+  expect(geometry.iconGlyph).toEqual({ width: '20px', height: '20px' })
+  expect(geometry.vendor).toEqual({ width: '18px', height: '18px' })
+  expect(geometry.barHeight).toBe('6px')
+  // .sd-agent is `padding: 0.5rem 0.55rem 0.55rem` with a 0.35rem top-row gap
+  // (streamdeck.design.css:38-39). The key box matches the design exactly, so
+  // there is no fit reason to narrow either value.
+  expect(geometry.facePadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px', left: '8.8px' })
+  expect(geometry.topGap).toBe('5.6px')
+  expect(geometry.topChildrenFit).toBe(true)
+
+  const hue = Math.round((geometry.progress / 100) * 125)
+  const expectedFill = await page.evaluate((h) => {
+    const sample = document.createElement('i')
+    sample.style.background = `hsl(${h} 72% 50%)`
+    document.body.append(sample)
+    const color = getComputedStyle(sample).backgroundColor
+    sample.remove()
+    return color
+  }, hue)
+
+  expect(geometry.fill).toBe(expectedFill)
+
+  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(219, 36, 36)')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
+})
+
 test('mic segment activates on pointerdown and deactivates on pointerup', async ({ page }) => {
   await openStreamdeck(page)
 
@@ -845,6 +916,18 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
     const keysStyle = getComputedStyle(keys)
     const keyBox = key.getBoundingClientRect()
     const wellStyle = getComputedStyle(document.querySelector('.sd-well'))
+    const agentKey = keys.querySelector('.sd-agent-key:not(.is-empty)')
+    const agentFace = agentKey.querySelector('.sd-key-face')
+    const agentFaceStyle = getComputedStyle(agentFace)
+    const faceBox = agentFace.getBoundingClientRect()
+    const agentIcon = agentKey.querySelector('.sd-ag-ic')
+    const agentIconSvg = agentIcon.querySelector('svg')
+    const agentTicket = agentKey.querySelector('.sd-ag-id')
+    const agentElements = Array.from(agentKey.querySelectorAll('.sd-agent-top > *, .sd-ag-title, .sd-ag-foot'))
+    const agentFaceFits = agentElements.every((element) => {
+      const box = element.getBoundingClientRect()
+      return box.left >= faceBox.left && box.right <= faceBox.right && box.top >= faceBox.top && box.bottom <= faceBox.bottom
+    })
 
     return {
       paddingTop: style.paddingTop,
@@ -854,7 +937,16 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
       columns: keysStyle.gridTemplateColumns.split(' ').filter(Boolean).length,
       columnGap: keysStyle.columnGap,
       rowGap: keysStyle.rowGap,
-      keyRatio: keyBox.width / keyBox.height
+      keyRatio: keyBox.width / keyBox.height,
+      agentIcon: { width: getComputedStyle(agentIcon).width, height: getComputedStyle(agentIcon).height },
+      agentIconSvg: { width: getComputedStyle(agentIconSvg).width, height: getComputedStyle(agentIconSvg).height },
+      agentTicketSize: getComputedStyle(agentTicket).fontSize,
+      agentPadding: {
+        top: agentFaceStyle.paddingTop,
+        right: agentFaceStyle.paddingRight,
+        bottom: agentFaceStyle.paddingBottom
+      },
+      agentFaceFits
     }
   })
 
@@ -866,6 +958,13 @@ test('Stream Deck design geometry holds at desktop and mobile widths in both the
   expect(mobileGeometry.columnGap).toBe('8.8px')
   expect(mobileGeometry.rowGap).toBe('8.8px')
   expect(mobileGeometry.keyRatio).toBeCloseTo(1, 2)
+  expect(mobileGeometry.agentIcon).toEqual({ width: '26px', height: '26px' })
+  expect(mobileGeometry.agentIconSvg).toEqual({ width: '17px', height: '17px' })
+  expect(mobileGeometry.agentTicketSize).toBe('16px')
+  // The design's mobile block (streamdeck.design.css:198-208) scales the icon and
+  // ticket number only; .sd-agent keeps its desktop padding at both breakpoints.
+  expect(mobileGeometry.agentPadding).toEqual({ top: '8px', right: '8.8px', bottom: '8.8px' })
+  expect(mobileGeometry.agentFaceFits).toBe(true)
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile.png') })
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   await device.screenshot({ path: testInfo.outputPath('streamdeck-mobile-light.png') })

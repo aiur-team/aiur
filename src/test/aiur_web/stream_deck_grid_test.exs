@@ -149,7 +149,9 @@ defmodule AiurWeb.StreamDeckGridTest do
     assert agent == %{
              identifier: "123",
              title: "Ticket 123",
+             icon: :unassigned,
              vendor: "claude",
+             vendor_logo: "/provider-assets/claude-symbol.svg",
              bucket: :running,
              progress_percent: 60,
              priority: true
@@ -174,6 +176,20 @@ defmodule AiurWeb.StreamDeckGridTest do
       StreamDeckGrid.project(%{running: [agent("1439", backend: "fake")], retrying: [], idle: []}).agents
 
     assert agent.vendor == "fake"
+    assert agent.vendor_logo == "/provider-assets/codex-color.svg"
+  end
+
+  test "projects the Build Order lane icon and provider logo from source metadata" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("1439", backend: "deepseek", labels: ["build-lane:platform"])],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.icon == "platform"
+    assert agent.vendor == "deepseek"
+    assert agent.vendor_logo == "/provider-assets/deepseek.svg"
   end
 
   test "only flags positive priority ranks" do
