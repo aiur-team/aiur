@@ -7740,8 +7740,23 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .sd-strip-cmd-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
   color: var(--sd-accent);
+  font-size: 0.56rem;
   letter-spacing: 0.08em;
+}
+
+/* The design's leading state dot (streamdeck.design.css:112). currentColor
+   means it tracks --sd-accent without naming a colour twice. */
+.sd-strip-cmd-status::before {
+  content: "";
+  flex: none;
+  width: 0.38rem;
+  height: 0.38rem;
+  border-radius: 50%;
+  background: currentColor;
 }
 
 .sd-strip-cmd-provider {

@@ -210,7 +210,16 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
     status: getComputedStyle(element.querySelector('.sd-strip-cmd-status')).color
   }))
 
+  const dot = await panel.locator('.sd-strip-cmd-status').evaluate((element) => {
+    const marker = getComputedStyle(element, '::before')
+    return { background: marker.backgroundColor, width: marker.width, radius: marker.borderTopLeftRadius }
+  })
+
   expect(accents.panel).toBe(keyAccent)
+  // The design's leading state dot tracks the status ink via currentColor.
+  expect(dot.background).toBe(accents.status)
+  expect(parseFloat(dot.width)).toBeGreaterThan(0)
+  expect(dot.radius).not.toBe('0px')
   // Both inks resolve from --sd-accent, so neither can be a hardcoded green.
   expect(accents.icon).toBe(accents.status)
   expect(accents.icon).not.toBe('rgb(0, 0, 0)')
