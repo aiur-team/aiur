@@ -163,6 +163,10 @@ defmodule Aiur.Orchestrator do
 
   def handle_info({:retry_comment_rework, issue_number, source, event, attempt}, state)
       when is_integer(attempt) do
+    # The tracked timer has now fired; drop its ref before the attempt runs so a
+    # rescheduled retry replaces it rather than being cancelled as "superseded".
+    state = CommentWake.forget_comment_rework_retry(state, issue_number, source)
+
     {:noreply, CommentWake.maybe_reactivate_on_comment(state, issue_number, source, event, attempt)}
   end
 
@@ -448,8 +452,12 @@ defmodule Aiur.Orchestrator do
   @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?, do: GlobalPause.globally_paused?()
 
-  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status, do: GlobalPause.global_pause_status()
+
+  @spec global_pause_status(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
+  def global_pause_status(server, timeout_ms), do: GlobalPause.global_pause_status(server, timeout_ms)
 
   @spec set_global_pause(boolean()) :: {:ok, map()} | {:error, term()}
   def set_global_pause(on?) when is_boolean(on?), do: GlobalPause.set_global_pause(on?)

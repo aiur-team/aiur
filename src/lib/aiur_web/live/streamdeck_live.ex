@@ -17,8 +17,8 @@ defmodule AiurWeb.StreamdeckLive do
 
   alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.{Endpoint, StreamDeckGrid, StreamdeckKeyFaceContract, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
 
   @streamdeck_package %{
     version: "0.0.0-dev.0098e3ac86a2",
@@ -27,6 +27,27 @@ defmodule AiurWeb.StreamdeckLive do
       "https://github.com/aiur-team/aiur/releases/download/streamdeck-0098e3ac86a2e49e685e8e6ff67248373de43f1d/" <>
         "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
   }
+
+  # The web emulator's own drawing routine, fed entirely by the shared key-face
+  # contract: a state's colours are stated once, in the contract, and reach the
+  # page as CSS custom properties keyed by the same `st-<bucket>` class the
+  # packaged deck keys its bitmaps by.
+  @key_face_css StreamdeckKeyFaceContract.states()
+                |> Enum.sort_by(fn {_bucket, state} -> state["rank"] end)
+                |> Enum.map_join("", fn {bucket, state} ->
+                  pulse =
+                    case state["pulse_seconds"] do
+                      seconds when is_number(seconds) ->
+                        ".sd-agent-key.st-#{bucket} .sd-ag-dot,.sd-agent-key.st-#{bucket} .sd-ag-stat::before{animation:sd-pulse #{seconds}s ease-in-out infinite;}"
+
+                      _absent ->
+                        ""
+                    end
+
+                  ".sd-key.st-#{bucket}{--sd-accent:#{state["accent"]};--sd-glow:#{state["glow"]};--sd-face:#{state["face"]};}" <>
+                    ".sd-key.st-#{bucket} .sd-key-face{background:var(--sd-face);}" <> pulse
+                end)
+                |> then(&Phoenix.HTML.raw("<style>" <> &1 <> "</style>"))
 
   @impl true
   def mount(_params, _session, socket) do
@@ -45,6 +66,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:control_feedback, nil)
       |> assign(:install_modal?, false)
       |> assign(:streamdeck_package, @streamdeck_package)
+      |> assign(:mic_held?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
       |> refresh_grid()
@@ -124,8 +146,15 @@ defmodule AiurWeb.StreamdeckLive do
 
   def handle_event("dial-press", %{"index" => _index, "action" => _action}, socket), do: {:noreply, socket}
 
-  def handle_event("mic-hold", %{"active" => _active}, socket),
-    do: {:noreply, socket}
+  # "logs" never reaches here — the clause above owns it and enters log mode.
+  def handle_event("command-press", %{"command" => command}, socket) when command in ["pause", "priority"] do
+    {:noreply, assign(socket, :control_feedback, "#{command_label(command)} selected")}
+  end
+
+  def handle_event("mic-hold", %{"active" => active}, socket) when is_boolean(active),
+    do: {:noreply, assign(socket, :mic_held?, active)}
+
+  def handle_event("mic-hold", _params, socket), do: {:noreply, socket}
 
   @impl true
   def handle_info({:running_changed, _summaries}, socket) do
@@ -162,6 +191,8 @@ defmodule AiurWeb.StreamdeckLive do
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
     >
+      {key_face_css()}
+
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
         <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
           <header class="sd-brand">
@@ -187,48 +218,67 @@ defmodule AiurWeb.StreamdeckLive do
           </header>
 
           <%= if @sd_mode == :grid do %>
-          <ul id="sd-keys" class="sd-keys" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
-            <li
+          <div id="sd-keys" class="sd-keys" role="group" data-mode-view="grid" aria-label="Agent keys" data-grid-total={@grid.total} data-grid-windows={@grid.windows} data-grid-page={@grid_page} data-grid-page-count={@grid.windows} data-grid-column-offset={@grid_column_offset} data-grid-dial-value={@grid_dial_value} data-grid-selected-identifier={@selected_identifier}>
+            <button
               :for={key <- @keys}
-              class={["sd-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
+              type="button"
+              class={["sd-key", "sd-agent-key", key.empty? && "is-empty", "st-#{key.bucket}"]}
+              disabled={key.empty?}
+              style={key.style}
               aria-hidden={to_string(key.empty?)}
               data-streamdeck-key={key.slot}
               data-streamdeck-identifier={key.identifier}
               data-control-action={key.control_action}
             >
-              <div class="sd-key-face">
-                <div :if={!key.empty?} class="sd-key-topline">
-                  <span class="sd-key-vendor">{key.vendor}</span>
-                  <span :if={key.priority?} class="sd-key-priority" aria-label="Priority">★</span>
+              <div class={["sd-key-face", !key.empty? && "sd-agent"]}>
+                <div :if={!key.empty?} class="sd-agent-top">
+                  <BuildOrderEpicIcon.build_order_epic_icon lane={key.icon} class="sd-ag-ic" />
+                  <img :if={key.vendor_logo} class="sd-ag-vendor" src={key.vendor_logo} alt="" />
+                  <span :if={!key.vendor_logo} class="sd-ag-vendor-fallback" role="img" aria-label="Unknown provider">◌</span>
+                  <span class="sd-ag-idwrap">
+                    <span :if={key.priority?} class="sd-ag-prio" aria-label="Prioritized">
+                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 3l2.6 5.7 6.2.6-4.7 4.2 1.4 6.1L12 17l-5.5 2.6 1.4-6.1L3.2 9.3l6.2-.6z" /></svg>
+                    </span>
+                    <span class="sd-ag-id">{key.ticket}</span>
+                  </span>
                 </div>
-                <div :if={!key.empty?} class="sd-key-main">
-                  <span class="sd-key-ticket">#{key.ticket}</span>
-                  <span class="sd-key-title">{key.title}</span>
+                <span :if={!key.empty?} class="sd-ag-title">{key.title}</span>
+                <div :if={!key.empty? and key.bucket == "queued"} class="sd-ag-foot col">
+                  <span class="sd-ag-stat">{key.label}</span>
+                  <span class={["sd-ag-tag", key.dependency_ready? && "ready", !key.dependency_ready? && "blocked"]}>{key.dependency}</span>
                 </div>
-                <div :if={!key.empty? and key.bucket == "queued"} class="sd-key-footer">
-                  <span>{key.label}</span><b>{key.dependency}</b>
-                </div>
-                <div :if={!key.empty? and key.bucket != "queued"} class="sd-key-footer">
-                  <span class="sd-status-dot" aria-hidden="true"></span><span>{key.label}</span>
-                  <span class="sd-progress" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
+                <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
+                  <span class="sd-ag-dot" aria-hidden="true"></span>
+                  <span class="sr-only">{key.label}</span>
+                  <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={"#{key.progress}% complete"}><i style={"width: #{key.progress}%"}></i></span>
                 </div>
               </div>
-            </li>
-          </ul>
+            </button>
+          </div>
 
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <div id="sd-cmd-view" class="sd-cmd-view" data-mode-view="cmd" role="group" aria-label="Agent commands">
-            <p class="sd-mode-label">Commands</p>
-            <p id="sd-control-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
-            <ul class="sd-cmd-list" aria-label="Available commands">
-              <li class="sd-cmd-item">Run tests</li>
-              <li class="sd-cmd-item">Deploy staging</li>
-              <li class="sd-cmd-item" phx-click="command-press" phx-value-command="logs">View logs</li>
-              <li class="sd-cmd-item">Open PR</li>
-            </ul>
-          </div>
+          <p id="sd-control-status" class="sr-only" role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
+          <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
+            <li :for={key <- command_keys(@sd_active)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty"]} aria-hidden={to_string(key.empty?)}>
+              <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-streamdeck-identifier={@selected_identifier} aria-label={key.label}>
+                <span class="sd-cmd">
+                  <span class="sd-cmd-ic" aria-hidden="true">
+                    <svg :if={key.icon == "pause"} data-streamdeck-icon="pause" viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/></svg>
+                    <svg :if={key.icon == "play"} data-streamdeck-icon="play" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M8 5.5v13l11-6.5z"/></svg>
+                    <svg :if={key.icon == "up"} data-streamdeck-icon="up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 19V5M6 11l6-6 6 6"/></svg>
+                    <svg :if={key.icon == "down"} data-streamdeck-icon="down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+                    <svg :if={key.icon == "logs"} data-streamdeck-icon="logs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+                    <svg :if={key.icon == "mic"} data-streamdeck-icon="mic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/></svg>
+                  </span>
+                  <span class="sd-cmd-label">{key.label}</span>
+                  <span class="sd-cmd-sub">{key.sub}</span>
+                </span>
+              </button>
+              <button :if={key.empty?} type="button" class="sd-key-face" disabled aria-hidden="true" tabindex="-1"></button>
+            </li>
+          </ul>
           <% end %>
 
           <%= if @sd_mode == :logs do %>
@@ -236,7 +286,7 @@ defmodule AiurWeb.StreamdeckLive do
             <p class="sd-mode-label">Logs</p>
             <div id="sd-log-events" class="sd-log-body" data-offset={@logs.events_offset} data-max-offset={@logs.events_max_offset}>
               <span id="sd-events-hint-up" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset == 0)}>↑</span>
-              <p :for={event <- @logs.events_visible} class="sd-log-line">{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
+              <p :for={event <- @logs.events_visible} class={["sd-log-line", "sd-log-badge"]} style={log_badge_style(event.badge)}>{StreamdeckLogs.line(%{kind: :event_header, badge: event.badge, body: event.body})}</p>
               <p :if={@logs.events_visible == []} class="sd-log-line">No recent events.</p>
               <span id="sd-events-hint-down" class="sd-log-hint" aria-hidden={to_string(@logs.events_offset >= @logs.events_max_offset)}>↓</span>
             </div>
@@ -466,42 +516,48 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp agent_key(slot, agent) do
     bucket = Map.fetch!(agent, :bucket)
-    dependency_ready = Map.get(agent, :dependency_ready, true)
+    footer = StreamdeckKeyFaceContract.footer_for_agent(bucket, agent)
 
     key(
       slot,
       Atom.to_string(bucket),
-      Map.get(agent, :vendor, "unknown"),
       Map.get(agent, :identifier),
       Map.get(agent, :title, "Untitled"),
-      bucket_label(bucket),
+      footer.label,
       Map.get(agent, :progress_percent, 0),
       identifier: Map.get(agent, :identifier),
       control_action: control_action(bucket),
       priority?: Map.get(agent, :priority, false),
-      dependency: if(bucket == :queued and not dependency_ready, do: "Blocked")
+      icon: Map.get(agent, :icon),
+      vendor_logo: Map.get(agent, :vendor_logo),
+      dependency_ready?: footer.ready?,
+      dependency: footer.dependency,
+      style: key_style(Map.get(agent, :progress_percent, 0))
     )
   end
 
-  defp key(slot, bucket, vendor, ticket, title, label, progress, opts) do
+  defp key(slot, bucket, ticket, title, label, progress, opts) do
     %{
       slot: slot,
       bucket: bucket,
-      vendor: vendor,
       ticket: ticket,
       title: title,
       label: label,
       progress: progress,
       priority?: Keyword.get(opts, :priority?, false),
+      dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
+      icon: Keyword.get(opts, :icon),
+      vendor_logo: Keyword.get(opts, :vendor_logo),
       dependency: Keyword.get(opts, :dependency),
       identifier: Keyword.get(opts, :identifier, ticket),
       control_action: Keyword.get(opts, :control_action),
+      style: Keyword.fetch!(opts, :style),
       empty?: false
     }
   end
 
   defp empty_key(slot),
-    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, empty?: true}
+    do: %{slot: slot, bucket: "empty", identifier: nil, control_action: nil, style: nil, empty?: true}
 
   defp screen_descriptors(grid, usage, current_page, focus) do
     live = live_count(grid)
@@ -652,15 +708,61 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp meter_aria_label(%{label: label}), do: "#{label} unavailable"
 
-  defp bucket_label(:alert), do: "Alert"
-  defp bucket_label(:stuck), do: "Stuck"
-  defp bucket_label(:running), do: "Running"
-  defp bucket_label(:paused), do: "Paused"
-  defp bucket_label(:queued), do: "Queued"
+  defp key_face_css, do: @key_face_css
+
+  defp key_style(progress), do: "--sd-progress-fill: #{StreamdeckKeyFaceContract.progress_color(progress)}"
+
+  defp log_badge_style(badge), do: "--sd-log-badge: #{StreamdeckKeyFaceContract.direction_badge!(badge)["color"]}"
 
   defp control_action(:running), do: "pause"
   defp control_action(:paused), do: "resume"
   defp control_action(_bucket), do: nil
+
+  # Without a focused agent there is no real pause or priority state to render.
+  # Blank every slot rather than showing a control whose label would be a guess.
+  defp command_keys(nil), do: List.duplicate(empty_command_key(), 8)
+
+  defp command_keys(agent) do
+    paused? = Map.get(agent, :bucket) == :paused
+    prioritized? = Map.get(agent, :priority, false)
+
+    [
+      command_key(
+        "pause",
+        if(paused?, do: "Play", else: "Pause"),
+        if(paused?, do: "RESUME", else: "HOLD"),
+        icon: if(paused?, do: "play", else: "pause")
+      ),
+      command_key(
+        "priority",
+        if(prioritized?, do: "Deprioritize", else: "Prioritize"),
+        if(prioritized?, do: "LOWER", else: "RAISE"),
+        icon: if(prioritized?, do: "down", else: "up")
+      ),
+      command_key("logs", "Logs", "SCROLL", icon: "logs"),
+      command_key("mic", "Mic", "HOLD", icon: "mic", mic?: true),
+      empty_command_key(),
+      empty_command_key(),
+      empty_command_key(),
+      empty_command_key()
+    ]
+  end
+
+  defp command_key(command, label, sub, opts) do
+    %{
+      command: command,
+      label: label,
+      sub: sub,
+      icon: Keyword.fetch!(opts, :icon),
+      mic?: Keyword.get(opts, :mic?, false),
+      empty?: false
+    }
+  end
+
+  defp empty_command_key, do: %{empty?: true, mic?: false}
+
+  defp command_label("pause"), do: "Pause"
+  defp command_label("priority"), do: "Priority"
 
   defp invoke_agent_control(socket, identifier, :pause) do
     case safe_control_call(fn -> pause_agent(identifier) end) do

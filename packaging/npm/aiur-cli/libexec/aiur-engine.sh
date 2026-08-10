@@ -317,6 +317,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
@@ -1752,9 +1753,49 @@ run_release_rpc_with_timeout() {
   return "$status"
 }
 
+control_command_label() {
+  printf '%s' "${AIUR_CONTROL_COMMAND:-control rpc}"
+}
+
+# Every line a control RPC surfaces to the operator routes through one of these
+# two helpers, so `run_control_rpc` can prove it never returns non-zero while
+# saying nothing (#1684): a silent failure is indistinguishable from a healthy
+# idle fleet, and nobody reads exit codes interactively.
+control_rpc_say() {
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
+control_rpc_echo_output() {
+  [ -n "$1" ] || return 0
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
+#
+# Wrapper contract: a non-zero return ALWAYS carries at least one stderr line
+# naming the command that failed. EX_TEMPFAIL (75) is exempt — it is the dev
+# shim's internal rebuild-and-retry signal, never an operator-visible outcome.
 run_control_rpc() {
+  local status=0
+
+  AIUR_CONTROL_RPC_DIAGNOSED=0
+  run_control_rpc_dispatch "$@" || status=$?
+
+  if [ "$status" -ne 0 ] && [ "$status" -ne 75 ] && [ "${AIUR_CONTROL_RPC_DIAGNOSED:-0}" -ne 1 ]; then
+    if [ "$status" -eq 124 ]; then
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated"
+    else
+      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no output; the daemon may be scheduler-saturated"
+    fi
+  fi
+
+  return "$status"
+}
+
+run_control_rpc_dispatch() {
   local expression="$1"
   resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
@@ -1763,8 +1804,8 @@ run_control_rpc() {
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
 
-  local marker="__AIUR_CONTROL_EXIT__:"
-  local output status exit_code=0 saw_marker=0 line
+  local marker="__AIUR_CONTROL_EXIT__:" error_marker="__AIUR_CONTROL_ERROR__:"
+  local output status exit_code=0 saw_marker=0 saw_error=0 saw_output=0 line partial_suffix=""
 
   set +e
   run_release_rpc_with_timeout "$expression"
@@ -1779,9 +1820,8 @@ run_control_rpc() {
   fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
-    [ -n "$output" ] && printf '%s\n' "$output" >&2
-    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
-    echo "aiur: the daemon may be scheduler-saturated; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
+    [ -n "$output" ] && partial_suffix="; partial output was discarded"
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again"
     return 124
   fi
 
@@ -1794,17 +1834,31 @@ run_control_rpc() {
     # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
     # node failed for a real reason, and an `unknown` probe must not be assumed
     # down — in both of those cases surface the actual rpc output, never mask it.
+    #
+    # An empty buffer is its own case: `--rpc-eval` kills itself without a word
+    # when the evaluated expression exits (a GenServer call timing out against a
+    # saturated daemon does exactly that), so "see the error above" would point
+    # at nothing (#1684). Name the failure instead.
     case "$(probe_node_liveness)" in
       down)
         print_control_down_message
+        AIUR_CONTROL_RPC_DIAGNOSED=1
         ;;
       up)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (node is running); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (node is running); the daemon may be scheduler-saturated"
+        fi
         ;;
       *)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (could not query epmd to confirm node state); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (could not query epmd to confirm node state)"
+        fi
         ;;
     esac
     return 1
@@ -1816,14 +1870,27 @@ run_control_rpc() {
         saw_marker=1
         exit_code="${line#"$marker"}"
         ;;
+      "$error_marker"*)
+        saw_error=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
+        printf '%s\n' "${line#"$error_marker"}" >&2
+        ;;
       :ok | "") ;;
-      *) printf '%s\n' "$line" ;;
+      *)
+        saw_output=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
+        printf '%s\n' "$line"
+        ;;
     esac
   done <<<"$output"
 
   if [ "$saw_marker" -ne 1 ]; then
-    echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} returned no exit marker; command output may be incomplete"
     return 1
+  fi
+
+  if [ "$exit_code" -ne 0 ] && [ "$saw_error" -ne 1 ] && [ "$saw_output" -ne 1 ]; then
+    control_rpc_say "aiur: $(control_command_label) failed with exit ${exit_code} and returned no diagnostic output"
   fi
 
   return "$exit_code"
@@ -1843,7 +1910,13 @@ run_control_stream() {
     print_control_down_message
     return 1
   fi
-  exec "$release_bin" rpc "$expression"
+  if "$release_bin" rpc "$expression"; then
+    return 0
+  else
+    local status=$?
+    echo "aiur: streaming control RPC failed with exit ${status}" >&2
+    return "$status"
+  fi
 }
 
 elixir_list_literal() {
@@ -2024,6 +2097,51 @@ cmd_commands() {
   done
 
   run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
+}
+
+# `aiur units` — read the dashboard Units catalog through its own projection,
+# including non-running tickets in current-run membership.
+cmd_units() {
+  local scope="live" format="" json=0 arg condition condition_value condition_encoded conditions_literal=""
+  local -a conditions=() condition_values=()
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --scope) [ "$#" -gt 1 ] || { echo "aiur: units --scope requires a value" >&2; exit 64; }; shift; scope="$1" ;;
+      --scope=*) scope="${arg#--scope=}" ;;
+      --condition) [ "$#" -gt 1 ] || { echo "aiur: units --condition requires a value" >&2; exit 64; }; shift; conditions+=("$1") ;;
+      --condition=*) conditions+=("${arg#--condition=}") ;;
+      --format) [ "$#" -gt 1 ] || { echo "aiur: units --format requires a value" >&2; exit 64; }; shift; format="$1" ;;
+      --format=*) format="${arg#--format=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: units received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: units does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  for condition in "${conditions[@]+"${conditions[@]}"}"; do
+    IFS=',' read -r -a condition_values <<< "$condition"
+    for condition_value in "${condition_values[@]+"${condition_values[@]}"}"; do
+      if [ -n "$conditions_literal" ]; then conditions_literal="$conditions_literal, "; fi
+      condition_encoded="$(printf '%s' "$condition_value" | base64 | tr -d '\n')"
+      conditions_literal="${conditions_literal}Base.decode64!(\"${condition_encoded}\")"
+    done
+  done
+
+  local scope_encoded
+  scope_encoded="$(printf '%s' "$scope" | base64 | tr -d '\n')"
+  local opts="scope: Base.decode64!(\"$scope_encoded\")"
+  [ -z "$conditions_literal" ] || opts="$opts, conditions: [$conditions_literal]"
+
+  if [ -n "$format" ]; then
+    local format_encoded
+    format_encoded="$(printf '%s' "$format" | base64 | tr -d '\n')"
+    opts="$opts, format: Base.decode64!(\"$format_encoded\")"
+  fi
+
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.units([$opts])"
 }
 
 # `aiur build-orders` — read the dashboard Build Order projection without a
@@ -2521,6 +2639,9 @@ dispatch_run() {
 
 aiur_engine_main() {
   local cmd="${1:-}"
+  # Names the running subcommand in control-RPC diagnostics so a failure says
+  # which command failed instead of a generic "control rpc" (#1684).
+  AIUR_CONTROL_COMMAND="${cmd:-run}"
   case "$cmd" in
     __identity)
       aiur_print_identity
@@ -2573,6 +2694,10 @@ aiur_engine_main() {
     commands)
       shift
       cmd_commands "$@"
+      ;;
+    units)
+      shift
+      cmd_units "$@"
       ;;
     build-orders)
       shift

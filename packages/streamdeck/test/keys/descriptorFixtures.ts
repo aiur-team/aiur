@@ -6,6 +6,7 @@ import {
   BUCKET_STYLES,
   progressBarColor,
 } from "../../src/keys.js";
+import { KEY_FACE_CONTRACT } from "../../src/key-face-contract.js";
 
 export interface AgentKeyOverrides {
   readonly identifier?: string;
@@ -25,11 +26,15 @@ export function agentKey(overrides: AgentKeyOverrides = {}): AgentKey {
   const footer: Footer =
     bucket === "queued"
       ? {
-          kind: "queued",
+          kind: KEY_FACE_CONTRACT.footers.queued.kind,
           label: BUCKET_STYLES.queued.label,
-          unblocked: overrides.dependencyReady ?? true,
+          unblocked: overrides.dependencyReady === true,
+          statusLabel:
+            overrides.dependencyReady === true
+              ? KEY_FACE_CONTRACT.footers.queued.ready_label
+              : KEY_FACE_CONTRACT.footers.queued.blocked_label,
         }
-      : { kind: "progress", barColor: progressBarColor(percent), percent };
+      : { kind: KEY_FACE_CONTRACT.footers.progress.kind, barColor: progressBarColor(percent), percent };
   return {
     kind: "agent",
     identifier,

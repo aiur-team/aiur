@@ -12,12 +12,21 @@ defmodule Aiur.Workspace.ProvisionerTest do
       {:ok, {"", 0}}
     end
 
-    assert :ok = Provisioner.maybe_install_agent_skills("/remote/workspace", "worker-1", runner)
+    assert :ok = Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
     assert_received {:remote_install, "worker-1", script, timeout}
     assert is_integer(timeout) and timeout > 0
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"
     assert script =~ ".codex/skills/design-import"
+    assert script =~ ".aiur-runtime/bin/gh"
+    assert script =~ "chmod 755"
+  end
+
+  test "remote support installation failures stop workspace preparation" do
+    runner = fn _host, _script, _timeout -> {:ok, {"unsafe support path", 73}} end
+
+    assert {:error, {:remote_agent_support_install_failed, {:ok, {"unsafe support path", 73}}}} =
+             Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
   end
 
   test "parse_remote_workspace_output/1 with valid marker line returns ok tuple" do

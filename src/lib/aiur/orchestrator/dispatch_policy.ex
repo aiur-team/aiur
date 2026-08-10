@@ -4,10 +4,32 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   """
 
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
 
   @cpu_headroom_ramp_max 3
   @fd_headroom_percent 10
+
+  # States in which, by definition, there is no agent work: the PR is sitting in
+  # GitHub's merge queue (`merging`) or CI is in flight (`ci-wait`). Dispatching
+  # into them cannot produce progress, only cost — and every committed dispatch
+  # bills a lifetime unit, so a ticket can burn the terminal (self-declared
+  # unrecoverable) latch while waiting for the merge queue, *after* its work was
+  # finished and approved (#1759: 48 dispatches in ~50 minutes on a ticket in
+  # `merging` with an approved, queued PR).
+  #
+  # This is a code-level refusal rather than an `active_states` edit because
+  # `merging` must stay an active state for comment polling
+  # (`CommentPolling.TargetSelection`), the paused-agent sweep, and terminal-fence
+  # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
+  # sweep as legitimate waiting; refusing it here makes the two beliefs
+  # consistent regardless of how an operator configures `active_states`.
+  #
+  # Neither state strands a ticket: leaving `ci-wait` (the CI result delivery and
+  # the `ci_wait_rewake` fallback) and leaving `merging` (a trusted comment
+  # promoting the ticket to `rework`) both transition the tracker label *first*,
+  # so dispatch is re-evaluated against the new state.
+  @no_agent_work_states ["merging", "ci-wait"]
 
   @doc false
   # Reads the host 1-min load only when the hard gate or adaptive target is
@@ -72,6 +94,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec read_provider_backends() :: [String.t()]
   def read_provider_backends do
     Config.agent_backend_configs() |> CodingAgent.dispatchable_backends()
+  end
+
+  @doc false
+  @spec read_github_quota() :: :available | {:hold, map()}
+  def read_github_quota do
+    case Application.get_env(:aiur, :github_quota_status_override) do
+      :available -> :available
+      {:hold, %{} = hold} -> {:hold, hold}
+      fun when is_function(fun, 0) -> fun.()
+      _other -> Quota.dispatch_status()
+    end
   end
 
   @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
@@ -178,8 +211,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def provider_gate(_backends), do: :dispatch
 
+  @doc false
+  @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
+  def github_quota_gate({:hold, %{resource: resource}}) when resource in ["core", "graphql"], do: :hold
+  def github_quota_gate(_status), do: :dispatch
+
   @type admission_reason :: %{
-          signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider,
+          signal: :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
           measured: term(),
           threshold: term()
         }
@@ -189,24 +227,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
   (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, run queue, load, build, provider.
+  priority order is memory, file descriptors, GitHub quota, run queue, load,
+  build, provider.
   Every signal fails open when disabled or unavailable, so an explicit-disable
   config never touches a Linux-specific probe.
   """
   @spec admission_gate(map()) :: :dispatch | {:hold, admission_reason()}
-  def admission_gate(%{
-        memory_mb: memory_mb,
-        memory_threshold_mb: memory_threshold_mb,
-        fd_sample: fd_sample,
-        runnable: runnable,
-        run_queue_threshold: run_queue_threshold,
-        schedulers: schedulers,
-        load: load,
-        load_threshold: load_threshold,
-        build_status: build_status,
-        provider_backends: provider_backends,
-        queued_demand?: queued_demand?
-      }) do
+  def admission_gate(%{} = probes) do
+    github_quota = Map.get(probes, :github_quota, :available)
+
+    case resource_admission_gate(probes, github_quota) do
+      :dispatch -> workload_admission_gate(probes)
+      hold -> hold
+    end
+  end
+
+  defp resource_admission_gate(
+         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample},
+         github_quota
+       ) do
     cond do
       memory_gate(memory_mb, memory_threshold_mb) == :hold ->
         {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
@@ -214,6 +253,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       fd_gate(fd_sample) == :hold ->
         {:hold, %{signal: :file_descriptors, measured: fd_sample, threshold: fd_headroom_threshold(fd_sample)}}
 
+      github_quota_gate(github_quota) == :hold ->
+        {:hold, %{signal: :github_quota, measured: elem(github_quota, 1), threshold: :ten_percent_remaining}}
+
+      true ->
+        :dispatch
+    end
+  end
+
+  defp workload_admission_gate(%{
+         runnable: runnable,
+         run_queue_threshold: run_queue_threshold,
+         schedulers: schedulers,
+         load: load,
+         load_threshold: load_threshold,
+         build_status: build_status,
+         provider_backends: provider_backends,
+         queued_demand?: queued_demand?
+       }) do
+    cond do
       run_queue_gate(runnable, schedulers, run_queue_threshold) == :hold ->
         {:hold, %{signal: :run_queue, measured: runnable, threshold: run_queue_threshold * schedulers}}
 
@@ -568,6 +626,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       issue_dispatch_authorized?(issue) and
       issue_not_paused?(issue) and
       active_issue_state?(state_name, active_states) and
+      !no_agent_work_state?(state_name) and
       !terminal_issue_state?(state_name, terminal_states)
   end
 
@@ -619,6 +678,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   def terminal_issue_state?(_state_name, _terminal_states), do: false
+
+  @doc """
+  True for a state where no agent work exists, so dispatch must be refused.
+
+  See `@no_agent_work_states`. Independent of `active_states`: an operator can
+  list `merging` as active (it is, for polling and fence purposes) without making
+  it dispatchable.
+  """
+  @spec no_agent_work_state?(term()) :: boolean()
+  def no_agent_work_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) in @no_agent_work_states
+  end
+
+  def no_agent_work_state?(_state_name), do: false
 
   @spec active_issue_state?(term(), MapSet.t()) :: boolean()
   def active_issue_state?(state_name, active_states) when is_binary(state_name) do
