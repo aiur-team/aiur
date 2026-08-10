@@ -31,16 +31,22 @@ defmodule AiurWeb.StreamDeckGrid do
   end
 
   @spec project(map()) :: map()
-  @spec project(map(), (map() -> boolean())) :: map()
-  def project(snapshot, dependency_ready? \\ &dependency_ready?/1)
+  @spec project(map(), nil | (map() -> boolean())) :: map()
+  def project(snapshot, dependency_ready? \\ nil)
 
-  def project(%{} = snapshot, dependency_ready?) when is_function(dependency_ready?, 1) do
+  def project(%{} = snapshot, dependency_ready?) do
+    fleet = snapshot_agents(snapshot)
+
+    readiness_fun =
+      if is_function(dependency_ready?, 1),
+        do: dependency_ready?,
+        else: &dependency_ready?(&1, fleet)
+
     agents =
-      snapshot
-      |> snapshot_agents()
+      fleet
       |> Enum.map(fn entry -> {entry, AgentEvents.streamdeck_bucket(entry)} end)
       |> Enum.filter(fn {_entry, bucket} -> StreamdeckKeyFaceContract.known_state?(bucket) end)
-      |> Enum.map(fn {entry, bucket} -> agent_payload(entry, bucket, dependency_ready?) end)
+      |> Enum.map(fn {entry, bucket} -> agent_payload(entry, bucket, readiness_fun) end)
       |> stable_rank()
 
     total = length(agents)
@@ -125,8 +131,64 @@ defmodule AiurWeb.StreamDeckGrid do
 
   defp priority?(entry), do: is_integer(Map.get(entry, :priority)) and Map.get(entry, :priority) > 0
 
-  defp dependency_ready?(%{streamdeck_source: :queued, waiting_reason: :waiting_for_dependency}), do: false
-  defp dependency_ready?(%{streamdeck_source: :queued}), do: true
+  @doc """
+  Returns whether every explicit upstream dependency is complete in the fleet.
+
+  Readiness has to be earned twice over. The orchestrator's own
+  `:waiting_for_dependency` verdict blocks on its own, and beyond that every
+  entry in `:blocked_by` must resolve to a fleet member that is merged or at
+  100%. An absent `:blocked_by`, an upstream missing from the fleet, or an
+  upstream still in flight all read as blocked — the deck never infers
+  readiness from a field it did not get.
+  """
+  @spec dependency_ready?(map(), [map()]) :: boolean()
+  def dependency_ready?(agent, fleet) when is_map(agent) and is_list(fleet) do
+    with false <- Map.get(agent, :waiting_reason) == :waiting_for_dependency,
+         {:ok, blockers} when is_list(blockers) <- Map.fetch(agent, :blocked_by) do
+      Enum.all?(blockers, &dependency_satisfied?(&1, fleet))
+    else
+      _ -> false
+    end
+  end
+
+  def dependency_ready?(_agent, _fleet), do: false
+
+  defp dependency_satisfied?(blocker, fleet) do
+    with blocker_id when not is_nil(blocker_id) <- blocker_identifier(blocker),
+         upstream when is_map(upstream) <- Enum.find(fleet, &fleet_entry?(&1, blocker_id)) do
+      complete?(upstream)
+    else
+      _ -> false
+    end
+  end
+
+  defp blocker_identifier(%{id: id}) when not is_nil(id), do: id
+  defp blocker_identifier(%{identifier: identifier}) when not is_nil(identifier), do: identifier
+  defp blocker_identifier(identifier) when is_binary(identifier) or is_integer(identifier), do: identifier
+  defp blocker_identifier(_blocker), do: nil
+
+  defp fleet_entry?(entry, blocker_id) when is_map(entry) do
+    Enum.any?([Map.get(entry, :id), Map.get(entry, :issue_id), Map.get(entry, :identifier)], &same_identifier?(&1, blocker_id))
+  end
+
+  defp fleet_entry?(_entry, _blocker_id), do: false
+
+  defp same_identifier?(left, right) when is_binary(left) or is_integer(left), do: to_string(left) == to_string(right)
+  defp same_identifier?(_left, _right), do: false
+
+  defp complete?(entry) do
+    progress = Map.get(entry, :progress_percent) || Map.get(entry, :pct)
+
+    progress_complete?(progress) or merged_control?(Map.get(entry, :control)) or
+      Map.get(entry, :state) in ["Merged", :merged]
+  end
+
+  defp progress_complete?(progress) when is_integer(progress), do: progress >= 100
+  defp progress_complete?(_progress), do: false
+
+  defp merged_control?(control) when control in ["Merged", :merged], do: true
+  defp merged_control?(%{status: status}), do: status in ["Merged", :merged]
+  defp merged_control?(_control), do: false
 
   defp ceil_div(0, _divisor), do: 0
   defp ceil_div(value, divisor), do: div(value + divisor - 1, divisor)
