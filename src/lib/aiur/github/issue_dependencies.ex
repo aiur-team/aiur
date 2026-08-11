@@ -32,7 +32,7 @@ defmodule Aiur.GitHub.IssueDependencies do
 
   require Logger
 
-  alias Aiur.GitHub.{Client, Transport}
+  alias Aiur.GitHub.{BlockerCache, Client, Transport}
 
   @max_depth 100
   @graph_frontier_size 100
@@ -61,12 +61,19 @@ defmodule Aiur.GitHub.IssueDependencies do
          blocker_id when is_integer(blocker_id) <- Map.get(blocker_issue, "id"),
          :ok <- check_not_already_present(current_number, blocker_id, client_opts),
          :ok <- cycle_check(current_number, blocker_number, client_opts),
-         {:ok, result} <- post_dependency(current_number, blocker_id, client_opts) do
+         {:ok, result} <- post_dependency(current_number, blocker_id, client_opts),
+         :ok <- invalidate_dependent_cache(current_number) do
       {:ok, result}
     else
-      :already_present -> {:ok, :already_present}
-      {:error, reason} -> {:error, reason}
-      other -> {:error, {:unexpected, other}}
+      :already_present ->
+        :ok = invalidate_dependent_cache(current_number)
+        {:ok, :already_present}
+
+      {:error, reason} ->
+        {:error, reason}
+
+      other ->
+        {:error, {:unexpected, other}}
     end
   end
 
@@ -157,14 +164,19 @@ defmodule Aiur.GitHub.IssueDependencies do
   defp verify_unblocked(current_number, blocker_id, result, client_opts) do
     case Client.fetch_blocked_by(current_number, client_opts) do
       {:ok, dependencies} ->
-        if Enum.any?(dependencies, &(Map.get(&1, "id") == blocker_id)),
-          do: {:error, :dependency_still_present},
-          else: {:ok, result}
+        if Enum.any?(dependencies, &(Map.get(&1, "id") == blocker_id)) do
+          {:error, :dependency_still_present}
+        else
+          :ok = invalidate_dependent_cache(current_number)
+          {:ok, result}
+        end
 
       {:error, reason} ->
         {:error, {:postcondition_check_failed, reason}}
     end
   end
+
+  defp invalidate_dependent_cache(issue_number), do: BlockerCache.invalidate_dependent(to_string(issue_number))
 
   defp cycle_check(current_number, blocker_number, client_opts) do
     state = %{

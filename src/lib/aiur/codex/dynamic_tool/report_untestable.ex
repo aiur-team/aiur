@@ -3,7 +3,7 @@ defmodule Aiur.Codex.DynamicTool.ReportUntestable do
 
   @behaviour Aiur.Codex.DynamicTool.Handler
 
-  alias Aiur.Codex.DynamicTool.{Errors, Response}
+  alias Aiur.Codex.DynamicTool.{Args, Errors, Response}
 
   @impl true
   def tools, do: ["report_untestable"]
@@ -41,20 +41,7 @@ defmodule Aiur.Codex.DynamicTool.ReportUntestable do
   defp call_reporter(reporter, criterion, reason) when is_function(reporter, 2), do: reporter.(criterion, reason)
   defp call_reporter(_reporter, _criterion, _reason), do: {:error, :untestable_reporter_unavailable}
 
-  defp required_string(arguments, key, error) when is_map(arguments) do
-    atom_key = if key == "criterion", do: :criterion, else: :reason
-
-    case Map.get(arguments, key) || Map.get(arguments, atom_key) do
-      value when is_binary(value) ->
-        case String.trim(value) do
-          "" -> {:error, error}
-          trimmed -> {:ok, trimmed}
-        end
-
-      _ ->
-        {:error, error}
-    end
-  end
+  defp required_string(arguments, key, error) when is_map(arguments), do: Args.string(arguments, key, error)
 
   defp required_string(_arguments, _key, error), do: {:error, error}
 end

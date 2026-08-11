@@ -13,7 +13,6 @@ defmodule Aiur.GitHub.Issues do
   # budget rather than multiplying it by the number of candidate issues.
   @max_blocker_hydration_requests_per_poll 20
   @max_timeline_requests_per_blocker 4
-  @max_hydrations_per_poll div(@max_blocker_hydration_requests_per_poll, @max_timeline_requests_per_blocker + 1)
 
   @spec max_issue_response_bytes() :: pos_integer()
   def max_issue_response_bytes, do: @max_issue_response_bytes
@@ -159,8 +158,8 @@ defmodule Aiur.GitHub.Issues do
 
       with {:ok, issues} <-
              fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
-        {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix, opts)}
+           {:ok, issues} <- enrich_issues(issues, request_fun, token, owner, repo, prefix, opts) do
+        {:ok, issues}
       end
     end
   end
@@ -173,7 +172,8 @@ defmodule Aiur.GitHub.Issues do
         token: token,
         owner: owner,
         repo: repo,
-        prefix: GitHub.Config.label_prefix()
+        prefix: GitHub.Config.label_prefix(),
+        opts: opts
       }
 
       state_names
@@ -202,13 +202,13 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp finish_conditional_fetch({:ok, issues_by_id, updated_cache}, ctx) do
-    # `normalize_issue/5` defaults `dispatch_authorized?: false`, so this step
-    # is load-bearing, not an optimization: without it
-    # `DispatchPolicy.candidate_issue?/3` rejects every issue and the daemon
-    # dispatches nothing. Must mirror the unconditional path.
-    issues = authorize_dispatches(Map.values(issues_by_id), ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix)
-
-    {:ok, issues, updated_cache}
+    # `normalize_issue/5` defaults `dispatch_authorized?: false`, while the
+    # dispatcher relies on `blocked_by` to keep unresolved spikes from
+    # dispatching their dependents. Conditional polling must therefore use the
+    # same hydration-and-authorization sequence as the unconditional paths.
+    with {:ok, issues} <- enrich_issues(Map.values(issues_by_id), ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix, ctx.opts) do
+      {:ok, issues, updated_cache}
+    end
   end
 
   defp finish_conditional_fetch(error, _ctx), do: error
@@ -275,8 +275,8 @@ defmodule Aiur.GitHub.Issues do
 
       with {:ok, issues} <-
              do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
-        {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix, opts)}
+           {:ok, issues} <- enrich_issues(issues, request_fun, token, owner, repo, prefix, opts) do
+        {:ok, issues}
       end
     end
   end
@@ -416,7 +416,7 @@ defmodule Aiur.GitHub.Issues do
     refreshable_ids = refreshable_blocker_ids(issues, cache?, cache_opts, context)
 
     scheduled_refreshes =
-      BlockerCache.scheduled_refreshes(refreshable_ids, @max_hydrations_per_poll)
+      BlockerCache.scheduled_refreshes(refreshable_ids, @max_blocker_hydration_requests_per_poll)
 
     hydration_state = %{
       remaining_requests: @max_blocker_hydration_requests_per_poll,
@@ -433,6 +433,12 @@ defmodule Aiur.GitHub.Issues do
       end)
 
     {:ok, enriched}
+  end
+
+  defp enrich_issues(issues, request_fun, token, owner, repo, prefix, opts) do
+    with {:ok, issues} <- attach_blockers(issues, request_fun, token, owner, repo, prefix, opts) do
+      {:ok, authorize_dispatches(issues, request_fun, token, owner, repo, prefix, opts)}
+    end
   end
 
   defp refreshable_blocker_ids(issues, false, _cache_opts, _context), do: Enum.map(issues, & &1.id)
@@ -455,16 +461,7 @@ defmodule Aiur.GitHub.Issues do
 
     case BlockerCache.cached(cache_key, cache_opts) do
       {:fresh, blockers} ->
-        if requires_current_signoff_labels?(blockers, context.prefix) do
-          if scheduled? and hydration_state.remaining_requests > 0 do
-            hydrate_cached_signoff_refresh(issue, cache_key, blockers, cache_opts, hydration_state, context)
-          else
-            blocker_hydration_deferred(issue, :signoff_refresh)
-            {[unknown_blocker() | drop_cached_signoff_authorization(blockers)], hydration_state}
-          end
-        else
-          annotate_blocker_signoffs(drop_cached_signoff_authorization(blockers), issue, context, hydration_state)
-        end
+        hydrate_fresh_blockers(issue, cache_key, blockers, cache_opts, hydration_state, context, scheduled?)
 
       stale_or_missing when not scheduled? or hydration_state.remaining_requests == 0 ->
         blocker_hydration_deferred(issue, stale_or_missing)
@@ -482,6 +479,24 @@ defmodule Aiur.GitHub.Issues do
     else
       blocker_hydration_deferred(issue, :missing)
       {[unknown_blocker()], hydration_state}
+    end
+  end
+
+  defp hydrate_fresh_blockers(issue, cache_key, blockers, cache_opts, hydration_state, context, true)
+       when hydration_state.remaining_requests > 0 do
+    if requires_current_signoff_labels?(blockers, context.prefix) do
+      hydrate_cached_signoff_refresh(issue, cache_key, blockers, cache_opts, hydration_state, context)
+    else
+      annotate_blocker_signoffs(drop_cached_signoff_authorization(blockers), issue, context, hydration_state)
+    end
+  end
+
+  defp hydrate_fresh_blockers(issue, _cache_key, blockers, _cache_opts, hydration_state, context, _scheduled?) do
+    if requires_current_signoff_labels?(blockers, context.prefix) do
+      blocker_hydration_deferred(issue, :signoff_refresh)
+      {[unknown_blocker() | drop_cached_signoff_authorization(blockers)], hydration_state}
+    else
+      annotate_blocker_signoffs(drop_cached_signoff_authorization(blockers), issue, context, hydration_state)
     end
   end
 
@@ -615,18 +630,29 @@ defmodule Aiur.GitHub.Issues do
 
   defp verify_blocker_signoff(blocker, context, hydration_state) do
     cache_key = blocker_signoff_cache_key(blocker, context)
+    gate_context = Map.put(context, :issue_number, blocker["number"])
 
     case Map.fetch(hydration_state.signoff_results, cache_key) do
-      {:ok, result} ->
+      {:ok, {:ok, events}} ->
+        result = HardwareVerificationGate.validate_passing_operator_signoff(gate_context, blocker, events)
+        apply_signoff_result(blocker, result, hydration_state)
+
+      {:ok, {:error, _reason} = result} ->
         apply_signoff_result(blocker, result, hydration_state)
 
       :error when hydration_state.remaining_requests < @max_timeline_requests_per_blocker ->
         deferred_signoff(blocker, hydration_state)
 
       :error ->
-        gate_context = Map.put(context, :issue_number, blocker["number"])
-        result = HardwareVerificationGate.passing_operator_signoff_identity(gate_context, blocker)
-        next_state = consume_timeline_budget(hydration_state, cache_key, result)
+        timeline_result = HardwareVerificationGate.fetch_timeline_events(gate_context)
+
+        result =
+          case timeline_result do
+            {:ok, events} -> HardwareVerificationGate.validate_passing_operator_signoff(gate_context, blocker, events)
+            {:error, _reason} = error -> error
+          end
+
+        next_state = consume_timeline_budget(hydration_state, cache_key, timeline_result)
         apply_signoff_result(blocker, result, next_state)
     end
   end

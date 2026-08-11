@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.HardwareVerificationGate do
   @moduledoc "Posts the CI blind-spot notice when hardware work reaches human review."
 
-  alias Aiur.GitHub.{Comments, Config, Errors, PullRequests, StatePolicy, Transport}
+  alias Aiur.GitHub.{Comments, Config, Errors, Issues, PullRequests, StatePolicy, Transport}
   alias Aiur.HardwareVerification
 
   @notice_marker "<!-- aiur:hardware-verification-required -->"
@@ -16,12 +16,9 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
       with :ok <- HardwareVerification.verify_terminal_transition(issue_body, state_name, context.prefix),
            {:ok, events} <- fetch_timeline_events(context),
            outcome_label when is_binary(outcome_label) <- HardwareVerification.outcome_label(issue_body, context.prefix),
-           {:ok, identity} <- signoff_identity(events, outcome_label, context),
-           true <- operator_authorized?(identity.verified.actor, context),
-           true <- operator_authorized?(identity.outcome.actor, context) do
+           {:ok, _identity} <- authenticated_signoff_identity(events, outcome_label, issue_body, context) do
         :ok
       else
-        false -> {:error, {:operator_signoff_event_required, :untrusted_actor}}
         {:error, _reason} = error -> error
         _ -> {:error, {:operator_signoff_event_required, :invalid_operator_authorizer}}
       end
@@ -31,24 +28,22 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
   end
 
   @doc false
-  @spec passing_operator_signoff?(map(), map()) :: boolean()
-  def passing_operator_signoff?(context, issue_body) do
-    match?({:ok, _identity}, passing_operator_signoff_identity(context, issue_body))
+  @spec passing_operator_signoff_identity(map(), map()) :: {:ok, map()} | {:error, term()}
+  def passing_operator_signoff_identity(context, issue_body) do
+    with {:ok, events} <- fetch_timeline_events(context) do
+      validate_passing_operator_signoff(context, issue_body, events)
+    end
   end
 
   @doc false
-  @spec passing_operator_signoff_identity(map(), map()) :: {:ok, map()} | {:error, term()}
-  def passing_operator_signoff_identity(context, issue_body) do
+  @spec validate_passing_operator_signoff(map(), map(), [map()]) :: {:ok, map()} | {:error, term()}
+  def validate_passing_operator_signoff(context, issue_body, events) do
     passed = HardwareVerification.passed_label(context.prefix)
 
     with ^passed <- HardwareVerification.outcome_label(issue_body, context.prefix),
-         {:ok, events} <- fetch_timeline_events(context),
-         {:ok, identity} <- signoff_identity(events, passed, context),
-         true <- operator_authorized?(identity.verified.actor, context),
-         true <- operator_authorized?(identity.outcome.actor, context) do
+         {:ok, identity} <- authenticated_signoff_identity(events, passed, issue_body, context) do
       {:ok, identity}
     else
-      false -> {:error, :untrusted_actor}
       {:error, _reason} = error -> error
       _ -> {:error, :missing_passing_operator_signoff}
     end
@@ -100,7 +95,9 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
   defp notice_comment?(%{"body" => body}) when is_binary(body), do: String.contains?(body, @notice_marker)
   defp notice_comment?(_comment), do: false
 
-  defp fetch_timeline_events(context) do
+  @doc false
+  @spec fetch_timeline_events(map()) :: {:ok, [map()]} | {:error, term()}
+  def fetch_timeline_events(context) do
     url = "#{Transport.base_url()}/repos/#{context.owner}/#{context.repo}/issues/#{context.issue_number}/timeline?per_page=100"
     fetch_timeline_pages(context.request_fun, context.token, url, @timeline_page_limit, [])
   end
@@ -127,11 +124,23 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     end
   end
 
-  defp signoff_identity(events, outcome_label, context) do
+  defp authenticated_signoff_identity(events, outcome_label, issue_body, context) do
+    with {:ok, identity} <- signoff_identity(events, outcome_label, issue_body, context),
+         true <- operator_authorized?(identity.verified.actor, context),
+         true <- operator_authorized?(identity.outcome.actor, context) do
+      {:ok, identity}
+    else
+      false -> {:error, {:operator_signoff_event_required, :untrusted_actor}}
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp signoff_identity(events, outcome_label, issue_body, context) do
     with {:ok, verified} <- latest_signoff_event(events, HardwareVerification.verified_label(context.prefix)),
          {:ok, outcome} <- latest_signoff_event(events, outcome_label),
          :ok <- outcome_after_verification(verified, outcome),
-         :ok <- outcome_after_acceptance_revision(events, outcome) do
+         :ok <- outcome_after_acceptance_revision(events, outcome),
+         :ok <- outcome_after_issue_revision(issue_body, outcome) do
       {:ok, %{verified: Map.delete(verified, :event_order), outcome: Map.delete(outcome, :event_order)}}
     end
   end
@@ -171,6 +180,32 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
       _revision -> {:error, {:operator_signoff_event_required, :outcome_precedes_acceptance_revision}}
     end
   end
+
+  defp outcome_after_issue_revision(issue_body, %{event_order: outcome}) do
+    case issue_revision_order(issue_body) do
+      nil -> :ok
+      revision when outcome >= revision -> :ok
+      _revision -> {:error, {:operator_signoff_event_required, :outcome_precedes_issue_revision}}
+    end
+  end
+
+  defp issue_revision_order(issue_body) when is_map(issue_body) do
+    case Map.get(issue_body, "updated_at", Map.get(issue_body, :updated_at)) do
+      %DateTime{} = updated_at ->
+        {DateTime.to_unix(updated_at, :microsecond), 0}
+
+      updated_at when is_binary(updated_at) ->
+        case Issues.parse_datetime(updated_at) do
+          %DateTime{} = parsed -> {DateTime.to_unix(parsed, :microsecond), 0}
+          nil -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  defp issue_revision_order(_issue_body), do: nil
 
   defp latest_acceptance_revision(events) do
     events

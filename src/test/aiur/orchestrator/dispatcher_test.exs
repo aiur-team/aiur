@@ -1304,6 +1304,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   describe "hardware-verification dispatch routing" do
     test "marks and alerts on a hardware-dependent ticket before dispatch" do
       test_pid = self()
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent")
       issue = %Issue{id: "1483", identifier: "1483", title: "HID probe", description: "## Acceptance\n- Read /dev/hidraw0 then press the dial."}
 
       assert :ok =
@@ -1327,6 +1328,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end
 
     test "does not route ordinary tickets and does not re-notify after a delivered marker" do
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo", tracker_label_prefix: "agent")
       ordinary = %Issue{id: "1", identifier: "1", title: "Docs", description: "Clarify the README."}
 
       assert :ok = Dispatcher.route_hardware_verification(ordinary, add_label: fn _, _ -> flunk("must not mark") end)

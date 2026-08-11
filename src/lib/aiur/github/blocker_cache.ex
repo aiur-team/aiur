@@ -39,7 +39,7 @@ defmodule Aiur.GitHub.BlockerCache do
   end
 
   @doc false
-  @spec scheduled_refreshes([String.t()], non_neg_integer()) :: MapSet.t()
+  @spec scheduled_refreshes([String.t()], non_neg_integer()) :: MapSet.t(String.t())
   def scheduled_refreshes(issue_ids, limit) when is_list(issue_ids) and is_integer(limit) and limit >= 0 do
     candidates = Enum.uniq(issue_ids)
 
@@ -73,6 +73,24 @@ defmodule Aiur.GitHub.BlockerCache do
       {{:blockers, issue_id}, _fetched_ms, blockers} when is_list(blockers) ->
         if Enum.any?(blockers, &(blocker_identifier(&1) == blocker_id)) do
           :ets.delete(@table, {:blockers, issue_id})
+        end
+
+      _entry ->
+        :ok
+    end)
+
+    :ok
+  end
+
+  @doc false
+  @spec invalidate_dependent(String.t()) :: :ok
+  def invalidate_dependent(issue_id) when is_binary(issue_id) do
+    ensure_table()
+    |> :ets.tab2list()
+    |> Enum.each(fn
+      {{:blockers, cache_key}, _fetched_ms, _blockers} when is_binary(cache_key) ->
+        if cache_key == issue_id or String.ends_with?(cache_key, ":#{issue_id}") do
+          :ets.delete(@table, {:blockers, cache_key})
         end
 
       _entry ->

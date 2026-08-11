@@ -6,6 +6,7 @@ defmodule Aiur.GitHub.ErrorsTest do
   test "classifies transport failures" do
     assert Errors.classify_error({:error, :nxdomain}) == {:github, :dns, %{reason: :nxdomain}}
     assert Errors.classify_error({:error, :timeout}) == {:github, :timeout, %{reason: :timeout}}
+    assert Errors.classify_error({:error, :rate_limited}) == {:github, :rate_limited, %{reason: :rate_limited}}
 
     assert Errors.classify_error({:error, {:tls_alert, :handshake_failure}}) ==
              {:github, :tls, %{reason: {:tls_alert, :handshake_failure}}}

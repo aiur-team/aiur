@@ -503,6 +503,32 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
              )
     end
 
+    test "unresolved hardware blockers also block dispatchable rework issues" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ["todo", "rework"])
+
+      blocked =
+        issue("hardware-dependent-rework",
+          state: "rework",
+          blocked_by: [
+            %{
+              state: "done",
+              labels: ["agent:operator-verification-required", "agent:operator-verified", "agent:operator-verification-passed"],
+              operator_signoff_valid?: false
+            }
+          ]
+        )
+
+      assert DispatchPolicy.dispatch_decision(blocked, %State{max_concurrent_agents: 5}) == {:skip, :dependency}
+    end
+
+    test "ordinary nonterminal blockers do not suppress independent rework" do
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_active_states: ["todo", "rework"])
+
+      rework = issue("independent-rework", state: "rework", blocked_by: [%{state: "in-progress", labels: []}])
+
+      assert :dispatch = DispatchPolicy.dispatch_decision(rework, %State{max_concurrent_agents: 5})
+    end
+
     test "normalizes issue state and slugs mixed case and whitespace" do
       assert DispatchPolicy.normalize_issue_state("  In Progress ") == "in progress"
       assert DispatchPolicy.normalize_issue_state(nil) == ""

@@ -65,6 +65,10 @@ defmodule Aiur.AgentRunner.ToolExecutor do
           CoordinationTasks.run(key, operation, CoordinationTasks, run_opts)
         end),
       declare_dependency: Keyword.get(opts, :dependency_declarer, &IssueDependencies.declare/2),
+      invalidate_dependency_cache:
+        Keyword.get(opts, :dependency_cache_invalidator, fn issue_number ->
+          BlockerCache.invalidate_dependent(to_string(issue_number))
+        end),
       unblock_dependency: Keyword.get(opts, :dependency_unblocker, &IssueDependencies.unblock/2),
       dependency_present: Keyword.get(opts, :dependency_present, &IssueDependencies.declared?/2),
       subscribe_blocker: Keyword.get(opts, :blocker_subscriber, &Orchestrator.subscribe_for_declared_blocker/2),
@@ -209,7 +213,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     case safe_coordination_call(coordination.subscribe_blocker, [current, blocker]) do
       :ok ->
         case safe_coordination_call(coordination.declare_dependency, [current, blocker]) do
-          {:ok, _result} -> :ok
+          {:ok, _result} -> invalidate_dependency_cache(current, coordination)
           {:error, reason} -> reconcile_declaration(current, blocker, reason, coordination)
           other -> reconcile_declaration(current, blocker, {:unexpected, other}, coordination)
         end
@@ -244,7 +248,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp reconcile_declaration_state({:ok, true}, current, blocker, error, coordination) do
     result = safe_coordination_call(coordination.subscribe_blocker, [current, blocker])
-    normalize_reconcile_result(result, :blocker_reconcile_subscription_failed, error)
+
+    case normalize_reconcile_result(result, :blocker_reconcile_subscription_failed, error) do
+      :ok -> invalidate_dependency_cache(current, coordination)
+      failure -> failure
+    end
   end
 
   defp reconcile_declaration_state({:ok, false}, current, blocker, error, coordination) do
@@ -257,7 +265,11 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp reconcile_subscription_state({:ok, true}, current, blocker, error, coordination) do
     result = safe_coordination_call(coordination.subscribe_blocker, [current, blocker])
-    normalize_reconcile_result(result, :blocker_subscription_retry_failed, error)
+
+    case normalize_reconcile_result(result, :blocker_subscription_retry_failed, error) do
+      :ok -> invalidate_dependency_cache(current, coordination)
+      failure -> failure
+    end
   end
 
   defp reconcile_subscription_state({:ok, false}, current, blocker, error, coordination) do
@@ -284,6 +296,14 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp normalize_cleanup_result(other, _failure, cleanup_failure, original_error),
     do: {:error, {cleanup_failure, original_error, {:unexpected, other}}}
+
+  defp invalidate_dependency_cache(current, coordination) do
+    case safe_coordination_call(coordination.invalidate_dependency_cache, [current]) do
+      :ok -> :ok
+      {:error, reason} -> {:error, {:dependency_cache_invalidation_failed, reason}}
+      other -> {:error, {:dependency_cache_invalidation_failed, {:unexpected, other}}}
+    end
+  end
 
   defp issue_number_of(issue) do
     case Map.get(issue, :number) || Map.get(issue, :identifier) do

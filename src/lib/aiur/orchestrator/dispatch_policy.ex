@@ -631,7 +631,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   defp dispatch_state_decision(%Issue{} = issue, %State{} = state, terminal_states) do
     cond do
-      todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
+      issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
       not state_slots_available?(issue, state) -> {:skip, :state_capacity}
@@ -726,7 +726,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   @spec retry_candidate_issue?(Issue.t(), MapSet.t()) :: boolean()
   def retry_candidate_issue?(%Issue{} = issue, terminal_states) do
     candidate_issue?(issue, active_state_set(), terminal_states) and
-      not todo_issue_blocked_by_non_terminal?(issue, terminal_states)
+      not issue_blocked_by_non_terminal?(issue, terminal_states)
   end
 
   @spec issue_not_paused?(Issue.t()) :: boolean()
@@ -745,14 +745,21 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def issue_dispatch_authorized?(_issue), do: false
 
+  @spec issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
+  def issue_blocked_by_non_terminal?(%Issue{state: issue_state, blocked_by: blockers}, terminal_states)
+      when is_binary(issue_state) and is_list(blockers),
+      do: Enum.any?(blockers, &blocker_blocks_dispatch?(&1, issue_state, terminal_states))
+
+  def issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
+
   @spec todo_issue_blocked_by_non_terminal?(term(), MapSet.t()) :: boolean()
   def todo_issue_blocked_by_non_terminal?(
-        %Issue{state: issue_state, blocked_by: blockers},
+        %Issue{state: issue_state, blocked_by: blockers} = issue,
         terminal_states
       )
       when is_binary(issue_state) and is_list(blockers) do
     normalize_issue_state(issue_state) == "todo" and
-      Enum.any?(blockers, &blocker_unresolved?(&1, terminal_states))
+      issue_blocked_by_non_terminal?(issue, terminal_states)
   end
 
   def todo_issue_blocked_by_non_terminal?(_issue, _terminal_states), do: false
@@ -765,6 +772,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   defp blocker_unresolved?(_blocker, _terminal_states), do: true
+
+  defp blocker_blocks_dispatch?(blocker, issue_state, terminal_states) when is_map(blocker) do
+    blocker_state = Map.get(blocker, :state) || Map.get(blocker, "state")
+    hardware_blocker? = HardwareVerification.signoff_required?(blocker, Aiur.GitHub.Config.label_prefix())
+
+    is_nil(blocker_state) or
+      (hardware_blocker? and blocker_unresolved?(blocker, terminal_states)) or
+      (normalize_issue_state(issue_state) == "todo" and blocker_unresolved?(blocker, terminal_states))
+  end
+
+  defp blocker_blocks_dispatch?(_blocker, _issue_state, _terminal_states), do: true
 
   @spec terminal_issue_state?(term(), MapSet.t()) :: boolean()
   def terminal_issue_state?(state_name, terminal_states) when is_binary(state_name) do

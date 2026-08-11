@@ -112,6 +112,41 @@ defmodule Aiur.HardwareVerificationTest do
              issue |> HardwareVerification.matched_criteria() |> Enum.map(& &1.signal)
   end
 
+  test "evaluates physical signals independently from nearby mock and negation context" do
+    issue = %Issue{
+      description: """
+      ## Acceptance
+      - Without sudo, press the dial.
+      - Use a mock transport before physically replugging the real device.
+      - Verify the app does not invoke sudo.
+      - Unit tests reject /dev/hidraw0 paths.
+      - Ensure no systemctl command is executed.
+      """
+    }
+
+    assert [:physical_action, :physical_action] =
+             issue |> HardwareVerification.matched_criteria() |> Enum.map(& &1.signal)
+  end
+
+  test "does not let a negated privileged signal suppress physical work in the same segment" do
+    issue = %Issue{description: "## Acceptance\n- Replug the physical device without sudo."}
+
+    assert [:physical_action] =
+             issue |> HardwareVerification.matched_criteria() |> Enum.map(& &1.signal)
+  end
+
+  test "does not route ordinary unit-test coverage of a physical-action handler" do
+    issue = %Issue{description: "## Acceptance\n- Add unit tests for the press the dial handler."}
+
+    assert [] = HardwareVerification.matched_criteria(issue)
+  end
+
+  test "does not route a locally negated physical action" do
+    issue = %Issue{description: "## Acceptance\n- The operator must not press the dial."}
+
+    assert [] = HardwareVerification.matched_criteria(issue)
+  end
+
   test "does not route a factual absence of privileged access" do
     issue = %Issue{description: "## Acceptance\n- Verify that sudo is not available in the sandbox."}
 

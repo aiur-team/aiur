@@ -407,6 +407,10 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
           end,
           dependency_declarer: fn _current, _blocker -> {:error, :timeout} end,
           dependency_present: fn _current, _blocker -> {:ok, true} end,
+          dependency_cache_invalidator: fn current ->
+            send(test_pid, {:dependency_cache_invalidated, current})
+            :ok
+          end,
           blocker_unsubscriber: fn _current, _blocker -> send(test_pid, :unexpected_unsubscribe) end
         )
 
@@ -415,6 +419,7 @@ defmodule Aiur.AgentRunner.ToolExecutorTest do
       assert :ok = operation.()
       assert_receive {:subscribed, "1031", 999}, 2_000
       assert_receive {:subscribed, "1031", 999}, 2_000
+      assert_receive {:dependency_cache_invalidated, "1031"}
       refute_receive :unexpected_unsubscribe
     end
 

@@ -15,7 +15,7 @@ defmodule Aiur.GitHub.Labels do
   with no real HTTP. Headers mirror `Aiur.GitHub.Client`.
   """
 
-  alias Aiur.CodingAgent
+  alias Aiur.{CodingAgent, HardwareVerification}
   alias Aiur.GitHub.Transport
 
   @base_url "https://api.github.com"
@@ -34,12 +34,7 @@ defmodule Aiur.GitHub.Labels do
   @marker_suffixes [
     @watch_suffix,
     @paused_suffix,
-    @rate_limit_fallback_suffix,
-    "operator-verification-required",
-    "operator-verified",
-    "operator-verification-passed",
-    "operator-verification-no-go",
-    "operator-verification-alerted"
+    @rate_limit_fallback_suffix
   ]
 
   @type request :: %{
@@ -76,7 +71,7 @@ defmodule Aiur.GitHub.Labels do
   def rate_limit_fallback_marker_labels(prefix), do: ["#{prefix}:#{@rate_limit_fallback_suffix}"]
 
   @spec marker_labels(String.t()) :: [String.t()]
-  def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
+  def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}") ++ HardwareVerification.marker_labels(prefix)
 
   @doc "Labels required for the configured rate-limit fallback pair."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
@@ -95,7 +90,7 @@ defmodule Aiur.GitHub.Labels do
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()
   def marker_suffix?(suffix) when is_binary(suffix),
-    do: String.downcase(String.trim(suffix)) in @marker_suffixes
+    do: String.downcase(String.trim(suffix)) in @marker_suffixes or HardwareVerification.marker_suffix?(suffix)
 
   def marker_suffix?(_suffix), do: false
 

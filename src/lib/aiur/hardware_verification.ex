@@ -12,6 +12,7 @@ defmodule Aiur.HardwareVerification do
   @passed_suffix "operator-verification-passed"
   @no_go_suffix "operator-verification-no-go"
   @alerted_suffix "operator-verification-alerted"
+  @marker_suffixes [@required_suffix, @verified_suffix, @passed_suffix, @no_go_suffix, @alerted_suffix]
 
   @signals [
     {:device_path, ~r{(?<!\w)/dev/(?:hidraw\d*|tty[[:alnum:]_.-]*|bus/usb(?:/[^\s`'"<>]*)?)}i},
@@ -57,9 +58,12 @@ defmodule Aiur.HardwareVerification do
   @spec alerted_label(String.t()) :: String.t()
   def alerted_label(prefix) when is_binary(prefix), do: "#{prefix}:#{@alerted_suffix}"
 
+  @spec marker_labels(String.t()) :: [String.t()]
+  def marker_labels(prefix) when is_binary(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
+
   @spec marker_suffix?(term()) :: boolean()
   def marker_suffix?(suffix) when is_binary(suffix),
-    do: String.downcase(String.trim(suffix)) in [@required_suffix, @verified_suffix, @passed_suffix, @no_go_suffix, @alerted_suffix]
+    do: String.downcase(String.trim(suffix)) in @marker_suffixes
 
   def marker_suffix?(_suffix), do: false
 
@@ -91,19 +95,6 @@ defmodule Aiur.HardwareVerification do
   end
 
   def signoff_required?(_issue_body, _prefix), do: false
-
-  @spec operator_signed_off?(map(), String.t()) :: boolean()
-  def operator_signed_off?(issue_body, prefix) when is_map(issue_body) and is_binary(prefix),
-    do: outcome_label(issue_body, prefix) != nil
-
-  def operator_signed_off?(_issue_body, _prefix), do: false
-
-  @doc "Whether an issue still needs an operator outcome before it can finish."
-  @spec unresolved?(map(), String.t()) :: boolean()
-  def unresolved?(issue_body, prefix) when is_map(issue_body) and is_binary(prefix),
-    do: signoff_required?(issue_body, prefix) and not operator_signed_off?(issue_body, prefix)
-
-  def unresolved?(_issue_body, _prefix), do: false
 
   @doc "Whether a terminal hardware blocker has an explicit passing outcome."
   @spec dependency_resolved?(map(), String.t()) :: boolean()
@@ -201,11 +192,16 @@ defmodule Aiur.HardwareVerification do
   end
 
   defp match_criterion(line) do
-    for clause <- criterion_clauses(line),
-        physical_execution?(clause),
-        {signal, pattern} <- @signals,
-        Regex.match?(pattern, clause),
-        do: %{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}
+    signals =
+      for segment <- action_segments(line),
+          {signal, pattern} <- @signals,
+          Regex.match?(pattern, segment),
+          executable_signal?(signal, segment),
+          do: signal
+
+    Enum.map(Enum.uniq(signals), fn signal ->
+      %{signal: signal, evidence: line, operator_action: "Verify this criterion on the physical device."}
+    end)
   end
 
   defp verification_heading?(line) do
@@ -214,16 +210,24 @@ defmodule Aiur.HardwareVerification do
 
   defp criterion_line?(line), do: Regex.match?(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line)
 
-  defp criterion_clauses(line) do
+  defp action_segments(line) do
     criterion = Regex.replace(~r/^(?:[-*+]\s+|\d+[.)]\s+|\[[ xX]\]\s+)/, line, "")
 
-    Regex.split(~r/(?:[;.!?]+|\b(?:and|but|however|then|while)\b)/i, criterion, trim: true)
+    Regex.split(~r/(?:[,;.!?]+|\b(?:and|but|however|then|while|before|after)\b)/i, criterion, trim: true)
   end
 
-  defp physical_execution?(clause) do
-    not documentation_only?(clause) and
-      not Regex.match?(@simulated_context, clause) and
-      not negated_execution?(clause)
+  defp executable_signal?(:physical_action, segment) do
+    not documentation_only?(segment) and
+      not test_only?(segment) and
+      not Regex.match?(@simulated_context, segment) and
+      not negated_physical_action?(segment)
+  end
+
+  defp executable_signal?(_signal, segment) do
+    not documentation_only?(segment) and
+      not test_only?(segment) and
+      not Regex.match?(@simulated_context, segment) and
+      not negated_operation?(segment)
   end
 
   defp documentation_only?(clause) do
@@ -234,10 +238,27 @@ defmodule Aiur.HardwareVerification do
          not Regex.match?(@physical_execution, clause))
   end
 
-  defp negated_execution?(clause) do
-    Regex.match?(~r/\bsudo\s+is\s+not\s+available\b/i, clause) or
-      (Regex.match?(@negated_operation, clause) and
-         not Regex.match?(~r/\b(?:not|never)\s+(?:available|working|responding)\b/i, clause))
+  defp test_only?(segment) do
+    Regex.match?(~r/\b(?:unit\s+tests?|test\s+suite)\b/i, segment) or
+      (Regex.match?(~r/\b(?:assert(?:ion)?s?|specs?)\b/i, segment) and
+         Regex.match?(~r/\b(?:reject|assert|mock|emulat(?:e|or|ion)|simulat(?:e|ion)|forbid|prevent)\b/i, segment))
+  end
+
+  defp negated_physical_action?(segment) do
+    Regex.match?(
+      ~r/\b(?:do|does|did|must|should)\s+not\s+(?:\w+\s+){0,3}(?:press|turn|touch|unplug|replug|suspend|resume)\b/i,
+      segment
+    ) or
+      Regex.match?(~r/\b(?:don't|never)\s+(?:\w+\s+){0,3}(?:press|turn|touch|unplug|replug|suspend|resume)\b/i, segment) or
+      Regex.match?(~r/\bno\s+(?:\w+\s+){0,2}(?:press|turn|touch|unplug|replug|suspend|resume)\b/i, segment)
+  end
+
+  defp negated_operation?(segment) do
+    Regex.match?(~r/\bsudo\s+is\s+not\s+available\b/i, segment) or
+      Regex.match?(~r/\b(?:do|does|did)\s+not\b/i, segment) or
+      Regex.match?(@negated_operation, segment) or
+      Regex.match?(~r/\b(?:reject|forbid|prevent)\b/i, segment) or
+      Regex.match?(~r/\bno\s+(?:\w+\s+){0,2}(?:sudo|udev|systemctl|\/dev\/)/i, segment)
   end
 
   defp label_names(issue_body) do

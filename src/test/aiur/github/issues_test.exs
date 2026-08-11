@@ -134,12 +134,18 @@ defmodule Aiur.GitHub.IssuesTest do
           assert {url, etag} in [{page_one, "one"}, {page_two, "two"}]
           {:ok, %{status: 304}}
 
+        # Conditional polling hydrates dependencies before dispatch
+        # authorization; this fixture has none.
         # Dispatch authorization reads each issue's timeline to find who applied
         # the trigger label. Unconditional requests reaching this clause are the
         # proof that the conditional path still authorizes.
         %{url: url} ->
-          assert url =~ "/timeline"
-          {:ok, %{status: 200, headers: [], body: []}}
+          if url =~ "/dependencies/blocked_by" do
+            {:ok, %{status: 200, headers: [], body: []}}
+          else
+            assert url =~ "/timeline"
+            {:ok, %{status: 200, headers: [], body: []}}
+          end
       end
 
       assert {:ok, issues, updated_cache} =
@@ -172,8 +178,11 @@ defmodule Aiur.GitHub.IssuesTest do
           {:ok, %{status: 200, headers: [], body: [gh_issue]}}
 
         %{url: url} ->
-          assert url =~ "/issues?labels=" or url =~ "/timeline"
-          {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+          cond do
+            url =~ "/issues?labels=" -> {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+            url =~ "/dependencies/blocked_by" -> {:ok, %{status: 200, headers: [], body: []}}
+            url =~ "/timeline" -> {:ok, %{status: 200, headers: [], body: []}}
+          end
       end
 
       assert {:ok, conditional_issues, _cache} =
@@ -186,6 +195,56 @@ defmodule Aiur.GitHub.IssuesTest do
                Enum.map(unconditional_issues, & &1.dispatch_authorized?)
 
       assert [true] = Enum.map(conditional_issues, & &1.dispatch_authorized?)
+    end
+
+    test "hydrates hardware blockers on the conditional dispatch path" do
+      test_pid = self()
+
+      dependent = %{
+        "number" => 42,
+        "title" => "Dependent transport",
+        "body" => "Implement the transport.",
+        "html_url" => "https://github.com/owner/repo/issues/42",
+        "labels" => [%{"name" => "sym:todo"}],
+        "user" => %{"login" => "its-everdred"},
+        "state" => "open",
+        "created_at" => "2026-01-01T00:00:00Z",
+        "updated_at" => "2026-01-02T00:00:00Z"
+      }
+
+      blocker = %{
+        "number" => 41,
+        "title" => "Hardware spike",
+        "body" => "## Acceptance\n- Verify /dev/hidraw0.",
+        "labels" => [%{"name" => "sym:operator-verification-required"}],
+        "state" => "closed"
+      }
+
+      request_fun = fn
+        %{url: url, etag: _etag} when is_binary(url) ->
+          assert url =~ "/issues?labels="
+          {:ok, %{status: 200, headers: [], body: [dependent]}}
+
+        %{url: url} ->
+          cond do
+            url =~ "/issues?labels=" ->
+              {:ok, %{status: 200, headers: [], body: [dependent]}}
+
+            url =~ "/dependencies/blocked_by" ->
+              send(test_pid, :dependency_request)
+              {:ok, %{status: 200, headers: [], body: [blocker]}}
+
+            url =~ "/timeline" ->
+              {:ok, %{status: 200, headers: [], body: []}}
+          end
+      end
+
+      assert {:ok, [%{blocked_by: [hydrated_blocker]}], _cache} =
+               Issues.fetch_issues_by_states_conditional(["todo"], %{}, request_fun: request_fun)
+
+      assert hydrated_blocker.identifier == "41"
+      assert hydrated_blocker.description =~ "/dev/hidraw0"
+      assert_received :dependency_request
     end
   end
 
@@ -330,6 +389,45 @@ defmodule Aiur.GitHub.IssuesTest do
       assert receive_timeline_requests(0) == 1
     end
 
+    test "revalidates a memoized sign-off identity for every dependent" do
+      test_pid = self()
+      Process.put(:operator_authorization_calls, 0)
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            {:ok, %{status: 200, body: [passing_hardware_blocker()]}}
+
+          String.contains?(url, "/timeline?") ->
+            send(test_pid, :timeline_request)
+            {:ok, %{status: 200, headers: [], body: [labeled_event(1, "sym:operator-verified"), labeled_event(2, "sym:operator-verification-passed")]}}
+
+          String.ends_with?(url, "/issues/42") ->
+            {:ok, %{status: 200, body: issue_body(42, "First dependent")}}
+
+          true ->
+            {:ok, %{status: 200, body: issue_body(43, "Second dependent")}}
+        end
+      end
+
+      operator_authorized? = fn _login ->
+        calls = Process.get(:operator_authorization_calls, 0)
+        Process.put(:operator_authorization_calls, calls + 1)
+        calls < 2
+      end
+
+      assert {:ok, issues} =
+               Issues.fetch_issue_states_by_ids(["42", "43"],
+                 request_fun: request_fun,
+                 cache_blockers: false,
+                 operator_authorized?: operator_authorized?,
+                 allowed_users: ["operator"]
+               )
+
+      assert Enum.map(issues, fn %{blocked_by: [blocker]} -> blocker.operator_signoff_valid? end) == [true, false]
+      assert receive_timeline_requests(0) == 1
+    end
+
     test "stops dependency hydration after a timeline rate limit" do
       test_pid = self()
 
@@ -363,7 +461,40 @@ defmodule Aiur.GitHub.IssuesTest do
       assert receive_dependency_requests(0) == 1
     end
 
-    test "keeps stale blockers and fails closed only for a dependency hydration error" do
+    test "stops dependency hydration after an HTTP 429 timeline response" do
+      test_pid = self()
+
+      request_fun = fn %{url: url} ->
+        cond do
+          String.contains?(url, "/dependencies/blocked_by") ->
+            send(test_pid, :dependency_request)
+            {:ok, %{status: 200, body: [passing_hardware_blocker()]}}
+
+          String.contains?(url, "/timeline?") ->
+            send(test_pid, :timeline_request)
+            {:ok, %{status: 429, headers: [], body: %{"message" => "API rate limit exceeded"}}}
+
+          String.ends_with?(url, "/issues/42") ->
+            {:ok, %{status: 200, body: issue_body(42, "First dependent")}}
+
+          true ->
+            {:ok, %{status: 200, body: issue_body(43, "Second dependent")}}
+        end
+      end
+
+      assert {:ok, [_first, _second]} =
+               Issues.fetch_issue_states_by_ids(["42", "43"],
+                 request_fun: request_fun,
+                 cache_blockers: false,
+                 operator_authorized?: &(&1 == "operator"),
+                 allowed_users: ["operator"]
+               )
+
+      assert_received :timeline_request
+      assert receive_dependency_requests(0) == 1
+    end
+
+    test "keeps stale blockers and fails closed after a rate-limited dependency hydration error" do
       test_pid = self()
 
       issue = fn number ->
@@ -433,7 +564,7 @@ defmodule Aiur.GitHub.IssuesTest do
                )
 
       assert_received {:dependency_request, "42"}
-      assert_received {:dependency_request, "43"}
+      refute_receive {:dependency_request, "43"}
       assert [%{identifier: ""}, %{identifier: "41"}] = stale_issue.blocked_by
       assert [%{identifier: ""}] = failed_issue.blocked_by
     end

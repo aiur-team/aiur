@@ -48,6 +48,8 @@ defmodule Aiur.GitHub.Errors do
   @spec classify_transport_reason(term()) :: {:github, classification(), map()}
   def classify_transport_reason(:nxdomain), do: {:github, :dns, %{reason: :nxdomain}}
 
+  def classify_transport_reason(:rate_limited), do: {:github, :rate_limited, %{reason: :rate_limited}}
+
   def classify_transport_reason(reason)
       when reason in [:timeout, :closed, :econnrefused, :ehostunreach, :enetunreach, :econnreset],
       do: {:github, :timeout, %{reason: reason}}

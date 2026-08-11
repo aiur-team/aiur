@@ -1,10 +1,11 @@
 defmodule Aiur.GitHub.IssueDependenciesTest do
   use Aiur.TestSupport
 
-  alias Aiur.GitHub.IssueDependencies
+  alias Aiur.GitHub.{BlockerCache, IssueDependencies}
   alias Aiur.Workflow
 
   setup do
+    BlockerCache.clear()
     prev_token = System.get_env("GITHUB_TOKEN")
     System.put_env("GITHUB_TOKEN", "test-gh-token")
 
@@ -19,6 +20,29 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
   end
 
   describe "declare/3" do
+    test "invalidates a fresh cached dependency list after declaration" do
+      assert :ok = BlockerCache.put("owner:repo:aiur:7", [], now_ms: 0)
+
+      request_fun = fn req ->
+        cond do
+          req.method == :get and String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          req.method == :get and String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          req.method == :get and String.contains?(req.url, "/issues/80/dependencies/blocking") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          req.method == :post ->
+            {:ok, %{status: 201, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+        end
+      end
+
+      assert {:ok, %{"id" => 80_001}} = IssueDependencies.declare(7, 80, request_fun: request_fun)
+      assert :missing = BlockerCache.cached("owner:repo:aiur:7", now_ms: 1)
+    end
+
     test "happy path: non-cyclic blocker → POSTs and returns issue" do
       request_fun = fn req ->
         cond do
