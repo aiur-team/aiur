@@ -367,8 +367,33 @@ at any point in this check. If it does, the URL was not stable.
 - **Reachable from the internet:** exactly one route, `POST /api/v1/github/webhook`.
 - **Not reachable:** the dashboard, the Supervisor Decision API, and every other
   `/api/v1/*` route. They are answered with 404 at Cloudflare's edge.
-- **No inbound socket exists.** The daemon stays on `127.0.0.1`; `cloudflared`
-  makes an outbound connection. There is no port forward and no firewall hole.
+- **No inbound socket exists — *if* you followed the loopback prerequisite.**
+  With `server.host: 127.0.0.1`, `cloudflared` makes an outbound connection and
+  there is no port forward and no firewall hole.
+
+  This bullet is a consequence of your config, not a property of the design, and
+  it is the one claim on this page that a deployment can quietly falsify. A
+  daemon bound to `0.0.0.0` is reachable directly on the LAN, on every route —
+  the tunnel's `404` catch-all scopes *the tunnel*, and says nothing about the
+  local network. Check rather than assume:
+
+  ```sh
+  pinned=4099
+
+  # Every global-scope address the daemon is answering on. Loopback-only is the
+  # documented posture, so anything listed here is a second way in.
+  for ip in $(ip -4 addr show scope global | awk '/inet /{print $2}' | cut -d/ -f1); do
+    printf '%s/ -> %s\n' "$ip" \
+      "$(curl -s -m 3 -o /dev/null -w '%{http_code}' "http://$ip:$pinned/")"
+  done
+  ```
+
+  A blank or refused response is the documented posture. A `401` means the bind
+  is not loopback but `Aiur.HttpServer.start_link/1`'s guard is doing its job —
+  the boot guard requires dashboard credentials for any non-loopback or writable
+  bind, so the dashboard is reachable but not usable. **A `200` is an
+  unauthenticated control plane on your LAN**, and the tunnel being perfectly
+  scoped will not have warned you: every check on this page still passes.
 - **The secret** lives in `~/.aiur/.env` at mode 600 as
   `AIUR_GITHUB_WEBHOOK_SECRET`, distinct from `GITHUB_TOKEN`,
   `GITHUB_APP_PRIVATE_KEY` and `AIUR_SUPERVISOR_TOKEN`. It is never logged —
