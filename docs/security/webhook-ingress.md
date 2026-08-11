@@ -115,6 +115,42 @@ chmod 600 ~/.aiur/.env
 Read the value back out of `~/.aiur/.env` when configuring the webhook in
 GitHub. Never paste it into a commit, a ticket, a PR, or a log line.
 
+That last sentence is an instruction, not a property — every way this secret
+leaks is something a human does by hand, so none of it is prevented by the code.
+Check it rather than trusting it. Everything below prints *file names and commit
+subjects, never the value*:
+
+Run these from your Aiur checkout:
+
+```sh
+env=~/.aiur/.env
+secret=$(sed -n 's/^AIUR_GITHUB_WEBHOOK_SECRET=//p' "$env" | tr -d '"'"'"'')
+: "${secret:?not set in $env}"
+
+stat -c '%a %n' "$env"                        # expect: 600
+
+# Files git tracks, or would track: a hit here is one commit from publication.
+git grep -Il --untracked -e "$secret" -- .    # expect: no output
+
+# Every blob in the reachable history. ~1.4s over 4,600 commits.
+git log --all --oneline -S "$secret"          # expect: no output
+```
+
+Use `git grep --untracked` rather than `grep -r`. It is the difference between
+scanning what git will publish and scanning 368 MB of `_build`, `deps` and
+scratch directories — and because it honours `.gitignore` it will not trip over
+temporary files, including the ones a check like this creates. A `grep -r`
+version of this check reported a hit on its own pattern file.
+
+Both commands take the secret as an argument, so it is briefly visible in `ps`
+to other users on the machine. On a single-user host that is immaterial; on a
+shared one, treat these as a setup-time check rather than a routine one.
+
+A hit in either is not "tidy it up later": the secret is disclosed to everyone
+who can read that repo or its history, and rewriting history does not recall it.
+Generate a new one, put it in `~/.aiur/.env`, update the webhook in GitHub, and
+restart — the rotation procedure below, run immediately.
+
 To rotate it: change it on the GitHub side, change it in `~/.aiur/.env`, then
 restart the daemon. `AiurWeb.GithubWebhook.Auth` reads the variable on every
 request rather than caching it at boot, so the daemon does not need a code
