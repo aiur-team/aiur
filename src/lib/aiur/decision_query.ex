@@ -81,7 +81,17 @@ defmodule Aiur.DecisionQuery do
         {:ok, Map.merge(counts, %{scope: scope(), health: health})}
 
       {:error, :store_unavailable} ->
-        {:ok, %{open: nil, blocking: nil, total: nil, scope: scope(), health: StoreReader.unavailable_health()}}
+        {:ok,
+         %{
+           open: nil,
+           blocking: nil,
+           total: nil,
+           awaiting: nil,
+           awaiting_blocking: nil,
+           deferred: nil,
+           scope: scope(),
+           health: StoreReader.unavailable_health()
+         }}
     end
   end
 

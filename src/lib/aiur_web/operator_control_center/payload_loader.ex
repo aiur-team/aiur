@@ -217,6 +217,9 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       open: nil,
       blocking: nil,
       total: nil,
+      awaiting: nil,
+      awaiting_blocking: nil,
+      deferred: nil,
       scope: %{kind: :retained, label: "All retained decisions"},
       health: %{
         status: :unavailable,

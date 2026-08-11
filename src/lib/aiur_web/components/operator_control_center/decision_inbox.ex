@@ -24,6 +24,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   attr(:retained_counts, :map, required: true)
   attr(:page, :map, default: %{})
   attr(:query, :map, default: %{})
+  attr(:history_total, :any, default: nil)
 
   @spec decision_inbox(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_inbox(assigns) do
@@ -32,7 +33,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     assigns =
       assigns
       |> assign(:visible_decisions, decisions)
-      |> assign(:counts, filter_counts(assigns.retained_counts, assigns.page, assigns.filter))
+      |> assign(:counts, filter_counts(assigns.retained_counts, assigns.history_total))
       |> assign(:filter_specs, @filter_specs)
       |> assign(:page_health, get_in(assigns.page, [:health, :status]))
 
@@ -98,14 +99,15 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     """
   end
 
-  defp filter_counts(retained_counts, page, filter) do
-    resolved = if filter == :resolved, do: get_in(page, [:pagination, :total])
-
+  # Every chip counts exactly what its list contains. `awaiting` (not `open`) is
+  # the number the inbox lists, because a deferred Command is counted as open —
+  # the unit is still blocked — but it is no longer on the operator's queue.
+  defp filter_counts(retained_counts, history_total) do
     %{
-      all: Map.get(retained_counts, :open),
-      open: Map.get(retained_counts, :open),
-      blocking: Map.get(retained_counts, :blocking),
-      resolved: resolved
+      all: Map.get(retained_counts, :awaiting),
+      open: Map.get(retained_counts, :awaiting),
+      blocking: Map.get(retained_counts, :awaiting_blocking),
+      resolved: history_total
     }
   end
 
@@ -138,7 +140,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(decision), do: decision.decision_status in [:open, :deferred]
+  defp open?(decision), do: decision.decision_status == :open
   defp blocking?(decision), do: decision.blocking and open?(decision)
 
   defp undelivered?(decision) do
