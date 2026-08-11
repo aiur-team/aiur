@@ -38,6 +38,12 @@ Set the label in the `gh issue create --label ...` command or API create
 payload. Do not create an unlabelled issue and rely on a follow-up edit: a
 failed or forgotten second request recreates the invisible-ticket gap.
 
+This one is enforced, not just asked for. Aiur puts a wrapper on the `gh` your
+workspace resolves, and an `issue create` carrying none of those dispositions is
+refused before it reaches GitHub. The wrapper reads the `--label` flags only, so
+an issue created through `gh api` or another client is still yours to label
+correctly.
+
 ## Out-of-scope findings
 
 While working on an issue, if you find a separate, real problem that is **not**

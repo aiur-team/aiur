@@ -222,6 +222,51 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute output =~ "embedded-token"
   end
 
+  # #1793: 29 tickets were filed mid-run with no `agent:*` label. Each one was
+  # undispatchable and absent from every state-scoped view, so the fleet read as
+  # having no work left. The skills instruct every filing path to set the
+  # disposition in the creation request; this is the part that does not depend
+  # on an agent following prose.
+  test "an issue create with no dispatch disposition never reaches gh", context do
+    assert {output, 78} = run_guard(context, ["issue", "create", "--title", "Something broke"])
+
+    assert output =~ "no dispatch disposition"
+    refute File.exists?(context.calls)
+  end
+
+  test "a create labelled only with non-lifecycle labels is still refused", context do
+    assert {_output, 78} =
+             run_guard(context, ["issue", "create", "--title", "x", "--label", "bug,area:dashboard"])
+
+    refute File.exists?(context.calls)
+  end
+
+  test "each documented disposition reaches gh, in every flag spelling", context do
+    for label <- ~w(agent:todo human:todo needs-triage build-order epic) do
+      File.rm_rf!(context.calls)
+
+      assert {"ok\n", 0} =
+               run_guard(context, ["issue", "create", "--title", "x", "--label", label])
+
+      assert {"ok\n", 0} =
+               run_guard(context, ["issue", "create", "--title", "x", "--label=#{label}"])
+
+      assert {"ok\n", 0} = run_guard(context, ["issue", "create", "--title", "x", "-l", label])
+
+      assert {"ok\n", 0} =
+               run_guard(context, ["issue", "create", "--title", "x", "--label", "bug,#{label}"])
+
+      assert File.read!(context.calls) == String.duplicate("issue create\n", 4)
+    end
+  end
+
+  test "the disposition guard does not touch other issue subcommands", context do
+    assert {"ok\n", 0} = run_guard(context, ["issue", "comment", "1670", "--body", "hi"])
+    assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--add-label", "agent:done"])
+
+    assert File.read!(context.calls) =~ "issue comment"
+  end
+
   test "installer rejects symlinked runtime directories", context do
     runtime = Path.join(context.workspace, ".aiur-runtime")
     external = Path.join(Path.dirname(context.workspace), "outside")

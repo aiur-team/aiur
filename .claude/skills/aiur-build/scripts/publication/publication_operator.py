@@ -1469,6 +1469,9 @@ class Publisher:
             self.context.root_document.resolve().relative_to(
                 self.context.root.resolve()
             ).as_posix(),
+            # The lifecycle label prefix must reach the validator from the
+            # manifest, never from the Build Order it is checking.
+            "--publication-manifest", str(self.context.publication_path),
         ]
         self._run_checked(canonical_command, "canonical validator")
         if self.context.extra_validator is not None:

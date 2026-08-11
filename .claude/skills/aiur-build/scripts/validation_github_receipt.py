@@ -18,7 +18,6 @@ from validation_github_evidence import (
 )
 from validation_github_approved import ApprovedIssueExpectations
 from validation_github_labels import _validate_label_sets
-from validation_header import lifecycle_todo_prefix
 from validation_publication_authority import PublicationAuthority
 
 
@@ -109,14 +108,20 @@ def validate_reconciliation(
         {root_id: root, **ticket_mappings},
         report,
     )
-    lifecycle_prefix = (
-        publication_authority.tracker_lifecycle_label_prefix
-        if publication_authority is not None
-        else lifecycle_todo_prefix(
-            data.get("label_projection", {}).get("required_ticket_labels")
-            if isinstance(data.get("label_projection"), dict) else None
-        ) or "agent"
-    )
+    # The lifecycle prefix decides which labels are required and which are
+    # forbidden, so it must come from an authority outside the document under
+    # test. Deriving it from this document's own `label_projection` let the
+    # Build Order certify itself: a `workflow:todo` projection made
+    # `agent:done` an unrecognized label rather than a wrong ticket state, and
+    # the reconciliation reported clean over it. No authority means no
+    # certification.
+    if publication_authority is None:
+        report.error(
+            "github_reconciliation label certification requires an independent "
+            "publication authority lifecycle prefix"
+        )
+        return
+    lifecycle_prefix = publication_authority.tracker_lifecycle_label_prefix
     _validate_label_sets(
         data, by_id, receipt.get("projected_labels"), "projected",
         lifecycle_prefix, report,

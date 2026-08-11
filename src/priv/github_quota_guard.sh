@@ -55,6 +55,45 @@ case "${1:-} ${2:-}" in
   "auth "*|"extension "*) track=0 ;;
 esac
 
+# #1793: a ticket created without a lifecycle label is undispatchable AND
+# invisible — no agent can claim it and it appears in no state-scoped view, so
+# it reads to the operator as "no work left". 29 accumulated in one run. The
+# skills tell every filing path to set the disposition in the same request;
+# this refuses the call that does not, because an unlabelled issue that already
+# exists cannot be un-filed. Hierarchy that is deliberately not runnable
+# (Build Order roots, epics) and deliberately parked work still pass by naming
+# their own disposition.
+if [ "${1:-} ${2:-}" = "issue create" ]; then
+  disposition=0
+  prior=
+  for arg in "$@"; do
+    label_value=
+    case "$arg" in
+      --label=*) label_value=${arg#--label=} ;;
+      -l?*) label_value=${arg#-l} ;;
+      *)
+        case "$prior" in
+          --label|-l) label_value=$arg ;;
+        esac
+        ;;
+    esac
+    prior=$arg
+    [ -n "$label_value" ] || continue
+    # `gh` accepts repeated flags and comma-separated lists in one flag.
+    case ",$label_value," in
+      *,agent:*|*,human:*|*,needs-triage,*|*,build-order,*|*,epic,*) disposition=1 ;;
+    esac
+  done
+
+  if [ "$disposition" -eq 0 ]; then
+    printf '%s\n' 'aiur: refusing `gh issue create` with no dispatch disposition (#1793).' >&2
+    printf '%s\n' 'aiur: an unlabelled ticket is undispatchable and invisible, so it reads as no work left.' >&2
+    printf '%s\n' 'aiur: pass --label agent:todo for executable work, or --label needs-triage / human:todo' >&2
+    printf '%s\n' 'aiur: to park it deliberately, or --label build-order / epic for a non-runnable container.' >&2
+    exit 78
+  fi
+fi
+
 consumer=unattributed
 if [ -n "${AIUR_AGENT_WORKSPACE:-}" ]; then
   ticket=$(basename "$AIUR_AGENT_WORKSPACE")
