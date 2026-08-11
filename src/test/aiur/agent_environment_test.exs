@@ -113,7 +113,12 @@ defmodule Aiur.AgentEnvironmentTest do
     assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
              String.split(output, "\n")
 
-    assert String.starts_with?(path, unrelated_path)
+    unrelated_entries = String.split(unrelated_path, ":")
+
+    assert path
+           |> String.split(":")
+           |> Enum.chunk_every(length(unrelated_entries), 1, :discard)
+           |> Enum.member?(unrelated_entries)
   end
 
   test "scrub_shell_command tracks mixed launcher ownership independently" do
@@ -380,6 +385,9 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"BASH_ENV", hook_path} = List.keyfind(env, ~c"BASH_ENV", 0)
       assert File.regular?(to_string(hook_path))
+
+      assert {~c"AIUR_BUILD_GATE_BIN", ~c"/work/aiur/440/.aiur-runtime/build-bin"} =
+               List.keyfind(env, ~c"AIUR_BUILD_GATE_BIN", 0)
 
       assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)

@@ -3,7 +3,7 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
   alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -101,6 +101,10 @@ defmodule Aiur.AgentEnvironment do
       PATH="$AIUR_AGENT_BIN:$PATH"
       export PATH
     fi
+    if [ -n "${AIUR_BUILD_GATE_BIN:-}" ]; then
+      PATH="$AIUR_BUILD_GATE_BIN:$PATH"
+      export PATH
+    fi
     """)
   end
 
@@ -134,6 +138,7 @@ defmodule Aiur.AgentEnvironment do
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
     real_gh = System.find_executable("gh")
+    build_gate_env = BuildGate.shell_env()
 
     unset_inherited_env =
       Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names(), fn name ->
@@ -176,7 +181,8 @@ defmodule Aiur.AgentEnvironment do
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
-        Enum.map(BuildGate.shell_env(), fn {name, value} ->
+        build_gate_bin_env(workspace, build_gate_env) ++
+        Enum.map(build_gate_env, fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end)
 
@@ -304,6 +310,12 @@ defmodule Aiur.AgentEnvironment do
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
       {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
     ]
+  end
+
+  defp build_gate_bin_env(_workspace, []), do: []
+
+  defp build_gate_bin_env(workspace, _build_gate_env) do
+    [{~c"AIUR_BUILD_GATE_BIN", workspace |> AgentBuildGuard.bin_dir() |> String.to_charlist()}]
   end
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)

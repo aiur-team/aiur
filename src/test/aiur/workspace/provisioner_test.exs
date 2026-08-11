@@ -18,20 +18,33 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"
     assert script =~ ".codex/skills/design-import"
-    assert script =~ ".aiur-runtime/bin/gh"
+    assert script =~ ~s(bin="$workspace/.aiur-runtime/bin")
+    assert script =~ "for command_name in 'gh'"
+    assert script =~ ~s(target="$bin/$command_name")
     assert script =~ "chmod 755"
     # Without a workspace-private scratch dir, remote agents fall back to the
     # worker's shared /tmp and clobber each other's staged files (#1763).
     assert script =~ ".aiur-runtime/tmp"
   end
 
-  test "local workspaces get a private scratch directory" do
+  test "local workspaces get command guards and a private scratch directory" do
     workspace = Path.join(System.tmp_dir!(), "aiur-provision-scratch-#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf(workspace) end)
 
     assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
     assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
+
+    elixir_wrapper = Path.join(workspace, ".aiur-runtime/build-bin/elixir")
+    mix_wrapper = Path.join(workspace, ".aiur-runtime/build-bin/mix")
+    mise_wrapper = Path.join(workspace, ".aiur-runtime/build-bin/mise")
+    assert File.regular?(elixir_wrapper)
+    assert File.regular?(mix_wrapper)
+    assert File.regular?(mise_wrapper)
+
+    mix_inode = File.stat!(mix_wrapper).inode
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
+    assert File.stat!(mix_wrapper).inode == mix_inode
   end
 
   test "remote support installation failures stop workspace preparation" do

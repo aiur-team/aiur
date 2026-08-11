@@ -152,6 +152,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     [
       {"AIUR_REAL_GH", context.fake_gh},
       {"AIUR_REPO_STATE_PATH", context.state_path},
+      {"AIUR_AGENT_QUOTA_STATE_PATH", Path.join(context.state_path, "github-quota")},
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls}
     ]
