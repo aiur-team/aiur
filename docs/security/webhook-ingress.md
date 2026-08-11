@@ -311,11 +311,37 @@ up here — it shows up days later, when something restarts the daemon and a
 hostname that is still perfectly stable starts answering 502.
 
 ```sh
-# 1. Note the port the daemon is actually bound to.
-ss -ltn | grep 4099
+# The port this runbook pins. Everything below compares against it rather than
+# assuming it, because a daemon bound somewhere else is the case this check
+# exists to catch — and the case a bare `grep 4099` cannot see.
+pinned=4099
+
+# Find the port serving the receiver by its own fail-closed 401, rather than by
+# matching a process name. A BEAM node also listens on distribution ports, and
+# on a host running more than one node `grep beam.smp` returns several ports
+# with nothing to say which is the endpoint.
+bound() {
+  for p in $(ss -ltn 2>/dev/null | awk 'NR>1 {n=split($4,a,":"); print a[n]}' | sort -un); do
+    if [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' \
+              -X POST "http://127.0.0.1:$p/api/v1/github/webhook")" = 401 ]; then
+      echo "$p"
+      return 0
+    fi
+  done
+}
+
+# 1. Note the port the daemon is ACTUALLY bound to. Do not skip the two checks
+#    below: if the daemon is bound elsewhere, a `grep $pinned` prints nothing
+#    here *and* nothing after the restart, and two empty results compare equal.
+before=$(bound)
+: "${before:?no aiur daemon is listening — start it before running this check}"
+echo "daemon is bound to $before"
+[ "$before" = "$pinned" ] || echo "MISMATCH: bound to $before, but this runbook and the tunnel origin pin $pinned — reconcile before continuing"
 
 # 2. Restart the daemon, then confirm it came back on the same port.
-ss -ltn | grep 4099
+after=$(bound)
+: "${after:?daemon did not come back up}"
+[ "$after" = "$before" ] || echo "PORT MOVED: $before -> $after; server.port is not pinned"
 
 # 3. Re-run the guard against the unchanged public hostname.
 scripts/verify-webhook-ingress https://hooks.<domain>
@@ -323,9 +349,15 @@ scripts/verify-webhook-ingress https://hooks.<domain>
 
 The guard passing *after* a restart, against the same hostname, with nothing
 reconfigured on the GitHub side, is the evidence for "restarting the daemon does
-not change the webhook URL". If step 2 shows a different port, `server.port` is
+not change the webhook URL". If step 2 reports `PORT MOVED`, `server.port` is
 not pinned — re-read the prerequisite above; the tunnel is fine and the config
 is not.
+
+If step 1 reports `MISMATCH`, stop and reconcile before going further. The
+daemon is up and deliveries may well be arriving, so nothing looks wrong — but
+the tunnel origin and this document are describing a port the daemon is not on,
+and the next person to follow this runbook on a fresh machine will pin the
+documented port and get a 502 on every delivery.
 
 Nothing about the App or the per-repo webhook registration should need touching
 at any point in this check. If it does, the URL was not stable.
