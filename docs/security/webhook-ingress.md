@@ -199,6 +199,15 @@ Either way, the settings are:
 - **Secret:** the value of `AIUR_GITHUB_WEBHOOK_SECRET`
 - **SSL verification:** enabled
 
+`application/json` is the recommendation, not a correctness requirement: the
+receiver also accepts `application/x-www-form-urlencoded`, where GitHub sends the
+JSON inside a single `payload` field, and both resolve to the same payload. That
+is covered by tests, so an existing registration already using the form encoding
+does not need to be changed. It matters that this is verified rather than
+assumed — every outcome on this endpoint answers `202`, so if the form path ever
+broke, a repo configured that way would show green ticks in GitHub's delivery UI
+while nothing was ever processed.
+
 One secret is shared across every registration. The receiver verifies against
 the single configured value, so a per-repo secret would not be checked against
 the right key.

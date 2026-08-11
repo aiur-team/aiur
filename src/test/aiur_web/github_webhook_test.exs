@@ -146,6 +146,98 @@ defmodule AiurWeb.GithubWebhookTest do
     end
   end
 
+  # GitHub's webhook form offers two content types, and the receiver deliberately
+  # handles both — but every other test in this file posts JSON, so the
+  # form-urlencoded branch and the `:urlencoded` parser it depends on were
+  # entirely unexercised.
+  #
+  # That is the worst shape a gap can take here, because *every* outcome on this
+  # endpoint answers 202. Drop `:urlencoded` from the endpoint's parser list, or
+  # break the branch, and a repo configured with the other dropdown option gets
+  # 202 on every delivery while nothing is ever processed: GitHub's delivery UI
+  # shows green ticks, the ingress guard still passes, and the repo simply never
+  # leaves `configured_unproven`. `docs/security/webhook-ingress.md` recommends
+  # `application/json`, so this is also what makes that a recommendation rather
+  # than a load-bearing correctness requirement.
+  describe "content type the operator picks in GitHub's form" do
+    setup do
+      test_pid = self()
+      original = Application.get_env(:aiur, :github_webhook_deliver_fun)
+      original_log = Application.get_env(:aiur, :webhook_delivery_log)
+      fresh_delivery_store!()
+
+      Application.put_env(:aiur, :github_webhook_deliver_fun, fn event, payload ->
+        send(test_pid, {:dispatched, event, payload})
+        :ok
+      end)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:aiur, :github_webhook_deliver_fun)
+        else
+          Application.put_env(:aiur, :github_webhook_deliver_fun, original)
+        end
+
+        if is_nil(original_log) do
+          Application.delete_env(:aiur, :webhook_delivery_log)
+        else
+          Application.put_env(:aiur, :webhook_delivery_log, original_log)
+        end
+      end)
+
+      :ok
+    end
+
+    test "both content types are accepted and dispatch the identical payload" do
+      assert deliver_as(:json, @payload).status == 202
+      assert_receive {:dispatched, "issues", from_json}
+
+      # W-4's admission would drop the second delivery as a duplicate of the
+      # first — same payload, same event key — which would make this pass
+      # whether or not the form branch works. A fresh store isolates the two.
+      fresh_delivery_store!()
+
+      assert deliver_as(:form, @payload).status == 202
+      assert_receive {:dispatched, "issues", from_form}
+
+      # Equality against the *other transport's* result, not against an inlined
+      # copy of the expected map: that is what makes this fail if either branch
+      # starts producing something subtly different rather than nothing at all.
+      assert from_form == from_json
+      assert from_json == Jason.decode!(@payload)
+    end
+
+    test "a form delivery is signed over the encoded body, not the JSON inside it" do
+      # The HMAC covers exactly the bytes GitHub sent. Signing the inner JSON —
+      # the intuitive mistake — must not authenticate a form delivery, or the
+      # signature would be checkable against something other than the wire body.
+      conn =
+        :form
+        |> body_for(@payload)
+        |> build_form_conn(signature: github_signature(@secret, @payload))
+        |> call()
+
+      assert conn.status == 401
+    end
+
+    test "a form delivery with no payload field is dropped, not crashed" do
+      # Still 202 — nothing may take the endpoint down — but nothing dispatched.
+      body = "notpayload=" <> URI.encode_www_form(@payload)
+
+      # The delivery headers matter here: without them the drop would be
+      # `missing_event_type`, and the test would pass for the wrong reason
+      # without ever reaching the form branch it is meant to exercise.
+      conn =
+        body
+        |> build_form_conn(signature: github_signature(@secret, body))
+        |> with_delivery_headers()
+        |> call()
+
+      assert conn.status == 202
+      refute_receive {:dispatched, _event, _payload}
+    end
+  end
+
   describe "no secret configured" do
     setup do
       System.delete_env(@secret_env)
@@ -579,6 +671,49 @@ defmodule AiurWeb.GithubWebhookTest do
   end
 
   defp deliver(body, opts), do: body |> build_conn(opts) |> call()
+
+  # `application/json` sends the JSON as-is; `application/x-www-form-urlencoded`
+  # wraps it in a single `payload` field, exactly as GitHub does.
+  defp body_for(:json, json), do: json
+  defp body_for(:form, json), do: "payload=" <> URI.encode_www_form(json)
+
+  defp deliver_as(content_type, json) do
+    body = body_for(content_type, json)
+
+    body
+    |> build_conn_for(content_type, signature: github_signature(@secret, body))
+    |> call()
+  end
+
+  defp build_conn_for(body, :json, opts), do: body |> build_conn(opts) |> with_delivery_headers()
+  defp build_conn_for(body, :form, opts), do: body |> build_form_conn(opts) |> with_delivery_headers()
+
+  defp build_form_conn(body, opts) do
+    :post
+    |> conn(GithubWebhook.path(), body)
+    |> put_req_header("content-type", "application/x-www-form-urlencoded")
+    |> put_req_header("x-hub-signature-256", Keyword.fetch!(opts, :signature))
+  end
+
+  defp with_delivery_headers(conn) do
+    conn
+    |> put_req_header("x-github-delivery", "delivery-#{System.unique_integer([:positive])}")
+    |> put_req_header("x-github-event", "issues")
+  end
+
+  defp fresh_delivery_store! do
+    unique = System.unique_integer([:positive])
+    dir = Path.join(System.tmp_dir!(), "aiur-webhook-content-type-#{unique}")
+
+    log =
+      start_supervised!({DeliveryLog, name: :"content_type_delivery_log_#{unique}", state_dir: dir},
+        id: {:content_type_log, unique}
+      )
+
+    Application.put_env(:aiur, :webhook_delivery_log, log)
+    on_exit(fn -> File.rm_rf!(dir) end)
+    log
+  end
 
   defp call(conn), do: AiurWeb.Endpoint.call(conn, AiurWeb.Endpoint.init([]))
 end
