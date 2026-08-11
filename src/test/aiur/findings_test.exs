@@ -58,14 +58,27 @@ defmodule Aiur.FindingsTest do
   end
 
   test "distinguishes an empty ledger from a ledger containing only corrupt lines", %{repo: repo} do
-    assert {:ok, [], []} = Findings.all_with_diagnostics()
-
     path = RepoBase.findings_path(repo)
     File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "")
+
+    assert {:ok, [], []} = Findings.all_with_diagnostics()
+
     File.write!(path, "{not-json}\n")
 
     assert {:ok, [], [{:invalid_finding_record, ^path, 1, "invalid JSON"}]} =
              Findings.all_with_diagnostics()
+  end
+
+  test "reports the physical line number after an interior blank line", %{repo: repo} do
+    assert :ok = Findings.append(repo, finding("first-failure", nil))
+    path = RepoBase.findings_path(repo)
+    File.write!(path, File.read!(path) <> "\n" <> Jason.encode!(finding("second-failure", 42)) <> "\n")
+
+    assert {:ok, records, [{:invalid_finding_record, ^path, 2, "invalid JSON"}]} =
+             Findings.all_with_diagnostics()
+
+    assert Enum.map(records, & &1["slug"]) == ["first-failure", "second-failure"]
   end
 
   test "uses the latest slug record to clear an unfiled finding without rewriting history", %{repo: repo} do
