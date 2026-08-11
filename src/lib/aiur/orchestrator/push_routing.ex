@@ -93,24 +93,11 @@ defmodule Aiur.Orchestrator.PushRouting do
   @doc false
   @spec recheck_cleared_dependency_pauses(State.t(), ([String.t()] -> {:ok, [term()]} | {:error, term()})) :: State.t()
   def recheck_cleared_dependency_pauses(%State{} = state, fetch_issue_states_fun) when is_function(fetch_issue_states_fun, 1) do
-    case paused_blocker_identifiers(state) do
-      [] ->
-        state
-
-      blocker_identifiers ->
-        case fetch_issue_states_fun.(blocker_identifiers) do
-          {:ok, blockers} when is_list(blockers) ->
-            Enum.reduce(blockers, state, fn
-              %{state: blocker_state} = blocker, state_acc when is_binary(blocker_state) ->
-                if blocker_terminal?(blocker), do: resume_blockees_for_cleared_blocker(state_acc, blocker), else: state_acc
-
-              _blocker, state_acc ->
-                state_acc
-            end)
-
-          _ ->
-            state
-        end
+    with [_ | _] = blocker_identifiers <- paused_blocker_identifiers(state),
+         {:ok, blockers} when is_list(blockers) <- fetch_issue_states_fun.(blocker_identifiers) do
+      Enum.reduce(blockers, state, &resume_blockees_for_terminal_blocker/2)
+    else
+      _ -> state
     end
   end
 
@@ -628,31 +615,40 @@ defmodule Aiur.Orchestrator.PushRouting do
     |> Enum.uniq()
   end
 
+  defp resume_blockees_for_terminal_blocker(%{state: blocker_state} = blocker, state) when is_binary(blocker_state) do
+    if blocker_terminal?(blocker), do: resume_blockees_for_cleared_blocker(state, blocker), else: state
+  end
+
+  defp resume_blockees_for_terminal_blocker(_blocker, state), do: state
+
   defp resume_blockees_for_cleared_blocker(state, blocker) do
+    blocker = blocker_as_map(blocker)
+
     state.running
     |> Map.values()
     |> Enum.map(&Map.get(&1, :identifier))
-    |> Enum.reduce(state, fn
-      blockee_identifier, state_acc when is_binary(blockee_identifier) ->
-        case State.find_running_by_identifier(state_acc.running, blockee_identifier) do
-          %{pending_auto_resume: %{resume_kind: :cleared_dependency}} ->
-            state_acc
-
-          %{issue: blockee} ->
-            blocker = if is_struct(blocker), do: Map.from_struct(blocker), else: blocker
-
-            state_acc
-            |> IssueSync.enqueue_dependency_event(blockee, blocker, :blocker_became_terminal)
-            |> maybe_resume_blockee_on_cleared_dependency(blockee, blocker)
-
-          _ ->
-            state_acc
-        end
-
-      _blockee_identifier, state_acc ->
-        state_acc
-    end)
+    |> Enum.reduce(state, &resume_blockee_for_cleared_blocker(&1, &2, blocker))
   end
+
+  defp resume_blockee_for_cleared_blocker(blockee_identifier, state, blocker) when is_binary(blockee_identifier) do
+    case State.find_running_by_identifier(state.running, blockee_identifier) do
+      %{pending_auto_resume: %{resume_kind: :cleared_dependency}} ->
+        state
+
+      %{issue: blockee} ->
+        state
+        |> IssueSync.enqueue_dependency_event(blockee, blocker, :blocker_became_terminal)
+        |> maybe_resume_blockee_on_cleared_dependency(blockee, blocker)
+
+      _ ->
+        state
+    end
+  end
+
+  defp resume_blockee_for_cleared_blocker(_blockee_identifier, state, _blocker), do: state
+
+  defp blocker_as_map(blocker) when is_struct(blocker), do: Map.from_struct(blocker)
+  defp blocker_as_map(blocker), do: blocker
 
   defp other_open_blockers?(blockee, cleared_blocker_identifier) do
     blockee
@@ -684,20 +680,30 @@ defmodule Aiur.Orchestrator.PushRouting do
       {{:ok, :resumed}, next_state} ->
         Logger.info("Auto-resume on cleared blocker dependency: blockee=#{blockee_identifier} blocker=#{blocker_identifier}")
 
-        case State.find_running_by_identifier(next_state.running, blockee_identifier) do
-          resumed_entry when is_map(resumed_entry) ->
-            if State.paused_running_entry?(resumed_entry),
-              do: stamp_cleared_dependency_resume(next_state, blockee_identifier, blocker_identifier),
-              else: clear_pending_auto_resume(next_state, resumed_entry)
-
-          _ ->
-            stamp_cleared_dependency_resume(next_state, blockee_identifier, blocker_identifier)
-        end
+        settle_cleared_dependency_resume(next_state, blockee_identifier, blocker_identifier)
 
       {{:error, reason}, next_state} ->
         Logger.warning("Auto-resume after cleared blocker dependency deferred: blockee=#{blockee_identifier} blocker=#{blocker_identifier} reason=#{inspect(reason)}")
 
         stamp_cleared_dependency_resume(next_state, blockee_identifier, blocker_identifier)
+    end
+  end
+
+  defp settle_cleared_dependency_resume(state, blockee_identifier, blocker_identifier) do
+    case State.find_running_by_identifier(state.running, blockee_identifier) do
+      resumed_entry when is_map(resumed_entry) ->
+        settle_resumed_entry(state, resumed_entry, blockee_identifier, blocker_identifier)
+
+      _ ->
+        stamp_cleared_dependency_resume(state, blockee_identifier, blocker_identifier)
+    end
+  end
+
+  defp settle_resumed_entry(state, resumed_entry, blockee_identifier, blocker_identifier) do
+    if State.paused_running_entry?(resumed_entry) do
+      stamp_cleared_dependency_resume(state, blockee_identifier, blocker_identifier)
+    else
+      clear_pending_auto_resume(state, resumed_entry)
     end
   end
 
