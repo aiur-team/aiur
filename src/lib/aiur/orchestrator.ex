@@ -581,8 +581,8 @@ defmodule Aiur.Orchestrator do
   the read model, never from this process's mailbox. See
   `Aiur.Orchestrator.StatusReport.fleet_view/2`.
   """
-  @spec fleet_view(GenServer.server(), timeout()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ __MODULE__, timeout), do: StatusReport.fleet_view(server, timeout)
+  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
+  def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
 
   @impl true
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
@@ -603,6 +603,8 @@ defmodule Aiur.Orchestrator do
   def handle_call(:status, _from, state), do: StatusReport.status(state)
 
   def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
+
+  def handle_call(:fleet_view, _from, state), do: StatusReport.fleet_view_call(state)
 
   def handle_call(:request_refresh, _from, state) do
     Lifecycle.request_refresh(state)

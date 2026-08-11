@@ -2,19 +2,25 @@ defmodule Aiur.GitHub.Transport do
   @moduledoc """
   Shared GitHub REST and GraphQL transport helpers.
 
-  Every HTTP request is executed on a short-lived task, never on the calling
-  process. The Orchestrator was captured blocked in `:gen.do_call/4` inside
-  `Mint.Core.Transport.SSL.recv/3` with 6,000+ messages queued behind it while
-  `run_queue` was 0 — one process holding a socket, not a busy host (#1837).
-  A GenServer that owns a socket cannot serve anything else while the peer is
-  slow, and `receive_timeout` alone does not bound that: Req retries, so a
-  single logical read can hold the caller for minutes.
+  Every HTTP request is executed on a short-lived worker process, never on the
+  calling process. The Orchestrator was captured blocked in `:gen.do_call/4`
+  inside `Mint.Core.Transport.SSL.recv/3` with 6,000+ messages queued behind it
+  while `run_queue` was 0 — one process holding a socket, not a busy host
+  (#1837). A GenServer that owns a socket cannot serve anything else while the
+  peer is slow, and `receive_timeout` alone does not bound that: Req retries, so
+  a single logical read can hold the caller for minutes.
 
-  Moving the socket to a task means the caller waits on a message it can
-  abandon. On deadline the task is brutally killed, which closes the socket
-  with it, and the caller gets `{:error, :fetch_deadline_exceeded}` instead of
-  wedging. Quota preflight/observe stay on the caller so accounting order is
-  unchanged.
+  Moving the socket to a worker means the caller waits on a message it can
+  abandon. On deadline the worker is killed, which closes the socket with it,
+  and the caller gets `{:error, :fetch_deadline_exceeded}` instead of wedging.
+  Quota preflight/observe stay on the caller so accounting order is unchanged.
+
+  What this does *not* do: it does not stop a GenServer blocking on a GitHub
+  read. The caller still waits in a selective receive for the reply, so the
+  Orchestrator's mailbox still grows while its poll cycle fetches. What changes
+  is that the wait is bounded and the socket is not the caller's to leak — see
+  `request_deadline_ms/1` for the two bounds and why the Orchestrator gets the
+  tighter one.
   """
 
   alias Aiur.GitHub
@@ -30,6 +36,7 @@ defmodule Aiur.GitHub.Transport do
   @default_request_timeout_ms 30_000
   @default_request_deadline_ms 60_000
   @deadline_margin_ms 5_000
+  @orchestrator_request_deadline_ms 10_000
 
   @spec base_url() :: String.t()
   def base_url, do: @base_url
@@ -124,62 +131,107 @@ defmodule Aiur.GitHub.Transport do
   end
 
   @doc """
-  Runs `request_fun` on a task so the caller never owns the socket.
+  Runs `request_fun` on a throwaway process so the caller never owns the socket.
 
-  Returns `{:error, :fetch_deadline_exceeded}` when the task does not finish
-  inside the deadline; the task is killed, so the socket is released rather
-  than leaked. Exceptions and exits raised inside the task are re-raised on the
-  caller so error handling upstream is unchanged.
+  Returns `{:error, :fetch_deadline_exceeded}` when the request does not finish
+  inside the deadline; the process is killed, so the socket is released rather
+  than leaked. Exceptions and exits raised inside it are re-raised on the caller
+  so error handling upstream is unchanged.
+
+  The worker is spawned directly rather than started under a `Task.Supervisor`.
+  `Task.Supervisor.async_nolink/2` starts its child through
+  `GenServer.call(supervisor, ..., :infinity)`, so every GitHub request in the
+  application would queue on one supervisor process — the same one that owns
+  long-lived agent tasks and is parked synchronously by
+  `Aiur.Orchestrator.AgentTeardown` while a child shuts down. That is an
+  unbounded wait in front of the deadline, and a fix for "one process holds a
+  socket" must not introduce "every request holds a global lock". `spawn_monitor`
+  has no such round trip, so the deadline below covers the whole operation
+  including acquiring the worker.
   """
   @spec off_process_request(map(), (-> term())) :: term()
   def off_process_request(request, request_fun) when is_function(request_fun, 0) do
-    case Process.whereis(Aiur.TaskSupervisor) do
-      nil ->
-        # No supervision tree (module-level tests, escript one-shots). There is
-        # no mailbox to protect in that case, so run inline rather than
-        # silently skipping the request.
-        request_fun.()
+    deadline_ms = request_deadline_ms(request)
+    caller = self()
+    callers = [caller | Process.get(:"$callers", [])]
+    logger_metadata = Logger.metadata()
 
-      _supervisor ->
-        run_supervised_request(request, request_fun)
+    {worker, monitor_ref} =
+      spawn_monitor(fn ->
+        # `Req.Test` and friends resolve stubs through `$callers`, and log lines
+        # from a request keep the caller's metadata, so both are carried over.
+        Process.put(:"$callers", callers)
+        Logger.metadata(logger_metadata)
+
+        result =
+          try do
+            {:ok, request_fun.()}
+          catch
+            kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+          end
+
+        send(caller, {__MODULE__, self(), result})
+      end)
+
+    await_off_process_request(request, worker, monitor_ref, deadline_ms)
+  end
+
+  defp await_off_process_request(request, worker, monitor_ref, deadline_ms) do
+    receive do
+      {__MODULE__, ^worker, {:ok, result}} ->
+        Process.demonitor(monitor_ref, [:flush])
+        result
+
+      {__MODULE__, ^worker, {:raised, kind, reason, stacktrace}} ->
+        Process.demonitor(monitor_ref, [:flush])
+        :erlang.raise(kind, reason, stacktrace)
+
+      {:DOWN, ^monitor_ref, :process, ^worker, reason} ->
+        # The worker died without reporting. It never owned this caller's
+        # mailbox, so surface it as an error rather than taking the caller down.
+        {:error, {:github_request_task_exit, reason}}
+    after
+      deadline_ms ->
+        abandon_off_process_request(request, worker, monitor_ref, deadline_ms)
     end
   end
 
-  defp run_supervised_request(request, request_fun) do
-    deadline_ms = request_deadline_ms(request)
+  defp abandon_off_process_request(request, worker, monitor_ref, deadline_ms) do
+    Process.exit(worker, :kill)
 
-    task =
-      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
-        try do
-          {:ok, request_fun.()}
-        catch
-          kind, reason -> {:raised, kind, reason, __STACKTRACE__}
-        end
-      end)
-
-    case Task.yield(task, deadline_ms) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {:ok, result}} ->
-        result
-
-      {:ok, {:raised, kind, reason, stacktrace}} ->
-        :erlang.raise(kind, reason, stacktrace)
-
-      {:exit, reason} ->
-        {:error, {:github_request_task_exit, reason}}
-
-      nil ->
-        Logger.warning(
-          "GitHub request exceeded its #{deadline_ms}ms process deadline and was abandoned: " <>
-            "#{inspect(Map.get(request, :method))} #{inspect(Map.get(request, :url))}"
-        )
-
-        {:error, :fetch_deadline_exceeded}
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^worker, _reason} -> :ok
     end
+
+    # The worker may have answered in the gap between the deadline firing and
+    # the kill landing; drop that reply so it cannot be read as the result of
+    # some later request on this process.
+    receive do
+      {__MODULE__, ^worker, _late_result} -> :ok
+    after
+      0 -> :ok
+    end
+
+    Logger.warning(
+      "GitHub request exceeded its #{deadline_ms}ms process deadline and was abandoned: " <>
+        "#{inspect(Map.get(request, :method))} #{inspect(Map.get(request, :url))}"
+    )
+
+    {:error, :fetch_deadline_exceeded}
   end
 
   # The per-attempt `receive_timeout` bounds one socket read; Req retries, so
   # the deadline must cover the whole request including retries. It is a
   # backstop against a wedge, not the primary latency bound.
+  #
+  # A read issued *by the Orchestrator* is bounded far tighter. The Orchestrator
+  # still calls GitHub inline from its poll cycle (`Dispatcher.run_poll_cycle/1`),
+  # and while it waits for this reply it answers nothing — agent completions and
+  # `aiur message`/`pause`/`resume`, which still route through its mailbox, wait
+  # with it. The general 60s backstop is twelve times the CLI's 5s control budget,
+  # so that wait is capped nearer the budget instead. It is not the budget itself:
+  # killing a read that is legitimately retrying through a secondary rate limit
+  # would stop dispatch entirely, so it allows one retry cycle above it (#1837).
   @spec request_deadline_ms(map()) :: pos_integer()
   def request_deadline_ms(request) do
     case Application.get_env(:aiur, :github_request_deadline_ms) do
@@ -187,12 +239,22 @@ defmodule Aiur.GitHub.Transport do
         configured
 
       _unset ->
-        timeout_ms = Map.get(request, :timeout_ms, @default_request_timeout_ms)
-        timeout_ms = if is_integer(timeout_ms) and timeout_ms > 0, do: timeout_ms, else: @default_request_timeout_ms
-
-        max(@default_request_deadline_ms, timeout_ms + @deadline_margin_ms)
+        default_request_deadline_ms(request)
     end
   end
+
+  defp default_request_deadline_ms(request) do
+    if orchestrator_process?() do
+      @orchestrator_request_deadline_ms
+    else
+      timeout_ms = Map.get(request, :timeout_ms, @default_request_timeout_ms)
+      timeout_ms = if is_integer(timeout_ms) and timeout_ms > 0, do: timeout_ms, else: @default_request_timeout_ms
+
+      max(@default_request_deadline_ms, timeout_ms + @deadline_margin_ms)
+    end
+  end
+
+  defp orchestrator_process?, do: self() == GenServer.whereis(Aiur.Orchestrator)
 
   defp quota_preflight(quota, request), do: Quota.preflight(quota, request)
   defp quota_observe(quota, request, result), do: Quota.observe(quota, request, result)

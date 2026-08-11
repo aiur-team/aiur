@@ -99,7 +99,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
   describe "control queries while the orchestrator holds a GitHub read" do
     setup %{orchestrator: pid} do
-      :ok = SnapshotStore.publish(Orchestrator, pid |> :sys.get_state() |> StatusReport.snapshot_payload())
+      :ok = publish_current_view(pid)
       on_exit(fn -> SnapshotStore.forget(Orchestrator) end)
 
       # Registered first so it runs last: the shared Orchestrator must be
@@ -151,7 +151,12 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       assert div(elapsed_us, 1_000) < @cli_budget_ms
     end
 
-    test "the orchestrator mailbox does not grow while the fetch is outstanding", %{orchestrator: pid} do
+    # Named for what it proves. It does *not* show that the mailbox stays flat
+    # while a fetch is outstanding — it cannot: the Orchestrator is still parked
+    # in a receive here, so anything else that messages it does queue. What it
+    # shows is narrower and is the property the control-query change bought:
+    # these forty queries are not among the things that queue.
+    test "control queries add nothing to the orchestrator mailbox", %{orchestrator: pid} do
       before_depth = mailbox_depth(pid)
 
       for _repeat <- 1..20 do
@@ -165,9 +170,30 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     end
 
     test "the orchestrator is not inside a GitHub read on its own process", %{orchestrator: pid} do
-      assert http_client_frames(pid) == [],
-             "the orchestrator is holding the socket: #{inspect(Process.info(pid, :current_stacktrace))}"
+      # Sampled repeatedly for the same reason as the caller-side assertion: one
+      # sample can land between connect and recv and miss the frames entirely.
+      # This is the assertion that guards the exact stack #1837 reported, so it
+      # is the last one that should be decided by a single look.
+      for _sample <- 1..20 do
+        assert http_client_frames(pid) == [],
+               "the orchestrator is holding the socket: #{inspect(Process.info(pid, :current_stacktrace))}"
+
+        Process.sleep(50)
+      end
     end
+  end
+
+  # The Orchestrator does still wait for its own GitHub reads — that wait is now
+  # bounded, and bounded much nearer the operator's 5s control budget than the
+  # general backstop, because everything else in its mailbox waits with it.
+  test "an orchestrator-issued read is bounded near the control budget", %{orchestrator: pid} do
+    request = %{method: :get, url: "https://api.github.com/rate_limit", token: "test-token", timeout_ms: 30_000}
+
+    caller_deadline_ms = Transport.request_deadline_ms(request)
+    orchestrator_deadline_ms = eval_on_orchestrator(pid, fn -> Transport.request_deadline_ms(request) end)
+
+    assert orchestrator_deadline_ms < caller_deadline_ms
+    assert orchestrator_deadline_ms <= 3 * @cli_budget_ms
   end
 
   test "a fleet view behind its producer is rendered with its age, not as current", %{orchestrator: pid} do
@@ -175,7 +201,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 50)
     on_exit(fn -> restore_application_env(:snapshot_stale_age_ceiling_ms, previous_ceiling) end)
 
-    :ok = SnapshotStore.publish(Orchestrator, pid |> :sys.get_state() |> StatusReport.snapshot_payload())
+    :ok = publish_current_view(pid)
     on_exit(fn -> SnapshotStore.forget(Orchestrator) end)
     Process.sleep(120)
 
@@ -184,6 +210,30 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     assert output =~ "STALE FLEET VIEW — showing the last-known-good snapshot,"
     assert output =~ "old (the orchestrator has stopped publishing)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  # `:sys.replace_state/2` evaluates its function inside the target process, so
+  # this answers "what does this code see when it runs on the Orchestrator?".
+  defp eval_on_orchestrator(pid, fun) do
+    test_pid = self()
+
+    :sys.replace_state(pid, fn state ->
+      send(test_pid, {:eval_result, fun.()})
+      state
+    end)
+
+    receive do
+      {:eval_result, value} -> value
+    after
+      5_000 -> flunk("the orchestrator never evaluated the probe")
+    end
+  end
+
+  # The read model retains the projection its rows are built from, so a test
+  # publishing a view has to hand over both.
+  defp publish_current_view(pid) do
+    state = :sys.get_state(pid)
+    SnapshotStore.publish(Orchestrator, StatusReport.snapshot_payload(state), state)
   end
 
   # A listener that completes the TCP handshake and then never answers — the

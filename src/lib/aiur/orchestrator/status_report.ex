@@ -44,13 +44,17 @@ defmodule Aiur.Orchestrator.StatusReport do
   established by #1814 (`:status`, `:reason`, `:observed_at`, `:age_ms`,
   `:age_seconds`, ...), not a second vocabulary. `{:error, reason}` is reserved
   for the cases with genuinely nothing to show.
+
+  `fleet_rows?: true` asks for the `status`/`watch` row shape under `:statuses`.
+  Those rows are built on this process from the retained projection, so a query
+  that does not render them (`agents`) does not pay for them.
   """
-  @spec fleet_view(GenServer.server(), timeout()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
-  def fleet_view(server \\ Aiur.Orchestrator, timeout) do
-    case SnapshotStore.read(server, timeout) do
+  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
+  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []) do
+    case SnapshotStore.read(server, timeout, opts) do
       {:current, snapshot, freshness} -> {:ok, snapshot, freshness}
       {:stale, snapshot, freshness} -> {:ok, snapshot, freshness}
-      :snapshot_unpublished -> fleet_view_from_process(server, timeout)
+      :snapshot_unpublished -> fleet_view_from_process(server, timeout, opts)
       :orchestrator_unavailable -> {:error, :unavailable}
     end
   end
@@ -61,8 +65,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   # retry. It is never the steady-state path, so it cannot reintroduce the
   # head-of-line block: an Orchestrator that has been running long enough to be
   # busy has already published.
-  defp fleet_view_from_process(server, timeout) do
-    case status_api_call(server, :snapshot, timeout, true) do
+  #
+  # One call, never two: a query that needs the rows asks for the payload and
+  # the rows together, so this window costs the mailbox exactly one message.
+  defp fleet_view_from_process(server, timeout, opts) do
+    request = if Keyword.get(opts, :fleet_rows?, false), do: :fleet_view, else: :snapshot
+
+    case status_api_call(server, request, timeout, true) do
       snapshot when is_map(snapshot) -> {:ok, snapshot, just_observed_freshness()}
       :timeout -> {:error, :timeout}
       _unavailable -> {:error, :unavailable}
@@ -301,6 +310,17 @@ defmodule Aiur.Orchestrator.StatusReport do
   # business mutating state to do it again (#1837).
   def snapshot(%State{} = state), do: {:reply, snapshot_payload(state), state}
 
+  @doc """
+  The snapshot payload plus the `status`/`watch` rows, in one reply.
+
+  Serves the one window the read model cannot: a generation that has not
+  published yet. Answering both from a single call keeps that window at one
+  mailbox message rather than two.
+  """
+  @spec fleet_view_call(State.t()) :: {:reply, map(), State.t()}
+  def fleet_view_call(%State{} = state),
+    do: {:reply, Map.put(snapshot_payload(state), :statuses, agent_statuses(state)), state}
+
   @doc false
   @spec snapshot_payload(State.t()) :: map()
   def snapshot_payload(%State{} = state) do
@@ -317,10 +337,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       running: running,
       retrying: retrying,
       idle: idle,
-      # The `status`/`watch` row shape, projected alongside the dashboard rows
-      # so control queries can be answered from the read model instead of the
-      # Orchestrator mailbox (#1837).
-      statuses: agent_statuses(state),
+      # The `status`/`watch` rows are deliberately *not* built here. This runs on
+      # every state change, and `agent_statuses/1` reads `dispatch-budgets.json`
+      # and calls `RepoBase`; paying that continuously to save it on a command an
+      # operator types occasionally is a bad trade on a box that also runs the
+      # fleet. `SnapshotStore.read/3` builds them from the retained projection,
+      # on the reader's process, when someone asks (#1837).
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
       capacity_hold: capacity_hold_payload(state, now_ms),

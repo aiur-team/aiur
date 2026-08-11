@@ -93,11 +93,20 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @doc """
   Stores an already-projected snapshot. This is chiefly useful to lightweight
   Orchestrator implementations that do not own an `Aiur.Orchestrator.State`.
+
+  `publish/3` additionally retains the projected state the payload was built
+  from, which is what lets `read/3` build the `status`/`watch` rows on the
+  reader's own process. A snapshot published without it can still serve the
+  dashboard; a control query reading it reports no rows rather than an empty
+  fleet.
   """
   @spec publish(GenServer.server(), map()) :: :ok
-  def publish(orchestrator, snapshot) when is_map(snapshot) do
+  def publish(orchestrator, snapshot) when is_map(snapshot), do: publish(orchestrator, snapshot, nil)
+
+  @spec publish(GenServer.server(), map(), Aiur.Orchestrator.State.t() | nil) :: :ok
+  def publish(orchestrator, snapshot, source_state) when is_map(snapshot) do
     generation = active_generation(orchestrator)
-    put_snapshot(orchestrator, generation, snapshot)
+    put_snapshot(orchestrator, generation, snapshot, source_state)
     cache_global_pause(orchestrator, generation, snapshot)
     :ok = ObservabilityPubSub.broadcast_update()
     :ok
@@ -149,13 +158,26 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   short window after every restart.
   """
   @spec read(GenServer.server(), timeout()) :: result()
-  def read(orchestrator, timeout) do
+  def read(orchestrator, timeout), do: read(orchestrator, timeout, [])
+
+  @doc """
+  As `read/2`, but `fleet_rows?: true` also materialises the `status`/`watch`
+  row shape under `:statuses`.
+
+  Those rows cost a `dispatch-budgets.json` read and a `RepoBase` call, so they
+  are built here — on the reader's process, when an operator actually asks — and
+  not in the projection, which runs on every state change. They are built from
+  the same cache entry that produced the freshness metadata beside them, so the
+  rows and their stated age always describe one moment.
+  """
+  @spec read(GenServer.server(), timeout(), keyword()) :: result()
+  def read(orchestrator, timeout, opts) do
     case cached_snapshot(orchestrator) do
       nil ->
         no_snapshot_result(orchestrator)
 
       %{snapshot: snapshot, observed_at: observed_at, observed_at_ms: observed_at_ms} = cached ->
-        snapshot = overlay_global_pause(orchestrator, snapshot)
+        snapshot = orchestrator |> overlay_global_pause(snapshot) |> maybe_put_fleet_rows(cached, opts)
         metadata = metadata(orchestrator, cached, observed_at, observed_at_ms, timeout)
 
         case metadata.status do
@@ -188,9 +210,9 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   @impl true
-  def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot}}, %{task_ref: ref} = store) do
+  def handle_info({:snapshot_built, ref, orchestrator, generation, {:ok, snapshot, source_state}}, %{task_ref: ref} = store) do
     if generation == active_generation(orchestrator) do
-      put_snapshot(orchestrator, generation, snapshot)
+      put_snapshot(orchestrator, generation, snapshot, source_state)
       :ok = ObservabilityPubSub.broadcast_update()
     end
 
@@ -219,7 +241,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       spawn(fn ->
         result =
           try do
-            {:ok, StatusReport.snapshot_payload(snapshot_input)}
+            # The projected state travels with its payload so a later control
+            # query can build the `status`/`watch` rows from it without paying
+            # for them on every projection.
+            {:ok, StatusReport.snapshot_payload(snapshot_input), snapshot_input}
           rescue
             error -> {:error, error}
           end
@@ -240,7 +265,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
   defp schedule_projection(store), do: store
 
-  defp put_snapshot(orchestrator, generation, snapshot) do
+  defp put_snapshot(orchestrator, generation, snapshot, source_state) do
     previous = cached_snapshot(orchestrator)
     observed_at_ms = System.monotonic_time(:millisecond)
 
@@ -265,11 +290,23 @@ defmodule Aiur.Orchestrator.SnapshotStore do
       %{
         generation: generation,
         snapshot: snapshot,
+        source_state: source_state,
         observed_at: DateTime.utc_now(),
         observed_at_ms: observed_at_ms,
         recent_gaps_ms: recent_gaps_ms
       }
     )
+  end
+
+  defp maybe_put_fleet_rows(snapshot, cached, opts) do
+    if Keyword.get(opts, :fleet_rows?, false) do
+      case Map.get(cached, :source_state) do
+        %Aiur.Orchestrator.State{} = state -> Map.put(snapshot, :statuses, StatusReport.agent_statuses(state))
+        _no_state -> snapshot
+      end
+    else
+      snapshot
+    end
   end
 
   defp cached_snapshot(orchestrator), do: :persistent_term.get({@cache_key, orchestrator}, nil)
