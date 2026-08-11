@@ -17,6 +17,12 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   submission. If review deliveries were ever routed through the reconciler
   instead of published directly, the wake would depend on a poll and these tests
   would fail.
+
+  The receiver also runs W-4's admission gate ahead of the dispatch, and that
+  gate is durable and process-wide. Each test therefore gets its own
+  `Aiur.Webhooks.DeliveryLog` and each delivery its own `X-GitHub-Delivery` id,
+  so one test's claims cannot silently drop the next test's delivery — the same
+  reason this file already clears `Publisher`'s replay window between deliveries.
   """
 
   use Aiur.TestSupport
@@ -25,6 +31,7 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
   import Plug.Test
 
   alias Aiur.Events.{Exchange, Publisher}
+  alias Aiur.Webhooks.DeliveryLog
   alias Aiur.Workflow
   alias AiurWeb.GithubWebhook
   alias AiurWeb.GithubWebhook.Auth
@@ -62,11 +69,15 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     Publisher.set_tracked_fn(fn _ -> true end)
     clear_dedup()
 
+    previous_log = Application.get_env(:aiur, :webhook_delivery_log)
+    fresh_admission_store!()
+
     on_exit(fn ->
       Application.put_env(:aiur, AiurWeb.Endpoint, endpoint_config)
       Auth.reset_alert_throttle()
       Publisher.set_tracked_fn(fn _ -> true end)
       clear_dedup()
+      restore_admission_store(previous_log)
       restore_env(@secret_env, prev_secret)
       restore_env("GITHUB_TOKEN", prev_token)
 
@@ -113,7 +124,12 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
       assert json.status == 202
       from_json = await_event(@topic)
 
+      # Both dedupe layers see the second delivery as a repeat of the first —
+      # `Publisher`'s replay window and W-4's semantic event key — and both are
+      # right to. This test is asking a different question: whether the two
+      # encodings normalize to the same event at all.
       clear_dedup()
+      fresh_admission_store!()
 
       form = deliver_form("pull_request_review", review_delivery())
       assert form.status == 202
@@ -137,6 +153,44 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
 
       event = await_event(@topic)
       assert event.comment["state"] == "CHANGES_REQUESTED"
+    end
+  end
+
+  describe "W-4 admission runs ahead of the dispatch" do
+    test "a retried delivery publishes the wake exactly once" do
+      :ok = Exchange.subscribe(@topic)
+
+      delivery = review_delivery()
+      retry_id = "22222222-3333-4444-5555-666666666666"
+
+      assert deliver("pull_request_review", delivery, delivery: retry_id).status == 202
+      assert await_event(@topic)
+
+      # GitHub retries under the *same* delivery id. `Publisher`'s replay window
+      # is cleared first, so surviving this can only be the admission gate and
+      # not the layer underneath it — which is the whole point of running the
+      # gate at the receiver rather than relying on the publish tail.
+      clear_dedup()
+
+      assert deliver("pull_request_review", delivery, delivery: retry_id).status == 202
+      refute_event(@topic)
+    end
+
+    test "a manual redelivery under a fresh delivery id publishes the wake exactly once" do
+      :ok = Exchange.subscribe(@topic)
+
+      delivery = review_delivery()
+
+      assert deliver("pull_request_review", delivery).status == 202
+      assert await_event(@topic)
+
+      clear_dedup()
+
+      # A redelivery from the App's Advanced tab carries a *new* delivery id for
+      # the same underlying event, so delivery-id dedupe cannot see it. Only the
+      # payload-derived event key catches this one.
+      assert deliver("pull_request_review", delivery).status == 202
+      refute_event(@topic)
     end
   end
 
@@ -236,6 +290,9 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     refute_receive {:orchestrator, :run_poll_cycle}, 200
   end
 
+  # GitHub stamps every delivery with its own id, so the default here is unique
+  # per call. A test that wants to model a *retry* passes `:delivery` explicitly
+  # to reuse one.
   defp deliver(event_type, payload, opts \\ []) do
     body = Jason.encode!(payload)
 
@@ -243,10 +300,29 @@ defmodule AiurWeb.GithubWebhookDeliveryTest do
     |> conn(GithubWebhook.path(), body)
     |> put_req_header("content-type", "application/json")
     |> put_req_header("x-github-event", event_type)
-    |> put_req_header("x-github-delivery", "11111111-2222-3333-4444-555555555555")
+    |> put_req_header("x-github-delivery", Keyword.get_lazy(opts, :delivery, &unique_delivery_id/0))
     |> maybe_sign(body, opts)
     |> call()
   end
+
+  defp unique_delivery_id, do: "11111111-2222-3333-4444-#{System.unique_integer([:positive, :monotonic])}"
+
+  # A store per test, so admission claims cannot leak between tests. Called
+  # again inside a test that deliberately replays one underlying event through
+  # two independent deliveries.
+  defp fresh_admission_store! do
+    dir = Path.join(System.tmp_dir!(), "aiur-webhook-delivery-#{System.unique_integer([:positive])}")
+    name = :"delivery_test_log_#{System.unique_integer([:positive])}"
+    log = start_supervised!({DeliveryLog, name: name, state_dir: dir}, id: name)
+
+    Application.put_env(:aiur, :webhook_delivery_log, log)
+    on_exit(fn -> File.rm_rf!(dir) end)
+
+    log
+  end
+
+  defp restore_admission_store(nil), do: Application.delete_env(:aiur, :webhook_delivery_log)
+  defp restore_admission_store(previous), do: Application.put_env(:aiur, :webhook_delivery_log, previous)
 
   defp deliver_form(event_type, payload) do
     body = URI.encode_query(%{"payload" => Jason.encode!(payload)})
