@@ -64,7 +64,7 @@ defmodule Aiur.PaneManager do
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
   end
 
   @spec open_conversation(GenServer.server(), agent_id(), String.t(), keyword()) ::

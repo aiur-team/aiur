@@ -1,57 +1,55 @@
 defmodule Aiur.Events.ExchangeTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.Events.Exchange
 
   setup do
-    # Exchange is started by Aiur.Application; tests run against the
-    # global instance. Clean up any bindings the test process owns so
-    # state doesn't leak between cases.
-    on_exit(fn ->
-      pid = self()
-
-      for pattern <- Exchange.bindings_for(pid) do
-        Exchange.unsubscribe(pattern)
-      end
-    end)
-
-    :ok
+    {:ok, exchange} = start_supervised({Exchange, []})
+    %{exchange: exchange}
   end
 
-  describe "subscribe/1 + publish/2" do
-    test "delivers a matching event to the subscriber" do
-      :ok = Exchange.subscribe("ticket.101.#")
-      count = Exchange.publish("ticket.101.branch.push", %{id: 1, body: :hi})
+  test "two unnamed instances start with separate routing state", %{exchange: exchange} do
+    {:ok, second} = start_supervised({Exchange, []}, id: :second_unnamed_exchange)
 
-      # The orchestrator subscribes to `ticket.*.branch.push` at boot
-      # (blockee auto-resume hook), so the count includes it alongside
-      # this test's subscriber.
-      assert count >= 1
+    :ok = subscribe(exchange, "ticket.first.#")
+    :ok = subscribe(second, "ticket.second.#")
+
+    assert publish(exchange, "ticket.first.created", %{id: 1}) == 1
+    assert_receive {:event, %{id: 1}}
+    assert publish(second, "ticket.first.created", %{id: 2}) == 0
+  end
+
+  describe "subscribe/2 + publish/3" do
+    test "delivers a matching event to the subscriber", %{exchange: exchange} do
+      :ok = subscribe(exchange, "ticket.101.#")
+      count = publish(exchange, "ticket.101.branch.push", %{id: 1, body: :hi})
+
+      assert count == 1
       assert_receive {:event, %{id: 1, body: :hi}}, 500
     end
 
-    test "non-matching pattern receives nothing" do
-      :ok = Exchange.subscribe("ticket.999.#")
-      Exchange.publish("ticket.101.branch.push", %{id: 2})
+    test "non-matching pattern receives nothing", %{exchange: exchange} do
+      :ok = subscribe(exchange, "ticket.999.#")
+      publish(exchange, "ticket.101.branch.push", %{id: 2})
 
       refute_receive {:event, _}, 100
     end
 
-    test "wildcard star matches one segment" do
-      :ok = Exchange.subscribe("*.*.branch.push")
-      Exchange.publish("ticket.101.branch.push", %{id: 3})
-      Exchange.publish("system.main.branch.push", %{id: 4})
+    test "wildcard star matches one segment", %{exchange: exchange} do
+      :ok = subscribe(exchange, "*.*.branch.push")
+      publish(exchange, "ticket.101.branch.push", %{id: 3})
+      publish(exchange, "system.main.branch.push", %{id: 4})
 
       assert_receive {:event, %{id: 3}}, 500
       assert_receive {:event, %{id: 4}}, 500
     end
 
-    test "multiple subscribers to overlapping patterns each receive" do
+    test "multiple subscribers to overlapping patterns each receive", %{exchange: exchange} do
       test_pid = self()
 
       sub1 =
         spawn(fn ->
-          :ok = Exchange.subscribe("ticket.101.#")
+          :ok = subscribe(exchange, "ticket.101.#")
 
           receive do
             {:event, ev} -> send(test_pid, {:sub1, ev})
@@ -62,7 +60,7 @@ defmodule Aiur.Events.ExchangeTest do
 
       sub2 =
         spawn(fn ->
-          :ok = Exchange.subscribe("ticket.*.branch.push")
+          :ok = subscribe(exchange, "ticket.*.branch.push")
 
           receive do
             {:event, ev} -> send(test_pid, {:sub2, ev})
@@ -72,73 +70,65 @@ defmodule Aiur.Events.ExchangeTest do
         end)
 
       # Wait for both subscribers to register before publishing
-      :ok = wait_until(fn -> Exchange.bindings_for(sub1) != [] end)
-      :ok = wait_until(fn -> Exchange.bindings_for(sub2) != [] end)
+      :ok = wait_until(fn -> bindings_for(exchange, sub1) != [] end)
+      :ok = wait_until(fn -> bindings_for(exchange, sub2) != [] end)
 
-      Exchange.publish("ticket.101.branch.push", %{id: 5})
+      publish(exchange, "ticket.101.branch.push", %{id: 5})
 
       assert_receive {:sub1, %{id: 5}}, 500
       assert_receive {:sub2, %{id: 5}}, 500
     end
   end
 
-  describe "unsubscribe/1" do
-    test "no events delivered after unsubscribe" do
-      :ok = Exchange.subscribe("ticket.101.#")
-      :ok = Exchange.unsubscribe("ticket.101.#")
+  describe "unsubscribe/2" do
+    test "no events delivered after unsubscribe", %{exchange: exchange} do
+      :ok = subscribe(exchange, "ticket.101.#")
+      :ok = unsubscribe(exchange, "ticket.101.#")
 
-      Exchange.publish("ticket.101.branch.push", %{id: 6})
+      publish(exchange, "ticket.101.branch.push", %{id: 6})
       refute_receive {:event, _}, 100
     end
 
-    test "unsubscribe of non-existent binding is a no-op" do
-      assert :ok = Exchange.unsubscribe("never.subscribed")
+    test "unsubscribe of non-existent binding is a no-op", %{exchange: exchange} do
+      assert :ok = unsubscribe(exchange, "never.subscribed")
     end
   end
 
   describe "subscriber death" do
-    test "DOWN reaps binding within 100ms" do
+    test "DOWN reaps binding within 100ms", %{exchange: exchange} do
       sub =
         spawn(fn ->
-          :ok = Exchange.subscribe("ticket.999.#")
+          :ok = subscribe(exchange, "ticket.999.#")
           # Hold the binding briefly, then die.
           Process.sleep(50)
         end)
 
-      :ok = wait_until(fn -> Exchange.bindings_for(sub) != [] end)
+      :ok = wait_until(fn -> bindings_for(exchange, sub) != [] end)
       ref = Process.monitor(sub)
       assert_receive {:DOWN, ^ref, :process, ^sub, _}, 500
 
-      :ok = wait_until(fn -> Exchange.bindings_for(sub) == [] end, 500)
+      :ok = wait_until(fn -> bindings_for(exchange, sub) == [] end, 500)
 
-      # Publishing after DOWN must not crash even though we previously
-      # had a binding for the now-dead pid. The orchestrator's wildcard
-      # `ticket.*.branch.push` subscription matches this topic, so the
-      # reported count includes whatever ambient subscribers remain.
-      # What matters is (a) no crash, (b) the dead pid's binding has
-      # been reaped (asserted above), and (c) the count never reflects
-      # delivery to a dead pid — `>= 0` enforces only the non-negative
-      # invariant of the Exchange's counting contract.
-      count = Exchange.publish("ticket.999.branch.push", %{id: 7})
-      assert is_integer(count) and count >= 0
+      count = publish(exchange, "ticket.999.branch.push", %{id: 7})
+      assert count == 0
     end
   end
 
   describe "validate_pattern!" do
-    test "raises on empty pattern" do
-      assert_raise ArgumentError, fn -> Exchange.subscribe("") end
+    test "raises on empty pattern", %{exchange: exchange} do
+      assert_raise ArgumentError, fn -> subscribe(exchange, "") end
     end
 
-    test "raises on leading dot" do
-      assert_raise ArgumentError, fn -> Exchange.subscribe(".bad") end
+    test "raises on leading dot", %{exchange: exchange} do
+      assert_raise ArgumentError, fn -> subscribe(exchange, ".bad") end
     end
 
-    test "raises on trailing dot" do
-      assert_raise ArgumentError, fn -> Exchange.subscribe("bad.") end
+    test "raises on trailing dot", %{exchange: exchange} do
+      assert_raise ArgumentError, fn -> subscribe(exchange, "bad.") end
     end
 
-    test "raises on double dots" do
-      assert_raise ArgumentError, fn -> Exchange.subscribe("ticket..101") end
+    test "raises on double dots", %{exchange: exchange} do
+      assert_raise ArgumentError, fn -> subscribe(exchange, "ticket..101") end
     end
   end
 
@@ -150,12 +140,26 @@ defmodule Aiur.Events.ExchangeTest do
   end
 
   describe "publisher non-blocking" do
-    test "publish does not block on a sleeping subscriber" do
+    test "publish bypasses a suspended exchange mailbox", %{exchange: exchange} do
+      :ok = subscribe(exchange, "ticket.101.#")
+      :ok = :sys.suspend(exchange)
+
+      on_exit(fn ->
+        if Process.alive?(exchange) do
+          :sys.resume(exchange)
+        end
+      end)
+
+      assert publish(exchange, "ticket.101.branch.push", %{id: 8}) == 1
+      assert_receive {:event, %{id: 8}}, 500
+    end
+
+    test "publish does not block on a sleeping subscriber", %{exchange: exchange} do
       test_pid = self()
 
       slow =
         spawn(fn ->
-          :ok = Exchange.subscribe("slow.*")
+          :ok = subscribe(exchange, "slow.*")
 
           receive do
             {:event, _} ->
@@ -164,10 +168,10 @@ defmodule Aiur.Events.ExchangeTest do
           end
         end)
 
-      :ok = wait_until(fn -> Exchange.bindings_for(slow) != [] end)
+      :ok = wait_until(fn -> bindings_for(exchange, slow) != [] end)
 
       start = System.monotonic_time(:millisecond)
-      Exchange.publish("slow.event", %{id: 8})
+      publish(exchange, "slow.event", %{id: 9})
       elapsed = System.monotonic_time(:millisecond) - start
 
       assert elapsed < 100, "publish blocked: #{elapsed}ms"
@@ -193,4 +197,9 @@ defmodule Aiur.Events.ExchangeTest do
         wait_until_loop(fun, deadline)
     end
   end
+
+  defp subscribe(exchange, pattern), do: Exchange.subscribe(pattern, exchange)
+  defp unsubscribe(exchange, pattern), do: Exchange.unsubscribe(pattern, exchange)
+  defp publish(exchange, topic, event), do: Exchange.publish(topic, event, exchange)
+  defp bindings_for(exchange, pid), do: Exchange.bindings_for(pid, exchange)
 end

@@ -475,6 +475,17 @@ defmodule Aiur.CoreTest do
     GenServer.stop(pid)
   end
 
+  test "two unnamed orchestrators start independently" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+
+    {:ok, first} = start_supervised({Orchestrator, initial_poll?: false}, id: :first_unnamed_orchestrator)
+    {:ok, second} = start_supervised({Orchestrator, initial_poll?: false}, id: :second_unnamed_orchestrator)
+
+    assert first != second
+    assert :sys.get_state(first).snapshot_key != :sys.get_state(second).snapshot_key
+  end
+
   test "linear issue state reconciliation fetch with no running issues is a no-op" do
     assert {:ok, []} = Client.fetch_issue_states_by_ids([])
   end

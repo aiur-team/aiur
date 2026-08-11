@@ -278,7 +278,17 @@ defmodule Aiur.ApplicationTest do
     test "the shared test orchestrator starts without a poll cycle" do
       specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
 
-      assert {Aiur.Orchestrator, initial_poll?: false} in specs
+      assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
+    end
+
+    test "singleton runtime services are explicitly named by their child specs" do
+      specs = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: false)
+
+      assert {Aiur.Tmux, name: Aiur.Tmux} in specs
+      assert {Aiur.PaneManager, name: Aiur.PaneManager} in specs
+      assert {Aiur.Events.Exchange, name: Aiur.Events.Exchange} in specs
+      assert {Aiur.DecisionStore, name: Aiur.DecisionStore} in specs
+      assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 
     test "current-run membership starts before the orchestrator and reconciles after it" do
