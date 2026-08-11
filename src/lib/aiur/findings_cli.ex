@@ -44,23 +44,26 @@ defmodule Aiur.FindingsCLI do
     case reader.(scope: opts.scope) do
       {:ok, findings, errors} ->
         Enum.each(errors, fn error -> puts.("aiur findings: skipping corrupt ledger record: #{format_error(error)}") end)
-
-        if opts.slugs do
-          findings
-          |> Enum.map(& &1["slug"])
-          |> Enum.uniq()
-          |> Enum.sort()
-          |> Enum.each(puts)
-
-          exit_code(opts, findings)
-        else
-          Enum.each(findings, fn finding -> puts.(Jason.encode!(finding)) end)
-          exit_code(opts, findings)
-        end
+        render_findings(findings, opts, puts)
 
       {:error, reason} ->
         write_error(puts, reason)
     end
+  end
+
+  defp render_findings(findings, %{slugs: true} = opts, puts) do
+    findings
+    |> Enum.map(& &1["slug"])
+    |> Enum.uniq()
+    |> Enum.sort()
+    |> Enum.each(puts)
+
+    exit_code(opts, findings)
+  end
+
+  defp render_findings(findings, opts, puts) do
+    Enum.each(findings, fn finding -> puts.(Jason.encode!(finding)) end)
+    exit_code(opts, findings)
   end
 
   defp validate_repo_slug(repo) do
