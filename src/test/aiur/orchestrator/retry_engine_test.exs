@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   alias Aiur.{AgentQueue, AgentQueueStore, CodingAgent, Issue, TrackerIdentity}
   alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, SnapshotStore, State}
+  alias Aiur.Orchestrator.{Dispatcher, RateLimitFallback, RetryEngine, Slots, SnapshotStore, State}
   alias Aiur.Workspace.Ownership
 
   describe "failure_retry?/1" do
@@ -673,9 +673,9 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
         state: "In Progress"
       }
 
-      assert Aiur.Orchestrator.retry_candidate_issue?(recovered_primary_issue, MapSet.new(["done"]))
-      assert Aiur.Orchestrator.Slots.dispatch_slots_available?(recovered_primary_issue, exited_state)
-      assert Aiur.Orchestrator.Slots.worker_slots_available?(exited_state, nil)
+      assert Orchestrator.retry_candidate_issue?(recovered_primary_issue, MapSet.new(["done"]))
+      assert Slots.dispatch_slots_available?(recovered_primary_issue, exited_state)
+      assert Slots.worker_slots_available?(exited_state, nil)
 
       assert {:noreply, redispatched_state} =
                RetryEngine.handle_retry_issue_lookup(
