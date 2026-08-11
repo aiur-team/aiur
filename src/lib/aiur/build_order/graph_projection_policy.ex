@@ -142,7 +142,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
   end
 
   def complete_candidate({:error, %ProviderResult{} = result}, _scope, _repository),
-    do: {:error, failure_class(result.error), result}
+    do: {:error, result_failure(result), result}
 
   def complete_candidate({:error, reason}, _scope, _repository) when is_atom(reason),
     do: {:error, failure_class(reason), nil}
@@ -215,6 +215,18 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
       %Diagnostic{code: code} -> failure_class(code)
       _ -> :provider_unavailable
     end
+  end
+
+  # Classification controls recovery behavior, but a safe provider diagnostic
+  # is the more precise operator-facing failure. Keep that evidence in health
+  # so cold snapshots do not turn missing credentials, schema faults or budget
+  # exhaustion back into generic aliases before the presenter sees them.
+  defp result_failure(%ProviderResult{error: error, diagnostics: diagnostics}) do
+    Enum.find_value(diagnostics, failure_class(error), fn
+      %Diagnostic{code: :provider_unavailable} -> nil
+      %Diagnostic{code: code} -> code
+      _diagnostic -> nil
+    end)
   end
 
   defp aged_health(%{data: nil, health: health}, _now_ms, _interval_ms), do: health

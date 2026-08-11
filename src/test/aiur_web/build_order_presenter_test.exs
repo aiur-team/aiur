@@ -454,7 +454,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     # well-formed Build Order: no data, and a provider that could not fetch.
     health =
       ProviderHealth.new(:unknown, :unavailable, false,
-        failure: :invalid_planning_authority,
+        failure: :missing_github_token,
         last_success_at: @now
       )
 
@@ -466,7 +466,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
       )
 
     assert model.status == :provider_unavailable
-    assert diagnostic_codes(model) == [:invalid_planning_authority]
+    assert diagnostic_codes(model) == [:missing_github_token]
 
     # Zeros must never stand in for unknown: the counts were never resolved.
     refute model.summary.resolved?

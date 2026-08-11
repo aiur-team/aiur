@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
@@ -80,6 +80,40 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
               generation: :unknown,
               data: nil,
               health: %{state: :structurally_invalid, failure: :structurally_invalid}
+            }} = GraphProjection.selected(projection, identity)
+
+    assert :ok = GraphProjection.release(projection, identity)
+  end
+
+  test "cold selected read failure retains its concrete provider fault" do
+    identity = identity(1, "I1")
+    projection = start_projection()
+    publish_catalog(projection, [root(identity)])
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+
+    result =
+      ProviderResult.failed(:missing_github_token,
+        diagnostics: [Diagnostic.new(:missing_github_token)]
+      )
+
+    finish(await_reader({:selected, identity}), {:error, result})
+
+    assert_receive {
+                     :projection_event,
+                     {:graph_projection_health,
+                      %Snapshot{
+                        scope: {:selected, ^identity},
+                        data: nil,
+                        health: %{state: :unavailable, failure: :missing_github_token}
+                      }}
+                   },
+                   2_000
+
+    assert {:ok,
+            %Snapshot{
+              data: nil,
+              health: %{state: :unavailable, failure: :missing_github_token}
             }} = GraphProjection.selected(projection, identity)
 
     assert :ok = GraphProjection.release(projection, identity)

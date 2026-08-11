@@ -179,6 +179,18 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
     assert Policy.failure_class(:missing_github_token) == :permission
     assert Policy.failure_class(:provider_schema) == :schema
 
+    for {reason, diagnostic} <- [
+          {:missing_github_token, :missing_github_token},
+          {:schema, :provider_schema},
+          {:invalid_requested_root, :invalid_requested_root},
+          {:page_budget_exhausted, :page_budget_exhausted}
+        ] do
+      result = ProviderResult.failed(reason, diagnostics: [Diagnostic.new(diagnostic)])
+
+      assert {:error, ^diagnostic, ^result} =
+               Policy.complete_candidate({:error, result}, {:selected, identity(1, "I1")}, @repository)
+    end
+
     # A genuinely malformed graph must still report as malformed.
     assert Policy.failure_class(:structurally_invalid) == :structurally_invalid
   end

@@ -1452,12 +1452,27 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
               }} =
                ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, request_fun: foreign_request)
 
+      configured_root = root(1, "test-org", "test-repo")
+
+      assert {:error,
+              %{
+                error: :invalid_planning_authority,
+                calls: 0,
+                pages: 0,
+                diagnostics: [%{code: :invalid_planning_authority}]
+              }} =
+               ProductionGraph.fetch_selected_root(
+                 identity(configured_root, {"test-org", "test-repo"}),
+                 repository: {"foreign-owner", "foreign-repo"},
+                 request_fun: foreign_request
+               )
+
       for invalid_bound <- [[root_limit: 1], [page_budget: 1], [call_budget: 1]] do
         assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
                  ProductionGraph.fetch_catalog(Keyword.put(invalid_bound, :request_fun, foreign_request))
       end
 
-      root = root(1, "test-org", "test-repo")
+      root = configured_root
 
       configured_request = fn %{body: %{"variables" => variables}} ->
         assert variables["owner"] == "test-org"
@@ -1473,6 +1488,35 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
                  call_budget: 4,
                  request_fun: configured_request
                )
+    end
+
+    test "selected-root reads report missing credentials before paging" do
+      token_cache_key = {Aiur.GitHub.Config, :resolved_token}
+      previous_token = System.get_env("GITHUB_TOKEN")
+      previous_cached_token = :persistent_term.get(token_cache_key, :unset)
+
+      System.delete_env("GITHUB_TOKEN")
+      :persistent_term.erase(token_cache_key)
+
+      on_exit(fn ->
+        if is_binary(previous_token), do: System.put_env("GITHUB_TOKEN", previous_token)
+
+        case previous_cached_token do
+          :unset -> :persistent_term.erase(token_cache_key)
+          token -> :persistent_term.put(token_cache_key, token)
+        end
+      end)
+
+      configured_root = root(1, "test-org", "test-repo")
+
+      assert {:error,
+              %{
+                error: :missing_github_token,
+                calls: 0,
+                pages: 0,
+                diagnostics: [%{code: :missing_github_token}]
+              }} =
+               ProductionGraph.fetch_selected_root(identity(configured_root, {"test-org", "test-repo"}))
     end
   end
 
