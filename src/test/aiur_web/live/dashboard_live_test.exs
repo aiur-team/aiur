@@ -5,6 +5,7 @@ defmodule AiurWeb.DashboardLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{
+    CommandsCLI,
     Decision,
     DecisionApi,
     DecisionDispatch,
@@ -1557,7 +1558,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert Process.alive?(view.pid)
   end
 
-  test "All Commands pages open records before filtering so its count matches the list" do
+  test "All Commands and the CLI show the same open set" do
     orchestrator_name = Module.concat(__MODULE__, :OpenPageOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :OpenPageDecisionStore)
 
@@ -1594,7 +1595,23 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ ~r/All\s+<span class="count num">2<\/span>/
     assert has_element?(view, "#decision-#{Enum.at(decisions, 0).decision_id}")
     assert has_element?(view, "#decision-#{Enum.at(decisions, 1).decision_id}")
-    refute has_element?(view, "#decision-#{Enum.at(decisions, 2).decision_id}")
+
+    Enum.each(Enum.drop(decisions, 2), fn decision ->
+      refute has_element?(view, "#decision-#{decision.decision_id}")
+    end)
+
+    assert {:ok, cli} =
+             CommandsCLI.build(
+               decision_store: decision_store_name,
+               decision_metrics: make_ref(),
+               history_fun: fn -> [] end
+             )
+
+    assert cli["data"]["page"]["decisions"]
+           |> MapSet.new(& &1["decision_id"]) ==
+             decisions
+             |> Enum.take(2)
+             |> MapSet.new(& &1.decision_id)
   end
 
   test "a direct Decision URL resolves a retained record outside the 50-item overview" do
