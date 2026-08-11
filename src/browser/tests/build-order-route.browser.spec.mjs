@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
+import { assertNoDocumentOverflow, captureConfiguredScreenshot } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 // The Build Order route renders a synchronous CSS-grid graph (epic columns ×
@@ -60,8 +60,8 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
     // The catalog is a table: every healthy root is a navigable link, an
     // unqualified root stays visible but is not linkable.
-    await expect(page.locator('.bo-catalog-table tbody tr')).toHaveCount(3)
-    await expect(page.locator('.bo-catalog-link')).toHaveCount(2)
+    await expect(page.locator('.bo-catalog-table tbody tr')).toHaveCount(4)
+    await expect(page.locator('.bo-catalog-link')).toHaveCount(3)
     await expect(page.locator('.bo-catalog-invalid', { hasText: 'Untitled Build Order' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Release dashboard' })).toHaveAttribute('href', '/build-orders/42')
 
@@ -239,5 +239,77 @@ test('production Build Order routes enforce Basic Auth and reject malformed loca
     await expect(page.locator('[data-bo-card]')).toHaveCount(0)
   } finally {
     await authenticated.close()
+  }
+})
+
+test('an unresolvable Build Order renders one copyable page-level error state', async ({ browser }, testInfo) => {
+  const context = await browser.newContext({
+    httpCredentials: dashboardCredentials,
+    viewport: { width: 1280, height: 900 },
+    permissions: ['clipboard-read', 'clipboard-write']
+  })
+  const page = await context.newPage()
+
+  try {
+    await page.goto('/build-orders/1567')
+    await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'selected_unavailable')
+
+    const card = page.locator('.bo-state-card')
+    await expect(card).toHaveCount(1)
+    await expect(card.getByRole('heading', { name: 'Could not fetch planning graph' })).toBeVisible()
+    await expect(page.locator('.bo-summary-grid, .bo-breakdown, .bo-analytics, .bo-usage, .bo-diagnostics')).toHaveCount(0)
+
+    const prompt = page.locator('#build-order-debug-prompt')
+    await expect(prompt).toHaveValue(
+      "Investigate why Build Order #1567's planning graph could not be fetched. " +
+      'The selected-root provider reports `provider_unavailable`; graph counts are unresolved; diagnostics: `provider_unavailable`.'
+    )
+
+    await page.getByRole('button', { name: 'Copy debug prompt' }).click()
+    await expect(page.locator('[data-copy-status]')).toHaveText('Copied')
+    await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toBe(await prompt.inputValue())
+
+    await assertNoDocumentOverflow(page)
+    const accessibility = await new AxeBuilder({ page }).analyze()
+    expect(accessibility.violations).toEqual([])
+    await captureConfiguredScreenshot(page, testInfo)
+  } finally {
+    await context.close()
+  }
+})
+
+test('copying the debug prompt falls back when the Clipboard API rejects', async ({ browser }) => {
+  const context = await browser.newContext({ httpCredentials: dashboardCredentials })
+  await context.addInitScript(() => {
+    window.__clipboardFallback = { writeAttempts: 0, execCommands: [] }
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: {
+        writeText: async () => {
+          window.__clipboardFallback.writeAttempts += 1
+          throw new Error('clipboard permission denied')
+        }
+      }
+    })
+
+    document.execCommand = (command) => {
+      window.__clipboardFallback.execCommands.push(command)
+      return command === 'copy'
+    }
+  })
+  const page = await context.newPage()
+
+  try {
+    await page.goto('/build-orders/1567')
+    await page.getByRole('button', { name: 'Copy debug prompt' }).click()
+
+    await expect(page.locator('[data-copy-status]')).toHaveText('Copied')
+    await expect.poll(() => page.evaluate(() => window.__clipboardFallback)).toEqual({
+      writeAttempts: 1,
+      execCommands: ['copy']
+    })
+  } finally {
+    await context.close()
   }
 })
