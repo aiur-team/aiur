@@ -181,6 +181,25 @@ defmodule Aiur.DecisionHistoryTest do
     assert entry.provenance["backend"] == "codex"
   end
 
+  test "projects operator dismissal events with attribution" do
+    assert {:ok, event} =
+             DecisionEvent.new(
+               :decision_dismissed,
+               "dec-dismissed",
+               1,
+               %{actor: %{kind: :operator, id: "dashboard"}},
+               event_id: 901,
+               run_id: "run-dismissed",
+               now: ~U[2026-08-11 12:00:00Z]
+             )
+
+    entry = DecisionHistory.project_record(event)
+
+    assert entry.change == :dismissed
+    assert entry.actor == %{type: :human_operator, id: "dashboard", label: "Operator"}
+    assert entry.changed_at == "2026-08-11T12:00:00Z"
+  end
+
   test "returns the full history by default" do
     histories = %{
       "dec_1" => Enum.map(1..51, &record(%{version: &1}))
