@@ -182,9 +182,14 @@ defmodule Aiur.DecisionProjection do
   defp maybe_replace_current(existing, _older), do: existing
 
   defp preserve_lifecycle(decision, existing) do
+    # A dismissed Command is closed on the operator's judgement, not on the
+    # underlying condition. When the source re-files it with changed
+    # evidence or a changed question, that judgement was made against content
+    # that no longer exists, so re-arm it. This holds for every kind: gating
+    # on `legacy_attention` left an agent-filed Command unable to return once
+    # dismissed, with nothing re-checking whether it was still blocking.
     rearmed? =
       existing.decision_status == :dismissed and
-        not is_nil(existing.legacy_attention) and
         decision.content_hash != existing.content_hash
 
     %{

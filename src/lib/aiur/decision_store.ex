@@ -1242,16 +1242,33 @@ defmodule Aiur.DecisionStore do
   defp handle_dismiss(decision_id, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts) do
-      case decision.decision_status do
-        :open -> persist_dismissal(decision, actor, state)
-        :deferred -> persist_dismissal(decision, actor, state)
-        :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
-        status -> {:reply, {:error, {:conflict, status}}, state}
+      cond do
+        decision.decision_status == :dismissed ->
+          {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+        decision.decision_status not in [:open, :deferred] ->
+          {:reply, {:error, {:conflict, decision.decision_status}}, state}
+
+        unresolvable_block?(decision) ->
+          {:reply, {:error, {:conflict, :blocking_requires_answer}}, state}
+
+        true ->
+          persist_dismissal(decision, actor, state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  # Dismissal records a status and stops: it delivers nothing to the waiting
+  # agent. That is honest for a non-blocking notice, and honest for a legacy
+  # attention because the caller resolves the underlying attention alongside
+  # it. For an agent-filed blocking Command neither holds — the ticket stays
+  # blocked while the row leaves the operator's inbox, which turns a visible
+  # block into an invisible one. Refuse instead: the answer path (including a
+  # custom response) is what actually releases the agent.
+  defp unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
+  defp unresolvable_block?(_decision), do: false
 
   defp persist_dismissal(decision, actor, state) do
     case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
