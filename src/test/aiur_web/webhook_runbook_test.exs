@@ -30,6 +30,7 @@ defmodule AiurWeb.WebhookRunbookTest do
   @repo_root Path.expand("../../..", __DIR__)
   @doc_path Path.join(@repo_root, "docs/security/webhook-ingress.md")
   @guard_path Path.join(@repo_root, "scripts/verify-webhook-ingress")
+  @harness_path Path.join(@repo_root, "scripts/test-webhook-ingress.sh")
   @repo "acme/widgets"
 
   # Deliberately wider than the supported set: the unsupported entries are what
@@ -148,6 +149,47 @@ defmodule AiurWeb.WebhookRunbookTest do
                  "#{settings.server.port}"
       end
     end
+
+    test "the runbook's claim that CI checks the restart invariant is true" do
+      # The runbook now tells the reader the restart invariant is "checked on
+      # every CI run rather than only when someone remembers to redo the manual
+      # procedure". That sentence is the whole reason an operator would trust AC
+      # 5 without re-running the procedure by hand — and it is a claim about a
+      # *different file*, which is the drift shape this document keeps producing.
+      #
+      # Deleting either direction from the harness leaves every other check on
+      # this branch green: the harness still exits 0 with fewer cases, and the
+      # paragraph goes on asserting a coverage that is no longer there. Nothing
+      # else on the branch can see it, because no other test reads the harness.
+      harness = File.read!(@harness_path)
+
+      assert harness =~ ~r/^start_tier edge --origin-port/m,
+             "#{@harness_path} no longer runs the daemon behind a separate edge, so " <>
+               "nothing in CI can distinguish a moved origin from a moved hostname"
+
+      # Both directions, and they are not interchangeable. The pinned case alone
+      # would pass against a guard that never fails; the unpinned case alone
+      # would pass against one that never succeeds.
+      assert harness =~ ~r/^start_tier origin --port "\$origin_port"$/m,
+             "#{@harness_path} no longer restarts a PINNED origin, so the passing " <>
+               "direction of AC 5 is unchecked"
+
+      assert harness =~ ~r/expected the guard to REJECT the same URL after an UNPINNED/,
+             "#{@harness_path} no longer checks that an UNPINNED restart breaks the " <>
+               "URL, so a guard that passed unconditionally would look like a clean AC 5"
+    end
+
+    # Deliberately NOT pinned here: that the guard's moved-origin branch names
+    # `server.port`. The obvious string pin — read the reason out of the
+    # harness's `grep -Fq`, assert it appears in the guard — was written, and
+    # then failed its own mutation check: rewording the 5xx branch left the test
+    # green, because `pin server.port in .aiur/config` also appears in the `000)`
+    # branch, so the assertion was satisfied by a branch other than the one under
+    # test. The harness already catches that mutation by *execution* (it greps
+    # the guard's real output on a moved origin and fails), which is strictly
+    # stronger than any string match. A weaker duplicate that cannot catch its
+    # own target is the exact shape this branch has spent sixteen findings
+    # removing, so it was removed rather than shipped.
 
     test "every pinned= literal in the runbook agrees with that block" do
       # More than one section now assigns `pinned=` — the restart check and the
