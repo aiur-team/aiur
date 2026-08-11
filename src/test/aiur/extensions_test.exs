@@ -217,7 +217,12 @@ defmodule Aiur.ExtensionsTest do
     assert :ok = ensure_workflow_store_running()
   end
 
-  test "workflow store falls back when it shuts down during a read" do
+  # Since #1731 a read never enters the store's mailbox, so there is no longer a
+  # "read in flight when the store dies" window to trace. The guarantee that
+  # test protected — a reader must get the config, not an exit — is now covered
+  # by the two properties below: a suspended store does not block a read at all,
+  # and a store that has gone away leaves no cache behind to serve.
+  test "a suspended store does not block a read" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)
 
@@ -227,13 +232,22 @@ defmodule Aiur.ExtensionsTest do
     end)
 
     :sys.suspend(store)
-    :erlang.trace(store, true, [:receive])
 
     reader = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> WorkflowStore.current() end)
 
-    assert_receive {:trace, ^store, :receive, {:"$gen_call", _from, :current}}
+    assert {:ok, %{prompt: "You are an agent for this repository."}} = Task.await(reader, 1_000)
+    assert {:message_queue_len, 0} = Process.info(store, :message_queue_len)
+  end
+
+  test "workflow store falls back to the file when it has shut down" do
+    ensure_workflow_store_running()
+    on_exit(fn -> ensure_workflow_store_running() end)
+
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
-    assert {:ok, %{prompt: "You are an agent for this repository."}} = Task.await(reader)
+    refute Process.whereis(WorkflowStore)
+
+    assert {:ok, %{prompt: "You are an agent for this repository."}} = WorkflowStore.current()
+    assert {:ok, %{}, :unknown} = WorkflowStore.current_with_generation()
   end
 
   test "workflow store retries a transient parse failure during a config write" do
@@ -1331,8 +1345,9 @@ defmodule Aiur.ExtensionsTest do
     )
 
     {:ok, _view, html} = live(build_conn(), "/")
-    assert html =~ "Snapshot unavailable"
+    assert html =~ "Fleet snapshot unavailable"
     assert html =~ "orchestrator_unavailable"
+    refute html =~ "No fleet snapshot published yet"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do

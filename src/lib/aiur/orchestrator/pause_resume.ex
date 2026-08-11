@@ -37,11 +37,11 @@ defmodule Aiur.Orchestrator.PauseResume do
   def pause_agent(server, issue_identifier),
     do: control_api_call(server, {:pause_agent, issue_identifier})
 
-  @spec resume_agent(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  @spec resume_agent(String.t()) :: {:ok, :resumed | :started | :reactivated} | {:error, term()}
   def resume_agent(issue_identifier), do: resume_agent(Aiur.Orchestrator, issue_identifier)
 
   @spec resume_agent(GenServer.server(), String.t()) ::
-          {:ok, :resumed | :started} | {:error, term()}
+          {:ok, :resumed | :started | :reactivated} | {:error, term()}
   def resume_agent(server, issue_identifier),
     do: control_api_call(server, {:resume_agent, issue_identifier})
 
@@ -370,7 +370,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   end
 
   @spec resume_issue(State.t(), String.t()) ::
-          {{:ok, :resumed | :started} | {:error, term()}, State.t()}
+          {{:ok, :resumed | :started | :reactivated} | {:error, term()}, State.t()}
   def resume_issue(%State{} = state, issue_identifier) do
     case State.find_running_by_identifier(state.running, issue_identifier) do
       running_entry when is_map(running_entry) ->
@@ -1793,8 +1793,15 @@ defmodule Aiur.Orchestrator.PauseResume do
       {:error, :unavailable}
     end
   catch
+    # `:unavailable` is rendered to the operator as "orchestrator unavailable",
+    # i.e. the daemon is not there to answer. Only the exits that actually mean
+    # that may claim it (#1634); a crash raised *inside* the orchestrator while
+    # it is running and answering must surface its own reason rather than be
+    # laundered into a false "the daemon is down" diagnosis.
     :exit, {:timeout, _} -> {:error, :timeout}
-    :exit, _ -> {:error, :unavailable}
+    :exit, {:noproc, _} -> {:error, :unavailable}
+    :exit, {{:nodedown, _node}, _} -> {:error, :unavailable}
+    :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
   end
 
   @doc false

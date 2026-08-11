@@ -72,7 +72,7 @@ defmodule Aiur.AgentChat do
     Orchestrator.pause_agent(issue_identifier)
   end
 
-  @spec resume(String.t()) :: {:ok, :resumed | :started} | {:error, term()}
+  @spec resume(String.t()) :: {:ok, :resumed | :started | :reactivated} | {:error, term()}
   def resume(issue_identifier) when is_binary(issue_identifier) do
     Orchestrator.resume_agent(issue_identifier)
   end
