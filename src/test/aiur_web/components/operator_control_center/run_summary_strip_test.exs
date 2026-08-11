@@ -93,9 +93,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         "graphql" => %{resource: "graphql", remaining: 500, limit: 5000, used_percent: 90.0, reset_at: DateTime.add(@now, 45, :minute)}
       },
       attribution: [
-        %{consumer: "ticket:1670", reads: 8, writes: 2, total: 10},
-        %{consumer: "unattributed", reads: 1, writes: 0, total: 1}
-      ]
+        %{consumer: "ticket:1670", reads: 8, writes: 2, total: 10, cost: 120, costs: %{"core" => 120}, estimated?: false},
+        %{consumer: "unattributed", reads: 1, writes: 0, total: 1, cost: 12, costs: %{"core" => 12}, estimated?: false}
+      ],
+      coverage: %{attributed: 132, named: 120, spend: 5750, fraction: 0.023, named_fraction: 0.0209, estimated?: false, resources: %{}}
     }
 
     html =
@@ -111,8 +112,67 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
     assert html =~ "9R / 2W"
-    assert html =~ "ticket:1670 · 10 requests"
+    assert html =~ "ticket:1670 · 120 points · 2.1% of window spend"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
+  end
+
+  # The reported bug: 5,000 points spent, "top consumer · 2 requests". The
+  # leader is now the heaviest by cost, and it cannot be read as the whole
+  # picture because the panel states the share it was drawn from.
+  test "ranks the top GitHub consumer by cost and states the share of spend it accounts for" do
+    github_quota = %{
+      state: :observed,
+      windows: %{
+        "graphql" => %{resource: "graphql", remaining: 0, limit: 5000, used_percent: 100.0, reset_at: DateTime.add(@now, 19, :minute)}
+      },
+      attribution: [
+        # Fewer calls, more points: the caller actually burning the budget.
+        %{consumer: "ticket:1790", reads: 2, writes: 0, total: 2, cost: 52, costs: %{"graphql" => 52}, estimated?: false},
+        %{consumer: "ticket:1791", reads: 40, writes: 0, total: 40, cost: 40, costs: %{"graphql" => 40}, estimated?: false}
+      ],
+      coverage: %{attributed: 92, named: 92, spend: 5000, fraction: 0.0184, named_fraction: 0.0184, estimated?: false, resources: %{}}
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        github_quota: github_quota,
+        now: @now
+      })
+
+    assert html =~ "ticket:1790 · 52 points · 1.0% of window spend"
+    refute html =~ "ticket:1791 ·"
+    assert html =~ "Attributed"
+    assert html =~ "1.8% of 5000 spent this window · 1.8% observed"
+  end
+
+  # An unattributed 99.96% presented as a leader invites acting on it. With no
+  # named consumer the panel must still say what it can account for, rather
+  # than falling silent and leaving the meter unexplained.
+  test "states coverage even when nothing can be attributed to a ticket" do
+    github_quota = %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 0, limit: 5000, used_percent: 100.0, reset_at: DateTime.add(@now, 12, :minute)}
+      },
+      attribution: [%{consumer: "unattributed", reads: 2, writes: 0, total: 2, cost: 2, costs: %{"core" => 2}, estimated?: true}],
+      coverage: %{attributed: 2, named: 0, spend: 5000, fraction: 0.0004, named_fraction: 0.0, estimated?: true, resources: %{}}
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: run_view(),
+        usage: usage_view(),
+        meters: meters_view(),
+        github_quota: github_quota,
+        now: @now
+      })
+
+    refute html =~ "Top consumer"
+    assert html =~ "0% of 5000 spent this window · 0.04% observed"
+    assert html =~ "GraphQL cost partly estimated"
   end
 
   test "names an active secondary-limit backoff, which the primary meters cannot show" do

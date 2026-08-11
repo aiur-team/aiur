@@ -1675,7 +1675,92 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
         "core" => %{resource: "core", remaining: 3_750, limit: 5_000, used_percent: 25.0, reset_at: @reset},
         "graphql" => %{resource: "graphql", remaining: 500, limit: 5_000, used_percent: 90.0, reset_at: @reset}
       },
-      attribution: [],
+      attribution: [
+        %{consumer: "ticket:1790", reads: 3, writes: 0, total: 3, cost: 78, costs: %{"graphql" => 78}, estimated?: false},
+        %{consumer: "unattributed", reads: 40, writes: 2, total: 42, cost: 96, costs: %{"core" => 96}, estimated?: true}
+      ],
+      coverage: %{attributed: 174, named: 78, spend: 5_750, fraction: 0.0303, named_fraction: 0.0136, estimated?: true, resources: %{}},
+      backoffs: []
+    }
+  end
+end
+
+# The GitHub quota card as an operator sees it when both budgets are gone: the
+# state the panel was reported wrong in (#1805). Two providers keep the strip
+# out of its compressed form, so this is the full card, not the grouped table.
+defmodule Aiur.BrowserHarness.QuotaPanelLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+
+  @now ~U[2026-07-18 11:30:00Z]
+  @core_reset ~U[2026-07-18 11:42:00Z]
+  @graphql_reset ~U[2026-07-18 11:49:00Z]
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell" data-quota-panel-fixture="true">
+      <h1 class="sr-only">GitHub quota panel fixture</h1>
+      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+    </main>
+    """
+  end
+
+  defp run, do: %{state: :ready, counts: %{remaining: 4}, progress: %{kind: :exact, percent: 60}, elapsed: %{label: "20m"}, eta: %{label: "About 8m remaining"}}
+
+  defp usage do
+    %{state: :ready, providers: %{codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "2.50"}]}}}
+  end
+
+  defp meters do
+    %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :healthy,
+          status_label: "Healthy",
+          auth_mode: %{value: :api_key},
+          windows: [
+            %{
+              kind: :rate_limit,
+              name: "Session",
+              coverage_label: "Supported",
+              meter: %{kind: :exact, now: 40, min: 0, max: 100},
+              used: 40,
+              used_percent: 40,
+              remaining: 3_000,
+              limit: 5_000,
+              freshness: :fresh,
+              resets_at: @graphql_reset
+            }
+          ]
+        }
+      ]
+    }
+  end
+
+  # The reported numbers: both budgets exhausted, a heavy GraphQL consumer
+  # measured in points, and a ranking that accounts for a stated 4% of what the
+  # window actually cost.
+  defp github_quota do
+    %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 0, limit: 5_000, used_percent: 100.0, reset_at: @core_reset},
+        "graphql" => %{resource: "graphql", remaining: 0, limit: 5_000, used_percent: 100.0, reset_at: @graphql_reset}
+      },
+      attribution: [
+        %{consumer: "ticket:1790", reads: 12, writes: 1, total: 13, cost: 338, costs: %{"graphql" => 312, "core" => 26}, estimated?: false},
+        %{consumer: "ticket:1792", reads: 44, writes: 3, total: 47, cost: 47, costs: %{"core" => 47}, estimated?: false},
+        %{consumer: "unattributed", reads: 21, writes: 0, total: 21, cost: 21, costs: %{"core" => 21}, estimated?: true}
+      ],
+      coverage: %{attributed: 406, named: 385, spend: 10_000, fraction: 0.0406, named_fraction: 0.0385, estimated?: true, resources: %{}},
       backoffs: []
     }
   end
@@ -1731,6 +1816,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
+    live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)

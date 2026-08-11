@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
-  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], backoffs: []})
+  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -60,6 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:windows, github_windows(assigns.quota))
       |> assign(:attribution, github_attribution(assigns.quota))
       |> assign(:top_consumer, github_top_consumer(assigns.quota))
+      |> assign(:coverage, github_coverage(assigns.quota))
       |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
@@ -69,7 +70,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-name">GitHub API</span>
         <div :if={@attribution} class="rs-head-stats">
           <div class="rs-stat">
-            <span class="rs-stat-label">1h traffic</span>
+            <span class="rs-stat-label">Window traffic</span>
             <span class="rs-stat-val">{@attribution.reads}R / {@attribution.writes}W</span>
           </div>
         </div>
@@ -97,7 +98,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         </div>
         <div :if={@top_consumer} class="github-quota-attribution">
           <span class="rs-limit-label">Top consumer</span>
-          <span class="rs-limit-meta">{@top_consumer.consumer} · {@top_consumer.total} requests</span>
+          <span class="rs-limit-meta">{github_top_consumer_meta(@top_consumer, @coverage)}</span>
+        </div>
+        <%!-- The ranking above only orders the calls Aiur can see, and it
+              cannot see every call billed to the shared credential. Naming a
+              leader without saying what share of the spend it was drawn from
+              invited acting on 0.04% of the budget (#1805), so the coverage
+              line renders whenever a window has been observed — including, and
+              especially, when there is no leader to name. --%>
+        <div :if={@coverage} class="github-quota-coverage">
+          <span class="rs-limit-label">Attributed</span>
+          <span class="rs-limit-meta">{github_coverage_meta(@coverage)}</span>
         </div>
       </div>
     </div>
@@ -356,7 +367,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     %{
       logo: nil,
       name: "GitHub API",
-      lines: compressed_github_lines(windows, backoffs, now),
+      lines: compressed_github_lines(windows, backoffs, now) ++ compressed_coverage_lines(quota),
       state_label: state_label,
       state_class: state_class
     }
@@ -379,6 +390,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         meta: github_window_meta(window, now)
       }
     end) ++ compressed_backoff_lines(backoffs, now)
+  end
+
+  # The compressed strip carries the coverage caveat too. Dropping it there
+  # would leave the same unqualified leader the full card no longer shows.
+  defp compressed_coverage_lines(quota) do
+    case github_coverage(quota) do
+      nil -> []
+      coverage -> [%{label: "Attributed", percent: nil, class: "", meta: compressed_coverage_meta(quota, coverage)}]
+    end
+  end
+
+  defp compressed_coverage_meta(quota, coverage) do
+    case github_top_consumer(quota) do
+      nil -> github_coverage_meta(coverage)
+      consumer -> "#{github_top_consumer_meta(consumer, coverage)} · #{github_coverage_meta(coverage)}"
+    end
   end
 
   # A backoff is a live stoppage rather than a measured window, so it renders
@@ -457,13 +484,62 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_attribution(_quota), do: nil
 
+  # Ranked by cost, not by call count. GraphQL bills points: one catalog query
+  # can cost 26 while a hundred reads cost one each, so a request-count ranking
+  # names a leader that is not burning the budget (#1805).
   defp github_top_consumer(%{attribution: attribution}) when is_list(attribution) do
     attribution
     |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed"))
-    |> Enum.max_by(&Map.get(&1, :total, 0), fn -> nil end)
+    |> Enum.max_by(&{consumer_cost(&1), Map.get(&1, :total, 0)}, fn -> nil end)
   end
 
   defp github_top_consumer(_quota), do: nil
+
+  defp consumer_cost(entry), do: Map.get(entry, :cost) || Map.get(entry, :total, 0)
+
+  defp github_coverage(%{coverage: %{spend: spend} = coverage}) when is_integer(spend) and spend > 0, do: coverage
+  defp github_coverage(_quota), do: nil
+
+  defp github_top_consumer_meta(consumer, coverage) do
+    cost = consumer_cost(consumer)
+    base = "#{consumer.consumer} · #{cost} #{unit(cost)}"
+
+    case coverage do
+      %{spend: spend} when is_integer(spend) and spend > 0 -> "#{base} · #{percent_text(cost / spend)} of window spend"
+      _unknown -> base
+    end
+  end
+
+  # Two numbers an operator can act on: how much of the window's real spend the
+  # ranking accounts for, and how much of it Aiur observed at all. The gap
+  # between them is traffic Aiur saw but could not tie to a ticket; what is
+  # missing from both is traffic it never saw.
+  defp github_coverage_meta(coverage) do
+    named = Map.get(coverage, :named_fraction) || 0.0
+    observed = Map.get(coverage, :fraction) || 0.0
+    spend = Map.get(coverage, :spend, 0)
+
+    meta = "#{percent_text(named)} of #{spend} spent this window · #{percent_text(observed)} observed"
+
+    if Map.get(coverage, :estimated?), do: meta <> " · GraphQL cost partly estimated", else: meta
+  end
+
+  defp unit(1), do: "point"
+  defp unit(_cost), do: "points"
+
+  # Sub-1% coverage is the whole finding, so it must not round to "0%".
+  defp percent_text(fraction) when is_float(fraction) or is_integer(fraction) do
+    percent = fraction * 100.0
+
+    cond do
+      percent >= 10 -> "#{round(percent)}%"
+      percent >= 1 -> "#{Float.round(percent, 1)}%"
+      percent > 0 -> "#{Float.round(percent, 2)}%"
+      true -> "0%"
+    end
+  end
+
+  defp percent_text(_fraction), do: "0%"
 
   defp github_window_label(%{resource: "graphql"}), do: "GraphQL"
   defp github_window_label(%{resource: resource}), do: String.capitalize(resource)

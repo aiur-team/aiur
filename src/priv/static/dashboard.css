@@ -3636,6 +3636,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .github-quota-attribution,
+.github-quota-coverage,
 .github-quota-backoff {
   display: flex;
   flex-wrap: wrap;
