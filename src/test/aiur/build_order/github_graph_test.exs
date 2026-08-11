@@ -587,12 +587,37 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     end
   end
 
-  test "rejects selected-root field drift across GraphQL pages" do
+  test "accepts selected-root metadata drift across GraphQL pages" do
     root = root(1)
 
     responses = [
       selected_response(root, [member(2, root)], 2, has_next?: true, cursor: "member-page-2"),
-      selected_response(Map.put(root, "title", "Changed title"), [member(3, root)], 2)
+      selected_response(
+        root
+        |> Map.put("title", "Changed title")
+        |> Map.put("updatedAt", "2026-08-11T12:00:00Z")
+        |> Map.put("labels", labels(["build-order", "priority:1"])),
+        [member(3, root)],
+        2
+      )
+    ]
+
+    assert {:ok, %{calls: 2, pages: 2, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(queued_responses(responses), page_budget: 2, call_budget: 2)
+             )
+
+    assert selected.root.title == root["title"]
+    assert Enum.map(selected.members, & &1.identity.identifier) == ["2", "3"]
+  end
+
+  test "rejects selected-root identity drift across GraphQL pages" do
+    root = root(1)
+
+    responses = [
+      selected_response(root, [member(2, root)], 2, has_next?: true, cursor: "member-page-2"),
+      selected_response(root(9), [member(3, root)], 2)
     ]
 
     assert {:error, %{error: :pagination_mismatch, calls: 2, pages: 2, candidate: nil}} =
@@ -1316,7 +1341,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
       {:ok, %{status: 200, body: %{"errors" => [%{"extensions" => "malformed"}]}}}
     end
 
-    assert {:error, %{error: :graphql_partial, calls: 1, pages: 0}} =
+    assert {:error, %{error: :graphql_partial, calls: 1, pages: 0, diagnostics: [%{code: :graphql_partial}]}} =
              GitHubGraph.fetch_catalog(base_opts(malformed_extension_catalog))
   end
 
@@ -1381,7 +1406,13 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     test "public graph reads derive their authority from validated configuration" do
       foreign_request = fn _request -> flunk("foreign authority must not reach GitHub") end
 
-      assert {:error, %{error: :invalid_planning_authority, calls: 0, pages: 0}} =
+      assert {:error,
+              %{
+                error: :invalid_planning_authority,
+                calls: 0,
+                pages: 0,
+                diagnostics: [%{code: :invalid_planning_authority}]
+              }} =
                ProductionGraph.fetch_catalog(repository: {"foreign-owner", "foreign-repo"}, request_fun: foreign_request)
 
       for invalid_bound <- [[root_limit: 1], [page_budget: 1], [call_budget: 1]] do

@@ -142,5 +142,9 @@ defmodule Aiur.BuildOrder.GitHubGraph.Pager do
     end
   end
 
-  defp root_fingerprint(root), do: Map.drop(root, ["subIssues"])
+  # GitHub re-fetches the root on every member page. Mutable presentation
+  # fields can legitimately change while a multi-page read is in flight, so
+  # only stable identity facts participate in the pagination fence. Page one
+  # remains the candidate snapshot returned to callers.
+  defp root_fingerprint(root), do: Map.take(root, ["id", "number", "repository"])
 end

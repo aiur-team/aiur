@@ -78,7 +78,10 @@ defmodule Aiur.BuildOrder.GitHubGraph.Result do
        do: [Diagnostic.new(reason)]
 
   defp diagnostics(:invalid_planning_bounds), do: [Diagnostic.new(:invalid_planning_bounds)]
+  defp diagnostics(:invalid_planning_authority), do: [Diagnostic.new(:invalid_planning_authority)]
   defp diagnostics(:invalid_requested_root), do: [Diagnostic.new(:invalid_requested_root)]
+  defp diagnostics(:missing_github_token), do: [Diagnostic.new(:missing_github_token)]
+  defp diagnostics(:graphql_partial), do: [Diagnostic.new(:graphql_partial)]
 
   defp diagnostics(reason) when reason in [:invalid_connection, :invalid_graphql_response, :invalid_root],
     do: [Diagnostic.new(:provider_schema)]

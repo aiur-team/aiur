@@ -100,7 +100,7 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp planning(%Snapshot{data: nil, health: health}) do
     health = provider_health(health)
-    {:error, health, unavailable_status(health), [Diagnostic.new(:provider_unavailable)]}
+    {:error, health, unavailable_status(health), failure_diagnostics(health)}
   end
 
   defp planning(_snapshot) do
@@ -196,6 +196,11 @@ defmodule AiurWeb.BuildOrderPresenter do
 
   defp provider_health(%ProviderHealth{} = health), do: health
   defp provider_health(_health), do: %ProviderHealth{}
+
+  defp failure_diagnostics(%ProviderHealth{failure: failure}) when is_atom(failure) and not is_nil(failure),
+    do: [Diagnostic.new(failure)]
+
+  defp failure_diagnostics(_health), do: [Diagnostic.new(:provider_unavailable)]
 
   defp selected_diagnostics(selected, snapshot) do
     scope_diagnostics =

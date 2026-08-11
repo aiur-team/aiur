@@ -16,7 +16,17 @@ defmodule Aiur.BuildOrder.SelectedRootStatusTest do
     end
 
     test "every provider-sourced diagnostic reports availability, not structure" do
-      for code <- [:provider_unavailable, :provider_schema, :call_budget_exhausted, :page_budget_exhausted] do
+      for code <- [
+            :provider_unavailable,
+            :provider_schema,
+            :call_budget_exhausted,
+            :page_budget_exhausted,
+            :pagination_mismatch,
+            :graphql_partial,
+            :invalid_planning_authority,
+            :invalid_planning_bounds,
+            :missing_github_token
+          ] do
         selected = provider_failed_root(code)
 
         assert SelectedRoot.status(selected) == :provider_unavailable,

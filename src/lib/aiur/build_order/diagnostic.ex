@@ -17,6 +17,10 @@ defmodule Aiur.BuildOrder.Diagnostic do
 
   @provider_sourced [
     :call_budget_exhausted,
+    :graphql_partial,
+    :invalid_planning_authority,
+    :invalid_planning_bounds,
+    :missing_github_token,
     :page_budget_exhausted,
     :pagination_mismatch,
     :provider_schema,
@@ -44,6 +48,7 @@ defmodule Aiur.BuildOrder.Diagnostic do
   defp text_for(:connection_overflow), do: "A dependency connection exceeds the supported bound."
   defp text_for(:duplicate_identity), do: "Provider records repeat a canonical identity."
   defp text_for(:external_dependency), do: "Dependency is outside the configured repository."
+  defp text_for(:graphql_partial), do: "GitHub returned an incomplete GraphQL result."
   defp text_for(:invalid_dependency), do: "Dependency data is unavailable."
   defp text_for(:invalid_endpoint_locator), do: "A native endpoint does not match its canonical locator."
   defp text_for(:invalid_complexity), do: "Complexity label is invalid."
@@ -55,6 +60,7 @@ defmodule Aiur.BuildOrder.Diagnostic do
   defp text_for(:invalid_marker), do: "Planning marker is invalid."
   defp text_for(:invalid_member), do: "Member data is unavailable."
   defp text_for(:invalid_planning_bounds), do: "GitHub planning limits are invalid."
+  defp text_for(:invalid_planning_authority), do: "GitHub planning authority does not match the active repository or limits."
   defp text_for(:invalid_phase), do: "Phase label is invalid."
   defp text_for(:invalid_requested_root), do: "Requested Build Order root identity is invalid."
   defp text_for(:invalid_root), do: "Root data is unavailable."
@@ -65,6 +71,7 @@ defmodule Aiur.BuildOrder.Diagnostic do
   defp text_for(:member_overflow), do: "Too many direct members were supplied."
   defp text_for(:missing_complexity), do: "Complexity label is missing."
   defp text_for(:missing_lane), do: "Build lane label is missing."
+  defp text_for(:missing_github_token), do: "GitHub credentials are missing for planning-data reads."
   defp text_for(:missing_phase), do: "Phase label is missing."
   defp text_for(:missing_root_label), do: "The selected root is not marked as a Build Order."
   defp text_for(:page_budget_exhausted), do: "The provider page budget was exhausted."

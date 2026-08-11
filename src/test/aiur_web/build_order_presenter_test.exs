@@ -449,10 +449,14 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     refute inspect(model) =~ token
   end
 
-  test "reports an unavailable provider as a provider problem, not a malformed graph" do
+  test "reports the concrete cold-read fault instead of a generic provider outage" do
     # The shape the projection stores after a failed read of a perfectly
     # well-formed Build Order: no data, and a provider that could not fetch.
-    health = ProviderHealth.new(:unknown, :unavailable, false, last_success_at: @now)
+    health =
+      ProviderHealth.new(:unknown, :unavailable, false,
+        failure: :invalid_planning_authority,
+        last_success_at: @now
+      )
 
     model =
       BuildOrderPresenter.present(
@@ -462,7 +466,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
       )
 
     assert model.status == :provider_unavailable
-    assert diagnostic_codes(model) == [:provider_unavailable]
+    assert diagnostic_codes(model) == [:invalid_planning_authority]
 
     # Zeros must never stand in for unknown: the counts were never resolved.
     refute model.summary.resolved?
