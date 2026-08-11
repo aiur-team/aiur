@@ -85,7 +85,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     Lifecycle.record(issue.identifier, lifecycle_attempt_id, :implement, :start, %{
       operation_id: operation_id,
       turn_number: turn_number,
-      backend: SessionLifecycle.session_backend(app_session)
+      backend: SessionLifecycle.session_backend_label(app_session)
     })
 
     result =
@@ -102,7 +102,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
     record_implementation_end(issue, lifecycle_attempt_id, operation_id, turn_number, result)
 
     TurnStreams.close(issue, aiur_turn_id, turn_done_reason(result))
-    backend = SessionLifecycle.session_backend(app_session)
+    backend = SessionLifecycle.session_backend!(app_session)
 
     case result do
       {:ok, turn_session} ->
@@ -140,7 +140,7 @@ defmodule Aiur.AgentRunner.TurnLoop do
           issue,
           workspace,
           worker_host,
-          Map.put(pause_payload, :backend, SessionLifecycle.session_backend(app_session))
+          Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
         )
 
         best_effort_queue_bookkeeping(
