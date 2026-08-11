@@ -17,6 +17,7 @@ defmodule AiurWeb.GithubWebhookTest do
   alias AiurWeb.GithubWebhook
   alias AiurWeb.GithubWebhook.{Auth, BodyReader, Signature}
 
+  @runbook_path Path.expand("../../../docs/security/webhook-ingress.md", __DIR__)
   @secret_env "AIUR_GITHUB_WEBHOOK_SECRET"
   @secret "s3cr3t-webhook-token"
   @payload ~s({"action":"submitted","number":1676})
@@ -77,6 +78,29 @@ defmodule AiurWeb.GithubWebhookTest do
       conn = deliver(@payload, signature: nil)
 
       assert conn.status == 401
+    end
+
+    test "carries the marker the runbook's restart check identifies this port by" do
+      # AC 5's check in docs/security/webhook-ingress.md finds the port the
+      # daemon is bound to by POSTing to the webhook path on every listening
+      # port and matching this string in the reply.
+      #
+      # It cannot match on the 401 status instead: `401` is not distinctive. On
+      # the host this runbook was written against, two ports belonging to an
+      # unrelated desktop application answered a bare `HTTP/1.1 401` to exactly
+      # this probe. Whichever such port sorts ahead of the daemon's would be
+      # reported as "the port the daemon is bound to", and the after-restart
+      # comparison would then be made against a stranger that never restarted —
+      # a check that passes without having tested anything, which is the precise
+      # failure AC 5 exists to catch.
+      #
+      # So the body is what makes the check specific, and this pins it: changing
+      # the rejection body here without changing the doc breaks that check
+      # silently, while every other test in this file still passes.
+      conn = deliver(@payload, signature: nil)
+
+      assert conn.status == 401
+      assert conn.resp_body =~ runbook_bound_marker()
     end
 
     test "rejects a body that is byte-for-byte different from what was signed" do
@@ -667,6 +691,21 @@ defmodule AiurWeb.GithubWebhookTest do
     case Keyword.fetch!(opts, :signature) do
       nil -> conn
       signature -> put_req_header(conn, "x-hub-signature-256", signature)
+    end
+  end
+
+  # The string the runbook's `bound()` greps for, read out of the doc itself so
+  # this is a two-sided pin rather than a copy of the literal.
+  defp runbook_bound_marker do
+    case Regex.run(~r/grep -q '([^']+)'/, File.read!(@runbook_path)) do
+      [_, marker] ->
+        marker
+
+      nil ->
+        flunk(
+          "#{@runbook_path} no longer greps for a marker identifying the receiver's port — " <>
+            "AC 5's restart check cannot find the daemon without one"
+        )
     end
   end
 
