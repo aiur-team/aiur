@@ -356,6 +356,26 @@ defmodule AiurWeb.GithubWebhookTest do
       assert is_integer(catch_all_index)
       assert receiver_index < catch_all_index
     end
+
+    # The tunnel's ingress rule selects on path alone, so publishing the
+    # receiver publishes *every* verb on that path, not just POST. The rest of
+    # this file only ever drives POST, so a route added later that matches this
+    # path under another verb would become publicly reachable with the whole
+    # suite still green. Pin both halves: POST reaches the signature check, and
+    # nothing else reaches a handler at all.
+    test "only POST reaches a handler on the published path" do
+      assert deliver(@payload, signature: nil).status == 401,
+             "POST must reach the signature check, or the assertions below pass vacuously"
+
+      for method <- [:get, :put, :patch, :delete, :options] do
+        conn = method |> conn(GithubWebhook.path(), "") |> call()
+
+        assert conn.status == 404, "#{method} #{GithubWebhook.path()} reached a route and answered #{conn.status}"
+
+        assert Jason.decode!(conn.resp_body)["error"]["code"] == "not_found",
+               "#{method} #{GithubWebhook.path()} returned something other than the generic not-found body"
+      end
+    end
   end
 
   describe "delivery admission" do

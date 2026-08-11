@@ -304,6 +304,18 @@ delivery id and event type.
   header, legacy SHA-1 header, a body altered after signing, a blank secret and
   a truncated read of an oversized body are each rejected, and the digests are
   compared in constant time.
+- **The ingress rule selects on path, not on method**, so publishing the
+  receiver publishes *every* verb on that path — an attacker will try `GET`
+  before anything else. Only `POST` is routed; `GET`, `PUT`, `PATCH`, `DELETE`
+  and `OPTIONS` fall through to the router's catch-all and answer a bare
+  `404 {"error":{"code":"not_found"}}`, reaching no handler. This is pinned by
+  *only POST reaches a handler on the published path* in
+  `src/test/aiur_web/github_webhook_test.exs`, because it is the one property
+  here that a future routing change can break silently: every other test on
+  this path drives `POST`, so a route added later that also matches it under
+  another verb would become publicly reachable with the suite still green. The
+  pin asserts `POST` still reaches the signature check first, so it cannot
+  itself pass vacuously by the path having moved.
 
 Optional defence in depth, free on Cloudflare's plan: a WAF rule limiting the
 hostname to GitHub's published hook ranges (`GET /meta` → `.hooks`). Signature
