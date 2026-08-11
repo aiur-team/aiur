@@ -64,10 +64,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
           <div class="decision-card-foot">
             <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
-            <span class="chip age">{@age}</span>
             <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]} style={@agent_style}>{@agent_label}</span>
             <span :if={@model_label} class="chip mono">{@model_label}</span>
-            <span class="chip mono faint">{@decision.ticket[:identifier] || @decision.decision_id}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
             <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
             <span :if={@supervisor_answer?} class="chip super">Supervisor answer</span>
@@ -76,8 +74,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
         </div>
         <div class="decision-card-side">
+          <span class="decision-age mono">{@age}</span>
           <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
-          <span class="expand-hint">{expand_label(@decision, @selected)} <span aria-hidden="true">⌄</span></span>
+          <span class="expand-hint">
+            {expand_label(@decision, @selected)}
+            <span class="expand-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </span>
         </div>
       </.link>
 

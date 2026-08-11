@@ -37,7 +37,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     end
   end
 
-  setup do
+  setup context do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
@@ -50,6 +50,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
         dashboard_writable: false,
         dashboard_auth_required: false
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -508,5 +509,34 @@ defmodule AiurWeb.AnalyticsLiveTest do
           extra
         )
     }
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Analytics" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ "decisions-banner"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  test "omits the awaiting-Commands banner when nothing is waiting" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    refute html =~ "units awaiting commands"
+    refute html =~ "decisions-banner"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: Aiur.TestSupport.AwaitingCommands.start(counts)]
+    end
   end
 end

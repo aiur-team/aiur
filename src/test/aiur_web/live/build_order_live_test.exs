@@ -128,7 +128,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
   end
 
-  setup do
+  setup context do
     first = identity(42, "NODE-42")
     second = identity(43, "NODE-43")
 
@@ -164,6 +164,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
         dashboard_writable: false,
         dashboard_auth_required: false
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -1420,5 +1421,28 @@ defmodule AiurWeb.BuildOrderLiveTest do
         value -> Application.put_env(:aiur, :analytics_telemetry_file, value)
       end
     end)
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Build Order" do
+    {:ok, _view, html} = live(build_conn(), "/build-orders")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  test "omits the awaiting-Commands banner from Build Order when nothing is waiting" do
+    {:ok, _view, html} = live(build_conn(), "/build-orders")
+
+    refute html =~ "units awaiting commands"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: Aiur.TestSupport.AwaitingCommands.start(counts)]
+    end
   end
 end

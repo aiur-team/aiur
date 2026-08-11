@@ -125,6 +125,44 @@ defmodule AiurWeb.DashboardLiveTest do
     defp config(key, default), do: Map.get(Application.get_env(:aiur, :provider_meter_source_stub, %{}), key, default)
   end
 
+  defmodule DecisionStoreStub do
+    @moduledoc """
+    Shared retained-store replies for the dashboard stubs.
+
+    The dashboard reads canonical counts and one retained page per route, so a
+    stub that answers neither is not a stand-in for the store — it is a store
+    that crashes on contact.
+    """
+
+    def counts(decision) do
+      open? = decision.decision_status == :open
+      deferred? = decision.decision_status == :deferred
+      blocking? = Map.get(decision, :blocking, false)
+
+      %{
+        total: 1,
+        open: if(open? or deferred?, do: 1, else: 0),
+        blocking: if((open? or deferred?) and blocking?, do: 1, else: 0),
+        deferred: if(deferred?, do: 1, else: 0),
+        awaiting: if(open?, do: 1, else: 0),
+        awaiting_blocking: if(open? and blocking?, do: 1, else: 0)
+      }
+    end
+
+    def empty_query do
+      %{
+        decisions: [],
+        next_key: nil,
+        has_next?: false,
+        total: 0,
+        partial?: false,
+        partial_reason: nil,
+        counts: %{total: 0, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0},
+        health: :writable
+      }
+    end
+  end
+
   defmodule CountingDetailStore do
     use GenServer
 
@@ -187,15 +225,11 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     def handle_call(:retained_counts, _from, state) do
-      open? = state.detail.decision_status == :open
+      {:reply, {:ok, %{counts: DecisionStoreStub.counts(state.detail), health: :writable}}, state}
+    end
 
-      counts = %{
-        total: 1,
-        open: if(open?, do: 1, else: 0),
-        blocking: if(open? and state.detail.blocking, do: 1, else: 0)
-      }
-
-      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
     end
 
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
@@ -246,7 +280,12 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     def handle_call(:retained_counts, _from, state) do
-      {:reply, {:ok, %{counts: %{total: 1, open: 1, blocking: true}, health: :writable}}, state}
+      counts = %{total: 1, open: 1, blocking: true, deferred: 0, awaiting: 1, awaiting_blocking: true}
+      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    end
+
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
     end
 
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
@@ -334,6 +373,10 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, retained_counts(state.decision), state}
     end
 
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
+    end
+
     def handle_call({:recent_audit_history, _limit}, _from, state) do
       {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
     end
@@ -344,17 +387,7 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     defp retained_counts(decision) do
-      open? = decision.decision_status == :open
-
-      {:ok,
-       %{
-         counts: %{
-           total: 1,
-           open: if(open?, do: 1, else: 0),
-           blocking: if(open? and decision.blocking, do: 1, else: 0)
-         },
-         health: :writable
-       }}
+      {:ok, %{counts: DecisionStoreStub.counts(decision), health: :writable}}
     end
   end
 
@@ -397,6 +430,10 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, retained_counts(state.decision), state}
     end
 
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
+    end
+
     def handle_call({:recent_audit_history, _limit}, _from, state) do
       {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
     end
@@ -407,17 +444,7 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     defp retained_counts(decision) do
-      open? = decision.decision_status == :open
-
-      {:ok,
-       %{
-         counts: %{
-           total: 1,
-           open: if(open?, do: 1, else: 0),
-           blocking: if(open? and decision.blocking, do: 1, else: 0)
-         },
-         health: :writable
-       }}
+      {:ok, %{counts: DecisionStoreStub.counts(decision), health: :writable}}
     end
   end
 
@@ -890,6 +917,8 @@ defmodule AiurWeb.DashboardLiveTest do
       |> Map.put(:retained_counts, %{
         open: 73,
         blocking: 4,
+        awaiting: 73,
+        awaiting_blocking: 4,
         scope: %{kind: :retained, label: "All retained decisions"},
         health: %{status: :partial, partial?: true, label: "Partial retained Decision data"}
       })
@@ -922,6 +951,8 @@ defmodule AiurWeb.DashboardLiveTest do
       |> Map.put(:retained_counts, %{
         open: 3,
         blocking: 0,
+        awaiting: 3,
+        awaiting_blocking: 0,
         scope: %{kind: :retained, label: "All retained decisions"},
         health: %{status: :healthy, partial?: false, label: "Retained Decision data"}
       })
@@ -3291,7 +3322,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute filtered_list =~ human.question
   end
 
-  test "keeps the mounted dashboard decision history bounded" do
+  test "paginates Command history ten rows at a time instead of rendering every resolved Command" do
     orchestrator_name = Module.concat(__MODULE__, :BoundedHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :BoundedHistoryDecisionStore)
 
@@ -3301,18 +3332,117 @@ defmodule AiurWeb.DashboardLiveTest do
       end)
 
     start_counting_orchestrator(orchestrator_name)
-    install_decision_history!(store, 51)
+
+    for index <- 1..25 do
+      decision = request_dashboard_decision(store, "history-#{index}")
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "history-answer-#{index}",
+                   "expected_version" => decision.version,
+                   "option_id" => "ship"
+                 },
+                 [actor: %{kind: :operator, id: "operator"}],
+                 store
+               )
+    end
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
+      control_center_cache: false,
       decision_store: decision_store_name
     )
 
     {:ok, view, _html} = live(build_conn(), "/decisions")
 
-    rows = view |> render() |> Floki.parse_document!() |> Floki.find(".history-list .history-item")
-    assert length(rows) == 50
+    assert history_row_count(view) == 10
+    assert render(view) =~ "10 of 25"
+
+    view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
+    assert history_row_count(view) == 20
+
+    view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
+    assert history_row_count(view) == 25
+    refute has_element?(view, ~s(button[phx-click="load-more-history"]))
+  end
+
+  test "an answered Command leaves the inbox and appears in green history" do
+    orchestrator_name = Module.concat(__MODULE__, :DismissToHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DismissToHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 508}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    decision = request_dashboard_decision(store, "dismiss-to-history")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    assert has_element?(view, "#decision-#{decision.decision_id}")
+    assert history_row_count(view) == 0
+
+    view
+    |> form("#decision-answer-form-#{decision.decision_id}", %{"answer" => %{"choice" => "option:ship"}})
+    |> render_submit()
+
+    refute has_element?(view, "#decision-#{decision.decision_id}")
+    assert has_element?(view, "#history-#{decision.decision_id}")
+    assert history_row_count(view) == 1
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{decision.decision_id}")
+    assert Floki.attribute(row, "data-severity") == ["good"]
+    assert row |> Floki.text() =~ "Answered"
+  end
+
+  test "notifying the Executor moves the Command to history without flattening it into an answer" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferToHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferToHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 509}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    decision = request_dashboard_decision(store, "defer-to-history")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    view
+    |> element(~s(button[phx-click="defer-decision"][phx-value-decision-id="#{decision.decision_id}"]))
+    |> render_click()
+
+    refute has_element?(view, "#decision-#{decision.decision_id}")
+    assert has_element?(view, "#history-#{decision.decision_id}")
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{decision.decision_id}")
+    assert row |> Floki.text() =~ "Deferred to Executor"
+    refute row |> Floki.text() =~ "Answered"
+  end
+
+  defp history_row_count(view) do
+    view |> render() |> Floki.parse_document!() |> Floki.find("#command-history-rows tr") |> length()
   end
 
   test "round-trips validated Units URL state and exposes a named zero-result reset" do
@@ -4279,32 +4409,6 @@ defmodule AiurWeb.DashboardLiveTest do
       observed_at: ~U[2026-07-17 12:00:00Z],
       freshness: :fresh,
       source_health: %{activity: :available, history: :available}
-    }
-  end
-
-  defp install_decision_history!(store, count) do
-    :sys.replace_state(store, fn state ->
-      histories = decision_histories(count)
-
-      state
-      |> Map.put(:audit_history, histories)
-      |> Map.put(:recent_audit, histories |> Map.values() |> List.flatten() |> Enum.reverse())
-    end)
-  end
-
-  defp decision_histories(count) do
-    %{
-      "dec-dashboard" =>
-        Enum.map(1..count, fn version ->
-          %{
-            decision_id: "dec-dashboard",
-            version: version,
-            ticket: %{identifier: "1051", title: "Decision history", url: nil},
-            source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
-            question: "Decision version #{version}?",
-            created_at: DateTime.add(~U[2026-07-12 12:00:00Z], version, :second)
-          }
-        end)
     }
   end
 

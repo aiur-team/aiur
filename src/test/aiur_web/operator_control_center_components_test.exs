@@ -284,7 +284,14 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       follow_up_handled: false
     }
 
-    html = render_component(&History.history/1, %{entries: [entry], provider_health: :ok})
+    decision = inbox_decision("dec-history", decision_status: :decided, answer: action_answer(:operator))
+
+    html =
+      render_component(&DecisionDetail.decision_detail/1, %{
+        decision: decision,
+        history: [entry],
+        writable: false
+      })
 
     assert html =~ "Executor"
     assert html =~ "Follow-up required"
@@ -383,13 +390,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [answered, open],
-        retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
+        retained_counts: %{open: 1, blocking: 0, awaiting: 1, awaiting_blocking: 0, health: %{status: :available}}
       })
 
     empty_html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [answered],
-        retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
+        retained_counts: %{open: 0, blocking: 0, awaiting: 0, awaiting_blocking: 0, health: %{status: :available}}
       })
 
     assert html =~ ~s(href="/decisions")
@@ -401,7 +408,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [],
-        retained_counts: %{open: 3, blocking: 1, health: %{status: :available}}
+        retained_counts: %{open: 3, blocking: 1, awaiting: 3, awaiting_blocking: 1, health: %{status: :available}}
       })
 
     assert html =~ "3 units awaiting commands"
@@ -424,24 +431,20 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   end
 
   test "distinguishes degraded decision history from an unavailable provider" do
-    html = render_component(&History.history/1, %{entries: [], provider_health: :degraded})
+    html = render_component(&History.history/1, %{rows: [], provider_health: :degraded})
 
     assert html =~ "Command history is degraded"
     refute html =~ "currently unavailable"
   end
 
-  test "renders answered and dismissed Commands once as compact green history rows" do
+  test "renders answered and dismissed Commands once as green history table rows" do
     answered = inbox_decision("dec-history-answered", decision_status: :decided, answer: action_answer(:operator))
     dismissed = inbox_decision("dec-history-dismissed", decision_status: :dismissed)
 
-    html =
-      render_component(&History.history/1, %{
-        entries: [],
-        decisions: [answered, dismissed],
-        provider_health: :ok
-      })
+    html = render_history([answered, dismissed])
 
-    assert html =~ ~s(class="history-item" data-severity="good")
+    assert html =~ ~s(<table class="history-table")
+    assert html =~ ~s(data-severity="good")
     assert html =~ "Answered"
     assert html =~ "Acknowledged — closed without a recorded answer"
     refute html =~ ~s(class="decision-card)
@@ -450,16 +453,40 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "renders expired Commands as non-actionable history" do
     expired = inbox_decision("dec-history-expired", decision_status: :expired)
 
-    html =
-      render_component(&History.history/1, %{
-        entries: [],
-        decisions: [expired],
-        provider_health: :ok
-      })
+    html = render_history([expired])
 
     assert html =~ "Expired"
     assert html =~ "agent is no longer running"
+    assert html =~ ~s(data-severity="attn")
     refute html =~ ~s(class="decision-card)
+  end
+
+  test "keeps deferred, expired and answered outcomes visually distinct in history" do
+    rows = [
+      inbox_decision("dec-answered", decision_status: :decided, answer: action_answer(:operator)),
+      inbox_decision("dec-deferred", decision_status: :deferred),
+      inbox_decision("dec-expired", decision_status: :expired)
+    ]
+
+    html = render_history(rows)
+
+    assert html =~ "Deferred to Executor"
+    assert html =~ "Handed to the Executor"
+    assert html =~ "Expired"
+    assert html =~ "Answered"
+    assert html =~ ~s(data-severity="attention")
+  end
+
+  test "offers load more only while the store reports another page, and never guesses a total" do
+    rows = Enum.map(1..10, &inbox_decision("dec-#{&1}", decision_status: :decided, answer: action_answer(:operator)))
+
+    more = render_history(rows, has_more: true, total: 34)
+    final = render_history(rows, has_more: false, total: nil)
+
+    assert more =~ ~s(phx-click="load-more-history")
+    assert more =~ "10 of 34"
+    refute final =~ ~s(phx-click="load-more-history")
+    assert final =~ "10 loaded"
   end
 
   test "Commands inbox exposes only the four primary filters with canonical retained counts" do
@@ -467,7 +494,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       render_inbox(
         [inbox_decision("dec-overview-only")],
         :all,
-        %{total: 701, open: 503, blocking: 401}
+        %{total: 701, open: 503, awaiting: 503, blocking: 401, awaiting_blocking: 401}
       )
 
     assert html =~ ~r/All\s+<span class="count num">503<\/span>/
@@ -949,13 +976,27 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
+  defp render_history(decisions, opts \\ []) do
+    render_component(&History.history/1, %{
+      rows: Enum.map(decisions, &{"history-#{&1.decision_id}", &1}),
+      loaded: length(decisions),
+      total: Keyword.get(opts, :total),
+      has_more: Keyword.get(opts, :has_more, false),
+      provider_health: :ok
+    })
+  end
+
   defp render_inbox(decisions, filter, retained_counts \\ nil) do
+    awaiting = Enum.count(decisions, &(&1.decision_status == :open))
+
     retained_counts =
       retained_counts ||
         %{
           total: length(decisions),
-          open: Enum.count(decisions, &(&1.decision_status == :open)),
-          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
+          open: awaiting,
+          awaiting: awaiting,
+          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open)),
+          awaiting_blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
         }
 
     render_component(&DecisionInbox.decision_inbox/1, %{

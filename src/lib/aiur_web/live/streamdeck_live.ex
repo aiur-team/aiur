@@ -32,7 +32,14 @@ defmodule AiurWeb.StreamdeckLive do
     StreamdeckTranscriptRelay
   }
 
-  alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{
+    AwaitingCommands,
+    BuildOrderEpicIcon,
+    DashboardShell,
+    NavState,
+    Overview,
+    RouteRegistry
+  }
 
   @relative_time_refresh_ms 1_000
   @durable_feed_retry_attempts 2
@@ -77,6 +84,7 @@ defmodule AiurWeb.StreamdeckLive do
     socket =
       socket
       |> NavState.assign_nav()
+      |> AwaitingCommands.mount(connected?(socket))
       |> assign(:current_route, RouteRegistry.current_route(:streamdeck))
       |> assign(:knobs, knob_descriptors())
       |> assign(:grid_page, 0)
@@ -258,6 +266,11 @@ defmodule AiurWeb.StreamdeckLive do
     end
   end
 
+  def handle_info({:decision_changed, _decision_id, _version}, socket),
+    do: {:noreply, AwaitingCommands.refresh(socket)}
+
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
+
   def handle_info(:refresh_streamdeck_relative_times, socket) do
     socket =
       if socket.assigns.sd_mode == :logs do
@@ -278,7 +291,12 @@ defmodule AiurWeb.StreamdeckLive do
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
+      nav_counts={@nav_counts}
     >
+      <:banner>
+        <Overview.decisions_banner retained_counts={@retained_counts} navigate />
+      </:banner>
+
       {key_face_css()}
 
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">

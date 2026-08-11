@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   @endpoint Endpoint
 
-  setup do
+  setup context do
     test_pid = self()
     {:ok, snapshot_agent} = Agent.start_link(fn -> fixture_snapshot() end)
     {:ok, meter_agent} = Agent.start_link(fn -> fixture_provider_meters() end)
@@ -51,6 +51,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
           {:ok, :deprioritized}
         end
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -1347,5 +1348,28 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp fleet_snapshot(total) do
     agents = for index <- 1..total, do: fixture_agent("fleet-#{index}", "Fleet #{index}", "codex")
     %{running: [hd(agents)], retrying: [], idle: tl(agents)}
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Stream Deck" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  test "omits the awaiting-Commands banner from Stream Deck when nothing is waiting" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    refute html =~ "units awaiting commands"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: Aiur.TestSupport.AwaitingCommands.start(counts)]
+    end
   end
 end
