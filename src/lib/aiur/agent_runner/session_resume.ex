@@ -3,7 +3,6 @@ defmodule Aiur.AgentRunner.SessionResume do
 
   require Logger
 
-  alias Aiur.AgentRunner.SessionLifecycle
   alias Aiur.CodingAgent
   alias Aiur.Issue
   alias Aiur.SessionHandle
@@ -99,9 +98,10 @@ defmodule Aiur.AgentRunner.SessionResume do
   @spec turn_handle_attrs(map(), map()) :: {:ok, map()} | :skip
   def turn_handle_attrs(app_session, turn_session) do
     turn_thread_id = Map.get(turn_session, :thread_id)
+    backend = Map.get(app_session, :backend)
 
-    if is_binary(turn_thread_id) and turn_thread_id != Map.get(app_session, :thread_id) do
-      {:ok, %{backend: SessionLifecycle.session_backend(app_session), thread_id: turn_thread_id}}
+    if is_binary(turn_thread_id) and is_binary(backend) and turn_thread_id != Map.get(app_session, :thread_id) do
+      {:ok, %{backend: backend, thread_id: turn_thread_id}}
     else
       :skip
     end
@@ -140,11 +140,16 @@ defmodule Aiur.AgentRunner.SessionResume do
   # never be resumed later. Resume is local-only (the codex rollout is on this
   # host) and backend-gated (only codex today), and a session with no thread id
   # has nothing to rejoin.
+  #
+  # A session with no binary `:backend` also skips. The handle is durable state
+  # keyed by backend, so writing the configured default here would stamp a
+  # backend this session never established onto disk; `SessionHandle.load/2`
+  # would then reject it as foreign and silently disable resume, moving the
+  # failure a restart away from its cause (issue #1621).
   @doc false
   @spec session_handle_to_save(map(), worker_host()) :: {:ok, map()} | :skip
-  def session_handle_to_save(%{thread_id: thread_id} = session, nil) when is_binary(thread_id) do
-    backend = SessionLifecycle.session_backend(session)
-
+  def session_handle_to_save(%{thread_id: thread_id, backend: backend}, nil)
+      when is_binary(thread_id) and is_binary(backend) do
     if CodingAgent.resumable?(backend) do
       {:ok, %{backend: backend, thread_id: thread_id}}
     else

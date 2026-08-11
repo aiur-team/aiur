@@ -5,11 +5,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, IssueLog}
+  alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
 
-  setup do
+  setup context do
     test_pid = self()
     {:ok, snapshot_agent} = Agent.start_link(fn -> fixture_snapshot() end)
     {:ok, meter_agent} = Agent.start_link(fn -> fixture_provider_meters() end)
@@ -51,6 +52,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
           {:ok, :deprioritized}
         end
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -1349,5 +1351,39 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp fleet_snapshot(total) do
     agents = for index <- 1..total, do: fixture_agent("fleet-#{index}", "Fleet #{index}", "codex")
     %{running: [hd(agents)], retrying: [], idle: tl(agents)}
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Stream Deck" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  test "omits the awaiting-Commands banner from Stream Deck when nothing is waiting" do
+    {:ok, _view, html} = live(build_conn(), "/streamdeck")
+
+    refute html =~ "units awaiting commands"
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "survives every message the Command topic carries" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    assert html =~ "2 units awaiting commands"
+
+    # Stream Deck is a control surface the operator runs the fleet from. An
+    # unrelated Command action anywhere must not take it down.
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: AwaitingCommands.start(counts)]
+    end
   end
 end

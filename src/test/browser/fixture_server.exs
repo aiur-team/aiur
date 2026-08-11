@@ -1337,7 +1337,13 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def catalog do
-    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane")]
+    entries = [
+      root(42, "Release dashboard"),
+      RootSummary.new(%{}),
+      root(43, "Stale planning lane"),
+      root(1567, "Unavailable planning graph"),
+      root(1568, "Malformed planning graph")
+    ]
 
     %Snapshot{
       scope: :catalog,
@@ -1417,6 +1423,39 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
         data: SelectedRoot.new(root(43, "Stale planning lane"), [member(8, "Stale member")], health(8, :stale)),
         health: health(8, :stale)
       }
+
+    {:ok, snapshot}
+  end
+
+  defp selected_snapshot(%TrackerIdentity{identifier: "1567"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 9,
+      # #1791's reported shape: the root is known but its members could not be
+      # read, so every downstream pane used to raise its own alarm about the one
+      # fault. A specific read fault, not a laundered outage — the page must
+      # repeat the code the provider actually reported.
+      data: SelectedRoot.new(root(1567, "Unavailable planning graph"), [], unavailable_health()),
+      health: unavailable_health()
+    }
+
+    {:ok, snapshot}
+  end
+
+  # The fail-closed shape: a malformed root the provider *did* return, alongside
+  # provider health deliberately marked failed. The page must name the structural
+  # defect, never the `rate_limited` marking that only records failing closed.
+  defp selected_snapshot(%TrackerIdentity{identifier: "1568"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 9,
+      data: SelectedRoot.new(root(1568, "Malformed planning graph"), [:malformed_member], unavailable_health()),
+      health: unavailable_health()
+    }
 
     {:ok, snapshot}
   end
@@ -1510,6 +1549,14 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
   end
 
   defp issue_url(number), do: "https://github.com/owner/repo/issues/#{number}"
+
+  defp unavailable_health do
+    ProviderHealth.new(9, :unavailable, false,
+      observed_at: @observed_at,
+      last_success_at: @observed_at,
+      failure: :rate_limited
+    )
+  end
 
   defp health(generation, state) do
     ProviderHealth.new(generation, state, state == :healthy,
@@ -1675,7 +1722,109 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
         "core" => %{resource: "core", remaining: 3_750, limit: 5_000, used_percent: 25.0, reset_at: @reset},
         "graphql" => %{resource: "graphql", remaining: 500, limit: 5_000, used_percent: 90.0, reset_at: @reset}
       },
-      attribution: [],
+      attribution: [
+        %{consumer: "ticket:1790", reads: 3, writes: 0, total: 3, cost: 78, costs: %{"graphql" => 78}, estimated?: false},
+        %{consumer: "unattributed", reads: 40, writes: 2, total: 42, cost: 96, costs: %{"core" => 96}, estimated?: false}
+      ],
+      coverage: %{
+        estimated?: false,
+        resources: %{
+          "core" => %{attributed: 96, named: 0, spend: 1_250, fraction: 0.0768, named_fraction: 0.0, estimated?: false},
+          "graphql" => %{attributed: 78, named: 78, spend: 4_500, fraction: 0.0173, named_fraction: 0.0173, estimated?: false}
+        }
+      },
+      backoffs: []
+    }
+  end
+end
+
+# The GitHub quota card as an operator sees it when both budgets are gone: the
+# state the panel was reported wrong in (#1805). Two providers keep the strip
+# out of its compressed form, so this is the full card, not the grouped table.
+defmodule Aiur.BrowserHarness.QuotaPanelLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+
+  @now ~U[2026-07-18 11:30:00Z]
+  @core_reset ~U[2026-07-18 11:42:00Z]
+  @graphql_reset ~U[2026-07-18 11:49:00Z]
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell" data-quota-panel-fixture="true">
+      <h1 class="sr-only">GitHub quota panel fixture</h1>
+      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+    </main>
+    """
+  end
+
+  defp run, do: %{state: :ready, counts: %{remaining: 4}, progress: %{kind: :exact, percent: 60}, elapsed: %{label: "20m"}, eta: %{label: "About 8m remaining"}}
+
+  defp usage do
+    %{state: :ready, providers: %{codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "2.50"}]}}}
+  end
+
+  defp meters do
+    %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :healthy,
+          status_label: "Healthy",
+          auth_mode: %{value: :api_key},
+          windows: [
+            %{
+              kind: :rate_limit,
+              name: "Session",
+              coverage_label: "Supported",
+              meter: %{kind: :exact, now: 40, min: 0, max: 100},
+              used: 40,
+              used_percent: 40,
+              remaining: 3_000,
+              limit: 5_000,
+              freshness: :fresh,
+              resets_at: @graphql_reset
+            }
+          ]
+        }
+      ]
+    }
+  end
+
+  # The reported numbers: both budgets exhausted, a heavy GraphQL consumer
+  # measured in points, and a coverage figure stated per budget — core's
+  # requests against core's window, GraphQL's points against GraphQL's, which
+  # reset seven minutes apart and therefore share no denominator.
+  #
+  # Only the GraphQL rows carry `estimated?`, because that is the only place the
+  # quota module can produce it: core calls are always billed one request and
+  # recorded `:reported`.
+  defp github_quota do
+    %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 0, limit: 5_000, used_percent: 100.0, reset_at: @core_reset},
+        "graphql" => %{resource: "graphql", remaining: 0, limit: 5_000, used_percent: 100.0, reset_at: @graphql_reset}
+      },
+      attribution: [
+        %{consumer: "ticket:1790", reads: 12, writes: 1, total: 13, cost: 338, costs: %{"graphql" => 312, "core" => 26}, estimated?: false},
+        %{consumer: "ticket:1792", reads: 44, writes: 3, total: 47, cost: 47, costs: %{"core" => 47}, estimated?: false},
+        %{consumer: "unattributed", reads: 21, writes: 0, total: 21, cost: 21, costs: %{"graphql" => 21}, estimated?: true}
+      ],
+      coverage: %{
+        estimated?: true,
+        resources: %{
+          "core" => %{attributed: 73, named: 73, spend: 5_000, fraction: 0.0146, named_fraction: 0.0146, estimated?: false},
+          "graphql" => %{attributed: 333, named: 312, spend: 5_000, fraction: 0.0666, named_fraction: 0.0624, estimated?: true}
+        }
+      },
       backoffs: []
     }
   end
@@ -1731,6 +1880,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
     live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
+    live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)

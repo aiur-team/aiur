@@ -5,7 +5,8 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, RepoBase}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
+  alias Aiur.TrackerIdentity
 
   defp capture_todo(ids, opts) do
     parent = self()
@@ -99,6 +100,57 @@ defmodule Aiur.AgentControlCLITest do
     }
   end
 
+  # `running_entry/4` builds a *legacy* control entry (`can_interrupt` without
+  # `generation`/`version`/`application_confirmation`), which resumes
+  # synchronously inside the orchestrator call. Production agents carry the
+  # modern shape below, where a resume is only *queued* for the agent and the
+  # paused state clears when the agent reports back — the asynchronous path
+  # #1634 was filed against.
+  defp modern_running_entry(issue_id, identifier, status, pid \\ self()) do
+    issue_id
+    |> running_entry(identifier, status, pid)
+    |> put_in([:issue, Access.key(:tracker_identity)], %TrackerIdentity{
+      version: 1,
+      status: :joinable,
+      kind: :github,
+      owner: "owner",
+      repository: "repo",
+      provider_id: "I_kwDO#{issue_id}",
+      identifier: "44",
+      reason: nil
+    })
+    |> Map.put(:control, %{
+      can_interrupt: true,
+      safe_checkpoints: [:notification],
+      status: status,
+      generation: 1,
+      version: 1,
+      application_confirmation: :confirmed
+    })
+  end
+
+  # Stands in for the agent process: acknowledges the queued resume exactly the
+  # way a live worker does, so the CLI can observe the paused state clearing.
+  defp acknowledging_agent(issue_id) do
+    orchestrator = Process.whereis(Orchestrator)
+
+    spawn_link(fn ->
+      receive do
+        {:resume_agent, _request_id, _generation} ->
+          send(orchestrator, {:worker_control_state, issue_id, :working})
+      after
+        5_000 -> :timeout
+      end
+    end)
+  end
+
+  defp with_resume_confirm_timeout(timeout_ms, fun) do
+    Application.put_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms, timeout_ms)
+    fun.()
+  after
+    Application.delete_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms)
+  end
+
   defp queued_issue(issue_id \\ "issue-queued") do
     %Issue{id: issue_id, identifier: "repo##{issue_id}", state: "In Progress", title: "Queued"}
   end
@@ -120,11 +172,20 @@ defmodule Aiur.AgentControlCLITest do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
+    original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
 
     :sys.replace_state(pid, fn state ->
-      %{state | running: %{}, last_polled_issues: %{}, session_max_concurrent_agents: nil}
+      %{
+        state
+        | running: %{},
+          last_polled_issues: %{},
+          session_max_concurrent_agents: nil,
+          capacity_hold: nil,
+          dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
+      }
     end)
 
     on_exit(fn ->
@@ -136,6 +197,12 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :supervision_health_status_fun, original_health_status_fun)
       else
         Application.delete_env(:aiur, :supervision_health_status_fun)
+      end
+
+      if original_loadavg do
+        Application.put_env(:aiur, :loadavg_source_override, original_loadavg)
+      else
+        Application.delete_env(:aiur, :loadavg_source_override)
       end
     end)
 
@@ -488,7 +555,7 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do
-    write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(),
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "memory",
       max_dispatches_per_ticket: 40
     )
@@ -587,12 +654,114 @@ defmodule Aiur.AgentControlCLITest do
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
   end
 
+  test "status reports only the daemon's own admission hold as the binding constraint", %{orchestrator: pid} do
+    local_schedulers = System.schedulers_online()
+    local_load = local_schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
+    probes = %{
+      memory_mb: :unavailable,
+      memory_threshold_mb: nil,
+      fd_sample: :unavailable,
+      runnable: :unavailable,
+      run_queue_threshold: nil,
+      schedulers: local_schedulers,
+      load: local_load,
+      load_threshold: 1.5,
+      build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+      provider_backends: [],
+      github_quota: :available,
+      cpu_snapshot: :unavailable,
+      target: nil
+    }
+
+    assert {:hold, %{signal: :load, measured: ^local_load, threshold: threshold}} =
+             DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true))
+
+    assert threshold == local_schedulers * 1.5
+
+    sampled =
+      :sys.get_state(pid)
+      |> Map.merge(%{max_concurrent_agents: 10, effective_concurrent_agents: 10, last_polled_issues: %{"queued" => queued_issue()}})
+      |> Dispatcher.maybe_choose_under_load(
+        [queued_issue()],
+        fn state, _issues ->
+          send(self(), :dispatched)
+          state
+        end,
+        admission_probes_fun: fn -> probes end
+      )
+
+    refute_received :dispatched
+    assert %{signal: :load, measured: ^local_load, threshold: ^threshold} = sampled.capacity_hold
+    :sys.replace_state(pid, fn _state -> sampled end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+
+    assert output =~
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
+
+    # The daemon still holds. A quiet LOCAL sample must not clear the daemon's
+    # decision, and the local line must never claim to be the fleet's binding
+    # constraint.
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 1.0 1.0 1/1 1"} end)
+
+    persisted_hold_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert persisted_hold_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
+    refute persisted_hold_output =~ "(binding: load)"
+
+    # The inverse, and the actual regression guard: the daemon is NOT holding,
+    # but the CLI's own host is over the CLI's own threshold. A locally
+    # re-derived gate used to print "binding: load" here — a fleet-level cause
+    # the daemon never decided (#1610).
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
+    :sys.replace_state(pid, fn _state -> %{sampled | capacity_hold: nil} end)
+
+    fallback_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert fallback_output =~ "AGENTS 0/10 (binding: none)"
+    refute fallback_output =~ "AGENTS 0/10 (binding: load"
+
+    assert fallback_output =~
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
+  end
+
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
+    # Deliberately run this at a HIGH local load with the daemon NOT holding
+    # (capacity_hold: nil). Ticket supply is the real binding constraint here;
+    # a locally re-derived load gate used to overwrite it with "binding: load"
+    # (#1610). A pinned 0.0 loadavg would let that defect pass unnoticed, so the
+    # sample is pushed well over the local threshold on purpose.
+    schedulers = System.schedulers_online()
+    saturated_load = schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{saturated_load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
     :sys.replace_state(pid, fn state ->
       %{
         state
         | max_concurrent_agents: 2,
           effective_concurrent_agents: 2,
+          capacity_hold: nil,
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
             "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
@@ -603,6 +772,13 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "AGENTS 0/2 (binding: ticket supply)"
+    refute output =~ "AGENTS 0/2 (binding: load"
+
+    # The local reading is still reported — just as a local host sample, not as
+    # the fleet's decision.
+    assert output =~
+             "LOAD #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -1011,7 +1187,7 @@ defmodule Aiur.AgentControlCLITest do
     assert_receive {:resume_agent, resume_request_id} when is_integer(resume_request_id), 500
   end
 
-  test "mixed target results exit successfully when at least one target works", %{orchestrator: pid} do
+  test "mixed target results exit non-zero when any target fails", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
     end)
@@ -1021,7 +1197,7 @@ defmodule Aiur.AgentControlCLITest do
         output = capture_io(fn -> AgentControlCLI.pause(["44", "45"]) end)
 
         assert output =~ "aiur: already paused #44"
-        assert output =~ "__AIUR_CONTROL_EXIT__:0"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
       end)
 
     assert stderr =~ "aiur: failed to pause #45 (no running agent)"
@@ -1096,6 +1272,81 @@ defmodule Aiur.AgentControlCLITest do
     assert_receive :resume_called
     assert output =~ "aiur: resumed #44 (was: running)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  # #1634's headline defect. The orchestrator answers `{:ok, :resumed}` as soon
+  # as the resume is queued for the agent, so a CLI that prints on that reply
+  # reports a completed resume for an agent that is still paused — exactly what
+  # left three agents in `operator_pause` while the CLI reported no failure.
+  test "a queued resume the agent never applies is reported as unconfirmed, not as resumed", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => modern_running_entry("issue-44", "repo#44", :paused)},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output =
+          with_resume_confirm_timeout(300, fn ->
+            capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          end)
+
+        refute output =~ "aiur: resumed #44"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "aiur: resume request accepted for #44"
+    assert stderr =~ "still paused"
+    assert stderr =~ "the resume is unconfirmed"
+    assert [%{identifier: "repo#44", state: :paused}] = Orchestrator.status(Orchestrator, 1_000)
+  end
+
+  test "a queued resume the agent applies is reported as resumed", %{orchestrator: pid} do
+    agent = acknowledging_agent("issue-44")
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => modern_running_entry("issue-44", "repo#44", :paused, agent)},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    output =
+      with_resume_confirm_timeout(3_000, fn ->
+        capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+      end)
+
+    assert output =~ "aiur: resumed #44 (was: paused)"
+    assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  test "resume exits non-zero when one of several targets fails", %{orchestrator: pid} do
+    agent = acknowledging_agent("issue-44")
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => modern_running_entry("issue-44", "repo#44", :paused, agent)},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output =
+          with_resume_confirm_timeout(3_000, fn ->
+            capture_io(fn -> AgentControlCLI.resume(["44", "45"]) end)
+          end)
+
+        assert output =~ "aiur: resumed #44 (was: paused)"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "aiur: failed to resume #45 (no running agent)"
   end
 
   test "resume reports a reactivated agent as success", %{orchestrator: pid} do
@@ -1238,7 +1489,8 @@ defmodule Aiur.AgentControlCLITest do
     for {reason, expected} <- [
           {:empty_message, "message is empty"},
           {:message_too_long, "message is too long"},
-          {:invalid_message, "invalid message"}
+          {:invalid_message, "invalid message"},
+          {:agent_finished, "agent is not accepting messages (agent finished)"}
         ] do
       Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
         {:error, reason}
@@ -1272,6 +1524,24 @@ defmodule Aiur.AgentControlCLITest do
     end
   end
 
+  test "message reports a marker when delivery raises instead of failing silently", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
+      raise "delivery process exited"
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.message("44", "hello") end)
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: message query failed"
+    assert output =~ "delivery process exited"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
+  end
+
   test "unavailable orchestrator returns clear errors", %{orchestrator: pid} do
     Process.unregister(Orchestrator)
 
@@ -1294,13 +1564,43 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status distinguishes a bounded query timeout", %{orchestrator: pid} do
+    schedulers = System.schedulers_online()
+    load = schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
     :sys.suspend(pid)
 
     try do
       output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
 
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; daemon may be scheduler-saturated"
+      assert output =~
+               "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+                 "(local host sample; over local threshold, dispatch may be held)"
+
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
+
+      # #1731: the old wording asserted a cause ("daemon may be
+      # scheduler-saturated") that was measurably wrong — the run queue was 1
+      # and one process was head-of-line blocked. The replacement must not just
+      # drop the false claim, it must print the evidence an operator would
+      # otherwise gather by hand. `Process.info/2` reads a suspended process
+      # fine, which is exactly why it works when the daemon will not answer.
+      assert output =~ "Orchestrator mailbox="
+
+      # The current function is the load-bearing half: it names *where* the
+      # process is parked. A suspended gen_server reports `:waiting` in
+      # `:sys.suspend_loop/6`, which pinpoints the stall the same way the live
+      # capture in #1731 pinpointed `:gen.do_call/4`.
+      assert output =~ "status=waiting in :sys.suspend_loop/6"
+      assert output =~ "means one process is stuck, not that the host is busy"
     after
       :sys.resume(pid)
     end
@@ -1315,7 +1615,7 @@ defmodule Aiur.AgentControlCLITest do
         )
       end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; daemon may be scheduler-saturated"
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; outcome is unknown"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -1372,7 +1672,7 @@ defmodule Aiur.AgentControlCLITest do
 
       output = capture_io(fn -> AgentControlCLI.status() end)
 
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; daemon may be scheduler-saturated"
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
@@ -1622,7 +1922,7 @@ defmodule Aiur.AgentControlCLITest do
       try do
         output = capture_io(fn -> AgentControlCLI.agents(snapshot_timeout_ms: 1) end)
 
-        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; daemon may be scheduler-saturated"
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; outcome is unknown"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after
         :sys.resume(pid)
@@ -1756,7 +2056,7 @@ defmodule Aiur.AgentControlCLITest do
       try do
         output = capture_io(fn -> AgentControlCLI.watch(status_timeout_ms: 1) end)
 
-        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms; daemon may be scheduler-saturated"
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms; outcome is unknown"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after
         :sys.resume(pid)
@@ -1797,7 +2097,7 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
       restore_workflow_file_after_test()
-      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
 
       assert {:ok, ask} =
                Asks.create("owner/repo", %{
@@ -1832,7 +2132,7 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
       restore_workflow_file_after_test()
-      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
       :ok = RepoBase.ensure_state_tree("owner/repo")
 
       File.write!(

@@ -22,7 +22,9 @@ defmodule AiurWeb.StreamDeckGrid do
       {status, snapshot, freshness} when status in [:current, :stale] ->
         snapshot |> project() |> Map.put(:snapshot_freshness, freshness)
 
-      :snapshot_timeout ->
+      # The Stream Deck wire contract keeps its published error code; the
+      # dashboard reads the richer distinction from `AiurWeb.Presenter`.
+      :snapshot_unpublished ->
         %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
 
       :orchestrator_unavailable ->
