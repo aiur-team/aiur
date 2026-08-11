@@ -51,15 +51,21 @@ defmodule Aiur.AiurAgentSkillTest do
     conventions = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/conventions.md")))
     run_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md")))
     build_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-build/SKILL.md")))
+    meta_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-meta/SKILL.md")))
 
-    for source <- [conventions, run_skill, build_skill] do
+    for source <- [conventions, run_skill, build_skill, meta_skill] do
       assert source =~ "agent:todo"
       assert source =~ "same creation"
     end
 
     assert conventions =~ "needs-triage"
+    assert conventions =~ "human:todo"
+    assert conventions =~ "Epic:"
     assert run_skill =~ "Build Order roots"
+    assert run_skill =~ "human:todo"
+    assert run_skill =~ "Epic:"
     assert build_skill =~ "Build Order root"
+    assert build_skill =~ "Epic:"
   end
 
   test "Codex backend surface: prompt-referenced skills resolve through symlinks" do

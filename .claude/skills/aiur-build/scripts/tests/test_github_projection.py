@@ -1,7 +1,11 @@
 """GitHub mapping and immutable-authority projection tests."""
 
+import copy
+
 from github_projection_helpers import GithubProjectionCase, github
-from helpers import example, report_for
+from helpers import example, report_for, umbrella
+from validation_common import Report
+from validation_github_rendering import inspect_issue_body, render_ticket_body
 from validation_publication_authority import PublicationAuthority
 
 
@@ -66,6 +70,45 @@ class GithubMappingTests(GithubProjectionCase):
 
         self.assert_error(data, "forbidden labels present for BO-001: agent:done")
 
+    def test_projection_rejects_every_required_non_todo_lifecycle_state(self) -> None:
+        for state in (
+            "in-progress", "ci-wait", "human-review", "rework", "merging",
+            "done", "error", "cancelled", "canceled", "paused",
+        ):
+            with self.subTest(state=state):
+                data = example()
+                data["label_projection"]["required_ticket_labels"].append(
+                    f"agent:{state}"
+                )
+
+                self.assert_error(
+                    data,
+                    "required_ticket_labels contains non-todo lifecycle labels: "
+                    f"agent:{state}",
+                )
+
+    def test_projection_rejects_malformed_lifecycle_todo_prefixes(self) -> None:
+        for label in (":todo", " :todo", "agent :todo", " agent:todo"):
+            with self.subTest(label=label):
+                data = example()
+                required = data["label_projection"]["required_ticket_labels"]
+                required[required.index("agent:todo")] = label
+
+                self.assert_error(
+                    data,
+                    "required_ticket_labels must contain exactly one lifecycle todo label",
+                )
+
+    def test_umbrella_reconciliation_remains_undispatched(self) -> None:
+        data = self.materialized_with_umbrella()
+
+        self.assert_clean(data)
+
+        data["github_reconciliation"]["observed_labels"]["BO-003"].append(
+            "agent:todo"
+        )
+        self.assert_error(data, "unexpected observed labels for BO-003: agent:todo")
+
     def test_authority_bound_custom_lifecycle_reconciliation_passes(self) -> None:
         data = self.custom_lifecycle_materialized()
         authority = PublicationAuthority(
@@ -102,6 +145,40 @@ class GithubMappingTests(GithubProjectionCase):
             for ticket_id in ("BO-001", "BO-002"):
                 labels = data["github_reconciliation"][field][ticket_id]
                 labels[labels.index("agent:todo")] = "workflow:todo"
+        return data
+
+    def materialized_with_umbrella(self):
+        data = self.materialized()
+        ticket = umbrella(
+            "BO-003", "example-tickets/BO-003-example-umbrella.md",
+            ["BO-001", "BO-002"],
+        )
+        ticket["github"] = github("example/repo", 103, "THREE")
+        data["tickets"].append(ticket)
+        receipt = data["github_reconciliation"]
+        receipt["member_ticket_ids"].append("BO-003")
+        for field in ("observed_labels", "projected_labels"):
+            receipt[field]["BO-003"] = []
+        for field in ("expected_issue_titles", "observed_issue_titles"):
+            receipt[field]["BO-003"] = "BO-003"
+        receipt["observed_issue_states"]["BO-003"] = "OPEN"
+        receipt["marker_query_matches"]["BO-003"] = [
+            copy.deepcopy(ticket["github"])
+        ]
+        report = Report()
+        body = render_ticket_body(
+            "# BO-003\n", "example/repo", "BO-003", 1, "b" * 40,
+            report, "test BO-003",
+        )
+        self.assertIsNotNone(body, report.errors)
+        evidence = inspect_issue_body(
+            body, "example/repo", "BO-003", 1, "b" * 40,
+            report, "test BO-003",
+        )
+        self.assertIsNotNone(evidence, report.errors)
+        receipt["observed_body_evidence"]["BO-003"] = evidence
+        self.approved_body_expectations.bodies["BO-003"] = evidence
+        self.approved_body_expectations.titles["BO-003"] = "BO-003"
         return data
 
 

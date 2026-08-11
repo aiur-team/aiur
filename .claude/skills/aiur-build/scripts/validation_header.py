@@ -11,6 +11,7 @@ from validation_common import (
     SLUG,
     Report,
     checked_string_list,
+    lifecycle_label_prefix,
     nonempty_string,
     strict_int,
     strict_object,
@@ -34,8 +35,8 @@ LABEL_KEYS = {
     "required_ticket_labels", "forbidden_labels",
 }
 LIFECYCLE_SLUGS = {
-    "todo", "in-progress", "human-review", "rework", "merging", "done",
-    "paused",
+    "todo", "in-progress", "ci-wait", "human-review", "rework", "merging",
+    "done", "error", "cancelled", "canceled", "paused",
 }
 RESERVED_ROUTING_PREFIXES = {
     "human", "model", "phase", "complexity", "build-lane",
@@ -181,12 +182,13 @@ def lifecycle_todo_prefix(required_labels: object) -> str | None:
     if not isinstance(required_labels, list):
         return None
     prefixes = [
-        label.split(":", 1)[0].casefold()
+        prefix
         for label in required_labels
         if nonempty_string(label)
         and label.count(":") == 1
         and label.rsplit(":", 1)[1].casefold() == "todo"
-        and label.split(":", 1)[0].casefold() not in RESERVED_ROUTING_PREFIXES
+        and (prefix := lifecycle_label_prefix(label.split(":", 1)[0])) is not None
+        and prefix not in RESERVED_ROUTING_PREFIXES
     ]
     return prefixes[0] if len(prefixes) == 1 else None
 

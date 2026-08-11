@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from typing import Any
 
-from validation_common import Report, checked_string_list, nonempty_string
+from validation_common import (
+    RUNNABLE_KINDS,
+    Report,
+    checked_string_list,
+    nonempty_string,
+)
 from validation_header import LIFECYCLE_SLUGS
 
 
@@ -48,16 +53,22 @@ def _validate_label_sets(
             {root_label_key} if root_label_key is not None else set()
         )
     for ticket_id, ticket in by_id.items():
-        labels: set[str] = set(required)
-        selectors = (
-            ("workstreams", ticket.get("workstream")),
-            ("phases", str(ticket.get("phase_hint"))),
-            ("complexities", str(ticket.get("complexity_points"))),
-        )
-        for group, key in selectors:
-            mapping = projection.get(group)
-            if isinstance(mapping, dict) and key in mapping and nonempty_string(mapping[key]):
-                labels.add(mapping[key].casefold())
+        labels: set[str] = set()
+        if ticket.get("kind") in RUNNABLE_KINDS:
+            labels.update(required)
+            selectors = (
+                ("workstreams", ticket.get("workstream")),
+                ("phases", str(ticket.get("phase_hint"))),
+                ("complexities", str(ticket.get("complexity_points"))),
+            )
+            for group, key in selectors:
+                mapping = projection.get(group)
+                if (
+                    isinstance(mapping, dict)
+                    and key in mapping
+                    and nonempty_string(mapping[key])
+                ):
+                    labels.add(mapping[key].casefold())
         expected[ticket_id] = labels
     if set(value) != set(expected):
         report.error(f"github_reconciliation.{field}_labels keys must match root and tickets")

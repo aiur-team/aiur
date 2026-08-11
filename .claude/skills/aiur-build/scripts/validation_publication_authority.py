@@ -14,7 +14,7 @@ from validation_common import (
     Report,
     checked_string_list,
     git_no_replace_env,
-    nonempty_string,
+    lifecycle_label_prefix,
     repository_relative_path,
     strict_object,
 )
@@ -139,7 +139,7 @@ def _parse_authority(
     if any(not ISSUE_URL.fullmatch(item) for item in reference_only):
         report.error(f"{label} reference_only_issue_urls must contain exact issue URLs")
         valid = False
-    if not nonempty_string(prefix) or ":" in str(prefix):
+    if lifecycle_label_prefix(prefix) is None:
         report.error(f"{label} tracker_lifecycle_label_prefix must be one label segment")
         valid = False
     if not valid:
