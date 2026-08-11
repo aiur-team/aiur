@@ -184,8 +184,6 @@ defmodule Aiur.Orchestrator.IssueSync do
     end)
   end
 
-  defp purge_resolved_released_claims(_released_claims, _retained_issues, _terminal_states), do: %{}
-
   defp issues_by_id(issues) do
     Enum.reduce(issues, %{}, fn
       %Issue{id: issue_id} = issue, acc when is_binary(issue_id) -> Map.put(acc, issue_id, issue)
