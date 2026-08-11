@@ -149,6 +149,27 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
+    test "every pinned= literal in the runbook agrees with that block" do
+      # More than one section now assigns `pinned=` — the restart check and the
+      # bind check under "What is exposed". They are separate snippets an
+      # operator runs independently, so each has to carry its own value rather
+      # than inherit one from a section a page away. That makes them a drift
+      # pair: correcting the port in one place and not the other leaves a
+      # document that is right where you look and wrong where you don't.
+      settings = parsed_daemon_block()
+      ports = all_pinned_ports()
+
+      assert length(ports) >= 2,
+             "expected the restart check and the bind check to each pin a port; found " <>
+               "#{length(ports)}"
+
+      for port <- ports do
+        assert port == settings.server.port,
+               "a snippet pins port #{port} but the documented config binds " <>
+                 "#{settings.server.port}"
+      end
+    end
+
     test "the tunnel's origin is the address that block binds" do
       # Two YAML blocks, a page apart, that must agree by hand. If they drift,
       # `cloudflared tunnel ingress validate` still passes — it does not dial
@@ -489,6 +510,14 @@ defmodule AiurWeb.WebhookRunbookTest do
       nil ->
         []
     end
+  end
+
+  # Whole-document, unlike restart_check_ports/0 above: this one is asking
+  # whether every snippet agrees, not whether a particular section still exists.
+  defp all_pinned_ports do
+    ~r/^\s*pinned=(\d+)$/m
+    |> Regex.scan(File.read!(@doc_path))
+    |> Enum.map(fn [_, port] -> String.to_integer(port) end)
   end
 
   defp tunnel_origin do
