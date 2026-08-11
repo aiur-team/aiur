@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Reconciler, Slots, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
@@ -151,6 +151,10 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_tracker_pause_transition_alert(previous_issue, issue)
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
+
+    # `issues` is the active poll: pass it so the recheck prefers a freshly
+    # polled blockee over the snapshot stored in the running entry.
+    state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
 
     %{state | last_polled_issues: retained_issues}
   end
@@ -418,6 +422,7 @@ defmodule Aiur.Orchestrator.IssueSync do
             previous_blockers[blocker_id],
             :dependency_removed
           )
+          |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, previous_blockers[blocker_id], :removed)
         end)
 
       Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
@@ -726,15 +731,19 @@ defmodule Aiur.Orchestrator.IssueSync do
         enqueue_dependency_event(state, issue, current_blocker, :blocker_became_non_terminal)
 
       !blocker_terminal?(previous_blocker) and blocker_terminal?(current_blocker) ->
-        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_terminal)
+        state
+        |> enqueue_dependency_event(issue, current_blocker, :blocker_became_terminal)
+        |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, current_blocker)
 
       true ->
         state
     end
   end
 
-  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
-       when is_map(blocker) do
+  @doc false
+  @spec enqueue_dependency_event(State.t(), Issue.t(), map(), atom()) :: State.t()
+  def enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
+      when is_map(blocker) do
     body = blocker_event_body(issue, blocker, update_kind)
 
     {queue_store, item} =
@@ -758,7 +767,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
-  defp enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
+  def enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
 
   defp blocker_event_body(issue, blocker, update_kind) do
     %{

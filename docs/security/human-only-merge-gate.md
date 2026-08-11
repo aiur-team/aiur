@@ -64,6 +64,15 @@ was invalidated by the refresh; wait for the head to settle and request a fresh
 human approval. An empty attribution commit is not a remedy: it does not
 contribute a reviewable change and does not move the relevant attribution.
 
+The same rule applies to ordinary Git transport pushes. GitHub authenticates an
+HTTPS push with the token, not the username written in the URL. The failed
+#1401 recovery did use an `its-applekid` token-bearing URL, but its new commits
+were tree-identical and changed zero files; they therefore never replaced the
+earlier `its-everdred` reviewable-push attribution. Do not embed tokens in URLs.
+Agents verify that `GITHUB_TOKEN` resolves to the configured bot account and use
+the fail-closed helper recipe in `.claude/skills/using-aiur/dev-loop.md`, which
+resets inherited helpers and refuses to fall back to the Executor keyring.
+
 This is an operational choice, not a ruleset exception: the gate retains
 `require_last_push_approval` and has no bypass actors. The same procedure is
 recorded on [#1405](https://github.com/aiur-team/aiur/issues/1405), the
@@ -104,6 +113,19 @@ events — so the CI drift check is the automated enforcement mechanism, not an
 application-side guard. GitHub remains authoritative about whether a merge
 occurred. The daemon's merge attribution is defense in depth, not permission to
 bypass this gate.
+
+When a current human approval and green required checks still produce
+`mergeStateStatus: BLOCKED` plus `reviewDecision: REVIEW_REQUIRED`, an Executor
+should not repeat the approval. After the first ordinary merge/queue attempt is
+refused, `.claude/skills/aiur-run/scripts/diagnose-pr-merge-gate.sh <pr>
+<owner/repo>` reads the failed rule suite using the operator-only
+Administration: read credential and prints GitHub's exact active-rule
+violation. An agent acting as Executor emits that text as the needs-attention
+`merge.rule-violation` alert described in the Executor skill. This replaces the
+previous practice of making an `--admin` attempt solely to reveal the reason;
+the script is read-only and never grants Administration authority to Aiur's
+daemon or worker token.
+
 `tracker.github.human_mergers` is a distinct, explicit allowlist for human
 mergers. It does not inherit CODEOWNERS, `bot_account`, `trusted_accounts`, or
 the dispatch `allowed_users`; absent configuration denies every merger and

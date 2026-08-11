@@ -128,6 +128,13 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   describe "comment wake/rework transitions" do
+    setup do
+      previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
+
+      on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
+    end
+
     test "trusted PR review comment reactivates a deactivated entry to rework" do
       issue_id = "life-review-1"
       identifier = "7411"
@@ -156,6 +163,30 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
 
       assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
       assert MapSet.member?(next.claimed, identifier)
+    end
+
+    test "trusted comment rework dispatch respects the load admission gate" do
+      identifier = "7412-load-hold"
+      schedulers = System.schedulers_online()
+      previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+
+      Application.put_env(:aiur, :loadavg_source_override, fn ->
+        {:ok, "#{schedulers * 2.0} 1.0 1.0 1/1 1"}
+      end)
+
+      on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
+
+      isolated_subscription_store(identifier)
+      memory_tracker!([review_issue(identifier)])
+
+      assert {:noreply, next} =
+               Orchestrator.handle_info({:event, comment_event(identifier, "issue.commented")}, base_state())
+
+      assert_receive {:memory_tracker_state_update, ^identifier, "rework"}, 2000
+      refute MapSet.member?(next.claimed, identifier)
+      assert %{signal: :load, measured: measured, threshold: threshold} = next.capacity_hold
+      assert measured == schedulers * 2.0
+      assert threshold == schedulers * 1.5
     end
 
     test "untrusted-author comment is ignored" do
