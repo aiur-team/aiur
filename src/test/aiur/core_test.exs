@@ -2553,11 +2553,18 @@ defmodule Aiur.CoreTest do
           "InterruptOperator#{Macro.camelize(outcome_name)}Orchestrator"
         )
 
-      {:ok, orchestrator_pid} = Orchestrator.start_link(name: orchestrator_name)
+      {:ok, orchestrator_pid} =
+        Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
       on_exit(fn ->
-        if Process.alive?(orchestrator_pid), do: Process.exit(orchestrator_pid, :normal)
+        stop_test_orchestrator(orchestrator_pid)
       end)
+
+      assert %{
+               next_poll_due_at_ms: nil,
+               poll_check_in_progress: false,
+               tick_timer_ref: nil
+             } = :sys.get_state(orchestrator_pid)
 
       issue_id = "issue-interrupt-operator-#{outcome_name}"
       identifier = "MT-INTERRUPT-OPERATOR-#{String.upcase(outcome_name)}"
