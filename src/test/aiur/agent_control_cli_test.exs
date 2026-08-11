@@ -1257,7 +1257,8 @@ defmodule Aiur.AgentControlCLITest do
     for {reason, expected} <- [
           {:empty_message, "message is empty"},
           {:message_too_long, "message is too long"},
-          {:invalid_message, "invalid message"}
+          {:invalid_message, "invalid message"},
+          {:agent_finished, "agent is not accepting messages (agent finished)"}
         ] do
       Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
         {:error, reason}
@@ -1289,6 +1290,24 @@ defmodule Aiur.AgentControlCLITest do
     after
       Process.register(pid, Orchestrator)
     end
+  end
+
+  test "message reports a marker when delivery raises instead of failing silently", %{orchestrator: pid} do
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :working)}}
+    end)
+
+    Application.put_env(:aiur, :agent_control_cli_message_fun, fn _identifier, _text ->
+      raise "delivery process exited"
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_message_fun) end)
+
+    output = capture_io(fn -> AgentControlCLI.message("44", "hello") end)
+
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: message query failed"
+    assert output =~ "delivery process exited"
+    assert output =~ "__AIUR_CONTROL_EXIT__:1"
   end
 
   test "unavailable orchestrator returns clear errors", %{orchestrator: pid} do
