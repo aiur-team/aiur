@@ -170,6 +170,10 @@ defmodule AiurWeb.ObservabilityApiController do
     put_in(payload, [:error], %{code: "snapshot_unavailable", message: "Snapshot unavailable"})
   end
 
+  defp legacy_snapshot_error(%{error: %{code: "snapshot_unpublished"}} = payload) do
+    put_in(payload, [:error], %{code: "snapshot_timeout", message: "Snapshot timed out"})
+  end
+
   defp legacy_snapshot_error(payload), do: payload
 
   defp send_operator_message(issue_identifier, text) do

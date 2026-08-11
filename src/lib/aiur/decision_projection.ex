@@ -11,6 +11,7 @@ defmodule Aiur.DecisionProjection do
   """
 
   alias Aiur.{Decision, DecisionAnswer, DecisionEvent, DecisionProvenance, DecisionRevision, DecisionValidation}
+  alias Aiur.DecisionEvent.Unrecognized
 
   @type projection :: %{
           current: %{String.t() => Decision.t()},
@@ -18,8 +19,14 @@ defmodule Aiur.DecisionProjection do
           audit_history: %{String.t() => [Decision.t() | DecisionEvent.t()]}
         }
 
-  @doc "Decode one legacy request record or one discriminated lifecycle event."
-  @spec decode_record(map()) :: {:ok, Decision.t() | DecisionEvent.t()} | {:error, term()}
+  @doc """
+  Decode one legacy request record or one discriminated lifecycle event.
+
+  A lifecycle event whose type this binary does not know decodes to an opaque
+  `Aiur.DecisionEvent.Unrecognized`, which is retained in the replayed record
+  list and skipped when folding the projection.
+  """
+  @spec decode_record(map()) :: {:ok, Decision.t() | DecisionEvent.t() | Unrecognized.t()} | {:error, term()}
   def decode_record(raw) when is_map(raw) do
     if Map.has_key?(raw, "event_type") do
       DecisionEvent.from_json_safe(raw)
@@ -119,6 +126,16 @@ defmodule Aiur.DecisionProjection do
     end
   end
 
+  # An unrecognized event still occupies its event id, so replaying one twice
+  # is duplication exactly as it is for a known event.
+  defp reserve_event_identity(%Unrecognized{event_id: event_id}, seen_ids) do
+    if MapSet.member?(seen_ids, event_id) do
+      {:error, :duplicate_event_id}
+    else
+      {:ok, MapSet.put(seen_ids, event_id)}
+    end
+  end
+
   defp reserve_event_identity(%Decision{}, seen_ids), do: {:ok, seen_ids}
   defp reserve_event_identity(_other, _seen_ids), do: {:error, :unknown_record}
 
@@ -133,6 +150,13 @@ defmodule Aiur.DecisionProjection do
   end
 
   defp apply_record(projection, %DecisionEvent{} = event), do: apply_lifecycle(projection, event)
+
+  # Retained, not projected. This binary cannot know what the event means, so
+  # the one safe fold is the identity: leave every Decision exactly as the
+  # events it *does* understand left it. The record stays in the replayed list
+  # and on disk for a binary that knows the type.
+  defp apply_record(projection, %Unrecognized{}), do: {:ok, projection}
+
   defp apply_record(_projection, _record), do: {:error, :unknown_record}
 
   defp apply_request(projection, decision, audit_record) do
@@ -267,6 +291,15 @@ defmodule Aiur.DecisionProjection do
   end
 
   defp transition(%Decision{decision_status: :deferred} = decision, %DecisionEvent{type: :decision_deferred}) do
+    {:ok, decision}
+  end
+
+  # An Executor escalation records who deferred to the operator and why. It
+  # deliberately makes no status change: the Command stays exactly as
+  # answerable as it was, so the operator can still answer it and the Executor
+  # can still be overridden. Only a still-undecided Command can be escalated.
+  defp transition(%Decision{decision_status: status} = decision, %DecisionEvent{type: :executor_escalated})
+       when status in [:open, :deferred] do
     {:ok, decision}
   end
 

@@ -13,7 +13,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
 
   @spec build(map(), Issue.t(), keyword()) :: callbacks()
   def build(app_session, %Issue{} = issue, opts) when is_map(app_session) and is_list(opts) do
-    backend = SessionLifecycle.session_backend(app_session)
+    backend = SessionLifecycle.session_backend!(app_session)
     recipient = Keyword.get(opts, :recipient)
     orchestrator = Keyword.fetch!(opts, :orchestrator)
 

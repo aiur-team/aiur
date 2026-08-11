@@ -68,7 +68,12 @@ defmodule Aiur.Orchestrator.State do
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
           dispatch_declines: %{optional(String.t()) => term()},
-          dispatch_capacity_sample: %{load: number() | :unavailable, target: number() | nil, schedulers: pos_integer() | nil},
+          dispatch_capacity_sample: %{
+            load: number() | :unavailable,
+            load_threshold: number() | nil,
+            target: number() | nil,
+            schedulers: pos_integer() | nil
+          },
           capacity_starvation: %{
             since_ms: %{optional(String.t()) => integer()},
             alert_active: boolean(),
@@ -169,7 +174,7 @@ defmodule Aiur.Orchestrator.State do
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
     dispatch_declines: %{},
-    dispatch_capacity_sample: %{load: :unavailable, target: nil, schedulers: nil},
+    dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
     running: %{},

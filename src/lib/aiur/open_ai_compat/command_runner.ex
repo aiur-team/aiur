@@ -1,7 +1,7 @@
 defmodule Aiur.OpenAICompat.CommandRunner do
   @moduledoc false
 
-  alias Aiur.{AgentEnvironment, BuildGate}
+  alias Aiur.{AgentEnvironment, AgentGitHubGuard, BuildGate}
 
   @timeout_ms 300_000
   @inherited_env_names ~w(GITHUB_TOKEN GH_TOKEN LANG LC_ALL TERM)
@@ -72,10 +72,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
         {"HOME", workspace},
         {"TMPDIR", "/tmp"},
         {"MISE_DATA_DIR", "/opt/aiur-mise"},
-        {"GIT_CONFIG_COUNT", "1"},
-        {"GIT_CONFIG_KEY_0", "credential.helper"},
-        {"GIT_CONFIG_VALUE_0", "!gh auth git-credential"},
-        {"PATH", sandbox_path()}
+        {"PATH", AgentGitHubGuard.bin_dir(workspace) <> ":" <> sandbox_path()}
       ] ++ git_identity_env() ++ agent_environment(workspace)
 
     inherited =
