@@ -49,6 +49,18 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
+    test "the documented poll_widen_factor default is the schema's actual default" do
+      # #1772 moved this default from 1.0 to 2.0 and the runbook kept asserting
+      # the old value, which reads as "registering a repo changes no interval"
+      # — the opposite of what now happens. Nothing failed: the doc and the
+      # schema have no other point of contact.
+      documented = documented_poll_widen_factor()
+      actual = %Aiur.Config.Schema.Webhooks{}.poll_widen_factor
+
+      assert documented == actual,
+             "runbook documents poll_widen_factor default #{documented}, schema default is #{actual}"
+    end
+
     test "an undocumented event is still rejected as unsupported" do
       # Guards the negative direction: if `normalize/3` ever started accepting
       # everything, the equality test could pass by widening rather than by the
@@ -150,6 +162,13 @@ defmodule AiurWeb.WebhookRunbookTest do
     |> Enum.map(fn row ->
       row |> String.split("|") |> Enum.at(1) |> String.trim() |> String.trim("`")
     end)
+  end
+
+  defp documented_poll_widen_factor do
+    [_, value] =
+      Regex.run(~r/`poll_widen_factor` defaults to `([0-9.]+)`/, File.read!(@doc_path))
+
+    String.to_float(value)
   end
 
   defp ingress_rule_path do
