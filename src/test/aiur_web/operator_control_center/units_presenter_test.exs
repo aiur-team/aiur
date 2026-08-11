@@ -210,6 +210,26 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
   end
 
+  test "a stale catalog with nothing retained does not claim to be showing a last-known-good catalog" do
+    empty_fleet_payload = %{
+      generated_at: "2026-07-17T12:00:00Z",
+      provider_health: %{fleet: :unavailable, decisions: :ok},
+      fleet: %{error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"}, running: [], retrying: [], idle: []},
+      decisions: []
+    }
+
+    catalog =
+      UnitsPresenter.load(empty_fleet_payload,
+        membership_fun: fn -> membership([]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    assert catalog.status == :stale
+    assert catalog.snapshot.rows == []
+    assert catalog.message == "No last-known-good Units catalog is retained while the fleet snapshot is unavailable."
+    refute catalog.message =~ "Showing the last-known-good"
+  end
+
   test "a reconciling membership is stale without claiming membership is healthy" do
     alpha = identity("NODE-reconciling", "41")
 

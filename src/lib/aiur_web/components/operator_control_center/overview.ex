@@ -101,7 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   @spec error(map()) :: Phoenix.LiveView.Rendered.t()
   def error(assigns) do
     ~H"""
-    <section :if={@error} class="error-card" role={error_role(@error[:code])}>
+    <section :if={@error} class={["error-card", error_tone(@error[:code])]} role={error_role(@error[:code])}>
       <h2>{error_title(@error[:code])}</h2>
       <p>{error_detail(@error[:code], @error[:message])}</p>
       <p class="error-code"><strong>{@error[:code]}:</strong> {@error[:message]}</p>
@@ -112,18 +112,40 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   # A published-but-aged fleet view is never "unavailable": it is last-known-good
   # data with an age. Only a producer with nothing published reaches `error/1`.
   defp error_title("snapshot_unpublished"), do: "No fleet snapshot published yet"
+  defp error_title("orchestrator_unavailable"), do: "Fleet snapshot unavailable"
+  defp error_title("snapshot_unavailable"), do: "Fleet view could not be read"
   defp error_title(_code), do: "Fleet snapshot unavailable"
 
+  # Every detail line must be derivable from the code it is given. Naming a
+  # subsystem that was never observed is the defect this component exists to
+  # remove: an unverified "the Orchestrator is not reachable" is the same shape
+  # as the "current-run membership is healthy" that once explained a missing
+  # snapshot.
   defp error_detail("snapshot_unpublished", _message),
     do:
       "The Orchestrator is running but has not published a fleet view under this run yet. " <>
         "This is expected for a short time after a restart; there is no last-known-good fleet view to show."
 
-  defp error_detail(_code, _message),
+  defp error_detail("orchestrator_unavailable", _message),
     do: "The Orchestrator is not reachable and no last-known-good fleet view is retained."
+
+  # `snapshot_unavailable` is raised by the read-model composition itself, not by
+  # the Orchestrator, so it says nothing about whether the Orchestrator is alive.
+  defp error_detail("snapshot_unavailable", _message),
+    do:
+      "The fleet read model could not be composed, so no fleet view is available. " <>
+        "This does not report on the Orchestrator itself, which may still be running."
+
+  defp error_detail(_code, _message),
+    do: "No fleet view is available. The reported fault is shown below."
 
   defp error_role("snapshot_unpublished"), do: "status"
   defp error_role(_code), do: "alert"
+
+  # A run that has not published its first snapshot is an expected moment, not an
+  # incident, so it must not carry incident colour either.
+  defp error_tone("snapshot_unpublished"), do: "notice"
+  defp error_tone(_code), do: nil
 
   attr(:freshness, :map, default: %{})
 
@@ -147,6 +169,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   defp age_label(age_seconds), do: UnitsPresentation.age_label(age_seconds)
 
   defp stale_reason(:snapshot_timeout), do: "The Orchestrator is busy."
+  defp stale_reason(:snapshot_stalled), do: "The Orchestrator has stopped publishing."
   defp stale_reason(:orchestrator_unavailable), do: "The Orchestrator is unavailable."
   defp stale_reason(_reason), do: ""
 

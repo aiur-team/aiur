@@ -119,6 +119,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert stale =~ "units-table"
     assert stale =~ "Responsive Units interface"
 
+    # A stale catalog with nothing retained must still account for the empty
+    # table. A staleness banner floating over a blank area reports less than the
+    # unavailable panel this surface replaced.
+    stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
+    assert stale_empty =~ "Stale Units catalog"
+    assert stale_empty =~ "No units have been observed in this run."
+    refute stale_empty =~ "units-table"
+
+    # The filter-hides-everything case still belongs to zero_result?, not to the
+    # catalog-empty message.
+    stale_filtered = render(%{status: :stale, message: "last known membership", rows: [], zero_result?: true})
+    assert stale_filtered =~ "No units match this valid scope"
+    refute stale_filtered =~ "No units have been observed in this run."
+
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
     assert partial =~ "Units catalog is partial"
     assert partial =~ "Counts are lower bounds"

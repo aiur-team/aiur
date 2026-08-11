@@ -328,18 +328,25 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   defp stale_source_message(snapshot) do
+    lead = stale_lead(snapshot)
+
     cond do
       fleet_health(snapshot) not in [:healthy, :available] ->
-        "Showing the last-known-good Units catalog while the fleet snapshot is unavailable."
+        "#{lead} while the fleet snapshot is unavailable."
 
       fleet_freshness_status(snapshot) in [:stale, :unknown, :unavailable] ->
-        "Showing the last-known-good Units catalog while fleet snapshot refresh is degraded." <>
-          fleet_age_phrase(snapshot)
+        "#{lead} while fleet snapshot refresh is degraded." <> fleet_age_phrase(snapshot)
 
       true ->
-        "Showing the last-known-good Units catalog while current-run membership reconciles."
+        "#{lead} while current-run membership reconciles."
     end
   end
+
+  # "Showing the last-known-good catalog" is only true when something is
+  # retained to show. With no rows the same sentence over an empty table is the
+  # confident-wrong-claim shape this module exists to remove.
+  defp stale_lead(%{rows: []}), do: "No last-known-good Units catalog is retained"
+  defp stale_lead(_snapshot), do: "Showing the last-known-good Units catalog"
 
   defp fleet_age_phrase(snapshot) do
     case fleet_age_seconds(snapshot) do

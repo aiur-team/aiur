@@ -748,6 +748,40 @@ defmodule AiurWeb.DashboardLiveTest do
 
     assert unavailable =~ "Fleet snapshot unavailable"
     assert unavailable =~ "no last-known-good fleet view is retained"
+
+    # The expected post-restart moment must not wear incident colour either;
+    # `role="status"` alone only fixes the screen-reader reading.
+    assert unpublished =~ ~s(class="error-card notice")
+    refute unavailable =~ "notice"
+  end
+
+  test "a read-model fault never claims the orchestrator is unreachable" do
+    # `snapshot_unavailable` is raised by the read-model composition, not by the
+    # Orchestrator. Asserting an unobserved subsystem is the exact defect that
+    # put "current-run membership is healthy" next to "Snapshot unavailable".
+    read_model_fault =
+      render_component(&Overview.error/1, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"})
+
+    assert read_model_fault =~ "Fleet view could not be read"
+    assert read_model_fault =~ "fleet read model could not be composed"
+    assert read_model_fault =~ "may still be running"
+    refute read_model_fault =~ "The Orchestrator is not reachable"
+
+    unknown_fault = render_component(&Overview.error/1, error: %{code: "something_else", message: "Unmapped fault"})
+    refute unknown_fault =~ "The Orchestrator is not reachable"
+    assert unknown_fault =~ "something_else"
+  end
+
+  test "a stalled orchestrator's stale banner names the stall, not a busy mailbox" do
+    html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
+      )
+
+    assert html =~ "Stale fleet snapshot"
+    assert html =~ "The Orchestrator has stopped publishing."
+    assert html =~ "2h 4m old"
+    refute html =~ "The Orchestrator is busy."
   end
 
   test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
