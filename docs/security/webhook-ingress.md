@@ -316,14 +316,24 @@ hostname that is still perfectly stable starts answering 502.
 # exists to catch — and the case a bare `grep 4099` cannot see.
 pinned=4099
 
-# Find the port serving the receiver by its own fail-closed 401, rather than by
-# matching a process name. A BEAM node also listens on distribution ports, and
-# on a host running more than one node `grep beam.smp` returns several ports
-# with nothing to say which is the endpoint.
+# Find the port serving the receiver by the error body only it produces.
+#
+# Two weaker versions of this check do not work, and both look right:
+#   - Matching a process name. A BEAM node also listens on distribution ports,
+#     so `grep beam.smp` returns several ports with nothing to say which one is
+#     the endpoint.
+#   - Matching the 401 status alone. `401` is not distinctive: on the host this
+#     runbook was written against, two ports belonging to an unrelated desktop
+#     application answered a bare `HTTP/1.1 401` to this exact probe. The first
+#     such port to sort ahead of the daemon's silently becomes "the port the
+#     daemon is bound to", and step 2 then confirms a stranger came back.
+#
+# The receiver's `invalid_signature` body is emitted by nothing else, so match
+# on that. It is pinned to AiurWeb.GithubWebhook.Auth by a test.
 bound() {
   for p in $(ss -ltn 2>/dev/null | awk 'NR>1 {n=split($4,a,":"); print a[n]}' | sort -un); do
-    if [ "$(curl -s -m 2 -o /dev/null -w '%{http_code}' \
-              -X POST "http://127.0.0.1:$p/api/v1/github/webhook")" = 401 ]; then
+    if curl -s -m 2 -X POST "http://127.0.0.1:$p/api/v1/github/webhook" \
+         | grep -q '"code":"invalid_signature"'; then
       echo "$p"
       return 0
     fi
