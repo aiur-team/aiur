@@ -29,6 +29,18 @@ defmodule Aiur.AiurAgentSkillTest do
   # Claude-only and is deliberately not symlinked into `.codex/skills/`.
   @claude_executor_only_skills ~w(aiur-meta release)
 
+  # Every skill that can reach a ticket-creation command. Each states the rule
+  # once, in a block located by this marker.
+  @creation_rule_marker "same creation request"
+  @creation_rule_docs ~w(
+    .claude/skills/using-aiur/conventions.md
+    .claude/skills/aiur-run/SKILL.md
+    .claude/skills/aiur-run/references/executor.md
+    .claude/skills/aiur-meta/SKILL.md
+    .claude/skills/aiur-build/SKILL.md
+  )
+  @label_token ~r/^[a-z][a-z0-9-]*(?::[a-z0-9-]+)?$/
+
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
     assert File.exists?(Path.join(@claude_skill, "SKILL.md"))
@@ -47,25 +59,52 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "Do NOT open a new PR"
   end
 
-  test "ticket creation paths assign dispatch or an explicit exemption" do
-    conventions = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/conventions.md")))
-    run_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md")))
-    build_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-build/SKILL.md")))
-    meta_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-meta/SKILL.md")))
+  # #1793: 29 tickets were filed with no `agent:*` label. Each was
+  # undispatchable and invisible in every state-scoped view, so the fleet read
+  # as having no work left. Every path that can file a ticket must state a
+  # disposition, and the vocabulary it teaches has to be the vocabulary the
+  # `gh` guard actually honours — a doc naming a label the guard refuses would
+  # send agents into a wall, and a guard that stopped enforcing would leave the
+  # docs describing a rule nothing applies.
+  test "every filing path teaches a disposition the gh guard actually accepts" do
+    documented =
+      for path <- @creation_rule_docs, reduce: MapSet.new() do
+        found ->
+          per_doc =
+            for block <- creation_rule_blocks(path), reduce: MapSet.new() do
+              seen ->
+                labels = documented_labels(block)
 
-    for source <- [conventions, run_skill, build_skill, meta_skill] do
-      assert source =~ "agent:todo"
-      assert source =~ "same creation"
+                # A creation rule that names no label is prose with no
+                # vocabulary — the agent is told when, never what.
+                assert MapSet.size(labels) > 0,
+                       "#{path} states the creation rule without naming any label: #{block}"
+
+                MapSet.union(seen, labels)
+            end
+
+          assert MapSet.member?(per_doc, "agent:todo"),
+                 "#{path} never names `agent:todo` where it states the creation rule"
+
+          MapSet.union(found, per_doc)
+      end
+
+    # Every label the skills teach must survive the guard, or following the
+    # documented instruction fails.
+    for label <- documented do
+      assert run_creation_guard(["--title", "t", "--label", label]) == 0,
+             "the gh guard refuses documented disposition #{label}"
     end
 
-    assert conventions =~ "needs-triage"
-    assert conventions =~ "human:todo"
-    assert conventions =~ "Epic:"
-    assert run_skill =~ "Build Order roots"
-    assert run_skill =~ "human:todo"
-    assert run_skill =~ "Epic:"
-    assert build_skill =~ "Build Order root"
-    assert build_skill =~ "Epic:"
+    # And the guard must actually be enforcing, not passing everything through.
+    assert run_creation_guard(["--title", "t"]) != 0,
+           "the gh guard admits an issue create with no disposition at all"
+
+    assert run_creation_guard(["--title", "t", "--label", "wontfix"]) != 0,
+           "the gh guard admits an issue create whose labels carry no disposition"
+
+    assert MapSet.subset?(MapSet.new(~w(agent:todo needs-triage human:todo build-order)), documented),
+           "the documented disposition vocabulary lost a case: #{inspect(MapSet.to_list(documented))}"
   end
 
   test "Codex backend surface: prompt-referenced skills resolve through symlinks" do
@@ -456,6 +495,67 @@ defmodule Aiur.AiurAgentSkillTest do
 
     assert {target, 0} = System.cmd("git", ["-C", @repo_root, "show", ":#{path}"])
     assert target == "../../.claude/skills/#{skill}"
+  end
+
+  # The rule block, not the whole file: a doc that merely mentions `agent:todo`
+  # somewhere else must not satisfy the assertion. A paragraph that ends in a
+  # colon carries its list with it.
+  defp creation_rule_blocks(relative_path) do
+    paragraphs =
+      @repo_root
+      |> Path.join(relative_path)
+      |> File.read!()
+      |> String.split(~r/\n[ \t]*\n/)
+      |> Enum.map(&(&1 |> one_line() |> String.trim()))
+
+    blocks =
+      paragraphs
+      |> Enum.with_index()
+      |> Enum.filter(fn {text, _index} -> String.contains?(text, @creation_rule_marker) end)
+      |> Enum.map(fn {text, index} ->
+        # A paragraph that ends in a colon carries its list with it.
+        if String.ends_with?(text, ":") do
+          text <> " " <> Enum.at(paragraphs, index + 1, "")
+        else
+          text
+        end
+      end)
+
+    assert blocks != [], "#{relative_path} no longer states the ticket-creation rule"
+
+    blocks
+  end
+
+  defp documented_labels(block) do
+    ~r/`([^`]+)`/
+    |> Regex.scan(block)
+    |> Enum.map(fn [_, token] -> token end)
+    |> Enum.filter(&Regex.match?(@label_token, &1))
+    |> MapSet.new()
+  end
+
+  # Runs the real wrapper the daemon installs on agent PATH, against a stub
+  # `gh`, so this asserts the shipped guard rather than a copy of its rules.
+  defp run_creation_guard(arguments) do
+    root = Path.join(System.tmp_dir!(), "aiur-skill-guard-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+    stub = Path.join(root, "gh")
+    File.write!(stub, "#!/bin/sh\nexit 0\n")
+    File.chmod!(stub, 0o755)
+
+    try do
+      {_output, status} =
+        System.cmd(
+          "/bin/sh",
+          [Path.join(@repo_root, "src/priv/github_quota_guard.sh"), "issue", "create" | arguments],
+          env: [{"AIUR_REAL_GH", stub}, {"AIUR_REPO_STATE_PATH", Path.join(root, "state")}],
+          stderr_to_stdout: true
+        )
+
+      status
+    after
+      File.rm_rf!(root)
+    end
   end
 
   defp one_line(text), do: String.replace(text, ~r/\s+/, " ")

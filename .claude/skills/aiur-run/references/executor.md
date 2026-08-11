@@ -87,6 +87,14 @@ issue creation and disposition across two requests: failure of the label edit
 otherwise leaves an invisible ticket that looks complete to the findings
 ledger but can never be claimed.
 
+Know which half of that is mechanical. Agent workspaces resolve `gh` through
+Aiur's wrapper, which refuses an `issue create` with no disposition; the
+aiur-build publication validator refuses a Build Order whose members are
+projected undispatched. You are neither. You run outside a workspace, against
+the real `gh`, so on your own filing path this rule holds only because you
+follow it — and `gh api` bypasses the wrapper for everyone. Audit with
+`gh issue list --search 'no:label'` before treating a queue as empty.
+
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
 ticket/component, why acceptance is not blocked, and suggested disposition.

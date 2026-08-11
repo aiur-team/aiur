@@ -51,16 +51,6 @@ class GithubMappingTests(GithubProjectionCase):
         data["github_reconciliation"]["observed_labels"]["BO-001"].append("agent:in-progress")
         self.assert_error(data, "forbidden labels present for BO-001")
 
-    def test_reconciliation_infers_custom_lifecycle_prefix_without_authority(self) -> None:
-        data = self.custom_lifecycle_materialized()
-
-        self.assert_clean(data)
-
-        data["github_reconciliation"]["observed_labels"]["BO-001"].append(
-            "workflow:in-progress"
-        )
-        self.assert_error(data, "forbidden labels present for BO-001: workflow:in-progress")
-
     def test_reconciliation_rejects_required_non_todo_lifecycle_state(self) -> None:
         data = self.materialized()
         data["label_projection"]["required_ticket_labels"].append("agent:done")
@@ -108,6 +98,37 @@ class GithubMappingTests(GithubProjectionCase):
             "agent:todo"
         )
         self.assert_error(data, "unexpected observed labels for BO-003: agent:todo")
+
+    # The document used to supply the lifecycle prefix the receipt was checked
+    # against. A `workflow:todo` projection therefore made `agent:done` an
+    # unrecognized label instead of a wrong ticket state, and reconciliation
+    # reported clean over a ticket that was already finished.
+    def test_receipt_refuses_to_certify_without_independent_authority(self) -> None:
+        data = self.custom_lifecycle_materialized()
+        data["github_reconciliation"]["observed_labels"]["BO-001"].append("agent:done")
+
+        report = self.report_for_case(data, None)
+
+        self.assertNotEqual([], report.errors)
+        self.assertTrue(
+            any(
+                "requires an independent publication authority" in error
+                for error in report.errors
+            ),
+            report.errors,
+        )
+
+    def test_independent_authority_catches_the_wrong_ticket_state(self) -> None:
+        data = self.custom_lifecycle_materialized()
+        data["github_reconciliation"]["observed_labels"]["BO-001"].append("agent:done")
+        authority = PublicationAuthority(
+            "refs/heads/main", "root.md", ("example/repo", "example/other"),
+            (), "agent",
+        )
+
+        joined = "\n".join(self.report_for_case(data, authority).errors)
+
+        self.assertIn("forbidden labels present for BO-001: agent:done", joined)
 
     def test_authority_bound_custom_lifecycle_reconciliation_passes(self) -> None:
         data = self.custom_lifecycle_materialized()

@@ -80,6 +80,26 @@ def load_frozen_publication_authority(
     return approved
 
 
+def load_manifest_publication_authority(
+    path: Path, report: Report,
+) -> PublicationAuthority | None:
+    """Read publication authority from a manifest outside the validated document.
+
+    The pre-publication run has no approved receipt commit to read the frozen
+    manifest from, but the lifecycle prefix still must not come from the Build
+    Order being checked — that is the document certifying itself.
+    """
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        report.error(f"publication manifest is unreadable: {exc}")
+        return None
+    if not isinstance(value, dict):
+        report.error("publication manifest must be a JSON object")
+        return None
+    return _parse_authority(value, "working-tree", report)
+
+
 def exact_commit(root: Path, commit: object) -> bool:
     if not isinstance(commit, str) or not SHA.fullmatch(commit):
         return False
