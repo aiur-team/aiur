@@ -306,14 +306,10 @@ defmodule Aiur.AlertsTest do
              2
   end
 
-  test "cause-scoped pause and unpaused alerts fire from control-state transitions" do
-    workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-pause-#{System.unique_integer([:positive])}")
-
+  @tag :tmp_dir
+  test "cause-scoped pause and unpaused alerts fire from control-state transitions", %{tmp_dir: workspace_root} do
     workspace = Path.join(workspace_root, "MT-ALERT-5")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
@@ -368,19 +364,15 @@ defmodule Aiur.AlertsTest do
     )
   end
 
-  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip" do
+  @tag :tmp_dir
+  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip", %{tmp_dir: workspace_root} do
     # Regression: `send_resume_control_message/2` sync-flips control.status
     # from :paused to :working before the worker's `:worker_control_state`
     # confirmation comes back. The later confirmation sees previous_status
     # already :working and emits no transition alert — so the orchestrator
     # must emit the unpause alert itself at the sync-flip point.
-    workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-resume-sync-#{System.unique_integer([:positive])}")
-
     workspace = Path.join(workspace_root, "MT-RESUME-SYNC")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
