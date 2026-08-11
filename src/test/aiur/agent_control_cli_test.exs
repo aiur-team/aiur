@@ -591,6 +591,30 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "RELEASED CLAIMS 1 (operator recovery required for some claims)"
   end
 
+  test "status hides a released claim once the ticket reaches a terminal tracker state (#1475)", %{orchestrator: pid} do
+    active = %Issue{id: "issue-released-active", identifier: "repo#1477", state: "todo", title: "Still recoverable"}
+    closed = %Issue{id: "issue-released-closed", identifier: "repo#1478", state: "Done", title: "Already closed"}
+    release = %{cause: :tracker_retry_exhausted, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{active.id => active, closed.id => closed},
+          released_claims: %{active.id => release, closed.id => release}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1477  idle    Still recoverable (claim released: tracker retry exhausted)"
+    refute output =~ "#1478"
+
+    # The headline must be computed from the rows that are printed, so a claim
+    # nobody can act on cannot inflate the count behind the operator's back.
+    assert output =~ "RELEASED CLAIMS 1 (operator recovery required for some claims)"
+    refute output =~ "RELEASED CLAIMS 2"
+  end
+
   test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do
     write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "memory",

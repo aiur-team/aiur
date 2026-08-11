@@ -156,8 +156,35 @@ defmodule Aiur.Orchestrator.IssueSync do
     # polled blockee over the snapshot stored in the running entry.
     state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
 
-    %{state | last_polled_issues: retained_issues}
+    %{
+      state
+      | last_polled_issues: retained_issues,
+        released_claims: purge_resolved_released_claims(state.released_claims, retained_issues, terminal_states)
+    }
   end
+
+  # A `released_claims` entry exists only to tell the operator that a claim was
+  # dropped and still needs recovery. Once the ticket reaches a terminal tracker
+  # state there is nothing left to recover, and the entry becomes a permanently
+  # inflated `RELEASED CLAIMS n` that an operator will chase and find nothing
+  # behind. Losing one line of history is cheap; a confident wrong count is not.
+  #
+  # Filter against the RETAINED issues, not the raw poll. A claim is released
+  # because the tracker was failing or rate-limiting us, which is exactly when a
+  # poll comes back partial — and a ticket merely absent from one such poll is
+  # still pending terminal verification, not gone. `retained_issues` already
+  # encodes that distinction, so an entry survives until the disappearance is
+  # confirmed rather than vanishing on the first bad poll (#1475).
+  defp purge_resolved_released_claims(released_claims, retained_issues, terminal_states) when is_map(released_claims) do
+    Map.filter(released_claims, fn {issue_id, _release} ->
+      case Map.get(retained_issues, issue_id) do
+        %Issue{state: issue_state} -> not DispatchPolicy.terminal_issue_state?(issue_state, terminal_states)
+        _confirmed_gone -> false
+      end
+    end)
+  end
+
+  defp purge_resolved_released_claims(_released_claims, _retained_issues, _terminal_states), do: %{}
 
   defp issues_by_id(issues) do
     Enum.reduce(issues, %{}, fn

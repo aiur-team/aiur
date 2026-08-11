@@ -771,11 +771,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
     {reason_code, details} = claim_release_reason(reason)
     auto_reclaim = Map.get(state.auto_resume, issue_id)
     recovery = claim_recovery_message(auto_reclaim)
-    token_identity = GitHubConfig.bot_account() || credential_fingerprint()
 
     message =
       "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
-        "(reason=#{reason_code}, token_identity=#{token_identity}#{claim_release_detail_suffix(details)}). #{recovery}"
+        "(reason=#{reason_code}, credential=#{credential_identity()}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
       "Claim released for issue_id=#{issue_id} issue_identifier=#{identifier} agent_attempt=#{attempt} " <>
@@ -802,13 +801,23 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp recovery_delay_options(_reason), do: []
 
-  defp credential_fingerprint do
+  # Identify the credential that actually made the rate-limited request, not the
+  # one the operator configured. `GitHubConfig.bot_account/0` is a config string:
+  # under a GitHub App installation token it names a different principal than the
+  # token in use, and naming the wrong principal on a security-adjacent alert is
+  # worse than naming none. A fingerprint of the token that was actually used is
+  # verifiable; when there is no token, say `unknown`.
+  #
+  # The verified login (`Aiur.GitHub.BotIdentity.fetch_authenticated_viewer_login/2`)
+  # is deliberately not used here: it costs a live GitHub API call, and this code
+  # path runs precisely when GitHub has stopped answering (#1475).
+  defp credential_identity do
     case GitHubConfig.token() do
       token when is_binary(token) and byte_size(token) > 0 ->
         "token-sha256:" <> (:crypto.hash(:sha256, token) |> Base.encode16(case: :lower) |> binary_part(0, 12))
 
       _ ->
-        "token-identity-unavailable"
+        "unknown"
     end
   end
 
