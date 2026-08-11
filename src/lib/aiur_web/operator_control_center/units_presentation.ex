@@ -37,6 +37,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
 
   def latest(_row, now), do: latest(%{}, now)
 
+  @doc """
+  Renders an age in seconds as a short operator label.
+
+  Stale surfaces must carry their age in one shape wherever they appear, so the
+  fleet banner and the Units catalog banner never disagree about how old the
+  same snapshot is.
+  """
+  @spec age_label(term()) :: String.t()
+  def age_label(age_seconds) when is_integer(age_seconds) and age_seconds >= 0 do
+    cond do
+      age_seconds < 60 -> "#{age_seconds}s"
+      age_seconds < 3_600 -> "#{div(age_seconds, 60)}m #{rem(age_seconds, 60)}s"
+      true -> "#{div(age_seconds, 3_600)}h #{div(rem(age_seconds, 3_600), 60)}m"
+    end
+  end
+
+  def age_label(_age_seconds), do: "unknown age"
+
   @spec latest_text(map()) :: String.t()
   def latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
   def latest_text(_row), do: "No recent activity"
