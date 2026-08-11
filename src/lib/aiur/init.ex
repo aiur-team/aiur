@@ -16,6 +16,7 @@ defmodule Aiur.Init do
   alias Aiur.Init.Runtime
   alias Aiur.Init.Scaffold
   alias Aiur.Init.Templates
+  alias Aiur.OperatorSkills
 
   @prompt_basename "prompt.md"
   @env_file_name ".env"
@@ -204,11 +205,9 @@ defmodule Aiur.Init do
 
       mode ->
         case deps.install_operator_skills.(mode, harnesses, []) do
-          {:ok, %{created: created, existing: existing}} ->
-            announce_operator_skills(io, created, existing)
-
-          {:conflict, _paths} ->
-            maybe_repoint_operator_skills(io, deps, mode, harnesses)
+          {:ok, report} ->
+            announce_operator_skills(io, report)
+            maybe_repoint_operator_skills(io, deps, mode, harnesses, report)
 
           {:error, reason} ->
             io.puts.("Couldn't install operator skills: #{inspect(reason)}")
@@ -216,22 +215,74 @@ defmodule Aiur.Init do
     end
   end
 
-  defp maybe_repoint_operator_skills(io, deps, mode, harnesses) do
-    if io.confirm.("Existing global Aiur skill links point elsewhere. Repoint them?", false) do
-      case deps.install_operator_skills.(mode, harnesses, replace_links?: true) do
-        {:ok, %{created: created, existing: existing}} -> announce_operator_skills(io, created, existing)
-        {:conflict, _paths} -> io.puts.("Left existing global skills unchanged.")
-        {:error, reason} -> io.puts.("Couldn't install operator skills: #{inspect(reason)}")
-      end
-    else
-      io.puts.("Left existing global skills unchanged.")
+  # Only a symlink that really points somewhere else can be repointed. A path
+  # the user occupies with their own directory is never offered.
+  defp maybe_repoint_operator_skills(io, deps, mode, harnesses, report) do
+    case Enum.filter(Map.get(report, :skipped, []), &(&1.reason == :link_elsewhere)) do
+      [] ->
+        :ok
+
+      stale ->
+        if io.confirm.("Repoint #{skill_count(stale)} existing global Aiur skill #{pluralize(stale, "link")}?", false) do
+          repoint_operator_skills(io, deps, mode, harnesses)
+        else
+          io.puts.("Left the existing global skill links unchanged.")
+        end
     end
   end
 
-  defp announce_operator_skills(io, created, existing) do
-    if created != [], do: io.puts.("Installed #{length(created)} global operator skills.")
-    if existing != [], do: io.puts.("Kept #{length(existing)} existing global operator skills.")
+  defp repoint_operator_skills(io, deps, mode, harnesses) do
+    case deps.install_operator_skills.(mode, harnesses, replace_links?: true) do
+      {:ok, report} ->
+        created = Map.get(report, :created, [])
+
+        if created != [] do
+          io.puts.("Repointed #{skill_count(created)} global operator #{pluralize(created, "skill")}.")
+        end
+
+        announce_operator_skill_failures(io, Map.get(report, :failed, []))
+
+      {:error, reason} ->
+        io.puts.("Couldn't install operator skills: #{inspect(reason)}")
+    end
   end
+
+  # Counts skills, not destinations: seven skills across two harnesses is seven
+  # skills, and the harnesses are named separately.
+  defp announce_operator_skills(io, report) do
+    created = Map.get(report, :created, [])
+    existing = Map.get(report, :existing, [])
+
+    if created != [] do
+      harnesses = created |> OperatorSkills.distinct_harnesses() |> Enum.join(", ")
+      io.puts.("Installed #{skill_count(created)} global operator #{pluralize(created, "skill")} for #{harnesses}.")
+    end
+
+    if existing != [] do
+      io.puts.("Kept #{skill_count(existing)} existing global operator #{pluralize(existing, "skill")}.")
+    end
+
+    Enum.each(Map.get(report, :skipped, []), fn entry ->
+      io.puts.("Skipped #{entry.destination} — #{skip_reason(entry.reason)}.")
+    end)
+
+    announce_operator_skill_failures(io, Map.get(report, :failed, []))
+  end
+
+  defp announce_operator_skill_failures(io, failed) do
+    Enum.each(failed, fn entry ->
+      io.puts.("Couldn't install #{entry.destination}: #{inspect(entry.reason)}.")
+    end)
+  end
+
+  defp skip_reason(:link_elsewhere), do: "an existing link there already links elsewhere"
+  defp skip_reason(:occupied), do: "a file or directory is already there"
+  defp skip_reason({:unreadable, reason}), do: "it couldn't be read (#{inspect(reason)})"
+  defp skip_reason(other), do: inspect(other)
+
+  defp skill_count(entries), do: entries |> OperatorSkills.distinct_skills() |> length()
+
+  defp pluralize(entries, word), do: if(skill_count(entries) == 1, do: word, else: word <> "s")
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do
     case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do

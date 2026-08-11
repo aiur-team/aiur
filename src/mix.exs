@@ -268,16 +268,27 @@ defmodule Aiur.MixProject do
     release
   end
 
+  @doc """
+  The skills the release bundles, derived from the installer's own list.
+
+  Deriving rather than duplicating means the bundle cannot ship a skill set that
+  differs from the one `Aiur.OperatorSkills` claims to install.
+  """
+  def operator_skill_names do
+    Code.ensure_loaded!(Aiur.OperatorSkills)
+
+    Aiur.OperatorSkills.skills() |> Map.keys() |> Enum.sort()
+  end
+
   @doc false
   def bundle_operator_skills(release) do
     source_root = Path.expand("../.claude/skills", File.cwd!())
     destination = Path.join(release.path, "operator-skills")
-    skills = ~w(aiur-agent aiur-build aiur-debug aiur-monitor aiur-run design-import using-aiur)
 
     File.rm_rf!(destination)
     File.mkdir_p!(destination)
 
-    Enum.each(skills, fn skill ->
+    Enum.each(operator_skill_names(), fn skill ->
       File.cp_r!(Path.join(source_root, skill), Path.join(destination, skill))
     end)
 

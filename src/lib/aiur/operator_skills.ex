@@ -16,10 +16,14 @@ defmodule Aiur.OperatorSkills do
   }
 
   # Keep generic names visibly owned by Aiur in a user's global skill catalog.
+  # `aiur-run`'s shipped manual routes the operator to `aiur-meta` and
+  # `aiur-intro`, so shipping it without them would ship a broken manual.
   @skills %{
     "aiur-agent" => "aiur-agent",
     "aiur-build" => "aiur-build",
     "aiur-debug" => "aiur-debug",
+    "aiur-intro" => "aiur-intro",
+    "aiur-meta" => "aiur-meta",
     "aiur-monitor" => "aiur-monitor",
     "aiur-run" => "aiur-run",
     "design-import" => "aiur-design-import",
@@ -44,19 +48,49 @@ defmodule Aiur.OperatorSkills do
     |> Enum.sort()
   end
 
-  @doc "Installs operator skills for `harnesses` without replacing existing paths."
-  @spec install(mode(), [harness()], keyword()) :: {:ok, %{created: [Path.t()], existing: [Path.t()]}} | {:conflict, [Path.t()]} | {:error, term()}
+  @typedoc "One skill installed into one harness."
+  @type entry :: %{skill: String.t(), installed_name: String.t(), harness: harness(), destination: Path.t()}
+
+  @typedoc """
+  What actually happened, per destination.
+
+  `skipped` and `failed` entries carry a `:reason`. Every destination lands in
+  exactly one bucket, so a partial install is reported as the partial install it
+  is rather than as a flat failure.
+  """
+  @type report :: %{created: [entry()], existing: [entry()], skipped: [map()], failed: [map()]}
+
+  @doc """
+  Installs operator skills for `harnesses` without replacing existing paths.
+
+  The decision is per destination. A destination that is blocked skips only
+  itself; the remaining skills still install. `{:error, reason}` is reserved for
+  a precondition that makes the whole install meaningless, such as a missing
+  source tree.
+  """
+  @spec install(mode(), [harness()], keyword()) :: {:ok, report()} | {:error, term()}
   def install(mode, harnesses, opts \\ []) when mode in [:symlink, :copy] do
     source_root = Keyword.get(opts, :source_root, release_skills_root())
     home = Keyword.get(opts, :home, System.user_home!())
     replace_links? = Keyword.get(opts, :replace_links?, false)
 
-    with :ok <- validate_source(source_root),
-         destinations = destinations(home, harnesses),
-         {:ok, plan, existing} <- preflight(destinations, source_root, mode, replace_links?) do
-      apply_plan(plan, mode, existing)
+    with :ok <- validate_source(source_root) do
+      home
+      |> destinations(harnesses)
+      |> Enum.reduce(%{created: [], existing: [], skipped: [], failed: []}, fn entry, report ->
+        install_entry(entry, source_root, mode, replace_links?, report)
+      end)
+      |> then(&{:ok, Map.new(&1, fn {bucket, entries} -> {bucket, Enum.reverse(entries)} end)})
     end
   end
+
+  @doc "The distinct skills named by a list of report entries."
+  @spec distinct_skills([map()]) :: [String.t()]
+  def distinct_skills(entries), do: entries |> Enum.map(& &1.skill) |> Enum.uniq()
+
+  @doc "The distinct harnesses named by a list of report entries."
+  @spec distinct_harnesses([map()]) :: [harness()]
+  def distinct_harnesses(entries), do: entries |> Enum.map(& &1.harness) |> Enum.uniq() |> Enum.sort()
 
   @doc "The release-owned root that symlink installations target."
   @spec release_skills_root() :: Path.t()
@@ -79,39 +113,50 @@ defmodule Aiur.OperatorSkills do
     for harness <- harnesses,
         %{directory: directory} = Map.fetch!(@harnesses, harness),
         {source_name, installed_name} <- @skills do
-      %{destination: Path.join([home, directory, installed_name]), source: source_name}
+      %{
+        skill: source_name,
+        installed_name: installed_name,
+        harness: harness,
+        destination: Path.join([home, directory, installed_name])
+      }
     end
   end
 
-  defp preflight(destinations, source_root, mode, replace_links?) do
-    {plan, existing, conflicts} =
-      Enum.reduce(destinations, {[], [], []}, fn %{destination: destination, source: source}, {plan, existing, conflicts} ->
-        source = Path.join(source_root, source)
+  defp install_entry(entry, source_root, mode, replace_links?, report) do
+    source = Path.join(source_root, entry.skill)
 
-        case destination_status(destination, source, mode, replace_links?) do
-          :create -> {[{destination, source, :create} | plan], existing, conflicts}
-          :replace_link -> {[{destination, source, :replace_link} | plan], existing, conflicts}
-          :existing -> {plan, [destination | existing], conflicts}
-          :conflict -> {plan, existing, [destination | conflicts]}
+    case destination_status(entry.destination, source, mode, replace_links?) do
+      {:skip, reason} ->
+        record(report, :skipped, Map.put(entry, :reason, reason))
+
+      :existing ->
+        record(report, :existing, entry)
+
+      action ->
+        case install_one(entry.destination, source, action, mode) do
+          :ok -> record(report, :created, entry)
+          {:error, reason} -> record(report, :failed, Map.put(entry, :reason, reason))
         end
-      end)
-
-    if conflicts == [], do: {:ok, Enum.reverse(plan), Enum.reverse(existing)}, else: {:conflict, Enum.reverse(conflicts)}
+    end
   end
+
+  defp record(report, bucket, entry), do: Map.update!(report, bucket, &[entry | &1])
 
   defp destination_status(destination, source, :symlink, replace_links?) do
     case File.read_link(destination) do
       {:ok, target} ->
         symlink_status(target, destination, source, replace_links?)
 
+      # Not a symlink. Anything already sitting here belongs to the user, and
+      # calling it a link that points elsewhere would be a confident wrong reason.
       {:error, :einval} ->
-        if File.exists?(destination), do: :conflict, else: :create
+        if File.exists?(destination), do: {:skip, :occupied}, else: :create
 
       {:error, :enoent} ->
         :create
 
-      {:error, _reason} ->
-        :conflict
+      {:error, reason} ->
+        {:skip, {:unreadable, reason}}
     end
   end
 
@@ -123,21 +168,8 @@ defmodule Aiur.OperatorSkills do
     cond do
       Path.expand(target, Path.dirname(destination)) == Path.expand(source) -> :existing
       replace_links? -> :replace_link
-      true -> :conflict
+      true -> {:skip, :link_elsewhere}
     end
-  end
-
-  defp apply_plan(plan, mode, existing) do
-    Enum.reduce_while(plan, {:ok, %{created: [], existing: []}}, fn {destination, source, action}, {:ok, result} ->
-      case install_one(destination, source, action, mode) do
-        :ok -> {:cont, {:ok, %{result | created: [destination | result.created]}}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
-    |> then(fn
-      {:ok, result} -> {:ok, %{result | created: Enum.reverse(result.created), existing: existing}}
-      other -> other
-    end)
   end
 
   defp install_one(destination, source, :create, :symlink) do
