@@ -1,6 +1,20 @@
 defmodule Aiur.GitHub.Transport do
   @moduledoc """
   Shared GitHub REST and GraphQL transport helpers.
+
+  Every HTTP request is executed on a short-lived task, never on the calling
+  process. The Orchestrator was captured blocked in `:gen.do_call/4` inside
+  `Mint.Core.Transport.SSL.recv/3` with 6,000+ messages queued behind it while
+  `run_queue` was 0 — one process holding a socket, not a busy host (#1837).
+  A GenServer that owns a socket cannot serve anything else while the peer is
+  slow, and `receive_timeout` alone does not bound that: Req retries, so a
+  single logical read can hold the caller for minutes.
+
+  Moving the socket to a task means the caller waits on a message it can
+  abandon. On deadline the task is brutally killed, which closes the socket
+  with it, and the caller gets `{:error, :fetch_deadline_exceeded}` instead of
+  wedging. Quota preflight/observe stay on the caller so accounting order is
+  unchanged.
   """
 
   alias Aiur.GitHub
@@ -12,6 +26,10 @@ defmodule Aiur.GitHub.Transport do
 
   @base_url "https://api.github.com"
   @graphql_url "#{@base_url}/graphql"
+
+  @default_request_timeout_ms 30_000
+  @default_request_deadline_ms 60_000
+  @deadline_margin_ms 5_000
 
   @spec base_url() :: String.t()
   def base_url, do: @base_url
@@ -96,12 +114,83 @@ defmodule Aiur.GitHub.Transport do
 
     case quota_preflight(quota, request) do
       :ok ->
-        result = request_fun.()
+        result = off_process_request(request, request_fun)
         quota_observe(quota, request, result)
         result
 
       {:hold, hold} ->
         {:ok, held_response(hold)}
+    end
+  end
+
+  @doc """
+  Runs `request_fun` on a task so the caller never owns the socket.
+
+  Returns `{:error, :fetch_deadline_exceeded}` when the task does not finish
+  inside the deadline; the task is killed, so the socket is released rather
+  than leaked. Exceptions and exits raised inside the task are re-raised on the
+  caller so error handling upstream is unchanged.
+  """
+  @spec off_process_request(map(), (-> term())) :: term()
+  def off_process_request(request, request_fun) when is_function(request_fun, 0) do
+    case Process.whereis(Aiur.TaskSupervisor) do
+      nil ->
+        # No supervision tree (module-level tests, escript one-shots). There is
+        # no mailbox to protect in that case, so run inline rather than
+        # silently skipping the request.
+        request_fun.()
+
+      _supervisor ->
+        run_supervised_request(request, request_fun)
+    end
+  end
+
+  defp run_supervised_request(request, request_fun) do
+    deadline_ms = request_deadline_ms(request)
+
+    task =
+      Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn ->
+        try do
+          {:ok, request_fun.()}
+        catch
+          kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+        end
+      end)
+
+    case Task.yield(task, deadline_ms) || Task.shutdown(task, :brutal_kill) do
+      {:ok, {:ok, result}} ->
+        result
+
+      {:ok, {:raised, kind, reason, stacktrace}} ->
+        :erlang.raise(kind, reason, stacktrace)
+
+      {:exit, reason} ->
+        {:error, {:github_request_task_exit, reason}}
+
+      nil ->
+        Logger.warning(
+          "GitHub request exceeded its #{deadline_ms}ms process deadline and was abandoned: " <>
+            "#{inspect(Map.get(request, :method))} #{inspect(Map.get(request, :url))}"
+        )
+
+        {:error, :fetch_deadline_exceeded}
+    end
+  end
+
+  # The per-attempt `receive_timeout` bounds one socket read; Req retries, so
+  # the deadline must cover the whole request including retries. It is a
+  # backstop against a wedge, not the primary latency bound.
+  @spec request_deadline_ms(map()) :: pos_integer()
+  def request_deadline_ms(request) do
+    case Application.get_env(:aiur, :github_request_deadline_ms) do
+      configured when is_integer(configured) and configured > 0 ->
+        configured
+
+      _unset ->
+        timeout_ms = Map.get(request, :timeout_ms, @default_request_timeout_ms)
+        timeout_ms = if is_integer(timeout_ms) and timeout_ms > 0, do: timeout_ms, else: @default_request_timeout_ms
+
+        max(@default_request_deadline_ms, timeout_ms + @deadline_margin_ms)
     end
   end
 
@@ -126,7 +215,7 @@ defmodule Aiur.GitHub.Transport do
   defp request_options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
-    timeout_ms = Map.get(req, :timeout_ms, 30_000)
+    timeout_ms = Map.get(req, :timeout_ms, @default_request_timeout_ms)
 
     options
     |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms)

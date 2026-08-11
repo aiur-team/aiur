@@ -104,6 +104,23 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   @doc """
+  Drops the retained snapshot for an orchestrator.
+
+  The inverse of `publish/2`. The retained view deliberately survives an
+  Orchestrator restart, so anything that publishes under a shared registered
+  name (chiefly tests) has to be able to put the read model back the way it
+  found it — otherwise a stale fleet view outlives its publisher and is read as
+  the current one.
+  """
+  @spec forget(GenServer.server()) :: :ok
+  def forget(orchestrator) do
+    :persistent_term.erase({@cache_key, orchestrator})
+    :persistent_term.erase(global_pause_key(orchestrator))
+    SnapshotPublisher.clear(orchestrator)
+    :ok
+  end
+
+  @doc """
   Coalesces a state change for projection outside the Orchestrator process.
   """
   @spec publish_state(GenServer.server(), reference() | nil, Aiur.Orchestrator.State.t()) :: :ok
