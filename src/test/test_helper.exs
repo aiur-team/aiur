@@ -19,6 +19,12 @@ for var <- contaminating_env_vars do
   System.delete_env(var)
 end
 
+# Dashboard routes fail closed when credentials are absent. Keep the broad
+# integration-test fixture authenticated by default; tests that exercise the
+# missing-configuration path delete these variables explicitly.
+System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+System.put_env("AIUR_DASHBOARD_PASSWORD", "test-dashboard-secret")
+
 original_home = System.get_env("HOME")
 
 test_home =
