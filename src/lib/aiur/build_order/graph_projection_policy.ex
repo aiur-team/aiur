@@ -121,16 +121,14 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
         {:selected, expected},
         repository
       ) do
-    cond do
-      not selected_repository?(selected, expected, repository) ->
-        {:error, :provider_identity_mismatch, nil}
-
-      true ->
-        case SelectedRoot.status(selected) do
-          :ready -> {:ok, selected}
-          :structurally_invalid -> {:error, :structurally_invalid, nil}
-          _provider_failure -> {:error, :provider_unavailable, result}
-        end
+    if selected_repository?(selected, expected, repository) do
+      case SelectedRoot.status(selected) do
+        :ready -> {:ok, selected}
+        :structurally_invalid -> {:error, :structurally_invalid, nil}
+        _provider_failure -> {:error, :provider_unavailable, result}
+      end
+    else
+      {:error, :provider_identity_mismatch, nil}
     end
   end
 
