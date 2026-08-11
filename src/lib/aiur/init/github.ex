@@ -82,19 +82,30 @@ defmodule Aiur.Init.GitHub do
   def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
 
   defp maybe_warn_identity_gate(io, tracker, readiness) do
-    if get_in(readiness, [:merge_gate, :require_last_push_approval?]) == true and identity_gate_incomplete?(tracker) do
-      io.puts.(
-        "WARNING: this repository requires approval from someone other than the last pusher. " <>
-          "The credential split needs three principals: a push bot, a distinct review bot " <>
-          "(tracker.github.review_bot_account), and a human in tracker.github.human_mergers. " <>
-          "See docs/security/credential-split-merge-gate.md."
-      )
+    gate = get_in(readiness, [:merge_gate, :require_last_push_approval?])
+
+    cond do
+      gate == true and identity_gate_incomplete?(tracker) ->
+        io.puts.(
+          "WARNING: this repository requires approval from someone other than the last pusher. " <>
+            "The credential split needs a push bot in tracker.github.bot_account, a separate " <>
+            "review credential, and a human in tracker.github.human_mergers. " <>
+            "See docs/security/credential-split-merge-gate.md."
+        )
+
+      gate == :unknown and identity_gate_incomplete?(tracker) ->
+        io.puts.(
+          "NOTE: the last-push approval merge gate could not be determined — the readiness " <>
+            "credential could not read branch protection or rulesets. Confirm it manually."
+        )
+
+      true ->
+        :ok
     end
   end
 
   defp identity_gate_incomplete?(tracker) do
-    blank?(tracker[:bot_account]) or blank?(tracker[:review_bot_account]) or
-      not is_list(tracker[:human_mergers]) or tracker[:human_mergers] == []
+    blank?(tracker[:bot_account]) or not is_list(tracker[:human_mergers]) or tracker[:human_mergers] == []
   end
 
   defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
