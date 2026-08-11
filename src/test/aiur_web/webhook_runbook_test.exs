@@ -87,6 +87,52 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  describe "the daemon config block an operator pastes" do
+    # The `documented defaults` block above proves the runbook quotes the
+    # schema's default correctly. It does not prove the YAML the runbook tells
+    # an operator to *write* ever reaches that field, and those are different
+    # claims: `Schema.parse/1` casts embeds by key, so a section that is renamed
+    # or renested leaves the pasted block matching nothing. Ecto drops unknown
+    # keys silently — no error, no warning — and `server.port` falls straight
+    # back to its `0` default.
+    #
+    # That is AC 5 failing invisibly. The operator follows the runbook, the
+    # daemon takes a fresh OS-assigned port on every restart, and the tunnel
+    # starts 502ing at a hostname that is still perfectly stable. Nothing else
+    # in the suite touches this: every other test constructs config maps in
+    # code, so the doc's own YAML is never once fed to the parser.
+    test "parses through the real loader path and actually pins the port" do
+      settings = parsed_daemon_block()
+
+      refute settings.server.port == %Aiur.Config.Schema.Server{}.port,
+             "the runbook's `server:` block no longer changes server.port away from its " <>
+               "default — the pasted YAML is being silently ignored, so the daemon still " <>
+               "takes a new port on every restart and AC 5 is false"
+
+      assert settings.server.port > 0
+    end
+
+    test "keeps the daemon on loopback" do
+      # Binding a routable interface is what the runbook explicitly tells the
+      # operator not to do: the tunnel dials from the same machine, and a
+      # routable bind additionally trips the dashboard Basic Auth boot guard.
+      assert parsed_daemon_block().server.host in ~w(127.0.0.1 ::1 localhost)
+    end
+
+    test "the tunnel's origin is the address that block binds" do
+      # Two YAML blocks, a page apart, that must agree by hand. If they drift,
+      # `cloudflared tunnel ingress validate` still passes — it does not dial
+      # the origin — and every ingress rule check still reports the right
+      # service. The failure only shows up as a 502 on live deliveries.
+      settings = parsed_daemon_block()
+      %URI{host: host, port: port} = URI.parse(tunnel_origin())
+
+      assert {host, port} == {settings.server.host, settings.server.port},
+             "the tunnel forwards to #{host}:#{port} but the documented config binds " <>
+               "#{settings.server.host}:#{settings.server.port}"
+    end
+  end
+
   describe "webhook path" do
     test "the documented ingress rule publishes exactly the route the app serves" do
       # The rule is a Go regexp anchored at both ends. Anchoring is load-bearing:
@@ -188,6 +234,28 @@ defmodule AiurWeb.WebhookRunbookTest do
       [_, value] when type == :float -> String.to_float(value)
       [_, value] when type == :integer -> String.to_integer(value)
       nil -> flunk("#{@doc_path} no longer states a default matching #{inspect(regex)}")
+    end
+  end
+
+  # Mirrors production exactly: `Aiur.Workflow` hands `YamlElixir` output to
+  # `Schema.parse/1`, so decoding the doc's own fenced block the same way is the
+  # real path, not a re-implementation of it.
+  defp parsed_daemon_block do
+    yaml =
+      case Regex.run(~r/```yaml\n(server:\n.*?)```/s, File.read!(@doc_path)) do
+        [_, block] -> block
+        nil -> flunk("#{@doc_path} no longer contains a `server:` YAML block to paste")
+      end
+
+    assert {:ok, decoded} = YamlElixir.read_from_string(yaml)
+    assert {:ok, settings} = Aiur.Config.Schema.parse(decoded)
+    settings
+  end
+
+  defp tunnel_origin do
+    case Regex.run(~r/^\s*service:\s*(http[^\s]+)\s*$/m, File.read!(@doc_path)) do
+      [_, origin] -> origin
+      nil -> flunk("#{@doc_path} no longer documents an http origin for the tunnel")
     end
   end
 
