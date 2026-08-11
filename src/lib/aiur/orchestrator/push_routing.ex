@@ -156,34 +156,7 @@ defmodule Aiur.Orchestrator.PushRouting do
 
     state.running
     |> Map.values()
-    |> Enum.reduce(state, fn entry, state_acc ->
-      case matching_blocker_pause_generation(entry, blocker_identifier) do
-        {:ok, pause_generation} ->
-          if State.paused_running_entry?(entry) do
-            attempt_auto_resume(
-              state_acc,
-              entry,
-              Map.get(entry, :identifier),
-              blocker_identifier,
-              topic,
-              topic,
-              pause_generation
-            )
-          else
-            stamp_pending_auto_resume(
-              state_acc,
-              Map.get(entry, :identifier),
-              blocker_identifier,
-              topic,
-              topic,
-              pause_generation
-            )
-          end
-
-        :error ->
-          state_acc
-      end
-    end)
+    |> Enum.reduce(state, &resume_or_record_merged_blockee(&2, &1, blocker_identifier, topic))
   end
 
   @doc false
@@ -349,6 +322,32 @@ defmodule Aiur.Orchestrator.PushRouting do
 
       :error ->
         state
+    end
+  end
+
+  defp resume_or_record_merged_blockee(state, entry, blocker_identifier, topic) do
+    case matching_blocker_pause_generation(entry, blocker_identifier) do
+      {:ok, pause_generation} ->
+        resume_or_record_matching_blockee(
+          state,
+          entry,
+          blocker_identifier,
+          topic,
+          pause_generation
+        )
+
+      :error ->
+        state
+    end
+  end
+
+  defp resume_or_record_matching_blockee(state, entry, blocker_identifier, topic, pause_generation) do
+    identifier = Map.get(entry, :identifier)
+
+    if State.paused_running_entry?(entry) do
+      attempt_auto_resume(state, entry, identifier, blocker_identifier, topic, topic, pause_generation)
+    else
+      stamp_pending_auto_resume(state, identifier, blocker_identifier, topic, topic, pause_generation)
     end
   end
 
