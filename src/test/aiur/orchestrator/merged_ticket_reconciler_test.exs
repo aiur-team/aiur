@@ -6,12 +6,24 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
 
   @merged_at ~U[2026-08-10 00:00:00Z]
 
-  test "closes an active issue linked by a merged PR body and resumes its dependents" do
+  test "closes an active issue linked by a merged PR body, resumes dependents, and emits a visible alert" do
     issue = %Issue{id: "issue-1570", identifier: "1570", state: "in-progress"}
+    blockee = %Issue{id: "issue-1571", identifier: "1571", state: "in-progress"}
     parent = self()
 
+    state = %State{
+      running: %{
+        blockee.id => %{
+          identifier: blockee.identifier,
+          issue: blockee,
+          paused_reason: :blocker_dependency,
+          blocker_pause: %{blocker_identifier: issue.identifier}
+        }
+      }
+    }
+
     {state, issues} =
-      MergedTicketReconciler.reconcile(%State{}, [issue],
+      MergedTicketReconciler.reconcile(state, [issue],
         recent_merges_fun: fn -> [merged_pr("Closes #1570")] end,
         update_issue_state_fun: fn identifier, state_name, expected_state ->
           send(parent, {:transition, identifier, state_name, expected_state})
@@ -20,13 +32,25 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
         resume_blockees_fun: fn state, identifier ->
           send(parent, {:resume_blockees, identifier})
           state
-        end
+        end,
+        emit_alert_fun: fn topic, opts -> send(parent, {:alert, topic, opts}) end
       )
 
     assert_receive {:transition, "1570", "done", "in-progress"}
     assert_receive {:resume_blockees, "1570"}
+    assert_receive {:alert, "ticket.1570.dependency.merged_blocker_reconciled", opts}
+    assert opts[:message] =~ "PR #1600"
+    assert opts[:message] =~ "1 dependent agent(s)"
     assert issues == []
-    assert state == %State{}
+
+    assert state.running == %{
+             blockee.id => %{
+               identifier: blockee.identifier,
+               issue: blockee,
+               paused_reason: :blocker_dependency,
+               blocker_pause: %{blocker_identifier: issue.identifier}
+             }
+           }
   end
 
   test "keeps the ticket and raises an attention when a merged blocker cannot be reconciled" do
@@ -58,6 +82,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconcilerTest do
 
     assert_receive {:alert, "ticket.1570.agent.attention.merged_pr_reconciliation_failed", opts}
     assert opts[:needs_attention]
+    assert opts[:message] =~ "could not reconcile ticket 1570"
     assert opts[:reason] =~ "PR #1600"
     assert opts[:reason] =~ "1 dependent agent(s) remain paused"
   end
