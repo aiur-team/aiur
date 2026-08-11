@@ -293,6 +293,33 @@ Finally, confirm a real delivery: redeliver from the App's **Advanced →  Recen
 Deliveries** tab and check for a 2xx, then confirm the daemon logged the
 delivery id and event type.
 
+### Verify the URL survives a restart
+
+Do this once, during setup, before signing the ingress off. Everything above
+passes on a daemon that was never restarted, so a missing port pin does not show
+up here — it shows up days later, when something restarts the daemon and a
+hostname that is still perfectly stable starts answering 502.
+
+```sh
+# 1. Note the port the daemon is actually bound to.
+ss -ltn | grep 4099
+
+# 2. Restart the daemon, then confirm it came back on the same port.
+ss -ltn | grep 4099
+
+# 3. Re-run the guard against the unchanged public hostname.
+scripts/verify-webhook-ingress https://hooks.<domain>
+```
+
+The guard passing *after* a restart, against the same hostname, with nothing
+reconfigured on the GitHub side, is the evidence for "restarting the daemon does
+not change the webhook URL". If step 2 shows a different port, `server.port` is
+not pinned — re-read the prerequisite above; the tunnel is fine and the config
+is not.
+
+Nothing about the App or the per-repo webhook registration should need touching
+at any point in this check. If it does, the URL was not stable.
+
 ## What is exposed, stated plainly
 
 - **Reachable from the internet:** exactly one route, `POST /api/v1/github/webhook`.
