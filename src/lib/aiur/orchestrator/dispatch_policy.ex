@@ -133,6 +133,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
 
   @doc false
+  @spec load_admission_reason(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | {:hold, admission_reason()}
+  def load_admission_reason(load, threshold, schedulers) do
+    if load_gate(load, threshold, schedulers) == :hold do
+      {:hold, %{signal: :load, measured: load, threshold: threshold * schedulers}}
+    else
+      :dispatch
+    end
+  end
+
+  @doc false
   # A configured floor holds normal new-work dispatch only when the host sample
   # is strictly below it. Missing samples fail open for non-Linux hosts.
   @spec memory_gate(non_neg_integer() | :unavailable, integer() | nil) :: :dispatch | :hold
@@ -271,12 +281,14 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          provider_backends: provider_backends,
          queued_demand?: queued_demand?
        }) do
+    load_hold = load_admission_reason(load, load_threshold, schedulers)
+
     cond do
       run_queue_gate(runnable, schedulers, run_queue_threshold) == :hold ->
         {:hold, %{signal: :run_queue, measured: runnable, threshold: run_queue_threshold * schedulers}}
 
-      load_gate(load, load_threshold, schedulers) == :hold ->
-        {:hold, %{signal: :load, measured: load, threshold: load_threshold * schedulers}}
+      load_hold != :dispatch ->
+        load_hold
 
       build_gate(build_status) == :hold ->
         {:hold,

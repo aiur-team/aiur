@@ -18,7 +18,8 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"
     assert script =~ ".codex/skills/design-import"
-    assert script =~ ".aiur-runtime/bin/gh"
+    assert script =~ "$bin/gh"
+    assert script =~ "$bin/git"
     assert script =~ "chmod 755"
     # Without a workspace-private scratch dir, remote agents fall back to the
     # worker's shared /tmp and clobber each other's staged files (#1763).

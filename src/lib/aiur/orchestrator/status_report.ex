@@ -42,6 +42,9 @@ defmodule Aiur.Orchestrator.StatusReport do
   @spec status_api(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
   def status_api(server, timeout), do: status_api_call(server, :status, timeout, true)
 
+  @spec status_with_capacity_api(GenServer.server(), timeout()) :: {[map()], map()} | :timeout | :unavailable
+  def status_with_capacity_api(server, timeout), do: status_api_call(server, :status_with_capacity, timeout, true)
+
   @spec poll_status_api() :: map() | :unavailable
   def poll_status_api, do: poll_status_api(Aiur.Orchestrator, 1_000)
 
@@ -239,6 +242,10 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec status(State.t()) :: {:reply, [map()], State.t()}
   def status(%State{} = state), do: {:reply, agent_statuses(state), state}
+
+  @spec status_with_capacity(State.t()) :: {:reply, {[map()], map()}, State.t()}
+  def status_with_capacity(%State{} = state),
+    do: {:reply, {agent_statuses(state), Slots.max_concurrent_agent_status(state)}, state}
 
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
   def snapshot(%State{} = state) do
