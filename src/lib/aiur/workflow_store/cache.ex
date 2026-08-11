@@ -24,6 +24,7 @@ defmodule Aiur.WorkflowStore.Cache do
   @table :aiur_workflow_store_cache
   @current_key :current
   @settings_key :settings
+  @env_names_key :env_names
 
   @type generation :: pos_integer()
 
@@ -41,14 +42,17 @@ defmodule Aiur.WorkflowStore.Cache do
   end
 
   @doc """
-  Publishes the current workflow. Overwrites the parsed-settings memo key so a
-  reader can never pair a new workflow with settings parsed from an older one.
+  Publishes the current workflow. Drops the derived-value keys so a reader can
+  never pair a new workflow with values derived from an older one. Both are
+  also generation-stamped, so a torn write between the insert and the deletes
+  is a miss rather than a stale hit.
   """
   @spec put(term(), generation()) :: :ok
   def put(workflow, generation) when is_integer(generation) do
     safe(fn ->
       :ets.insert(@table, {@current_key, workflow, generation})
       :ets.delete(@table, @settings_key)
+      :ets.delete(@table, @env_names_key)
     end)
   end
 
@@ -80,6 +84,27 @@ defmodule Aiur.WorkflowStore.Cache do
   @spec put_settings(term(), term()) :: :ok
   def put_settings(key, settings) do
     safe(fn -> :ets.insert(@table, {@settings_key, key, settings}) end)
+  end
+
+  @doc """
+  The environment variable names `Aiur.Config.settings/0` must sample to decide
+  whether its memo is still valid. Derived from the config content, so it is
+  fixed for a generation — which is the whole point of caching it: sampling a
+  handful of named variables costs a fraction of a microsecond, while hashing
+  the entire environment cost 154us per read on a 226-variable host, roughly
+  300x the ETS lookup it guards.
+  """
+  @spec fetch_env_names(generation()) :: {:ok, [String.t()]} | :error
+  def fetch_env_names(generation) do
+    case safe_lookup(@env_names_key) do
+      [{@env_names_key, ^generation, names}] -> {:ok, names}
+      _ -> :error
+    end
+  end
+
+  @spec put_env_names(generation(), [String.t()]) :: :ok
+  def put_env_names(generation, names) do
+    safe(fn -> :ets.insert(@table, {@env_names_key, generation, names}) end)
   end
 
   @doc false

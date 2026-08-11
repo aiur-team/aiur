@@ -107,6 +107,29 @@ defmodule Aiur.WorkflowStoreReadPathTest do
     assert Config.workspace_root() == second
   end
 
+  # The epoch samples only the variables the parse can consult, so the ones it
+  # reads without the config naming them have to be sampled explicitly. Missing
+  # one freezes a resolved secret for the life of the config — silently, since
+  # every other read keeps working.
+  test "the parsed-settings memo is invalidated by a secret the config never names" do
+    previous = System.get_env("LINEAR_API_KEY")
+
+    on_exit(fn ->
+      if previous, do: System.put_env("LINEAR_API_KEY", previous), else: System.delete_env("LINEAR_API_KEY")
+    end)
+
+    # No `api_key:` in the config, so `LINEAR_API_KEY` is the only source — and
+    # nothing in the file names it, which is the case a config-derived
+    # dependency set would miss.
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_api_token: nil)
+
+    System.put_env("LINEAR_API_KEY", "key-first")
+    assert Config.settings!().tracker.linear.api_key == "key-first"
+
+    System.put_env("LINEAR_API_KEY", "key-rotated")
+    assert Config.settings!().tracker.linear.api_key == "key-rotated"
+  end
+
   # Not a pass/fail assertion — a measurement, excluded by default (the suite
   # excludes `:perf_regression`). Run with
   # `mix test test/aiur/workflow_store_read_path_test.exs --include perf_regression --only perf_regression`

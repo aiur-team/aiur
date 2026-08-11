@@ -7,8 +7,16 @@ defmodule Aiur.Config do
   alias Aiur.BuildGate
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
+
+  # Every environment variable `Schema.parse/1` can read that is *not* named by
+  # the config itself. `finalize_settings/1` reads the first two directly, and
+  # the workspace-root default is `System.tmp_dir!/0`, which is TMPDIR/TEMP/TMP
+  # and then non-environment fallbacks. Anything added to that function must be
+  # added here, or its memo will not expire when the variable changes.
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -65,10 +73,11 @@ defmodule Aiur.Config do
   # the process environment at parse time. Keying the memo on the config
   # generation alone would freeze a resolved secret for the life of the config —
   # and would break every test that sets an env var and re-reads settings. So
-  # the key carries an environment epoch as well; a `System.put_env` invalidates
-  # the memo exactly like a config edit does.
+  # the key carries an environment epoch as well; a `System.put_env` to any
+  # variable the parse depends on invalidates the memo exactly like a config
+  # edit does. See `env_epoch/2` for why that is not the whole environment.
   defp cached_settings(workflow, generation) do
-    key = {generation, :erlang.phash2(System.get_env())}
+    key = {generation, env_epoch(workflow, generation)}
 
     case WorkflowStoreCache.fetch_settings(key) do
       {:ok, settings} ->
@@ -88,6 +97,67 @@ defmodule Aiur.Config do
         end
     end
   end
+
+  # The memo must expire when any environment variable the parse depends on
+  # changes, or a resolved secret freezes for the life of the config. Hashing
+  # the *whole* environment does that, but it is not free: 154us per call on a
+  # 226-variable host, against ~0.5us for the ETS lookup it guards. Since
+  # `settings/0` is the most-called read in the system — a single status render
+  # reaches it dozens of times — that made the env hash essentially 100% of the
+  # remaining cost of this function.
+  #
+  # The variables the parse can actually consult are fixed by the config
+  # content: the `$NAME` tokens the config itself references, plus the implicit
+  # set above. So derive that list once per generation and sample only those.
+  # The dependency set is a superset of what is really read (every `$NAME`
+  # anywhere in the config, not just in fields that resolve one), so the key
+  # can only expire too eagerly, never too late.
+  defp env_epoch(workflow, generation) do
+    workflow
+    |> env_names(generation)
+    |> Enum.map(&System.get_env/1)
+    |> :erlang.phash2()
+  end
+
+  defp env_names(workflow, generation) do
+    case WorkflowStoreCache.fetch_env_names(generation) do
+      {:ok, names} ->
+        names
+
+      :error ->
+        names = referenced_env_names(workflow)
+        WorkflowStoreCache.put_env_names(generation, names)
+        names
+    end
+  end
+
+  defp referenced_env_names(%{config: config}) when is_map(config) do
+    @implicit_env_vars
+    |> MapSet.new()
+    |> collect_env_names(config)
+    |> Enum.sort()
+  end
+
+  defp referenced_env_names(_workflow), do: Enum.sort(@implicit_env_vars)
+
+  defp collect_env_names(acc, value) when is_map(value) and not is_struct(value) do
+    Enum.reduce(value, acc, fn {key, nested}, acc ->
+      acc |> collect_env_names(key) |> collect_env_names(nested)
+    end)
+  end
+
+  defp collect_env_names(acc, value) when is_list(value) do
+    Enum.reduce(value, acc, &collect_env_names(&2, &1))
+  end
+
+  defp collect_env_names(acc, value) when is_binary(value) do
+    case EnvResolver.env_reference_name(value) do
+      {:ok, name} -> MapSet.put(acc, name)
+      :error -> acc
+    end
+  end
+
+  defp collect_env_names(acc, _value), do: acc
 
   # Like `settings/0` but reads the config file directly, bypassing the
   # `WorkflowStore` cache. For callers that must see on-disk truth rather than a

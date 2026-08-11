@@ -49,6 +49,13 @@ defmodule Aiur.WorkflowStoreTest do
     ensure_workflow_store_running()
 
     pid = Process.whereis(WorkflowStore)
+
+    # Captured while the store is healthy so the suspended read below can be
+    # pinned to it exactly. Asserting only "integer or :unknown" would span the
+    # whole declared return type and could never fail.
+    assert {:ok, _workflow, generation} = WorkflowStore.current_with_generation()
+    assert is_integer(generation)
+
     Application.put_env(:aiur, :workflow_store_call_timeout_ms, 25)
     :sys.suspend(pid)
 
@@ -60,8 +67,9 @@ defmodule Aiur.WorkflowStoreTest do
     assert {:ok, %{config: config}} = WorkflowStore.current()
     assert is_map(config)
 
-    assert {:ok, %{config: %{}}, generation} = WorkflowStore.current_with_generation()
-    assert generation == :unknown or is_integer(generation)
+    # The suspended store cannot answer, so this is served from the cache — with
+    # the real generation it was published under, not a `:unknown` fallback.
+    assert {:ok, %{config: %{}}, ^generation} = WorkflowStore.current_with_generation()
 
     # The whole point: a saturated store must not take the read path down with it.
     assert %Aiur.Config.Schema{} = Config.settings!()

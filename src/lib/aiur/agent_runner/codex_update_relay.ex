@@ -29,6 +29,8 @@ defmodule Aiur.AgentRunner.CodexUpdateRelay do
   have their own subscribers and never went through the orchestrator's mailbox.
   """
 
+  alias Aiur.Orchestrator.TokenAccounting.Payloads
+
   # One liveness refresh every 250ms is four times a second per running agent:
   # far finer than any stall threshold reads, and a ~99% cut against a stream
   # that produces deltas every few milliseconds.
@@ -78,6 +80,22 @@ defmodule Aiur.AgentRunner.CodexUpdateRelay do
   delta method, so a backend that starts attaching usage to deltas cannot
   silently lose it.
 
+  That last promise is only worth as much as the shapes it recognises, so it is
+  the *union* of two tests, not either one alone:
+
+    * `Payloads` — the exact extractors `Aiur.Orchestrator.TokenAccounting`
+      runs on the other end. Anything the orchestrator would actually bill is
+      control by construction, including the nested `params.msg.info` and
+      `params.tokenUsage` envelopes a hand-rolled key check misses. That
+      `params.msg` envelope is exactly the shape the `codex/event/*` methods
+      below use.
+    * a plain presence check on top-level `usage` / `rate_limits` / session id,
+      in either key form. `Payloads` is deliberately strict — it ignores a bare
+      `usage` map that sits at no path it recognises — and this path must not
+      inherit that strictness. Forwarding a message the orchestrator turns out
+      to ignore costs one mailbox slot; coalescing one it would have billed
+      loses the number for good.
+
   `codex_app_server_pid` is intentionally *not* part of the test even though
   every app-server message carries it: it is the same constant for the whole
   turn, the orchestrator's write of it is idempotent, and the turn's first
@@ -86,8 +104,9 @@ defmodule Aiur.AgentRunner.CodexUpdateRelay do
   """
   @spec control?(map()) :: boolean()
   def control?(message) when is_map(message) do
-    not (streaming_method?(message) and empty?(Map.get(message, :usage)) and
-           empty?(Map.get(message, :rate_limits)) and is_nil(Map.get(message, :session_id)))
+    # `streaming_method?/1` is first so the extraction cost is paid only by
+    # messages that are candidates for coalescing in the first place.
+    not streaming_method?(message) or carries_accounting?(message)
   end
 
   def control?(_message), do: true
@@ -95,13 +114,6 @@ defmodule Aiur.AgentRunner.CodexUpdateRelay do
   @doc false
   @spec coalesce_interval_ms() :: pos_integer()
   def coalesce_interval_ms, do: @coalesce_interval_ms
-
-  @doc false
-  @spec reset(String.t()) :: :ok
-  def reset(issue_id) do
-    Process.delete(window_key(issue_id))
-    :ok
-  end
 
   defp forward?(issue_id, message, now_ms) do
     cond do
@@ -125,6 +137,20 @@ defmodule Aiur.AgentRunner.CodexUpdateRelay do
   end
 
   defp window_key(issue_id), do: {__MODULE__, issue_id}
+
+  defp carries_accounting?(message) do
+    present?(message, :usage) or present?(message, "usage") or
+      present?(message, :rate_limits) or present?(message, "rate_limits") or
+      not is_nil(session_id(message)) or
+      not empty?(Payloads.extract_token_usage(message)) or
+      not empty?(Payloads.extract_rate_limits(message))
+  end
+
+  defp present?(message, key), do: not empty?(Map.get(message, key))
+
+  # `TokenAccounting.session_id_for_update/2` reads the atom key; accept the
+  # string form too rather than assume every backend normalizes it.
+  defp session_id(message), do: Map.get(message, :session_id) || Map.get(message, "session_id")
 
   defp streaming_method?(message) do
     method(message) in @streaming_methods

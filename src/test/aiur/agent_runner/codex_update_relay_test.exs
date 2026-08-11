@@ -4,6 +4,7 @@ defmodule Aiur.AgentRunner.CodexUpdateRelayTest do
   alias Aiur.AgentRunner.CodexUpdateRelay, as: Relay
   alias Aiur.AgentRunner.MessageHandler
   alias Aiur.Issue
+  alias Aiur.Orchestrator.TokenAccounting.Payloads
 
   @interval Relay.coalesce_interval_ms()
 
@@ -44,6 +45,57 @@ defmodule Aiur.AgentRunner.CodexUpdateRelayTest do
       assert Relay.control?(Map.put(delta(), :usage, %{"total_tokens" => 5}))
       assert Relay.control?(Map.put(delta(), :rate_limits, %{"primary" => %{"used_percent" => 10}}))
       assert Relay.control?(Map.put(delta(), :session_id, "s-2"))
+    end
+
+    # The classification must recognise every shape `TokenAccounting` acts on,
+    # not a hand-picked subset of them: a shape the orchestrator would have
+    # billed but the relay does not recognise is silently dropped token usage.
+    test "usage is recognised in every shape TokenAccounting extracts it from" do
+      wrapper = %{
+        event: :notification,
+        timestamp: DateTime.utc_now(),
+        payload: %{
+          "method" => "codex/event/agent_message_delta",
+          "params" => %{"msg" => %{"info" => %{"total_token_usage" => %{"total_tokens" => 12}}}}
+        }
+      }
+
+      camel = put_in(delta().payload["params"], %{"tokenUsage" => %{"total" => %{"total_tokens" => 7}}})
+
+      for message <- [wrapper, camel] do
+        assert Payloads.extract_token_usage(message) != %{},
+               "fixture is wrong: TokenAccounting would not bill #{inspect(message)}"
+
+        assert Relay.control?(message), "usage-bearing delta would be coalesced away"
+      end
+    end
+
+    # `Payloads` ignores a `usage` map that sits at no path it recognises, so
+    # delegating to it alone would have *widened* what gets coalesced. The
+    # presence check has to stay in the union.
+    test "a bare top-level usage map keeps a delta control traffic in either key form" do
+      atom_key = Map.put(delta(), :usage, %{"total_tokens" => 5})
+      string_key = Map.put(delta(), "usage", %{"total_tokens" => 5})
+
+      assert Payloads.extract_token_usage(atom_key) == %{},
+             "fixture no longer exercises the shape Payloads declines to bill"
+
+      assert Relay.control?(atom_key)
+      assert Relay.control?(string_key)
+    end
+
+    test "rate limits nested under the payload keep a delta control traffic" do
+      limits = %{"limit_id" => "default", "primary" => %{"used_percent" => 10}}
+      message = put_in(delta().payload["rate_limits"], limits)
+
+      assert Payloads.extract_rate_limits(message) == limits,
+             "fixture is wrong: TokenAccounting would not record these limits"
+
+      assert Relay.control?(message)
+    end
+
+    test "a string session id keeps a delta control traffic" do
+      assert Relay.control?(Map.put(delta(), "session_id", "s-3"))
     end
 
     test "the constant app-server pid every message carries does not make a delta control traffic" do
