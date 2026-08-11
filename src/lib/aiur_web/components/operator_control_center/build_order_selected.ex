@@ -33,12 +33,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       |> assign(:graph_failure, graph_failure(assigns.model, assigns.route_state))
 
     ~H"""
-    <header class="bo-page-header">
-      <.link patch="/build-orders" class="bo-back-link" aria-label="Back to all Build Orders">‹</.link>
-      <h2 id="build-order-selected-title">{selected_title(@status, @snapshot, RouteState.root_identifier(@route_state))}</h2>
-    </header>
-
-    <section class="bo-surface" aria-labelledby="build-order-selected-title">
+    <section class="bo-surface" aria-labelledby="build-order-details-title">
+      <h2 id="build-order-details-title" class="sr-only">Build Order details</h2>
       <div :if={@graph_failure} class="bo-state-card bo-error-state" role={@graph_failure.role}>
         <h3>{@graph_failure.title}</h3>
         <p>{@graph_failure.message}</p>
@@ -64,6 +60,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       </div>
 
       <div :if={is_nil(@graph_failure) and not is_nil(@model)} class="bo-selected-summary">
+        <p :if={root_title(@snapshot)} class="bo-selected-lede">{root_title(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
           <p>{model_summary(@model)}</p>
@@ -266,14 +263,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp restates?(:provider_unavailable, _code, :unfetched), do: true
   defp restates?(_diagnostic_code, _code, _kind), do: false
 
+  # The header carries only "Build Order #<n>", so the root's own name has to
+  # render here or a bookmarked detail page never says which Build Order it is.
+  # An unresolved root has no name to state, and inventing one would be a lie.
+  defp root_title(%Snapshot{data: %SelectedRoot{root: %{title: title}}}) when is_binary(title) do
+    case String.trim(title) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp root_title(_snapshot), do: nil
+
   # An unresolved graph has no counts to show. Rendering the zeros of an empty
   # model would state a number we never read — "Unresolved" is the honest cell.
   defp metric(%{resolved?: false}, _value), do: "Unresolved"
   defp metric(_summary, value), do: value
-
-  defp selected_title(_status, %Snapshot{data: %SelectedRoot{root: root}}, _identifier), do: root.title
-  defp selected_title(_status, _snapshot, identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
-  defp selected_title(_status, _snapshot, _identifier), do: "Build Order"
 
   defp state_title(:invalid_parameter), do: "Invalid Build Order URL"
   defp state_title(:awaiting_catalog), do: "Loading catalog"

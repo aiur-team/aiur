@@ -24,6 +24,8 @@ defmodule Aiur.DecisionEvent do
     SecretRedactor
   }
 
+  alias Aiur.DecisionEvent.Unrecognized
+
   @schema_version 1
   @versioned_snapshot_schema_version 2
   @provenance_event_id_prefix "decision-provenance-v1:"
@@ -36,6 +38,7 @@ defmodule Aiur.DecisionEvent do
     :decision_expired,
     :decision_dismissed,
     :decision_deferred,
+    :executor_escalated,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -60,6 +63,7 @@ defmodule Aiur.DecisionEvent do
           | :decision_expired
           | :decision_dismissed
           | :decision_deferred
+          | :executor_escalated
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -148,11 +152,38 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  @doc "Decode and fully validate one typed durable event."
-  @spec from_json_safe(map()) :: {:ok, t()} | {:error, term()}
+  @doc """
+  Decode and fully validate one typed durable event.
+
+  An `event_type` this binary does not know is version skew, not damage: it
+  decodes to an opaque `Aiur.DecisionEvent.Unrecognized` that the projection
+  retains and skips, so an older binary replaying a newer log stays writable
+  instead of latching read-only. Every other decode failure — malformed JSON,
+  a missing or ill-typed envelope field, an unsupported schema version for a
+  type we *do* know, a content-hash mismatch — stays fail-closed.
+  """
+  @spec from_json_safe(map()) :: {:ok, t() | Unrecognized.t()} | {:error, term()}
   def from_json_safe(raw) when is_map(raw) do
+    raw_type = Map.get(raw, "event_type")
+
+    case decode_type(raw_type) do
+      {:ok, type} ->
+        decode_known_event(raw, type)
+
+      # Only a genuinely named type is forward compatible. An empty name is not
+      # a future event, it is a broken record, so it keeps failing closed.
+      {:error, {:event_type, :unknown}} when is_binary(raw_type) and raw_type != "" ->
+        Unrecognized.decode(raw, raw_type)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def from_json_safe(_other), do: {:error, :not_a_map}
+
+  defp decode_known_event(raw, type) do
     with {:ok, schema_version} <- decode_schema_version(Map.get(raw, "schema_version")),
-         {:ok, type} <- decode_type(Map.get(raw, "event_type")),
          :ok <- validate_schema_for_type(schema_version, type),
          {:ok, decision_id} <- fetch_string(raw, "decision_id", :decision_id),
          {:ok, decision_version} <- fetch_version(raw, "decision_version", :decision_version),
@@ -167,8 +198,6 @@ defmodule Aiur.DecisionEvent do
       {:ok, event}
     end
   end
-
-  def from_json_safe(_other), do: {:error, :not_a_map}
 
   @doc "JSON-safe durable representation."
   @spec to_json_safe(t()) :: map()
@@ -259,6 +288,18 @@ defmodule Aiur.DecisionEvent do
   defp normalize_data(:decision_deferred, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, actor} <- normalize_actor(get(raw, :actor)) do
       {:ok, %{actor: actor}}
+    end
+  end
+
+  # The Executor deferring a Command to the operator is a decision about that
+  # Command exactly as an Executor answer is, so it earns the same durability
+  # and attribution instead of living only in an alert marker file. `detail`
+  # carries the Executor's stated reason for escalating.
+  defp normalize_data(:executor_escalated, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         :ok <- require_executor_actor(actor),
+         {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail) do
+      {:ok, %{actor: actor, detail: detail}}
     end
   end
 
@@ -418,11 +459,12 @@ defmodule Aiur.DecisionEvent do
 
   defp normalize_lifecycle_source(_other), do: {:error, {:source, :invalid}}
 
-  defp decode_actor_kind(kind) when kind in [:operator, :agent, :supervisor, :system], do: {:ok, kind}
+  defp decode_actor_kind(kind) when kind in [:operator, :executor, :agent, :supervisor, :system], do: {:ok, kind}
 
   defp decode_actor_kind(kind) when is_binary(kind) do
     case kind do
       "operator" -> {:ok, :operator}
+      "executor" -> {:ok, :executor}
       "agent" -> {:ok, :agent}
       "supervisor" -> {:ok, :supervisor}
       "system" -> {:ok, :system}
@@ -434,6 +476,9 @@ defmodule Aiur.DecisionEvent do
 
   defp require_system_actor(%{kind: :system}), do: :ok
   defp require_system_actor(_actor), do: {:error, {:actor_kind, :not_system}}
+
+  defp require_executor_actor(%{kind: :executor}), do: :ok
+  defp require_executor_actor(_actor), do: {:error, {:actor_kind, :not_executor}}
 
   defp require_supervisor_actor(%{kind: :supervisor}), do: :ok
   defp require_supervisor_actor(_actor), do: {:error, {:actor_kind, :not_supervisor}}
@@ -500,6 +545,13 @@ defmodule Aiur.DecisionEvent do
 
   defp data_to_json_safe(:decision_deferred, data) do
     %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+  end
+
+  defp data_to_json_safe(:executor_escalated, data) do
+    %{
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "detail" => data.detail
+    }
   end
 
   defp data_to_json_safe(:decision_expired, data) do

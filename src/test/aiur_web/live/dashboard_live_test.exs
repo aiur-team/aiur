@@ -723,7 +723,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
     {:ok, view, initial_html} = live(build_conn(), "/")
-    assert initial_html =~ "Snapshot timed out"
+    assert initial_html =~ "No fleet snapshot published yet"
+    refute initial_html =~ "Fleet snapshot unavailable"
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
@@ -731,7 +732,69 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute_receive {:observability_updated, _event_id}, 20
     assert_receive {:observability_updated, _event_id}, 1_000
-    assert eventually(fn -> not String.contains?(render(view), "Snapshot timed out") end, 100)
+    assert eventually(fn -> not String.contains?(render(view), "No fleet snapshot published yet") end, 100)
+  end
+
+  test "an unpublished snapshot and an unreachable orchestrator read differently" do
+    unpublished =
+      render_component(&Overview.error/1, error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"})
+
+    unavailable =
+      render_component(&Overview.error/1, error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"})
+
+    assert unpublished =~ "No fleet snapshot published yet"
+    assert unpublished =~ "expected for a short time after a restart"
+    refute unpublished =~ "Fleet snapshot unavailable"
+
+    assert unavailable =~ "Fleet snapshot unavailable"
+    assert unavailable =~ "no last-known-good fleet view is retained"
+
+    # The expected post-restart moment must not wear incident colour either;
+    # `role="status"` alone only fixes the screen-reader reading.
+    assert unpublished =~ ~s(class="error-card notice")
+    refute unavailable =~ "notice"
+  end
+
+  test "a read-model fault never claims the orchestrator is unreachable" do
+    # `snapshot_unavailable` is raised by the read-model composition, not by the
+    # Orchestrator. Asserting an unobserved subsystem is the exact defect that
+    # put "current-run membership is healthy" next to "Snapshot unavailable".
+    read_model_fault =
+      render_component(&Overview.error/1, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"})
+
+    assert read_model_fault =~ "Fleet view could not be read"
+    assert read_model_fault =~ "fleet read model could not be composed"
+    assert read_model_fault =~ "may still be running"
+    refute read_model_fault =~ "The Orchestrator is not reachable"
+
+    unknown_fault = render_component(&Overview.error/1, error: %{code: "something_else", message: "Unmapped fault"})
+    refute unknown_fault =~ "The Orchestrator is not reachable"
+    assert unknown_fault =~ "something_else"
+  end
+
+  test "a stalled orchestrator's stale banner names the stall, not a busy mailbox" do
+    html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
+      )
+
+    assert html =~ "Stale fleet snapshot"
+    assert html =~ "The Orchestrator has stopped publishing."
+    assert html =~ "2h 4m old"
+    refute html =~ "The Orchestrator is busy."
+  end
+
+  test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
+    html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
+      )
+
+    assert html =~ "Stale fleet snapshot"
+    assert html =~ "Showing the last-known-good fleet view while refresh is degraded"
+    assert html =~ "1m 35s old"
+    # The contradiction the operator reported: never unavailable and healthy at once.
+    refute html =~ "unavailable"
   end
 
   test "labels stale timeout and unavailable snapshots differently" do

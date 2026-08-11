@@ -47,7 +47,7 @@ test('production dependency context relationships remain clickable', async ({ pa
   await expect(page.getByRole('dialog', { name: 'Completed dependency' })).toBeVisible()
 })
 
-test('production Build Order route keeps catalog, graph truth, context, and URL history scoped', async ({ browser }) => {
+test('production Build Order route keeps catalog, graph truth, context, and URL history scoped', async ({ browser }, testInfo) => {
   const context = await browser.newContext({
     httpCredentials: dashboardCredentials,
     viewport: { width: 1280, height: 900 },
@@ -57,6 +57,8 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
   try {
     await openCatalog(page)
+    await expect(page.locator('#route-title')).toHaveText('Build Order')
+    await expect(page.locator('#route-title a')).toHaveCount(0)
 
     // The catalog is a table: every healthy root is a navigable link, an
     // unqualified root stays visible but is not linkable.
@@ -68,7 +70,10 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     const graph = await openSelectedGraph(page, 'Release dashboard')
     await expect(page).toHaveURL(/\/build-orders\/42$/)
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'selected')
-    await expect(page.getByRole('heading', { name: 'Release dashboard' })).toBeVisible()
+    await expect(page.getByRole('heading', { name: 'Build Order #42', exact: true })).toBeVisible()
+    await expect(page.locator('.bo-page-header')).toHaveCount(0)
+    await expect(page.getByRole('link', { name: 'Back to all Build Orders' })).toHaveAttribute('href', '/build-orders')
+    await captureConfiguredScreenshot(page, testInfo)
 
     // Every planning member renders as a semantic card in document flow.
     await expect(graph.locator('[data-bo-card]')).toHaveCount(7)
@@ -126,7 +131,10 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await expect(target).toBeFocused()
 
     // Navigating back to the catalog and into a stale root swaps the graph.
-    await page.getByRole('link', { name: 'Back to all Build Orders' }).click()
+    const backToCatalog = page.getByRole('link', { name: 'Back to all Build Orders' })
+    await backToCatalog.focus()
+    await expect(backToCatalog).toBeFocused()
+    await page.keyboard.press('Enter')
     await expect(page).toHaveURL(/\/build-orders$/)
     await openCatalogEntry(page, 'Stale planning lane')
 
@@ -140,7 +148,7 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
     await expect(page.locator('.bo-catalog-table')).toBeVisible()
     await page.goForward()
     await expect(page).toHaveURL(/\/build-orders\/43$/)
-    await expect(page.getByRole('heading', { name: 'Stale planning lane' })).toBeVisible()
+    await expect(page.locator('#route-title')).toHaveText('Build Order #43')
 
     await page.reload()
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-root', '43')
@@ -235,8 +243,18 @@ test('production Build Order routes enforce Basic Auth and reject malformed loca
   try {
     await page.goto('/build-orders/01')
     await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-status', 'invalid_parameter')
+    await expect(page.getByRole('heading', { name: 'Build Order', exact: true })).toBeVisible()
     await expect(page.getByRole('heading', { name: 'Invalid Build Order URL' })).toBeVisible()
     await expect(page.locator('[data-bo-card]')).toHaveCount(0)
+
+    const backToCatalog = page.getByRole('link', { name: 'Back to all Build Orders' })
+    await expect(backToCatalog).toHaveAttribute('href', '/build-orders')
+    await backToCatalog.focus()
+    await expect(backToCatalog).toBeFocused()
+    await page.keyboard.press('Enter')
+    await expect(page).toHaveURL(/\/build-orders$/)
+    await expect(page.getByRole('heading', { name: 'Build Order', exact: true })).toBeVisible()
+    await expect(page.locator('#route-title a')).toHaveCount(0)
   } finally {
     await authenticated.close()
   }
