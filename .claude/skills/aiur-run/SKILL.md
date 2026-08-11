@@ -278,16 +278,25 @@ them log anything. Work this ladder before any per-agent triage:
    fault most easily mistaken for "there is no work left".
 
    ```bash
-   gh issue list --state open --limit 100 --json number,title,labels \
+   gh issue list --state open --limit 1000 --json number,title,labels \
      --jq '[.[]|{n:.number,t:.title,a:([.labels[].name]|map(select(startswith("agent:")))),l:[.labels[].name]}
            |select(.a|length==0)
            |select((.l|index("build-order"))==null)
-           |select((.t|test("^(BO|Epic):"))==false)
+           |select((.l|index("epic"))==null)
+           |select((.t|test("(^(BO|Epic):)|[Ee]pic:"))==false)
            |"#\(.n) \(.t[0:60])"]|join("\n")'
    ```
 
    Build Order roots and epics legitimately carry no agent state — they are
-   containers, not work — so exclude them or the real signal drowns.
+   containers, not work — so exclude them or the real signal drowns. Match
+   `epic:` anywhere in the title, not only as a prefix: this repo's meta epics
+   are named `SP-901 Meta epic: …`, which a `^Epic:` anchor misses.
+
+   **`--limit` must exceed the open-issue count.** `gh` truncates silently, so
+   a limit below the total makes the check report fewer unlabelled tickets than
+   exist — the safety net acquiring the exact failure mode it was written to
+   catch. At 121 open issues, `--limit 100` returned 29 and `--limit 300`
+   returned 33.
 
    On 2026-08-10 this found **28** such tickets, eight of them `priority:1`,
    while the fleet idled at 1-4 of 16 agents. Two described faults that then
@@ -491,7 +500,8 @@ Alongside that, the meta-analysis of the work itself (proven repeatedly in the
    ticket is inert — no agent can claim it and it appears in no state-scoped
    view — so filing one and moving on records the finding without scheduling
    the work. Set the dispatch state in the same command that creates it, and
-   deliberately park it with a stated reason if it should not be worked yet;
+   deliberately park it with a stated reason if it should not be worked yet.
+
    Raw state remains host-local; periodically run `mkdir -p docs/executor &&
    aiurdev findings --digest > docs/executor/open-findings.md`, inspect the
    regenerated file, and commit it to share the digest between machines;
