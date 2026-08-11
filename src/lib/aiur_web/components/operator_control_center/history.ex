@@ -38,6 +38,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
           <p :if={decision_choice(decision)} class="history-choice">Choice: <b>{decision_choice(decision)}</b></p>
           <footer>
             <span class="chip good">{decision_status(decision)}</span>
+            <span :if={answer_actor_label(decision)} class={answer_actor_class(decision)}>{answer_actor_label(decision)}</span>
             <span :if={provenance_label(decision)} class="chip mono">{provenance_label(decision)}</span>
             <.link patch={DecisionPath.detail(decision.decision_id, :all)} class="link-pill">Open Command</.link>
           </footer>
@@ -129,6 +130,25 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   defp decision_choice(_decision), do: nil
 
+  defp answer_actor_label(%{answer: answer}) when is_map(answer) do
+    case map_value(Map.get(answer, :actor), :kind) do
+      kind when kind in [:operator, "operator"] -> "Operator answer"
+      kind when kind in [:executor, "executor"] -> "Executor answer"
+      kind when kind in [:supervisor, "supervisor"] -> "Supervisor answer"
+      _kind -> nil
+    end
+  end
+
+  defp answer_actor_label(_decision), do: nil
+
+  defp answer_actor_class(%{answer: answer}) do
+    case map_value(Map.get(answer, :actor), :kind) do
+      kind when kind in [:operator, "operator"] -> "chip accent"
+      kind when kind in [:executor, "executor"] -> "chip good"
+      _kind -> "chip super"
+    end
+  end
+
   defp identifier(value) when is_binary(value) do
     case String.trim(value) do
       "" -> nil
@@ -148,10 +168,12 @@ defmodule AiurWeb.OperatorControlCenter.History do
   defp actor_label(%{type: type}), do: humanize(type)
   defp actor_label(_actor), do: "Unknown source"
   defp actor_code(%{type: :human_operator}), do: "OP"
+  defp actor_code(%{type: :executor}), do: "EX"
   defp actor_code(%{type: :supervising_agent}), do: "SA"
   defp actor_code(%{type: :ticket_agent}), do: "TA"
   defp actor_code(_actor), do: "··"
   defp actor_class(%{type: :supervising_agent}), do: "supervising"
+  defp actor_class(%{type: :executor}), do: "human"
   defp actor_class(%{type: :ticket_agent}), do: "ticket"
   defp actor_class(_actor), do: "human"
   defp humanize(nil), do: "System"
