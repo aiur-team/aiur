@@ -458,7 +458,7 @@ defmodule Aiur.GitHub.Issues do
   end
 
   defp scheduled_refresh?(scheduled_refreshes, issue_id) when is_binary(issue_id),
-    do: MapSet.member?(scheduled_refreshes, issue_id)
+    do: BlockerCache.scheduled?(scheduled_refreshes, issue_id)
 
   defp scheduled_refresh?(_scheduled_refreshes, _issue_id), do: false
 

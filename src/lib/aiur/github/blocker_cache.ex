@@ -45,7 +45,7 @@ defmodule Aiur.GitHub.BlockerCache do
 
     case candidates do
       [] ->
-        MapSet.new()
+        MapSet.new([], &to_string/1)
 
       _ ->
         table = ensure_table()
@@ -53,8 +53,14 @@ defmodule Aiur.GitHub.BlockerCache do
         rotated = Enum.drop(candidates, cursor) ++ Enum.take(candidates, cursor)
         selected = Enum.take(rotated, limit)
         :ets.insert(table, {:refresh_cursor, rem(cursor + length(selected), length(candidates))})
-        MapSet.new(selected)
+        MapSet.new(selected, &to_string/1)
     end
+  end
+
+  @doc false
+  @spec scheduled?(MapSet.t(String.t()), String.t()) :: boolean()
+  def scheduled?(scheduled_refreshes, issue_id) when is_binary(issue_id) do
+    MapSet.member?(scheduled_refreshes, issue_id)
   end
 
   @doc false

@@ -16,6 +16,13 @@ defmodule Aiur.GitHub.BlockerCacheTest do
     assert MapSet.new(["5", "1"]) == BlockerCache.scheduled_refreshes(ids, 2)
   end
 
+  test "checks scheduled string identifiers" do
+    scheduled = BlockerCache.scheduled_refreshes(["42"], 1)
+
+    assert BlockerCache.scheduled?(scheduled, "42")
+    refute BlockerCache.scheduled?(scheduled, "43")
+  end
+
   test "invalidates cached dependents when a blocker receives new untestable evidence" do
     assert :ok = BlockerCache.put("dependent", [%{"number" => 1342}], now_ms: 0)
     assert {:fresh, _} = BlockerCache.cached("dependent", now_ms: 1)
