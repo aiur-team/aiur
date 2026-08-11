@@ -9,17 +9,21 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # The dispatch-limits ledger's buckets, used to find the governing one when a
   # provider has no live meter observation this boot.
   @durable_windows ~w(hourly weekly monthly)
-  @primary_github_resources ~w(core graphql)
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
   # takes the position the Summary block used to occupy.
   @lead_provider :deepseek
 
+  # GitHub's two primary budgets, in the order they render. They are separate
+  # budgets billed in different units on windows that reset at different times,
+  # so every figure on the card belongs to exactly one of them.
+  @github_resources ~w(core graphql)
+
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
-  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: %{}, backoffs: []})
+  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -62,6 +66,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:attribution, github_attribution(assigns.quota))
       |> assign(:top_consumer, github_top_consumer(assigns.quota))
       |> assign(:coverage, github_coverage(assigns.quota))
+      |> assign(:coverage_rows, assigns.quota |> github_coverage() |> github_coverage_rows())
       |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
@@ -71,7 +76,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-name">GitHub API</span>
         <div :if={@attribution} class="rs-head-stats">
           <div class="rs-stat">
-            <span class="rs-stat-label">Attributed calls</span>
+            <span class="rs-stat-label">Window traffic</span>
             <span class="rs-stat-val">{@attribution.reads}R / {@attribution.writes}W</span>
           </div>
         </div>
@@ -97,15 +102,24 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
           <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
         </div>
-        <div :for={coverage <- @coverage} class="github-quota-attribution">
-          <span class="rs-limit-label">{github_window_label(coverage)} attribution</span>
-          <span class="rs-limit-meta">
-            {github_window_label(coverage)} attribution {github_coverage_meta(coverage)}<span :if={coverage.percent < 100}> · Partial attribution</span>
-          </span>
-        </div>
         <div :if={@top_consumer} class="github-quota-attribution">
           <span class="rs-limit-label">Top consumer</span>
-          <span class="rs-limit-meta">{github_top_consumer_meta(@top_consumer)}</span>
+          <span class="rs-limit-meta">{github_top_consumer_meta(@top_consumer, @coverage)}</span>
+        </div>
+        <%!-- The ranking above only orders the calls Aiur can see, and it
+              cannot see every call billed to the shared credential. Naming a
+              leader without saying what share of the spend it was drawn from
+              invited acting on 0.04% of the budget (#1805), so the coverage
+              line renders whenever a window has been observed — including, and
+              especially, when there is no leader to name.
+
+              One line per budget, each against its own window's spend. Core
+              bills requests and GraphQL bills points on windows that reset at
+              different times, so a combined "% of 10000 spent this window"
+              would name a quantity and a window that do not exist. --%>
+        <div :for={{resource, entry} <- @coverage_rows} class="github-quota-coverage">
+          <span class="rs-limit-label">Attributed {github_resource_label(resource)}</span>
+          <span class="rs-limit-meta">{github_coverage_meta(entry)}</span>
         </div>
       </div>
     </div>
@@ -359,28 +373,26 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compressed_github_row(quota, now) do
     windows = github_windows(quota)
     backoffs = github_backoffs(quota)
-    coverage = github_coverage(quota)
-    top_consumer = github_top_consumer(quota)
-    {state_label, state_class} = compressed_github_state(windows, backoffs, coverage)
+    {state_label, state_class} = compressed_github_state(windows, backoffs)
 
     %{
       logo: nil,
       name: "GitHub API",
-      lines: compressed_github_lines(windows, backoffs, coverage, top_consumer, now),
+      lines: compressed_github_lines(windows, backoffs, now) ++ compressed_coverage_lines(quota),
       state_label: state_label,
       state_class: state_class
     }
   end
 
-  defp compressed_github_lines([], backoffs, coverage, top_consumer, now) do
+  defp compressed_github_lines([], backoffs, now) do
     # No window yet is the absence of a reading, not a quota observed to be
     # untouched. It draws the hollow track rather than a full-width empty one,
     # so it cannot be read as a healthy 0% consumed.
     [%{label: "Quota", percent: nil, class: "", meta: "Awaiting GitHub response"}] ++
-      compressed_backoff_lines(backoffs, now) ++ compressed_coverage_lines(coverage) ++ compressed_top_consumer_lines(top_consumer)
+      compressed_backoff_lines(backoffs, now)
   end
 
-  defp compressed_github_lines(windows, backoffs, coverage, top_consumer, now) do
+  defp compressed_github_lines(windows, backoffs, now) do
     Enum.map(windows, fn window ->
       %{
         label: github_window_label(window),
@@ -388,33 +400,36 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         class: meter_class(window.used_percent, 90),
         meta: github_window_meta(window, now)
       }
-    end) ++ compressed_backoff_lines(backoffs, now) ++ compressed_coverage_lines(coverage) ++ compressed_top_consumer_lines(top_consumer)
+    end) ++ compressed_backoff_lines(backoffs, now)
   end
 
-  defp compressed_coverage_lines(coverage) do
-    Enum.map(coverage, fn entry ->
-      partial = if(entry.percent < 100, do: " · Partial attribution", else: "")
+  # The compressed strip carries the coverage caveat too: the grouped table
+  # shows GitHub's meters, and a meter with no statement of how much of it Aiur
+  # can explain is the surface #1805 reported.
+  #
+  # It carries the short form, though. This row's meta track is a fixed width
+  # that does not wrap, so the full sentence — leader, its share, coverage and
+  # the estimation caveat — pushed the whole table past the viewport and broke
+  # the compressed row's no-horizontal-scroll guarantee. The leader itself is
+  # not compressed at all; the compressed row never named one, and the fraction
+  # is the part that keeps the meter honest.
+  #
+  # The short form drops the denominators rather than combining them: a percent
+  # per budget is true at any width, a shared denominator across two budgets is
+  # not true at any width.
+  defp compressed_coverage_lines(quota) do
+    case github_coverage(quota) do
+      nil -> []
+      coverage -> [%{label: "Attributed", percent: nil, class: "", meta: compressed_coverage_meta(coverage)}]
+    end
+  end
 
-      %{
-        label: "#{github_window_label(entry)} attribution",
-        percent: nil,
-        class: "",
-        meta: github_coverage_meta(entry) <> partial
-      }
+  defp compressed_coverage_meta(coverage) do
+    coverage
+    |> github_coverage_rows()
+    |> Enum.map_join(" · ", fn {resource, entry} ->
+      "#{github_resource_label(resource)} #{percent_text(Map.get(entry, :named_fraction) || 0.0)}"
     end)
-  end
-
-  defp compressed_top_consumer_lines(nil), do: []
-
-  defp compressed_top_consumer_lines(consumer) do
-    [
-      %{
-        label: "Top consumer",
-        percent: nil,
-        class: "",
-        meta: github_top_consumer_meta(consumer)
-      }
-    ]
   end
 
   # A backoff is a live stoppage rather than a measured window, so it renders
@@ -431,12 +446,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end)
   end
 
-  defp compressed_github_state([], _backoffs, _coverage), do: {"Awaiting", "is-nodata"}
-  defp compressed_github_state(_windows, [_ | _], _coverage), do: {"Backoff", "is-partial"}
-
-  defp compressed_github_state(_windows, _backoffs, coverage) do
-    if Enum.any?(coverage, &(&1.percent < 100)), do: {"Partial", "is-partial"}, else: {"Observed", "is-healthy"}
-  end
+  defp compressed_github_state([], _backoffs), do: {"Awaiting", "is-nodata"}
+  defp compressed_github_state(_windows, [_ | _]), do: {"Backoff", "is-partial"}
+  defp compressed_github_state(_windows, _backoffs), do: {"Observed", "is-healthy"}
 
   # A card whose only standing is the durable dispatch ledger is stale by
   # construction, whatever its live state says.
@@ -478,7 +490,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp github_windows(%{windows: windows}) when is_map(windows) do
-    @primary_github_resources
+    @github_resources
     |> Enum.map(&Map.get(windows, &1))
     |> Enum.reject(&is_nil/1)
   end
@@ -496,41 +508,113 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_attribution(_quota), do: nil
 
+  # Ranked by cost, not by call count. GraphQL bills points: one catalog query
+  # can cost 26 while a hundred reads cost one each, so a request-count ranking
+  # names a leader that is not burning the budget (#1805).
   defp github_top_consumer(%{attribution: attribution}) when is_list(attribution) do
     attribution
-    |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed" or Map.get(&1, :points, 0) <= 0))
-    |> Enum.max_by(&Map.get(&1, :points, 0), fn -> nil end)
+    |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed"))
+    |> Enum.max_by(&{consumer_cost(&1), Map.get(&1, :total, 0)}, fn -> nil end)
   end
 
   defp github_top_consumer(_quota), do: nil
 
-  defp github_coverage(%{coverage: coverage}) when is_map(coverage) do
-    Enum.flat_map(@primary_github_resources, fn resource ->
-      case Map.get(coverage, resource) do
-        %{} = entry -> [Map.put(entry, :resource, resource)]
-        nil -> []
+  defp consumer_cost(entry), do: Map.get(entry, :cost) || Map.get(entry, :total, 0)
+
+  defp github_coverage(%{coverage: %{resources: resources} = coverage}) when is_map(resources) and map_size(resources) > 0, do: coverage
+  defp github_coverage(_quota), do: nil
+
+  # Rendered in meter order so the coverage lines read down the card against the
+  # windows they qualify.
+  defp github_coverage_rows(%{resources: resources}) when is_map(resources) do
+    Enum.flat_map(@github_resources, fn resource ->
+      case Map.get(resources, resource) do
+        %{} = entry -> [{resource, entry}]
+        _absent -> []
       end
     end)
   end
 
-  defp github_coverage(_quota), do: []
+  defp github_coverage_rows(_coverage), do: []
 
-  defp github_window_label(%{resource: "graphql"}), do: "GraphQL"
-  defp github_window_label(%{resource: resource}), do: String.capitalize(resource)
+  # A consumer's spend is reported against the budget it was billed to, in that
+  # budget's unit. A ticket that burned 312 of GraphQL's 5,000 points burned
+  # 6.2% of the budget it is draining; dividing it by core-plus-GraphQL would
+  # report 3.4% of a number that is not a budget (#1805).
+  defp github_top_consumer_meta(consumer, coverage) do
+    parts =
+      Enum.flat_map(@github_resources, fn resource ->
+        case consumer |> Map.get(:costs, %{}) |> Kernel.||(%{}) |> Map.get(resource) do
+          cost when is_integer(cost) and cost > 0 -> [consumer_resource_part(resource, cost, coverage)]
+          _unspent -> []
+        end
+      end)
 
-  defp github_points_label("core"), do: "requests"
-  defp github_points_label(_resource), do: "points"
-
-  defp github_coverage_meta(coverage) do
-    "#{coverage.attributed_points}/#{coverage.spent_points} #{github_points_label(coverage.resource)} (#{format_percent(coverage.percent)})"
+    case parts do
+      # No per-budget split to report — a snapshot published before costs were
+      # tracked. Calls are the one figure that is true of both budgets; naming a
+      # unit here would be inventing one.
+      [] -> "#{consumer.consumer} · #{Map.get(consumer, :total, 0)} calls"
+      parts -> Enum.join([consumer.consumer | parts], " · ")
+    end
   end
 
-  defp github_top_consumer_meta(consumer) do
-    "#{consumer.consumer} · #{consumer.points} #{github_window_label(consumer)} #{github_points_label(consumer.resource)}"
+  defp consumer_resource_part(resource, cost, coverage) do
+    base = "#{github_resource_label(resource)} #{cost} #{resource_unit(resource, cost)}"
+
+    case consumer_share(coverage, resource, cost) do
+      nil -> base
+      share -> "#{base} (#{percent_text(share)})"
+    end
   end
 
-  defp format_percent(percent) when is_float(percent) and percent == trunc(percent), do: "#{trunc(percent)}%"
-  defp format_percent(percent), do: "#{percent}%"
+  # Clamped like every other fraction on this card: a stale reading can report
+  # more attributed spend than the window, and "104% of GraphQL spend" is a
+  # confident wrong number rather than a signal.
+  defp consumer_share(coverage, resource, cost) do
+    case coverage |> Kernel.||(%{}) |> Map.get(:resources, %{}) |> Map.get(resource) do
+      %{spend: spend} when is_integer(spend) and spend > 0 -> min(cost / spend, 1.0)
+      _unknown -> nil
+    end
+  end
+
+  # Two numbers an operator can act on, both against this budget's own window:
+  # how much of its real spend the ranking accounts for, and how much of it Aiur
+  # observed at all. The gap between them is traffic Aiur saw but could not tie
+  # to a ticket; what is missing from both is traffic it never saw.
+  defp github_coverage_meta(entry) do
+    named = Map.get(entry, :named_fraction) || 0.0
+    observed = Map.get(entry, :fraction) || 0.0
+    spend = Map.get(entry, :spend, 0)
+
+    meta = "#{percent_text(named)} of #{spend} spent this window · #{percent_text(observed)} observed"
+
+    if Map.get(entry, :estimated?), do: meta <> " · cost partly estimated", else: meta
+  end
+
+  defp resource_unit("graphql", 1), do: "point"
+  defp resource_unit("graphql", _cost), do: "points"
+  defp resource_unit(_resource, 1), do: "request"
+  defp resource_unit(_resource, _cost), do: "requests"
+
+  # Sub-1% coverage is the whole finding, so it must not round to "0%".
+  defp percent_text(fraction) when is_float(fraction) or is_integer(fraction) do
+    percent = fraction * 100.0
+
+    cond do
+      percent >= 10 -> "#{round(percent)}%"
+      percent >= 1 -> "#{Float.round(percent, 1)}%"
+      percent > 0 -> "#{Float.round(percent, 2)}%"
+      true -> "0%"
+    end
+  end
+
+  defp percent_text(_fraction), do: "0%"
+
+  defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
+
+  defp github_resource_label("graphql"), do: "GraphQL"
+  defp github_resource_label(resource), do: String.capitalize(resource)
 
   defp github_window_meta(window, now) do
     "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"

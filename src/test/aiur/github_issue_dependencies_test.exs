@@ -91,6 +91,8 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       end
 
       graph_request_fun = fn %{body: %{"query" => query, "variables" => variables}} ->
+        assert query =~ "rateLimit { cost }"
+
         body =
           cond do
             String.contains?(query, "issue_80") and is_nil(variables["after_80"]) ->

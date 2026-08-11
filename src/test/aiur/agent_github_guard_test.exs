@@ -34,18 +34,25 @@ defmodule Aiur.AgentGitHubGuardTest do
   end
 
   test "records ticket-shaped read and write attribution without command arguments", context do
-    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/1670"])
-    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/1670", "-X", "PATCH", "-f", "body=secret body"])
+    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
+    assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tticket:1670\tcore\tread\t1\n"
-    assert events =~ "\tticket:1670\tcore\twrite\t1\n"
+    assert events =~ "\tticket:1670\tread\tcore\n"
+    assert events =~ "\tticket:1670\twrite\tcore\n"
     refute events =~ "secret body"
   end
 
-  test "does not present an unknown GraphQL cost as one attributed point", context do
+  # GraphQL is billed in points against its own budget. A row that does not say
+  # which budget it spent gets counted against core, putting agent GraphQL
+  # traffic in the wrong window (#1805).
+  test "names the budget each recorded call was billed to", context do
     assert {"ok\n", 0} = run_guard(context, ["api", "graphql", "-f", "query=query { viewer { login } }"])
-    refute File.exists?(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert events =~ "\tread\tgraphql\n"
+    assert events =~ "\tread\tcore\n"
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do

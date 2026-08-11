@@ -568,6 +568,92 @@ defmodule AiurEngineTest do
     assert out =~ "commands --filter requires a value"
   end
 
+  test "executor-answer safely routes one option answer through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --option rebase --rationale 'Known stale branch' --idempotency-key 'exec:42:v3' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_answer(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "expected_version: 3"
+    assert out =~ "option_id: Base.decode64!(\"cmViYXNl\")"
+    assert out =~ "rationale: Base.decode64!(\"S25vd24gc3RhbGUgYnJhbmNo\")"
+    assert out =~ "idempotency_key: Base.decode64!(\"ZXhlYzo0Mjp2Mw==\")"
+    assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "executor-answer requires one choice and all concurrency/audit fields" do
+    for {argv, message} <- [
+          {~s|'decision:42' --expected-version 3 --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
+          {~s|'decision:42' --expected-version 3 --option yes --custom-response yes --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
+          {~s|'decision:42' --option yes --rationale why --idempotency-key key|, "--expected-version expects a positive integer"},
+          {~s|'decision:42' --expected-version 3 --option yes --idempotency-key key|, "--rationale is required"},
+          {~s|'decision:42' --expected-version 3 --option yes --rationale why|, "--idempotency-key is required"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_executor_answer #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "executor-escalate safely routes one explicit operator alert" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_escalate 'decision:42' --expected-version 3 --reason 'Irreversible scope change' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_escalate(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "expected_version: 3"
+    assert out =~ "reason: Base.decode64!(\"SXJyZXZlcnNpYmxlIHNjb3BlIGNoYW5nZQ==\")"
+    assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "executor-escalate requires a decision, version, and reason" do
+    for {argv, message} <- [
+          {~s|--expected-version 3 --reason why|, "expects exactly one decision ID"},
+          {~s|'decision:42' --reason why|, "--expected-version expects a positive integer"},
+          {~s|'decision:42' --expected-version 3|, "--reason is required"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_executor_escalate #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "executor mutation commands dispatch through the live control path" do
+    rel = fake_release()
+    env = [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}]
+
+    {answer, _code} =
+      run_engine_real(
+        [
+          "executor-answer",
+          "decision:42",
+          "--expected-version",
+          "3",
+          "--custom-response",
+          "Rebase it",
+          "--rationale",
+          "Known stale branch",
+          "--idempotency-key",
+          "exec:42:v3"
+        ],
+        env
+      )
+
+    {escalate, _code} =
+      run_engine_real(
+        ["executor-escalate", "decision:42", "--expected-version", "3", "--reason", "Irreversible"],
+        env
+      )
+
+    assert answer =~ "Aiur.AgentControlCLI.executor_answer(["
+    assert answer =~ "custom_response: Base.decode64!"
+    assert escalate =~ "Aiur.AgentControlCLI.executor_escalate(["
+  end
+
   test "build-orders routes its selector and JSON mode through the control rpc" do
     {out, 0} =
       run_sourced_engine(
