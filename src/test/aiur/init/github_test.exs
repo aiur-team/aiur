@@ -63,14 +63,47 @@ defmodule Aiur.Init.GitHubTest do
 
       readiness = %{ready?: true, base_branch: "main", required_checks: [], merge_gate: %{require_last_push_approval?: true}}
       deps = %{check_ci_readiness: fn _ -> {:ok, readiness} end, detect_repo: fn -> "o/r" end}
-      tracker = %{kind: "github", repo: "o/r", bot_account: "push-bot", review_bot_account: nil, human_mergers: []}
+      tracker = %{kind: "github", repo: "o/r", bot_account: "push-bot", human_mergers: []}
 
       assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
       assert_received {:io_puts, _readiness}
       assert_received {:io_puts, warning}
-      assert warning =~ "three principals"
-      assert warning =~ "review_bot_account"
+      assert warning =~ "WARNING"
+      assert warning =~ "tracker.github.bot_account"
+      assert warning =~ "tracker.github.human_mergers"
       assert warning =~ "credential-split-merge-gate.md"
+      refute warning =~ "review_bot_account"
+    end
+
+    test "reports an undetermined merge gate differently from a known gate" do
+      parent = self()
+      io = %{puts: fn message -> send(parent, {:io_puts, message}) end, confirm: fn _, _ -> false end}
+
+      readiness = %{ready?: true, base_branch: "main", required_checks: [], merge_gate: %{require_last_push_approval?: :unknown}}
+      deps = %{check_ci_readiness: fn _ -> {:ok, readiness} end, detect_repo: fn -> "o/r" end}
+      tracker = %{kind: "github", repo: "o/r", bot_account: "push-bot", human_mergers: []}
+
+      assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
+      assert_received {:io_puts, _readiness}
+      assert_received {:io_puts, note}
+      assert note =~ "could not be determined"
+      assert note =~ "branch protection or rulesets"
+      assert note =~ "Confirm it manually"
+      refute note =~ "WARNING"
+      refute note =~ "requires approval from someone other than the last pusher"
+    end
+
+    test "stays silent when the merge gate is known to be absent" do
+      parent = self()
+      io = %{puts: fn message -> send(parent, {:io_puts, message}) end, confirm: fn _, _ -> false end}
+
+      readiness = %{ready?: true, base_branch: "main", required_checks: [], merge_gate: %{require_last_push_approval?: false}}
+      deps = %{check_ci_readiness: fn _ -> {:ok, readiness} end, detect_repo: fn -> "o/r" end}
+      tracker = %{kind: "github", repo: "o/r", bot_account: "push-bot", human_mergers: []}
+
+      assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
+      assert_received {:io_puts, _readiness}
+      refute_received {:io_puts, _gate_message}
     end
 
     test "keeps CI-readiness administration access separate from the daemon token" do

@@ -57,6 +57,32 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert readiness.merge_gate.require_last_push_approval?
   end
 
+  test "does not claim the last-push gate is absent when nothing inspected it" do
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+
+    assert readiness.merge_gate.require_last_push_approval? == :unknown
+  end
+
+  test "round-trips an unknown last-push gate through the persisted assessment" do
+    path = Path.join(System.tmp_dir!(), "aiur-ci-readiness-#{System.unique_integer([:positive])}.json")
+    readiness = CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], ["ci / required"])
+    opts = [repo: "owner/repo", base_branch: "develop", config_fingerprint: "config-a", path: path]
+
+    on_exit(fn ->
+      File.rm(path)
+      CiReadiness.clear_cached_result()
+    end)
+
+    assert readiness.merge_gate.require_last_push_approval? == :unknown
+    assert :ok = CiReadiness.persist_assessment(readiness, opts)
+    assert :ok = CiReadiness.clear_cached_result()
+
+    assert %{"merge_gate" => %{"require_last_push_approval?" => "unknown"}} =
+             path |> File.read!() |> Jason.decode!() |> Map.fetch!("result")
+
+    assert CiReadiness.cached_result(opts).merge_gate.require_last_push_approval? == :unknown
+  end
+
   test "rejects a required check pinned to a different integration" do
     readiness =
       CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], [
@@ -172,6 +198,7 @@ defmodule Aiur.GitHub.CiReadinessTest do
           "workflow_check_names" => readiness.workflow_check_names,
           "required_checks" => readiness.required_checks,
           "required_check_identities" => readiness.required_check_identities,
+          "merge_gate" => %{"require_last_push_approval?" => "unknown"},
           "issues" => []
         }
       })
@@ -361,6 +388,31 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     assert {:ok, %{ready?: true, required_checks: ["ci / required"]}} =
              CiReadiness.inspect_repository(request_fun, "token", "owner", "repo", "develop")
+  end
+
+  test "reads the last-push gate from classic branch protection" do
+    protection = %{
+      "required_status_checks" => %{"contexts" => ["ci / required"]},
+      "required_pull_request_reviews" => %{"require_last_push_approval" => true}
+    }
+
+    assert {:ok, readiness} = CiReadiness.inspect_repository(gate_request_fun(protection), "token", "owner", "repo", "develop")
+    assert readiness.merge_gate.require_last_push_approval? == true
+  end
+
+  test "leaves the last-push gate unknown when classic protection is absent and no ruleset gates" do
+    assert {:ok, readiness} = CiReadiness.inspect_repository(gate_request_fun(:not_found), "token", "owner", "repo", "develop")
+    assert readiness.merge_gate.require_last_push_approval? == :unknown
+  end
+
+  test "reports a known absent last-push gate when both sources were read" do
+    protection = %{
+      "required_status_checks" => %{"contexts" => ["ci / required"]},
+      "required_pull_request_reviews" => %{"require_last_push_approval" => false}
+    }
+
+    assert {:ok, readiness} = CiReadiness.inspect_repository(gate_request_fun(protection), "token", "owner", "repo", "develop")
+    assert readiness.merge_gate.require_last_push_approval? == false
   end
 
   test "does not count a manually disabled workflow as a CI gate" do
@@ -1308,4 +1360,35 @@ defmodule Aiur.GitHub.CiReadinessTest do
 
     assert CiReadiness.cached_result(opts) == :unavailable
   end
+
+  defp gate_request_fun(protection, rulesets \\ []) do
+    routes = gate_routes(protection, rulesets)
+
+    fn %{url: url} -> gate_response(routes, url) end
+  end
+
+  defp gate_response(routes, url) do
+    case Enum.find(routes, fn {matches?, _response} -> matches?.(url) end) do
+      {_matches?, response} -> response
+      nil -> flunk("unexpected URL: #{url}")
+    end
+  end
+
+  # A route table rather than a cond chain: each readiness fixture only varies
+  # in its protection and ruleset replies, and the list keeps the stub under
+  # credo's complexity limit as more gate cases are added.
+  defp gate_routes(protection, rulesets) do
+    [
+      {&String.ends_with?(&1, "/branches/develop"), {:ok, %{status: 200, body: %{}}}},
+      {&String.ends_with?(&1, "/repos/owner/repo"), {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}},
+      {&(&1 =~ "/actions/workflows?per_page=100"), {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}},
+      {&(&1 =~ "/contents/.github/workflows"), {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}},
+      {&(&1 == "workflow-url?ref=develop"), {:ok, %{status: 200, body: %{"content" => Base.encode64(@workflow)}}}},
+      {&(&1 =~ "/protection"), protection_response(protection)},
+      {&(&1 =~ "/rulesets"), {:ok, %{status: 200, body: rulesets}}}
+    ]
+  end
+
+  defp protection_response(:not_found), do: {:ok, %{status: 404, body: %{}}}
+  defp protection_response(body), do: {:ok, %{status: 200, body: body}}
 end
