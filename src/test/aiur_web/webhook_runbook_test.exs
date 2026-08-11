@@ -17,8 +17,14 @@ defmodule AiurWeb.WebhookRunbookTest do
 
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureIO
+
+  alias Aiur.AgentControlCLI
   alias Aiur.Config.Schema
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.ProviderMeterProjection
+  alias Aiur.Webhooks.DeliveryMode
+  alias Aiur.Webhooks.ModePresenter
   alias AiurWeb.GithubWebhook
 
   @repo_root Path.expand("../../..", __DIR__)
@@ -233,6 +239,67 @@ defmodule AiurWeb.WebhookRunbookTest do
       # invert the whole check.
       refute GithubWebhook.path() in guard_denied_paths()
     end
+  end
+
+  # AC 3's confirmation step. This line is the operator's only end-to-end proof
+  # that a real delivery reached the daemon, and it is the one diagnostic whose
+  # internal vocabulary and on-screen vocabulary differ: the states are atoms in
+  # the code and prose in the output. A runbook that quotes the atom sends the
+  # operator grepping for a string the CLI never prints, and finding nothing
+  # looks exactly like a delivery that never arrived.
+  describe "the delivery-mode line the runbook tells an operator to read" do
+    setup do
+      projection = :"runbook_usage_#{System.unique_integer([:positive])}"
+
+      {:ok, _pid} =
+        start_supervised({ProviderMeterProjection, [name: projection, subscribe?: false, clock: fn -> ~U[2026-07-27 12:05:00Z] end]})
+
+      %{projection: projection}
+    end
+
+    test "every example line it shows is one the CLI really prints", ctx do
+      output = usage_output(ctx.projection)
+      documented = documented_delivery_lines()
+
+      # Presence, not just agreement: a runbook that dropped the example
+      # entirely would otherwise satisfy an empty `for` and pass.
+      refute documented == [],
+             "#{@doc_path} no longer shows an example `events` line for confirming a delivery landed"
+
+      for line <- documented do
+        assert output =~ line, "the runbook shows\n  #{line}\nbut the CLI prints:\n#{output}"
+      end
+    end
+
+    test "the raw state atom it warns is never printed really is absent", ctx do
+      # The unproven repo is in the fixture, so this is the run where the atom
+      # would appear if the CLI ever started rendering it instead of the label.
+      refute usage_output(ctx.projection) =~ "configured_unproven"
+    end
+  end
+
+  defp usage_output(projection) do
+    capture_io(fn -> AgentControlCLI.usage(projection, delivery_modes: documented_example_rows()) end)
+  end
+
+  # The repo names and the delivery timestamp are the doc's own, so its example
+  # lines can be compared verbatim against real output instead of through a
+  # loosened pattern that would tolerate the drift this exists to catch.
+  defp documented_example_rows do
+    {proven, :proven} =
+      "owner/name"
+      |> DeliveryMode.new(configured?: true)
+      |> DeliveryMode.record_delivery(~U[2026-07-27 12:00:00Z])
+
+    ModePresenter.rows(modes: [proven, DeliveryMode.new("owner/other", configured?: true)])
+  end
+
+  defp documented_delivery_lines do
+    @doc_path
+    |> File.read!()
+    |> then(&Regex.scan(~r/```text\n(.*?)```/s, &1))
+    |> Enum.flat_map(fn [_, block] -> String.split(block, "\n", trim: true) end)
+    |> Enum.filter(&String.starts_with?(&1, "events "))
   end
 
   defp real_route?(path) do
