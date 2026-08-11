@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
@@ -80,6 +80,44 @@ defmodule Aiur.BuildOrder.GraphProjectionStructuralTest do
               generation: :unknown,
               data: nil,
               health: %{state: :structurally_invalid, failure: :structurally_invalid}
+            }} = GraphProjection.selected(projection, identity)
+
+    assert :ok = GraphProjection.release(projection, identity)
+  end
+
+  test "cold selected provider diagnostic publishes unavailable health" do
+    identity = identity(1, "I1")
+    projection = start_projection()
+    publish_catalog(projection, [root(identity)])
+
+    assert {:ok, %Snapshot{data: nil}} = GraphProjection.demand(projection, identity)
+    reader = await_reader({:selected, identity})
+
+    unavailable = %{
+      selected(identity)
+      | provider: ProviderHealth.new(:unknown, :unavailable, false),
+        diagnostics: [Diagnostic.new(:provider_unavailable)]
+    }
+
+    finish(reader, {:ok, ProviderResult.complete(unavailable)})
+
+    assert_receive {
+                     :projection_event,
+                     {:graph_projection_health,
+                      %Snapshot{
+                        scope: {:selected, ^identity},
+                        generation: :unknown,
+                        data: nil,
+                        health: %{state: :unavailable, failure: :provider_unavailable}
+                      }}
+                   },
+                   2_000
+
+    assert {:ok,
+            %Snapshot{
+              generation: :unknown,
+              data: nil,
+              health: %{state: :unavailable, failure: :provider_unavailable}
             }} = GraphProjection.selected(projection, identity)
 
     assert :ok = GraphProjection.release(projection, identity)

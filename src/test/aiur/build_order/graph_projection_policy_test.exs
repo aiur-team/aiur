@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.{Options, Policy}
   alias Aiur.TrackerIdentity
 
@@ -107,6 +107,35 @@ defmodule Aiur.BuildOrder.GraphProjection.PolicyTest do
 
     assert {:error, :provider_identity_mismatch, nil} =
              Policy.complete_candidate({:ok, ProviderResult.complete(mismatched)}, :catalog, @repository)
+  end
+
+  test "provider-sourced selected failures do not become structural health" do
+    identity = identity(1, "I1")
+    selected = selected(identity)
+
+    unavailable = %{
+      selected
+      | provider: ProviderHealth.new(:unknown, :unavailable, false),
+        diagnostics: [Diagnostic.new(:provider_unavailable)]
+    }
+
+    result = ProviderResult.complete(unavailable)
+
+    assert {:error, :provider_unavailable, ^result} =
+             Policy.complete_candidate(result, {:selected, identity}, @repository)
+
+    failed =
+      {:selected, identity}
+      |> Policy.unavailable_entry(0)
+      |> Policy.apply_failure(:provider_unavailable, @now, nil, true)
+
+    assert failed.health.state == :unavailable
+    assert failed.health.failure == :provider_unavailable
+
+    malformed = %{selected | diagnostics: [Diagnostic.new(:invalid_member)]}
+
+    assert {:error, :structurally_invalid, nil} =
+             Policy.complete_candidate(ProviderResult.complete(malformed), {:selected, identity}, @repository)
   end
 
   test "failures preserve last-known-good data and classify cold state conservatively" do

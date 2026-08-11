@@ -117,7 +117,7 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
   end
 
   def complete_candidate(
-        {:ok, %ProviderResult{status: :complete, candidate: %SelectedRoot{} = selected}},
+        {:ok, %ProviderResult{status: :complete, candidate: %SelectedRoot{} = selected} = result},
         {:selected, expected},
         repository
       ) do
@@ -125,11 +125,12 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
       not selected_repository?(selected, expected, repository) ->
         {:error, :provider_identity_mismatch, nil}
 
-      not SelectedRoot.structurally_valid?(selected) ->
-        {:error, :structurally_invalid, nil}
-
       true ->
-        {:ok, selected}
+        case SelectedRoot.status(selected) do
+          :ready -> {:ok, selected}
+          :structurally_invalid -> {:error, :structurally_invalid, nil}
+          _provider_failure -> {:error, :provider_unavailable, result}
+        end
     end
   end
 
