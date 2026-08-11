@@ -1,5 +1,5 @@
 defmodule Aiur.TestSupport do
-  import ExUnit.Assertions
+  require Logger
 
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
@@ -49,8 +49,8 @@ defmodule Aiur.TestSupport do
         only: [
           write_workflow_file!: 1,
           write_workflow_file!: 2,
-          write_workflow_file_synced!: 1,
-          write_workflow_file_synced!: 2,
+          write_workflow_file_async!: 1,
+          write_workflow_file_async!: 2,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
@@ -179,7 +179,53 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  @workflow_reload_timeout_ms 15_000
+
+  @doc """
+  Writes a workflow fixture and waits for the active `WorkflowStore` cache to
+  reload before returning.
+
+  Files other than the active workflow path are staging fixtures and do not
+  trigger a reload.
+  """
   def write_workflow_file!(path, overrides \\ []) do
+    write_workflow_content!(path, overrides)
+
+    if active_workflow_file?(path) do
+      ensure_workflow_store_running()
+      :ok = Aiur.WorkflowStore.force_reload(@workflow_reload_timeout_ms)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Writes a workflow fixture and makes a best-effort attempt to reload the
+  active `WorkflowStore` cache.
+
+  The reload call can block until the store responds or its configured timeout
+  elapses. Use this only when the test deliberately exercises asynchronous
+  reload behavior: reload failures are logged and swallowed, so callers have
+  no cache-visibility guarantee.
+  """
+  def write_workflow_file_async!(path, overrides \\ []) do
+    write_workflow_content!(path, overrides)
+
+    if active_workflow_file?(path) and is_pid(Process.whereis(Aiur.WorkflowStore)) do
+      try do
+        case Aiur.WorkflowStore.force_reload(async_workflow_reload_timeout_ms()) do
+          :ok -> :ok
+          {:error, reason} -> log_async_reload_failure(path, reason)
+        end
+      catch
+        :exit, reason -> log_async_reload_failure(path, reason)
+      end
+    end
+
+    :ok
+  end
+
+  defp write_workflow_content!(path, overrides) do
     {config_yaml, prompt} = workflow_content(overrides)
 
     config_yaml =
@@ -193,40 +239,18 @@ defmodule Aiur.TestSupport do
 
     File.write!(path, config_yaml)
     write_default_alerts_file!(path)
-
-    if Process.whereis(Aiur.WorkflowStore) do
-      try do
-        Aiur.WorkflowStore.force_reload()
-      catch
-        :exit, _reason -> :ok
-      end
-    end
-
-    :ok
   end
 
-  @doc """
-  Like `write_workflow_file!/2`, but waits for `WorkflowStore`'s pubsub
-  confirmation instead of trusting its best-effort `force_reload`.
+  defp active_workflow_file?(path) do
+    Path.expand(path) == Path.expand(Aiur.Workflow.workflow_file_path())
+  end
 
-  `write_workflow_file!/2` fires a `force_reload` wrapped in `catch :exit, _
-  -> :ok`, so under host CPU contention a `GenServer.call` that outlasts its
-  default timeout is swallowed silently — the write looks like it landed, but
-  `WorkflowStore` only actually catches up whenever it next gets scheduled.
-  A caller that immediately reads `Config` afterward can race that catch-up
-  and observe the config as it stood before this write. Waiting for the
-  `{:workflow_config_updated, _}` broadcast removes the guess: it fires only
-  once the reload has genuinely completed, however long that took.
-  """
-  def write_workflow_file_synced!(path, overrides \\ []) do
-    ensure_workflow_store_running()
-    :ok = Aiur.WorkflowStore.subscribe()
-    {:ok, _workflow, generation_before} = Aiur.WorkflowStore.current_with_generation()
+  defp async_workflow_reload_timeout_ms do
+    Application.get_env(:aiur, :workflow_store_call_timeout_ms, 5_000)
+  end
 
-    write_workflow_file!(path, overrides)
-
-    assert_receive {:workflow_config_updated, generation}, 15_000
-    assert generation > generation_before
+  defp log_async_reload_failure(path, reason) do
+    Logger.warning("Best-effort workflow reload failed path=#{path} reason=#{inspect(reason)}; WorkflowStore may serve stale test config")
   end
 
   # Mirror the real `.aiur/` layout in tests: drop the canonical alert

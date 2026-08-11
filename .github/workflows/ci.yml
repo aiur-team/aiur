@@ -35,6 +35,8 @@ jobs:
         run: bash scripts/test-human-only-merge-ruleset.sh
       - name: Test human-only merge ruleset drift check
         run: bash scripts/test-human-only-merge-ruleset-live.sh
+      - name: Test pull request merge-gate diagnostics
+        run: bash scripts/test-pr-merge-gate-diagnostic.sh
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test hourly retrospective visual check
