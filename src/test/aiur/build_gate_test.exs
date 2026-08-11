@@ -242,6 +242,20 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "format\nformat\n"
   end
 
+  test "the command wrapper fails closed when a readable hook omits the gate function", context do
+    empty_hook = Path.join(context.gate_dir, "empty-hook")
+    File.write!(empty_hook, "")
+
+    context =
+      context
+      |> with_command_wrappers!()
+      |> Map.put(:bash_env, empty_hook)
+
+    assert {output, 125} = run_sh("mix test", context)
+    assert output =~ "gate_error reason=hook_unavailable command=mix status=125"
+    refute File.exists?(context.log_path)
+  end
+
   test "the Bash hook reports a missing wrapped command without re-entering the wrapper", context do
     empty_bin = Path.join(context.gate_dir, "empty-bin")
     File.mkdir_p!(empty_bin)
