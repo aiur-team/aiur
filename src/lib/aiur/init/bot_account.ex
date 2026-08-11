@@ -62,7 +62,10 @@ defmodule Aiur.Init.BotAccount do
       "    comment/event loops (so an agent's own reply is never treated as human feedback).\n",
       "A dedicated bot account is recommended when operators also comment from a trusted\n",
       "CODEOWNER account. Reusing one login for agents and humans makes provenance\n",
-      "ambiguous and may require the stronger origin tracking tracked in #1151."
+      "ambiguous and may require the stronger origin tracking tracked in #1151.\n",
+      "For repositories requiring last-push approval, configure a separate\n",
+      "github.review_bot_account and a human_mergers entry; see\n",
+      "docs/security/credential-split-merge-gate.md."
     ])
   end
 

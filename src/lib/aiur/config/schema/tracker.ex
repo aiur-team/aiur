@@ -12,6 +12,7 @@ defmodule Aiur.Config.Schema.Github do
     field(:repo, :string)
     field(:label_prefix, :string, default: "agent")
     field(:bot_account, :string)
+    field(:review_bot_account, :string)
     field(:trusted_accounts, {:array, :string}, default: [])
     field(:allowed_users, {:array, :string}, default: [])
     field(:human_mergers, {:array, :string}, default: [])
@@ -29,6 +30,7 @@ defmodule Aiur.Config.Schema.Github do
         :repo,
         :label_prefix,
         :bot_account,
+        :review_bot_account,
         :trusted_accounts,
         :allowed_users,
         :human_mergers,

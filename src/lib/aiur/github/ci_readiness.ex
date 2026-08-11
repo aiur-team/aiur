@@ -35,6 +35,7 @@ defmodule Aiur.GitHub.CiReadiness do
           workflow_check_names: [String.t()],
           required_checks: [String.t()],
           required_check_identities: [%{name: String.t(), app_id: integer() | nil}],
+          merge_gate: %{require_last_push_approval?: boolean()},
           issues: [issue()]
         }
 
@@ -256,7 +257,7 @@ defmodule Aiur.GitHub.CiReadiness do
   end
 
   defp encode_result(result) do
-    %{
+    encoded = %{
       "ready" => Map.get(result, :ready?),
       "base_branch" => Map.get(result, :base_branch),
       "workflow_paths" => Map.get(result, :workflow_paths, []),
@@ -265,6 +266,8 @@ defmodule Aiur.GitHub.CiReadiness do
       "required_check_identities" => Map.get(result, :required_check_identities, []),
       "issues" => Enum.map(Map.get(result, :issues, []), &encode_issue/1)
     }
+
+    if Map.has_key?(result, :merge_gate), do: Map.put(encoded, "merge_gate", result.merge_gate), else: encoded
   end
 
   defp encode_issue(issue) when is_atom(issue), do: Atom.to_string(issue)
@@ -278,16 +281,17 @@ defmodule Aiur.GitHub.CiReadiness do
   defp decode_result(%{"ready" => ready?, "base_branch" => base_branch} = result)
        when is_boolean(ready?) and is_binary(base_branch) do
     with {:ok, issues} <- decode_issues(Map.get(result, "issues", [])) do
-      {:ok,
-       %{
-         ready?: ready?,
-         base_branch: base_branch,
-         workflow_paths: string_list(Map.get(result, "workflow_paths", [])),
-         workflow_check_names: string_list(Map.get(result, "workflow_check_names", [])),
-         required_checks: string_list(Map.get(result, "required_checks", [])),
-         required_check_identities: check_identities(Map.get(result, "required_check_identities", [])),
-         issues: issues
-       }}
+      decoded = %{
+        ready?: ready?,
+        base_branch: base_branch,
+        workflow_paths: string_list(Map.get(result, "workflow_paths", [])),
+        workflow_check_names: string_list(Map.get(result, "workflow_check_names", [])),
+        required_checks: string_list(Map.get(result, "required_checks", [])),
+        required_check_identities: check_identities(Map.get(result, "required_check_identities", [])),
+        issues: issues
+      }
+
+      {:ok, if(Map.has_key?(result, "merge_gate"), do: Map.put(decoded, :merge_gate, decode_merge_gate(result["merge_gate"])), else: decoded)}
     end
   end
 
@@ -295,6 +299,9 @@ defmodule Aiur.GitHub.CiReadiness do
 
   defp decode_issues(issues) when is_list(issues), do: Enum.reduce_while(issues, {:ok, []}, &decode_issue/2)
   defp decode_issues(_issues), do: :error
+
+  defp decode_merge_gate(%{"require_last_push_approval?" => value}) when is_boolean(value), do: %{require_last_push_approval?: value}
+  defp decode_merge_gate(_value), do: %{require_last_push_approval?: false}
 
   defp decode_issue("base_branch_missing", {:ok, acc}), do: {:cont, {:ok, acc ++ [:base_branch_missing]}}
   defp decode_issue("no_pr_workflow", {:ok, acc}), do: {:cont, {:ok, acc ++ [:no_pr_workflow]}}
@@ -418,8 +425,8 @@ defmodule Aiur.GitHub.CiReadiness do
   defp inspect_full_workflow_entries(request_fun, token, base_url, base_branch, default_branch, entries) do
     with {:ok, workflow_states} <- fetch_workflow_states(request_fun, token, base_url, entries),
          {:ok, workflows} <- fetch_workflows(request_fun, token, entries, workflow_states, base_branch),
-         {:ok, required_checks} <- fetch_required_checks_for_entries(entries, request_fun, token, base_url, base_branch, default_branch) do
-      {:ok, evaluate(base_branch, workflows, required_checks)}
+         {:ok, {required_checks, merge_gate}} <- fetch_required_checks_for_entries(entries, request_fun, token, base_url, base_branch, default_branch) do
+      {:ok, evaluate(base_branch, workflows, required_checks, merge_gate)}
     end
   end
 
@@ -450,6 +457,12 @@ defmodule Aiur.GitHub.CiReadiness do
   @spec evaluate(String.t(), [{String.t(), String.t()}], [String.t() | map()]) :: result()
   def evaluate(base_branch, workflows, required_checks)
       when is_binary(base_branch) and is_list(workflows) and is_list(required_checks) do
+    evaluate(base_branch, workflows, required_checks, %{require_last_push_approval?: false}) |> Map.delete(:merge_gate)
+  end
+
+  @spec evaluate(String.t(), [{String.t(), String.t()}], [String.t() | map()], map()) :: result()
+  def evaluate(base_branch, workflows, required_checks, merge_gate)
+      when is_binary(base_branch) and is_list(workflows) and is_list(required_checks) and is_map(merge_gate) do
     pr_workflows = Enum.filter(workflows, fn {_path, source} -> pull_request_workflow?(source, base_branch) end)
     workflow_check_names = pr_workflows |> Enum.flat_map(&workflow_check_names/1) |> Enum.uniq() |> Enum.sort()
     required_check_identities = required_checks |> Enum.map(&required_check_identity/1) |> Enum.reject(&is_nil/1) |> Enum.uniq() |> Enum.sort_by(& &1.name)
@@ -471,7 +484,7 @@ defmodule Aiur.GitHub.CiReadiness do
       |> maybe_add(missing_checks != [], {:required_check_not_produced, missing_checks})
       |> maybe_add(integration_mismatches != [], {:required_check_integration_not_produced, integration_mismatches})
 
-    result(base_branch, Enum.map(pr_workflows, &elem(&1, 0)), workflow_check_names, required_checks, required_check_identities, issues)
+    result(base_branch, Enum.map(pr_workflows, &elem(&1, 0)), workflow_check_names, required_checks, required_check_identities, merge_gate, issues)
   end
 
   @spec format(result() | term()) :: String.t()
@@ -585,7 +598,7 @@ defmodule Aiur.GitHub.CiReadiness do
     if Enum.any?(entries, &(Map.get(&1, "type") == "file" and workflow_path?(Map.get(&1, "path", "")))) do
       fetch_required_checks(request_fun, token, base_url, base_branch, default_branch)
     else
-      {:ok, []}
+      {:ok, {[], %{require_last_push_approval?: false}}}
     end
   end
 
@@ -642,8 +655,8 @@ defmodule Aiur.GitHub.CiReadiness do
     protection_url = "#{base_url}/branches/#{encode_path_component(base_branch)}/protection"
 
     with {:ok, protection_checks} <- fetch_protection_checks(request_fun, token, protection_url),
-         {:ok, ruleset_checks} <- fetch_ruleset_checks(request_fun, token, base_url, base_branch, default_branch) do
-      {:ok, Enum.uniq(protection_checks ++ ruleset_checks)}
+         {:ok, {ruleset_checks, merge_gate}} <- fetch_ruleset_checks(request_fun, token, base_url, base_branch, default_branch) do
+      {:ok, {Enum.uniq(protection_checks ++ ruleset_checks), merge_gate}}
     end
   end
 
@@ -666,7 +679,7 @@ defmodule Aiur.GitHub.CiReadiness do
            ),
          {:ok, rulesets} <- fetch_ruleset_details(request_fun, token, base_url, summaries) do
       rulesets = Enum.filter(rulesets, &ruleset_applies?(&1, base_branch, default_branch))
-      {:ok, rulesets |> Enum.flat_map(&required_checks_from/1) |> Enum.uniq()}
+      {:ok, {rulesets |> Enum.flat_map(&required_checks_from/1) |> Enum.uniq(), merge_gate(rulesets)}}
     end
   end
 
@@ -924,9 +937,9 @@ defmodule Aiur.GitHub.CiReadiness do
   defp maybe_add(issues, false, _issue), do: issues
 
   defp result(base_branch, workflow_paths, workflow_check_names, required_checks, issues),
-    do: result(base_branch, workflow_paths, workflow_check_names, required_checks, [], issues)
+    do: result(base_branch, workflow_paths, workflow_check_names, required_checks, [], %{require_last_push_approval?: false}, issues)
 
-  defp result(base_branch, workflow_paths, workflow_check_names, required_checks, required_check_identities, issues) do
+  defp result(base_branch, workflow_paths, workflow_check_names, required_checks, required_check_identities, merge_gate, issues) do
     %{
       ready?: issues == [],
       base_branch: base_branch,
@@ -934,8 +947,23 @@ defmodule Aiur.GitHub.CiReadiness do
       workflow_check_names: workflow_check_names,
       required_checks: required_checks,
       required_check_identities: required_check_identities,
+      merge_gate: merge_gate,
       issues: issues
     }
+  end
+
+  defp merge_gate(rulesets) do
+    %{require_last_push_approval?: Enum.any?(rulesets, &ruleset_requires_last_push_approval?/1)}
+  end
+
+  defp ruleset_requires_last_push_approval?(ruleset) do
+    ruleset
+    |> Map.get("rules", [])
+    |> List.wrap()
+    |> Enum.any?(fn rule ->
+      Map.get(rule, "type") == "pull_request" and
+        get_in(rule, ["parameters", "require_last_push_approval"]) == true
+    end)
   end
 
   defp format_issue(:base_branch_missing), do: "configured base branch does not exist"

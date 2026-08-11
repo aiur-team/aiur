@@ -129,7 +129,8 @@ defmodule Aiur.Init.Templates do
     [
       "  github:",
       github[:repo] && "    repo: #{github[:repo]}",
-      github[:bot_account] && "    bot_account: #{github[:bot_account]}"
+      github[:bot_account] && "    bot_account: #{github[:bot_account]}",
+      github[:review_bot_account] && "    review_bot_account: #{github[:review_bot_account]}"
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")

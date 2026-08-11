@@ -45,6 +45,18 @@ defmodule Aiur.GitHub.CiReadinessTest do
     assert readiness.required_checks == ["ci / required"]
   end
 
+  test "carries the applicable last-push approval gate into readiness" do
+    readiness =
+      CiReadiness.evaluate(
+        "develop",
+        [{".github/workflows/ci.yml", @workflow}],
+        ["ci / required"],
+        %{require_last_push_approval?: true}
+      )
+
+    assert readiness.merge_gate.require_last_push_approval?
+  end
+
   test "rejects a required check pinned to a different integration" do
     readiness =
       CiReadiness.evaluate("develop", [{".github/workflows/ci.yml", @workflow}], [

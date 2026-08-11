@@ -57,6 +57,22 @@ defmodule Aiur.Init.GitHubTest do
   end
 
   describe "ensure_ci_readiness/3" do
+    test "warns when a last-push gate has only one bot identity" do
+      parent = self()
+      io = %{puts: fn message -> send(parent, {:io_puts, message}) end, confirm: fn _, _ -> false end}
+
+      readiness = %{ready?: true, base_branch: "main", required_checks: [], merge_gate: %{require_last_push_approval?: true}}
+      deps = %{check_ci_readiness: fn _ -> {:ok, readiness} end, detect_repo: fn -> "o/r" end}
+      tracker = %{kind: "github", repo: "o/r", bot_account: "push-bot", review_bot_account: nil, human_mergers: []}
+
+      assert :ok = GitHub.ensure_ci_readiness(io, deps, tracker)
+      assert_received {:io_puts, _readiness}
+      assert_received {:io_puts, warning}
+      assert warning =~ "three principals"
+      assert warning =~ "review_bot_account"
+      assert warning =~ "credential-split-merge-gate.md"
+    end
+
     test "keeps CI-readiness administration access separate from the daemon token" do
       io = %{puts: fn _ -> :ok end, confirm: fn _, _ -> false end}
       deps = %{check_ci_readiness: fn _ -> {:error, {:github, :http, %{status: 403}}} end, detect_repo: fn -> "o/r" end}

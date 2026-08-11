@@ -55,6 +55,7 @@ defmodule Aiur.Init.GitHub do
         case persist_operator_assessment(readiness, tracker) do
           :ok ->
             io.puts.(CiReadiness.format(readiness))
+            maybe_warn_identity_gate(io, tracker, readiness)
             :ok
 
           {:error, reason} ->
@@ -65,6 +66,7 @@ defmodule Aiur.Init.GitHub do
         case persist_operator_assessment(readiness, tracker) do
           :ok ->
             io.puts.("CI readiness setup error: " <> CiReadiness.format(readiness))
+            maybe_warn_identity_gate(io, tracker, readiness)
             maybe_scaffold_ci(io, deps, readiness)
             {:error, "Repository CI readiness is incomplete. Configure the reported gate, then run aiur init again."}
 
@@ -78,6 +80,24 @@ defmodule Aiur.Init.GitHub do
   end
 
   def ensure_ci_readiness(_io, _deps, _tracker), do: :ok
+
+  defp maybe_warn_identity_gate(io, tracker, readiness) do
+    if get_in(readiness, [:merge_gate, :require_last_push_approval?]) == true and identity_gate_incomplete?(tracker) do
+      io.puts.(
+        "WARNING: this repository requires approval from someone other than the last pusher. " <>
+          "The credential split needs three principals: a push bot, a distinct review bot " <>
+          "(tracker.github.review_bot_account), and a human in tracker.github.human_mergers. " <>
+          "See docs/security/credential-split-merge-gate.md."
+      )
+    end
+  end
+
+  defp identity_gate_incomplete?(tracker) do
+    blank?(tracker[:bot_account]) or blank?(tracker[:review_bot_account]) or
+      not is_list(tracker[:human_mergers]) or tracker[:human_mergers] == []
+  end
+
+  defp blank?(value), do: not (is_binary(value) and String.trim(value) != "")
 
   defp resolve_repo_for_readiness(%{repo: repo} = tracker, _deps) when is_binary(repo), do: tracker
   defp resolve_repo_for_readiness(tracker, deps), do: Map.put(tracker, :repo, deps.detect_repo.())

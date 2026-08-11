@@ -8,7 +8,7 @@ tracker:
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
 {{TRACKER_PROVIDER}}
-  # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
+  # provider block (filled above): github {repo, label_prefix, bot_account, review_bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
   # bot_account is an IDENTITY, not a credential: the daemon authenticates with a
   # GitHub App installation token when GITHUB_APP_ID/GITHUB_APP_INSTALLATION_ID and
   # the App private key are set (preferred; see docs/security/daemon-token-posture.md),
@@ -22,6 +22,8 @@ tracker:
   # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
   # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
   # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
+  # review_bot_account is the distinct bot that reviews the push when the target ruleset requires
+  # last-push approval. See docs/security/credential-split-merge-gate.md.
 
 # === Coding agents ===
 agent:
