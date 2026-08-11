@@ -47,13 +47,13 @@ class GithubProjectionCase(ValidatorCase):
             "dependency_edges": [{"ticket_id": "BO-002", "depends_on": "BO-001"}],
             "observed_labels": {
                 "example/repo:operator-dashboard": ["build-order"],
-                "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
-                "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
+                "BO-001": ["agent:todo", "build-lane:platform", "phase:1", "complexity:3", "model:codex"],
+                "BO-002": ["agent:todo", "build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
             "projected_labels": {
                 "example/repo:operator-dashboard": ["build-order"],
-                "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
-                "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
+                "BO-001": ["agent:todo", "build-lane:platform", "phase:1", "complexity:3", "model:codex"],
+                "BO-002": ["agent:todo", "build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
             "expected_issue_titles": {
                 "example/repo:operator-dashboard": "example/repo:operator-dashboard",

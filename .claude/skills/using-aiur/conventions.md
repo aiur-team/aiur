@@ -21,6 +21,23 @@ When you act on a comment, mention the classification briefly in the workpad or
 action log, for example: `Acting on review from @its-everdred (CODEOWNER for
 src/lib/aiur/opencode/)`.
 
+## Ticket creation state
+
+When issue-creation authority exists, every new issue must leave the same
+creation request with one explicit disposition:
+
+- executable work carries the configured lifecycle prefix's todo label
+  (`agent:todo` in the standard workflow);
+- deliberately parked work carries `needs-triage` or `human:todo`, with the
+  reason in its body;
+- Build Order roots carry `build-order`, and `Epic:` containers are explicitly
+  named as containers. These are hierarchy, not executable work, so they do not
+  receive `agent:todo`.
+
+Set the label in the `gh issue create --label ...` command or API create
+payload. Do not create an unlabelled issue and rely on a follow-up edit: a
+failed or forgotten second request recreates the invisible-ticket gap.
+
 ## Out-of-scope findings
 
 While working on an issue, if you find a separate, real problem that is **not**
@@ -28,12 +45,11 @@ required to ship the current task, do not silently fix it inside the same PR.
 Instead:
 
 1. Open a new GitHub issue describing the finding (clear title, evidence,
-   suggested fix if obvious).
-2. Label the new issue `needs-triage` so the user triages it before any agent
-   picks it up.
-3. Reference the issue you're currently working on inside the new issue (e.g.,
+   suggested fix if obvious) and apply `needs-triage` in that same creation
+   request so the user triages it before any agent picks it up.
+2. Reference the issue you're currently working on inside the new issue (e.g.,
    "surfaced while working on #N").
-4. Add a comment on your current issue with a link to the new issue (e.g.,
+3. Add a comment on your current issue with a link to the new issue (e.g.,
    "out-of-scope finding filed as #M").
 
 Keep the current PR focused on the originally-scoped change.

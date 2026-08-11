@@ -78,6 +78,15 @@ Classify every discovered finding before creating work:
   create or dispatch an individual feature-run ticket.
 - **Optimization:** preserve evidence for a separately authorized run.
 
+When creation is authorized, encode that classification in the same creation
+request. Executable work receives the configured lifecycle todo label
+(`agent:todo` in the standard workflow); deferred work receives `needs-triage`
+or `human:todo` and states why. Build Order roots (`build-order`) and explicitly
+named `Epic:` containers are hierarchy and remain undispatched. Never split
+issue creation and disposition across two requests: failure of the label edit
+otherwise leaves an invisible ticket that looks complete to the findings
+ledger but can never be claimed.
+
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
 ticket/component, why acceptance is not blocked, and suggested disposition.

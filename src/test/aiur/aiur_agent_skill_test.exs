@@ -47,6 +47,21 @@ defmodule Aiur.AiurAgentSkillTest do
     assert content =~ "Do NOT open a new PR"
   end
 
+  test "ticket creation paths assign dispatch or an explicit exemption" do
+    conventions = one_line(File.read!(Path.join(@repo_root, ".claude/skills/using-aiur/conventions.md")))
+    run_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-run/SKILL.md")))
+    build_skill = one_line(File.read!(Path.join(@repo_root, ".claude/skills/aiur-build/SKILL.md")))
+
+    for source <- [conventions, run_skill, build_skill] do
+      assert source =~ "agent:todo"
+      assert source =~ "same creation"
+    end
+
+    assert conventions =~ "needs-triage"
+    assert run_skill =~ "Build Order roots"
+    assert build_skill =~ "Build Order root"
+  end
+
   test "Codex backend surface: prompt-referenced skills resolve through symlinks" do
     for skill <- ~w(aiur-agent using-aiur) do
       assert_codex_skill_symlink_resolves_to_claude(skill)

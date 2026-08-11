@@ -5,12 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from validation_common import Report, checked_string_list, nonempty_string
-
-
-LIFECYCLE_SLUGS = {
-    "todo", "in-progress", "human-review", "rework", "merging", "done",
-    "paused",
-}
+from validation_header import LIFECYCLE_SLUGS
 
 
 def _validate_label_sets(
@@ -37,6 +32,16 @@ def _validate_label_sets(
         label.casefold() for label in projection.get("forbidden_labels", [])
         if nonempty_string(label)
     }
+    normalized_lifecycle_prefix = lifecycle_prefix.casefold()
+    lifecycle_labels = {
+        f"{normalized_lifecycle_prefix}:{slug}" for slug in LIFECYCLE_SLUGS
+    }
+    routing_prefixes = tuple(
+        f"{prefix}:" for prefix in (
+            normalized_lifecycle_prefix, "human", "model", "phase",
+            "complexity", "build-lane",
+        )
+    )
     expected: dict[str, set[str]] = {}
     if nonempty_string(root_id):
         expected[str(root_id)] = (
@@ -75,11 +80,7 @@ def _validate_label_sets(
             )
         forbidden_hits = sorted(actual & forbidden)
         forbidden_hits.extend(sorted(
-            actual
-            & {
-                f"{lifecycle_prefix.casefold()}:{slug}"
-                for slug in LIFECYCLE_SLUGS
-            }
+            actual & (lifecycle_labels - {f"{normalized_lifecycle_prefix}:todo"})
         ))
         forbidden_hits = sorted(set(forbidden_hits))
         if forbidden_hits:
@@ -91,12 +92,6 @@ def _validate_label_sets(
             report.error(
                 f"github_reconciliation root-only label present for {identity}: {root_label}"
             )
-        routing_prefixes = tuple(
-            f"{prefix.casefold()}:" for prefix in (
-                lifecycle_prefix, "human", "model", "phase", "complexity",
-                "build-lane",
-            )
-        )
         unexpected = {
             label for label in actual
             if label.startswith(routing_prefixes) and label not in expected_labels

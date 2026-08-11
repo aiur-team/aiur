@@ -39,6 +39,14 @@ Ask only for a material permission that is neither stated nor safely
 discoverable. Never infer merge, destructive-change, or external issue-creation
 authority.
 
+Whenever that authority permits a new ticket, give it an explicit disposition
+in the same creation request. Executable work carries the configured lifecycle
+todo label (`agent:todo` in the standard workflow). Deliberately parked work
+carries `needs-triage` or `human:todo` plus the reason. Build Order roots carry
+`build-order`, and `Epic:` containers remain undispatched hierarchy. Never
+create first and label second: a failed follow-up is a well-formed but invisible
+ticket that no worker can claim.
+
 Then act on that envelope. When a fix is reversible and its rollback is one
 line, execute and report — do not ask. A correct diagnosis held while waiting
 for permission that was never required is pure lost time: in the 2026-07/08 run
@@ -452,6 +460,10 @@ Alongside that, the meta-analysis of the work itself (proven repeatedly in the
    references, status, and ticket number (or `ticket: null` until it is filed).
    A finding without a ticket is not a completed retrospective:
    `aiurdev findings --unfiled` is the gate before treating the review as done.
+   A filed executable finding must receive `agent:todo` in the same creation
+   request; an intentionally deferred finding receives `needs-triage` and its
+   reason instead. A ticket URL without either disposition is still unfiled for
+   scheduling purposes;
    Raw state remains host-local; periodically run `mkdir -p docs/executor &&
    aiurdev findings --digest > docs/executor/open-findings.md`, inspect the
    regenerated file, and commit it to share the digest between machines;

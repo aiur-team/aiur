@@ -33,6 +33,13 @@ LABEL_KEYS = {
     "build_order", "workstreams", "phases", "complexities",
     "required_ticket_labels", "forbidden_labels",
 }
+LIFECYCLE_SLUGS = {
+    "todo", "in-progress", "human-review", "rework", "merging", "done",
+    "paused",
+}
+RESERVED_ROUTING_PREFIXES = {
+    "human", "model", "phase", "complexity", "build-lane",
+}
 
 
 def validate_identity(data: dict[str, Any], report: Report) -> None:
@@ -106,7 +113,9 @@ def validate_boundary(data: dict[str, Any], report: Report) -> list[str]:
     return critical_path
 
 
-def validate_label_projection(data: dict[str, Any], report: Report) -> dict[str, Any]:
+def validate_label_projection(
+    data: dict[str, Any], report: Report, lifecycle_prefix: str | None = None,
+) -> dict[str, Any]:
     projection = strict_object(data.get("label_projection"), "label_projection", LABEL_KEYS, report)
     if projection is None:
         return {}
@@ -141,7 +150,45 @@ def validate_label_projection(data: dict[str, Any], report: Report) -> dict[str,
         report.error(
             "label_projection requires and forbids the same labels: " + ", ".join(overlap)
         )
+    dispatch_prefix = lifecycle_todo_prefix(required)
+    if dispatch_prefix is None:
+        report.error(
+            "label_projection.required_ticket_labels must contain exactly one "
+            "lifecycle todo label"
+        )
+    elif lifecycle_prefix is not None and dispatch_prefix != lifecycle_prefix.casefold():
+        report.error(
+            "label_projection lifecycle todo label must equal "
+            f"{lifecycle_prefix}:todo"
+        )
+    if dispatch_prefix is not None:
+        forbidden_required = sorted(
+            {label.casefold() for label in required}
+            & {
+                f"{dispatch_prefix}:{slug}"
+                for slug in LIFECYCLE_SLUGS - {"todo"}
+            }
+        )
+        if forbidden_required:
+            report.error(
+                "label_projection.required_ticket_labels contains non-todo "
+                "lifecycle labels: " + ", ".join(forbidden_required)
+            )
     return projection
+
+
+def lifecycle_todo_prefix(required_labels: object) -> str | None:
+    if not isinstance(required_labels, list):
+        return None
+    prefixes = [
+        label.split(":", 1)[0].casefold()
+        for label in required_labels
+        if nonempty_string(label)
+        and label.count(":") == 1
+        and label.rsplit(":", 1)[1].casefold() == "todo"
+        and label.split(":", 1)[0].casefold() not in RESERVED_ROUTING_PREFIXES
+    ]
+    return prefixes[0] if len(prefixes) == 1 else None
 
 
 def validate_external_gates(data: dict[str, Any], report: Report) -> set[str]:

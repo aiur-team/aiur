@@ -18,6 +18,7 @@ from validation_github_evidence import (
 )
 from validation_github_approved import ApprovedIssueExpectations
 from validation_github_labels import _validate_label_sets
+from validation_header import lifecycle_todo_prefix
 from validation_publication_authority import PublicationAuthority
 
 
@@ -110,7 +111,11 @@ def validate_reconciliation(
     )
     lifecycle_prefix = (
         publication_authority.tracker_lifecycle_label_prefix
-        if publication_authority is not None else "agent"
+        if publication_authority is not None
+        else lifecycle_todo_prefix(
+            data.get("label_projection", {}).get("required_ticket_labels")
+            if isinstance(data.get("label_projection"), dict) else None
+        ) or "agent"
     )
     _validate_label_sets(
         data, by_id, receipt.get("projected_labels"), "projected",
