@@ -138,8 +138,6 @@ defmodule Aiur.Config do
     |> Enum.sort()
   end
 
-  defp referenced_env_names(_workflow), do: Enum.sort(@implicit_env_vars)
-
   defp collect_env_names(acc, value) when is_map(value) and not is_struct(value) do
     Enum.reduce(value, acc, fn {key, nested}, acc ->
       acc |> collect_env_names(key) |> collect_env_names(nested)
