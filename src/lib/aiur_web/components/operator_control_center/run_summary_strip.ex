@@ -551,7 +551,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       end)
 
     case parts do
-      [] -> "#{consumer.consumer} · #{consumer_cost(consumer)} #{resource_unit("graphql", consumer_cost(consumer))}"
+      # No per-budget split to report — a snapshot published before costs were
+      # tracked. Calls are the one figure that is true of both budgets; naming a
+      # unit here would be inventing one.
+      [] -> "#{consumer.consumer} · #{Map.get(consumer, :total, 0)} calls"
       parts -> Enum.join([consumer.consumer | parts], " · ")
     end
   end
