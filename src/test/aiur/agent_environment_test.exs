@@ -366,6 +366,19 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
       assert is_list(real_gh) or real_gh == false
 
+      assert {~c"AIUR_GITHUB_LABEL_PREFIX", ~c"agent"} =
+               List.keyfind(env, ~c"AIUR_GITHUB_LABEL_PREFIX", 0)
+
+      custom_env =
+        AgentEnvironment.workspace_env("/work/aiur/440",
+          base_branch: "integration",
+          repo_url: repo_url,
+          label_prefix: "team"
+        )
+
+      assert {~c"AIUR_GITHUB_LABEL_PREFIX", ~c"team"} =
+               List.keyfind(custom_env, ~c"AIUR_GITHUB_LABEL_PREFIX", 0)
+
       assert {~c"AIUR_REAL_GIT", real_git} = List.keyfind(env, ~c"AIUR_REAL_GIT", 0)
       assert is_list(real_git) or real_git == false
 
@@ -443,6 +456,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
       assert prefix =~ "AIUR_REAL_GH=\"$(command -v gh"
+      assert prefix =~ "AIUR_GITHUB_LABEL_PREFIX='agent'"
       assert prefix =~ "AIUR_REAL_GIT=\"$(command -v git"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
@@ -451,6 +465,15 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
       refute prefix =~ "elixir/mise.toml"
+
+      custom_prefix =
+        AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
+          base_branch: "integration",
+          repo_url: repo_url,
+          label_prefix: "team"
+        )
+
+      assert custom_prefix =~ "AIUR_GITHUB_LABEL_PREFIX='team'"
 
       {paths, 0} =
         System.cmd("sh", ["-lc", "#{prefix}; printf '%s|%s|%s|%s' \"$HEX_HOME\" \"$MIX_HOME\" \"$npm_config_cache\" \"$AIUR_REPO_STATE_PATH\""], env: [{"HOME", "/remote-home"}])

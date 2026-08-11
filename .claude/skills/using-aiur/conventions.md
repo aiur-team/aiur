@@ -30,19 +30,20 @@ creation request with one explicit disposition:
   (`agent:todo` in the standard workflow);
 - deliberately parked work carries `needs-triage` or `human:todo`, with the
   reason in its body;
-- Build Order roots carry `build-order`, and `Epic:` containers are explicitly
-  named as containers. These are hierarchy, not executable work, so they do not
-  receive `agent:todo`.
+- Build Order roots carry `build-order`; containers named `Epic:` carry `epic`.
+  These are hierarchy, not executable work, so they do not receive
+  `agent:todo`.
 
-Set the label in the `gh issue create --label ...` command or API create
-payload. Do not create an unlabelled issue and rely on a follow-up edit: a
-failed or forgotten second request recreates the invisible-ticket gap.
+Set the label in the `gh issue create --label ...` command. Do not create an
+unlabelled issue and rely on a follow-up edit: a failed or forgotten second
+request recreates the invisible-ticket gap.
 
 This one is enforced, not just asked for. Aiur puts a wrapper on the `gh` your
 workspace resolves, and an `issue create` carrying none of those dispositions is
-refused before it reaches GitHub. The wrapper reads the `--label` flags only, so
-an issue created through `gh api` or another client is still yours to label
-correctly.
+refused before it reaches GitHub. Direct REST or GraphQL issue creation is also
+refused; use `gh issue create --label ...` so the disposition can be checked.
+The repository's pre-tool hook applies the same rule to Executor Bash calls and
+recognizable non-`gh` GitHub issue creation.
 
 ## Out-of-scope findings
 

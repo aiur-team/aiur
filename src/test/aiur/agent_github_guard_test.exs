@@ -260,11 +260,115 @@ defmodule Aiur.AgentGitHubGuardTest do
     end
   end
 
+  test "marker, terminal, malformed, and unknown prefixed labels are not dispositions", context do
+    for label <- ~w(agent:watch agent:paused agent:done agent:not-a-state team:todo :todo Agent:todo) do
+      File.rm_rf!(context.calls)
+
+      assert {output, 78} =
+               run_guard(context, ["issue", "create", "--title", "x", "--label", label])
+
+      assert output =~ "no dispatch disposition"
+      refute File.exists?(context.calls)
+    end
+  end
+
+  test "the configured lifecycle prefix is the only prefixed todo disposition", context do
+    assert {"ok\n", 0} =
+             run_guard(context, ["issue", "create", "--title", "x", "--label", "team:todo"], AIUR_GITHUB_LABEL_PREFIX: "team")
+
+    assert {output, 78} =
+             run_guard(context, ["issue", "create", "--title", "x", "--label", "agent:todo"], AIUR_GITHUB_LABEL_PREFIX: "team")
+
+    assert output =~ "no dispatch disposition"
+  end
+
+  test "root repository flags cannot bypass disposition validation", context do
+    for arguments <- [
+          ["-R", "owner/repo", "issue", "create", "--title", "x"],
+          ["--repo=owner/repo", "issue", "create", "--title", "x"],
+          ["issue", "--repo", "owner/repo", "create", "--title", "x"]
+        ] do
+      assert {output, 78} = run_guard(context, arguments)
+      assert output =~ "no dispatch disposition"
+    end
+  end
+
   test "the disposition guard does not touch other issue subcommands", context do
     assert {"ok\n", 0} = run_guard(context, ["issue", "comment", "1670", "--body", "hi"])
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--add-label", "agent:done"])
 
     assert File.read!(context.calls) =~ "issue comment"
+  end
+
+  test "direct gh api issue creation never reaches GitHub", context do
+    for arguments <- [
+          ["api", "repos/owner/repo/issues", "-f", "title=x"],
+          ["api", "/repos/owner/repo/issues/?page=1", "-XPOST"],
+          ["api", "repos/owner/repo/issues", "-X=POST"],
+          ["api", "https://api.github.com/repos/owner/repo/issues#new", "--method", "POST"],
+          ["api", "repos/owner/repo/issues", "-X", "POST"],
+          ["api", "repos/owner/repo/issues", "--method=POST"],
+          ["api", "repos/owner/repo/issues", "--input", "payload.json"]
+        ] do
+      File.rm_rf!(context.calls)
+      assert {output, 78} = run_guard(context, arguments)
+      assert output =~ "use `gh issue create --label ...`"
+      refute File.exists?(context.calls)
+    end
+  end
+
+  test "direct GraphQL issue creation never reaches GitHub", context do
+    assert {output, 78} =
+             run_guard(context, [
+               "api",
+               "graphql",
+               "-f",
+               "query=mutation { createIssue(input: {repositoryId: \"R\", title: \"x\"}) { issue { id } } }"
+             ])
+
+    assert output =~ "use `gh issue create --label ...`"
+    refute File.exists?(context.calls)
+  end
+
+  test "file-backed GraphQL issue creation never reaches GitHub", context do
+    mutation = Path.join(context.workspace, "mutation.graphql")
+    query = Path.join(context.workspace, "query.graphql")
+    File.write!(mutation, "mutation { createIssue(input: {}) { issue { id } } }")
+    File.write!(query, "query { viewer { login } }")
+
+    assert {output, 78} =
+             run_guard(context, ["api", "graphql", "-F", "query=@#{mutation}"])
+
+    assert output =~ "use `gh issue create --label ...`"
+    refute File.exists?(context.calls)
+
+    assert {"ok\n", 0} = run_guard(context, ["api", "graphql", "-F", "query=@#{query}"])
+    assert File.read!(context.calls) == "api graphql\n"
+
+    for field <- ["-Fquery=@#{mutation}", "-F=query=@#{mutation}"] do
+      File.rm_rf!(context.calls)
+      assert {output, 78} = run_guard(context, ["api", "graphql", field])
+      assert output =~ "use `gh issue create --label ...`"
+      refute File.exists?(context.calls)
+    end
+  end
+
+  test "opaque GraphQL input is rejected because its disposition cannot be validated", context do
+    assert {output, 78} = run_guard(context, ["api", "graphql", "--input", "-"])
+    assert output =~ "use `gh issue create --label ...`"
+    refute File.exists?(context.calls)
+  end
+
+  test "read-only issue API calls remain available", context do
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues"])
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "-X", "GET", "-f", "state=open"])
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "-X=GET", "-f", "state=open"])
+
+    assert File.read!(context.calls) == String.duplicate("api repos/owner/repo/issues\n", 3)
   end
 
   test "installer rejects symlinked runtime directories", context do

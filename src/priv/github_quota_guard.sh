@@ -2,13 +2,20 @@
 
 # Fleet guard for agent-launched `gh` calls. The daemon prepends this wrapper's
 # directory to agent PATH and supplies the real executable separately.
+validate_only=0
+if [ "${1:-}" = --validate-issue-command ]; then
+  validate_only=1
+  shift
+fi
+
 real_gh=${AIUR_REAL_GH:-}
-if [ -z "$real_gh" ] || [ ! -x "$real_gh" ]; then
+if [ "$validate_only" -eq 0 ] && { [ -z "$real_gh" ] || [ ! -x "$real_gh" ]; }; then
   printf '%s\n' 'aiur: real gh executable is unavailable' >&2
   exit 127
 fi
 
 state_root=${AIUR_REPO_STATE_PATH:-}
+dispatch_prefix=${AIUR_GITHUB_LABEL_PREFIX:-agent}
 quota_dir=
 agent_quota_dir=${AIUR_AGENT_QUOTA_STATE_PATH:-}
 events_file=
@@ -27,33 +34,117 @@ fi
 direction=read
 track=1
 resource=unknown
+direct_issue_api=0
 
-case "${1:-} ${2:-}" in
+command_name=
+subcommand_name=
+skip_root_value=0
+for arg in "$@"; do
+  if [ "$skip_root_value" -eq 1 ]; then
+    skip_root_value=0
+    continue
+  fi
+  case "$arg" in
+    -R|--repo|--hostname) skip_root_value=1; continue ;;
+    -R?*|--repo=*|--hostname=*) continue ;;
+  esac
+  if [ -z "$command_name" ]; then
+    command_name=$arg
+  else
+    subcommand_name=$arg
+    break
+  fi
+done
+command_key="$command_name $subcommand_name"
+
+case "$command_key" in
   "api rate_limit") resource=none ;;
   "api graphql"|"api /graphql")
     resource=graphql
+    prior=
     for arg in "$@"; do
       case "$arg" in *mutation*|*Mutation*) direction=write ;; esac
+      case "$arg" in *createIssue*) direct_issue_api=1 ;; esac
+
+      graphql_file=
+      case "$prior" in --input) graphql_file=$arg ;; esac
+      case "$arg" in
+        --input=*) graphql_file=${arg#--input=} ;;
+        query=@*|-Fquery=@*|-F=query=@*|-fquery=@*|-f=query=@*|--field=query=@*|--raw-field=query=@*) graphql_file=${arg#*@} ;;
+      esac
+
+      if [ -n "$graphql_file" ]; then
+        case "$graphql_file" in
+          -|@-) direct_issue_api=1 ;;
+          @*) graphql_file=${graphql_file#@} ;;
+        esac
+        if [ -f "$graphql_file" ]; then
+          if grep -q 'createIssue' "$graphql_file" 2>/dev/null; then direct_issue_api=1; fi
+        else
+          direct_issue_api=1
+        fi
+      fi
+      prior=$arg
     done
     ;;
   "api "*)
     resource=core
     prior=
+    api_endpoint=
+    api_mutates=0
+    api_method=
     for arg in "$@"; do
+      api_path=$arg
+      case "$api_path" in
+        https://api.github.com/*) api_path=/${api_path#https://api.github.com/} ;;
+      esac
+      api_path=${api_path%%\?*}
+      api_path=${api_path%%\#*}
+      api_path=${api_path%/}
+
       if [ "$prior" = -X ] || [ "$prior" = --method ]; then
-        case "$arg" in GET|get) ;; *) direction=write ;; esac
+        case "$arg" in
+          GET|get) api_method=get ;;
+          POST|post) direction=write; api_method=post ;;
+          *) direction=write ;;
+        esac
       fi
+      case "$api_path" in
+        /repos/*/*/issues|repos/*/*/issues) api_endpoint=$arg ;;
+      esac
       case "$arg" in
-        -XPOST|-XPATCH|-XPUT|-XDELETE|--method=POST|--method=PATCH|--method=PUT|--method=DELETE|-f|-F|--field|--raw-field|--field=*|--raw-field=*) direction=write ;;
+        -XGET|-X=GET|--method=GET|-Xget|-X=get|--method=get) api_method=get ;;
+        -XPOST|-X=POST|--method=POST|-Xpost|-X=post|--method=post) direction=write; api_method=post ;;
+        -f|-F|--field|--raw-field|--input|--field=*|--raw-field=*|--input=*) direction=write; api_mutates=1 ;;
+        -XPATCH|-XPUT|-XDELETE|--method=PATCH|--method=PUT|--method=DELETE) direction=write ;;
       esac
       prior=$arg
     done
+    if [ -n "$api_endpoint" ] && {
+      [ "$api_method" = post ] || { [ -z "$api_method" ] && [ "$api_mutates" -eq 1 ]; }
+    }; then
+      direct_issue_api=1
+    fi
     ;;
   "pr view"|"pr list"|"pr status"|"pr checks"|"pr diff"|"issue view"|"issue list"|"issue status"|"run view"|"run list"|"run watch"|"search "*) ;;
   "pr "*|"issue "*|"run rerun"|"run cancel"|"run delete"|"label create"|"label delete"|"label edit") direction=write ;;
   "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none ;;
   "auth "*|"extension "*) track=0 ;;
 esac
+
+if [ "$direct_issue_api" -eq 1 ]; then
+  printf '%s\n' 'aiur: refusing direct GitHub issue API creation (#1793).' >&2
+  printf '%s\n' 'aiur: use `gh issue create --label ...` so the dispatch disposition is explicit and enforceable.' >&2
+  exit 78
+fi
+
+dispatch_disposition() {
+  label=$1
+  case "$label" in
+    "$dispatch_prefix:todo"|human:todo|needs-triage|build-order|epic) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
 # #1793: a ticket created without a lifecycle label is undispatchable AND
 # invisible — no agent can claim it and it appears in no state-scoped view, so
@@ -63,7 +154,7 @@ esac
 # exists cannot be un-filed. Hierarchy that is deliberately not runnable
 # (Build Order roots, epics) and deliberately parked work still pass by naming
 # their own disposition.
-if [ "${1:-} ${2:-}" = "issue create" ]; then
+if [ "$command_key" = "issue create" ]; then
   disposition=0
   prior=
   for arg in "$@"; do
@@ -80,19 +171,24 @@ if [ "${1:-} ${2:-}" = "issue create" ]; then
     prior=$arg
     [ -n "$label_value" ] || continue
     # `gh` accepts repeated flags and comma-separated lists in one flag.
-    case ",$label_value," in
-      *,agent:*|*,human:*|*,needs-triage,*|*,build-order,*|*,epic,*) disposition=1 ;;
-    esac
+    old_ifs=$IFS
+    IFS=,
+    for label in $label_value; do
+      if dispatch_disposition "$label"; then disposition=1; fi
+    done
+    IFS=$old_ifs
   done
 
   if [ "$disposition" -eq 0 ]; then
     printf '%s\n' 'aiur: refusing `gh issue create` with no dispatch disposition (#1793).' >&2
     printf '%s\n' 'aiur: an unlabelled ticket is undispatchable and invisible, so it reads as no work left.' >&2
-    printf '%s\n' 'aiur: pass --label agent:todo for executable work, or --label needs-triage / human:todo' >&2
+    printf 'aiur: pass --label %s:todo for executable work, or --label needs-triage / human:todo\n' "$dispatch_prefix" >&2
     printf '%s\n' 'aiur: to park it deliberately, or --label build-order / epic for a non-runnable container.' >&2
     exit 78
   fi
 fi
+
+if [ "$validate_only" -eq 1 ]; then exit 0; fi
 
 consumer=unattributed
 if [ -n "${AIUR_AGENT_WORKSPACE:-}" ]; then
