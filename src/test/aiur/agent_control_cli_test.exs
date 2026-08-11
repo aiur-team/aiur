@@ -1476,6 +1476,21 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
+
+      # #1731: the old wording asserted a cause ("daemon may be
+      # scheduler-saturated") that was measurably wrong — the run queue was 1
+      # and one process was head-of-line blocked. The replacement must not just
+      # drop the false claim, it must print the evidence an operator would
+      # otherwise gather by hand. `Process.info/2` reads a suspended process
+      # fine, which is exactly why it works when the daemon will not answer.
+      assert output =~ "Orchestrator mailbox="
+
+      # The current function is the load-bearing half: it names *where* the
+      # process is parked. A suspended gen_server reports `:waiting` in
+      # `:sys.suspend_loop/6`, which pinpoints the stall the same way the live
+      # capture in #1731 pinpointed `:gen.do_call/4`.
+      assert output =~ "status=waiting in :sys.suspend_loop/6"
+      assert output =~ "means one process is stuck, not that the host is busy"
     after
       :sys.resume(pid)
     end
