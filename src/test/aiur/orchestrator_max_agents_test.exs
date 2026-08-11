@@ -56,6 +56,33 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
 
       assert %{max: 10, session_override?: false} = Orchestrator.max_concurrent_agents(name)
     end
+
+    test "runtime override remains the static cap while adaptive capacity is lower" do
+      Application.put_env(:aiur, :max_concurrent_agents_override, 6)
+
+      name = Module.concat(__MODULE__, :OverrideWithAdaptiveCapacity)
+      pid = start_orchestrator(name)
+
+      :sys.replace_state(pid, fn state ->
+        %{
+          state
+          | effective_concurrent_agents: 4,
+            capacity_hold: %{signal: :envelope},
+            dispatch_capacity_sample: %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
+        }
+      end)
+
+      assert %{
+               max: 6,
+               effective: 4,
+               available: 4,
+               capacity_hold: %{signal: :envelope},
+               load: 0.7,
+               load_threshold: 1.0,
+               schedulers: 16,
+               session_override?: true
+             } = Orchestrator.max_concurrent_agents(name)
+    end
   end
 
   describe "set_max_concurrent_agents/2 (runtime absolute set)" do
