@@ -64,7 +64,12 @@ defmodule Aiur.Claude.HookSettings do
   has not bound a port yet. Mirrors `Aiur.PaneManager`'s control-url construction.
   """
   @spec dashboard_url() :: String.t() | nil
-  def dashboard_url, do: Aiur.HttpServer.base_url()
+  def dashboard_url do
+    case Application.get_env(:aiur, :dashboard_url_fun) do
+      dashboard_url_fun when is_function(dashboard_url_fun, 0) -> dashboard_url_fun.()
+      _ -> nil
+    end
+  end
 
   defp slug(identifier), do: Paths.sanitize(identifier)
 
