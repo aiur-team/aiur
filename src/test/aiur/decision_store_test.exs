@@ -4,6 +4,7 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.EventsDigest
+
   alias Aiur.{
     AlertFeed,
     Boot,
@@ -17,6 +18,7 @@ defmodule Aiur.DecisionStoreTest do
     ExecutorCommandAttention,
     ExecutorCommandCLI
   }
+
   alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
@@ -1458,8 +1460,7 @@ defmodule Aiur.DecisionStoreTest do
     refused = [
       {"human_required authority", %{"authority" => "human_required"}, {:authority, :human_required}},
       {"an irreversible outcome", %{"reversibility" => "irreversible"}, {:reversibility, :irreversible}},
-      {"a partially reversible outcome", %{"reversibility" => "partially_reversible"},
-       {:reversibility, :partially_reversible}}
+      {"a partially reversible outcome", %{"reversibility" => "partially_reversible"}, {:reversibility, :partially_reversible}}
     ]
 
     for {label, override, expected} <- refused do
