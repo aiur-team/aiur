@@ -258,6 +258,9 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   defp write_route_get(opts) do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
     headers =
       cond do
         headers = Keyword.get(opts, :headers) -> headers
