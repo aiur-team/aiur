@@ -629,9 +629,11 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminal = DispatchPolicy.terminal_state_set()
 
     if DispatchPolicy.should_dispatch_issue?(issue, state, active, terminal) do
-      state
-      |> Dispatcher.dispatch_issue(issue)
-      |> maybe_record_comment_rework_resume(issue)
+      Dispatcher.maybe_choose_under_load(state, [issue], fn admitted, [admitted_issue] ->
+        admitted
+        |> Dispatcher.dispatch_issue(admitted_issue)
+        |> maybe_record_comment_rework_resume(admitted_issue)
+      end)
     else
       Orchestrator.schedule_poll_cycle_start()
       state

@@ -47,6 +47,24 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
     }
   end
 
+  defp admission_probes(load) do
+    %{
+      memory_mb: :unavailable,
+      memory_threshold_mb: nil,
+      fd_sample: :unavailable,
+      runnable: :unavailable,
+      run_queue_threshold: nil,
+      schedulers: 16,
+      load: load,
+      load_threshold: 1.5,
+      build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+      provider_backends: [],
+      github_quota: :available,
+      cpu_snapshot: :unavailable,
+      target: nil
+    }
+  end
+
   describe "maybe_route_pr_anchored_or_legacy/5" do
     test "untrusted comments perform no PR fetch and return state unchanged" do
       # untrusted event -> legacy path -> transition_comment_issue_to_rework -> {:skip, :untrusted_author}
@@ -70,13 +88,34 @@ defmodule Aiur.Orchestrator.PrAnchoredTest do
         pr_anchored_dispatch_fun: fn current_state, issue ->
           send(parent, {:pr_anchored_dispatch, issue})
           current_state
-        end
+        end,
+        admission_probes_fun: fn -> admission_probes(0.0) end
       }
 
       result = PrAnchored.maybe_route_pr_anchored_or_legacy(state, "42", :github, event, 1)
 
-      assert result == state
+      assert result.capacity_hold == nil
       assert_receive {:pr_anchored_dispatch, %{id: "pr-42", identifier: "42", state: "pr-watch"}}
+    end
+
+    test "holds an open human PR dispatch above the load threshold" do
+      parent = self()
+      pr = %{"number" => 42, "title" => "My PR", "body" => "", "head" => %{"ref" => "feat/my-feature"}}
+
+      event = %{
+        author_trusted?: true,
+        open_pull_request_fetcher: fn _n -> {:ok, pr} end,
+        pr_anchored_dispatch_fun: fn state, _issue ->
+          send(parent, :pr_anchored_dispatched)
+          state
+        end,
+        admission_probes_fun: fn -> admission_probes(25.0) end
+      }
+
+      result = PrAnchored.maybe_route_pr_anchored_or_legacy(base_state(), "42", :github, event, 1)
+
+      refute_received :pr_anchored_dispatched
+      assert %{signal: :load, measured: 25.0, threshold: 24.0} = result.capacity_hold
     end
 
     test "falls through to legacy when fetcher returns nil (closed/missing PR)" do

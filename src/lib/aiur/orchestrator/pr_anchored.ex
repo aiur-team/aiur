@@ -131,12 +131,14 @@ defmodule Aiur.Orchestrator.PrAnchored do
   # Dispatch a PR-anchored unit through the slot-respecting worker path. We gate
   # on the global agent cap (available_slots) explicitly — should_dispatch_issue?
   # cannot be reused because its candidate_issue? requires a configured active
-  # state, which a synthetic PR unit deliberately is not. Then route straight to
-  # do_dispatch_issue/4 (thrash budget + worker-slot dispatch), SKIPPING
-  # revalidate_issue_for_dispatch/3: there is no tracker issue to revalidate, and
-  # routing already proved the PR is open. When the cap is full or the unit is
-  # already running/claimed, log and skip — the next comment re-triggers (no
-  # agent: label is touched and no persistent state is written).
+  # state, which a synthetic PR unit deliberately is not. The host-pressure
+  # admission wrapper still applies: a PR comment starts new work and must not
+  # bypass the same load gate that protects ordinary ticket dispatch. The terminal
+  # dispatch skips revalidate_issue_for_dispatch/3 because there is no tracker
+  # issue to revalidate and routing already proved the PR is open. When the cap
+  # is full or the unit is already running/claimed, log and skip — the next
+  # comment re-triggers (no agent: label is touched and no persistent state is
+  # written).
   defp dispatch_pr_anchored_unit(%State{} = state, %Issue{} = issue, source, event) do
     cond do
       Map.has_key?(state.running, issue.id) or MapSet.member?(state.claimed, issue.id) ->
@@ -152,9 +154,17 @@ defmodule Aiur.Orchestrator.PrAnchored do
       true ->
         Logger.info("#{source} routed PR-anchored (no agent:* label, no aiur/<pr#> PR): pr=#{issue.identifier} head_ref=#{issue.pr_head_ref}")
 
-        pr_anchored_dispatch_fun(event).(state, issue)
+        Dispatcher.maybe_choose_under_load(
+          state,
+          [issue],
+          fn admitted, [pr_issue] -> pr_anchored_dispatch_fun(event).(admitted, pr_issue) end,
+          pr_anchored_admission_opts(event)
+        )
     end
   end
+
+  defp pr_anchored_admission_opts(%{admission_probes_fun: fun}) when is_function(fun, 0), do: [admission_probes_fun: fun]
+  defp pr_anchored_admission_opts(_event), do: []
 
   # The terminal spawn for a PR-anchored unit. Defaults to the real
   # do_dispatch_issue/4 (slot-respecting worker dispatch). Tests inject a

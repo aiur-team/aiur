@@ -24,7 +24,8 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.Orchestrator.StatusReason
+  alias Aiur.{SystemLoad}
+  alias Aiur.Orchestrator.{DispatchPolicy, StatusReason}
   alias Aiur.Webhooks.ModePresenter
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -56,10 +57,17 @@ defmodule Aiur.AgentControlCLI do
   def status(opts \\ []) do
     guarded("status", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
+      load_sample = local_load_sample()
 
-      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
+      # Read and show host pressure before touching the daemon. The control RPC
+      # is expected to be slow precisely when the machine is overloaded, so a
+      # timeout must not hide the load signal that explains it.
+      print_load_status(load_sample)
+
+      with {statuses, capacity} when is_list(statuses) and is_map(capacity) <-
+             Orchestrator.status_with_capacity(Orchestrator, timeout_ms),
            :ok <- print_global_pause_banner(opts, timeout_ms) do
-        print_status_report(statuses, opts)
+        print_status_report(statuses, capacity, load_sample, opts)
       else
         {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
         error -> report_control_query_failure(error, "status", timeout_ms)
@@ -67,7 +75,7 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  defp print_status_report(statuses, opts) do
+  defp print_status_report(statuses, capacity, load_sample, opts) do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -76,7 +84,7 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.filter(&visible_status_row?(&1, tracker_states))
     |> print_status_table()
 
-    print_capacity_status(Orchestrator.max_concurrent_agents())
+    print_capacity_status(capacity, load_sample)
 
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
@@ -760,27 +768,84 @@ defmodule Aiur.AgentControlCLI do
   defp status_reason_suffix(%{reason: reason}) when not is_nil(reason), do: " (#{StatusReason.render(reason)})"
   defp status_reason_suffix(_status), do: ""
 
-  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
+  defp print_capacity_status(
+         %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
+         load_sample
+       )
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
+    capacity = Map.merge(capacity, load_sample)
     IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
   end
 
-  defp print_capacity_status(_capacity), do: :ok
+  defp print_capacity_status(_capacity, _load_sample), do: :ok
+
+  defp local_load_sample do
+    threshold = Config.max_load_average()
+
+    %{
+      load: SystemLoad.avg1(),
+      load_threshold: threshold,
+      schedulers: System.schedulers_online()
+    }
+  rescue
+    _error -> %{load: :unavailable, load_threshold: nil, schedulers: nil}
+  end
 
   defp capacity_binding_label({:config_cap, _detail}), do: "config max_concurrent_agents"
   defp capacity_binding_label({:envelope, detail}), do: "AIMD envelope, effective cap=#{detail}"
   defp capacity_binding_label({:paused_reservations, detail}), do: "paused reservations=#{detail}"
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
+
+  defp capacity_binding_label({:admission, %{signal: :load, measured: load, threshold: threshold}}),
+    do: "load, load=#{load} threshold=#{threshold}"
+
+  defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, _detail}), do: "none"
 
+  # A persisted non-load hold is still authoritative: it is the admission
+  # decision the daemon made for resources the CLI cannot sample locally. Load
+  # is different — status samples it directly, so always derive its binding
+  # from that same current sample rather than showing a stale prior decision.
+  defp capacity_binding(%{capacity_hold: %{signal: signal} = hold}) when signal != :load,
+    do: {:admission, hold}
+
   defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
-    if capacity_binding_ticket_supply?(capacity) do
-      {:ticket_supply, 0}
-    else
-      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
+    case load_gate_binding(capacity) do
+      nil ->
+        if capacity_binding_ticket_supply?(capacity) do
+          {:ticket_supply, 0}
+        else
+          capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
+        end
+
+      binding ->
+        binding
     end
   end
+
+  defp load_gate_binding(%{load: load, load_threshold: threshold, schedulers: schedulers})
+       when is_integer(schedulers) and schedulers > 0 do
+    case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
+      {:hold, reason} -> {:admission, reason}
+      :dispatch -> nil
+    end
+  end
+
+  defp load_gate_binding(_capacity), do: nil
+
+  defp print_load_status(%{load: load, load_threshold: threshold, schedulers: schedulers})
+       when is_number(load) and is_number(threshold) and is_integer(schedulers) and schedulers > 0 do
+    suffix =
+      case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
+        {:hold, _reason} -> " (binding: load)"
+        :dispatch -> ""
+      end
+
+    IO.puts("LOAD #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")
+  end
+
+  defp print_load_status(_capacity), do: :ok
 
   defp capacity_binding_with_capacity(capacity, max, effective, configured, occupied) do
     cond do

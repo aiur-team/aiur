@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, RepoBase}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, State}
 
   defp capture_todo(ids, opts) do
     parent = self()
@@ -124,7 +124,14 @@ defmodule Aiur.AgentControlCLITest do
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
 
     :sys.replace_state(pid, fn state ->
-      %{state | running: %{}, last_polled_issues: %{}, session_max_concurrent_agents: nil}
+      %{
+        state
+        | running: %{},
+          last_polled_issues: %{},
+          session_max_concurrent_agents: nil,
+          capacity_hold: nil,
+          dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
+      }
     end)
 
     on_exit(fn ->
@@ -585,6 +592,70 @@ defmodule Aiur.AgentControlCLITest do
 
     envelope_output = capture_io(fn -> AgentControlCLI.status() end)
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
+  end
+
+  test "status mirrors a held load admission and prints its raw sample", %{orchestrator: pid} do
+    local_schedulers = System.schedulers_online()
+    local_load = local_schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
+    probes = %{
+      memory_mb: :unavailable,
+      memory_threshold_mb: nil,
+      fd_sample: :unavailable,
+      runnable: :unavailable,
+      run_queue_threshold: nil,
+      schedulers: local_schedulers,
+      load: local_load,
+      load_threshold: 1.5,
+      build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+      provider_backends: [],
+      github_quota: :available,
+      cpu_snapshot: :unavailable,
+      target: nil
+    }
+
+    assert {:hold, %{signal: :load, measured: ^local_load, threshold: threshold}} =
+             DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true))
+
+    assert threshold == local_schedulers * 1.5
+
+    sampled =
+      :sys.get_state(pid)
+      |> Map.merge(%{max_concurrent_agents: 10, effective_concurrent_agents: 10, last_polled_issues: %{"queued" => queued_issue()}})
+      |> Dispatcher.maybe_choose_under_load(
+        [queued_issue()],
+        fn state, _issues ->
+          send(self(), :dispatched)
+          state
+        end,
+        admission_probes_fun: fn -> probes end
+      )
+
+    refute_received :dispatched
+    assert %{signal: :load, measured: ^local_load, threshold: ^threshold} = sampled.capacity_hold
+    :sys.replace_state(pid, fn _state -> sampled end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert output =~ "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
+
+    :sys.replace_state(pid, fn _state -> %{sampled | capacity_hold: nil} end)
+
+    fallback_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert fallback_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+
+    assert fallback_output =~
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
   end
 
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
@@ -1294,11 +1365,23 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status distinguishes a bounded query timeout", %{orchestrator: pid} do
+    schedulers = System.schedulers_online()
+    load = schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
     :sys.suspend(pid)
 
     try do
       output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
 
+      assert output =~ "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} (binding: load)"
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; daemon may be scheduler-saturated"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     after

@@ -16,6 +16,15 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
     end
   end
 
+  describe "load_admission_reason/3" do
+    test "returns the exact binding details used by admission_gate" do
+      assert {:hold, %{signal: :load, measured: 25.0, threshold: 24.0}} =
+               DispatchPolicy.load_admission_reason(25.0, 1.5, 16)
+
+      assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16) == :dispatch
+    end
+  end
+
   describe "prewarm_gate/2" do
     test "matches the prewarm gate truth table" do
       assert DispatchPolicy.prewarm_gate(false, :building) == :dispatch
