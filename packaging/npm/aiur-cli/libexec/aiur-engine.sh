@@ -65,6 +65,83 @@ die() {
 
 engine_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
+# Extensible control commands live in their own shell fragments.  A fragment
+# owns its public usage text and parser, so adding one does not require an
+# additive edit to this engine's usage heredoc or dispatch case.
+registered_command_names=()
+registered_command_usage=()
+registered_command_handlers=()
+
+# These names are owned by the engine itself. Fragments cannot register one:
+# the static dispatcher would otherwise win while help advertised an unreachable
+# fragment command.
+reserved_control_command_names=(
+  __identity help -h -help --h --help --version --todo --only init findings
+  guard-pr-deletions ask asks --bg run status usage agents executor-answer
+  executor-escalate alerts watch executor-listen executor-emit
+  executor-subscribe executor-unsubscribe executor-subscriptions set pause
+  resume reset-budget message cleanup-stale stop
+)
+
+control_command_reserved?() {
+  local name="$1" reserved
+
+  for reserved in "${reserved_control_command_names[@]}"; do
+    [ "$reserved" = "$name" ] && return 0
+  done
+
+  return 1
+}
+
+register_control_command() {
+  local name="$1" usage_line="$2" handler="$3" index
+
+  control_command_reserved? "$name" && die "control command is reserved: $name"
+
+  for ((index = 0; index < ${#registered_command_names[@]}; index++)); do
+    [ "${registered_command_names[$index]}" != "$name" ] || die "duplicate control command: $name"
+  done
+
+  registered_command_names+=("$name")
+  registered_command_usage+=("$usage_line")
+  registered_command_handlers+=("$handler")
+}
+
+load_control_commands() {
+  local command_file
+
+  for command_file in "$engine_dir"/commands/*.sh; do
+    [ -r "$command_file" ] || continue
+    # shellcheck disable=SC1090
+    . "$command_file"
+  done
+}
+
+run_registered_command() {
+  local name="$1" index
+  shift
+
+  for ((index = 0; index < ${#registered_command_names[@]}; index++)); do
+    [ "${registered_command_names[$index]}" = "$name" ] || continue
+    "${registered_command_handlers[$index]}" "$@"
+    return $?
+  done
+
+  return 127
+}
+
+registered_control_command?() {
+  local name="$1" index
+
+  for ((index = 0; index < ${#registered_command_names[@]}; index++)); do
+    [ "${registered_command_names[$index]}" = "$name" ] && return 0
+  done
+
+  return 1
+}
+
+load_control_commands
+
 # --- distribution identity (per-instance: keyed by the aiur project root) -----
 
 # The aiur project root used to key this instance. AIUR_REPO_ROOT (set by the dev
@@ -316,12 +393,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
-       aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
        aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
        aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
-       aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
-       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
-       aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -343,6 +416,11 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
+
+  local usage_line
+  for usage_line in "${registered_command_usage[@]}"; do
+    printf '       %s\n' "$usage_line"
+  done
 }
 
 # --- one-shot: --version (no tmux) -------------------------------------------
@@ -2049,58 +2127,6 @@ cmd_agents() {
   run_control_rpc "Aiur.AgentControlCLI.agents()"
 }
 
-# `aiur commands` — read the dashboard's retained Decision projection without
-# exposing any dispatch or answer mutation path.
-cmd_commands() {
-  local filter="all" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
-
-  while [ "$#" -gt 0 ]; do
-    arg="$1"
-    case "$arg" in
-      --filter) [ "$#" -gt 1 ] || { echo "aiur: commands --filter requires a value" >&2; exit 64; }; shift; filter="$1" ;;
-      --filter=*) filter="${arg#--filter=}" ;;
-      --blocking) blocking=1 ;;
-      --ticket) [ "$#" -gt 1 ] || { echo "aiur: commands --ticket requires a value" >&2; exit 64; }; shift; ticket="$1" ;;
-      --ticket=*) ticket="${arg#--ticket=}" ;;
-      --search) [ "$#" -gt 1 ] || { echo "aiur: commands --search requires a value" >&2; exit 64; }; shift; search="$1" ;;
-      --search=*) search="${arg#--search=}" ;;
-      --cursor) [ "$#" -gt 1 ] || { echo "aiur: commands --cursor requires a value" >&2; exit 64; }; shift; cursor="$1" ;;
-      --cursor=*) cursor="${arg#--cursor=}" ;;
-      --limit) [ "$#" -gt 1 ] || { echo "aiur: commands --limit requires a value" >&2; exit 64; }; shift; limit="$1" ;;
-      --limit=*) limit="${arg#--limit=}" ;;
-      --json) json=1 ;;
-      -*) echo "aiur: commands received an unknown option: $arg" >&2; exit 64 ;;
-      *)
-        if [ -n "$decision_id" ]; then
-          echo "aiur: commands accepts at most one decision ID" >&2
-          exit 64
-        fi
-        decision_id="$arg"
-        ;;
-    esac
-    shift
-  done
-
-  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
-  [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
-  [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
-  [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
-
-  local opts="filter: :$filter"
-  [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
-  [ "$json" -eq 1 ] && opts="$opts, json: true"
-  [ -n "$limit" ] && opts="$opts, limit: $limit"
-  local key raw encoded
-  for key in decision_id ticket search cursor; do
-    raw="${!key}"
-    [ -n "$raw" ] || continue
-    encoded="$(printf '%s' "$raw" | base64 | tr -d '\n')"
-    opts="$opts, $key: Base.decode64!(\"$encoded\")"
-  done
-
-  run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
-}
-
 encode_control_value() {
   printf '%s' "$1" | base64 | tr -d '\n'
 }
@@ -2188,125 +2214,6 @@ cmd_executor_escalate() {
   opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
   opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
   run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
-}
-
-# `aiur units` — read the dashboard Units catalog through its own projection,
-# including non-running tickets in current-run membership.
-cmd_units() {
-  local scope="live" format="" json=0 arg condition condition_value condition_encoded conditions_literal=""
-  local -a conditions=() condition_values=()
-  while [ "$#" -gt 0 ]; do
-    arg="$1"
-    case "$arg" in
-      --scope) [ "$#" -gt 1 ] || { echo "aiur: units --scope requires a value" >&2; exit 64; }; shift; scope="$1" ;;
-      --scope=*) scope="${arg#--scope=}" ;;
-      --condition) [ "$#" -gt 1 ] || { echo "aiur: units --condition requires a value" >&2; exit 64; }; shift; conditions+=("$1") ;;
-      --condition=*) conditions+=("${arg#--condition=}") ;;
-      --format) [ "$#" -gt 1 ] || { echo "aiur: units --format requires a value" >&2; exit 64; }; shift; format="$1" ;;
-      --format=*) format="${arg#--format=}" ;;
-      --json) json=1 ;;
-      -*) echo "aiur: units received an unknown option: $arg" >&2; exit 64 ;;
-      *) echo "aiur: units does not accept positional arguments" >&2; exit 64 ;;
-    esac
-    shift
-  done
-
-  for condition in "${conditions[@]+"${conditions[@]}"}"; do
-    IFS=',' read -r -a condition_values <<< "$condition"
-    for condition_value in "${condition_values[@]+"${condition_values[@]}"}"; do
-      if [ -n "$conditions_literal" ]; then conditions_literal="$conditions_literal, "; fi
-      condition_encoded="$(printf '%s' "$condition_value" | base64 | tr -d '\n')"
-      conditions_literal="${conditions_literal}Base.decode64!(\"${condition_encoded}\")"
-    done
-  done
-
-  local scope_encoded
-  scope_encoded="$(printf '%s' "$scope" | base64 | tr -d '\n')"
-  local opts="scope: Base.decode64!(\"$scope_encoded\")"
-  [ -z "$conditions_literal" ] || opts="$opts, conditions: [$conditions_literal]"
-
-  if [ -n "$format" ]; then
-    local format_encoded
-    format_encoded="$(printf '%s' "$format" | base64 | tr -d '\n')"
-    opts="$opts, format: Base.decode64!(\"$format_encoded\")"
-  fi
-
-  [ "$json" -eq 1 ] && opts="$opts, json: true"
-  run_control_rpc "Aiur.AgentControlCLI.units([$opts])"
-}
-
-# `aiur build-orders` — read the dashboard Build Order projection without a
-# second GitHub or API derivation. A root selector switches from catalog to the
-# selected-root graph view.
-cmd_build_orders() {
-  local json=0 root="" arg
-
-  while [ "$#" -gt 0 ]; do
-    arg="$1"
-    case "$arg" in
-      --json) json=1 ;;
-      -*) echo "aiur: build-orders received an unknown option: $arg" >&2; exit 64 ;;
-      *)
-        if [ -n "$root" ]; then
-          echo "aiur: build-orders accepts at most one root" >&2
-          exit 64
-        fi
-        root="$arg"
-        ;;
-    esac
-    shift
-  done
-
-  local opts=""
-  [ "$json" -eq 1 ] && opts="json: true"
-
-  if [ -n "$root" ]; then
-    local encoded
-    encoded="$(printf '%s' "$root" | base64 | tr -d '\n')"
-    [ -n "$opts" ] && opts="$opts, "
-    opts="${opts}root: Base.decode64!(\"$encoded\")"
-  fi
-
-  run_control_rpc "Aiur.AgentControlCLI.build_orders([$opts])"
-}
-
-# `aiur analytics` — render the dashboard analytics projection for an explicit
-# time window. This is read-only and obtains the same durable telemetry snapshot
-# the page uses through the running node.
-cmd_analytics() {
-  local range="run" json=0 since="" until="" build_order="" has_build_order=0 arg
-
-  while [ "$#" -gt 0 ]; do
-    arg="$1"
-    case "$arg" in
-      --range) [ "$#" -gt 1 ] || { echo "aiur: analytics --range requires a value" >&2; exit 64; }; shift; range="$1" ;;
-      --range=*) range="${arg#--range=}" ;;
-      --since) [ "$#" -gt 1 ] || { echo "aiur: analytics --since requires a value" >&2; exit 64; }; shift; since="$1" ;;
-      --since=*) since="${arg#--since=}" ;;
-      --until) [ "$#" -gt 1 ] || { echo "aiur: analytics --until requires a value" >&2; exit 64; }; shift; until="$1" ;;
-      --until=*) until="${arg#--until=}" ;;
-      --build-order) [ "$#" -gt 1 ] || { echo "aiur: analytics --build-order requires a value" >&2; exit 64; }; shift; build_order="$1"; has_build_order=1 ;;
-      --build-order=*) build_order="${arg#--build-order=}"; has_build_order=1 ;;
-      --json) json=1 ;;
-      -*) echo "aiur: analytics received an unknown option: $arg" >&2; exit 64 ;;
-      *) echo "aiur: analytics does not accept positional arguments" >&2; exit 64 ;;
-    esac
-    shift
-  done
-
-  case "$range" in run|full) ;; *) echo "aiur: analytics --range accepts run or full" >&2; exit 64 ;; esac
-  [ "$has_build_order" -eq 0 ] || [[ "$build_order" =~ ^[0-9]+$ ]] || { echo "aiur: analytics --build-order expects a numeric ticket ID" >&2; exit 64; }
-
-  local opts="range: :$range" key raw encoded
-  [ "$json" -eq 1 ] && opts="$opts, json: true"
-  for key in since until build_order; do
-    raw="${!key}"
-    [ -n "$raw" ] || continue
-    encoded="$(printf '%s' "$raw" | base64 | tr -d '\n')"
-    opts="$opts, $key: Base.decode64!(\"$encoded\")"
-  done
-
-  run_control_rpc "Aiur.AgentControlCLI.analytics([$opts])"
 }
 
 # `aiur alerts` — newline-delimited structured alert feed from persisted
@@ -2782,10 +2689,6 @@ aiur_engine_main() {
       shift
       cmd_agents "$@"
       ;;
-    commands)
-      shift
-      cmd_commands "$@"
-      ;;
     executor-answer)
       shift
       cmd_executor_answer "$@"
@@ -2793,18 +2696,6 @@ aiur_engine_main() {
     executor-escalate)
       shift
       cmd_executor_escalate "$@"
-      ;;
-    units)
-      shift
-      cmd_units "$@"
-      ;;
-    build-orders)
-      shift
-      cmd_build_orders "$@"
-      ;;
-    analytics)
-      shift
-      cmd_analytics "$@"
       ;;
     alerts)
       shift
@@ -2861,6 +2752,12 @@ aiur_engine_main() {
       dispatch_run "$@"
       ;;
     *)
+      if registered_control_command? "$cmd"; then
+        shift
+        run_registered_command "$cmd" "$@"
+        return $?
+      fi
+
       # a path/config argument is a run; anything else is a usage error
       if [ -e "$cmd" ]; then
         dispatch_run "$@"

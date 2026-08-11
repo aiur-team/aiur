@@ -518,56 +518,6 @@ defmodule AiurEngineTest do
              "RPC:Aiur.AgentControlCLI.todo([\"11\", \"12\", \"13\"], only: true, emit_exit_marker: true)"
   end
 
-  test "commands routes filters and encoded detail arguments through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_commands dec:42 --filter resolved --json --limit 10|,
-        []
-      )
-
-    assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
-  end
-
-  test "units routes page-visible filters through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
-        []
-      )
-
-    assert out =~
-             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"dW5maW5pc2hlZA==\"), conditions: [Base.decode64!(\"cXVldWVk\"), Base.decode64!(\"YWxlcnQ=\")], json: true])"
-  end
-
-  test "units forwards the human layout format" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
-        []
-      )
-
-    assert out =~
-             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\"), format: Base.decode64!(\"cmVjb3Jkcw==\")])"
-
-    {err, 64} = run_sourced_engine(~s|cmd_units --format|, [])
-    assert err =~ "units --format requires a value"
-  end
-
-  test "bare units invocation routes an empty condition list" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
-        []
-      )
-
-    assert out =~ "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"
-  end
-
-  test "commands reports missing option values as usage errors" do
-    {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
-    assert out =~ "commands --filter requires a value"
-  end
-
   test "executor-answer safely routes one option answer through the control rpc" do
     {out, 0} =
       run_sourced_engine(
@@ -652,46 +602,6 @@ defmodule AiurEngineTest do
     assert answer =~ "Aiur.AgentControlCLI.executor_answer(["
     assert answer =~ "custom_response: Base.decode64!"
     assert escalate =~ "Aiur.AgentControlCLI.executor_escalate(["
-  end
-
-  test "build-orders routes its selector and JSON mode through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
-        []
-      )
-
-    assert out =~ "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
-  end
-
-  test "build-orders rejects multiple roots" do
-    {out, 64} = run_sourced_engine(~s|cmd_build_orders 1363 1467|, [])
-    assert out =~ "build-orders accepts at most one root"
-  end
-
-  test "analytics routes an explicit window through the control rpc" do
-    {out, 0} =
-      run_sourced_engine(
-        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_analytics --range full --since 2026-08-09T10:00:00Z --until 2026-08-09T11:00:00Z --build-order 1595 --json|,
-        []
-      )
-
-    assert out =~ "RPC:Aiur.AgentControlCLI.analytics([range: :full, json: true"
-    assert out =~ "since: Base.decode64!"
-    assert out =~ "build_order: Base.decode64!"
-  end
-
-  test "analytics rejects malformed launcher arguments before an RPC" do
-    for {argv, message} <- [
-          {~s|--range week|, "analytics --range accepts run or full"},
-          {~s|--build-order not-a-ticket|, "analytics --build-order expects a numeric ticket ID"},
-          {~s|--build-order ''|, "analytics --build-order expects a numeric ticket ID"},
-          {~s|--since|, "analytics --since requires a value"},
-          {~s|--unknown|, "analytics received an unknown option"}
-        ] do
-      {out, 64} = run_sourced_engine("cmd_analytics #{argv}", [])
-      assert out =~ message
-    end
   end
 
   test "todo control rpc propagates live success and semantic failure codes" do

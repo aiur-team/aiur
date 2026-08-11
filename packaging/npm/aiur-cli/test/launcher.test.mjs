@@ -246,6 +246,41 @@ test("--version skips tmux preflight and still execs the launcher", () => {
   expect(capture).toContain("ARGS:--version");
 });
 
+test("packed install includes and dispatches command fragments", () => {
+  const packageRoot = fileURLToPath(new URL("..", import.meta.url));
+  const npmCache = path.join(root, "npm-cache");
+  const pack = spawnSync("npm", ["pack", "--pack-destination", root], {
+    cwd: packageRoot,
+    encoding: "utf8",
+    env: { ...process.env, npm_config_cache: npmCache },
+  });
+
+  expect(pack.status).toBe(0);
+  const tarball = path.join(root, readdirSync(root).find((entry) => entry.endsWith(".tgz")));
+  const installRoot = path.join(root, "installed");
+  const install = spawnSync("npm", ["install", "--ignore-scripts", "--omit=optional", "--no-package-lock", "--prefix", installRoot, tarball], {
+    encoding: "utf8",
+    env: { ...process.env, npm_config_cache: npmCache },
+  });
+
+  expect(install.status).toBe(0);
+
+  const engine = path.join(installRoot, "node_modules", "aiur-cli", "libexec", "aiur-engine.sh");
+  const dispatch = spawnSync(
+    "bash",
+    [
+      "-c",
+      'set -euo pipefail; source "$1"; run_control_rpc() { printf "RPC:%s\\n" "$1"; }; aiur_engine_main units --scope unfinished --json',
+      "bash",
+      engine,
+    ],
+    { encoding: "utf8" },
+  );
+
+  expect(dispatch.status).toBe(0);
+  expect(dispatch.stdout).toContain('Aiur.AgentControlCLI.run_command("units", Aiur.UnitsCLI');
+});
+
 // Builds a minimal fake OTP release whose `elixir` records its argv, so the
 // REAL launcher's init routing can be exercised end to end.
 function setupRealLauncher() {

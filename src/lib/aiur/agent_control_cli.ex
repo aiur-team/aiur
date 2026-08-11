@@ -4,11 +4,8 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.{
     AgentChat,
     AlertFeed,
-    AnalyticsCLI,
     Asks,
     BuildGate,
-    BuildOrdersCLI,
-    CommandsCLI,
     Config,
     ExecutorCommandCLI,
     ExecutorEvents,
@@ -17,8 +14,7 @@ defmodule Aiur.AgentControlCLI do
     PauseContainment,
     ProviderMeterProjection,
     RepoBase,
-    SupervisionHealth,
-    UnitsCLI
+    SupervisionHealth
   }
 
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
@@ -184,9 +180,10 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  @spec commands(keyword()) :: :ok
-  def commands(opts \\ []) do
-    guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
+  @doc false
+  @spec run_command(String.t(), module(), keyword()) :: :ok
+  def run_command(name, module, opts \\ []) when is_binary(name) and is_atom(module) and is_list(opts) do
+    guarded(name, fn -> module.run(opts) |> exit_marker() end)
   end
 
   @spec executor_answer(keyword()) :: :ok
@@ -197,21 +194,6 @@ defmodule Aiur.AgentControlCLI do
   @spec executor_escalate(keyword()) :: :ok
   def executor_escalate(opts) when is_list(opts) do
     guarded("executor-escalate", fn -> ExecutorCommandCLI.escalate(opts) |> exit_marker() end)
-  end
-
-  @spec units(keyword()) :: :ok
-  def units(opts \\ []) do
-    UnitsCLI.run(opts) |> exit_marker()
-  end
-
-  @spec build_orders(keyword()) :: :ok
-  def build_orders(opts \\ []) do
-    guarded("build-orders", fn -> BuildOrdersCLI.run(opts) |> exit_marker() end)
-  end
-
-  @spec analytics(keyword()) :: :ok
-  def analytics(opts \\ []) do
-    guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
