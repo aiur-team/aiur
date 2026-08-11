@@ -363,6 +363,13 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "streamdeck-user")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "streamdeck-password")
+
+    Application.put_env(
+      :aiur,
+      AiurWeb.Endpoint,
+      Keyword.put(Application.get_env(:aiur, AiurWeb.Endpoint, []), :dashboard_auth_required, true)
+    )
+
     AiurWeb.Endpoint.config_change([dashboard_auth_required: true], [])
 
     assert call(conn(:get, "/api/v1/streamdeck/grid")).status == 401

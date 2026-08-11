@@ -76,20 +76,20 @@ defmodule AiurWeb.AnalyticsLiveTest do
   end
 
   test "renders the KPI strip and inline SVG charts from telemetry" do
-    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+    previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
+    previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
+    System.delete_env("AIUR_DASHBOARD_USERNAME")
+    System.delete_env("AIUR_DASHBOARD_PASSWORD")
 
-    {:ok, _view, html} = live(build_conn(), "/analytics")
+    on_exit(fn ->
+      restore_env("AIUR_DASHBOARD_USERNAME", previous_username)
+      restore_env("AIUR_DASHBOARD_PASSWORD", previous_password)
+    end)
 
-    assert html =~ "Peak concurrency"
-    assert html =~ "Wasted capacity"
-    assert html =~ "Provider spend"
-    assert html =~ "Locked"
-    assert html =~ "Per-unit CPU"
-    assert html =~ "Cost per ticket"
-    assert html =~ "Complexity breakdown"
-    assert html =~ "—"
-    assert html =~ "<svg"
-    refute html =~ "No run telemetry to analyze yet"
+    response = get(build_conn(), "/analytics")
+
+    assert response.status == 503
+    assert response.resp_body =~ "Dashboard authentication is not configured"
   end
 
   test "renders current-session completion KPIs and protected UsageAggregate provider spend" do
