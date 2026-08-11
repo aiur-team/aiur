@@ -29,14 +29,14 @@ defmodule Aiur.GitHub.CiReadiness do
           | {:unavailable, term()}
 
   @type result :: %{
-          ready?: boolean(),
-          base_branch: String.t(),
-          workflow_paths: [String.t()],
-          workflow_check_names: [String.t()],
-          required_checks: [String.t()],
-          required_check_identities: [%{name: String.t(), app_id: integer() | nil}],
-          merge_gate: %{require_last_push_approval?: boolean()},
-          issues: [issue()]
+          required(:ready?) => boolean(),
+          required(:base_branch) => String.t(),
+          required(:workflow_paths) => [String.t()],
+          required(:workflow_check_names) => [String.t()],
+          required(:required_checks) => [String.t()],
+          required(:required_check_identities) => [%{name: String.t(), app_id: integer() | nil}],
+          optional(:merge_gate) => %{require_last_push_approval?: boolean()},
+          required(:issues) => [issue()]
         }
 
   @spec check(keyword()) :: {:ok, result()} | {:error, term()}
