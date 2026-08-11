@@ -395,12 +395,17 @@ defmodule AiurWeb.WebhookRunbookTest do
 
     test "every /api/v1 GET route is probed, not merely its controller" do
       # The controller-level pin above is too coarse to catch a *route* added to a
-      # controller the list already reaches. That is not hypothetical: it happened
-      # twice on this branch. `GET /api/v1/:issue_identifier` and
-      # `GET /api/v1/decisions/:decision_id` are both real handlers answering 200
-      # with fleet data, and both went unprobed while their controllers were
-      # covered by sibling paths — so the guard printed `exposure is scoped` with
-      # an over-broad rule publishing agent and decision reads.
+      # controller the list already reaches. That is not hypothetical:
+      # `GET /api/v1/decisions/:decision_id` is a real handler answering 200 with
+      # decision data, and it went unprobed while `DecisionApiController` was
+      # covered by sibling paths — the guard printed `exposure is scoped` while an
+      # over-broad rule would have published the decision detail read.
+      #
+      # Note how thin the margin is on the route that is covered. Nothing probes
+      # `/api/v1/1`-style paths deliberately; `GET /api/v1/:issue_identifier` is
+      # reached only because `/api/v1/github` happens to bind `issue_identifier`
+      # to "github". That entry reads like it is about the webhook. This pin is
+      # what keeps that incidental coverage from being deleted unnoticed.
       #
       # GET routes specifically: those are what an attacker who learns the
       # hostname reaches for, and what the guard can safely probe.
