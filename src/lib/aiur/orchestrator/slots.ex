@@ -28,11 +28,11 @@ defmodule Aiur.Orchestrator.Slots do
           {:ok, map()} | {:error, term()}
   def adjust_max_concurrent_agents(server, delta) when is_integer(delta) do
     with {:ok, pid} <- resolve_control_server(server) do
-      if canonical_orchestrator?(pid) do
-        apply_runtime_max_concurrent_agents(pid, fn current -> max(current + delta, 1) end)
-      else
-        control_api_call(pid, {:adjust_max_concurrent_agents, delta})
-      end
+      apply_control_update(
+        pid,
+        {:adjust_max_concurrent_agents, delta},
+        fn current -> max(current + delta, 1) end
+      )
     end
   end
 
@@ -44,11 +44,7 @@ defmodule Aiur.Orchestrator.Slots do
           {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(server, next) when is_integer(next) and next > 0 do
     with {:ok, pid} <- resolve_control_server(server) do
-      if canonical_orchestrator?(pid) do
-        apply_runtime_max_concurrent_agents(pid, fn _current -> next end)
-      else
-        control_api_call(pid, {:set_max_concurrent_agents, next})
-      end
+      apply_control_update(pid, {:set_max_concurrent_agents, next}, fn _current -> next end)
     end
   end
 
@@ -124,6 +120,14 @@ defmodule Aiur.Orchestrator.Slots do
 
   defp canonical_orchestrator?(pid),
     do: pid == Process.whereis(Aiur.Orchestrator)
+
+  defp apply_control_update(pid, request, update_fun) do
+    if canonical_orchestrator?(pid) do
+      apply_runtime_max_concurrent_agents(pid, update_fun)
+    else
+      control_api_call(pid, request)
+    end
+  end
 
   defp apply_runtime_max_concurrent_agents(pid, update_fun) do
     next = Config.update_max_concurrent_agents_override(update_fun)
