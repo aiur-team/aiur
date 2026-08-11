@@ -10,6 +10,10 @@ defmodule Aiur.OperatorSkills do
   @type mode :: :symlink | :copy
   @type harness :: :claude | :codex
 
+  # Written into every copied skill so a later run can tell an installation it
+  # made from an unrelated directory that merely occupies the same path.
+  @marker ".aiur-operator-skill"
+
   @harnesses %{
     claude: %{directory: ".claude/skills", executable: "claude"},
     codex: %{directory: ".codex/skills", executable: "codex"}
@@ -33,6 +37,10 @@ defmodule Aiur.OperatorSkills do
   @doc "The operator skills and their collision-safe global names."
   @spec skills() :: %{String.t() => String.t()}
   def skills, do: @skills
+
+  @doc "The provenance marker a copy install leaves inside each skill directory."
+  @spec marker_filename() :: String.t()
+  def marker_filename, do: @marker
 
   @doc "Harnesses that can accept a global skill installation on this machine."
   @spec detect_harnesses(keyword()) :: [harness()]
@@ -160,8 +168,27 @@ defmodule Aiur.OperatorSkills do
     end
   end
 
-  defp destination_status(destination, _source, :copy, _replace_links?) do
-    if File.exists?(destination) or match?({:ok, _}, File.lstat(destination)), do: :existing, else: :create
+  # A copy carries no link target to identify it, so provenance has to be
+  # written down. Only a directory holding our marker naming this same skill is
+  # ours; anything else occupying the path is the operator's and is skipped, not
+  # counted as a kept operator skill.
+  defp destination_status(destination, source, :copy, _replace_links?) do
+    cond do
+      installed_copy?(destination, Path.basename(source)) -> :existing
+      occupied?(destination) -> {:skip, :occupied}
+      true -> :create
+    end
+  end
+
+  defp installed_copy?(destination, skill) do
+    case File.read(Path.join(destination, @marker)) do
+      {:ok, contents} -> String.trim(contents) == skill
+      {:error, _reason} -> false
+    end
+  end
+
+  defp occupied?(destination) do
+    File.exists?(destination) or match?({:ok, _}, File.lstat(destination))
   end
 
   defp symlink_status(target, destination, source, replace_links?) do
@@ -191,15 +218,17 @@ defmodule Aiur.OperatorSkills do
     File.mkdir_p(Path.dirname(destination))
 
     try do
-      case File.cp_r(source, temporary) do
-        {:ok, _copied} ->
-          case File.rename(temporary, destination) do
-            :ok -> :ok
-            {:error, reason} -> {:error, {reason, destination}}
-          end
-
-        {:error, reason, _path} ->
-          {:error, {reason, destination}}
+      # The marker goes in before the rename, so a destination never exists
+      # without the provenance that later identifies it as ours.
+      with {:ok, _copied} <- File.cp_r(source, temporary),
+           :ok <- File.write(Path.join(temporary, @marker), Path.basename(source) <> "\n") do
+        case File.rename(temporary, destination) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {reason, destination}}
+        end
+      else
+        {:error, reason, _path} -> {:error, {reason, destination}}
+        {:error, reason} -> {:error, {reason, destination}}
       end
     after
       File.rm_rf(temporary)

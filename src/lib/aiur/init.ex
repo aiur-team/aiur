@@ -276,7 +276,7 @@ defmodule Aiur.Init do
   end
 
   defp skip_reason(:link_elsewhere), do: "an existing link there already links elsewhere"
-  defp skip_reason(:occupied), do: "a file or directory is already there"
+  defp skip_reason(:occupied), do: "something Aiur didn't install is already there"
   defp skip_reason({:unreadable, reason}), do: "it couldn't be read (#{inspect(reason)})"
   defp skip_reason(other), do: inspect(other)
 

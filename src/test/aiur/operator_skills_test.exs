@@ -46,6 +46,38 @@ defmodule Aiur.OperatorSkillsTest do
     end
   end
 
+  test "copy mode recognises only its own earlier install as kept", %{home: home} do
+    assert {:ok, first} = OperatorSkills.install(:copy, [:claude], home: home, source_root: @source_root)
+    assert length(first.created) == map_size(OperatorSkills.skills())
+
+    # Provenance is written down, because a copy has no link target to prove it.
+    for %{destination: destination, skill: skill} <- first.created do
+      assert File.read!(Path.join(destination, OperatorSkills.marker_filename())) |> String.trim() == skill
+    end
+
+    assert {:ok, second} = OperatorSkills.install(:copy, [:claude], home: home, source_root: @source_root)
+    assert second.created == []
+    assert second.skipped == []
+    assert length(second.existing) == map_size(OperatorSkills.skills())
+  end
+
+  test "copy mode skips an unrelated directory instead of counting it as kept", %{home: home} do
+    destination = Path.join([home, ".claude", "skills", "aiur-run"])
+    File.mkdir_p!(destination)
+    File.write!(Path.join(destination, "SKILL.md"), "the operator's own skill")
+
+    assert {:ok, report} = OperatorSkills.install(:copy, [:claude], home: home, source_root: @source_root)
+
+    # Never counted as a kept operator skill -- it was never ours.
+    assert report.existing == []
+    assert [%{destination: ^destination, reason: :occupied, skill: "aiur-run"}] = report.skipped
+
+    # And the rest still install, leaving the operator's directory alone.
+    assert length(report.created) == map_size(OperatorSkills.skills()) - 1
+    assert File.read!(Path.join(destination, "SKILL.md")) == "the operator's own skill"
+    refute File.exists?(Path.join(destination, OperatorSkills.marker_filename()))
+  end
+
   test "one blocked destination does not abort the other skills", %{home: home} do
     destination = Path.join([home, ".claude", "skills", "aiur-run"])
     File.mkdir_p!(destination)
