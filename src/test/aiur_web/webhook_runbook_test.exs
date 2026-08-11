@@ -464,6 +464,32 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
+    test "every dashboard route is probed, not merely a sample of them" do
+      # The three pins above all stop at `@api_prefix`. The acceptance criterion
+      # does not: it names *the dashboard* first, and the dashboard half of the
+      # list was never enumerated — it is six hand-written paths that happen to
+      # cover five of seven LiveView routes. That is the same "a sample is not an
+      # enumeration" defect already found and fixed on the API half, still
+      # standing on the half the criterion mentions first.
+      #
+      # Two routes were missing when this pin was written: the decision *detail*
+      # LiveView and the build-order detail. The decision detail is the browser
+      # twin of `GET /api/v1/decisions/:decision_id` — the API route whose
+      # absence was a real finding — rendering the same decision, including the
+      # `long_context_markdown` an agent writes into it.
+      #
+      # No live hole: the deployed ingress rule is anchored to the webhook path
+      # with a 404 catch-all, so these are denied at the edge today. This pin is
+      # what keeps them in the guard's list once someone widens that rule.
+      for route <- dashboard_routes() do
+        assert Enum.any?(guard_denied_paths(), &(route_pattern_for(&1) == route.path)),
+               "GET #{route.path} (#{inspect(route.plug_opts)}) is served on the dashboard but " <>
+                 "no path in the guard's denied_paths resolves to it. An over-broad ingress " <>
+                 "rule would publish it and the guard would still print `exposure is scoped`. " <>
+                 "Add a concrete representative path to denied_paths."
+      end
+    end
+
     test "the webhook path is not in the denied list" do
       # It is the one path that must be reachable; asserting it is denied would
       # invert the whole check.
@@ -693,6 +719,27 @@ defmodule AiurWeb.WebhookRunbookTest do
     |> Enum.filter(
       &(&1.verb not in [:get, :*] and String.starts_with?(&1.path, @api_prefix) and
           &1.plug != AiurWeb.GithubWebhookController)
+    )
+  end
+
+  # Every GET route the dashboard serves outside /api/v1 — in practice the
+  # LiveView routes — read off the router for the same reason the API pins are:
+  # the router grows and the guard's hand-maintained list does not follow.
+  #
+  # `@asset_controller` is excluded with a reason rather than overlooked. Every
+  # one of its fifteen routes serves a static build asset (CSS, JS hooks, the
+  # logo, a font, vendored Phoenix bundles), so an unprobed one publishes a file
+  # already served to every dashboard visitor — not agent data and not a
+  # control-plane write, which is what makes the LiveView routes worth
+  # enumerating one by one. The controller itself stays probed through
+  # `/dashboard.css`, so an over-broad rule that publishes assets is still
+  # caught; what is given up is only per-asset granularity.
+  @asset_controller AiurWeb.StaticAssetController
+  defp dashboard_routes do
+    AiurWeb.Router.__routes__()
+    |> Enum.filter(
+      &(&1.verb == :get and not String.starts_with?(&1.path, @api_prefix) and
+          &1.plug not in [AiurWeb.GithubWebhookController, @asset_controller])
     )
   end
 
