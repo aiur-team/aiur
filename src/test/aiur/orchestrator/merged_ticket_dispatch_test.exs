@@ -5,29 +5,30 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
   candidates reach state sync, capacity alerts, and dispatch.
   """
 
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.{Issue, RecentMerge, RecentMergeStore}
   alias Aiur.Orchestrator.{Dispatcher, State}
 
   @now ~U[2026-07-12 18:00:00Z]
 
+  # `Aiur.RecentMergeStore` is part of the application supervision tree, so the
+  # store this test drives is a private, unnamed instance over its own state
+  # directory: claiming the registered name would collide with the supervised
+  # one, and writing into the supervised one would leak merge records into
+  # every later test that reads it.
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-merged-dispatch-#{System.unique_integer([:positive])}")
+    on_exit(fn -> File.rm_rf!(dir) end)
 
-    {:ok, pid} =
-      RecentMergeStore.start_link(name: RecentMergeStore, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
+    store =
+      start_supervised!({RecentMergeStore, name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end})
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: GenServer.stop(pid)
-      File.rm_rf!(dir)
-    end)
-
-    :ok
+    %{store: store}
   end
 
-  test "the dispatcher drops a ticket a stored merged PR closed and keeps the rest" do
-    assert {:ok, _} = RecentMergeStore.upsert(merge_closing("Closes #1570"))
+  test "the dispatcher drops a ticket a stored merged PR closed and keeps the rest", %{store: store} do
+    assert {:ok, _} = RecentMergeStore.upsert(merge_closing("Closes #1570"), store)
 
     closed = %Issue{id: "issue-1570", identifier: "1570", state: "Todo"}
     open = %Issue{id: "issue-1571", identifier: "1571", state: "Todo"}
@@ -35,6 +36,7 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
 
     {_state, candidates} =
       Dispatcher.reconcile_merged_tickets(%State{}, [closed, open],
+        recent_merges_fun: fn -> RecentMergeStore.list(store) end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn identifier, state_name, expected ->
           send(parent, {:transition, identifier, state_name, expected})
@@ -50,8 +52,8 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
     refute_receive {:transition, "1571", _state_name, _expected}
   end
 
-  test "the dispatcher keeps a ticket a stored merge only mentions in passing" do
-    assert {:ok, _} = RecentMergeStore.upsert(merge_closing("Closes #1570, #1571\n> Closes #1572"))
+  test "the dispatcher keeps a ticket a stored merge only mentions in passing", %{store: store} do
+    assert {:ok, _} = RecentMergeStore.upsert(merge_closing("Closes #1570, #1571\n> Closes #1572"), store)
 
     issues = [
       %Issue{id: "issue-1571", identifier: "1571", state: "Todo"},
@@ -62,6 +64,7 @@ defmodule Aiur.Orchestrator.MergedTicketDispatchTest do
 
     {_state, candidates} =
       Dispatcher.reconcile_merged_tickets(%State{}, issues,
+        recent_merges_fun: fn -> RecentMergeStore.list(store) end,
         now_fun: fn -> @now end,
         update_issue_state_fun: fn identifier, _state_name, _expected ->
           send(parent, {:transition, identifier})
