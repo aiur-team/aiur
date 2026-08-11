@@ -270,7 +270,9 @@ defmodule AiurWeb.RouterAuthTest do
         do: put_req_header(conn, "x-aiur-request", "1"),
         else: conn
 
-    Router.call(conn, Router.init([]))
+    conn
+    |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+    |> Router.call(Router.init([]))
   end
 
   defp supervisor_request(method, path) do
