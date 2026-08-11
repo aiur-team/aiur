@@ -24,5 +24,6 @@ When you're working on an Aiur ticket and another ticket might need a signal fro
 - **Declare a blocker:** `aiur_declare_blocker(issue_number)` — auto-subscribes you to a useful default subset
 - **Open an attention:** `emit_event("attention.<slug>", "what you need")`; close it with `attention.resolved` + `payload: {slug: "<the-slug>"}`
 - **Ask a bounded operator question:** emit `decision.requested` with structured `options` and a recommendation before any attention or pause. A question phrased as “A or B?” must produce clickable A/B options; `attention.*` and `pause.request` are not substitutes.
+- **Write a Command for a cold reader:** assume the operator has zero ticket context. Lead with the question, explain each option's consequence, name every referent, and state what happens without an answer.
 
 Tools fail loudly with structured errors — if you call `emit_event("system.foo", ...)` you'll get back a `event_name_not_in_allowlist` payload listing the valid forms.

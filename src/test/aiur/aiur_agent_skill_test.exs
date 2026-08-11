@@ -148,6 +148,33 @@ defmodule Aiur.AiurAgentSkillTest do
     assert relay =~ "free-text-only Decision only when predefined choices would genuinely be"
   end
 
+  test "Command authoring assumes the operator has zero ticket context" do
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+
+    assert relay =~ "Assume the operator has zero context"
+    assert relay =~ "The first line the operator reads is the `question`"
+    assert relay =~ "state what each option causes"
+    assert relay =~ "Name every referent"
+    assert relay =~ "No answer:"
+    assert relay =~ "under a minute"
+
+    [_guidance, worked_example] = String.split(relay, "#### Before and after: a real Command from sandbox issue #101", parts: 2)
+    [_, payload_json] = Regex.run(~r/```jsonc\n(.*?)\n```/s, worked_example)
+    payload = Jason.decode!(payload_json)
+
+    assert payload["question"] =~ "square 43 with direct multiplication or the integer-power helper?"
+    assert payload["context"]["short_summary"] =~ "both options return 1849"
+    assert payload["context"]["long_context_markdown"] =~ "`function_c/0`, the demo's final function"
+    assert payload["context"]["long_context_markdown"] =~ "43 from `function_b/0`, the preceding ticket's function"
+
+    options = Map.new(payload["options"], &{&1["id"], &1})
+    assert options["multiply"]["description"] =~ "supporting powers other than two later would require changing the expression"
+    assert options["power"]["description"] =~ "another integer exponent later becomes a one-argument edit"
+    assert payload["recommendation"]["option_id"] == "multiply"
+    assert payload["consequence_of_delay"] =~ "No answer: issue #101's agent remains paused"
+    assert payload["consequence_of_delay"] =~ "no timeout chooses automatically"
+  end
+
   test "blocker guidance keeps unblocked work moving" do
     shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
