@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Aiur.BuildOrder.Icon
+  alias Aiur.BuildOrder.{Diagnostic, Icon, ProviderHealth}
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
@@ -284,7 +284,14 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       follow_up_handled: false
     }
 
-    html = render_component(&History.history/1, %{entries: [entry], provider_health: :ok})
+    decision = inbox_decision("dec-history", decision_status: :decided, answer: action_answer(:operator))
+
+    html =
+      render_component(&DecisionDetail.decision_detail/1, %{
+        decision: decision,
+        history: [entry],
+        writable: false
+      })
 
     assert html =~ "Executor"
     assert html =~ "Follow-up required"
@@ -383,13 +390,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [answered, open],
-        retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
+        retained_counts: %{open: 1, blocking: 0, awaiting: 1, awaiting_blocking: 0, health: %{status: :available}}
       })
 
     empty_html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [answered],
-        retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
+        retained_counts: %{open: 0, blocking: 0, awaiting: 0, awaiting_blocking: 0, health: %{status: :available}}
       })
 
     assert html =~ ~s(href="/decisions")
@@ -401,11 +408,32 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     html =
       render_component(&Overview.decisions_banner/1, %{
         decisions: [],
-        retained_counts: %{open: 3, blocking: 1, health: %{status: :available}}
+        retained_counts: %{open: 3, blocking: 1, awaiting: 3, awaiting_blocking: 1, health: %{status: :available}}
       })
 
     assert html =~ "3 units awaiting commands"
     refute html =~ "1 unit awaiting commands"
+  end
+
+  test "the unavailable-counts banner states only what is true on every route" do
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        retained_counts: %{
+          open: nil,
+          blocking: nil,
+          awaiting: nil,
+          awaiting_blocking: nil,
+          health: %{status: :unavailable}
+        }
+      })
+
+    assert html =~ "Retained Command counts unavailable"
+    assert html =~ "cannot show how many units are awaiting commands"
+
+    # This banner is on Analytics, Build Order and Stream Deck too, and none of
+    # them has a priority overview to fall back to. A degraded surface that
+    # names a wrong reason is worse than one that only says the number is gone.
+    refute html =~ "priority overview"
   end
 
   defp fleet_row(identifier, waiting_reason, attrs \\ []) do
@@ -424,24 +452,20 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   end
 
   test "distinguishes degraded decision history from an unavailable provider" do
-    html = render_component(&History.history/1, %{entries: [], provider_health: :degraded})
+    html = render_component(&History.history/1, %{rows: [], provider_health: :degraded})
 
     assert html =~ "Command history is degraded"
     refute html =~ "currently unavailable"
   end
 
-  test "renders answered and dismissed Commands once as compact green history rows" do
+  test "renders answered and dismissed Commands once as green history table rows" do
     answered = inbox_decision("dec-history-answered", decision_status: :decided, answer: action_answer(:operator))
     dismissed = inbox_decision("dec-history-dismissed", decision_status: :dismissed)
 
-    html =
-      render_component(&History.history/1, %{
-        entries: [],
-        decisions: [answered, dismissed],
-        provider_health: :ok
-      })
+    html = render_history([answered, dismissed])
 
-    assert html =~ ~s(class="history-item" data-severity="good")
+    assert html =~ ~s(<table class="history-table")
+    assert html =~ ~s(data-severity="good")
     assert html =~ "Answered"
     assert html =~ "Acknowledged — closed without a recorded answer"
     refute html =~ ~s(class="decision-card)
@@ -450,16 +474,40 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "renders expired Commands as non-actionable history" do
     expired = inbox_decision("dec-history-expired", decision_status: :expired)
 
-    html =
-      render_component(&History.history/1, %{
-        entries: [],
-        decisions: [expired],
-        provider_health: :ok
-      })
+    html = render_history([expired])
 
     assert html =~ "Expired"
     assert html =~ "agent is no longer running"
+    assert html =~ ~s(data-severity="attn")
     refute html =~ ~s(class="decision-card)
+  end
+
+  test "keeps deferred, expired and answered outcomes visually distinct in history" do
+    rows = [
+      inbox_decision("dec-answered", decision_status: :decided, answer: action_answer(:operator)),
+      inbox_decision("dec-deferred", decision_status: :deferred),
+      inbox_decision("dec-expired", decision_status: :expired)
+    ]
+
+    html = render_history(rows)
+
+    assert html =~ "Deferred to Executor"
+    assert html =~ "Handed to the Executor"
+    assert html =~ "Expired"
+    assert html =~ "Answered"
+    assert html =~ ~s(data-severity="attention")
+  end
+
+  test "offers load more only while the store reports another page, and never guesses a total" do
+    rows = Enum.map(1..10, &inbox_decision("dec-#{&1}", decision_status: :decided, answer: action_answer(:operator)))
+
+    more = render_history(rows, has_more: true, total: 34)
+    final = render_history(rows, has_more: false, total: nil)
+
+    assert more =~ ~s(phx-click="load-more-history")
+    assert more =~ "10 of 34"
+    refute final =~ ~s(phx-click="load-more-history")
+    assert final =~ "10 loaded"
   end
 
   test "Commands inbox exposes only the four primary filters with canonical retained counts" do
@@ -467,7 +515,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       render_inbox(
         [inbox_decision("dec-overview-only")],
         :all,
-        %{total: 701, open: 503, blocking: 401}
+        %{total: 701, open: 503, awaiting: 503, blocking: 401, awaiting_blocking: 401}
       )
 
     assert html =~ ~r/All\s+<span class="count num">503<\/span>/
@@ -654,9 +702,9 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         now: ~U[2026-07-12 13:00:00Z]
       })
 
-    operator_history = render_component(&History.history/1, %{entries: [], decisions: [operator], provider_health: :ok})
-    executor_history = render_component(&History.history/1, %{entries: [], decisions: [executor], provider_health: :ok})
-    supervisor_history = render_component(&History.history/1, %{entries: [], decisions: [supervisor], provider_health: :ok})
+    operator_history = render_history([operator])
+    executor_history = render_history([executor])
+    supervisor_history = render_history([supervisor])
 
     executor_latency =
       render_component(&DecisionLatency.decision_latency/1, %{
@@ -906,31 +954,154 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Links &amp; artifacts"
   end
 
-  test "an unfetched Build Order shows unresolved counts and a provider explanation, not a structural verdict" do
-    html = render_selected(unresolved_model(:provider_unavailable))
+  test "an unfetched Build Order renders one copyable provider-failure state and no graph regions" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | diagnostics: [Diagnostic.new(:provider_unavailable)]
+      })
 
-    # Zeros must never stand in for unknown: #1774 rendered `MEMBERS 0` for a
-    # Build Order with 27 members that was simply never fetched.
-    assert html =~ "Unresolved"
-    refute html =~ "<dd>0</dd>"
+    {:ok, document} = Floki.parse_document(html)
 
-    assert html =~ "Provider unavailable"
-    assert html =~ "could not be fetched"
-    refute html =~ "structurally invalid"
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Could not fetch planning graph"
+    assert html =~ ~s(phx-hook="CopyToClipboard")
+    assert html =~ "Investigate why Build Order #1567&#39;s planning graph could not be fetched."
+    assert html =~ "`provider_unavailable`"
+    assert html =~ "graph counts are unresolved"
+
+    # Unknown stays unknown, but the page-level failure suppresses the metric
+    # strip instead of repeating that fact in five cells and three panels.
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Unresolved"
+    refute html =~ "Plan distribution"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    refute html =~ "GitHub planning data is unavailable"
   end
 
-  test "a genuinely malformed Build Order still shows its real counts and a structural verdict" do
+  test "a fetched malformed Build Order renders one structural-failure state with its observed count" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          diagnostics: [Diagnostic.new(:invalid_root)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "Investigate why Build Order #1567&#39;s fetched planning graph is malformed."
+    assert html =~ "`invalid_root`"
+    assert html =~ "`members: 0`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Unresolved"
+    refute html =~ "Plan distribution"
+    refute html =~ "Build Order analytics"
+    refute html =~ "Usage and cost"
+    refute html =~ "Root data is unavailable"
+  end
+
+  # A malformed graph carries no structural diagnostic when the root summary
+  # itself is the defect, so the verdict is the only honest code left.
+  test "a malformed Build Order with no structural diagnostic falls back to the structural verdict" do
     html = render_selected(%{unresolved_model(:structurally_invalid) | summary: resolved_summary()})
 
-    assert html =~ "Structurally invalid graph"
-    assert html =~ "malformed"
-    assert html =~ "<dd>0</dd>"
-    refute html =~ "Unresolved"
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "`structurally_invalid`"
+  end
+
+  # `SelectedRoot.availability/2` lets a producer fail closed on a structural
+  # defect by marking provider health failed, and says that marking "must not be
+  # read as an outage". Sourcing the reported fault from health told the operator
+  # a graph was malformed *because of* `rate_limited` and sent the debug prompt
+  # after an outage that was not the reason for anything.
+  test "a malformed Build Order never reports its provider health failure as the structural fault" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited},
+          diagnostics: [Diagnostic.new(:duplicate_identity)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [card] = Floki.find(document, ".bo-state-card")
+    card_text = Floki.text(card)
+
+    assert html =~ "Fetched planning graph is malformed"
+    # The code shown is the observed structural defect, not the fetch fault.
+    assert card_text =~ "Reported fault: duplicate_identity"
+    assert html =~ "The selected-root provider reports `duplicate_identity`"
+    refute card_text =~ "rate_limited"
+  end
+
+  # Collapsing restatements of one fault is the ask; a graph that is malformed
+  # *and* genuinely unreachable has two faults, and the outage must survive.
+  test "a malformed Build Order still reports a concurrent provider outage" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          diagnostics: [Diagnostic.new(:duplicate_identity), Diagnostic.new(:provider_unavailable)]
+      })
+
+    assert html =~ "The selected-root provider reports `duplicate_identity`"
+    assert html =~ "also reported: `provider_unavailable`"
+  end
+
+  # The fallback used to restate the card's own message word for word, which is
+  # the restatement pattern this state exists to remove.
+  test "a malformed Build Order with unresolved counts adds no restated observation" do
+    html = render_selected(%{unresolved_model(:structurally_invalid) | diagnostics: [Diagnostic.new(:invalid_root)]})
+
+    assert html =~ "The selected-root provider reports `invalid_root`."
+    refute html =~ "the fetched response failed structural validation"
+  end
+
+  # #1808 stopped `failure_class/1` laundering every read fault into
+  # `provider_unavailable`. The one error card must report the code the provider
+  # actually gave, or the debug prompt sends an agent after the wrong problem.
+  test "the single failure state names the specific reported fault, not a generic outage" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited}
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Reported fault:"
+    assert html =~ "`rate_limited`"
+    refute html =~ "provider_unavailable"
+  end
+
+  # Collapsing restatements of one fault is the point; hiding a second, genuinely
+  # different fault would trade a wall of text for a confident wrong reason.
+  test "the single failure state still reports genuinely distinct faults" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited},
+          diagnostics: [Diagnostic.new(:provider_unavailable), Diagnostic.new(:pagination_mismatch)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "also reported: `pagination_mismatch`"
+    # `provider_unavailable` here restates the reported fault rather than adding one.
+    refute html =~ "provider_unavailable"
   end
 
   defp render_selected(model) do
+    {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
+
     render_component(&BuildOrderSelected.build_order_selected/1, %{
-      route_state: RouteState.new("mount-1"),
+      route_state: route_state,
       model: model,
       now: ~U[2026-08-10 12:00:00Z],
       analytics_scope: %{state: :none},
@@ -1009,13 +1180,27 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
+  defp render_history(decisions, opts \\ []) do
+    render_component(&History.history/1, %{
+      rows: Enum.map(decisions, &{"history-#{&1.decision_id}", &1}),
+      loaded: length(decisions),
+      total: Keyword.get(opts, :total),
+      has_more: Keyword.get(opts, :has_more, false),
+      provider_health: :ok
+    })
+  end
+
   defp render_inbox(decisions, filter, retained_counts \\ nil) do
+    awaiting = Enum.count(decisions, &(&1.decision_status == :open))
+
     retained_counts =
       retained_counts ||
         %{
           total: length(decisions),
-          open: Enum.count(decisions, &(&1.decision_status == :open)),
-          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
+          open: awaiting,
+          awaiting: awaiting,
+          blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open)),
+          awaiting_blocking: Enum.count(decisions, &(&1.blocking and &1.decision_status == :open))
         }
 
     render_component(&DecisionInbox.decision_inbox/1, %{
