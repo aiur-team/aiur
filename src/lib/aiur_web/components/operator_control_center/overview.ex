@@ -26,7 +26,6 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     """
   end
 
-  attr(:decisions, :list, required: true)
   attr(:retained_counts, :map, required: true)
 
   @spec decisions_banner(map()) :: Phoenix.LiveView.Rendered.t()
@@ -40,7 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
     ~H"""
     <.link
       :if={is_integer(@open) and @open > 0}
-      patch="/decisions"
+      navigate="/decisions"
       class={["decisions-banner", @blocking > 0 && "blocking"]}
       aria-label={"#{@open} open retained Commands, #{@blocking} blocking"}
     >
@@ -53,7 +52,12 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
       <span class="decision-banner-body">
         <strong>{banner_title(@blocking, @open)}</strong>
       </span>
-      <span class="decision-banner-cta">Issue commands <span aria-hidden="true">&gt;</span></span>
+      <span class="decision-banner-cta">
+        Issue commands
+        <svg aria-hidden="true" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="m7 4 6 6-6 6" />
+        </svg>
+      </span>
     </.link>
     <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>

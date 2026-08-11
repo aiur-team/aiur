@@ -111,13 +111,21 @@ end
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{
+    DashboardShell,
+    DecisionInbox,
+    History,
+    NavState,
+    Overview,
+    RouteRegistry
+  }
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:analytics, analytics(%{}))
+     |> assign(:history_visible_count, 10)
      |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
@@ -131,7 +139,12 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
   end
 
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
-  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket),
+    do: {:noreply, NavState.restore(socket, collapsed)}
+
+  def handle_event("load-command-history", _params, socket),
+    do: {:noreply, update(socket, :history_visible_count, &(&1 + 10))}
 
   @impl true
   def render(assigns) do
@@ -142,9 +155,27 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
         routes={RouteRegistry.routes(@analytics)}
         tracker_kind="fixture"
         agent_kind="fixture"
+        nav_counts={%{commands: 2}}
         nav_collapsed={@nav_collapsed}
       >
-        <section class="section-card" aria-labelledby="route-shell-fixture-title">
+        <:banner>
+          <Overview.decisions_banner retained_counts={retained_counts()} />
+        </:banner>
+
+        <div :if={@live_action == :decisions} class="control-panel">
+          <DecisionInbox.decision_inbox
+            decisions={command_decisions()}
+            filter={:all}
+            now={~U[2026-08-10 19:00:00Z]}
+            writable={false}
+            provider_health={:ok}
+            retained_counts={retained_counts()}
+            page={%{health: %{status: :available}, pagination: %{total: 2}}}
+          />
+          <History.history entries={command_history()} provider_health={:ok} visible_count={@history_visible_count} />
+        </div>
+
+        <section :if={@live_action != :decisions} class="section-card" aria-labelledby="route-shell-fixture-title">
           <h2 id="route-shell-fixture-title">Route shell fixture</h2>
           <p>This authenticated LiveView fixture verifies the shared route shell without inventing operational data.</p>
           <button id="route-shell-action" type="button">Reachable action</button>
@@ -155,11 +186,91 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
   end
 
   defp analytics(%{"analytics" => "unavailable"}) do
-    %{available?: false, path: nil, message: "Telemetry analytics are unavailable in this fixture."}
+    %{
+      available?: false,
+      path: nil,
+      message: "Telemetry analytics are unavailable in this fixture."
+    }
   end
 
   defp analytics(_params) do
     %{available?: true, path: "/analytics", message: "Open fixture analytics."}
+  end
+
+  defp retained_counts,
+    do: %{open: 2, blocking: 1, total: 14, health: %{status: :available}}
+
+  defp command_decisions do
+    [
+      command_decision("dec-fixture-blocking", "1786", "Choose the release strategy", true),
+      command_decision(
+        "dec-fixture-review",
+        "1791",
+        "Should the review window remain open?",
+        false
+      )
+    ]
+  end
+
+  defp command_decision(decision_id, ticket, question, blocking) do
+    %{
+      decision_id: decision_id,
+      version: 1,
+      ticket: %{identifier: ticket, title: "Commands UX"},
+      source: %{agent_id: "codex"},
+      kind: "architecture",
+      authority: :human_required,
+      urgency: if(blocking, do: :critical, else: :normal),
+      blocking: blocking,
+      reversibility: :reversible,
+      question: question,
+      context: %{
+        short: "The active card keeps the decision context close to its choices.",
+        long_markdown: nil
+      },
+      options: [
+        %{id: "ship", label: "Ship now", description: "Proceed", risk: "low"},
+        %{id: "hold", label: "Hold", description: "Wait", risk: "medium"}
+      ],
+      recommendation: %{option_id: "ship", reason: "Checks are green"},
+      consequence_of_delay: nil,
+      artifacts: [],
+      created_at: ~U[2026-08-10 17:00:00Z],
+      decision_status: :open,
+      delivery_status: :not_dispatched,
+      answer: nil,
+      retryable: false,
+      failure_reason: nil,
+      superseded?: false,
+      lifecycle: :recorded,
+      provenance: %{agent_family: "codex", resolved_model: "gpt-5.6-terra"}
+    }
+  end
+
+  defp command_history do
+    outcomes = [:answered, :executor_notified, :expired, :acknowledged, :resolved]
+
+    Enum.map(1..12, fn index ->
+      change = Enum.at(outcomes, rem(index - 1, length(outcomes)))
+
+      %{
+        decision_id: "dec-history-#{index}",
+        ticket: %{identifier: Integer.to_string(1700 + index)},
+        question: "Recorded Command outcome #{index}",
+        changed_at: "2026-08-10T#{String.pad_leading(Integer.to_string(rem(index, 12) + 7), 2, "0")}:00:00Z",
+        change: change,
+        actor: %{type: :human_operator, id: "operator", label: "Executor"},
+        choice: if(change == :answered, do: "Ship now", else: nil),
+        rationale: nil,
+        dispatch_result: if(change == :answered, do: :delivered, else: nil),
+        acknowledgement_result: nil,
+        revision_result: nil,
+        revised?: false,
+        follow_up_required: false,
+        follow_up_handled: false,
+        provenance: nil
+      }
+    end)
   end
 end
 
@@ -226,16 +337,21 @@ defmodule Aiur.BrowserHarness.FixtureLive do
     {:noreply, push_patch(socket, to: "/fixture?view=#{view}")}
   end
 
-  def handle_event("set-theme", %{"theme" => "dark"}, socket), do: {:noreply, assign(socket, :theme, :dark)}
+  def handle_event("set-theme", %{"theme" => "dark"}, socket),
+    do: {:noreply, assign(socket, :theme, :dark)}
+
   def handle_event("set-theme", _params, socket), do: {:noreply, assign(socket, :theme, :light)}
 
-  def handle_event("input", %{"kind" => kind}, socket) when kind in ["pointer", "keyboard", "touch"] do
+  def handle_event("input", %{"kind" => kind}, socket)
+      when kind in ["pointer", "keyboard", "touch"] do
     {:noreply, assign(socket, :interaction, "#{kind} input received")}
   end
 
-  def handle_event("worker-ready", _params, socket), do: {:noreply, assign(socket, :worker_ready, true)}
+  def handle_event("worker-ready", _params, socket),
+    do: {:noreply, assign(socket, :worker_ready, true)}
 
-  def handle_event("reduced-motion", %{"reduced" => reduced_motion}, socket) when is_boolean(reduced_motion) do
+  def handle_event("reduced-motion", %{"reduced" => reduced_motion}, socket)
+      when is_boolean(reduced_motion) do
     {:noreply, assign(socket, :reduced_motion, reduced_motion)}
   end
 
@@ -246,9 +362,14 @@ defmodule Aiur.BrowserHarness.FixtureLive do
      |> update(:graph_generation, &(&1 + 1))}
   end
 
-  def handle_event("layout-mode", %{"mode" => "fallback"}, socket), do: {:noreply, assign(socket, :graph_layout_mode, :fallback)}
-  def handle_event("layout-mode", %{"mode" => "worker"}, socket), do: {:noreply, assign(socket, :graph_layout_mode, :worker)}
-  def handle_event("unmount-graph", _params, socket), do: {:noreply, assign(socket, :graph_mounted, false)}
+  def handle_event("layout-mode", %{"mode" => "fallback"}, socket),
+    do: {:noreply, assign(socket, :graph_layout_mode, :fallback)}
+
+  def handle_event("layout-mode", %{"mode" => "worker"}, socket),
+    do: {:noreply, assign(socket, :graph_layout_mode, :worker)}
+
+  def handle_event("unmount-graph", _params, socket),
+    do: {:noreply, assign(socket, :graph_mounted, false)}
 
   def handle_event("remount-graph", _params, socket) do
     {:noreply,
@@ -364,7 +485,13 @@ defmodule Aiur.BrowserHarness.FixtureLive do
   defp fixture_node(node, ordinal, size, waves) do
     identifier = node.id
     identity = fixture_identity(ordinal)
-    lane = Enum.at(@fixture_lanes, rem(ordinal - 1, min(length(@fixture_lanes), max(2, div(size, 20) + 2))))
+
+    lane =
+      Enum.at(
+        @fixture_lanes,
+        rem(ordinal - 1, min(length(@fixture_lanes), max(2, div(size, 20) + 2)))
+      )
+
     phase = rem(ordinal - 1, waves) + 1
     {status_key, status_text, progress} = fixture_status(ordinal)
 
@@ -462,7 +589,9 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
 
   @impl true
   def handle_event("open-ticket-context", %{"member" => member}, socket) do
-    selection = TicketContextSelection.open(socket.assigns.selection, socket.assigns.model, member)
+    selection =
+      TicketContextSelection.open(socket.assigns.selection, socket.assigns.model, member)
+
     {:noreply, socket |> assign(:selection, selection) |> assign(:fixture_status, "Ticket context opened.")}
   end
 
@@ -475,7 +604,9 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
 
   def handle_event("build-order-context-replace", %{"member" => member}, socket) do
     previous = completion(socket.assigns.selection)
-    selection = TicketContextSelection.replace(socket.assigns.selection, socket.assigns.model, member)
+
+    selection =
+      TicketContextSelection.replace(socket.assigns.selection, socket.assigns.model, member)
 
     {:noreply,
      socket
@@ -523,7 +654,11 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
      |> assign(:fixture_status, "Build Order root changed.")}
   end
 
-  def handle_event("fixture-remove-selected", _params, %{assigns: %{selection: %{selected: %TrackerIdentity{} = selected}}} = socket) do
+  def handle_event(
+        "fixture-remove-selected",
+        _params,
+        %{assigns: %{selection: %{selected: %TrackerIdentity{} = selected}}} = socket
+      ) do
     members = Enum.reject(socket.assigns.members, &(to_string(&1) == selected.identifier))
     generation = socket.assigns.generation + 1
     model = graph(socket.assigns.root_number, generation, members)
@@ -565,8 +700,11 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
   def handle_event("fixture-stale-completion", _params, socket) do
     accepted? =
       case socket.assigns.stale_completion do
-        %{token: token, identity: identity} -> TicketContextSelection.current_completion?(socket.assigns.selection, token, identity)
-        _ -> false
+        %{token: token, identity: identity} ->
+          TicketContextSelection.current_completion?(socket.assigns.selection, token, identity)
+
+        _ ->
+          false
       end
 
     status = if accepted?, do: "Stale completion applied.", else: "Stale completion rejected."
@@ -574,7 +712,10 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
   end
 
   def handle_event("fixture-tick", _params, socket) do
-    {:noreply, socket |> update(:tick, &(&1 + 1)) |> assign(:fixture_status, "Unrelated LiveView patch applied.")}
+    {:noreply,
+     socket
+     |> update(:tick, &(&1 + 1))
+     |> assign(:fixture_status, "Unrelated LiveView patch applied.")}
   end
 
   @impl true
@@ -637,9 +778,17 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
     """
   end
 
-  defp current_context(model, %{status: :open, selected: %TrackerIdentity{} = selected}, destinations_available?) do
+  defp current_context(
+         model,
+         %{status: :open, selected: %TrackerIdentity{} = selected},
+         destinations_available?
+       ) do
     model
-    |> TicketContextAdapter.present(selected, base_context(selected), capabilities(selected, destinations_available?))
+    |> TicketContextAdapter.present(
+      selected,
+      base_context(selected),
+      capabilities(selected, destinations_available?)
+    )
     |> case do
       %{status: :available} = context -> context
       _unavailable -> nil
@@ -725,8 +874,19 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
     %{
       issue: %{available?: true, destination: issue_url(identity), identity: identity},
       pull_request: %{available?: false, identity: identity, reason: :not_opened},
-      chat: %{available?: true, destination: "/chat/#{identity.identifier}", identity: identity, active?: true, readable?: true},
-      commands: %{available?: true, destination: "/decisions/#{identity.identifier}", identity: identity, readable?: true}
+      chat: %{
+        available?: true,
+        destination: "/chat/#{identity.identifier}",
+        identity: identity,
+        active?: true,
+        readable?: true
+      },
+      commands: %{
+        available?: true,
+        destination: "/decisions/#{identity.identifier}",
+        identity: identity,
+        readable?: true
+      }
     }
   end
 
@@ -740,10 +900,18 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
       [
         edge(identity(41), identity(42), :blocking, :native, []),
         edge(identity(42), identity(43), :terminal_unsatisfied, :native, []),
-        edge(identity(9, owner: "other", repository: "repo", provider_id: "FOREIGN-9"), identity(42), :unknown, :external, [
-          Diagnostic.new(:external_dependency)
-        ]),
-        edge(identity(8), identity(42), :unknown, :native, [Diagnostic.new(:unresolved_internal_dependency)])
+        edge(
+          identity(9, owner: "other", repository: "repo", provider_id: "FOREIGN-9"),
+          identity(42),
+          :unknown,
+          :external,
+          [
+            Diagnostic.new(:external_dependency)
+          ]
+        ),
+        edge(identity(8), identity(42), :unknown, :native, [
+          Diagnostic.new(:unresolved_internal_dependency)
+        ])
       ]
       |> Enum.filter(&MapSet.member?(node_keys, &1.target_key))
 
@@ -797,8 +965,12 @@ defmodule Aiur.BrowserHarness.TicketContextLive do
   defp readiness(43), do: :terminal_unsatisfied
   defp readiness(_number), do: :ready
 
-  defp completion(%{status: :open, request_token: token, selected: %TrackerIdentity{} = identity}),
-    do: %{token: token, identity: identity}
+  defp completion(%{
+         status: :open,
+         request_token: token,
+         selected: %TrackerIdentity{} = identity
+       }),
+       do: %{token: token, identity: identity}
 
   defp completion(_selection), do: nil
 
@@ -888,8 +1060,11 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
   def handle_event("inspect-unit", %{"unit" => token}, socket) do
     case UnitsPresenter.lookup(socket.assigns.catalog, token) do
-      {:ok, row} -> {:noreply, socket |> assign(:selected_row, row) |> assign(:context, context(row))}
-      {:error, :not_found} -> {:noreply, socket}
+      {:ok, row} ->
+        {:noreply, socket |> assign(:selected_row, row) |> assign(:context, context(row))}
+
+      {:error, :not_found} ->
+        {:noreply, socket}
     end
   end
 
@@ -910,7 +1085,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     end
   end
 
-  def handle_event("close-conversation", _params, socket), do: {:noreply, assign(socket, :conversation_drawer, nil)}
+  def handle_event("close-conversation", _params, socket),
+    do: {:noreply, assign(socket, :conversation_drawer, nil)}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
@@ -1191,7 +1367,12 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       title: row.title,
       description: "Bounded ticket context from the accepted shared presentation.",
       lifecycle: %{state: :open, reason: :none},
-      detail: %{state: :available, observed_at: @now, last_success_at: @now, last_attempt_at: @now},
+      detail: %{
+        state: :available,
+        observed_at: @now,
+        last_success_at: @now,
+        last_attempt_at: @now
+      },
       history: %{
         state: :available,
         freshness: :fresh,
@@ -1210,7 +1391,13 @@ defmodule Aiur.BrowserHarness.UnitsLive do
           available?: true,
           external?: true
         },
-        %Capability{kind: :chat, label: "Chat", available?: false, external?: false, reason: "Chat is unavailable."},
+        %Capability{
+          kind: :chat,
+          label: "Chat",
+          available?: false,
+          external?: false,
+          reason: "Chat is unavailable."
+        },
         %Capability{
           kind: :commands,
           label: "Commands",
@@ -1243,7 +1430,8 @@ defmodule Aiur.BrowserHarness.FixtureAuth do
     |> redirect(to: "/fixture")
   end
 
-  def authenticate(conn, _params), do: send_resp(conn, 404, "unknown synthetic fixture access mode")
+  def authenticate(conn, _params),
+    do: send_resp(conn, 404, "unknown synthetic fixture access mode")
 
   def require_access(conn, _opts) do
     if get_session(conn, "fixture_access") in @access_modes do
@@ -1284,7 +1472,8 @@ defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
     |> send_resp(200, "streamdeck fixture control: #{mode}")
   end
 
-  def configure(conn, _params), do: send_resp(conn, 404, "unknown streamdeck fixture control mode")
+  def configure(conn, _params),
+    do: send_resp(conn, 404, "unknown streamdeck fixture control mode")
 end
 
 defmodule Aiur.BrowserHarness.FixtureAssets do
@@ -1296,20 +1485,33 @@ defmodule Aiur.BrowserHarness.FixtureAssets do
 
   def health(conn, _params), do: send_resp(conn, 200, "synthetic fixture ready")
 
-  def phoenix_html(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_html/phoenix_html.js")
+  def phoenix_html(conn, _params),
+    do: serve_embedded(conn, "/vendor/phoenix_html/phoenix_html.js")
+
   def phoenix(conn, _params), do: serve_embedded(conn, "/vendor/phoenix/phoenix.js")
-  def phoenix_live_view(conn, _params), do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
-  def ticket_context_dialog_hook(conn, _params), do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
+
+  def phoenix_live_view(conn, _params),
+    do: serve_embedded(conn, "/vendor/phoenix_live_view/phoenix_live_view.js")
+
+  def ticket_context_dialog_hook(conn, _params),
+    do: serve_embedded(conn, "/ticket-context-dialog-hook.js")
+
   def build_order_grid_hook(conn, _params), do: serve_embedded(conn, "/build-order-grid-hook.js")
   def time_brush_hook(conn, _params), do: serve_embedded(conn, "/time-brush-hook.js")
-  def streamdeck_emulator_hook(conn, _params), do: serve_embedded(conn, "/streamdeck-emulator-hook.js")
+
+  def streamdeck_emulator_hook(conn, _params),
+    do: serve_embedded(conn, "/streamdeck-emulator-hook.js")
+
   def harness(conn, _params), do: serve_file(conn, "browser_harness.js")
   def worker(conn, _params), do: serve_file(conn, "browser_worker.js")
 
   defp serve_embedded(conn, asset) do
     case AiurWeb.StaticAssets.fetch(asset) do
-      {:ok, content_type, body} -> conn |> put_resp_content_type(content_type) |> send_resp(200, body)
-      :error -> send_resp(conn, 404, "asset not found")
+      {:ok, content_type, body} ->
+        conn |> put_resp_content_type(content_type) |> send_resp(200, body)
+
+      :error ->
+        send_resp(conn, 404, "asset not found")
     end
   end
 
@@ -1337,7 +1539,11 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def catalog do
-    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane")]
+    entries = [
+      root(42, "Release dashboard"),
+      RootSummary.new(%{}),
+      root(43, "Stale planning lane")
+    ]
 
     %Snapshot{
       scope: :catalog,
@@ -1414,7 +1620,12 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
         repository: @repository,
         authority_epoch: 1,
         generation: 8,
-        data: SelectedRoot.new(root(43, "Stale planning lane"), [member(8, "Stale member")], health(8, :stale)),
+        data:
+          SelectedRoot.new(
+            root(43, "Stale planning lane"),
+            [member(8, "Stale member")],
+            health(8, :stale)
+          ),
         health: health(8, :stale)
       }
 
@@ -1428,7 +1639,13 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       identity: identity,
       status: :fresh,
       active_stage: :review,
-      stage: %{status: :known, value: :review, freshness: :fresh, observed_at: @observed_at, event_id: 2},
+      stage: %{
+        status: :known,
+        value: :review,
+        freshness: :fresh,
+        observed_at: @observed_at,
+        event_id: 2
+      },
       progress: %{
         status: :known,
         percent: 60,
@@ -1457,7 +1674,11 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
           dependency(5, identity(2)),
           dependency(5, identity(3)),
           dependency(5, identity(4)),
-          Dependency.new(identity(5), identity(9, {"other", "repo"}), "https://github.com/other/repo/issues/9")
+          Dependency.new(
+            identity(5),
+            identity(9, {"other", "repo"}),
+            "https://github.com/other/repo/issues/9"
+          )
         ]
       )
 
@@ -1578,7 +1799,12 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
       observed_at: @observed,
       ingested_at: @observed,
       freshness: :fresh,
-      health: %{state: :healthy, failure: nil, last_observed_at: @observed, last_source_version: 1},
+      health: %{
+        state: :healthy,
+        failure: nil,
+        last_observed_at: @observed,
+        last_source_version: 1
+      },
       windows: %{
         "primary" => %{
           kind: :rate_limit,
@@ -1591,7 +1817,14 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
           resets_at: @reset,
           source: :codex_app_server
         },
-        "credits" => %{kind: :credit, name: "Credits", coverage: :unsupported, standing: nil, used_percent: nil, source: :codex_app_server}
+        "credits" => %{
+          kind: :credit,
+          name: "Credits",
+          coverage: :unsupported,
+          standing: nil,
+          used_percent: nil,
+          source: :codex_app_server
+        }
       }
     }
   end
@@ -1622,7 +1855,14 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
     """
   end
 
-  defp run, do: %{state: :ready, counts: %{remaining: 4}, progress: %{kind: :exact, percent: 60}, elapsed: %{label: "20m"}, eta: %{label: "About 8m remaining"}}
+  defp run,
+    do: %{
+      state: :ready,
+      counts: %{remaining: 4},
+      progress: %{kind: :exact, percent: 60},
+      elapsed: %{label: "20m"},
+      eta: %{label: "About 8m remaining"}
+    }
 
   defp usage do
     %{
@@ -1642,15 +1882,26 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
       state: :authorized,
       cards: [
         card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
-        card(:claude, "Claude", :stale, "Stale (last known-good)", [window("Session", 62, 1_900, 5_000, :stale)]),
-        card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
+        card(:claude, "Claude", :stale, "Stale (last known-good)", [
+          window("Session", 62, 1_900, 5_000, :stale)
+        ]),
+        card(:deepseek, "DeepSeek", :healthy, "Healthy", [
+          window("Session", 0, 5_000, 5_000, :fresh)
+        ]),
         card(:kimi, "Kimi", :unavailable, "Unavailable", [])
       ]
     }
   end
 
   defp card(provider, label, state, status_label, windows) do
-    %{provider: provider, provider_label: label, state: state, status_label: status_label, auth_mode: %{value: :api_key}, windows: windows}
+    %{
+      provider: provider,
+      provider_label: label,
+      state: state,
+      status_label: status_label,
+      auth_mode: %{value: :api_key},
+      windows: windows
+    }
   end
 
   defp window(name, percent, remaining, limit, freshness) do
@@ -1672,8 +1923,20 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
     %{
       state: :observed,
       windows: %{
-        "core" => %{resource: "core", remaining: 3_750, limit: 5_000, used_percent: 25.0, reset_at: @reset},
-        "graphql" => %{resource: "graphql", remaining: 500, limit: 5_000, used_percent: 90.0, reset_at: @reset}
+        "core" => %{
+          resource: "core",
+          remaining: 3_750,
+          limit: 5_000,
+          used_percent: 25.0,
+          reset_at: @reset
+        },
+        "graphql" => %{
+          resource: "graphql",
+          remaining: 500,
+          limit: 5_000,
+          used_percent: 90.0,
+          reset_at: @reset
+        }
       },
       attribution: [],
       backoffs: []
@@ -1708,10 +1971,27 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     get("/assets/phoenix_html.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_html)
     get("/assets/phoenix.js", Aiur.BrowserHarness.FixtureAssets, :phoenix)
     get("/assets/phoenix_live_view.js", Aiur.BrowserHarness.FixtureAssets, :phoenix_live_view)
-    get("/assets/ticket-context-dialog-hook.js", Aiur.BrowserHarness.FixtureAssets, :ticket_context_dialog_hook)
-    get("/assets/build-order-grid-hook.js", Aiur.BrowserHarness.FixtureAssets, :build_order_grid_hook)
+
+    get(
+      "/assets/ticket-context-dialog-hook.js",
+      Aiur.BrowserHarness.FixtureAssets,
+      :ticket_context_dialog_hook
+    )
+
+    get(
+      "/assets/build-order-grid-hook.js",
+      Aiur.BrowserHarness.FixtureAssets,
+      :build_order_grid_hook
+    )
+
     get("/assets/time-brush-hook.js", Aiur.BrowserHarness.FixtureAssets, :time_brush_hook)
-    get("/assets/streamdeck-emulator-hook.js", Aiur.BrowserHarness.FixtureAssets, :streamdeck_emulator_hook)
+
+    get(
+      "/assets/streamdeck-emulator-hook.js",
+      Aiur.BrowserHarness.FixtureAssets,
+      :streamdeck_emulator_hook
+    )
+
     get("/assets/browser_harness.js", Aiur.BrowserHarness.FixtureAssets, :harness)
     get("/assets/browser_worker.js", Aiur.BrowserHarness.FixtureAssets, :worker)
   end
@@ -1761,9 +2041,18 @@ end
 defmodule Aiur.BrowserHarness.FixtureEndpoint do
   use Phoenix.Endpoint, otp_app: :aiur
 
-  @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
+  @session_options [
+    store: :cookie,
+    key: "_aiur_browser_harness",
+    signing_salt: "browser-harness",
+    http_only: true,
+    same_site: "Lax"
+  ]
 
-  socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
+  socket("/live", Phoenix.LiveView.Socket,
+    websocket: [connect_info: [session: @session_options]],
+    longpoll: false
+  )
 
   plug(Plug.Static,
     at: "/",
@@ -1809,7 +2098,13 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
     System.put_env("AIUR_DASHBOARD_USERNAME", "browser_fixture")
     System.put_env("AIUR_DASHBOARD_PASSWORD", "browser_fixture_password")
-    Application.put_env(:aiur, :workflow_file_path, Path.expand("../fixtures/test.aiurconfig", __DIR__))
+
+    Application.put_env(
+      :aiur,
+      :workflow_file_path,
+      Path.expand("../fixtures/test.aiurconfig", __DIR__)
+    )
+
     Application.put_env(:aiur, :build_order_data_source, Aiur.BrowserHarness.BuildOrderDataSource)
     configure_forwarded_dashboard()
 
@@ -1846,7 +2141,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   end
 
   def set_streamdeck_snapshot_identities(identifiers) when is_list(identifiers) do
-    :persistent_term.put({__MODULE__, :streamdeck_snapshot_identities}, Enum.map(identifiers, &to_string/1))
+    :persistent_term.put(
+      {__MODULE__, :streamdeck_snapshot_identities},
+      Enum.map(identifiers, &to_string/1)
+    )
   end
 
   @doc """
@@ -1871,7 +2169,9 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   defp set_streamdeck_paused(identifier, paused?) do
     identifier = to_string(identifier)
     current = :persistent_term.get({__MODULE__, :streamdeck_paused}, MapSet.new())
-    updated = if paused?, do: MapSet.put(current, identifier), else: MapSet.delete(current, identifier)
+
+    updated =
+      if paused?, do: MapSet.put(current, identifier), else: MapSet.delete(current, identifier)
 
     :persistent_term.put({__MODULE__, :streamdeck_paused}, updated)
     Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
@@ -1880,7 +2180,10 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   end
 
   defp streamdeck_paused?(identifier) do
-    MapSet.member?(:persistent_term.get({__MODULE__, :streamdeck_paused}, MapSet.new()), to_string(identifier))
+    MapSet.member?(
+      :persistent_term.get({__MODULE__, :streamdeck_paused}, MapSet.new()),
+      to_string(identifier)
+    )
   end
 
   def streamdeck_snapshot do
@@ -1899,7 +2202,12 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
         %{
           running: [streamdeck_agent("1352", "Fixture running", "codex", progress_percent: 0)],
-          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error, progress_percent: 100)],
+          retrying: [
+            streamdeck_agent("1338", "Fixture stuck", "codex",
+              work_state: :error,
+              progress_percent: 100
+            )
+          ],
           idle: [
             streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
             streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
@@ -1939,15 +2247,35 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       "claude" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
+          "session" => %{
+            "kind" => "rate_limit",
+            "used_percent" => 30,
+            "remaining" => "22m",
+            "freshness" => "fresh"
+          },
+          "weekly" => %{
+            "kind" => "rate_limit",
+            "used_percent" => 47,
+            "resets_at" => "2026-08-13T18:00:00Z",
+            "freshness" => "fresh"
+          }
         }
       },
       "codex" => %{
         "state" => "observed",
         "windows" => %{
-          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
-          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
+          "session" => %{
+            "kind" => "rate_limit",
+            "used_percent" => 50,
+            "remaining" => "1h",
+            "freshness" => "fresh"
+          },
+          "weekly" => %{
+            "kind" => "rate_limit",
+            "used_percent" => 75,
+            "resets_at" => "2026-08-14T20:00:00Z",
+            "freshness" => "fresh"
+          }
         }
       }
     }

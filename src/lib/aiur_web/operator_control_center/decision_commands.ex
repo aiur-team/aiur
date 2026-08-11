@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   alias Aiur.{DecisionAttention, DecisionStore, ExecutorEvents, Issue}
   alias AiurWeb.Endpoint
+  alias AiurWeb.OperatorControlCenter.DecisionPresenter
   alias Phoenix.LiveView.Socket
 
   @type reload_fun :: (Socket.t() -> Socket.t())
@@ -113,25 +114,35 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
        when status in [:open, :deferred],
        do: {:ok, decision}
 
-  defp selected_open_decision(%{assigns: %{decisions: decisions}}, decision_id) when is_list(decisions) do
-    case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
-      nil -> :error
-      decision -> {:ok, decision}
-    end
+  defp selected_open_decision(%{assigns: %{decisions: decisions}} = socket, decision_id) when is_list(decisions) do
+    find_actionable_decision(decisions, socket, decision_id)
   end
 
   defp selected_open_decision(
-         %{assigns: %{selected_decision_id: nil, decision_page: %{decisions: decisions}}},
+         %{assigns: %{selected_decision_id: nil, decision_page: %{decisions: decisions}}} = socket,
          decision_id
        )
        when is_list(decisions) do
+    find_actionable_decision(decisions, socket, decision_id)
+  end
+
+  defp selected_open_decision(socket, decision_id), do: selected_notification_retry_decision(socket, decision_id)
+
+  defp find_actionable_decision(decisions, socket, decision_id) do
     case Enum.find(decisions, &(&1.decision_id == decision_id and &1.decision_status in [:open, :deferred, :dismissed])) do
-      nil -> :error
+      nil -> selected_notification_retry_decision(socket, decision_id)
       decision -> {:ok, decision}
     end
   end
 
-  defp selected_open_decision(_socket, _decision_id), do: :error
+  defp selected_notification_retry_decision(%{assigns: %{decision_actions: actions}}, decision_id) do
+    case get_in(actions, [decision_id, :notification_retry_decision]) do
+      %{decision_id: ^decision_id, decision_status: :deferred} = decision -> {:ok, decision}
+      _decision -> :error
+    end
+  end
+
+  defp selected_notification_retry_decision(_socket, _decision_id), do: :error
 
   defp selected_decision(
          %{assigns: %{selected_decision: %{decision_id: decision_id} = decision}},
@@ -220,7 +231,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
         put_notice(socket, decision_id, defer_notice(accepted))
 
       {:error, _reason} ->
-        put_error(socket, decision_id, "The Command is deferred, but the Executor notification failed. Retry the notification.")
+        put_notification_error(socket, decision_id, deferred)
     end
   end
 
@@ -287,9 +298,25 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     )
   end
 
+  defp put_notification_error(socket, decision_id, decision) do
+    [retry_decision] = DecisionPresenter.present(decision)
+
+    update_state(socket, decision_id, fn state ->
+      state
+      |> Map.put(:error, "The Command is deferred, but the Executor notification failed. Retry the notification.")
+      |> Map.put(:notification_retry_decision, retry_decision)
+      |> Map.delete(:notice)
+      |> Map.delete(:idempotency_key)
+    end)
+  end
+
   defp put_notice(socket, decision_id, message) do
     update_state(socket, decision_id, fn state ->
-      state |> Map.put(:notice, message) |> Map.delete(:error) |> Map.put(:form, %{})
+      state
+      |> Map.put(:notice, message)
+      |> Map.delete(:error)
+      |> Map.delete(:notification_retry_decision)
+      |> Map.put(:form, %{})
     end)
   end
 

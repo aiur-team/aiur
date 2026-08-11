@@ -28,6 +28,10 @@ defmodule Aiur.DecisionHistory do
     "enriched" => :enriched,
     "decision_expired" => :expired,
     "expired" => :expired,
+    "decision_deferred" => :executor_notified,
+    "deferred" => :executor_notified,
+    "decision_dismissed" => :acknowledged,
+    "dismissed" => :acknowledged,
     "answered" => :answered,
     "revised" => :revised,
     "superseded" => :superseded,
@@ -176,6 +180,12 @@ defmodule Aiur.DecisionHistory do
 
   defp event_record(%DecisionEvent{type: :decision_expired, data: data}, base, _revisions),
     do: Map.merge(base, %{actor: data.actor, rationale: data.reason_class, event_kind: :expired})
+
+  defp event_record(%DecisionEvent{type: :decision_deferred, data: data}, base, _revisions),
+    do: Map.merge(base, %{actor: data.actor, event_kind: :executor_notified})
+
+  defp event_record(%DecisionEvent{type: :decision_dismissed, data: data}, base, _revisions),
+    do: Map.merge(base, %{actor: data.actor, event_kind: :acknowledged})
 
   defp event_record(%DecisionEvent{type: :revision_recorded, data: revision}, base, _revisions),
     do: Map.merge(base, %{revision: revision, revision_result: :recorded})

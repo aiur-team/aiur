@@ -220,12 +220,17 @@ defmodule Aiur.DecisionQueryTest do
     assert {:ok, %{decisions: open_rows, filters: %{lifecycle: :open}}} =
              DecisionQuery.list(%{"lifecycle" => "open", "ticket" => "1088"}, store: store)
 
-    assert MapSet.new(open_rows, & &1.decision_id) == MapSet.new([open.decision_id, deferred.decision_id])
+    assert Enum.map(open_rows, & &1.decision_id) == [open.decision_id]
 
     assert {:ok, %{decisions: [deferred_row], filters: %{lifecycle: :deferred}}} =
              DecisionQuery.list(%{"lifecycle" => "deferred"}, store: store)
 
     assert deferred_row.decision_id == deferred.decision_id
+
+    assert {:ok, %{decisions: historic_rows, filters: %{lifecycle: :historic}}} =
+             DecisionQuery.list(%{"lifecycle" => "historic", "ticket" => "1088"}, store: store)
+
+    assert MapSet.new(historic_rows, & &1.decision_id) == MapSet.new([deferred.decision_id, resolved.decision_id])
 
     search = String.slice(open.decision_id, 0, 12)
     assert {:ok, %{decisions: [search_row]}} = DecisionQuery.list(%{"search" => search}, store: store)
@@ -234,7 +239,7 @@ defmodule Aiur.DecisionQueryTest do
     assert {:ok, %{pagination: %{total: 1}}} =
              DecisionQuery.list(%{"search" => search}, store: store)
 
-    assert {:ok, %{open: 2, blocking: 2, scope: %{label: "All retained decisions"}}} =
+    assert {:ok, %{open: 1, blocking: 1, scope: %{label: "All retained decisions"}}} =
              DecisionQuery.counts(store: store)
   end
 

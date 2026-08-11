@@ -73,12 +73,12 @@ for (const { width, isMobile } of routeShellViewports) {
       await page.goto('/')
 
       await expect(page.getByRole('heading', { name: 'Units' })).toBeVisible()
-      await expect(page.getByRole('link', { name: 'Commands' })).not.toHaveAttribute('aria-current')
+      await expect(page.getByRole('link', { name: 'Commands', exact: true })).not.toHaveAttribute('aria-current')
       await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('href', '/build-orders')
       await expect(page.getByRole('link', { name: 'Analytics' })).toHaveAttribute('href', '/analytics')
       await assertNoDocumentOverflow(page)
 
-      const commands = page.getByRole('link', { name: 'Commands' })
+      const commands = page.getByRole('link', { name: 'Commands', exact: true })
 
       if (isMobile) {
         await commands.tap()
@@ -86,8 +86,8 @@ for (const { width, isMobile } of routeShellViewports) {
         await commands.press('Enter')
       }
       await expect(page).toHaveURL(/\/decisions$/)
-      await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
-      await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
+      await expect(page.getByRole('heading', { name: 'Commands', exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Commands', exact: true })).toHaveAttribute('aria-current', 'page')
 
       await page.goBack()
       await expect(page).toHaveURL(/\/$/)
@@ -95,12 +95,12 @@ for (const { width, isMobile } of routeShellViewports) {
 
       await page.goForward()
       await expect(page).toHaveURL(/\/decisions$/)
-      await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
+      await expect(page.getByRole('heading', { name: 'Commands', exact: true })).toBeVisible()
 
       await page.goto('/decisions/decision-123')
       await expect(page).toHaveURL(/\/decisions\/decision-123$/)
-      await expect(page.getByRole('heading', { name: 'Commands' })).toBeVisible()
-      await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
+      await expect(page.getByRole('heading', { name: 'Commands', exact: true })).toBeVisible()
+      await expect(page.getByRole('link', { name: 'Commands', exact: true })).toHaveAttribute('aria-current', 'page')
       await expect(page.locator('#route-shell-action')).toBeVisible()
 
       // The theme + nav toggles live in the desktop sidebar, which the compact

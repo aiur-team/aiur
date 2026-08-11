@@ -34,6 +34,7 @@ defmodule AiurWeb.DashboardLive do
 
   alias AiurWeb.OperatorControlCenter.{
     AgentLogModal,
+    AwaitingCommands,
     CapacityPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
@@ -99,6 +100,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
       |> assign(:decision_actions, %{})
+      |> assign(:history_visible_count, 10)
       |> assign(:global_pause_error, nil)
       |> assign(:payload_reload_scheduled?, false)
       |> assign(:payload_reload_mode, :cached)
@@ -291,6 +293,10 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("filter-decisions", _params, socket), do: {:noreply, socket}
+
+  def handle_event("load-command-history", _params, socket) do
+    {:noreply, update(socket, :history_visible_count, &(&1 + 10))}
+  end
 
   def handle_event("search-commands", %{"search" => search}, socket) when is_binary(search) do
     query =
@@ -646,6 +652,7 @@ defmodule AiurWeb.DashboardLive do
     assigns =
       assigns
       |> Map.put_new(:selected_decision_health, nil)
+      |> Map.put_new(:history_visible_count, 10)
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
@@ -695,7 +702,7 @@ defmodule AiurWeb.DashboardLive do
           <span aria-hidden="true">⏸</span>
           <span><b>Aiur is globally paused.</b> {global_pause_provenance(@payload)}Run <code>aiurdev resume</code> with no ticket ID to lift the global pause.</span>
         </div>
-        <Overview.decisions_banner decisions={@payload.decisions} retained_counts={@retained_counts} />
+        <Overview.decisions_banner retained_counts={@retained_counts} />
       </:banner>
 
       <Overview.error error={@payload.fleet[:error]} />
@@ -728,6 +735,8 @@ defmodule AiurWeb.DashboardLive do
           entries={Enum.reject(@payload.history, &(&1.decision_id == @selected_decision_id))}
           decisions={@decision_page.decisions}
           provider_health={@payload.provider_health.history}
+          visible_count={@history_visible_count}
+          hidden_decision_ids={notification_retry_ids(@decision_actions)}
         />
       </div>
 
@@ -900,9 +909,9 @@ defmodule AiurWeb.DashboardLive do
   # Only real, positive integers are emitted; anything unknown is omitted so the
   # nav never fabricates a count.
   defp nav_counts(units_view, retained_counts) do
-    %{}
+    retained_counts
+    |> AwaitingCommands.nav_counts()
     |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
-    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :open))
   end
 
   defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
@@ -1977,6 +1986,10 @@ defmodule AiurWeb.DashboardLive do
 
   defp page_provider_health(%{health: %{status: status}}) when status in [:available, :partial], do: :ok
   defp page_provider_health(_page), do: :unavailable
+
+  defp notification_retry_ids(action_states) do
+    for {decision_id, %{notification_retry_decision: _decision}} <- action_states, do: decision_id
+  end
 
   defp handle_writable_event(socket, fun) when is_function(fun, 0) do
     if dashboard_writable?() do

@@ -377,30 +377,27 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   end
 
   test "decision banner uses canonical retained counts and hides when none await input" do
-    answered = %{decision_id: "dec-answered", blocking: true, lifecycle: :resolved}
-    open = %{decision_id: "dec-open", blocking: false, lifecycle: :recorded}
-
     html =
       render_component(&Overview.decisions_banner/1, %{
-        decisions: [answered, open],
         retained_counts: %{open: 1, blocking: 0, health: %{status: :available}}
       })
 
     empty_html =
       render_component(&Overview.decisions_banner/1, %{
-        decisions: [answered],
         retained_counts: %{open: 0, blocking: 0, health: %{status: :available}}
       })
 
     assert html =~ ~s(href="/decisions")
     assert html =~ "1 unit awaiting commands"
     refute empty_html =~ "decisions-banner"
+
+    {:ok, document} = Floki.parse_document(html)
+    assert [_chevron] = Floki.find(document, ".decision-banner-cta svg")
   end
 
   test "decision banner count equals the open Commands list even when only some block" do
     html =
       render_component(&Overview.decisions_banner/1, %{
-        decisions: [],
         retained_counts: %{open: 3, blocking: 1, health: %{status: :available}}
       })
 
@@ -430,19 +427,21 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "currently unavailable"
   end
 
-  test "renders answered and dismissed Commands once as compact green history rows" do
+  test "renders answered, Executor-notified, and dismissed Commands as distinct green history rows" do
     answered = inbox_decision("dec-history-answered", decision_status: :decided, answer: action_answer(:operator))
+    notified = inbox_decision("dec-history-notified", decision_status: :deferred)
     dismissed = inbox_decision("dec-history-dismissed", decision_status: :dismissed)
 
     html =
       render_component(&History.history/1, %{
         entries: [],
-        decisions: [answered, dismissed],
+        decisions: [answered, notified, dismissed],
         provider_health: :ok
       })
 
-    assert html =~ ~s(class="history-item" data-severity="good")
+    assert html =~ ~s(data-severity="good")
     assert html =~ "Answered"
+    assert html =~ "Executor notified"
     assert html =~ "Acknowledged — closed without a recorded answer"
     refute html =~ ~s(class="decision-card)
   end
@@ -460,6 +459,50 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "Expired"
     assert html =~ "agent is no longer running"
     refute html =~ ~s(class="decision-card)
+  end
+
+  test "Command history is a ten-row table with an explicit load-more control" do
+    entry = %{
+      decision_id: "dec-history",
+      ticket: %{identifier: "AIUR-983"},
+      question: "Choose a rollout path",
+      changed_at: ~U[2026-07-12 13:00:00Z],
+      change: :answered,
+      actor: %{type: :human_operator, id: "operator", label: "Executor"},
+      choice: "Ship",
+      rationale: nil,
+      dispatch_result: :delivered,
+      acknowledgement_result: nil,
+      revision_result: nil,
+      revised?: false,
+      follow_up_required: false,
+      follow_up_handled: false
+    }
+
+    entries = Enum.map(1..11, &%{entry | decision_id: "dec-history-#{&1}"})
+    html = render_component(&History.history/1, %{entries: entries, provider_health: :ok, visible_count: 10})
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_table] = Floki.find(document, "table.command-history-table")
+    assert length(Floki.find(document, "tbody tr")) == 10
+    assert Floki.text(Floki.find(document, "button[phx-click='load-command-history']")) =~ "Load more"
+    refute html =~ "dec-history-11"
+  end
+
+  test "Command history withholds a deferred row while its Executor notification needs retry" do
+    deferred = inbox_decision("dec-hidden-notification", decision_status: :deferred)
+
+    html =
+      render_component(&History.history/1, %{
+        entries: [],
+        decisions: [deferred],
+        provider_health: :ok,
+        hidden_decision_ids: [deferred.decision_id]
+      })
+
+    refute html =~ "Question dec-hidden-notification"
+    refute html =~ "Executor notified"
+    assert html =~ "No Command actions have been recorded."
   end
 
   test "Commands inbox exposes only the four primary filters with canonical retained counts" do
@@ -584,6 +627,49 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       })
 
     assert card_html =~ "Deferred to Executor"
+  end
+
+  test "deferred Commands leave the active inbox after the Executor is notified" do
+    deferred = inbox_decision("dec-notified", decision_status: :deferred, lifecycle: :deferred)
+
+    html = render_inbox([deferred], :all, %{total: 1, open: 0, blocking: 0})
+
+    refute html =~ "Question dec-notified"
+    assert html =~ "No Commands match this filter."
+  end
+
+  test "a failed Executor notification keeps its deferred Command retryable" do
+    deferred = inbox_decision("dec-notification-retry", decision_status: :deferred, lifecycle: :deferred)
+
+    html =
+      render_inbox([], :all, %{total: 1, open: 0, blocking: 0}, %{
+        deferred.decision_id => %{
+          notification_retry_decision: deferred,
+          error: "The Executor notification failed."
+        }
+      })
+
+    assert html =~ "Question dec-notification-retry"
+    assert html =~ "The Executor notification failed."
+  end
+
+  test "Command cards put age at top right, use an icon chevron, and render the ticket identifier once" do
+    decision = inbox_decision("dec-card-layout")
+
+    html =
+      render_component(&DecisionCard.decision_card/1, %{
+        decision: decision,
+        writable: false,
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert Floki.text(Floki.find(document, ".decision-card-side .decision-age")) == "1h ago"
+    assert Floki.find(document, ".decision-card-foot .age") == []
+    assert [_chevron] = Floki.find(document, ".expand-hint svg")
+    assert length(Floki.find(document, ".decision-meta-row .ticket-id")) == 1
+    assert Floki.find(document, ".decision-card-foot .chip.mono.faint") == []
   end
 
   test "renders canonical answer evidence and gates failed-delivery retry by writable mode" do
@@ -758,6 +844,11 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
         delivery_status: :not_dispatched,
         lifecycle: :resolved
       ),
+      inbox_decision("dec-notified",
+        decision_status: :deferred,
+        delivery_status: :not_dispatched,
+        lifecycle: :deferred
+      ),
       inbox_decision(
         "dec-superseded",
         decision_status: :decided,
@@ -776,6 +867,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute all =~ "Question dec-supervisor"
     refute all =~ "Question dec-resolved"
     refute all =~ "Question dec-dismissed"
+    refute all =~ "Question dec-notified"
     refute all =~ "Question dec-superseded"
     assert resolved =~ "Resolved Commands are shown in Command history below."
     refute resolved =~ ~s(class="decision-card)
@@ -949,7 +1041,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
-  defp render_inbox(decisions, filter, retained_counts \\ nil) do
+  defp render_inbox(decisions, filter, retained_counts \\ nil, action_states \\ %{}) do
     retained_counts =
       retained_counts ||
         %{
@@ -964,7 +1056,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       filter: filter,
       now: ~U[2026-07-12 13:00:00Z],
       history: [],
-      action_states: %{},
+      action_states: action_states,
       writable: false,
       provider_health: :ok,
       retained_counts: retained_counts

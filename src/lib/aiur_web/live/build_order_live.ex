@@ -22,11 +22,13 @@ defmodule AiurWeb.BuildOrderLive do
   alias AiurWeb.Presenter
 
   alias AiurWeb.OperatorControlCenter.{
+    AwaitingCommands,
     BuildOrderCatalog,
     BuildOrderSelected,
     BuildOrderTicketContext,
     DashboardShell,
     NavState,
+    Overview,
     RouteRegistry
   }
 
@@ -43,6 +45,10 @@ defmodule AiurWeb.BuildOrderLive do
     request_epoch = "build-order-live-#{System.unique_integer([:positive])}"
     route_state = RouteState.new(request_epoch)
 
+    if connected do
+      :ok = AwaitingCommands.subscribe()
+    end
+
     socket =
       socket
       |> assign(:route_state, route_state)
@@ -56,6 +62,7 @@ defmodule AiurWeb.BuildOrderLive do
       |> assign(:agent_kind, Runtime.agent_kind())
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> assign(:analytics, Presenter.analytics_navigation())
+      |> assign(:retained_counts, AwaitingCommands.counts())
 
     socket = if connected, do: socket |> SourceRuntime.connect() |> UsageRuntime.connect(), else: socket
     if connected, do: schedule_ui_tick()
@@ -117,6 +124,9 @@ defmodule AiurWeb.BuildOrderLive do
 
   def handle_info({:build_order_adhoc_updated, _snapshot}, socket),
     do: {:noreply, SourceRuntime.schedule_reload(socket)}
+
+  def handle_info({:decision_changed, _decision_id, _version}, socket),
+    do: {:noreply, assign(socket, :retained_counts, AwaitingCommands.counts())}
 
   def handle_info({event, _payload}, socket)
       when event in [:current_run_membership_changed, :current_run_membership_health_changed],
@@ -226,8 +236,13 @@ defmodule AiurWeb.BuildOrderLive do
       routes={RouteRegistry.routes(@analytics)}
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
+      nav_counts={AwaitingCommands.nav_counts(@retained_counts)}
       nav_collapsed={@nav_collapsed}
     >
+      <:banner>
+        <Overview.decisions_banner retained_counts={@retained_counts} />
+      </:banner>
+
       <section
         id="build-order-page"
         class="bo-page"

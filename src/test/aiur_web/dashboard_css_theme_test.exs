@@ -13,7 +13,6 @@ defmodule AiurWeb.DashboardCssThemeTest do
   # standard: every entry is a dark-tuned ink that is low-contrast in light
   # mode. Shrink it; do not grow it.
   @known_literal_text_colors [
-    "#1a1200",
     "#6bd6a6",
     "#6bd6a6",
     "#6bd6a6",
@@ -24,7 +23,6 @@ defmodule AiurWeb.DashboardCssThemeTest do
     "#e3b341",
     "#e3b341",
     "#e3b341",
-    "#fff",
     "#fff"
   ]
 

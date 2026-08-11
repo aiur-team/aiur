@@ -201,13 +201,13 @@ defmodule Aiur.DecisionStore.RetainedIndex do
 
   defp operator_command?(%Decision{}), do: true
 
-  defp increment_counts(counts, %Decision{decision_status: status, blocking: blocking}) when status in [:open, :deferred] do
+  defp increment_counts(counts, %Decision{decision_status: :open, blocking: blocking}) do
     %{counts | open: counts.open + 1, blocking: counts.blocking + if(blocking, do: 1, else: 0)}
   end
 
   defp increment_counts(counts, %Decision{}), do: counts
 
-  defp decrement_counts(counts, %Decision{decision_status: status, blocking: blocking}) when status in [:open, :deferred] do
+  defp decrement_counts(counts, %Decision{decision_status: :open, blocking: blocking}) do
     %{counts | open: counts.open - 1, blocking: counts.blocking - if(blocking, do: 1, else: 0)}
   end
 

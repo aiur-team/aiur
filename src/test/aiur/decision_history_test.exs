@@ -130,6 +130,32 @@ defmodule Aiur.DecisionHistoryTest do
     assert entry.changed_at == "2026-07-13T12:01:00Z"
   end
 
+  test "projects Executor notifications and acknowledgements as distinct history outcomes" do
+    actor = %{kind: :operator, id: "dashboard"}
+
+    assert {:ok, notified} =
+             DecisionEvent.new(:decision_deferred, "dec_notified", 1, %{actor: actor},
+               event_id: 902,
+               run_id: "run-history-outcomes",
+               now: ~U[2026-07-13 12:02:00Z]
+             )
+
+    assert {:ok, acknowledged} =
+             DecisionEvent.new(:decision_dismissed, "dec_acknowledged", 1, %{actor: actor},
+               event_id: 903,
+               run_id: "run-history-outcomes",
+               now: ~U[2026-07-13 12:03:00Z]
+             )
+
+    notified_entry = DecisionHistory.project_record(notified)
+    acknowledged_entry = DecisionHistory.project_record(acknowledged)
+
+    assert notified_entry.change == :executor_notified
+    assert notified_entry.actor == %{type: :human_operator, id: "dashboard", label: "dashboard"}
+    assert acknowledged_entry.change == :acknowledged
+    assert acknowledged_entry.actor == %{type: :human_operator, id: "dashboard", label: "dashboard"}
+  end
+
   test "retains the existing integer supervisor basis independently of provenance" do
     basis = %{
       confidence: 0,

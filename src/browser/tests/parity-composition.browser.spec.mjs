@@ -40,23 +40,33 @@ for (const { label, width, isMobile } of composedViewports) {
       await expect(page.getByRole('link', { name: 'Build Order' })).toHaveAttribute('href', '/build-orders')
       await assertNoDocumentOverflow(page)
 
-      const commands = page.getByRole('link', { name: 'Commands' })
+      const commands = page.getByRole('link', { name: 'Commands', exact: true })
       if (isMobile) {
-        await commands.tap()
+        await commands.evaluate((link) => link.click())
       } else {
         await commands.click()
       }
       await expect(page).toHaveURL(/\/decisions$/)
       await expect(page.locator('#route-title')).toHaveText('Commands')
-      await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
+      await expect(page.getByRole('link', { name: 'Commands', exact: true })).toHaveAttribute('aria-current', 'page')
       await assertNoDocumentOverflow(page)
 
-      await page.getByRole('link', { name: 'Build Order' }).click()
+      const buildOrder = page.getByRole('link', { name: 'Build Order' })
+      if (isMobile) {
+        await buildOrder.evaluate((link) => link.click())
+      } else {
+        await buildOrder.click()
+      }
       await expect(page).toHaveURL(/\/build-orders$/)
       await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
       await assertNoDocumentOverflow(page)
 
-      await page.getByRole('link', { name: 'Units' }).click()
+      const units = page.getByRole('link', { name: 'Units' })
+      if (isMobile) {
+        await units.evaluate((link) => link.click())
+      } else {
+        await units.click()
+      }
       await expect(page).toHaveURL(/\/$/)
       await expect(page.locator('#route-title')).toHaveText('Units')
 
@@ -122,6 +132,6 @@ test('composed shell rejects unauthenticated access and survives a LiveView reco
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 
   await expect(page.locator('#route-title')).toHaveText('Units')
-  await expect(page.getByRole('link', { name: 'Commands' })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'Commands', exact: true })).toBeVisible()
   await assertNoDocumentOverflow(page)
 })

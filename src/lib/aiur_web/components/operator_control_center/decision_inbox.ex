@@ -27,7 +27,14 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
 
   @spec decision_inbox(map()) :: Phoenix.LiveView.Rendered.t()
   def decision_inbox(assigns) do
-    decisions = visible_decisions(assigns.decisions, assigns.selected_decision, assigns.selected_decision_id, assigns.filter)
+    decisions =
+      visible_decisions(
+        assigns.decisions,
+        assigns.selected_decision,
+        assigns.selected_decision_id,
+        assigns.filter,
+        assigns.action_states
+      )
 
     assigns =
       assigns
@@ -129,16 +136,31 @@ defmodule AiurWeb.OperatorControlCenter.DecisionInbox do
   defp empty_message(:resolved), do: "Resolved Commands are shown in Command history below."
   defp empty_message(_filter), do: "No Commands match this filter."
 
-  defp visible_decisions(decisions, selected, selected_id, filter) do
+  defp visible_decisions(decisions, selected, selected_id, filter, action_states) do
     filtered =
       decisions
       |> Enum.reject(&(&1.decision_id == selected_id))
       |> filtered(filter)
+      |> Kernel.++(notification_retry_decisions(action_states, filter))
+      |> Enum.reject(&(&1.decision_id == selected_id))
+      |> Enum.uniq_by(& &1.decision_id)
 
     if is_nil(selected), do: filtered, else: [selected | filtered]
   end
 
-  defp open?(decision), do: decision.decision_status in [:open, :deferred]
+  defp notification_retry_decisions(action_states, filter) when filter in [:all, :open, :blocking] do
+    action_states
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :notification_retry_decision))
+    |> Enum.reject(&is_nil/1)
+    |> then(fn decisions ->
+      if filter == :blocking, do: Enum.filter(decisions, &Map.get(&1, :blocking, false)), else: decisions
+    end)
+  end
+
+  defp notification_retry_decisions(_action_states, _filter), do: []
+
+  defp open?(decision), do: decision.decision_status == :open
   defp blocking?(decision), do: decision.blocking and open?(decision)
 
   defp undelivered?(decision) do

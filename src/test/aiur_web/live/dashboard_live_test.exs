@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardLiveTest do
   }
 
   alias Aiur.BuildOrder.Lifecycle
+  alias Aiur.Config.Paths
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
   alias Aiur.Events.{Exchange, SubscriptionStore}
@@ -942,6 +943,37 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ ~s(id="units-rows")
     assert html =~ "Responsive Units interface"
     refute html =~ "No units have been observed in this run"
+  end
+
+  test "Command history load more appends the next ten durable rows" do
+    orchestrator_name = Module.concat(__MODULE__, :HistoryPaginationOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :HistoryPaginationDecisionStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+
+    Enum.each(1..11, fn index ->
+      request_dashboard_decision(store, "history-pagination-#{index}")
+    end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions")
+    {:ok, document} = Floki.parse_document(html)
+
+    assert length(Floki.find(document, ".command-history-table tbody tr")) == 10
+    assert has_element?(view, "button[phx-click='load-command-history']")
+
+    html = view |> element("button[phx-click='load-command-history']") |> render_click()
+    {:ok, document} = Floki.parse_document(html)
+
+    assert length(Floki.find(document, ".command-history-table tbody tr")) == 11
+    refute has_element?(view, "button[phx-click='load-command-history']")
   end
 
   test "does not report a missing Decision as absent when retained replay is partial" do
@@ -2257,6 +2289,40 @@ defmodule AiurWeb.DashboardLiveTest do
     assert Enum.count(audit, &match?(%DecisionEvent{type: :dispatch_queued}, &1)) == 1
   end
 
+  test "an accepted card-face answer immediately leaves the inbox for green history" do
+    orchestrator_name = Module.concat(__MODULE__, :AnswerDismissalOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :AnswerDismissalDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 5_086}}}
+      end)
+
+    decision = request_dashboard_decision(store, "answer-dismissal")
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions")
+    assert html =~ ~s(id="decision-#{decision.decision_id}")
+
+    html =
+      render_submit(view, "answer-decision", %{
+        "decision_id" => decision.decision_id,
+        "answer" => %{"choice" => "option:ship"}
+      })
+
+    refute html =~ ~s(id="decision-#{decision.decision_id}")
+    assert html =~ "Answered"
+    assert {:ok, %{counts: %{open: 0}}} = DecisionStore.retained_counts(store)
+  end
+
   test "irreversible answers do not require a redundant confirmation" do
     orchestrator_name = Module.concat(__MODULE__, :ConfirmationOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :ConfirmationDecisionStore)
@@ -2724,11 +2790,14 @@ defmodule AiurWeb.DashboardLiveTest do
     assert :ok = Exchange.subscribe("executor.#")
     assert html =~ ~s(phx-click="defer-decision")
 
-    _html =
+    html =
       view
       |> element("#decision-#{live_decision.decision_id} button[phx-click=\"defer-decision\"]")
       |> render_click()
 
+    refute html =~ ~s(id="decision-#{live_decision.decision_id}")
+    assert html =~ "Executor notified"
+    assert {:ok, %{counts: %{open: 0}}} = DecisionStore.retained_counts(store)
     assert {:ok, deferred} = DecisionStore.get(live_decision.decision_id, store)
     assert deferred.decision_status == :deferred
     assert deferred.answer == nil
@@ -2749,6 +2818,58 @@ defmodule AiurWeb.DashboardLiveTest do
     assert gone_deferred.decision_status == :deferred
     refute_receive {:agent_queue_updated, "988", _queue_item_id, _delivery}, 200
     assert :empty = OperatorMessages.claim_next_checkpoint_queue_item(orchestrator, "988")
+  end
+
+  test "a failed Executor notification keeps the Command active until a retry is published" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferredRetryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferredRetryStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+    decision = request_queue_decision(store, "dashboard-defer-retry", "987")
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    journal_path =
+      Path.join(
+        Paths.log_root_dir(),
+        "#{Paths.repo_name()}.executor.events.ndjson"
+      )
+
+    File.mkdir_p!(Path.dirname(journal_path))
+    File.write!(journal_path, "not-json\n")
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"defer-decision\"]")
+      |> render_click()
+
+    assert html =~ ~s(id="decision-#{decision.decision_id}")
+    assert html =~ "Executor notification failed"
+    refute html =~ ">Executor notified<"
+    assert {:ok, %{decision_status: :deferred}} = DecisionStore.get(decision.decision_id, store)
+
+    File.write!(journal_path, "")
+    assert :ok = Exchange.subscribe("executor.decision.deferred")
+
+    html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"defer-decision\"]")
+      |> render_click()
+
+    refute html =~ ~s(id="decision-#{decision.decision_id}")
+    assert html =~ ">Executor notified<"
+
+    assert_receive {:event, %{topic: "executor.decision.deferred", decision_id: decision_id, renotify: false}}, 500
+    assert decision_id == decision.decision_id
   end
 
   test "a deferred detail command remains answerable" do
@@ -3291,7 +3412,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute filtered_list =~ human.question
   end
 
-  test "keeps the mounted dashboard decision history bounded" do
+  test "paginates the mounted bounded dashboard history ten rows at a time" do
     orchestrator_name = Module.concat(__MODULE__, :BoundedHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :BoundedHistoryDecisionStore)
 
@@ -3311,8 +3432,14 @@ defmodule AiurWeb.DashboardLiveTest do
 
     {:ok, view, _html} = live(build_conn(), "/decisions")
 
-    rows = view |> render() |> Floki.parse_document!() |> Floki.find(".history-list .history-item")
+    document = view |> render() |> Floki.parse_document!()
+    assert length(Floki.find(document, ".command-history-table tbody tr")) == 10
+
+    Enum.each(1..4, fn _page -> render_click(view, "load-command-history") end)
+
+    rows = view |> render() |> Floki.parse_document!() |> Floki.find(".command-history-table tbody tr")
     assert length(rows) == 50
+    refute has_element?(view, "button[phx-click='load-command-history']")
   end
 
   test "round-trips validated Units URL state and exposes a named zero-result reset" do

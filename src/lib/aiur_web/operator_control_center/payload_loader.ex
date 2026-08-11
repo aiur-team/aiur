@@ -4,7 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   import Phoenix.Component, only: [assign: 3]
 
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
-  alias AiurWeb.OperatorControlCenter.{DecisionProvider, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{AwaitingCommands, DecisionProvider, UnitsPresenter}
 
   @reload_debounce_ms 50
   @reload_min_interval_ms 400
@@ -143,7 +143,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
         |> maybe_put_option(:fleet_fun, Endpoint.config(:units_fleet_fun))
       )
 
-    retained_counts = retained_counts(decision_store)
+    retained_counts = AwaitingCommands.counts(decision_store)
 
     payload
     |> Map.put(:retained_counts, retained_counts)
@@ -201,30 +201,6 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
       timer when is_function(timer, 3) -> timer.(self(), :reload_payload, delay_ms)
       _other -> Process.send_after(self(), :reload_payload, delay_ms)
     end
-  end
-
-  defp retained_counts(decision_store) do
-    {:ok, counts} = DecisionProvider.counts(decision_store: decision_store)
-    counts
-  rescue
-    _error -> unavailable_retained_counts()
-  catch
-    :exit, _reason -> unavailable_retained_counts()
-  end
-
-  defp unavailable_retained_counts do
-    %{
-      open: nil,
-      blocking: nil,
-      total: nil,
-      scope: %{kind: :retained, label: "All retained decisions"},
-      health: %{
-        status: :unavailable,
-        partial?: true,
-        reason: :retained_store_unavailable,
-        label: "Retained Decision counts unavailable"
-      }
-    }
   end
 
   defp now_ms, do: System.monotonic_time(:millisecond)

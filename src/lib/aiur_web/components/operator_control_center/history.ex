@@ -8,17 +8,20 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:entries, :list, required: true)
   attr(:decisions, :list, default: [])
   attr(:provider_health, :any, default: :ok)
+  attr(:visible_count, :integer, default: 10)
+  attr(:hidden_decision_ids, :list, default: [])
 
   @spec history(map()) :: Phoenix.LiveView.Rendered.t()
   def history(assigns) do
-    historic_decisions = Enum.filter(assigns.decisions, &historic?/1)
-    historic_ids = MapSet.new(historic_decisions, & &1.decision_id)
+    visible_count = max(assigns.visible_count, 10)
+    rows = assigns.decisions |> history_rows(assigns.entries, assigns.hidden_decision_ids) |> Enum.take(visible_count + 1)
+    {visible_rows, overflow} = Enum.split(rows, visible_count)
 
     assigns =
       assigns
-      |> assign(:historic_decisions, historic_decisions)
-      |> assign(:audit_entries, Enum.reject(assigns.entries, &MapSet.member?(historic_ids, &1.decision_id)))
-      |> assign(:empty?, historic_decisions == [] and assigns.entries == [])
+      |> assign(:rows, visible_rows)
+      |> assign(:empty?, visible_rows == [])
+      |> assign(:has_more?, overflow != [])
 
     ~H"""
     <section class="recent-section" aria-labelledby="decision-history-title">
@@ -28,51 +31,110 @@ defmodule AiurWeb.OperatorControlCenter.History do
         Command history is degraded; showing the last validated prefix.
       </div>
       <div :if={@provider_health == :ok and @empty?} class="empty-state compact">No Command actions have been recorded.</div>
-      <div class="history-list">
-        <article :for={decision <- @historic_decisions} class="history-item" data-severity="good">
-          <span class="severity-rail"></span>
-          <header>
-            <span class="ticket-id">{ticket_identifier(decision.ticket) || decision.decision_id}</span>
-            <strong>{decision.question}</strong>
-          </header>
-          <p :if={decision_choice(decision)} class="history-choice">Choice: <b>{decision_choice(decision)}</b></p>
-          <footer>
-            <span class="chip good">{decision_status(decision)}</span>
-            <span :if={provenance_label(decision)} class="chip mono">{provenance_label(decision)}</span>
-            <.link patch={DecisionPath.detail(decision.decision_id, :all)} class="link-pill">Open Command</.link>
-          </footer>
-        </article>
-        <article :for={entry <- @audit_entries} class="history-item">
-          <span class="severity-rail"></span>
-          <header>
-            <span class="ticket-id">{ticket_identifier(entry.ticket) || entry.decision_id}</span>
-            <strong>{entry.question || humanize(entry.change)}</strong>
-          </header>
-          <p :if={entry.choice} class="history-choice">Choice: <b>{entry.choice}</b></p>
-          <p :if={entry.rationale} class="history-rationale">{entry.rationale}</p>
-          <footer>
-            <span class="actor-tag"><span class={["actor-glyph", actor_class(entry.actor)]}>{actor_code(entry.actor)}</span>{actor_label(entry.actor)}</span>
-            <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
-            <.result_chip label="dispatch" result={entry.dispatch_result} />
-            <.result_chip label="ack" result={entry.acknowledgement_result} />
-            <.result_chip label="revision" result={Map.get(entry, :revision_result)} />
-            <span :if={is_integer(confidence(entry))} class="chip super">{confidence(entry)}% confidence</span>
-            <span :if={provenance_label(entry)} class="chip mono">{provenance_label(entry)}</span>
-            <span :if={identifier(Map.get(entry, :superseded_by))} class="chip attention">
-              Superseded by <span class="mono">{identifier(Map.get(entry, :superseded_by))}</span>
-            </span>
-            <span :if={identifier(Map.get(entry, :revision_of))} class="chip super">
-              Supersedes <span class="mono">{identifier(Map.get(entry, :revision_of))}</span>
-            </span>
-            <span :if={entry.revised?} class="chip super">Revised</span>
-            <span :if={entry.follow_up_required and not entry.follow_up_handled} class="chip blocking">Follow-up required</span>
-            <span :if={entry.follow_up_handled} class="chip good">Follow-up handled</span>
-            <.link patch={DecisionPath.detail(entry.decision_id, :all)} class="link-pill">Open Command</.link>
-          </footer>
-        </article>
+      <div :if={@rows != []} class="command-history-wrap">
+        <table class="command-history-table">
+          <thead>
+            <tr>
+              <th scope="col">Command</th>
+              <th scope="col">Outcome</th>
+              <th scope="col">Actor</th>
+              <th scope="col">Time</th>
+              <th scope="col">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr :for={row <- @rows} data-severity={row.style}>
+              <td class="history-command-cell">
+                <span class="ticket-id">{row.ticket_identifier}</span>
+                <.link patch={DecisionPath.detail(row.decision_id, :all)}>{row.question}</.link>
+              </td>
+              <td><span class={["history-outcome", row.style]}>{row.outcome}</span></td>
+              <td>
+                <span class="actor-tag">
+                  <span class={["actor-glyph", actor_class(row.actor)]}>{actor_code(row.actor)}</span>{actor_label(row.actor)}
+                </span>
+              </td>
+              <td class="timeline-time mono">{format_datetime(row.changed_at)}</td>
+              <td class="history-details-cell">
+                <p :if={row.detail}>{row.detail}</p>
+                <div class="history-detail-tags">
+                  <.result_chip label="dispatch" result={Map.get(row.source, :dispatch_result)} />
+                  <.result_chip label="ack" result={Map.get(row.source, :acknowledgement_result)} />
+                  <.result_chip label="revision" result={Map.get(row.source, :revision_result)} />
+                  <span :if={is_integer(confidence(row.source))} class="chip super">{confidence(row.source)}% confidence</span>
+                  <span :if={provenance_label(row.source)} class="chip mono">{provenance_label(row.source)}</span>
+                  <span :if={identifier(Map.get(row.source, :superseded_by))} class="chip attention">
+                    Superseded by <span class="mono">{identifier(Map.get(row.source, :superseded_by))}</span>
+                  </span>
+                  <span :if={identifier(Map.get(row.source, :revision_of))} class="chip super">
+                    Supersedes <span class="mono">{identifier(Map.get(row.source, :revision_of))}</span>
+                  </span>
+                  <span :if={Map.get(row.source, :revised?, false)} class="chip super">Revised</span>
+                  <span :if={Map.get(row.source, :follow_up_required, false) and not Map.get(row.source, :follow_up_handled, false)} class="chip blocking">
+                    Follow-up required
+                  </span>
+                  <span :if={Map.get(row.source, :follow_up_handled, false)} class="chip good">Follow-up handled</span>
+                </div>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
+      <button :if={@has_more?} type="button" class="btn secondary command-history-more" phx-click="load-command-history">
+        Load more
+      </button>
     </section>
     """
+  end
+
+  defp history_rows(decisions, entries, hidden_decision_ids) do
+    hidden_decision_ids = MapSet.new(hidden_decision_ids)
+
+    historic_decisions = Enum.filter(decisions, &historic?/1)
+    historic_decisions = Enum.reject(historic_decisions, &MapSet.member?(hidden_decision_ids, &1.decision_id))
+    historic_ids = MapSet.new(historic_decisions, & &1.decision_id)
+
+    decision_rows = Stream.map(historic_decisions, &decision_row/1)
+
+    audit_rows =
+      entries
+      |> Stream.reject(&MapSet.member?(hidden_decision_ids, &1.decision_id))
+      |> Stream.reject(&MapSet.member?(historic_ids, &1.decision_id))
+      |> Stream.map(&audit_row/1)
+
+    Stream.concat(decision_rows, audit_rows)
+  end
+
+  defp decision_row(decision) do
+    {outcome, style} = decision_outcome(decision)
+
+    %{
+      decision_id: decision.decision_id,
+      ticket_identifier: ticket_identifier(decision.ticket) || decision.decision_id,
+      question: decision.question,
+      outcome: outcome,
+      style: style,
+      detail: decision_choice(decision),
+      actor: decision_actor(decision),
+      changed_at: decision_changed_at(decision),
+      source: decision
+    }
+  end
+
+  defp audit_row(entry) do
+    {outcome, style} = audit_outcome(Map.get(entry, :change))
+
+    %{
+      decision_id: entry.decision_id,
+      ticket_identifier: ticket_identifier(entry.ticket) || entry.decision_id,
+      question: entry.question || humanize(entry.change),
+      outcome: outcome,
+      style: style,
+      detail: Map.get(entry, :choice) || Map.get(entry, :rationale),
+      actor: Map.get(entry, :actor),
+      changed_at: Map.get(entry, :changed_at),
+      source: entry
+    }
   end
 
   attr(:label, :string, required: true)
@@ -108,13 +170,22 @@ defmodule AiurWeb.OperatorControlCenter.History do
     end
   end
 
-  defp historic?(decision), do: Map.get(decision, :decision_status) in [:expired, :decided, :acknowledged, :resolved, :dismissed]
+  defp historic?(decision),
+    do: Map.get(decision, :decision_status) in [:deferred, :expired, :decided, :acknowledged, :resolved, :dismissed]
 
-  defp decision_status(%{decision_status: :expired}), do: "Expired"
-  defp decision_status(%{decision_status: :decided}), do: "Answered"
-  defp decision_status(%{decision_status: :acknowledged}), do: "Acknowledged"
-  defp decision_status(%{decision_status: :resolved}), do: "Resolved"
-  defp decision_status(%{decision_status: :dismissed}), do: "Acknowledged"
+  defp decision_outcome(%{decision_status: :deferred}), do: {"Executor notified", "good"}
+  defp decision_outcome(%{decision_status: :expired}), do: {"Expired", "expired"}
+  defp decision_outcome(%{decision_status: :decided}), do: {"Answered", "good"}
+  defp decision_outcome(%{decision_status: :acknowledged}), do: {"Acknowledged", "good"}
+  defp decision_outcome(%{decision_status: :resolved}), do: {"Resolved", "good"}
+  defp decision_outcome(%{decision_status: :dismissed}), do: {"Acknowledged", "good"}
+
+  defp audit_outcome(change) when change in [:answered], do: {"Answered", "good"}
+  defp audit_outcome(change) when change in [:executor_notified, :decision_deferred], do: {"Executor notified", "good"}
+  defp audit_outcome(change) when change in [:acknowledged, :decision_dismissed], do: {"Acknowledged", "good"}
+  defp audit_outcome(:resolved), do: {"Resolved", "good"}
+  defp audit_outcome(:expired), do: {"Expired", "expired"}
+  defp audit_outcome(change), do: {humanize(change), "neutral"}
 
   defp decision_choice(%{decision_status: :expired}), do: "Expired — agent is no longer running"
   defp decision_choice(%{decision_status: :dismissed}), do: "Acknowledged — closed without a recorded answer"
@@ -128,6 +199,23 @@ defmodule AiurWeb.OperatorControlCenter.History do
   end
 
   defp decision_choice(_decision), do: nil
+
+  defp decision_actor(%{answer: %{actor: actor}}), do: normalize_decision_actor(actor)
+  defp decision_actor(_decision), do: nil
+
+  defp normalize_decision_actor(%{kind: :operator, id: id}),
+    do: %{type: :human_operator, id: id, label: id || "Executor"}
+
+  defp normalize_decision_actor(%{kind: :supervisor, id: id}),
+    do: %{type: :supervising_agent, id: id, label: id || "Supervising agent"}
+
+  defp normalize_decision_actor(%{kind: :agent, id: id}),
+    do: %{type: :ticket_agent, id: id, label: id || "Ticket agent"}
+
+  defp normalize_decision_actor(_actor), do: nil
+
+  defp decision_changed_at(%{answer: %{accepted_at: accepted_at}}), do: accepted_at
+  defp decision_changed_at(decision), do: Map.get(decision, :created_at)
 
   defp identifier(value) when is_binary(value) do
     case String.trim(value) do
