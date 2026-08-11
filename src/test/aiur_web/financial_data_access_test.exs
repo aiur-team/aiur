@@ -13,6 +13,8 @@ defmodule AiurWeb.FinancialDataAccessTest do
                    )
 
   setup do
+    FinancialDataAccess.Generation.invalidate()
+
     previous_endpoint = Application.get_env(:aiur, Endpoint)
     previous_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     previous_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
@@ -287,6 +289,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
   defp session_conn do
     :get
     |> conn("/")
+    |> Map.put(:secret_key_base, String.duplicate("s", 64))
     |> Plug.Session.call(@session_options)
     |> fetch_session()
   end

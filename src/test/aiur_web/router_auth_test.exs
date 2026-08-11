@@ -9,6 +9,8 @@ defmodule AiurWeb.RouterAuthTest do
   @supervisor_token String.duplicate("s", 32)
 
   setup do
+    AiurWeb.FinancialDataAccess.Generation.invalidate()
+
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     original_supervisor_token = System.get_env("AIUR_SUPERVISOR_TOKEN")

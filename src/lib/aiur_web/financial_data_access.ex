@@ -51,11 +51,15 @@ defmodule AiurWeb.FinancialDataAccess do
     case Proof.configuration(opts, @version) do
       {:ok, config} ->
         authenticated =
-          Plug.BasicAuth.basic_auth(conn,
-            username: config.username,
-            password: config.password,
-            realm: "Aiur"
-          )
+          if config.required? do
+            Plug.BasicAuth.basic_auth(conn,
+              username: config.username,
+              password: config.password,
+              realm: "Aiur"
+            )
+          else
+            conn
+          end
 
         if authenticated.halted do
           authenticated
