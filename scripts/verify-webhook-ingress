@@ -89,6 +89,10 @@ denied_paths=(
   "/api/v1/streamdeck/token" # weak: no GET clause, so the daemon 404s it too
   "/api/v1/pane/interrupt"
   "/api/v1/pane/hide"
+  # Reads as a webhook-adjacent path but is not one: there is no `/api/v1/github`
+  # route, so this binds `:issue_identifier` to the literal github segment and
+  # lands on the issue detail handler. Kept as an over-broad-prefix probe; the
+  # explicit issue-detail coverage is `/api/v1/1` below.
   "/api/v1/github"
   # The per-issue agent-control surface. This is the highest-consequence group
   # on the endpoint and it was unprobed until now: an over-broad ingress rule
