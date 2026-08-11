@@ -282,6 +282,13 @@ defmodule AiurWeb.StreamdeckLive do
     {:noreply, schedule_relative_time_refresh(socket)}
   end
 
+  # The awaiting-Commands banner subscribes this view to the Command topic, and
+  # that topic carries more than the one message the banner reads —
+  # `:decision_metrics_changed` rides the same channel. Without this clause an
+  # unrelated Command action anywhere in the fleet takes down the Stream Deck,
+  # which is a control surface the operator runs the fleet from.
+  def handle_info(_message, socket), do: {:noreply, socket}
+
   @impl true
   def render(assigns) do
     ~H"""

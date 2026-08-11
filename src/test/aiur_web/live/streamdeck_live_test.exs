@@ -1366,6 +1366,16 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "units awaiting commands"
   end
 
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "survives every message the Command topic carries" do
+    {:ok, view, html} = live(build_conn(), "/streamdeck")
+    assert html =~ "2 units awaiting commands"
+
+    # Stream Deck is a control surface the operator runs the fleet from. An
+    # unrelated Command action anywhere must not take it down.
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
   # --- awaiting-Commands banner ---------------------------------------------
 
   defp awaiting_commands_config(context) do

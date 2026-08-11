@@ -70,9 +70,18 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
         </span>
       </span>
     </.link>
+    <%!-- The banner is on every route now, so this degraded copy has to be true
+          on every route. It used to promise "the priority overview is still
+          shown", which is a Commands-page fact: on Analytics, Build Order and
+          Stream Deck there is no priority overview to fall back to, and a
+          degraded surface that states a wrong reason is worse than one that
+          only says the number is missing. --%>
     <div :if={!is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
-      <span><b>Retained Command counts unavailable.</b> The priority overview is still shown without a global count.</span>
+      <span>
+        <b>Retained Command counts unavailable.</b>
+        This page cannot show how many units are awaiting commands. Open Commands to work the queue directly.
+      </span>
     </div>
     <div :if={@health == :partial and is_integer(@open)} class="readonly-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>

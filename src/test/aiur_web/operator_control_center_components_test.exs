@@ -415,6 +415,27 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "1 unit awaiting commands"
   end
 
+  test "the unavailable-counts banner states only what is true on every route" do
+    html =
+      render_component(&Overview.decisions_banner/1, %{
+        retained_counts: %{
+          open: nil,
+          blocking: nil,
+          awaiting: nil,
+          awaiting_blocking: nil,
+          health: %{status: :unavailable}
+        }
+      })
+
+    assert html =~ "Retained Command counts unavailable"
+    assert html =~ "cannot show how many units are awaiting commands"
+
+    # This banner is on Analytics, Build Order and Stream Deck too, and none of
+    # them has a priority overview to fall back to. A degraded surface that
+    # names a wrong reason is worse than one that only says the number is gone.
+    refute html =~ "priority overview"
+  end
+
   defp fleet_row(identifier, waiting_reason, attrs \\ []) do
     Map.merge(
       %{
