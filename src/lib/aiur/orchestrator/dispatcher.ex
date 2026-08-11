@@ -19,6 +19,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     DispatchPolicy,
     IssueSync,
     Lifecycle,
+    MergedTicketReconciler,
     PrAnchored,
     Reconciler,
     RetryEngine,
@@ -97,6 +98,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case fetch_candidate_issues(state) do
       {:ok, issues, state} ->
+        {state, issues} = MergedTicketReconciler.reconcile(state, issues)
+
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
