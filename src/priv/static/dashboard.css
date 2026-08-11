@@ -2292,8 +2292,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 [data-severity="good"] > .severity-rail,
-.outcome-card > .severity-rail,
-.history-item > .severity-rail {
+.outcome-card > .severity-rail {
   background: var(--good);
 }
 
@@ -2348,7 +2347,6 @@ html[data-theme="light"] .toggle-icon .moon {
 .actor-tag,
 .link-list,
 .fleet-actions,
-.history-item footer,
 .outcome-card footer,
 .outcome-card header {
   display: flex;
@@ -2367,14 +2365,12 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .expand-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
   color: var(--muted);
   font-family: "JetBrains Mono", monospace;
   font-size: 0.69rem;
-}
-
-.decision-card.open .expand-hint span {
-  display: inline-block;
-  transform: rotate(180deg);
 }
 
 /* Command redesign: top-right lifecycle badge + coloured agent/blocking chips. */
@@ -4641,8 +4637,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.7rem;
 }
 
-.outcome-card,
-.history-item {
+.outcome-card {
   position: relative;
   overflow: hidden;
   padding: 0.88rem 0.95rem 0.88rem 1.05rem;
@@ -4662,8 +4657,7 @@ html[data-theme="light"] .toggle-icon .moon {
   font-size: 0.79rem;
 }
 
-.outcome-card footer,
-.history-item footer {
+.outcome-card footer {
   margin-top: 0.65rem;
 }
 
@@ -4673,30 +4667,116 @@ html[data-theme="light"] .toggle-icon .moon {
   font-weight: 700;
 }
 
-.history-list {
-  display: grid;
-  gap: 0.65rem;
-}
-
-.history-item header {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.history-item header strong {
-  font-size: 0.87rem;
-}
-
-.history-choice,
-.history-rationale {
-  margin: 0.4rem 0 0;
-  font-size: 0.79rem;
-}
-
-.history-rationale {
+/* Command history: one compact table, ten rows per load. The card list it
+   replaced grew without bound — a single run pushed the page past ten thousand
+   pixels, which is not a list an operator can read. */
+.history-count {
   color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.history-table-wrap {
+  margin-top: 0.75rem;
+  overflow-x: auto;
+}
+
+.history-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.history-table thead th {
+  padding: 0.4rem 0.7rem;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-align: left;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.history-table tbody tr {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.history-table tbody tr[data-severity="good"] {
+  box-shadow: inset 3px 0 0 var(--good);
+}
+
+.history-table tbody tr[data-severity="attn"] {
+  box-shadow: inset 3px 0 0 var(--attention);
+}
+
+.history-table tbody tr[data-severity="attention"] {
+  box-shadow: inset 3px 0 0 var(--attention-line);
+}
+
+.history-table td {
+  padding: 0.55rem 0.7rem;
+  vertical-align: top;
+}
+
+.history-table td:first-child {
+  padding-left: 0.9rem;
+}
+
+.history-question {
+  display: block;
+  margin-top: 0.15rem;
+  color: var(--fg);
+}
+
+.history-outcome {
+  max-width: 34ch;
+  color: var(--muted);
+}
+
+.history-when {
+  color: var(--muted);
+  font-size: 0.72rem;
+  white-space: nowrap;
+}
+
+.history-open {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.history-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
+/* Icon carrots. A text ">" cannot rotate, ignores icon sizing, and reads as
+   punctuation to a screen reader. */
+.cta-chevron,
+.expand-chevron {
+  display: inline-flex;
+  align-items: center;
+}
+
+.cta-chevron svg,
+.expand-chevron svg {
+  width: 0.85rem;
+  height: 0.85rem;
+}
+
+.expand-chevron {
+  transition: transform 120ms ease;
+}
+
+.decision-card.open .expand-chevron {
+  transform: rotate(180deg);
+}
+
+.decision-age {
+  color: var(--muted);
+  font-size: 0.7rem;
+  white-space: nowrap;
 }
 
 .empty-state {

@@ -54,33 +54,89 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
   # PayloadLoader can render the overview counts. Derived from the synthetic
   # decisions this provider holds.
   def handle_call(:retained_counts, _from, %{decisions: decisions} = state) do
-    open = Enum.count(decisions, &(&1.decision_status == :open))
-    blocking = Enum.count(decisions, &(&1.decision_status == :open and &1.blocking))
-    counts = %{open: open, blocking: blocking, total: length(decisions)}
-    {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    {:reply, {:ok, %{counts: counts(decisions), health: :writable}}, state}
   end
 
-  # Mirror Aiur.DecisionStore's {:retained_query, query} paged reply so the
-  # Commands view can list decisions. The synthetic set is small, so return a
-  # single bounded page without cursor pagination.
+  # Mirror Aiur.DecisionStore's {:retained_query, query} paged reply, including
+  # the lifecycle filter and cursor paging the Commands view relies on. A
+  # fixture that returns every decision for every query cannot show whether
+  # pagination works.
   def handle_call({:retained_query, query}, _from, %{decisions: decisions} = state) do
     limit = Map.get(query, :limit, 25)
-    page = Enum.take(decisions, limit)
-    open = Enum.count(decisions, &(&1.decision_status == :open))
-    blocking = Enum.count(decisions, &(&1.decision_status == :open and &1.blocking))
+
+    matching =
+      decisions
+      |> Enum.filter(&lifecycle_match?(&1, Map.get(query, :lifecycle)))
+      |> Enum.sort_by(& &1.created_at, {:desc, DateTime})
+
+    after_cursor =
+      case Map.get(query, :cursor) do
+        %{decision_id: decision_id} -> Enum.drop_while(matching, &(&1.decision_id != decision_id)) |> Enum.drop(1)
+        _no_cursor -> matching
+      end
+
+    page = Enum.take(after_cursor, limit)
+    has_next? = length(after_cursor) > limit
+
+    next_key =
+      if has_next? do
+        last = List.last(page)
+        {-DateTime.to_unix(last.created_at, :microsecond), last.decision_id}
+      end
 
     snapshot = %{
       decisions: page,
-      next_key: nil,
-      has_next?: false,
-      total: length(decisions),
+      next_key: next_key,
+      has_next?: has_next?,
+      total: length(matching),
       partial?: false,
       partial_reason: nil,
-      counts: %{open: open, blocking: blocking, total: length(decisions)},
+      counts: counts(decisions),
       health: :writable
     }
 
     {:reply, {:ok, snapshot}, state}
+  end
+
+  # Mirror Aiur.DecisionStore's answer and defer so the two actions that move a
+  # Command out of the inbox can be exercised against synthetic data. Without
+  # them the fixture rejects every write, and the card correctly refuses to
+  # move — which looks like a dismissal bug rather than a missing fixture.
+  def handle_call({:answer, decision_id, payload, _opts}, _from, %{decisions: decisions} = state) do
+    with %{decision_status: status} = decision when status in [:open, :deferred] <-
+           Enum.find(decisions, &(&1.decision_id == decision_id)),
+         {:ok, answer} <-
+           Aiur.DecisionAnswer.normalize(payload,
+             decision_id: decision_id,
+             decision_version: decision.version,
+             options: decision.options,
+             actor: %{kind: :operator, id: "example-operator"},
+             now: DateTime.utc_now()
+           ) do
+      updated = %{decision | answer: answer, active_action_id: answer.action_id, decision_status: :decided}
+      {:reply, {:ok, %{status: :accepted, decision: updated}}, replace(state, updated)}
+    else
+      nil -> {:reply, {:error, :not_found}, state}
+      %{decision_status: status} -> {:reply, {:error, {:conflict, status}}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call({:defer, decision_id, _opts}, _from, %{decisions: decisions} = state) do
+    case Enum.find(decisions, &(&1.decision_id == decision_id)) do
+      nil ->
+        {:reply, {:error, :not_found}, state}
+
+      %{decision_status: :deferred} = decision ->
+        {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+      %{decision_status: :open} = decision ->
+        updated = %{decision | decision_status: :deferred}
+        {:reply, {:ok, %{status: :accepted, decision: updated}}, replace(state, updated)}
+
+      %{decision_status: status} ->
+        {:reply, {:error, {:conflict, status}}, state}
+    end
   end
 
   # Mirror Aiur.DecisionStore's dismiss so the Commands view's Dismiss button
@@ -112,6 +168,37 @@ defmodule Aiur.Docs.ControlCenterFixture.Provider do
     IO.warn("docs fixture has no clause for #{inspect(request)} — returning an error reply")
     {:reply, {:error, :unsupported_in_docs_fixture}, state}
   end
+
+  defp replace(%{decisions: decisions} = state, updated) do
+    %{state | decisions: Enum.map(decisions, &if(&1.decision_id == updated.decision_id, do: updated, else: &1))}
+  end
+
+  @open_statuses [:open, :deferred]
+  @historic_statuses [:expired, :dismissed, :decided, :acknowledged, :resolved]
+  @history_statuses [:deferred | @historic_statuses]
+
+  defp counts(decisions) do
+    open = Enum.count(decisions, &(&1.decision_status in @open_statuses))
+    blocking = Enum.count(decisions, &(&1.decision_status in @open_statuses and &1.blocking))
+    deferred = Enum.count(decisions, &(&1.decision_status == :deferred))
+    deferred_blocking = Enum.count(decisions, &(&1.decision_status == :deferred and &1.blocking))
+
+    %{
+      open: open,
+      blocking: blocking,
+      deferred: deferred,
+      awaiting: open - deferred,
+      awaiting_blocking: blocking - deferred_blocking,
+      total: length(decisions)
+    }
+  end
+
+  defp lifecycle_match?(_decision, nil), do: true
+  defp lifecycle_match?(decision, :open), do: decision.decision_status in @open_statuses
+  defp lifecycle_match?(decision, :awaiting), do: decision.decision_status == :open
+  defp lifecycle_match?(decision, :historic), do: decision.decision_status in @historic_statuses
+  defp lifecycle_match?(decision, :history), do: decision.decision_status in @history_statuses
+  defp lifecycle_match?(decision, lifecycle), do: decision.decision_status == lifecycle
 
   defp globally_paused?(state) do
     state |> Map.get(:snapshot, %{}) |> Map.get(:globally_paused, false) == true
@@ -157,7 +244,14 @@ defmodule Aiur.Docs.ControlCenterFixture do
     # fails and the card reads N/A for a reason that has nothing to do with the
     # account.
     {:ok, _} = Application.ensure_all_started(:req)
-    {:ok, _} = Supervisor.start_link([{Phoenix.PubSub, name: Aiur.PubSub}], strategy: :one_for_one)
+    # The provider-meter baseline probe runs under the app's task supervisor.
+    # Without it the fixture dies ~400ms after boot, before a screenshot can be
+    # taken, for a reason that has nothing to do with the dashboard.
+    {:ok, _} =
+      Supervisor.start_link(
+        [{Phoenix.PubSub, name: Aiur.PubSub}, {Task.Supervisor, name: Aiur.TaskSupervisor}],
+        strategy: :one_for_one
+      )
 
     decisions = decisions()
 
@@ -317,7 +411,28 @@ defmodule Aiur.Docs.ControlCenterFixture do
       answered("dec-example-acknowledged", "EX-148", "Continue after the example audit?", :consumed, :acknowledged),
       answered("dec-example-resolved", "EX-149", "Close the sample migration?", :consumed, :resolved),
       answered("dec-example-failed", "EX-150", "Retry the example notification?", :failed, :decided)
-    ]
+    ] ++ resolved_backlog()
+  end
+
+  # A run's Commands surface is mostly history. The fixture carries enough of it
+  # to show what the operator actually faces, and to make a page that renders
+  # every past Command obvious.
+  defp resolved_backlog do
+    Enum.map(1..24, fn index ->
+      id = "dec-example-past-#{index}"
+      ticket = "EX-#{200 + index}"
+
+      {status, delivery} =
+        case rem(index, 4) do
+          0 -> {:resolved, :consumed}
+          1 -> {:decided, :delivered}
+          2 -> {:acknowledged, :consumed}
+          3 -> {:deferred, :queued}
+        end
+
+      base = answered(id, ticket, "Synthetic past Command #{index}?", delivery, status)
+      %{base | created_at: DateTime.add(now(), -1_800 - index * 600, :second)}
+    end)
   end
 
   defp decision(id, ticket, question, urgency, blocking) do
