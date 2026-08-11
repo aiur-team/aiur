@@ -22,6 +22,8 @@ defmodule Aiur.HttpServer do
 
   @spec start_link(keyword()) :: GenServer.on_start() | :ignore
   def start_link(opts \\ []) do
+    Application.put_env(:aiur, :dashboard_url_fun, &__MODULE__.base_url/0)
+
     case Keyword.get(opts, :port, Config.server_port()) do
       port when is_integer(port) and port >= 0 ->
         host = Keyword.get(opts, :host, Config.server_host())
