@@ -1245,24 +1245,11 @@ defmodule AiurWeb.DashboardLiveTest do
       dashboard_auth_required: false
     )
 
-    test_process = self()
+    response = get(build_conn(), "/")
 
-    log =
-      capture_log(fn ->
-        send(test_process, {:financial_boundary_live, live(build_conn(), "/")})
-      end)
-
-    assert_receive {:financial_boundary_live, {:ok, view, html}}, 2_000
-    state = :sys.get_state(view.pid)
-    socket = state.socket
-
-    assert socket.assigns.financial_data_capability.state == :locked
-    assert socket.assigns.payload.fleet.agent_totals == %{seconds_running: 41}
-    refute Map.has_key?(socket.assigns.payload.fleet, :rate_limits)
-    refute inspect(state) =~ sentinel
-    refute html =~ sentinel
-    refute render(view) =~ sentinel
-    refute log =~ sentinel
+    assert response.status == 503
+    assert response.resp_body =~ "Dashboard authentication is not configured"
+    refute response.resp_body =~ sentinel
   end
 
   test "configured Basic Auth survives the LiveView socket boundary as private financial authority" do

@@ -106,7 +106,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     response = Endpoint.call(conn(:post, "/api/v1/streamdeck/token"), Endpoint.init([]))
 
     assert response.status == 401
-    assert %{"error" => %{"code" => "authentication_required"}} = Jason.decode!(response.resp_body)
+    assert response.resp_body == "Unauthorized"
     assert {:error, :authentication_required} = StreamdeckAuth.issue_token()
   end
 

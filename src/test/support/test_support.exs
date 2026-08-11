@@ -57,8 +57,6 @@ defmodule Aiur.TestSupport do
         ]
 
       setup do
-        AiurWeb.FinancialDataAccess.Generation.invalidate()
-
         workflow_base =
           Path.join(
             System.tmp_dir!(),

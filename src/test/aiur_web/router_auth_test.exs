@@ -4,12 +4,12 @@ defmodule AiurWeb.RouterAuthTest do
   import Plug.Conn
   import Plug.Test
 
-  alias AiurWeb.Router
+  alias AiurWeb.{FinancialDataAccess, Router}
 
   @supervisor_token String.duplicate("s", 32)
 
   setup do
-    AiurWeb.FinancialDataAccess.Generation.invalidate()
+    FinancialDataAccess.Generation.invalidate()
 
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")

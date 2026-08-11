@@ -158,13 +158,14 @@ defmodule AiurWeb.FinancialDataAccessTest do
 
   test "an unconfigured request refuses prior session authority" do
     configure_credentials("operator", "secret")
-    configure_endpoint(dashboard_auth_required: false)
+    configure_endpoint(dashboard_auth_required: true)
     valid = authenticated_conn("operator", "secret")
     marker = get_session(valid, FinancialDataAccess.session_key())
     assert is_map(marker)
 
     System.delete_env("AIUR_DASHBOARD_USERNAME")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
+    configure_endpoint(dashboard_auth_required: false)
 
     cleared =
       session_conn()

@@ -50,21 +50,21 @@ defmodule AiurWeb.FinancialDataAccess do
   def authenticate_request(conn, opts) do
     case Proof.configuration(opts, @version) do
       {:ok, config} ->
-        authenticated =
-          if config.required? do
+        if config.required? do
+          authenticated =
             Plug.BasicAuth.basic_auth(conn,
               username: config.username,
               password: config.password,
               realm: "Aiur"
             )
-          else
-            conn
-          end
 
-        if authenticated.halted do
-          authenticated
+          if authenticated.halted do
+            authenticated
+          else
+            put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+          end
         else
-          put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+          conn
         end
 
       {:error, :authentication_required} ->
