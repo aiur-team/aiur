@@ -207,6 +207,30 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  describe "the secret variable name the runbook tells an operator to set" do
+    test "every mention agrees with the name .env.example documents" do
+      # `github_webhook_test.exs` already pins `.env.example` to the name the
+      # receiver reads, behaviourally. Nothing pinned the *runbook's* copies, and
+      # there are four of them: the generate step, the leak check, the GitHub
+      # form's "Secret" field, and the exposure statement.
+      #
+      # So a rename is caught in `.env.example` and silently missed here. The
+      # operator follows the runbook, exports the old name, and every delivery is
+      # rejected with a 401 — while the suite stays green, because the pin that
+      # exists is satisfied. Same drift-pair shape as the `pinned=` ports, with
+      # four literals instead of two.
+      documented = env_example_secret_name()
+      mentioned = documented_secret_names()
+
+      refute mentioned == [],
+             "#{@doc_path} no longer names a webhook secret variable for an operator to set"
+
+      assert mentioned == [documented],
+             "the runbook names #{inspect(mentioned)} but .env.example documents " <>
+               "#{inspect(documented)}"
+    end
+  end
+
   describe "webhook path" do
     test "the documented ingress rule publishes exactly the route the app serves" do
       # The rule is a Go regexp anchored at both ends. Anchoring is load-bearing:
@@ -362,6 +386,27 @@ defmodule AiurWeb.WebhookRunbookTest do
   # a capitalised first segment so the runbook's config keys (`webhooks.repos`)
   # and hostnames (`hooks.<domain>`) are not mistaken for code.
   @code_ref ~r/`((?:[A-Z][A-Za-z0-9]*)(?:\.[A-Za-z0-9_]+)+(?:\/[0-9]+)?)`/
+
+  # Any `AIUR_*SECRET` token, wherever it appears — prose, a shell snippet, or a
+  # field label — since an operator will copy whichever one they read first.
+  @secret_var ~r/AIUR_[A-Z0-9_]*SECRET/
+
+  defp documented_secret_names do
+    @doc_path
+    |> File.read!()
+    |> then(&Regex.scan(@secret_var, &1))
+    |> List.flatten()
+    |> Enum.uniq()
+  end
+
+  defp env_example_secret_name do
+    path = Path.join(@repo_root, ".env.example")
+
+    case Regex.run(~r/^(AIUR_[A-Z0-9_]*SECRET)=/m, File.read!(path)) do
+      [_, name] -> name
+      nil -> flunk("#{path} no longer documents an AIUR_*SECRET variable")
+    end
+  end
 
   defp documented_code_refs do
     @doc_path
