@@ -25,10 +25,26 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @stale_window_margin 2
   @stale_window_ceiling_ms 60_000
 
+  # Age decides staleness; a backlogged mailbox only corroborates it. An
+  # Orchestrator that wedges *after* draining its mailbox publishes nothing and
+  # carries no backlog, so a depth-gated rule would serve an arbitrarily old
+  # fleet view as current — the exact "stale renders as current" failure this
+  # read model exists to prevent. Past this ceiling the view is stale whatever
+  # the mailbox says. The ceiling is four times the 30s default poll cadence
+  # (`polling.interval_seconds`), which is the slowest publish rhythm a healthy
+  # idle Orchestrator keeps, so a truthful "N old" banner replaces silence only
+  # once the producer is demonstrably behind its own cadence.
+  @stale_age_ceiling_ms 120_000
+
+  # Two distinct degraded states must never collapse into one operator-facing
+  # message. A retained snapshot that has aged out is `{:stale, snapshot,
+  # metadata}` — it still carries a usable fleet view plus its age. Only a
+  # producer that has never published under the active generation is
+  # `:snapshot_unpublished`, which genuinely has nothing to show.
   @type result ::
           {:current, map(), map()}
           | {:stale, map(), map()}
-          | :snapshot_timeout
+          | :snapshot_unpublished
           | :orchestrator_unavailable
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -115,7 +131,16 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   Staleness is load-aware: a snapshot remains `:current` while it falls within
   a window derived from the Orchestrator's own recent publish cadence, so a
   busy-but-publishing Orchestrator under sustained dispatch does not demote a
-  near-current fleet view to last-known-good.
+  near-current fleet view to last-known-good. That window is bounded: beyond
+  `#{@stale_age_ceiling_ms}ms` the snapshot is `:stale` with reason
+  `:snapshot_stalled` regardless of mailbox depth, so an Orchestrator that
+  wedged after draining its mailbox cannot serve an old fleet view as current.
+
+  A retained-but-aged snapshot is always returned as `{:stale, snapshot,
+  metadata}` so callers can render last-known-good data with its age.
+  `:snapshot_unpublished` is reserved for a live Orchestrator that has not
+  published under the active generation, which is the expected state for a
+  short window after every restart.
   """
   @spec read(GenServer.server(), timeout()) :: result()
   def read(orchestrator, timeout) do
@@ -278,7 +303,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
       pid ->
         maybe_log_initial_timeout(orchestrator, mailbox_depth(pid))
-        :snapshot_timeout
+        :snapshot_unpublished
     end
   end
 
@@ -293,6 +318,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
         is_nil(pid) -> :orchestrator_unavailable
         Map.get(cached, :generation) != active_generation(orchestrator) -> :orchestrator_unavailable
         stale_behind_backlog?(age_ms, timeout, freshness_window_ms, mailbox_depth) -> :snapshot_timeout
+        stale_beyond_ceiling?(age_ms) -> :snapshot_stalled
         true -> nil
       end
 
@@ -307,15 +333,29 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     }
   end
 
-  # A snapshot is stale only when it is older than the configured timeout AND
-  # falls outside the load-aware window while the Orchestrator is backlogged.
-  # Under sustained dispatch the Orchestrator publishes on a slower cadence, so
+  # The backlog-corroborated path: older than the configured timeout, outside
+  # the load-aware window, and the Orchestrator is visibly behind. Under
+  # sustained dispatch the Orchestrator publishes on a slower cadence, so
   # `freshness_window_ms` grows to cover that cadence; an Orchestrator that has
-  # gone quiet relative to its own recent cadence is still flagged stale.
+  # gone quiet relative to its own recent cadence is still flagged stale. This
+  # is one of two paths — `stale_beyond_ceiling?/1` covers the drained-mailbox
+  # wedge that this one cannot see — so mailbox depth never gates staleness on
+  # its own.
   defp stale_behind_backlog?(age_ms, timeout, freshness_window_ms, mailbox_depth) do
     is_integer(timeout) and timeout >= 0 and is_integer(age_ms) and age_ms >= timeout and
       is_integer(freshness_window_ms) and age_ms >= freshness_window_ms and
       is_integer(mailbox_depth) and mailbox_depth > 0
+  end
+
+  # The depth-independent floor: no snapshot older than the ceiling is ever
+  # reported as current, however quiet the producer's mailbox is.
+  defp stale_beyond_ceiling?(age_ms), do: is_integer(age_ms) and age_ms >= stale_age_ceiling_ms()
+
+  defp stale_age_ceiling_ms do
+    case Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms, @stale_age_ceiling_ms) do
+      ceiling_ms when is_integer(ceiling_ms) and ceiling_ms > 0 -> ceiling_ms
+      _invalid -> @stale_age_ceiling_ms
+    end
   end
 
   defp effective_window(timeout, gaps) when is_list(gaps) do
@@ -348,7 +388,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     end
   end
 
-  defp maybe_log_timeout(orchestrator, %{reason: :snapshot_timeout} = metadata) do
+  defp maybe_log_timeout(orchestrator, %{reason: reason} = metadata) when reason in [:snapshot_timeout, :snapshot_stalled] do
     warning_key = {@cache_key, :last_timeout_log, orchestrator}
 
     if :persistent_term.get(warning_key, nil) != metadata.observed_at do

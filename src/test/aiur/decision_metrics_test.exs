@@ -125,6 +125,19 @@ defmodule Aiur.DecisionMetricsTest do
     refute persisted =~ "private rationale"
   end
 
+  test "retains executor as a distinct decision actor", %{pid: pid} do
+    assert :ok = DecisionMetrics.observe(request_event(30, true), pid)
+
+    assert :ok =
+             DecisionMetrics.observe(
+               lifecycle_event(31, "answered", 1_000, %{actor: %{kind: :executor}}),
+               pid
+             )
+
+    assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", pid)
+    assert snapshot.actor == "executor"
+  end
+
   test "subscribes to the existing Exchange and ignores unrelated decision coordination", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "exchange-decision-latency.ndjson")
     pid = start_metrics!(path, subscribe?: true)

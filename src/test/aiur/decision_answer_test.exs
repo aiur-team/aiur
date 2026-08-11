@@ -79,6 +79,24 @@ defmodule Aiur.DecisionAnswerTest do
     refute Map.has_key?(raw, "supervisor_basis")
   end
 
+  test "round trips an executor answer without supervisor policy evidence" do
+    payload = %{
+      "idempotency_key" => "executor-answer-1",
+      "expected_version" => 2,
+      "option_id" => "ship",
+      "rationale" => "This repeats an established answer."
+    }
+
+    assert {:ok, answer} = normalize(payload, actor: %{kind: :executor, id: "executor-1"})
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.supervisor_basis == nil
+
+    raw = answer |> DecisionAnswer.to_json_safe() |> Jason.encode!() |> Jason.decode!()
+    assert raw["actor"] == %{"kind" => "executor", "id" => "executor-1"}
+    refute Map.has_key?(raw, "supervisor_basis")
+    assert {:ok, ^answer} = DecisionAnswer.from_json_safe(raw)
+  end
+
   test "requires and round trips a validated basis for supervisor answers" do
     payload = %{
       "idempotency_key" => "supervisor-submit-1",

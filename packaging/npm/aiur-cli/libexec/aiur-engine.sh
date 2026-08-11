@@ -317,6 +317,8 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
+       aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
        aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
        aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
        aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
@@ -1786,9 +1788,9 @@ run_control_rpc() {
 
   if [ "$status" -ne 0 ] && [ "$status" -ne 75 ] && [ "${AIUR_CONTROL_RPC_DIAGNOSED:-0}" -ne 1 ]; then
     if [ "$status" -eq 124 ]; then
-      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated"
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown. The daemon did not reply within the budget - commonly one blocked process inside it, not host load. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
     else
-      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no output; the daemon may be scheduler-saturated"
+      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no diagnostic output; outcome is unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
     fi
   fi
 
@@ -1821,7 +1823,7 @@ run_control_rpc_dispatch() {
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && partial_suffix="; partial output was discarded"
-    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again"
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}. Commonly one blocked process inside the daemon, not host load."
     return 124
   fi
 
@@ -1849,7 +1851,7 @@ run_control_rpc_dispatch() {
         if [ -n "$output" ]; then
           control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (node is running); see the error above"
         else
-          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (node is running); the daemon may be scheduler-saturated"
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no diagnostic output (node is running); outcome is unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
         fi
         ;;
       *)
@@ -2097,6 +2099,95 @@ cmd_commands() {
   done
 
   run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
+}
+
+encode_control_value() {
+  printf '%s' "$1" | base64 | tr -d '\n'
+}
+
+# These are explicit trusted-Executor mutations, deliberately separate from
+# the read-only `commands` catalog. Revisions remain dashboard-owned.
+cmd_executor_answer() {
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --option) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --rationale) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --rationale requires a value" >&2; exit 64; }; shift; rationale="$1" ;;
+      --rationale=*) rationale="${arg#--rationale=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-answer --expected-version expects a positive integer" >&2; exit 64; }
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: executor-answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  [ -n "$rationale" ] || { echo "aiur: executor-answer --rationale is required" >&2; exit 64; }
+  [ -n "$idempotency_key" ] || { echo "aiur: executor-answer --idempotency-key is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-answer --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
+  opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
+}
+
+cmd_executor_escalate() {
+  local decision_id="${1:-}" expected_version="" reason="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-escalate expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --reason) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --reason requires a value" >&2; exit 64; }; shift; reason="$1" ;;
+      --reason=*) reason="${arg#--reason=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-escalate received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-escalate expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-escalate --expected-version expects a positive integer" >&2; exit 64; }
+  [ -n "$reason" ] || { echo "aiur: executor-escalate --reason is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-escalate --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
 }
 
 # `aiur units` — read the dashboard Units catalog through its own projection,
@@ -2694,6 +2785,14 @@ aiur_engine_main() {
     commands)
       shift
       cmd_commands "$@"
+      ;;
+    executor-answer)
+      shift
+      cmd_executor_answer "$@"
+      ;;
+    executor-escalate)
+      shift
+      cmd_executor_escalate "$@"
       ;;
     units)
       shift
