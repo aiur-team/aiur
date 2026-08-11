@@ -97,13 +97,7 @@ defmodule Aiur.RecentMerge do
   """
   @spec closing_issue_identifiers(t()) :: [String.t()]
   def closing_issue_identifiers(%__MODULE__{summary: summary}) when is_binary(summary) do
-    summary
-    |> then(&Regex.scan(~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+((?:#\d+)(?:\s*,\s*#\d+)*)/i, &1))
-    |> Enum.flat_map(fn [_, references] -> Regex.scan(~r/#(\d+)/, references) end)
-    |> Enum.map(fn [_, number] -> number end)
-    |> Enum.filter(&(String.to_integer(&1) > 0))
-    |> Enum.map(&(String.to_integer(&1) |> Integer.to_string()))
-    |> Enum.uniq()
+    closing_issue_identifiers_from_text(summary)
   end
 
   def closing_issue_identifiers(%__MODULE__{}), do: []
@@ -117,7 +111,7 @@ defmodule Aiur.RecentMerge do
          {:ok, number} <- positive_integer(Map.get(pull, "number"), :number),
          {:ok, url} <- normalize_url(Map.get(pull, "html_url"), repository, number),
          {:ok, title} <- optional_text(Map.get(pull, "title"), @title_max, :title),
-         {:ok, summary} <- optional_text(Map.get(pull, "body"), @summary_max, :summary),
+         {:ok, summary} <- normalized_summary(Map.get(pull, "body")),
          {:ok, head_ref} <- optional_text(get_in(pull, ["head", "ref"]), @ref_max, :head_ref),
          {:ok, head_sha} <- optional_text(get_in(pull, ["head", "sha"]), @identity_max, :head_sha),
          {:ok, merge_sha} <-
@@ -346,6 +340,52 @@ defmodule Aiur.RecentMerge do
   end
 
   defp optional_text(_value, _max, field), do: {:error, {field, :invalid_type}}
+
+  defp normalized_summary(body) do
+    with {:ok, summary} <- optional_text(body, @summary_max, :summary) do
+      {:ok, preserve_closing_references(summary, closing_issue_identifiers_from_text(body))}
+    end
+  end
+
+  defp preserve_closing_references(summary, []), do: summary
+
+  defp preserve_closing_references(summary, references) when is_binary(summary) do
+    missing = Enum.reject(references, &(&1 in closing_issue_identifiers_from_text(summary)))
+
+    if missing == [] do
+      summary
+    else
+      suffix = closing_reference_suffix(missing)
+      String.slice(summary, 0, @summary_max - String.length(suffix)) <> suffix
+    end
+  end
+
+  defp preserve_closing_references(summary, _references), do: summary
+
+  defp closing_reference_suffix(references) do
+    {suffix, _} =
+      Enum.reduce(references, {"\nCloses ", true}, fn reference, {suffix, first?} ->
+        candidate = suffix <> if(first?, do: "##{reference}", else: ", ##{reference}")
+
+        if String.length(candidate) <= @summary_max,
+          do: {candidate, false},
+          else: {suffix, first?}
+      end)
+
+    suffix
+  end
+
+  defp closing_issue_identifiers_from_text(text) when is_binary(text) do
+    text
+    |> then(&Regex.scan(~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+((?:#\d+)(?:\s*,\s*#\d+)*)/i, &1))
+    |> Enum.flat_map(fn [_, references] -> Regex.scan(~r/#(\d+)/, references) end)
+    |> Enum.map(fn [_, number] -> number end)
+    |> Enum.filter(&(String.to_integer(&1) > 0))
+    |> Enum.map(&(String.to_integer(&1) |> Integer.to_string()))
+    |> Enum.uniq()
+  end
+
+  defp closing_issue_identifiers_from_text(_text), do: []
 
   defp required_text(value, max, field) do
     case optional_text(value, max, field) do

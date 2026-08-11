@@ -170,7 +170,14 @@ defmodule Aiur.Orchestrator.PushRouting do
               pause_generation
             )
           else
-            state_acc
+            stamp_pending_auto_resume(
+              state_acc,
+              Map.get(entry, :identifier),
+              blocker_identifier,
+              topic,
+              topic,
+              pause_generation
+            )
           end
 
         :error ->
