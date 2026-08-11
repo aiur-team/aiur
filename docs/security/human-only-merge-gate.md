@@ -22,6 +22,35 @@ explicitly required alongside the remaining blocking jobs. Strict status
 checks mean the exact proposed head must be tested after the branch is brought
 up to date with its target branch.
 
+## Stale-base refresh procedure
+
+`require_last_push_approval` applies to the last reviewable push. A base refresh
+that brings new changes into the pull request's diff can therefore invalidate
+the Executor's approval. The refresh is also asynchronous, so an approval
+issued immediately after requesting it can be attached to the old head and be
+dismissed when the update lands.
+
+The Executor must use the non-reviewing agent identity (`its-applekid`) for
+`update-branch`, never the reviewing human identity (`its-everdred`):
+
+```sh
+gh api -X PUT "repos/$GITHUB_REPOSITORY/pulls/$PR/update-branch" \
+  -f expected_head_sha="$(gh pr view "$PR" --json headRefOid --jq .headRefOid)"
+```
+
+After the request, wait until the pull request reports the new head SHA and
+then re-read `reviewDecision`, mergeability, and the required checks. Do not
+approve while the update is still pending. If the new head reports
+`REVIEW_REQUIRED` while the latest code-owner review is `APPROVED`, the review
+was invalidated by the refresh; wait for the head to settle and request a fresh
+human approval. An empty attribution commit is not a remedy: it does not
+contribute a reviewable change and does not move the relevant attribution.
+
+This is an operational choice, not a ruleset exception: the gate retains
+`require_last_push_approval` and has no bypass actors. The same procedure is
+recorded on [#1405](https://github.com/aiur-team/aiur/issues/1405), the
+umbrella issue for this gate's unsatisfiability cases.
+
 `scripts/verify-human-only-merge-ruleset.sh` lets an administrator verify the
 live GitHub ruleset on demand. It is deliberately not run in CI: GitHub hides
 `bypass_actors` unless the caller has ruleset write visibility, and placing
