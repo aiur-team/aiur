@@ -7134,14 +7134,15 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .bo-legend-swatch.is-working {
-  border-color: var(--good-line);
-  background: var(--good-soft);
-  box-shadow: 0 0 0 1px var(--good-line);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 
 .bo-legend-swatch.is-merged {
-  border-color: var(--line);
-  background: var(--surface-3);
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
 }
 
 .bo-legend-line {
@@ -7387,18 +7388,21 @@ html[data-theme="light"] .toggle-icon .moon {
   border-style: dashed;
 }
 
+/* Green is reserved for work that is finished AND merged. An agent being live
+   on a ticket is activity, not an outcome — colouring it green made a graph of
+   in-flight work read as a graph of completed work, which is the same
+   confident-wrong-signal problem the rest of this dashboard is written against.
+   In flight is the accent (blue): live, not done. */
 .bo-node.is-working {
-  border-color: var(--good-line);
-  background: var(--good-soft);
-  box-shadow: 0 0 0 1px var(--good-line);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+  box-shadow: 0 0 0 1px var(--accent-line);
 }
 
 .bo-node.is-merged {
-  border-color: var(--line);
-  background: var(--surface-3);
-  /* --muted (not --faint) keeps the "done/dim" read while clearing WCAG AA
-     4.5:1 against --surface-3 (--faint is only 4.27:1 on this brighter fill). */
-  color: var(--muted);
+  border-color: var(--good-line);
+  background: var(--good-soft);
+  box-shadow: 0 0 0 1px var(--good-line);
 }
 
 .bo-node.is-blocked {
@@ -7589,15 +7593,18 @@ html[data-theme="light"] .toggle-icon .moon {
   overflow: hidden;
 }
 
+/* Progress is blue while work is in flight and green only once the ticket is
+   merged. A part-filled green bar reads as "done" at a glance, which is exactly
+   the wrong signal on a graph an operator scans for what is finished. */
 .bo-node-bar > i {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--good);
+  background: var(--accent);
 }
 
-.bo-node.is-ready .bo-node-bar > i {
-  background: var(--accent);
+.bo-node.is-merged .bo-node-bar > i {
+  background: var(--good);
 }
 
 .bo-node-context {
