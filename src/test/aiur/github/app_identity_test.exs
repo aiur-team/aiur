@@ -31,10 +31,8 @@ defmodule Aiur.GitHub.AppIdentityTest do
     System.put_env("GITHUB_APP_PRIVATE_KEY", pem())
   end
 
-  # Synced: every test reads Config.bot_account/0 on the very next line, and the
-  # unsynced writer can let that read observe the previous test's config.
   defp write_config!(bot_account) do
-    write_workflow_file_synced!(Workflow.workflow_file_path(),
+    write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "github",
       tracker_repo: "owner/repo",
       tracker_label_prefix: "aiur",

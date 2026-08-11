@@ -1,0 +1,56 @@
+defmodule Aiur.TestSupportTest do
+  use Aiur.TestSupport
+
+  test "write_workflow_file! waits for the active config reload to finish" do
+    ensure_workflow_store_running()
+    store = Process.whereis(WorkflowStore)
+    workspace_root = Path.join(System.tmp_dir!(), "synced-workflow-#{System.unique_integer([:positive])}")
+
+    :sys.suspend(store)
+    :erlang.trace(store, true, [:receive])
+
+    on_exit(fn ->
+      if Process.alive?(store), do: :sys.resume(store)
+    end)
+
+    writer =
+      Task.async(fn ->
+        write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+      end)
+
+    assert_receive {:trace, ^store, :receive, {:"$gen_call", _from, :force_reload}}, 1_000
+
+    # The legacy helper swallowed the GenServer.call exit after five seconds
+    # and returned while the store was still suspended with its old cache.
+    assert Task.yield(writer, 5_100) == nil
+
+    :sys.resume(store)
+
+    assert :ok = Task.await(writer, 1_000)
+    assert Config.workspace_root() == workspace_root
+  end
+
+  test "write_workflow_file_async! warns when the active config reload times out" do
+    ensure_workflow_store_running()
+    store = Process.whereis(WorkflowStore)
+    workspace_root = Path.join(System.tmp_dir!(), "async-workflow-#{System.unique_integer([:positive])}")
+
+    Application.put_env(:aiur, :workflow_store_call_timeout_ms, 25)
+    :sys.suspend(store)
+
+    on_exit(fn ->
+      if Process.alive?(store), do: :sys.resume(store)
+      Application.delete_env(:aiur, :workflow_store_call_timeout_ms)
+    end)
+
+    log =
+      capture_log(fn ->
+        assert :ok = write_workflow_file_async!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+      end)
+
+    assert log =~ "Best-effort workflow reload failed"
+    assert log =~ "WorkflowStore may serve stale test config"
+
+    :sys.resume(store)
+  end
+end

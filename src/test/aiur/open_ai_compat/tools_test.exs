@@ -3,6 +3,14 @@ defmodule Aiur.OpenAICompat.ToolsTest do
 
   alias Aiur.OpenAICompat.{CommandRunner, ToolCallParser, Tools}
 
+  setup do
+    if is_nil(Process.whereis(Aiur.TaskSupervisor)) do
+      start_supervised!({Task.Supervisor, name: Aiur.TaskSupervisor})
+    end
+
+    :ok
+  end
+
   test "tool specifications match each OpenAI-compatible transport" do
     assert %{"type" => "function", "function" => %{"name" => "read_file"}} = hd(Tools.specs(:chat_completions))
     assert %{"type" => "function", "name" => "read_file", "parameters" => %{}} = hd(Tools.specs(:responses))
@@ -165,6 +173,14 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     for identity <- ~w(GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL) do
       assert Enum.any?(Enum.chunk_every(args, 3, 1, :discard), &match?(["--setenv", ^identity, _value], &1))
     end
+
+    env_entries = Enum.chunk_every(args, 3, 1, :discard)
+
+    assert ["--setenv", "PATH", path] = Enum.find(env_entries, &match?(["--setenv", "PATH", _value], &1))
+    assert String.starts_with?(path, Path.join(System.tmp_dir!(), ".aiur-runtime/bin") <> ":")
+
+    assert ["--setenv", "AIUR_REAL_GIT", real_git] = Enum.find(env_entries, &match?(["--setenv", "AIUR_REAL_GIT", _value], &1))
+    assert is_binary(real_git) and real_git != ""
   end
 
   test "real command sandbox cannot read a host sibling" do

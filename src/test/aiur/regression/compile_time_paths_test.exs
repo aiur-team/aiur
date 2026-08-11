@@ -25,7 +25,7 @@ defmodule Aiur.Regression.CompileTimePathsTest do
 
   # file (relative to src/lib) => trimmed matching lines: the currently
   # legitimate sites, captured 2026-08-09 at these locations:
-  # aiur/agent_build_guard.ex:14,15; aiur/agent_github_guard.ex:13,14;
+  # aiur/agent_build_guard.ex:14,15; aiur/agent_github_guard.ex:13-16;
   # aiur/agent_skills.ex:13,16,45,58;
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
   # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
@@ -37,8 +37,10 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@external_resource @script_path"
     ],
     "aiur/agent_github_guard.ex" => [
-      "@script_path Path.expand(\"../../priv/github_quota_guard.sh\", __DIR__)",
-      "@external_resource @script_path"
+      "@gh_script_path Path.expand(\"../../priv/github_quota_guard.sh\", __DIR__)",
+      "@git_script_path Path.expand(\"../../priv/github_push_guard.sh\", __DIR__)",
+      "@external_resource @gh_script_path",
+      "@external_resource @git_script_path"
     ],
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",

@@ -113,12 +113,10 @@ defmodule Aiur.AgentEnvironmentTest do
     assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
              String.split(output, "\n")
 
+    # Login shells may prepend the agent command-guard directory and append
+    # system defaults; the caller's unrelated entries must survive in order.
     unrelated_entries = String.split(unrelated_path, ":")
-
-    assert path
-           |> String.split(":")
-           |> Enum.chunk_every(length(unrelated_entries), 1, :discard)
-           |> Enum.member?(unrelated_entries)
+    assert Enum.filter(String.split(path, ":"), &(&1 in unrelated_entries)) == unrelated_entries
   end
 
   test "scrub_shell_command puts the build gate before other agent commands" do
@@ -383,6 +381,9 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
       assert is_list(real_gh) or real_gh == false
 
+      assert {~c"AIUR_REAL_GIT", real_git} = List.keyfind(env, ~c"AIUR_REAL_GIT", 0)
+      assert is_list(real_git) or real_git == false
+
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
 
@@ -460,6 +461,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
       assert prefix =~ "AIUR_REAL_GH=\"$(command -v gh"
+      assert prefix =~ "AIUR_REAL_GIT=\"$(command -v git"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"

@@ -20,6 +20,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert script =~ ".codex/skills/design-import"
     assert script =~ ~s(bin="$workspace/.aiur-runtime/bin")
     assert script =~ "for command_name in 'gh'"
+    assert script =~ "for command_name in 'git'"
     assert script =~ ~s(target="$bin/$command_name")
     assert script =~ "chmod 755"
     # Without a workspace-private scratch dir, remote agents fall back to the

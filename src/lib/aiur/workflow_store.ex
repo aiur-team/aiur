@@ -103,10 +103,11 @@ defmodule Aiur.WorkflowStore do
   defp call_timeout, do: Application.get_env(:aiur, :workflow_store_call_timeout_ms, @call_timeout_ms)
 
   @spec force_reload() :: :ok | {:error, term()}
-  def force_reload do
+  @spec force_reload(timeout()) :: :ok | {:error, term()}
+  def force_reload(timeout \\ @call_timeout_ms) do
     case Process.whereis(__MODULE__) do
       pid when is_pid(pid) ->
-        GenServer.call(__MODULE__, :force_reload)
+        GenServer.call(__MODULE__, :force_reload, timeout)
 
       _ ->
         case Workflow.load() do
