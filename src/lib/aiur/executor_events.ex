@@ -52,6 +52,12 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
+  @doc "Publish a newly accepted Command to the durable Executor stream."
+  @spec publish_requested(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
+  def publish_requested(%Decision{} = decision) do
+    publish("executor.decision.requested", requested_payload(decision), source: :internal)
+  end
+
   @spec publish(String.t(), map(), keyword()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
   def publish(topic, payload, opts \\ []) when is_binary(topic) and is_map(payload) do
     source = Keyword.get(opts, :source, :executor_cli)
@@ -147,33 +153,45 @@ defmodule Aiur.ExecutorEvents do
     end
   end
 
-  # Deferred payloads carry agent-authored free text (title/options/context)
+  # Command payloads carry agent-authored free text (title/options/context)
   # whose provenance includes GitHub content. Before the JSON line reaches the
   # Executor session, run the Sanitizer's instruction-carrier strip pass over
   # those fields and name them in a top-level "untrusted_fields" key so the
   # consumer treats them as data, not instructions.
-  @untrusted_deferred_fields ~w(title options context)
-  @untrusted_deferred_field_keys [:title, :options, :context, "title", "options", "context"]
+  @command_topics ~w(executor.decision.requested executor.decision.deferred)
+  @untrusted_command_fields ~w(title options context recommendation consequence_of_delay)
+  @untrusted_command_field_keys [
+    :title,
+    :options,
+    :context,
+    :recommendation,
+    :consequence_of_delay,
+    "title",
+    "options",
+    "context",
+    "recommendation",
+    "consequence_of_delay"
+  ]
 
   @doc false
   @spec scrub_untrusted_output(map()) :: map()
   def scrub_untrusted_output(event) when is_map(event) do
     topic = Map.get(event, :topic) || Map.get(event, "topic")
 
-    if topic == "executor.decision.deferred" do
+    if topic in @command_topics do
       event
-      |> scrub_deferred_fields()
-      |> Map.put("untrusted_fields", @untrusted_deferred_fields)
+      |> scrub_command_fields()
+      |> Map.put("untrusted_fields", @untrusted_command_fields)
     else
       event
     end
   end
 
-  defp scrub_deferred_fields(event) do
-    Enum.reduce(@untrusted_deferred_field_keys, event, &scrub_deferred_field/2)
+  defp scrub_command_fields(event) do
+    Enum.reduce(@untrusted_command_field_keys, event, &scrub_command_field/2)
   end
 
-  defp scrub_deferred_field(key, event) do
+  defp scrub_command_field(key, event) do
     case Map.fetch(event, key) do
       {:ok, value} -> Map.put(event, key, deep_strip(value))
       :error -> event
@@ -228,6 +246,97 @@ defmodule Aiur.ExecutorEvents do
       provenance: :operator_dashboard,
       renotify: renotify?
     }
+  end
+
+  defp requested_payload(decision) do
+    %{
+      decision_id: decision.decision_id,
+      decision_version: decision.version,
+      issue_identifier: decision.ticket.identifier,
+      title: decision.question,
+      options: decision.options,
+      context: decision.context,
+      recommendation: decision.recommendation,
+      authority: decision.authority,
+      urgency: decision.urgency,
+      blocking: decision.blocking,
+      reversibility: decision.reversibility,
+      consequence_of_delay: decision.consequence_of_delay,
+      created_at: decision.created_at,
+      provenance: :decision_store
+    }
+  end
+
+  @doc """
+  Publishes `executor.decision.requested` only if this exact Decision version
+  is not already journaled.
+
+  This is the retry/reconciliation entry point, so it must converge rather than
+  amplify: an already-published version returns its cached event id with zero
+  new subscribers, exactly like `publish_deferred/2`. Publishing a fresh event
+  here made every failed retry re-deliver Commands the Executor had already
+  seen.
+  """
+  @spec ensure_requested(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
+  def ensure_requested(%Decision{} = decision) do
+    case requested_event_id(decision.decision_id, decision.version) do
+      {:ok, id} -> {:ok, id, 0}
+      :not_found -> publish_requested(decision)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec reconcile_requested([Decision.t()]) :: {:ok, non_neg_integer()} | {:error, term()}
+  def reconcile_requested(decisions) when is_list(decisions) do
+    with {:ok, events} <- journal_events() do
+      decisions
+      |> missing_requested(events)
+      |> publish_missing_requested()
+    end
+  end
+
+  defp missing_requested(decisions, events) do
+    existing =
+      events
+      |> Enum.filter(&(&1["topic"] == "executor.decision.requested"))
+      |> MapSet.new(&{&1["decision_id"], &1["decision_version"]})
+
+    Enum.reject(decisions, &MapSet.member?(existing, {&1.decision_id, &1.version}))
+  end
+
+  # Never halts part-way. Halting left the untried tail unpublished while the
+  # caller retried the whole batch, so every already-published Decision was
+  # published a second time. Each Decision is attempted exactly once here and
+  # only the still-unpublished ones can be retried by the caller.
+  defp publish_missing_requested(decisions) do
+    {published, failures} =
+      Enum.reduce(decisions, {0, []}, fn decision, {count, failures} ->
+        case publish_requested(decision) do
+          {:ok, _id, _subscribers} -> {count + 1, failures}
+          {:error, reason} -> {count, [reason | failures]}
+        end
+      end)
+
+    case Enum.reverse(failures) do
+      [] -> {:ok, published}
+      [reason | _rest] -> {:error, reason}
+    end
+  end
+
+  defp requested_event_id(decision_id, version) do
+    with {:ok, events} <- journal_events() do
+      case Enum.find(events, &requested_event?(&1, decision_id, version)) do
+        %{"id" => id} when is_integer(id) -> {:ok, id}
+        _event -> :not_found
+      end
+    end
+  end
+
+  defp requested_event?(event, decision_id, version) do
+    event["topic"] == "executor.decision.requested" and
+      event["decision_id"] == decision_id and
+      event["decision_version"] == version
   end
 
   defp deferred_event_id(decision_id) do

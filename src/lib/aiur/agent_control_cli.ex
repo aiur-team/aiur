@@ -10,6 +10,7 @@ defmodule Aiur.AgentControlCLI do
     BuildOrdersCLI,
     CommandsCLI,
     Config,
+    ExecutorCommandCLI,
     ExecutorEvents,
     Issue,
     Orchestrator,
@@ -164,6 +165,16 @@ defmodule Aiur.AgentControlCLI do
   @spec commands(keyword()) :: :ok
   def commands(opts \\ []) do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec executor_answer(keyword()) :: :ok
+  def executor_answer(opts) when is_list(opts) do
+    guarded("executor-answer", fn -> ExecutorCommandCLI.answer(opts) |> exit_marker() end)
+  end
+
+  @spec executor_escalate(keyword()) :: :ok
+  def executor_escalate(opts) when is_list(opts) do
+    guarded("executor-escalate", fn -> ExecutorCommandCLI.escalate(opts) |> exit_marker() end)
   end
 
   @spec units(keyword()) :: :ok
@@ -568,9 +579,11 @@ defmodule Aiur.AgentControlCLI do
 
   @spec message(String.t(), String.t()) :: :ok
   def message(issue, text) when is_binary(issue) and is_binary(text) do
-    issue
-    |> message_status(text, Orchestrator.status())
-    |> exit_marker()
+    guarded("message", fn ->
+      issue
+      |> message_status(text, Orchestrator.status())
+      |> exit_marker()
+    end)
   end
 
   defp message_status(issue, text, statuses) when is_list(statuses) do
@@ -1613,6 +1626,10 @@ defmodule Aiur.AgentControlCLI do
     )
   end
 
+  defp print_failure(:message, status, reason) do
+    IO.puts(:stderr, "aiur: failed to message #{display_identifier(status)} (#{format_message_reason(reason)})")
+  end
+
   defp print_failure(action, status, reason) do
     IO.puts(:stderr, "aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})")
   end
@@ -1695,6 +1712,11 @@ defmodule Aiur.AgentControlCLI do
       inspect(reason)
     )
   end
+
+  defp format_message_reason(:agent_finished), do: "agent is not accepting messages (agent finished)"
+  defp format_message_reason(:immediate_not_supported), do: "agent is not accepting immediate messages"
+  defp format_message_reason(:interrupt_not_supported), do: "agent is not accepting interrupt messages"
+  defp format_message_reason(reason), do: format_reason(reason)
 
   defp exit_marker(code) do
     IO.puts("#{@exit_marker}#{code}")
