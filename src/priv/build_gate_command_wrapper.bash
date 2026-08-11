@@ -28,15 +28,25 @@ aiur_build_gate_wrapper_real_command() {
 
 aiur_build_gate_wrapper_elixir_mix_task() {
   while [ "$#" -gt 0 ]; do
-    if [ "$1" = -S ]; then
-      shift
-      [ "${1:-}" = mix ] || return 1
-      shift
-      printf '%s\n' "${1:-}"
-      return 0
-    fi
+    case $1 in
+      -S)
+        shift
+        [ "${1:-}" = mix ] || return 1
+        shift
+        printf '%s\n' "${1:-}"
+        return 0
+        ;;
 
-    shift
+      -e | -r | -pr | -pa | -pz | --app | --erl | --cookie)
+        shift
+        [ "$#" -gt 0 ] || return 1
+        shift
+        ;;
+
+      --) return 1 ;;
+      -*) shift ;;
+      *) return 1 ;;
+    esac
   done
 
   return 1

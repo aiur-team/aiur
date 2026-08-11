@@ -1337,15 +1337,25 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
 
   aiur_build_gate_elixir_mix_task() {
     while (($#)); do
-      if [[ $1 == -S ]]; then
-        shift
-        [[ ${1:-} == mix ]] || return 1
-        shift
-        printf '%s\n' "${1:-}"
-        return 0
-      fi
+      case $1 in
+        -S)
+          shift
+          [[ ${1:-} == mix ]] || return 1
+          shift
+          printf '%s\n' "${1:-}"
+          return 0
+          ;;
 
-      shift
+        -e | -r | -pr | -pa | -pz | --app | --erl | --cookie)
+          shift
+          (($#)) || return 1
+          shift
+          ;;
+
+        --) return 1 ;;
+        -*) shift ;;
+        *) return 1 ;;
+      esac
     done
 
     return 1

@@ -121,6 +121,21 @@ defmodule Aiur.AgentEnvironmentTest do
            |> Enum.member?(unrelated_entries)
   end
 
+  test "scrub_shell_command puts the build gate before other agent commands" do
+    command = AgentEnvironment.scrub_shell_command(~s(printf '%s' "$PATH"))
+
+    assert {path, 0} =
+             System.cmd("bash", ["-lc", command],
+               env: [
+                 {"AIUR_BUILD_GATE_BIN", "/workspace/build-bin"},
+                 {"AIUR_AGENT_BIN", "/workspace/agent-bin"},
+                 {"PATH", "/usr/bin"}
+               ]
+             )
+
+    assert String.starts_with?(path, "/workspace/build-bin:/workspace/agent-bin:")
+  end
+
   test "scrub_shell_command tracks mixed launcher ownership independently" do
     release_root = "/opt/aiur/release"
     release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
@@ -448,6 +463,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
+      refute prefix =~ "AIUR_BUILD_GATE_BIN='"
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
@@ -482,6 +498,18 @@ defmodule Aiur.AgentEnvironmentTest do
 
     test "returns an empty string for a non-binary path" do
       assert AgentEnvironment.workspace_env_export_prefix(nil) == ""
+    end
+
+    test "local export prefixes include build admission while remote prefixes stay gate-free" do
+      prefix =
+        AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
+          base_branch: "develop",
+          build_gate: true
+        )
+
+      assert prefix =~ "AIUR_BUILD_GATE_BIN='/work/aiur/440/.aiur-runtime/build-bin'"
+      assert prefix =~ "BASH_ENV="
+      assert prefix =~ "AIUR_BUILD_GATE_SLOTS='2'"
     end
   end
 

@@ -204,6 +204,21 @@ defmodule Aiur.BuildGateTest do
     assert File.read!(context.log_path) == "test\n"
   end
 
+  test "non-Bash command wrappers gate every supported Mix build form", context do
+    guarded_context = with_command_wrappers!(context)
+
+    for {command, phase} <- [
+          {"mix compile", "compile"},
+          {"mix test", "test"},
+          {"mise exec -- mix compile", "compile"},
+          {"mise x -- mix test", "test"}
+        ] do
+      assert {output, 0} = run_sh(command, guarded_context)
+      assert length(Regex.scan(~r/aiur_build_gate acquired/, output)) == 1
+      assert context.log_path |> File.read!() |> String.split("\n", trim: true) |> List.last() == phase
+    end
+  end
+
   test "the Bash hook resolves the real Mix command behind the installed wrapper", context do
     assert {output, 0} =
              context
@@ -221,9 +236,10 @@ defmodule Aiur.BuildGateTest do
       |> Map.put(:bash_env, Path.join(context.gate_dir, "missing-hook"))
 
     assert {_output, 0} = run_sh("mix format", context)
+    assert {_output, 0} = run_sh("mise exec -- mix format", context)
     assert {output, 125} = run_sh("mix test", context)
     assert output =~ "gate_error reason=hook_unavailable"
-    assert File.read!(context.log_path) == "format\n"
+    assert File.read!(context.log_path) == "format\nformat\n"
   end
 
   test "the Bash hook reports a missing wrapped command without re-entering the wrapper", context do
@@ -249,12 +265,23 @@ defmodule Aiur.BuildGateTest do
       |> with_command_wrappers!()
       |> Map.put(:bin_dir, elixir_bin)
 
-    assert {gated_output, 0} = run_sh("elixir -S mix test", guarded_context)
-    assert gated_output =~ "aiur_build_gate acquired slot=1"
+    for phase <- ~w(compile test) do
+      assert {gated_output, 0} = run_sh("elixir -S mix #{phase}", guarded_context)
+      assert gated_output =~ "aiur_build_gate acquired slot=1"
+    end
 
     assert {ungated_output, 0} = run_sh("elixir -S mix format", guarded_context)
     refute ungated_output =~ "aiur_build_gate acquired"
-    assert File.read!(context.log_path) == "test\nformat\n"
+    assert File.read!(context.log_path) == "compile\ntest\nformat\n"
+  end
+
+  test "elixir data arguments that resemble Mix commands do not enter the gate", context do
+    context =
+      context
+      |> with_command_wrappers!()
+      |> Map.put(:bash_env, Path.join(context.gate_dir, "missing-hook"))
+
+    assert {"ok\n", 0} = run_sh(~s|elixir -e 'IO.puts("ok")' -- -S mix test|, context)
   end
 
   @tag @linux_only
@@ -1710,7 +1737,7 @@ defmodule Aiur.BuildGateTest do
   defp write_fake_mise!(path) do
     File.write!(path, """
     #!/usr/bin/env bash
-    if [[ $1 == exec && $2 == -- ]]; then
+    if [[ $1 =~ ^(exec|x)$ && $2 == -- ]]; then
       shift 2
       exec "$@"
     fi

@@ -227,6 +227,7 @@ defmodule Aiur.AgentEnvironment do
     state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
+    build_gate_exports = build_gate_export_prefix(workspace, opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -251,7 +252,7 @@ defmodule Aiur.AgentEnvironment do
     # covers workspaces provisioned before this existed; only redirect TMPDIR
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
-    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\nexport AIUR_REAL_GH\n" <>
+    "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\nexport AIUR_REAL_GH\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
@@ -265,6 +266,23 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
+
+  defp build_gate_export_prefix(workspace, opts) do
+    if Keyword.get(opts, :build_gate, false) do
+      build_gate_env = BuildGate.shell_env()
+
+      if build_gate_env == [] do
+        ""
+      else
+        [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
+        |> Enum.map_join("", fn {name, value} ->
+          "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
+        end)
+      end
+    else
+      ""
+    end
+  end
 
   @doc """
   `System.cmd`-compatible env tuples (binary key/value) that trust the prewarm
