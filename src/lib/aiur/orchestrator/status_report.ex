@@ -5,10 +5,10 @@ defmodule Aiur.Orchestrator.StatusReport do
   """
 
   alias Aiur.AgentEvents
-  alias Aiur.AlertFeed
-  alias Aiur.Alerts
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
+  alias Aiur.AlertFeed
+  alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
