@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Aiur.BuildOrder.Icon
+  alias Aiur.BuildOrder.{Diagnostic, Icon, ProviderHealth}
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
@@ -896,31 +896,154 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Links &amp; artifacts"
   end
 
-  test "an unfetched Build Order shows unresolved counts and a provider explanation, not a structural verdict" do
-    html = render_selected(unresolved_model(:provider_unavailable))
+  test "an unfetched Build Order renders one copyable provider-failure state and no graph regions" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | diagnostics: [Diagnostic.new(:provider_unavailable)]
+      })
 
-    # Zeros must never stand in for unknown: #1774 rendered `MEMBERS 0` for a
-    # Build Order with 27 members that was simply never fetched.
-    assert html =~ "Unresolved"
-    refute html =~ "<dd>0</dd>"
+    {:ok, document} = Floki.parse_document(html)
 
-    assert html =~ "Provider unavailable"
-    assert html =~ "could not be fetched"
-    refute html =~ "structurally invalid"
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Could not fetch planning graph"
+    assert html =~ ~s(phx-hook="CopyToClipboard")
+    assert html =~ "Investigate why Build Order #1567&#39;s planning graph could not be fetched."
+    assert html =~ "`provider_unavailable`"
+    assert html =~ "graph counts are unresolved"
+
+    # Unknown stays unknown, but the page-level failure suppresses the metric
+    # strip instead of repeating that fact in five cells and three panels.
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Unresolved"
+    refute html =~ "Plan distribution"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    refute html =~ "GitHub planning data is unavailable"
   end
 
-  test "a genuinely malformed Build Order still shows its real counts and a structural verdict" do
+  test "a fetched malformed Build Order renders one structural-failure state with its observed count" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          diagnostics: [Diagnostic.new(:invalid_root)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "Investigate why Build Order #1567&#39;s fetched planning graph is malformed."
+    assert html =~ "`invalid_root`"
+    assert html =~ "`members: 0`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Unresolved"
+    refute html =~ "Plan distribution"
+    refute html =~ "Build Order analytics"
+    refute html =~ "Usage and cost"
+    refute html =~ "Root data is unavailable"
+  end
+
+  # A malformed graph carries no structural diagnostic when the root summary
+  # itself is the defect, so the verdict is the only honest code left.
+  test "a malformed Build Order with no structural diagnostic falls back to the structural verdict" do
     html = render_selected(%{unresolved_model(:structurally_invalid) | summary: resolved_summary()})
 
-    assert html =~ "Structurally invalid graph"
-    assert html =~ "malformed"
-    assert html =~ "<dd>0</dd>"
-    refute html =~ "Unresolved"
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "`structurally_invalid`"
+  end
+
+  # `SelectedRoot.availability/2` lets a producer fail closed on a structural
+  # defect by marking provider health failed, and says that marking "must not be
+  # read as an outage". Sourcing the reported fault from health told the operator
+  # a graph was malformed *because of* `rate_limited` and sent the debug prompt
+  # after an outage that was not the reason for anything.
+  test "a malformed Build Order never reports its provider health failure as the structural fault" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited},
+          diagnostics: [Diagnostic.new(:duplicate_identity)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [card] = Floki.find(document, ".bo-state-card")
+    card_text = Floki.text(card)
+
+    assert html =~ "Fetched planning graph is malformed"
+    # The code shown is the observed structural defect, not the fetch fault.
+    assert card_text =~ "Reported fault: duplicate_identity"
+    assert html =~ "The selected-root provider reports `duplicate_identity`"
+    refute card_text =~ "rate_limited"
+  end
+
+  # Collapsing restatements of one fault is the ask; a graph that is malformed
+  # *and* genuinely unreachable has two faults, and the outage must survive.
+  test "a malformed Build Order still reports a concurrent provider outage" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          diagnostics: [Diagnostic.new(:duplicate_identity), Diagnostic.new(:provider_unavailable)]
+      })
+
+    assert html =~ "The selected-root provider reports `duplicate_identity`"
+    assert html =~ "also reported: `provider_unavailable`"
+  end
+
+  # The fallback used to restate the card's own message word for word, which is
+  # the restatement pattern this state exists to remove.
+  test "a malformed Build Order with unresolved counts adds no restated observation" do
+    html = render_selected(%{unresolved_model(:structurally_invalid) | diagnostics: [Diagnostic.new(:invalid_root)]})
+
+    assert html =~ "The selected-root provider reports `invalid_root`."
+    refute html =~ "the fetched response failed structural validation"
+  end
+
+  # #1808 stopped `failure_class/1` laundering every read fault into
+  # `provider_unavailable`. The one error card must report the code the provider
+  # actually gave, or the debug prompt sends an agent after the wrong problem.
+  test "the single failure state names the specific reported fault, not a generic outage" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited}
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Reported fault:"
+    assert html =~ "`rate_limited`"
+    refute html =~ "provider_unavailable"
+  end
+
+  # Collapsing restatements of one fault is the point; hiding a second, genuinely
+  # different fault would trade a wall of text for a confident wrong reason.
+  test "the single failure state still reports genuinely distinct faults" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited},
+          diagnostics: [Diagnostic.new(:provider_unavailable), Diagnostic.new(:pagination_mismatch)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "also reported: `pagination_mismatch`"
+    # `provider_unavailable` here restates the reported fault rather than adding one.
+    refute html =~ "provider_unavailable"
   end
 
   defp render_selected(model) do
+    {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
+
     render_component(&BuildOrderSelected.build_order_selected/1, %{
-      route_state: RouteState.new("mount-1"),
+      route_state: route_state,
       model: model,
       now: ~U[2026-08-10 12:00:00Z],
       analytics_scope: %{state: :none},

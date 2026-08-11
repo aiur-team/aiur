@@ -76,6 +76,12 @@ aiur build-orders
 aiur build-orders 1363 --json
 ```
 
+On the dashboard, a selected root whose planning provider is unavailable or
+whose fetched graph fails structural validation shows one page-level diagnostic
+state, including a copyable agent debug prompt. Valid graphs, stale
+last-known-good graphs, and valid empty graphs keep their normal selected-root
+views.
+
 ## Quickstart
 
 ```bash
@@ -277,7 +283,11 @@ tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the outcome is
 unknown. Check the daemon state before retrying or taking destructive action;
-the CLI does not infer a cause or recommend restarting the whole session.
+the CLI does not infer a cause or recommend restarting the whole session. It
+does print what it can observe without the daemon cooperating — the
+orchestrator's mailbox depth, run status and current function — because a large
+mailbox or a blocked current function means one process is stuck, not that the
+host is busy.
 
 `resume` on a paused agent never claims an outcome it has not observed. The
 orchestrator answers as soon as the resume control request is queued for the
@@ -291,7 +301,7 @@ request is never reported as a completed resume.
 Read-only fleet queries never use an empty buffer to mean success: `status`,
 `agents`, and `watch` print an affirmative empty-fleet row when no agents are
 active. Query failures print one stderr diagnostic and exit 1. Bounded query
-timeouts name their budget and report that the outcome is unknown,
+timeouts name their budget, report that the outcome is unknown, and print the observed orchestrator mailbox and current function rather than guessing a cause,
 and exit 124; any partial fleet output captured before an outer RPC timeout is
 discarded rather than presented as a trustworthy snapshot.
 
