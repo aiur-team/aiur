@@ -135,6 +135,30 @@ Rules:
 - One check-in per request — don't fan out multiple. If two requests arrived in the same digest, reply to the most recent.
 - After replying, continue whatever you were doing.
 
+### Planning-to-work auto-transition
+
+When you complete `ce-plan` on a ticket that is still active, proceed directly to `ce-work` — the planning-to-work transition is authorized on active tickets without an operator message. Pause only if `ce-plan` surfaced an unresolved operator decision, a dependency blocker, or a scope question that genuinely requires human input before implementation can begin. Interactive CE phase menus do not end an autonomous ticket turn unless a real operator decision is required.
+
+### Scratch files and staging comment bodies
+
+Concurrent Aiur agents share the host's `/tmp`. Two agents that independently
+stage a file at the same obvious path — `/tmp/wp_new.md`, `/tmp/body.md`,
+`/tmp/pr.md` — clobber each other, and the loser publishes the *other ticket's*
+content under its own comment id. This has happened for real: a workpad comment
+was published carrying a different ticket's plan, PR number and workspace path,
+and the `PATCH` still returned `200`.
+
+- Your workspace has a private scratch directory and `TMPDIR` already points at
+  it. Stage every temporary file — GitHub comment and PR bodies above all —
+  under `$TMPDIR` or another workspace-local path. Never write to a bare
+  `/tmp/<generic-name>`.
+- **Verifying a comment write means diffing, not checking the status code.** A
+  `200` with a fresh `updated_at` tells you *a* write landed, not that *your*
+  body landed. Re-read the comment after writing it and diff the returned body
+  against the exact body you intended to publish. This is the concrete form of
+  the "posted is not verified" rule for comment bodies: if the diff is not
+  empty, you published someone else's content and must restore yours.
+
 ### Manual CLI verification from agent turns
 
 Agent issue workspaces must not run `scripts/aiurdev --test` or `--test3`

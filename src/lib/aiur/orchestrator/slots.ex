@@ -182,7 +182,7 @@ defmodule Aiur.Orchestrator.Slots do
         state.max_concurrent_agents
 
       true ->
-        Config.settings!().agent.max_concurrent_agents
+        Config.max_concurrent_agents()
     end
   end
 
@@ -207,7 +207,7 @@ defmodule Aiur.Orchestrator.Slots do
       paused: State.paused_running_count(state.running),
       reserved_paused: reserved_paused,
       occupied: active + reserved_paused,
-      configured: state.max_concurrent_agents || Config.settings!().agent.max_concurrent_agents,
+      configured: state.max_concurrent_agents || Config.max_concurrent_agents(),
       max: max,
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
@@ -220,15 +220,17 @@ defmodule Aiur.Orchestrator.Slots do
   # Deliberate/Executor pauses keep their slot reserved so the polling loop
   # cannot auto-claim replacement work. CI-wait is the exception: the daemon
   # owns that wait, so the parked runner releases normal dispatch capacity.
+  @spec used_slots(State.t()) :: non_neg_integer()
+  def used_slots(%State{} = state) do
+    State.active_running_count(state.running) +
+      State.reserved_paused_running_count(state.running)
+  end
+
   @spec available_slots(State.t()) :: non_neg_integer()
   def available_slots(%State{globally_paused: true}), do: 0
 
   def available_slots(%State{} = state) do
-    used =
-      State.active_running_count(state.running) +
-        State.reserved_paused_running_count(state.running)
-
-    max(effective_concurrent_agent_limit(state) - used, 0)
+    max(effective_concurrent_agent_limit(state) - used_slots(state), 0)
   end
 
   @spec resume_worker_slot_available?(State.t(), term()) :: boolean()

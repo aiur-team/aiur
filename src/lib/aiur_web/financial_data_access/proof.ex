@@ -12,12 +12,20 @@ defmodule AiurWeb.FinancialDataAccess.Proof do
     username = System.get_env("AIUR_DASHBOARD_USERNAME")
     password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     endpoint_config = Application.get_env(:aiur, Endpoint, [])
-    required? = Keyword.get(opts, :required?, Keyword.get(endpoint_config, :dashboard_auth_required) == true)
+    enforced? = Keyword.get(endpoint_config, :dashboard_auth_required) == true
+    required? = Keyword.get(opts, :required?, enforced?)
     secret = Keyword.get(endpoint_config, :secret_key_base)
 
     cond do
       present?(username) and present?(password) and present?(secret) ->
-        fingerprint = keyed_digest(secret, "financial-data-config", {version, username, password, required?})
+        # The fingerprint must track the deployed configuration — credentials
+        # plus the endpoint's enforcement setting — and never a caller's
+        # per-call `required?` override. Stream Deck token issuance always
+        # passes `required?: true` while dashboard reads inherit the endpoint
+        # setting, so folding the override in made two legitimate callers
+        # disagree and rotate the shared generation against each other,
+        # silently invalidating every outstanding Stream Deck token.
+        fingerprint = keyed_digest(secret, "financial-data-config", {version, username, password, enforced?})
 
         case Generation.current(fingerprint) do
           {:ok, generation} ->

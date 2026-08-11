@@ -12,12 +12,33 @@ defmodule Aiur.Workspace.ProvisionerTest do
       {:ok, {"", 0}}
     end
 
-    assert :ok = Provisioner.maybe_install_agent_skills("/remote/workspace", "worker-1", runner)
+    assert :ok = Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
     assert_received {:remote_install, "worker-1", script, timeout}
     assert is_integer(timeout) and timeout > 0
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"
     assert script =~ ".codex/skills/design-import"
+    assert script =~ ".aiur-runtime/bin/gh"
+    assert script =~ "chmod 755"
+    # Without a workspace-private scratch dir, remote agents fall back to the
+    # worker's shared /tmp and clobber each other's staged files (#1763).
+    assert script =~ ".aiur-runtime/tmp"
+  end
+
+  test "local workspaces get a private scratch directory" do
+    workspace = Path.join(System.tmp_dir!(), "aiur-provision-scratch-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(workspace)
+    on_exit(fn -> File.rm_rf(workspace) end)
+
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
+    assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
+  end
+
+  test "remote support installation failures stop workspace preparation" do
+    runner = fn _host, _script, _timeout -> {:ok, {"unsafe support path", 73}} end
+
+    assert {:error, {:remote_agent_support_install_failed, {:ok, {"unsafe support path", 73}}}} =
+             Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
   end
 
   test "parse_remote_workspace_output/1 with valid marker line returns ok tuple" do

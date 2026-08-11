@@ -10,12 +10,14 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
     GlobalPauseStore,
     PauseResume,
     RemoteControlMode,
     Slots,
+    SnapshotStore,
     State,
     StatusReport,
     TrackedSet,
@@ -69,10 +71,16 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
     :ok = ControlLifecycleStore.save(control_lifecycle)
 
+    snapshot_key = Keyword.get(opts, :name, Aiur.Orchestrator)
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
 
     state = %State{
+      snapshot_key: snapshot_key,
+      # A restarted server keeps its prior fleet view until this generation has
+      # completed a fresh poll and projection. Older projector tasks are fenced
+      # by this token before they can replace that retained view.
+      snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
       # `--max-agents N` at launch: seed the session override (highest
@@ -84,9 +92,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
       globally_paused: global_pause.globally_paused,
       global_pause: Map.drop(global_pause, [:globally_paused]),
       effective_concurrent_agents: DispatchPolicy.initial_load_envelope_limit(config.agent),
-      load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
       next_poll_due_at_ms: now_ms,
       poll_check_in_progress: false,
+      poll_frozen: false,
       tick_timer_ref: nil,
       tick_token: nil,
       initial_dispatch_cycle: true,
@@ -99,6 +107,13 @@ defmodule Aiur.Orchestrator.Lifecycle do
       control_lifecycle: control_lifecycle
     }
 
+    :ok =
+      SnapshotStore.publish_global_pause(
+        snapshot_key,
+        state.snapshot_generation,
+        Map.put(state.global_pause, :globally_paused, state.globally_paused)
+      )
+
     state = WorkspaceCleanup.run_terminal_workspace_cleanup(state)
     state = WorkspaceCleanup.run_startup_todo_workspace_cleanup(state)
     RemoteControlMode.cleanup_stray_remote_control_servers()
@@ -107,7 +122,9 @@ defmodule Aiur.Orchestrator.Lifecycle do
     subscribe_to_orchestrator_topics()
     _ = LiveConversation.subscribe_restarts()
 
-    {:ok, schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))}
+    state = schedule_initial_tick(state, Keyword.get(opts, :initial_poll?, true))
+
+    {:ok, state}
   end
 
   defp initial_global_pause({:ok, persisted}) do
@@ -140,7 +157,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # their subtrees are collectible — reap every running entry before the
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
-  def terminate(_reason, %State{running: running}) when is_map(running) do
+  def terminate(_reason, %State{running: running} = state) when is_map(running) do
+    # Comment-rework retries reschedule themselves for up to a minute with
+    # escalating delays. Cancel them here so a stopping orchestrator never leaves
+    # a timer firing — and logging — into whatever runs after it (#1747).
+    _ = CommentWake.cancel_comment_rework_retries(state)
+
     # Best-effort accelerator: sweep registered agent processes first.
     # drain: false is load-bearing — terminate/2 also runs on a supervised
     # crash-restart, and latching the app-lifetime reaper into draining

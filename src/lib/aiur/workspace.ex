@@ -81,7 +81,7 @@ defmodule Aiur.Workspace do
          :ok <- verify_logs_only_bootstrap(workspace, worker_host, verify_logs_only_bootstrap?),
          :ok <- GitMetadata.ensure_agent_logs_excluded(workspace, worker_host),
          :ok <- Hooks.run_github_preflight(workspace, issue_context, worker_host),
-         :ok <- Provisioner.maybe_install_agent_skills(workspace, worker_host),
+         :ok <- Provisioner.maybe_install_agent_support(workspace, worker_host),
          :ok <- Provisioner.mark_workspace_ready(workspace, worker_host) do
       {:ok, workspace}
     else

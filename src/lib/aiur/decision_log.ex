@@ -19,6 +19,14 @@ defmodule Aiur.DecisionLog do
   interior corruption exactly like one that doesn't parse. Replay never
   skips forward past the first invalid line.
 
+  Whether a record is *damaged* or merely *unfamiliar* is the validator's
+  call, not this module's. A validator that can recognize a well-formed
+  record it does not yet understand should return `{:ok, opaque_record}`
+  so the stream stays intact across version skew; see
+  `Aiur.DecisionEvent.Unrecognized`. This module never rewrites the file
+  except to truncate an unacknowledged torn tail, so a record an older
+  binary skipped is still byte-identical for a newer one.
+
   Rejects a symlinked canonical directory or file rather than following
   a potentially attacker-controlled link outside the selected state
   root.

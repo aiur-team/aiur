@@ -67,7 +67,8 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Configuration', link: '/reference/configuration' },
-          { text: 'CLI and controls', link: '/reference/cli' }
+          { text: 'CLI commands', link: '/reference/cli' },
+          { text: 'State nodes and Build Orders', link: '/concepts/state-and-build-orders' }
         ]
       }
     ],

@@ -74,11 +74,18 @@ defmodule Aiur.Init do
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
         effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = Resume.tracker_from_config(deps, config)
-        Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
-        Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
-        Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
+        tracker = Resume.tracker_from_config(deps, config, config_path: effective_target)
+
+        case deps.setup_repo_state.(tracker) do
+          :ok ->
+            Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
+            Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
+            Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+            provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
+
+          {:error, reason} ->
+            {:error, "Failed to create repository state: #{inspect(reason)}"}
+        end
 
       {:error, reason} ->
         {:error,
@@ -90,55 +97,73 @@ defmodule Aiur.Init do
   defp fresh_setup(io, deps, location, target) do
     tracker = Questions.prompt_tracker(io, deps, location)
     tracker = Aiur.Init.BotAccount.maybe_prompt(io, deps, tracker)
-    agents = Questions.prompt_agents(io)
-    routing = Questions.prompt_routing(io, agents)
-    rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
-    permission_mode = Questions.prompt_permission_mode(io)
-    workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
-    max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
-    max_turns = Questions.prompt_max_turns(io)
-    max_duration = Questions.prompt_max_duration(io)
-    pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-    polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
-    prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
-    prewarm = Prewarm.prompt_prewarm(io, deps, location)
-    Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
-    alerts = Alerts.prompt_alerts(io, deps, target)
 
-    fills =
-      Templates.build_fills(%{
-        tracker: tracker,
-        agents: agents,
-        routing: routing,
-        rate_limit_fallback: rate_limit_fallback,
-        permission_mode: permission_mode,
-        workspace_root: workspace_root,
-        max_agents: max_agents,
-        max_turns: max_turns,
-        max_duration: max_duration,
-        pre_warmed: pre_warmed,
-        polling: polling,
-        prompt_file: prompt_file,
-        prewarm: prewarm,
-        alerts: alerts
-      })
+    case deps.setup_repo_state.(tracker) do
+      :ok ->
+        agents = Questions.prompt_agents(io)
+        routing = Questions.prompt_routing(io, agents)
+        rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
+        permission_mode = Questions.prompt_permission_mode(io)
+        workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
+        max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
+        max_turns = Questions.prompt_max_turns(io)
+        max_duration = Questions.prompt_max_duration(io)
+        pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
+        # Matches Schema.Polling's default. The scaffold writes this value into
+        # .aiurconfig explicitly, so it — not the schema default — is what new
+        # installs actually poll at.
+        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 120, 1)
+        prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
+        prewarm = Prewarm.prompt_prewarm(io, deps, location)
+        Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
+        alerts = Alerts.prompt_alerts(io, deps, target)
 
-    config_yaml = Templates.fill_template(deps.read_example.(), fills)
+        fills =
+          Templates.build_fills(%{
+            tracker: tracker,
+            agents: agents,
+            routing: routing,
+            rate_limit_fallback: rate_limit_fallback,
+            permission_mode: permission_mode,
+            workspace_root: workspace_root,
+            max_agents: max_agents,
+            max_turns: max_turns,
+            max_duration: max_duration,
+            pre_warmed: pre_warmed,
+            polling: polling,
+            prompt_file: prompt_file,
+            prewarm: prewarm,
+            alerts: alerts
+          })
 
-    case deps.write_config.(target, config_yaml) do
-      {:ok, path} ->
-        io.puts.(["Created: ", Format.dim(path)])
-        Scaffold.ensure_prompt_file(io, deps, path, prompt_file, Map.get(tracker, :repo))
-        Scaffold.ensure_aiurhooks(io, deps, path)
-        Alerts.ensure_alerts(io, deps, path, alerts)
-        Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
-        Scaffold.setup_env(io, deps, tracker)
-        Scaffold.maybe_offer_gitignore(io, deps, location)
-        Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
-        provision(io, deps, tracker, agents)
+        config_yaml = Templates.fill_template(deps.read_example.(), fills)
+
+        case deps.write_config.(target, config_yaml) do
+          {:ok, path} ->
+            io.puts.(["Created: ", Format.dim(path)])
+            Scaffold.ensure_prompt_file(io, deps, path, prompt_file, Map.get(tracker, :repo))
+            Scaffold.ensure_aiurhooks(io, deps, path)
+            Alerts.ensure_alerts(io, deps, path, alerts)
+            Prewarm.ensure_prewarm_file(io, deps, path, prewarm)
+            Scaffold.setup_env(io, deps, tracker)
+            Scaffold.maybe_offer_gitignore(io, deps, location)
+            Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+
+            provision(
+              io,
+              deps,
+              tracker
+              |> Map.put(:base_branch, Aiur.Config.base_branch(tracker))
+              |> Map.put(:config_path, path),
+              agents
+            )
+
+          {:error, reason} ->
+            {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
+        end
 
       {:error, reason} ->
-        {:error, "Failed to write #{Path.basename(target)}: #{inspect(reason)}"}
+        {:error, "Failed to create repository state: #{inspect(reason)}"}
     end
   end
 
@@ -148,15 +173,11 @@ defmodule Aiur.Init do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
 
     if github_token_present?(deps) do
-      case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
-        :ok -> final_screen(io)
-        :error -> :ok
-      end
+      provision_github_with_token(io, deps, tracker, agents, pair)
     else
       token_setup_instructions(io)
+      :ok
     end
-
-    :ok
   end
 
   defp provision(io, deps, %{kind: "linear"} = tracker, agents, _pair) do
@@ -169,6 +190,25 @@ defmodule Aiur.Init do
   defp provision(io, deps, _tracker, agents, _pair) do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
+    :ok
+  end
+
+  defp provision_github_with_token(io, deps, tracker, agents, pair) do
+    case Aiur.Init.GitHub.ensure_ci_readiness(io, deps, tracker) do
+      :ok ->
+        finish_github_provision(io, deps, tracker, agents, pair)
+
+      {:error, _message} = error ->
+        error
+    end
+  end
+
+  defp finish_github_provision(io, deps, tracker, agents, pair) do
+    case Aiur.Init.Labels.setup_labels(io, deps, tracker, agents, pair) do
+      :ok -> final_screen(io)
+      :error -> :ok
+    end
+
     :ok
   end
 
@@ -226,10 +266,13 @@ defmodule Aiur.Init do
     io.puts.("       • Check the `repo` scope (Full control of private repositories)")
     io.puts.("     Fine-grained token:")
     io.puts.("       • Repository access → `Only select repositories` → choose this repo")
-    io.puts.("       • Permissions → Repository permissions, set each to `Read and write`:")
-    io.puts.("           – Issues  (creating labels needs this)")
-    io.puts.("           – Contents")
-    io.puts.("           – Pull requests")
+    io.puts.("       • Permissions → Repository permissions:")
+    io.puts.("           – Issues: Read and write  (creating labels needs this)")
+    io.puts.("           – Contents: Read and write (agent branch pushes need this)")
+    io.puts.("           – Pull requests: Read and write")
+    io.puts.("     Keep Administration and Actions permissions disabled for the daemon token.")
+    io.puts.("     For the one-shot CI readiness preflight, use an operator-only #{Aiur.GitHub.CiReadiness.operator_token_env()} with Contents, Actions, and Administration: Read-only.")
+    io.puts.("     Do not add that operator token to #{@env_file_name} or the daemon environment.")
     io.puts.(IO.ANSI.format([:faint, "     The token's account must have write access to this repo (otherwise GitHub returns 404)."]))
     io.puts.("  2. Put it in #{@env_file_name} as GITHUB_TOKEN=<token> (aiur's bot account).")
     io.puts.("  3. Run `aiur init` again to continue creating repo tags.")

@@ -260,9 +260,21 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
           PauseResume.resume_paused_issue(current_state, entry, false)
         end)
 
-      staged_state = put_running_entry(state, get_in(running_entry, [:issue, Access.key(:id)]), cleared_entry)
+      # Resume from an entry that still carries `:paused_reason`. PauseResume
+      # reads it to emit the matching `agent.attention.paused-<cause>.resolved`
+      # and clears it itself; handing over the already-cleared entry made the
+      # cause look absent, so the pause attention stayed active forever.
+      resume_entry = Map.delete(cleared_entry, :rate_limit_fallback_revert_pending)
 
-      case resume.(staged_state, cleared_entry) do
+      resume_entry =
+        case Map.fetch(running_entry, :paused_reason) do
+          {:ok, reason} -> Map.put(resume_entry, :paused_reason, reason)
+          :error -> resume_entry
+        end
+
+      staged_state = put_running_entry(state, get_in(running_entry, [:issue, Access.key(:id)]), resume_entry)
+
+      case resume.(staged_state, resume_entry) do
         {{:ok, :resumed}, resumed_state} -> {resumed_state, true}
         _ -> {state, false}
       end
@@ -379,12 +391,72 @@ defmodule Aiur.Orchestrator.RateLimitFallback do
     teardown = Keyword.get(opts, :teardown_fun, &RemoteControlMode.teardown_for_redispatch/3)
     dispatch = Keyword.get(opts, :dispatch_fun, &dispatch_prior_work/4)
 
-    state = teardown.(state, running_entry, :rate_limit_fallback)
-    state = %{state | running: Map.delete(state.running, issue_id)}
+    # The old entry is the sole owner of the lifecycle fence. Keep a parked
+    # copy in `running` until the replacement Task is actually admitted, so a
+    # failed fallback never turns an authoritative queue claim into an
+    # unfenced, unrecoverable ticket. Dispatcher also carries this context
+    # through retries that start after this reconciliation tick.
+    staged_entry = redispatch_safety_entry(running_entry, relabeled_issue)
+
+    state =
+      state
+      |> teardown.(running_entry, :rate_limit_fallback)
+      |> put_running_entry(issue_id, staged_entry)
+
     state = dispatch.(state, relabeled_issue, nil, worker_host)
+    state = retain_redispatch_safety(state, staged_entry, relabeled_issue)
 
     ensure_redispatch_started(state, running_entry, relabeled_issue, worker_host, opts)
   end
+
+  defp redispatch_safety_entry(running_entry, relabeled_issue) do
+    safety = %{workspace_path: Map.get(running_entry, :workspace_path)}
+
+    # Do not park a copy of session, pane, or provider-process metadata after
+    # teardown: those describe the stopped primary worker, not a retryable
+    # fallback entry. Only durable redispatch context is retained.
+    running_entry
+    |> Map.take([:identifier, :worker_host, :retry_attempt, :prior_work])
+    |> Map.merge(%{
+      issue: relabeled_issue,
+      pid: nil,
+      ref: nil,
+      control: %{status: :completed},
+      rate_limit_fallback_replacement: true,
+      redispatch_safety: safety
+    })
+    |> maybe_put_lifecycle_fence(Map.get(running_entry, :lifecycle_fence))
+    |> maybe_put_workspace_path(Map.get(safety, :workspace_path))
+  end
+
+  # A Task pid is the synchronous admission proof available at this layer.
+  # Copy the exact fence, including its generation and concrete queue IDs, to
+  # the new entry. If dispatch did not produce a live Task, park the staged
+  # entry as completed so it does not consume a slot while RetryEngine retains
+  # its claim and retries it.
+  defp retain_redispatch_safety(state, staged_entry, relabeled_issue) do
+    case Map.get(state.running, relabeled_issue.id) do
+      %{pid: pid} = replacement when is_pid(pid) ->
+        put_running_entry(state, relabeled_issue.id, inherit_redispatch_safety(replacement, staged_entry))
+
+      _other ->
+        put_running_entry(state, relabeled_issue.id, staged_entry)
+    end
+  end
+
+  defp inherit_redispatch_safety(replacement, staged_entry) do
+    replacement
+    |> Map.put(:rate_limit_fallback_replacement, true)
+    |> Map.put(:redispatch_safety, Map.fetch!(staged_entry, :redispatch_safety))
+    |> maybe_put_lifecycle_fence(Map.get(staged_entry, :lifecycle_fence))
+    |> maybe_put_workspace_path(Map.get(staged_entry, :workspace_path))
+  end
+
+  defp maybe_put_lifecycle_fence(entry, fence) when is_map(fence), do: Map.put(entry, :lifecycle_fence, fence)
+  defp maybe_put_lifecycle_fence(entry, _fence), do: entry
+
+  defp maybe_put_workspace_path(entry, path) when is_binary(path), do: Map.put(entry, :workspace_path, path)
+  defp maybe_put_workspace_path(entry, _path), do: entry
 
   defp dispatch_prior_work(state, issue, attempt, worker_host) do
     prior_work? = Config.agent_prior_work_continuation?()

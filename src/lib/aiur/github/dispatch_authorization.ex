@@ -8,11 +8,24 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   @cache_key {__MODULE__, :timeline_cache}
   @max_cache_entries 1_000
-  @max_timeline_response_bytes 65_536
+
+  # A timeline page requests up to `per_page=100` events (see fetch_decision),
+  # each of which embeds the full actor, label, and often issue objects
+  # (measured ~2.5–3.5 KiB per event on real timelines). 512 KiB holds a full
+  # 100-event page with headroom; the previous 64 KiB cap truncated real
+  # timelines at ~20 events, which failed the `is_list/1` guard and was
+  # misreported as an HTTP error with status 200 (#1454).
+  @max_timeline_response_bytes 524_288
   @max_timeline_pages 4
 
   @spec authorize(Issue.t(), String.t(), String.t(), String.t(), keyword()) :: Issue.t()
-  def authorize(%Issue{} = issue, owner, repo, prefix, opts \\ []) do
+  def authorize(issue, owner, repo, prefix, opts \\ [])
+
+  def authorize(%Issue{state_labels: [_, _ | _] = state_labels} = issue, _owner, _repo, _prefix, _opts) do
+    deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
+  end
+
+  def authorize(%Issue{} = issue, owner, repo, prefix, opts) do
     allowed_users = allowed_users(opts)
 
     case trusted_creator(issue.creator_login, allowed_users) do
@@ -103,6 +116,14 @@ defmodule Aiur.GitHub.DispatchAuthorization do
           nil -> {:ok, events ++ page}
           next_url -> fetch_timeline_pages(request_fun, token, next_url, pages_left - 1, events ++ page)
         end
+
+      {:ok, %{status: 200}} ->
+        # A 200 whose body is not a JSON list means the page was truncated at
+        # @max_timeline_response_bytes by the transport (the body becomes ""),
+        # or was otherwise malformed — not an HTTP failure. Name the real cause
+        # instead of the self-contradictory `{:github, :http, %{status: 200}}`
+        # (#1454).
+        {:error, :timeline_truncated}
 
       {:ok, %{status: status} = response} ->
         {:error, {:timeline_fetch_failed, Errors.github_status_error(Map.put(response, :status, status))}}

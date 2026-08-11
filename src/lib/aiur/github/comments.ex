@@ -40,6 +40,12 @@ defmodule Aiur.GitHub.Comments do
     end
   end
 
+  @spec fetch_recent_repo_review_comments_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_recent_repo_review_comments_conditional(opts \\ []) do
+    fetch_recent_repo_comment_stream_conditional("pulls/comments", opts)
+  end
+
   @spec fetch_recent_repo_issue_comments(keyword()) :: {:ok, [map()]} | {:error, term()}
   def fetch_recent_repo_issue_comments(opts \\ []) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
@@ -49,6 +55,12 @@ defmodule Aiur.GitHub.Comments do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/comments?#{query}"
       fetch_repo_comment_stream(request_fun, token, url, [])
     end
+  end
+
+  @spec fetch_recent_repo_issue_comments_conditional(keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_recent_repo_issue_comments_conditional(opts \\ []) do
+    fetch_recent_repo_comment_stream_conditional("issues/comments", opts)
   end
 
   @spec fetch_issue_comments(String.t() | integer(), keyword()) ::
@@ -61,6 +73,41 @@ defmodule Aiur.GitHub.Comments do
       url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
 
       Transport.fetch_json_list(request_fun, token, url)
+    end
+  end
+
+  @doc """
+  Fetches an issue's comments with `If-None-Match` support.
+
+  The established `fetch_issue_comments/2` contract remains list-only for
+  foreground callers. Pollers use this variant so a 304 does not look like an
+  API failure or force a second request for an unchanged list.
+  """
+  @spec fetch_issue_comments_conditional(String.t() | integer(), keyword()) ::
+          {:ok, [map()], String.t() | nil} | {:not_modified, String.t() | nil} | {:error, term()}
+  def fetch_issue_comments_conditional(issue_number, opts \\ []) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      query = comment_query(opts)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/issues/#{issue_number}/comments?#{query}"
+      etag = Keyword.get(opts, :etag)
+      request = %{method: :get, url: url, token: token}
+      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+      case request_fun.(request) do
+        {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+          conditional_stream_pages(request_fun, token, response, body, etag)
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
     end
   end
 
@@ -108,6 +155,42 @@ defmodule Aiur.GitHub.Comments do
 
       {:error, reason} ->
         {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp fetch_recent_repo_comment_stream_conditional(path, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token(opts) do
+      request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
+      url = "#{Transport.base_url()}/repos/#{owner}/#{repo}/#{path}?#{repo_comment_stream_query(opts)}"
+      etag = Keyword.get(opts, :etag)
+      request = %{method: :get, url: url, token: token}
+      request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+      case request_fun.(request) do
+        {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+          conditional_stream_pages(request_fun, token, response, body, etag)
+
+        {:ok, %{status: 304} = response} ->
+          {:not_modified, Transport.header(Map.get(response, :headers, []), "etag") || etag}
+
+        {:ok, %{status: _status} = response} ->
+          {:error, Errors.github_status_error(response)}
+
+        {:error, reason} ->
+          {:error, Errors.classify_error({:error, reason})}
+      end
+    end
+  end
+
+  # Drains the remaining pages of a conditional comment-stream read and pairs
+  # the full list with the response's ETag (falling back to the cached one when
+  # GitHub omits it), so the caller keeps a usable cache entry either way.
+  defp conditional_stream_pages(request_fun, token, response, body, etag) do
+    next = Transport.parse_next_page_url(Map.get(response, :headers, []))
+
+    with {:ok, comments} <- fetch_repo_comment_stream(request_fun, token, next, body) do
+      {:ok, comments, Transport.header(Map.get(response, :headers, []), "etag") || etag}
     end
   end
 

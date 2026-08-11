@@ -28,6 +28,22 @@ defmodule Aiur.GitHub.Issues do
     if state_names == [], do: {:ok, []}, else: do_fetch_issues_by_states(state_names, opts)
   end
 
+  @doc """
+  Fetches issue lists conditionally, retaining one ETag and materialized page
+  per label/page URL. A 304 therefore reuses the complete cached list instead
+  of treating the first page as a complete result.
+  """
+  @spec fetch_issues_by_states_conditional([String.t()], map(), keyword()) ::
+          {:ok, [Issue.t()], map()} | {:error, term()}
+  def fetch_issues_by_states_conditional(state_names, cache, opts \\ [])
+      when is_list(state_names) and is_map(cache) do
+    if state_names == [] do
+      {:ok, [], cache}
+    else
+      do_fetch_issues_by_states_conditional(state_names, cache, opts)
+    end
+  end
+
   @spec fetch_issue_states_by_ids([String.t()], keyword()) ::
           {:ok, [Issue.t()]} | {:error, term()}
   def fetch_issue_states_by_ids(issue_ids, opts \\ []) when is_list(issue_ids) do
@@ -149,8 +165,108 @@ defmodule Aiur.GitHub.Issues do
     end
   end
 
-  @spec do_fetch_issue_states_by_ids([String.t()], keyword()) ::
-          {:ok, [Issue.t()]} | {:error, term()}
+  defp do_fetch_issues_by_states_conditional(state_names, cache, opts) do
+    with {:ok, {owner, repo}} <- Transport.parse_repo(),
+         {:ok, token} <- Transport.require_token() do
+      ctx = %{
+        request_fun: Keyword.get(opts, :request_fun, &Transport.default_request_fun/1),
+        token: token,
+        owner: owner,
+        repo: repo,
+        prefix: GitHub.Config.label_prefix()
+      }
+
+      state_names
+      |> Enum.map(&StatePolicy.state_label(ctx.prefix, &1))
+      |> Enum.reduce_while({:ok, %{}, cache}, &reduce_conditional_label(ctx, &1, &2))
+      |> finish_conditional_fetch(ctx)
+    end
+  end
+
+  defp reduce_conditional_label(ctx, label, {:ok, issues_by_id, cache}) do
+    # Percent-encode reserved characters (":" -> "%3A") so the locally built
+    # first-page URL matches GitHub's Link-header pagination URLs, which key
+    # the conditional page cache.
+    url =
+      "#{Transport.base_url()}/repos/#{ctx.owner}/#{ctx.repo}/issues" <>
+        "?labels=#{URI.encode(label, &URI.char_unreserved?/1)}&state=open&per_page=100"
+
+    case fetch_label_issue_pages_conditional(ctx, url, Map.get(cache, label, %{})) do
+      {:ok, issues, label_cache} ->
+        merged = Map.merge(issues_by_id, Map.new(issues, &{&1.id, &1}), fn _key, old, _new -> old end)
+        {:cont, {:ok, merged, Map.put(cache, label, label_cache)}}
+
+      {:error, _reason} = error ->
+        {:halt, error}
+    end
+  end
+
+  defp finish_conditional_fetch({:ok, issues_by_id, updated_cache}, ctx) do
+    # `normalize_issue/5` defaults `dispatch_authorized?: false`, so this step
+    # is load-bearing, not an optimization: without it
+    # `DispatchPolicy.candidate_issue?/3` rejects every issue and the daemon
+    # dispatches nothing. Must mirror the unconditional path.
+    issues = authorize_dispatches(Map.values(issues_by_id), ctx.request_fun, ctx.token, ctx.owner, ctx.repo, ctx.prefix)
+
+    {:ok, issues, updated_cache}
+  end
+
+  defp finish_conditional_fetch(error, _ctx), do: error
+
+  defp fetch_label_issue_pages_conditional(ctx, first_url, label_cache) do
+    fetch_conditional_page(ctx, first_url, Map.get(label_cache, :pages, %{}), %{}, [])
+  end
+
+  defp fetch_conditional_page(ctx, url, cached_pages, next_pages, acc) do
+    cached_page = Map.get(cached_pages, url, %{})
+    etag = Map.get(cached_page, :etag)
+    request = %{method: :get, url: url, token: ctx.token}
+    request = if is_binary(etag) and etag != "", do: Map.put(request, :etag, etag), else: request
+
+    case ctx.request_fun.(request) do
+      {:ok, %{status: 200, body: body} = response} when is_list(body) ->
+        page = %{
+          etag: Transport.header(Map.get(response, :headers, []), "etag") || etag,
+          issues: Enum.map(body, &normalize_issue(&1, ctx.owner, ctx.repo, ctx.prefix)),
+          next_url: Transport.parse_next_page_url(Map.get(response, :headers, []))
+        }
+
+        continue_conditional_pages(ctx, cached_pages, Map.put(next_pages, url, page), acc ++ page.issues, page.next_url)
+
+      {:ok, %{status: 304}} ->
+        not_modified_page(ctx, url, cached_page, cached_pages, next_pages, acc)
+
+      {:ok, %{status: _status} = response} ->
+        {:error, Errors.github_status_error(response)}
+
+      {:error, reason} ->
+        {:error, Errors.classify_error({:error, reason})}
+    end
+  end
+
+  defp not_modified_page(ctx, url, %{issues: issues} = cached_page, cached_pages, next_pages, acc) when is_list(issues) do
+    continue_conditional_pages(
+      ctx,
+      cached_pages,
+      Map.put(next_pages, url, cached_page),
+      acc ++ issues,
+      Map.get(cached_page, :next_url)
+    )
+  end
+
+  # A process restart should not turn a conditional response into an
+  # incomplete list. Retry once without the stale ETag.
+  defp not_modified_page(ctx, url, _cached_page, cached_pages, next_pages, acc) do
+    fetch_conditional_page(ctx, url, Map.delete(cached_pages, url), next_pages, acc)
+  end
+
+  defp continue_conditional_pages(_ctx, _cached_pages, pages, issues, nil), do: {:ok, issues, %{pages: pages}}
+
+  defp continue_conditional_pages(ctx, cached_pages, pages, issues, next_url) do
+    fetch_conditional_page(ctx, next_url, cached_pages, pages, issues)
+  end
+
+  @spec do_fetch_issue_states_by_ids([String.t()], keyword()) :: {:ok, [Issue.t()]} | {:error, term()}
   def do_fetch_issue_states_by_ids(issue_ids, opts) do
     with {:ok, {owner, repo}} <- Transport.parse_repo(),
          {:ok, token} <- Transport.require_token() do
@@ -268,6 +384,7 @@ defmodule Aiur.GitHub.Issues do
     number = gh_issue["number"]
     labels = gh_issue["labels"] || []
     label_names = Enum.map(labels, &(&1["name"] || ""))
+    state_labels = extract_state_labels(label_names, prefix)
 
     %Issue{
       id: to_string(number),
@@ -276,7 +393,8 @@ defmodule Aiur.GitHub.Issues do
       title: gh_issue["title"],
       description: gh_issue["body"],
       priority: extract_priority(label_names),
-      state: extract_state(gh_issue, label_names, prefix),
+      state: extract_state(gh_issue, state_labels),
+      state_labels: state_labels,
       branch_name: nil,
       url: gh_issue["html_url"],
       assignee_id: get_in(gh_issue, ["assignee", "login"]),
@@ -559,11 +677,23 @@ defmodule Aiur.GitHub.Issues do
     do: Enum.join([context.owner, context.repo, context.prefix, issue_id], ":")
 
   @spec extract_state(map(), [String.t()], String.t()) :: String.t() | nil
-  def extract_state(%{"state" => "closed"}, _label_names, _prefix), do: "Closed"
+  def extract_state(gh_issue, label_names, prefix) do
+    extract_state(gh_issue, extract_state_labels(label_names, prefix))
+  end
 
-  def extract_state(_gh_issue, label_names, prefix) do
+  defp extract_state(%{"state" => "closed"}, _state_labels), do: "Closed"
+  defp extract_state(_gh_issue, [state]), do: state
+  defp extract_state(_gh_issue, _state_labels), do: nil
+
+  @spec extract_state_labels([String.t()], String.t()) :: [String.t()]
+  def extract_state_labels(label_names, prefix) do
     prefix_colon = normalize_label_name("#{prefix}:")
-    Enum.find_value(label_names, &state_label_suffix(&1, prefix_colon))
+
+    label_names
+    |> Enum.map(&state_label_suffix(&1, prefix_colon))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> Enum.sort()
   end
 
   @spec extract_priority([String.t()]) :: integer() | nil

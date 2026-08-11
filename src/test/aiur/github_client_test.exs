@@ -1546,6 +1546,11 @@ defmodule Aiur.GitHub.ClientTest do
         send(test_pid, {:github_request, req})
 
         cond do
+          # No standing approval on this PR, so the #1756 approval override
+          # does not apply and the unresolved thread still blocks.
+          req.method == :get and req.url =~ "/pulls/77/reviews" ->
+            {:ok, %{status: 200, body: []}}
+
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok, %{status: 200, body: [%{"number" => 77}]}}
 
@@ -1640,6 +1645,10 @@ defmodule Aiur.GitHub.ClientTest do
                  "labels" => [%{"name" => "sym:in-progress"}]
                }
              }}
+
+          # No standing approval, so the #1756 approval override does not apply.
+          req.method == :get and req.url =~ "/pulls/77/reviews" ->
+            {:ok, %{status: 200, body: []}}
 
           req.method == :get and req.url =~ "/pulls?" ->
             {:ok, %{status: 200, body: [%{"number" => 77}]}}
@@ -1907,12 +1916,13 @@ defmodule Aiur.GitHub.ClientTest do
     test "an HTTP 403 rate-limit response classifies as :rate_limited" do
       response = %{
         status: 403,
-        headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "42"}],
+        headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "42"}, {"x-ratelimit-reset", "1900000000"}],
         body: %{"message" => "API rate limit exceeded"}
       }
 
       assert {:github, :rate_limited, detail} = Client.classify_error(response)
       assert detail.retry_after == 42
+      assert detail.reset_at == "2030-03-17T17:46:40Z"
     end
 
     test "a plain HTTP 403 (no rate-limit signal) classifies as :http" do

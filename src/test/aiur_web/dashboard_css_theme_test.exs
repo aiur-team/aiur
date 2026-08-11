@@ -69,11 +69,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @streamdeck_dark_root_pins ~w(
     --accent
     --accent-ink
+    --attention
     --attention-ink
     --blocking-ink
     --blocking-soft
     --good
+    --good-ink
     --super
+    --ack
   )
 
   # Pinned to chassis-specific values rather than `:root` — the key face is
@@ -102,6 +105,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
                "#{inspect(Map.fetch!(pinned, token))}, but the dark :root value is " <>
                "#{inspect(Map.fetch!(dark_root, token))}. The pin must match :root exactly."
     end
+  end
+
+  # A meter that has reached 100% used is critical: the fill turns red so an
+  # exhausted window is never mistaken for a healthy one (#1532). The rule must
+  # keep using the themed blocking token so it stays legible in both themes.
+  test ".rs-meter is-critical uses the themed blocking fill" do
+    rule = css_rule(".rs-meter > i.is-critical")
+    assert rule =~ "var(--blocking)"
   end
 
   defp declarations(rule) do

@@ -22,11 +22,20 @@ defmodule Aiur.Init.BotAccount do
 
   # GitHub login: 1–39 chars, alphanumeric with single internal hyphens, never
   # leading/trailing hyphen. Matched after `Edit.normalize_login/1` lowercases.
-  @login_regex ~r/^[a-z\d](?:-?[a-z\d])*$/
+  #
+  # The optional `[bot]` suffix is the GitHub App bot form (`<app-slug>[bot]`),
+  # which is the correct bot_account whenever the daemon authenticates with a
+  # GitHub App installation token (see docs/security/daemon-token-posture.md).
+  # Without it the wizard rejects the very login App auth requires, and a
+  # non-interactive run degrades that default to nil — leaving self-loop
+  # suppression off.
+  @login_regex ~r/^[a-z\d](?:-?[a-z\d])*(?:\[bot\])?$/
+  @bot_suffix "[bot]"
+  @max_login_length 39
 
   @prompt_label "GitHub account Aiur's agents post as (bot_account)"
 
-  @prompt_hint "The login Aiur recognizes as its own to suppress self-triggered comment/event loops."
+  @prompt_hint "The login Aiur recognizes as its own to suppress self-triggered comment/event loops. Under GitHub App auth this is the App bot login, `<app-slug>[bot]`."
 
   @doc """
   Prompts for and returns the tracker with `:bot_account` filled for a GitHub
@@ -68,7 +77,7 @@ defmodule Aiur.Init.BotAccount do
         if valid_login?(login) do
           login
         else
-          io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens).")
+          io.puts.("Enter a valid GitHub login (letters, numbers, and single hyphens), or a GitHub App bot login like `my-app[bot]`.")
           prompt(io, default)
         end
     end
@@ -80,6 +89,12 @@ defmodule Aiur.Init.BotAccount do
 
   # GitHub logins are ≤ 39 chars; the regex already bounds shape. Assumes a
   # login normalized by `Edit.normalize_login/1` (trimmed, lowercased, no `@`).
+  # The `[bot]` suffix is GitHub's own decoration on top of the App slug, so it
+  # is measured outside the 39-character login budget.
   @spec valid_login?(String.t()) :: boolean()
-  defp valid_login?(login), do: String.length(login) <= 39 and Regex.match?(@login_regex, login)
+  defp valid_login?(login) do
+    slug = String.replace_suffix(login, @bot_suffix, "")
+
+    String.length(slug) <= @max_login_length and Regex.match?(@login_regex, login)
+  end
 end

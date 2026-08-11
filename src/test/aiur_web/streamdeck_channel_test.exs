@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
   alias Aiur.AgentPubSub
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias Aiur.ProviderMeterSnapshot
-  alias AiurWeb.{Endpoint, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
 
   @endpoint Endpoint
 
@@ -68,6 +68,17 @@ defmodule AiurWeb.StreamdeckChannelTest do
     System.put_env("AIUR_DASHBOARD_PASSWORD", "rotated-secret")
 
     assert :error = StreamdeckAuth.verify_token(token)
+  end
+
+  test "socket tokens survive a financial-data read of the configuration generation" do
+    assert {:ok, token} = StreamdeckAuth.issue_token()
+
+    # Dashboard reads inherit `dashboard_auth_required` while token issuance
+    # always demands `required?: true`. Only credentials may rotate the shared
+    # configuration generation — a differing policy flag must not.
+    assert {:ok, _generation} = FinancialDataAccess.current_configuration_generation()
+
+    assert {:ok, _generation, _expires_at_ms} = StreamdeckAuth.verify_token(token)
   end
 
   test "a joined channel closes when dashboard credentials change" do
@@ -276,7 +287,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
         "state" => "observed",
         "provider" => "codex",
         "auth_mode" => "subscription",
-        "freshness" => "fresh",
+        "freshness" => "stale",
         "observed_at" => "2026-07-30T12:00:00Z",
         "plan" => %{"tier" => "updated"}
       }

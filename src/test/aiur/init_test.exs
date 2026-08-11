@@ -17,11 +17,25 @@ defmodule Aiur.InitTest do
     "ticket.*.pr.merged",
     "ticket.*.issue.state.changed",
     "system.dispatch.todo_capacity_exceeded",
+    "system.github_app_token.refresh_failed",
+    "system.github_app_token.permission_violation",
+    "system.github_app_token.identity_mismatch",
+    "system.github_app_token.refresh_recovered",
+    "system.dispatch.prewarm_blocked",
+    "system.dispatch.prewarm_blocked.resolved",
+    "system.dispatch.capacity_starved",
+    "system.dispatch.capacity_starved.resolved",
+    "system.fleet.capacity.starved",
+    "system.fleet.capacity.starved.resolved",
+    "system.tracker.auth_preflight_failed",
+    "system.tracker.auth_preflight_failed.resolved",
     "ticket.*.agent.error.tokens_exhausted",
     "ticket.*.agent.retry_exhausted",
     "ticket.*.agent.review_feedback_delivery_deferred",
     "ticket.*.agent.paused",
+    "ticket.*.agent.paused.resolved",
     "ticket.*.agent.attention.*",
+    "ticket.*.agent.attention.*.resolved",
     "ticket.*.agent.unpaused",
     "ticket.*.chat.opened",
     "ticket.*.chat.closed",
@@ -92,6 +106,11 @@ defmodule Aiur.InitTest do
         end,
         read_example: fn -> File.read!(@example_file) end,
         detect_repo: fn -> nil end,
+        detect_default_branch: fn _repo -> "main" end,
+        setup_repo_state: fn tracker ->
+          send(parent, {:repo_state, tracker})
+          :ok
+        end,
         detect_toolchain: fn -> :none end,
         prewarm_build: fn url, cmd ->
           send(parent, {:prewarm_build, url, cmd})
@@ -170,6 +189,7 @@ defmodule Aiur.InitTest do
         github_login: fn -> "octocat" end,
         github_bot_account_default: fn -> nil end,
         github_token: fn -> nil end,
+        check_ci_readiness: fn _tracker -> {:ok, %{ready?: true, base_branch: "main", required_checks: ["ci / required"]}} end,
         list_labels: fn _tracker -> {:ok, []} end,
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
@@ -242,6 +262,7 @@ defmodule Aiur.InitTest do
     File.write!(target, """
     tracker:
       kind: github
+      base_branch: main
       github:
         repo: octo/repo
     agent:
@@ -370,6 +391,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -395,6 +417,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -566,7 +589,7 @@ defmodule Aiur.InitTest do
 
       answers =
         github_answers(%{
-          confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+          confirm: %{"Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?" => false}
         })
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -793,7 +816,7 @@ defmodule Aiur.InitTest do
       assert Enum.any?(log, &(&1 =~ ~r/routing: 1:/))
       assert Enum.any?(log, &(&1 =~ ~r/permission_mode: bypassPermissions/))
       assert Enum.any?(log, &(&1 =~ ~r/workspace_root:/))
-      assert Enum.any?(log, &(&1 =~ ~r/polling_interval_seconds: 30/))
+      assert Enum.any?(log, &(&1 =~ ~r/polling_interval_seconds: 120/))
     end
 
     test "resume never runs a CLI auth check for the claude-repl transport", %{
@@ -805,7 +828,7 @@ defmodule Aiur.InitTest do
       File.write!(target, "placeholder")
 
       config = %{
-        "tracker" => %{"kind" => "memory"},
+        "tracker" => %{"kind" => "memory", "base_branch" => "main"},
         "agent" => %{"kind" => "claude", "routing" => %{"5" => "claude-repl"}}
       }
 
@@ -851,7 +874,7 @@ defmodule Aiur.InitTest do
 
     test "resume migrates a legacy root config into .aiur/ when confirmed", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\nagent:\n  kind: claude\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\nagent:\n  kind: claude\n")
 
       answers = %{confirm: %{"Migrate them into .aiur/ now?" => true}}
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
@@ -861,7 +884,7 @@ defmodule Aiur.InitTest do
 
     test "resume leaves the legacy layout when migration is declined", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
 
       answers = %{confirm: %{"Migrate them into .aiur/ now?" => false}}
       assert :ok = Init.run(%{force: false}, io(self(), answers), deps(self(), dir, target))
@@ -871,7 +894,7 @@ defmodule Aiur.InitTest do
 
     test "resume migration passes ignore: true when the gitignore opt-in is accepted", %{dir: dir, target: target} do
       legacy = Path.join(dir, ".aiurconfig")
-      File.write!(legacy, "tracker:\n  kind: memory\n")
+      File.write!(legacy, "tracker:\n  kind: memory\n  base_branch: main\n")
 
       answers = %{
         confirm: %{"Migrate them into .aiur/ now?" => true, "Also add .aiur/ to .gitignore?" => true}
@@ -888,6 +911,7 @@ defmodule Aiur.InitTest do
         """
         tracker:
           kind: github
+          base_branch: main
           github:
             repo: octo/repo
         agent:
@@ -957,7 +981,7 @@ defmodule Aiur.InitTest do
 
   describe "resume backfill of new config sections (#411)" do
     # A config written before the prewarm block existed.
-    @legacy_yaml "tracker:\n  kind: github\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
+    @legacy_yaml "tracker:\n  kind: github\n  base_branch: main\n  github:\n    repo: octo/repo\nagent:\n  kind: claude\n"
 
     test "offers a missing registered section and appends it on opt-in", %{dir: dir, target: target} do
       File.write!(target, @legacy_yaml)
@@ -1030,7 +1054,7 @@ defmodule Aiur.InitTest do
         })
 
       answers = %{
-        confirm: %{"Keep a pre-warmed copy of latest main so agents skip cloning + building?" => false}
+        confirm: %{"Keep a pre-warmed copy of the configured base branch so agents skip cloning + building?" => false}
       }
 
       assert :ok = Init.run(%{force: false}, io(self(), answers), d)
@@ -1270,6 +1294,8 @@ defmodule Aiur.InitTest do
     test "github writes tracker.github.* and a routing table", %{dir: dir, target: target} do
       assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
 
+      assert_received {:repo_state, %{kind: "github", repo: "octo/repo"}}
+
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
       assert config["tracker"]["github"]["repo"] == "octo/repo"
@@ -1291,6 +1317,24 @@ defmodule Aiur.InitTest do
       config = written_config(target)
       assert config["tracker"]["kind"] == "github"
       refute Map.has_key?(config["tracker"]["github"] || %{}, "repo")
+    end
+
+    test "global init checks the current repository without storing it", %{dir: dir, target: target} do
+      answers = github_answers(%{select: %{@location_label => "global"}, confirm: %{"No pull-request CI workflow found — scaffold .github/workflows/ci.yml?" => false}})
+
+      deps =
+        deps(self(), dir, target, %{
+          github_token: fn -> "ghp_test" end,
+          detect_repo: fn -> "octo/current-repo" end,
+          check_ci_readiness: fn tracker ->
+            send(self(), {:readiness_tracker, tracker})
+            {:ok, %{ready?: false, base_branch: "main", workflow_paths: [], issues: [:no_pr_workflow]}}
+          end
+        })
+
+      assert {:error, _} = Init.run(%{force: false}, io(self(), answers), deps)
+      assert_received {:readiness_tracker, %{repo: "octo/current-repo", base_branch: "main"}}
+      refute Map.has_key?(written_config(target)["tracker"]["github"] || %{}, "repo")
     end
 
     test "linear writes tracker.linear.* and warns that support is limited", %{dir: dir, target: target} do
@@ -1393,6 +1437,8 @@ defmodule Aiur.InitTest do
       assert template =~ "after_create:"
       assert template =~ "before_run:"
       assert template =~ "$THIS_REPOSITORY_URL"
+      assert template =~ "$AIUR_REPO_STATE_PATH"
+      assert template =~ "move_sidecars_to_state"
     end
 
     test "the global config omits the repo-specific prompt_file", %{dir: dir, target: target} do
@@ -1492,6 +1538,15 @@ defmodule Aiur.InitTest do
       assert Enum.any?(input_labels(), &(&1 =~ ~r/check the tracker for new work/i))
     end
 
+    # The scaffold writes the interval into .aiurconfig explicitly, so a new
+    # install polls at this value rather than at Schema.Polling's default.
+    # Leaving it at 30 would have made the widened schema default a no-op for
+    # everyone who ran `aiur init`.
+    test "the scaffolded poll interval matches the widened schema default", %{dir: dir, target: target} do
+      assert :ok = Init.run(%{force: false}, io(self(), github_answers()), deps(self(), dir, target))
+      assert written_config(target)["polling"]["interval_seconds"] == 120
+    end
+
     test "limit prompts carry their helper text as hints; pre-warm has none", %{dir: dir, target: target} do
       parent = self()
       answers = github_answers()
@@ -1535,7 +1590,7 @@ defmodule Aiur.InitTest do
   end
 
   describe "agents, routing, permission mode" do
-    test "the agent multiselect offers only claude and codex (never claude-repl)", %{
+    test "the agent multiselect offers only configurable backends (never claude-repl or deepseek)", %{
       dir: dir,
       target: target
     } do
@@ -1554,7 +1609,11 @@ defmodule Aiur.InitTest do
       assert :ok = Init.run(%{force: false}, capturing, deps(parent, dir, target))
 
       assert_received {:multiselect_opts, "Which agents to support", opts}
-      assert opts == ["claude", "codex", "fake"]
+      assert opts == ["claude", "codex", "kimi", "openrouter", "fake"]
+      refute "claude-repl" in opts
+      # DeepSeek is registered but not dispatch-enabled by default, so it must
+      # not be offerable from init.
+      refute "deepseek" in opts
     end
 
     test "the location options carry greyed config-path help", %{dir: dir, target: target} do
@@ -1705,11 +1764,12 @@ defmodule Aiur.InitTest do
       joined = Enum.join(log, "\n")
 
       assert joined =~ "Generate new token (classic)"
+      assert joined =~ "Administration: Read-only"
       assert joined =~ "repo` scope"
       assert joined =~ "Only select repositories"
       assert joined =~ "Read and write"
       assert joined =~ "Issues"
-      assert joined =~ "Contents"
+      assert joined =~ "Contents: Read and write"
       assert joined =~ "Pull requests"
       assert joined =~ "write access to this repo"
     end

@@ -31,7 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       [card] = BuildOrderGridModel.build(model, nil).cards
 
       assert card.merged
-      assert card.progress == 100
+      assert card.completion == %{progress: 100, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1}
       assert card.status_word == "merged"
     end
 
@@ -41,16 +41,22 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       [card] = BuildOrderGridModel.build(model([]), adhoc).cards
 
       assert card.merged
-      assert card.progress == 100
+      assert card.completion == %{progress: 100, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1}
     end
 
-    test "unknown progress renders 0 without a bar" do
-      model = model([node(:a, "A", "plan-graph", 1, status: :status_blocking, progress: :unknown)])
+    test "an unresolvable live card carries an explicit unresolved contract" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1,
+            status: :status_blocking,
+            progress: :unknown,
+            lifecycle: %{state: :unknown, state_reason: :unknown}
+          )
+        ])
 
       [card] = BuildOrderGridModel.build(model, nil).cards
 
-      refute card.has_progress
-      assert card.progress == 0
+      assert card.completion == %{progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0, member_count: 1}
     end
 
     test "renders a planned member alongside live members" do
@@ -74,7 +80,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       [wave] = BuildOrderGridModel.build(model, nil).waves
 
       # (4*1.0 + 1*0.0) / (4 + 1) = 80%
-      assert wave.pct == 80
+      assert wave.completion == %{progress: 80, progress_resolution: :resolved, progress_resolved_count: 2, member_count: 2}
       assert wave.core?
       assert wave.label == "W1"
     end
@@ -82,12 +88,28 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
     test "excludes Ad Hoc from wave completion" do
       model = model([node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 2)])
       adhoc = adhoc([%{adhoc_row("9", 1) | lifecycle: :open}])
-
       waves = BuildOrderGridModel.build(model, adhoc).waves
       w1 = Enum.find(waves, &(&1.phase == 1))
+      assert w1.completion.progress == 100
+    end
 
-      # Only the core merged card counts → 100%, ad hoc ignored.
-      assert w1.pct == 100
+    test "keeps resolved coverage and marks an aggregate partial" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 4),
+          node(:b, "B", "plan-graph", 1,
+            status: :status_unknown,
+            complexity: 1,
+            progress: :unknown,
+            lifecycle: %{state: :unknown, state_reason: :unknown}
+          )
+        ])
+
+      grid = BuildOrderGridModel.build(model, nil)
+      assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+      assert hd(grid.columns).core?
+      assert hd(grid.columns).completion.progress_resolution == :partial
+      assert hd(grid.waves).completion.progress_resolution == :partial
     end
   end
 
@@ -143,7 +165,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
         lane: lane,
         phase: phase,
         status_text: "status",
-        lifecycle: %{state: :open, state_reason: :none},
+        lifecycle: Keyword.get(opts, :lifecycle, %{state: :open, state_reason: :none}),
         execution_state: :idle,
         agent_stage: nil,
         progress: Keyword.get(opts, :progress, :unknown),

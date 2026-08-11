@@ -1,7 +1,35 @@
 defmodule Aiur.Claude.HookSettingsTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Aiur.Claude.HookSettings
+
+  setup do
+    previous_dashboard_url_fun = Application.get_env(:aiur, :dashboard_url_fun)
+
+    on_exit(fn ->
+      if previous_dashboard_url_fun do
+        Application.put_env(:aiur, :dashboard_url_fun, previous_dashboard_url_fun)
+      else
+        Application.delete_env(:aiur, :dashboard_url_fun)
+      end
+    end)
+
+    :ok
+  end
+
+  describe "dashboard_url/0" do
+    test "uses the injected provider" do
+      Application.put_env(:aiur, :dashboard_url_fun, fn -> "http://127.0.0.1:4000" end)
+
+      assert HookSettings.dashboard_url() == "http://127.0.0.1:4000"
+    end
+
+    test "returns nil without an injected provider" do
+      Application.delete_env(:aiur, :dashboard_url_fun)
+
+      assert HookSettings.dashboard_url() == nil
+    end
+  end
 
   describe "settings/2" do
     test "wires all four lifecycle hooks to the agent's endpoint" do

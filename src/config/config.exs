@@ -34,6 +34,8 @@ if config_env() == :test do
   # (no valid token in CI) and shadow the per-test env tokens.
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
+  config :aiur, :github_quota_refresh?, false
+  config :aiur, :github_quota_status_override, :available
 
   # The shared app process exists only as infrastructure for unit tests. Named
   # Orchestrators that exercise polling start themselves with the production
@@ -44,6 +46,10 @@ if config_env() == :test do
   # sequential test boundaries; tests that exercise it start their own named
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
+
+  # Likewise the pack status projection: it reads GitHub and writes status.json
+  # beside every discovered pack, so the shared app must stay idle.
+  config :aiur, :build_order_pack_status_poll?, false
 
   # Suite-global :log_file isolation. The :aiur app boots BEFORE
   # test/test_helper.exs runs (mix test starts apps first), and

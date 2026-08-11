@@ -19,6 +19,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     TrackerIdentity
   }
 
+  alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
@@ -576,9 +577,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
     )
   end
 
+  # Streaming deltas are coalesced here rather than dropped downstream: the
+  # orchestrator cannot filter what is already in its mailbox, and the mailbox
+  # is exactly what #1731 buried. See `CodexUpdateRelay`.
   defp send_codex_update(recipient, %Issue{id: issue_id}, message)
        when is_binary(issue_id) and is_pid(recipient) do
-    send(recipient, {:codex_worker_update, issue_id, message})
+    _decision = CodexUpdateRelay.relay(recipient, issue_id, message)
     :ok
   end
 
@@ -601,6 +605,21 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   def send_worker_runtime_info(_recipient, _issue, _worker_host, _workspace), do: :ok
+
+  @doc false
+  # Signals the orchestrator that this dispatch attempt has survived
+  # provisioning (workspace created, session about to start). The orchestrator
+  # bills exactly one lifetime dispatch unit here — the only point a dispatch
+  # is counted as real work — so a preflight/prewarm/tracker-auth failure
+  # (which never reaches this call) leaves the budget unchanged (#1453).
+  @spec send_dispatch_committed(pid() | nil, Issue.t()) :: :ok
+  def send_dispatch_committed(recipient, %Issue{id: issue_id})
+      when is_binary(issue_id) and is_pid(recipient) do
+    send(recipient, {:dispatch_committed, issue_id})
+    :ok
+  end
+
+  def send_dispatch_committed(_recipient, _issue), do: :ok
 
   @doc false
   @spec send_control_state(pid() | nil, Issue.t(), :completed | :paused | :working | term()) :: :ok

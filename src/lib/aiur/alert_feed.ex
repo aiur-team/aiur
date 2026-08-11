@@ -1,8 +1,9 @@
 defmodule Aiur.AlertFeed do
   @moduledoc """
-  Reads persisted structured alert events from agent workspaces.
+  Reads persisted structured alert events from the project-scoped alert ledger.
   """
 
+  alias Aiur.AlertLedger
   alias Aiur.Config
   alias Aiur.Config.Paths
   alias Aiur.Jsonl
@@ -12,25 +13,41 @@ defmodule Aiur.AlertFeed do
 
   @spec list(keyword()) :: [map()]
   def list(opts \\ []) do
-    workspace_alert_log_paths(opts)
-    |> Kernel.++(central_alert_log_paths(opts))
-    |> Enum.uniq()
+    opts
+    |> AlertLedger.paths()
     |> Enum.flat_map(&read_alerts/1)
-    |> Enum.sort_by(&Map.get(&1, "timestamp", ""))
+    |> Enum.sort_by(&{is_nil(Map.get(&1, "timestamp")), Map.get(&1, "timestamp") || ""})
     |> resolve_attention_alerts()
     |> maybe_filter_attention(Keyword.get(opts, :needs_attention, false))
+    |> maybe_filter_agents(Keyword.get(opts, :agents))
+  end
+
+  @doc false
+  @spec backfill(keyword()) :: :ok
+  def backfill(opts \\ []) do
+    unless AlertLedger.backfilled?(opts) do
+      AlertLedger.with_backfill_lock(opts, fn -> backfill_locked(opts) end)
+    end
+
+    :ok
+  end
+
+  defp backfill_locked(opts) do
+    existing =
+      opts
+      |> AlertLedger.paths()
+      |> Enum.flat_map(&read_alerts/1)
+      |> MapSet.new(&alert_fingerprint/1)
+
+    case append_legacy_alerts(legacy_alert_log_paths(opts), existing, opts) do
+      :ok -> AlertLedger.mark_backfilled(opts)
+      {:error, _reason} -> :ok
+    end
   end
 
   @doc "Returns active legacy attention alerts in the current project's Decision adapter shape."
   @spec list_decision_attentions(keyword()) :: [map()]
   def list_decision_attentions(opts \\ []) do
-    opts =
-      if Keyword.has_key?(opts, :roots) do
-        opts
-      else
-        Keyword.put(opts, :roots, configured_project_roots())
-      end
-
     opts
     |> Keyword.put(:needs_attention, true)
     |> list()
@@ -39,10 +56,60 @@ defmodule Aiur.AlertFeed do
     |> Enum.sort_by(&{&1.identifier, &1.slug})
   end
 
-  defp workspace_alert_log_paths(opts) do
+  @doc false
+  @spec active_system_attention?(String.t(), keyword()) :: boolean()
+  def active_system_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
+
+    Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
+  end
+
+  @doc false
+  @spec active_ticket_attention?(String.t(), keyword()) :: boolean()
+  def active_ticket_attention?(topic, opts \\ []) when is_binary(topic) and is_list(opts) do
+    opts = opts |> Keyword.put_new(:log_roots, [Paths.log_root_dir()]) |> Keyword.put(:agents, ["system"])
+
+    Enum.any?(list(Keyword.put(opts, :needs_attention, true)), &(&1["topic"] == topic))
+  end
+
+  defp legacy_alert_log_paths(opts) do
     opts
-    |> roots()
+    |> backfill_roots()
     |> Enum.flat_map(&alert_log_paths/1)
+    |> Kernel.++(central_alert_log_paths(opts))
+    |> Enum.uniq()
+  end
+
+  defp backfill_roots(opts) do
+    if Keyword.has_key?(opts, :roots), do: roots(opts), else: configured_project_roots()
+  end
+
+  defp append_legacy_alerts(paths, existing, opts) do
+    paths
+    |> Enum.flat_map(&read_legacy_alerts/1)
+    |> Enum.reduce_while({:ok, existing}, fn alert, {:ok, seen} ->
+      case append_legacy_alert(alert, seen, opts) do
+        {:ok, updated_seen} -> {:cont, {:ok, updated_seen}}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+    |> case do
+      {:ok, _seen} -> :ok
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp append_legacy_alert(alert, seen, opts) do
+    fingerprint = alert_fingerprint(alert)
+
+    if MapSet.member?(seen, fingerprint) do
+      {:ok, seen}
+    else
+      case AlertLedger.append(alert, opts) do
+        :ok -> {:ok, MapSet.put(seen, fingerprint)}
+        {:error, reason} -> {:error, reason}
+      end
+    end
   end
 
   defp roots(opts) do
@@ -127,17 +194,24 @@ defmodule Aiur.AlertFeed do
   end
 
   defp read_alerts(path) do
-    agent = agent_from_path(path)
-
     path
     |> Jsonl.stream()
     |> Stream.filter(&(Map.get(&1, "event") == "alert"))
-    |> Enum.map(&normalize_alert(&1, agent))
+    |> Enum.map(&normalize_alert(&1, agent_from_path(path, &1)))
   rescue
     _ -> []
   end
 
-  defp normalize_alert(alert, agent) do
+  defp read_legacy_alerts(path) do
+    path
+    |> Jsonl.stream()
+    |> Stream.filter(&(Map.get(&1, "event") == "alert"))
+    |> Enum.to_list()
+  rescue
+    _ -> []
+  end
+
+  defp normalize_alert(alert, path_agent) do
     topic = string_field(alert, "topic") || string_field(alert, "name") || ""
 
     reason =
@@ -146,7 +220,8 @@ defmodule Aiur.AlertFeed do
     message = normalize_legacy_role_copy(string_field(alert, "message") || reason)
 
     needs_attention = Map.get(alert, "needs_attention") == true
-    source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || agent
+    source_ticket_id = string_field(alert, "source_ticket_id") || parse_ticket(topic) || path_agent
+    agent = alert_agent(alert, path_agent)
 
     %{
       "timestamp" => string_field(alert, "timestamp"),
@@ -164,6 +239,9 @@ defmodule Aiur.AlertFeed do
 
   defp maybe_filter_attention(alerts, true), do: Enum.filter(alerts, &(Map.get(&1, "needs_attention") == true))
   defp maybe_filter_attention(alerts, _), do: alerts
+
+  defp maybe_filter_agents(alerts, agents) when is_list(agents), do: Enum.filter(alerts, &(&1["agent"] in agents))
+  defp maybe_filter_agents(alerts, _agents), do: alerts
 
   defp resolve_attention_alerts(alerts) do
     Enum.reduce(alerts, [], fn alert, active_alerts ->
@@ -204,18 +282,34 @@ defmodule Aiur.AlertFeed do
         end
 
       _ ->
-        nil
+        resolved_ticket_agent_attention_key(rest)
+    end
+  end
+
+  defp resolved_attention_key(%{"topic" => "system." <> rest, "needs_attention" => false}) do
+    case String.trim_trailing(rest, ".resolved") do
+      ^rest -> nil
+      topic -> {:system, topic}
     end
   end
 
   defp resolved_attention_key(_alert), do: nil
 
+  defp resolved_ticket_agent_attention_key(rest) do
+    case String.trim_trailing(rest, ".resolved") do
+      ^rest -> nil
+      topic -> {:ticket, topic}
+    end
+  end
+
   defp attention_alert_key(%{"topic" => "ticket." <> rest}) do
     case String.split(rest, ".agent.attention.", parts: 2) do
       [ticket, slug] -> {ticket, slug}
-      _ -> nil
+      _ -> {:ticket, rest}
     end
   end
+
+  defp attention_alert_key(%{"topic" => "system." <> rest}), do: {:system, rest}
 
   defp attention_alert_key(_alert), do: nil
 
@@ -238,6 +332,14 @@ defmodule Aiur.AlertFeed do
 
   defp default_severity(true), do: "warning"
   defp default_severity(false), do: "info"
+
+  defp alert_agent(alert, path_agent), do: string_field(alert, "agent") || path_agent
+
+  defp alert_fingerprint(alert) do
+    alert
+    |> Map.take(~w(timestamp source_ticket_id topic reason message severity needs_attention))
+    |> Jason.encode!()
+  end
 
   # Persisted alerts keep their original bytes for audit/replay compatibility;
   # only the presentation projection adopts the current role terminology.
@@ -302,18 +404,22 @@ defmodule Aiur.AlertFeed do
 
   defp parse_timestamp(_timestamp), do: nil
 
-  defp agent_from_path(path) do
+  defp agent_from_path(path, alert) do
     if Path.basename(path) == "alerts.ndjson" do
       "system"
     else
-      agent_from_workspace_path(path)
+      string_field(alert, "agent") || string_field(alert, "source_ticket_id") || agent_from_workspace_path(path)
     end
   end
 
   defp agent_from_workspace_path(path) do
-    path
-    |> Path.dirname()
-    |> Path.dirname()
-    |> Path.basename()
+    if String.ends_with?(Path.basename(path), ".alerts.ndjson") do
+      "system"
+    else
+      path
+      |> Path.dirname()
+      |> Path.dirname()
+      |> Path.basename()
+    end
   end
 end

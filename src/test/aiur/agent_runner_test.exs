@@ -387,6 +387,16 @@ defmodule Aiur.AgentRunnerTest do
     test "skips a session with no thread id" do
       assert :skip = AgentRunner.session_handle_to_save(%{backend: "codex"}, nil)
     end
+
+    test "skips a session with no usable backend rather than stamping the configured default on disk" do
+      # The handle is durable and keyed by backend. Writing the global default
+      # for a session that never established one produces a handle that
+      # `SessionHandle.load/2` later rejects as foreign, silently disabling
+      # resume a restart away from the cause (issue #1621).
+      assert :skip = AgentRunner.session_handle_to_save(%{thread_id: "thr_9"}, nil)
+      assert :skip = AgentRunner.session_handle_to_save(%{backend: nil, thread_id: "thr_9"}, nil)
+      assert :skip = AgentRunner.session_handle_to_save(%{backend: :codex, thread_id: "thr_9"}, nil)
+    end
   end
 
   describe "turn_handle_attrs/2 (persist after a turn only when the live id differs from the start id)" do
@@ -420,6 +430,12 @@ defmodule Aiur.AgentRunnerTest do
 
     test "skips when the turn produced no thread id" do
       assert :skip = AgentRunner.turn_handle_attrs(%{backend: "claude-repl"}, %{})
+    end
+
+    test "skips when the start session carried no usable backend" do
+      assert :skip = AgentRunner.turn_handle_attrs(%{thread_id: "old"}, %{thread_id: "new"})
+      assert :skip = AgentRunner.turn_handle_attrs(%{backend: nil, thread_id: "old"}, %{thread_id: "new"})
+      assert :skip = AgentRunner.turn_handle_attrs(%{backend: :codex, thread_id: "old"}, %{thread_id: "new"})
     end
   end
 

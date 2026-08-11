@@ -22,11 +22,13 @@ defmodule AiurWeb.BuildOrderLive do
   alias AiurWeb.Presenter
 
   alias AiurWeb.OperatorControlCenter.{
+    AwaitingCommands,
     BuildOrderCatalog,
     BuildOrderSelected,
     BuildOrderTicketContext,
     DashboardShell,
     NavState,
+    Overview,
     RouteRegistry
   }
 
@@ -45,6 +47,7 @@ defmodule AiurWeb.BuildOrderLive do
 
     socket =
       socket
+      |> AwaitingCommands.mount(connected)
       |> assign(:route_state, route_state)
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
@@ -104,6 +107,11 @@ defmodule AiurWeb.BuildOrderLive do
     {:noreply, UsageRuntime.flush(socket)}
   end
 
+  def handle_info({:decision_changed, _decision_id, _version}, socket),
+    do: {:noreply, AwaitingCommands.refresh(socket)}
+
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
+
   def handle_info(:build_order_ui_tick, socket) do
     schedule_ui_tick()
     {:noreply, socket |> assign(:now, Runtime.display_now()) |> AnalyticsRuntime.tick()}
@@ -121,6 +129,9 @@ defmodule AiurWeb.BuildOrderLive do
   def handle_info({event, _payload}, socket)
       when event in [:current_run_membership_changed, :current_run_membership_health_changed],
       do: {:noreply, SourceRuntime.refresh_live_state(socket)}
+
+  def handle_info({:build_order_pack_status_changed, _health}, socket),
+    do: {:noreply, SourceRuntime.refresh_live_state(socket)}
 
   def handle_info({event, %{identity: %TrackerIdentity{} = identity}}, socket)
       when event in [:ticket_detail_updated, :ticket_history_updated],
@@ -221,10 +232,18 @@ defmodule AiurWeb.BuildOrderLive do
     <DashboardShell.dashboard_shell
       route={@current_route}
       routes={RouteRegistry.routes(@analytics)}
+      title={page_title(@current_route, @route_state)}
+      back_path={back_path(@current_route, @route_state)}
+      back_label="Back to all Build Orders"
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
+      nav_counts={@nav_counts}
     >
+      <:banner>
+        <Overview.decisions_banner retained_counts={@retained_counts} navigate />
+      </:banner>
+
       <section
         id="build-order-page"
         class="bo-page"
@@ -249,6 +268,11 @@ defmodule AiurWeb.BuildOrderLive do
           analytics_unavailable={@bo_analytics_unavailable}
           analytics_loading={@bo_analytics_loading?}
           time_domain={@time_domain}
+          usage_scope={@bo_usage_scope}
+          usage_view={@bo_usage_view}
+          usage_announcement={@bo_usage_announcement}
+          usage_drill_down={@bo_usage_drill}
+          usage_drill_trigger={@bo_usage_drill_trigger}
         />
       </section>
 
@@ -263,6 +287,15 @@ defmodule AiurWeb.BuildOrderLive do
   end
 
   defp schedule_ui_tick, do: Process.send_after(self(), :build_order_ui_tick, @ui_tick_ms)
+
+  defp page_title(route, route_state) do
+    case {RouteState.route(route_state), RouteState.root_identifier(route_state)} do
+      {:selected, identifier} when is_binary(identifier) -> "#{route.label} ##{identifier}"
+      _route -> route.label
+    end
+  end
+
+  defp back_path(route, route_state), do: if(RouteState.route(route_state) == :selected, do: route.path)
 
   defp reconcile_time_domain(%{assigns: %{bo_analytics_model: nil}} = socket), do: assign(socket, :time_domain, nil)
 

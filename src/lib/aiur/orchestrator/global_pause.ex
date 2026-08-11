@@ -12,7 +12,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
   All state mutation runs inside the orchestrator GenServer process.
   """
 
-  alias Aiur.Orchestrator.{GlobalPauseStore, PauseResume, State, StatusReport}
+  alias Aiur.Orchestrator.{GlobalPauseStore, PauseResume, SnapshotStore, State, StatusReport}
 
   @call_timeout 15_000
 
@@ -32,19 +32,24 @@ defmodule Aiur.Orchestrator.GlobalPause do
   end
 
   @doc "Returns the global pause state and its recorded provenance."
-  @spec global_pause_status() :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status() :: {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status, do: global_pause_status(Aiur.Orchestrator)
 
-  @spec global_pause_status(GenServer.server()) :: {:ok, map()} | {:error, :orchestrator_unavailable}
+  @spec global_pause_status(GenServer.server()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
   def global_pause_status(%State{} = state), do: global_pause_status_for_state(state)
+  def global_pause_status(server), do: global_pause_status(server, 5_000)
 
-  def global_pause_status(server) do
+  @spec global_pause_status(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, :timeout | :orchestrator_unavailable}
+  def global_pause_status(server, timeout_ms) when is_integer(timeout_ms) and timeout_ms > 0 do
     if GenServer.whereis(server) do
-      {:ok, GenServer.call(server, :global_pause_status, 5_000)}
+      {:ok, GenServer.call(server, :global_pause_status, timeout_ms)}
     else
       {:error, :orchestrator_unavailable}
     end
   catch
+    :exit, {:timeout, _details} -> {:error, :timeout}
     :exit, _ -> {:error, :orchestrator_unavailable}
   end
 
@@ -91,6 +96,7 @@ defmodule Aiur.Orchestrator.GlobalPause do
     case GlobalPauseStore.save(global_pause_status_for_state(next_state)) do
       :ok ->
         state = apply_global_pause_transition(next_state, current, on?)
+        publish_global_pause(state)
         StatusReport.notify_dashboard(state)
         {:reply, {:ok, global_pause_status_for_state(state)}, state}
 
@@ -120,6 +126,14 @@ defmodule Aiur.Orchestrator.GlobalPause do
     do: PauseResume.resume_running_from_global(state)
 
   defp apply_global_pause_transition(state, _current, _on?), do: state
+
+  defp publish_global_pause(%State{} = state) do
+    SnapshotStore.publish_global_pause(
+      state.snapshot_key || self(),
+      state.snapshot_generation,
+      global_pause_status_for_state(state)
+    )
+  end
 
   @doc false
   @spec global_pause_status_for_state(State.t()) :: map()

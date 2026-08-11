@@ -14,6 +14,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,12 +31,14 @@ from publication_comment import (
     render_pending_comment,
     render_successful_comment,
 )
+from publication_body_limits import format_body_limit_error
 from publication_common import Report, SHA, load_json
 from publication_labels import routing_subset
 from publication_live_graph import API_VERSION, MARKER, MARKER_NAME
 from publication_receipt_authority import ReceiptAuthority, load_receipt_authority
 from publication_rendering import (
     MARKER_KEYS,
+    authority_preamble,
     exact_commit,
     reject_legacy_grafts,
     render_approved_issue_content,
@@ -53,6 +56,7 @@ MAX_PAGES = 100
 MAX_REQUESTS = 2_500
 MAX_ITEMS = 50_000
 AUTHORITY_CHECKPOINT_MUTATIONS = 16
+MATERIALIZATION_TRANSACTION = ".aiur-publication-transaction.json"
 CREATABLE_LABELS = {
     "build-order": ("5319e7", "Build Order planning root"),
     "build-lane:plan-graph": ("bfdadc", "Build Order lane: plan graph"),
@@ -149,6 +153,7 @@ class Context:
     root: Path
     build_path: Path
     publication_path: Path
+    discovery_path: Path
     approved: str
     authority: str
     repository: str
@@ -174,8 +179,13 @@ class Publisher:
         self.client, self.context, self.budget = client, context, Budget()
         self._guard_apply_mutations = False
         self._apply_mutation_count = 0
+        self._retired_mappings: dict[str, dict[str, Any]] = {}
+        self._retired_by_number: dict[int, tuple[str, str]] = {}
+        self._reapproval: dict[str, list[str]] = self._empty_reapproval()
 
     def dry_run(self) -> dict[str, Any]:
+        self._validate_body_lengths()
+        self._persisted_mappings()
         self._check_authority()
         labels = self._pages(f"repos/{self.context.repository}/labels?per_page=100")
         missing = self._validate_label_inventory(labels)
@@ -194,15 +204,23 @@ class Publisher:
             "extension_edges": len(
                 self.context.expected_edges - self.context.core_edges
             ),
+            "reapproval": self._reapproval,
             "mutations": 0,
         }
 
     def apply(self) -> dict[str, Any]:
+        # This must remain before any GitHub read or mutation.  A pack is a
+        # batch operation: report every oversized member before labels or
+        # issues can leave the pack in a partial state.
+        self._validate_body_lengths()
+        self._persisted_mappings()
         self._check_authority()
+        self._validate_persisted_ownership()
         labels = self._pages(f"repos/{self.context.repository}/labels?per_page=100")
         missing = self._validate_label_inventory(labels)
         scan = self._scan_all()
         mappings = self._canonical_mappings(scan)
+        reapproval = self._reapproval
         self._guard_apply_mutations = True
         self._apply_mutation_count = 0
         try:
@@ -215,6 +233,7 @@ class Publisher:
                 mappings[logical_id] = self._ensure_issue(
                     self.context.specs[logical_id], mappings.get(logical_id),
                 )
+                self._persist_mapping(logical_id, mappings[logical_id])
             if len(mappings) != len(self.context.specs):
                 raise PublicationError(
                     "publication did not materialize every planned identity"
@@ -230,6 +249,7 @@ class Publisher:
         fresh = self._fresh_evidence(mappings, comment)
         self._write_materialized(fresh)
         self._run_validators()
+        self._write_discovery_pack()
         self._check_authority()
         return {
             "mode": "apply-pending",
@@ -238,12 +258,14 @@ class Publisher:
                 spec.kind == "ticket" for spec in self.context.specs.values()
             ),
             "blocked_by_edges": len(self.context.expected_edges),
+            "reapproval": reapproval,
             **(
                 {"pending_comment": fresh["comment"]["url"]}
                 if fresh.get("comment") is not None else {}
             ),
             "files_written": [
                 str(self.context.build_path), str(self.context.publication_path),
+                str(self.context.discovery_path),
                 str(self.context.root_document),
                 *(
                     [str(self.context.additional_document)]
@@ -252,6 +274,14 @@ class Publisher:
             ],
             "next": "review, commit, and push receipts; then run --finalize explicitly",
         }
+
+    def _validate_body_lengths(self) -> None:
+        error = format_body_limit_error({
+            logical_id: spec.body
+            for logical_id, spec in self.context.specs.items()
+        })
+        if error is not None:
+            raise PublicationError(error)
 
     def finalize(self, receipt_commit: str, receipt_url: str) -> dict[str, Any]:
         if not self.context.reconciliation_comment:
@@ -569,8 +599,51 @@ class Publisher:
             output.append(copy)
         return output
 
+    @staticmethod
+    def _empty_reapproval() -> dict[str, list[str]]:
+        return {
+            "unchanged_members": [], "changed_members": [],
+            "new_members": [], "removed_members": [],
+        }
+
+    def _authority_conflict(
+        self, logical_id: str, observed: object, detail: str,
+    ) -> PublicationError:
+        return PublicationError(
+            f"logical identity {logical_id} has conflicting authority: {detail}; "
+            f"published approval {observed!r}; requested approval "
+            f"{self.context.approved}. Options: re-approve the updated planning pack "
+            "while retaining its canonical issue mapping, or resolve duplicate markers"
+        )
+
+    def _content_changed(self, raw: dict[str, Any], spec: IssueSpec, marker: dict[str, Any]) -> bool:
+        """Ignore only the approval preamble when classifying a re-approval diff."""
+        body = raw.get("body")
+        approved = marker.get("approved_planning_commit")
+        if not isinstance(body, str) or not isinstance(approved, str):
+            return True
+        old_preamble = authority_preamble(
+            self.context.repository, spec.logical_id, self.context.plan_version, approved,
+        )
+        current_preamble = authority_preamble(
+            self.context.repository, spec.logical_id, self.context.plan_version,
+            self.context.approved,
+        )
+        normalized = body.replace(old_preamble, current_preamble, 1)
+        return raw.get("title") != spec.title or normalized != spec.body
+
+    def _is_recorded_reapproval(self, marker: dict[str, Any]) -> bool:
+        """Accept only the prior receipt's approval as a re-approval source."""
+        observed = marker.get("approved_planning_commit")
+        prior = self.context.publication.get("approved_planning_commit")
+        return observed == self.context.approved or (
+            isinstance(prior, str) and observed == prior
+        )
+
     def _canonical_mappings(self, scan: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+        persisted = self._persisted_mappings()
         found: dict[str, list[dict[str, Any]]] = {key: [] for key in self.context.specs}
+        retired: dict[str, list[dict[str, Any]]] = {}
         protected = {
             int(value.rsplit("#", 1)[-1].rsplit("/", 1)[-1])
             for value in (
@@ -584,25 +657,103 @@ class Publisher:
             for marker in raw["_planning_markers"]:
                 logical_id = marker.get("logical_id")
                 if logical_id not in found:
+                    if (
+                        isinstance(logical_id, str)
+                        and marker.get("schema") == 2
+                        and marker.get("plan_version") == self.context.plan_version
+                        and self._is_recorded_reapproval(marker)
+                    ):
+                        retired.setdefault(logical_id, []).append(raw)
                     continue
                 if "pull_request" in raw:
                     raise PublicationError(f"logical identity {logical_id} collides with a pull request")
                 if (
                     marker.get("schema") != 2
                     or marker.get("plan_version") != self.context.plan_version
-                    or marker.get("approved_planning_commit") != self.context.approved
                 ):
-                    raise PublicationError(f"logical identity {logical_id} has conflicting authority")
+                    raise self._authority_conflict(
+                        logical_id, marker.get("approved_planning_commit"),
+                        "schema or plan version differs",
+                    )
+                if not isinstance(marker.get("approved_planning_commit"), str) or not SHA.fullmatch(
+                    marker["approved_planning_commit"]
+                ):
+                    raise self._authority_conflict(
+                        logical_id, marker.get("approved_planning_commit"),
+                        "published marker does not name an exact approval SHA",
+                    )
+                if not self._is_recorded_reapproval(marker):
+                    raise self._authority_conflict(
+                        logical_id, marker["approved_planning_commit"],
+                        "published marker does not match the current or recorded prior approval",
+                    )
                 found[logical_id].append(raw)
         mappings: dict[str, dict[str, Any]] = {}
+        reapproval = self._empty_reapproval()
         for logical_id, matches in found.items():
             if len(matches) > 1:
-                raise PublicationError(f"logical identity {logical_id} has multiple issue matches")
+                authorities = ", ".join(
+                    f"#{raw['number']} ({raw['_planning_markers'][0]['approved_planning_commit']})"
+                    for raw in matches
+                )
+                raise PublicationError(
+                    f"logical identity {logical_id} has multiple issue matches with conflicting authority across "
+                    f"published issues {authorities}; requested approval {self.context.approved}. "
+                    "Options: re-approve the updated planning pack while retaining one "
+                    "canonical issue mapping, or resolve duplicate markers"
+                )
+            if logical_id in persisted:
+                persisted_mapping = persisted[logical_id]
+                if matches and matches[0]["number"] != persisted_mapping["number"]:
+                    raise PublicationError(
+                        f"logical identity {logical_id} conflicts with its persisted issue"
+                    )
+                if persisted_mapping["number"] in protected:
+                    raise PublicationError(
+                        f"logical identity {logical_id} reuses protected issue #{persisted_mapping['number']}"
+                    )
+                mappings[logical_id] = persisted_mapping
+                if matches:
+                    raw = matches[0]
+                    if self._content_changed(
+                        raw, self.context.specs[logical_id], raw["_planning_markers"][0],
+                    ):
+                        reapproval["changed_members"].append(logical_id)
+                    else:
+                        reapproval["unchanged_members"].append(logical_id)
+                else:
+                    reapproval["unchanged_members"].append(logical_id)
+                continue
             if matches:
                 raw = matches[0]
                 if raw["number"] in protected:
                     raise PublicationError(f"logical identity {logical_id} reuses protected issue #{raw['number']}")
                 mappings[logical_id] = self._mapping(raw)
+                if self._content_changed(raw, self.context.specs[logical_id], raw["_planning_markers"][0]):
+                    reapproval["changed_members"].append(logical_id)
+                else:
+                    reapproval["unchanged_members"].append(logical_id)
+            else:
+                reapproval["new_members"].append(logical_id)
+        self._retired_mappings = {}
+        for logical_id, matches in retired.items():
+            if len(matches) > 1:
+                raise PublicationError(
+                    f"removed logical identity {logical_id} has multiple published issue matches; "
+                    "resolve duplicate markers without recreating published issues"
+                )
+            raw = matches[0]
+            if "pull_request" in raw:
+                raise PublicationError(f"removed logical identity {logical_id} collides with a pull request")
+            self._retired_mappings[logical_id] = self._mapping(raw)
+            reapproval["removed_members"].append(logical_id)
+        self._retired_by_number = {
+            mapping["number"]: (logical_id, mapping["node_id"])
+            for logical_id, mapping in self._retired_mappings.items()
+        }
+        self._reapproval = {
+            key: sorted(value) for key, value in reapproval.items()
+        }
         numbers = [mapping["number"] for mapping in mappings.values()]
         nodes = [mapping["node_id"] for mapping in mappings.values()]
         if len(numbers) != len(set(numbers)) or len(nodes) != len(set(nodes)):
@@ -610,6 +761,90 @@ class Publisher:
                 "multiple logical identities resolve to the same issue"
             )
         return mappings
+
+    def _persisted_mappings(self) -> dict[str, dict[str, Any]]:
+        """Load durable pointers before trusting a remote marker scan.
+
+        A scan can be stale or incomplete after a process crash.  A validated
+        local pointer is therefore authoritative for that logical identity;
+        the subsequent issue GET in ``_ensure_issue`` validates it against the
+        approved body before any reconciliation mutation occurs.
+        """
+        candidates: dict[str, dict[str, Any]] = {}
+
+        def add(logical_id: str, value: object, source: str) -> None:
+            if value is None:
+                return
+            if not isinstance(value, dict) or set(value) != {
+                "repository", "number", "node_id", "url",
+            }:
+                raise PublicationError(f"persisted mapping for {logical_id} is invalid ({source})")
+            repository = value.get("repository")
+            number = value.get("number")
+            node = value.get("node_id")
+            url = value.get("url")
+            expected_url = f"https://github.com/{self.context.repository}/issues/{number}"
+            if (
+                repository != self.context.repository
+                or type(number) is not int or number < 1
+                or not isinstance(node, str) or not node
+                or url != expected_url
+            ):
+                raise PublicationError(f"persisted mapping for {logical_id} is not canonical")
+            mapping = {
+                "repository": repository, "number": number,
+                "node_id": node, "url": url,
+            }
+            previous = candidates.get(logical_id)
+            if previous is not None and previous != mapping:
+                raise PublicationError(
+                    f"persisted mappings disagree for logical identity {logical_id}"
+                )
+            candidates[logical_id] = mapping
+
+        build = self.context.build
+        add(self.context.root_id, build.get("github_root"), "build-order")
+        for ticket in build.get("tickets", []):
+            if isinstance(ticket, dict) and isinstance(ticket.get("id"), str):
+                add(ticket["id"], ticket.get("github"), "build-order")
+        reconciliation = self.context.publication.get("github_reconciliation")
+        if reconciliation is not None and not isinstance(reconciliation, dict):
+            raise PublicationError(
+                "publication.github_reconciliation must be an object or null"
+            )
+        issue_mappings = (
+            reconciliation.get("issue_mappings")
+            if isinstance(reconciliation, dict) else None
+        )
+        if issue_mappings is not None:
+            if not isinstance(issue_mappings, dict):
+                raise PublicationError("persisted issue mappings are invalid")
+            for logical_id, value in issue_mappings.items():
+                if logical_id not in self.context.specs:
+                    raise PublicationError(
+                        f"persisted mapping names unknown logical identity {logical_id}"
+                    )
+                add(logical_id, value, "publication")
+        numbers = [mapping["number"] for mapping in candidates.values()]
+        nodes = [mapping["node_id"] for mapping in candidates.values()]
+        if len(numbers) != len(set(numbers)) or len(nodes) != len(set(nodes)):
+            raise PublicationError(
+                "persisted mappings resolve to the same issue more than once"
+            )
+        return candidates
+
+    def _validate_persisted_ownership(self) -> None:
+        """Validate every durable pointer before any repository mutation."""
+        for logical_id, mapping in sorted(self._persisted_mappings().items()):
+            raw = self._get(
+                f"repos/{self.context.repository}/issues/{mapping['number']}"
+            )
+            live_mapping = self._mapping(raw)
+            if self._receipt_mapping(live_mapping) != mapping:
+                raise PublicationError(
+                    f"{logical_id} persisted issue pointer does not own the resolved issue"
+                )
+            self._validate_live_issue_identity(raw, self.context.specs[logical_id])
 
     def _ensure_issue(
         self, spec: IssueSpec, mapping: dict[str, Any] | None,
@@ -622,9 +857,21 @@ class Publisher:
             number = created.get("number") if isinstance(created, dict) else None
             if type(number) is not int:
                 raise PublicationError(f"create response for {spec.logical_id} lacks issue number")
+            # Record the successful create before any follow-up read or
+            # reconciliation can fail.  The marker scan remains the remote
+            # duplicate guard, while this checkpoint preserves the local
+            # authority pointer across a crashed publication process.
+            mapping = self._mapping(created)
+            self._persist_mapping(spec.logical_id, mapping)
+            number = mapping["number"]
         else:
             number = mapping["number"]
         raw = self._get(f"{base}/{number}")
+        live_mapping = self._mapping(raw)
+        if mapping is not None and self._receipt_mapping(live_mapping) != self._receipt_mapping(mapping):
+            raise PublicationError(
+                f"{spec.logical_id} persisted issue pointer does not own the resolved issue"
+            )
         self._validate_live_issue_identity(raw, spec)
         labels = self._labels(raw)
         routing = routing_subset(set(labels))
@@ -655,6 +902,158 @@ class Publisher:
                 raise PublicationError(f"{spec.logical_id} did not reconcile labels")
         return self._mapping(raw)
 
+    def _persist_mapping(self, logical_id: str, mapping: dict[str, Any]) -> None:
+        """Checkpoint one issue mapping so an interrupted loop is resumable."""
+        receipt_mapping = self._receipt_mapping(mapping)
+        build = json.loads(json.dumps(self.context.build))
+        publication = json.loads(json.dumps(self.context.publication))
+        if logical_id == self.context.root_id:
+            build["github_root"] = receipt_mapping
+        else:
+            for ticket in build.get("tickets", []):
+                if isinstance(ticket, dict) and ticket.get("id") == logical_id:
+                    ticket["github"] = receipt_mapping
+                    break
+        if self.context.skill_id is not None and logical_id in {
+            self.context.root_id, self.context.skill_id,
+        }:
+            reconciliation = publication.get("github_reconciliation")
+            if reconciliation is None:
+                reconciliation = {}
+                publication["github_reconciliation"] = reconciliation
+            elif not isinstance(reconciliation, dict):
+                raise PublicationError(
+                    "publication.github_reconciliation must be an object or null"
+                )
+            issue_mappings = reconciliation.setdefault("issue_mappings", {})
+            issue_mappings[logical_id] = receipt_mapping
+        files = {
+            self.context.build_path: json.dumps(build, indent=1) + "\n",
+        }
+        if self.context.skill_id is not None:
+            files[self.context.publication_path] = json.dumps(publication, indent=2) + "\n"
+        self._atomic_write_bundle(files)
+        self.context.build = build
+        if self.context.skill_id is not None:
+            self.context.publication = publication
+
+    def _atomic_write_bundle(self, files: dict[Path, str]) -> None:
+        """Commit all related publication files through a recoverable journal."""
+        root = Path(getattr(self.context, "root", self.context.build_path.parent)).resolve()
+        entries = []
+        for path, content in files.items():
+            resolved = path.resolve()
+            try:
+                relative = resolved.relative_to(root).as_posix()
+            except ValueError:
+                raise PublicationError("publication output must remain inside the repository") from None
+            entries.append({"path": relative, "content": content})
+        journal = root / MATERIALIZATION_TRANSACTION
+        self._atomic_write_json(
+            journal, {"version": 1, "files": entries}, indent=2,
+        )
+        try:
+            self._fsync_directory(root)
+            self._replace_staged_files({Path(root / entry["path"]): entry["content"] for entry in entries})
+            self._fsync_directory(root)
+            journal.unlink()
+            self._fsync_directory(root)
+        except OSError:
+            # Leave the journal in place.  The next operator invocation
+            # replays the complete bundle before loading the manifests.
+            raise PublicationError("could not commit publication manifests safely") from None
+
+    @staticmethod
+    def _replace_staged_files(files: dict[Path, str]) -> None:
+        temporary: dict[Path, str] = {}
+        try:
+            for path, content in files.items():
+                descriptor, name = tempfile.mkstemp(
+                    dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+                )
+                temporary[path] = name
+                with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                    stream.write(content)
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            for path, name in temporary.items():
+                os.replace(name, path)
+            temporary.clear()
+        except OSError:
+            raise
+        finally:
+            for name in temporary.values():
+                try:
+                    os.unlink(name)
+                except OSError:
+                    pass
+
+    @staticmethod
+    def _recover_materialization_transaction(root: Path) -> bool:
+        journal = root / MATERIALIZATION_TRANSACTION
+        if not journal.exists():
+            return False
+        try:
+            payload = json.loads(journal.read_text(encoding="utf-8"))
+            entries = payload.get("files") if isinstance(payload, dict) else None
+            if (
+                not isinstance(payload, dict) or payload.get("version") != 1
+                or not isinstance(entries, list)
+            ):
+                raise ValueError
+            files: dict[Path, str] = {}
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    raise ValueError
+                relative, content = entry.get("path"), entry.get("content")
+                if not isinstance(relative, str) or not isinstance(content, str):
+                    raise ValueError
+                path = (root / relative).resolve()
+                path.relative_to(root)
+                files[path] = content
+            if not files:
+                raise ValueError
+            Publisher._replace_staged_files(files)
+            Publisher._fsync_directory(root)
+            journal.unlink()
+            Publisher._fsync_directory(root)
+            return True
+        except (OSError, ValueError, json.JSONDecodeError):
+            raise PublicationError("publication transaction recovery failed safely") from None
+
+    @staticmethod
+    def _fsync_directory(path: Path) -> None:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    @staticmethod
+    def _atomic_write_json(path: Path, value: dict[str, Any], *, indent: int) -> None:
+        """Replace one internal journal without exposing truncated JSON."""
+        temporary: str | None = None
+        try:
+            descriptor, temporary = tempfile.mkstemp(
+                dir=path.parent, prefix=f".{path.name}.", suffix=".tmp",
+            )
+            with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+                stream.write(json.dumps(value, indent=indent) + "\n")
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, path)
+            temporary = None
+        except OSError:
+            raise PublicationError(
+                f"could not checkpoint {path.name} safely"
+            ) from None
+        finally:
+            if temporary is not None:
+                try:
+                    os.unlink(temporary)
+                except OSError:
+                    pass
+
     def _validate_live_issue_identity(self, raw: Any, spec: IssueSpec) -> None:
         if not isinstance(raw, dict) or "pull_request" in raw:
             raise PublicationError(f"{spec.logical_id} did not resolve to an issue")
@@ -662,6 +1061,49 @@ class Publisher:
             raise PublicationError(f"{spec.logical_id} must be open and unlocked")
         if type(raw.get("id")) is not int or raw["id"] < 1:
             raise PublicationError(f"{spec.logical_id} lacks numeric relationship identity")
+        self._validate_live_issue_authority(raw, spec)
+
+    def _validate_live_issue_authority(self, raw: dict[str, Any], spec: IssueSpec) -> None:
+        """Prove the live issue carries this publication's planning marker.
+
+        Numeric identity alone does not establish ownership: a durable
+        pointer can name an unrelated issue (stale checkpoint, hand-edited
+        manifest, recycled number).  Every mutation target must independently
+        prove it belongs to this logical identity, plan version, and approved
+        authority, using the same schema-2 marker contract the remote scan
+        enforces in ``_canonical_mappings``.
+        """
+        body = raw.get("body")
+        if body is not None and not isinstance(body, str):
+            raise PublicationError(
+                f"{spec.logical_id} returned a non-text body"
+            )
+        text = body or ""
+        openings = text.count(f"<!-- {MARKER_NAME}")
+        matches = list(MARKER.finditer(text))
+        if openings != len(matches) or len(matches) != 1:
+            raise PublicationError(
+                f"{spec.logical_id} does not carry exactly one planning marker"
+            )
+        try:
+            payload = json.loads(matches[0].group("payload"))
+        except json.JSONDecodeError:
+            raise PublicationError(
+                f"{spec.logical_id} has a malformed planning marker"
+            ) from None
+        if not isinstance(payload, dict) or set(payload) != MARKER_KEYS:
+            raise PublicationError(
+                f"{spec.logical_id} has a malformed planning marker"
+            )
+        if (
+            payload.get("logical_id") != spec.logical_id
+            or payload.get("schema") != 2
+            or payload.get("plan_version") != self.context.plan_version
+            or not self._is_recorded_reapproval(payload)
+        ):
+            raise PublicationError(
+                f"{spec.logical_id} resolved to an issue owned by different authority"
+            )
 
     def _ensure_relationships(self, mappings: dict[str, dict[str, Any]]) -> None:
         root = mappings[self.context.root_id]
@@ -705,13 +1147,19 @@ class Publisher:
             if observed_parents[logical_id] != expected_parent and observed_parents[logical_id] is not None:
                 raise PublicationError(f"{logical_id} already has a different parent")
             expected_children = member_ids if logical_id == self.context.root_id else set()
-            unexpected_children = observed_subissues[logical_id] - expected_children
+            unexpected_children = (
+                observed_subissues[logical_id] - expected_children
+                - set(self._retired_mappings)
+            )
             if unexpected_children:
                 raise PublicationError(
                     f"{logical_id} has unexpected existing subissues: "
                     + ", ".join(sorted(unexpected_children))
                 )
-            unexpected = observed_blockers[logical_id] - expected_by_blocked[logical_id]
+            unexpected = (
+                observed_blockers[logical_id] - expected_by_blocked[logical_id]
+                - set(self._retired_mappings)
+            )
             if unexpected:
                 raise PublicationError(
                     f"{logical_id} has unexpected existing blockers: "
@@ -724,6 +1172,15 @@ class Publisher:
                 f"repos/{self.context.repository}/issues/{root['number']}/sub_issues",
                 {"sub_issue_id": self._database_id(mappings[logical_id])},
             )
+        for logical_id in sorted(
+            observed_subissues[self.context.root_id] & set(self._retired_mappings)
+        ):
+            self._mutate(
+                "DELETE",
+                f"repos/{self.context.repository}/issues/{root['number']}/sub_issues/"
+                f"{self._retired_mappings[logical_id]['number']}",
+                {},
+            )
         for blocked in sorted(mappings):
             for blocker in sorted(expected_by_blocked[blocked] - observed_blockers[blocked]):
                 self._mutate(
@@ -731,6 +1188,13 @@ class Publisher:
                     f"repos/{self.context.repository}/issues/{mappings[blocked]['number']}"
                     "/dependencies/blocked_by",
                     {"issue_id": self._database_id(mappings[blocker])},
+                )
+            for blocker in sorted(observed_blockers[blocked] & set(self._retired_mappings)):
+                self._mutate(
+                    "DELETE",
+                    f"repos/{self.context.repository}/issues/{mappings[blocked]['number']}"
+                    f"/dependencies/blocked_by/{self._retired_mappings[blocker]['number']}",
+                    {},
                 )
 
     def _ensure_pending_comment(self, root: dict[str, Any]) -> dict[str, Any]:
@@ -746,10 +1210,35 @@ class Publisher:
             and isinstance(item.get("body"), str)
             and f"<!-- {COMMENT_MARKER}" in item["body"]
         ]
-        if len(matches) > 1:
+        current: list[dict[str, Any]] = []
+        prior_matches: list[dict[str, Any]] = []
+        prior = self.context.publication.get("approved_planning_commit")
+        prior_body = (
+            render_pending_comment(
+                self.context.root_id, self.context.plan_version, prior,
+                self.context.repository,
+            )
+            if isinstance(prior, str) and SHA.fullmatch(prior) and prior != self.context.approved
+            else None
+        )
+        for comment in matches:
+            if comment.get("body") == body:
+                current.append(comment)
+                continue
+            if comment.get("body") == prior_body:
+                prior_matches.append(comment)
+                continue
+            raise PublicationError(
+                "existing reconciliation comment is malformed or not canonical pending"
+            )
+        if len(current) > 1:
             raise PublicationError("root has multiple reconciliation comments")
-        if matches:
-            comment = matches[0]
+        if len(prior_matches) > 1:
+            raise PublicationError("root has multiple reconciliation comments")
+        if current:
+            if prior_matches:
+                raise PublicationError("root has multiple reconciliation comments")
+            comment = current[0]
             report = Report()
             evidence = inspect_comment(
                 comment.get("body"), comment.get("html_url"), self.context.root_id,
@@ -761,6 +1250,18 @@ class Publisher:
                     "existing reconciliation comment is malformed or not canonical pending"
                 )
             return comment
+        if prior_matches:
+            comment = prior_matches[0]
+            comment_id = comment.get("id")
+            if type(comment_id) is not int:
+                raise PublicationError("prior reconciliation comment lacks numeric identity")
+            self._mutate(
+                "PATCH", f"repos/{self.context.repository}/issues/comments/{comment_id}",
+                {"body": body},
+            )
+            return self._get(
+                f"repos/{self.context.repository}/issues/comments/{comment_id}"
+            )
         created = self._mutate(
             "POST", f"repos/{self.context.repository}/issues/{root['number']}/comments",
             {"body": body},
@@ -940,15 +1441,22 @@ class Publisher:
                 },
                 "root_reconciliation_comment_matches": [fresh["comment"]],
             }
-        self.context.build_path.write_text(json.dumps(build, indent=1) + "\n", encoding="utf-8")
-        self.context.publication_path.write_text(json.dumps(publication, indent=2) + "\n", encoding="utf-8")
-        self.context.root_document.write_text(
-            self.context.specs[self.context.root_id].body, encoding="utf-8",
-        )
+        files = {
+            self.context.build_path: json.dumps(build, indent=1) + "\n",
+            self.context.publication_path: json.dumps(publication, indent=2) + "\n",
+            self.context.root_document: self.context.specs[self.context.root_id].body,
+        }
         if self.context.additional_document is not None and self.context.skill_id:
-            self.context.additional_document.write_text(
-                self.context.specs[self.context.skill_id].body, encoding="utf-8",
-            )
+            files[self.context.additional_document] = self.context.specs[self.context.skill_id].body
+        self._atomic_write_bundle(files)
+        self.context.build = build
+        self.context.publication = publication
+
+    def _write_discovery_pack(self) -> None:
+        self.context.discovery_path.parent.mkdir(parents=True, exist_ok=True)
+        self.context.discovery_path.write_text(
+            self.context.build_path.read_text(encoding="utf-8"), encoding="utf-8",
+        )
 
     def _run_validators(self) -> None:
         canonical_command = [
@@ -1041,6 +1549,8 @@ class Publisher:
             raise PublicationError(f"{label} returned invalid relationship identity")
         expected = by_number.get(raw["number"])
         if expected is None:
+            expected = self._retired_by_number.get(raw["number"])
+        if expected is None:
             raise PublicationError(f"{label} references an issue outside this publication")
         logical_id, expected_node = expected
         expected_url = (
@@ -1088,6 +1598,11 @@ def build_context(
     publication = load_json(publication_path, "publication", report)
     if root is None or build is None or publication is None:
         raise PublicationError("; ".join(report.errors))
+    if Publisher._recover_materialization_transaction(root):
+        build = load_json(build_path, "build-order", report)
+        publication = load_json(publication_path, "publication", report)
+        if build is None or publication is None:
+            raise PublicationError("; ".join(report.errors))
     repository, plan_version, root_id = (
         build.get("repository"), build.get("plan_version"), build.get("build_order_id")
     )
@@ -1097,6 +1612,9 @@ def build_context(
         for value in (repository, root_id, trusted_ref)
     ) or type(plan_version) is not int:
         raise PublicationError("publication identity fields are invalid")
+    slug = root_id.removeprefix(f"{repository}:")
+    if root_id == slug or not slug or any(char not in "abcdefghijklmnopqrstuvwxyz0123456789-" for char in slug):
+        raise PublicationError("build_order_id must be repository:feature-slug")
     mutation_repositories = publication.get("mutation_repositories")
     if mutation_repositories is not None and (
         not isinstance(mutation_repositories, list)
@@ -1283,6 +1801,7 @@ def build_context(
     )
     return Context(
         root=root, build_path=build_path, publication_path=publication_path,
+        discovery_path=root / ".aiur" / "build_orders" / f"{slug}.json",
         approved=approved.lower(), authority=authority.lower(),
         repository=repository, trusted_ref=trusted_ref, plan_version=plan_version,
         root_id=root_id, skill_id=skill_id, build=build, publication=publication,

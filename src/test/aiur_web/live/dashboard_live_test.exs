@@ -23,16 +23,18 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.OperatorMessages
+  alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
-  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, Presenter}
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, PayloadLoader, UnitsPresenter}
+  alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
+  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
 
   defmodule CountingOrchestrator do
     use GenServer
+
+    alias Aiur.Orchestrator.SnapshotStore
 
     def start_link(opts) do
       GenServer.start_link(__MODULE__, opts, name: Keyword.fetch!(opts, :name))
@@ -42,12 +44,13 @@ defmodule AiurWeb.DashboardLiveTest do
 
     @impl true
     def init(opts) do
-      {:ok,
-       %{
-         snapshot: Keyword.fetch!(opts, :snapshot),
-         snapshot_count: 0,
-         report: Keyword.get(opts, :report)
-       }}
+      snapshot = Keyword.fetch!(opts, :snapshot)
+
+      if Keyword.get(opts, :publish?, true) do
+        :ok = SnapshotStore.publish(Keyword.fetch!(opts, :name), snapshot)
+      end
+
+      {:ok, %{snapshot: snapshot, snapshot_count: 0, report: Keyword.get(opts, :report)}}
     end
 
     @impl true
@@ -122,6 +125,47 @@ defmodule AiurWeb.DashboardLiveTest do
     defp config(key, default), do: Map.get(Application.get_env(:aiur, :provider_meter_source_stub, %{}), key, default)
   end
 
+  defmodule DecisionStoreStub do
+    @moduledoc """
+    Shared retained-store replies for the dashboard stubs.
+
+    The dashboard reads canonical counts and one retained page per route, so a
+    stub that answers neither is not a stand-in for the store — it is a store
+    that crashes on contact.
+    """
+
+    def counts(decision) do
+      open = flag(decision.decision_status == :open)
+      deferred = flag(decision.decision_status == :deferred)
+      blocking = flag(Map.get(decision, :blocking, false))
+
+      %{
+        total: 1,
+        open: open + deferred,
+        blocking: (open + deferred) * blocking,
+        deferred: deferred,
+        awaiting: open,
+        awaiting_blocking: open * blocking
+      }
+    end
+
+    defp flag(true), do: 1
+    defp flag(_false), do: 0
+
+    def empty_query do
+      %{
+        decisions: [],
+        next_key: nil,
+        has_next?: false,
+        total: 0,
+        partial?: false,
+        partial_reason: nil,
+        counts: %{total: 0, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0},
+        health: :writable
+      }
+    end
+  end
+
   defmodule CountingDetailStore do
     use GenServer
 
@@ -184,15 +228,11 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     def handle_call(:retained_counts, _from, state) do
-      open? = state.detail.decision_status == :open
+      {:reply, {:ok, %{counts: DecisionStoreStub.counts(state.detail), health: :writable}}, state}
+    end
 
-      counts = %{
-        total: 1,
-        open: if(open?, do: 1, else: 0),
-        blocking: if(open? and state.detail.blocking, do: 1, else: 0)
-      }
-
-      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
     end
 
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
@@ -243,7 +283,12 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     def handle_call(:retained_counts, _from, state) do
-      {:reply, {:ok, %{counts: %{total: 1, open: 1, blocking: true}, health: :writable}}, state}
+      counts = %{total: 1, open: 1, blocking: true, deferred: 0, awaiting: 1, awaiting_blocking: true}
+      {:reply, {:ok, %{counts: counts, health: :writable}}, state}
+    end
+
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
     end
 
     def handle_call({:answer, decision_id, payload, opts}, _from, state) do
@@ -331,6 +376,10 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, retained_counts(state.decision), state}
     end
 
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
+    end
+
     def handle_call({:recent_audit_history, _limit}, _from, state) do
       {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
     end
@@ -341,17 +390,7 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     defp retained_counts(decision) do
-      open? = decision.decision_status == :open
-
-      {:ok,
-       %{
-         counts: %{
-           total: 1,
-           open: if(open?, do: 1, else: 0),
-           blocking: if(open? and decision.blocking, do: 1, else: 0)
-         },
-         health: :writable
-       }}
+      {:ok, %{counts: DecisionStoreStub.counts(decision), health: :writable}}
     end
   end
 
@@ -394,6 +433,10 @@ defmodule AiurWeb.DashboardLiveTest do
       {:reply, retained_counts(state.decision), state}
     end
 
+    def handle_call({:retained_query, _query}, _from, state) do
+      {:reply, {:ok, DecisionStoreStub.empty_query()}, state}
+    end
+
     def handle_call({:recent_audit_history, _limit}, _from, state) do
       {:reply, %{records: [state.decision], contexts: %{}, revisions: %{}}, state}
     end
@@ -404,17 +447,7 @@ defmodule AiurWeb.DashboardLiveTest do
     end
 
     defp retained_counts(decision) do
-      open? = decision.decision_status == :open
-
-      {:ok,
-       %{
-         counts: %{
-           total: 1,
-           open: if(open?, do: 1, else: 0),
-           blocking: if(open? and decision.blocking, do: 1, else: 0)
-         },
-         health: :writable
-       }}
+      {:ok, %{counts: DecisionStoreStub.counts(decision), health: :writable}}
     end
   end
 
@@ -473,6 +506,47 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   describe "global pause nav toggle" do
+    test "keeps a persisted global pause visible on a stale snapshot before the first restart poll" do
+      orchestrator_name = Module.concat(__MODULE__, :RestartedGlobalPauseOrchestrator)
+
+      snapshot = %{
+        running: [],
+        retrying: [],
+        idle: [],
+        agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
+        rate_limits: nil,
+        globally_paused: false
+      }
+
+      {:ok, original} = CountingOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot)
+      assert :ok = GenServer.stop(original, :normal)
+
+      {:ok, restarted} =
+        CountingOrchestrator.start_link(name: orchestrator_name, snapshot: snapshot, publish?: false)
+
+      on_exit(fn ->
+        if Process.alive?(restarted), do: GenServer.stop(restarted, :normal)
+      end)
+
+      generation = SnapshotStore.begin_generation(orchestrator_name)
+
+      :ok =
+        SnapshotStore.publish_global_pause(orchestrator_name, generation, %{
+          globally_paused: true,
+          paused_at: ~U[2026-08-02 12:00:00Z],
+          source: "dashboard"
+        })
+
+      assert {:stale, %{globally_paused: true}, %{reason: :orchestrator_unavailable}} =
+               Orchestrator.dashboard_snapshot(orchestrator_name, 100)
+
+      start_test_endpoint(orchestrator: orchestrator_name, dashboard_writable: true)
+      {:ok, _view, html} = live(build_conn(), "/")
+
+      assert html =~ "Aiur is globally paused."
+      assert html =~ "Resume all agents (globally paused)"
+    end
+
     test "renders a pause affordance while the daemon is running and writable" do
       html = render_payload(global_pause_fleet(false), writable: true)
 
@@ -669,6 +743,105 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ "Idle review"
   end
 
+  test "refreshes a dashboard only after an orchestrator projection completes" do
+    orchestrator_name = Module.concat(__MODULE__, :ProjectedDashboardOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
+    {:ok, view, initial_html} = live(build_conn(), "/")
+    assert initial_html =~ "No fleet snapshot published yet"
+    refute initial_html =~ "Fleet snapshot unavailable"
+
+    :ok = ObservabilityPubSub.subscribe()
+    :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
+    :ok = StatusReport.notify_dashboard(:sys.get_state(pid))
+
+    refute_receive {:observability_updated, _event_id}, 20
+    assert_receive {:observability_updated, _event_id}, 1_000
+    assert eventually(fn -> not String.contains?(render(view), "No fleet snapshot published yet") end, 100)
+  end
+
+  test "an unpublished snapshot and an unreachable orchestrator read differently" do
+    unpublished =
+      render_component(&Overview.error/1, error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"})
+
+    unavailable =
+      render_component(&Overview.error/1, error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"})
+
+    assert unpublished =~ "No fleet snapshot published yet"
+    assert unpublished =~ "expected for a short time after a restart"
+    refute unpublished =~ "Fleet snapshot unavailable"
+
+    assert unavailable =~ "Fleet snapshot unavailable"
+    assert unavailable =~ "no last-known-good fleet view is retained"
+
+    # The expected post-restart moment must not wear incident colour either;
+    # `role="status"` alone only fixes the screen-reader reading.
+    assert unpublished =~ ~s(class="error-card notice")
+    refute unavailable =~ "notice"
+  end
+
+  test "a read-model fault never claims the orchestrator is unreachable" do
+    # `snapshot_unavailable` is raised by the read-model composition, not by the
+    # Orchestrator. Asserting an unobserved subsystem is the exact defect that
+    # put "current-run membership is healthy" next to "Snapshot unavailable".
+    read_model_fault =
+      render_component(&Overview.error/1, error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"})
+
+    assert read_model_fault =~ "Fleet view could not be read"
+    assert read_model_fault =~ "fleet read model could not be composed"
+    assert read_model_fault =~ "may still be running"
+    refute read_model_fault =~ "The Orchestrator is not reachable"
+
+    unknown_fault = render_component(&Overview.error/1, error: %{code: "something_else", message: "Unmapped fault"})
+    refute unknown_fault =~ "The Orchestrator is not reachable"
+    assert unknown_fault =~ "something_else"
+  end
+
+  test "a stalled orchestrator's stale banner names the stall, not a busy mailbox" do
+    html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
+      )
+
+    assert html =~ "Stale fleet snapshot"
+    assert html =~ "The Orchestrator has stopped publishing."
+    assert html =~ "2h 4m old"
+    refute html =~ "The Orchestrator is busy."
+  end
+
+  test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
+    html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
+      )
+
+    assert html =~ "Stale fleet snapshot"
+    assert html =~ "Showing the last-known-good fleet view while refresh is degraded"
+    assert html =~ "1m 35s old"
+    # The contradiction the operator reported: never unavailable and healthy at once.
+    refute html =~ "unavailable"
+  end
+
+  test "labels stale timeout and unavailable snapshots differently" do
+    timeout_html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 6}
+      )
+
+    unavailable_html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :orchestrator_unavailable, age_seconds: 6}
+      )
+
+    assert timeout_html =~ "Orchestrator is busy"
+    assert unavailable_html =~ "Orchestrator is unavailable"
+  end
+
   test "renders payload-aware document navigation and owner-aware Build Order navigation" do
     fleet_payload = %{
       generated_at: "2026-07-12T12:00:00Z",
@@ -810,6 +983,8 @@ defmodule AiurWeb.DashboardLiveTest do
       |> Map.put(:retained_counts, %{
         open: 73,
         blocking: 4,
+        awaiting: 73,
+        awaiting_blocking: 4,
         scope: %{kind: :retained, label: "All retained decisions"},
         health: %{status: :partial, partial?: true, label: "Partial retained Decision data"}
       })
@@ -826,6 +1001,44 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Issue commands"
     assert html =~ "Partial retained Command counts"
     assert html =~ "Partial retained Command data"
+  end
+
+  test "cannot render an empty Units body while the same payload reports current agents and Commands" do
+    identity = units_identity()
+    fleet_payload = Map.put(units_orchestrator_snapshot(identity), :generated_at, "2026-07-17T12:00:00Z")
+
+    payload =
+      ControlCenterPresenter.state_payload(
+        :unused,
+        1,
+        fleet_fun: fn -> fleet_payload end,
+        decisions_fun: fn -> [] end
+      )
+      |> Map.put(:retained_counts, %{
+        open: 3,
+        blocking: 0,
+        awaiting: 3,
+        awaiting_blocking: 0,
+        scope: %{kind: :retained, label: "All retained decisions"},
+        health: %{status: :healthy, partial?: false, label: "Retained Decision data"}
+      })
+      |> then(fn payload ->
+        Map.put(
+          payload,
+          :units,
+          UnitsPresenter.load(payload,
+            membership_fun: fn -> %{units_membership(identity) | members: []} end,
+            activity_fun: fn -> %{entries: []} end
+          )
+        )
+      end)
+
+    html = render_payload(fleet_payload, payload: payload)
+
+    assert html =~ "3 units awaiting commands"
+    assert html =~ ~s(id="units-rows")
+    assert html =~ "Responsive Units interface"
+    refute html =~ "No units have been observed in this run"
   end
 
   test "does not report a missing Decision as absent when retained replay is partial" do
@@ -894,7 +1107,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert payload.analytics.available?, inspect(payload.analytics)
     html = render_payload(payload)
 
-    assert html =~ "Snapshot unavailable"
+    assert html =~ "orchestrator_unavailable"
     refute html =~ "Merged this run"
     refute html =~ "from the current run"
     refute html =~ "Command history"
@@ -2312,7 +2525,6 @@ defmodule AiurWeb.DashboardLiveTest do
       })
 
     assert html =~ "Revision recorded"
-    assert html =~ "A revision records new direction"
     assert html =~ "Original answer · preserved"
     assert html =~ "Hold deployment until the incident closes"
     assert html =~ "New production evidence"
@@ -2670,6 +2882,52 @@ defmodule AiurWeb.DashboardLiveTest do
     assert {:ok, %{decision_status: :decided}} = DecisionStore.get(decision.decision_id, store)
   end
 
+  test "free-form attention acknowledges without recording an answer" do
+    orchestrator_name = Module.concat(__MODULE__, :AckFreeFormOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :AckFreeFormStore)
+    store = start_decision_store(decision_store_name, fn _decision, _opts -> {:error, :unexpected_dispatch} end)
+
+    {:ok, %{decision: decision}} =
+      DecisionStore.request(
+        %{
+          "source_id" => "dashboard-ack-free-form",
+          "question" => "Heads up: the run finished.",
+          "blocking" => false,
+          "urgency" => "normal",
+          "reversibility" => "reversible",
+          "options" => []
+        },
+        [
+          ticket: %{identifier: "987", title: "Operator Control Center", url: nil},
+          source: %{agent_id: "agent-987", session_id: "session-987", event_id: "event-ack"}
+        ],
+        store
+      )
+
+    start_counting_orchestrator(orchestrator_name)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      decision_store: decision_store_name,
+      control_center_cache: false,
+      dashboard_writable: true
+    )
+
+    {:ok, view, html} = live(build_conn(), "/decisions/#{decision.decision_id}")
+    assert html =~ ~s(phx-click="dismiss-decision")
+
+    html =
+      view
+      |> element("#decision-#{decision.decision_id} button[phx-click=\"dismiss-decision\"]")
+      |> render_click()
+
+    assert html =~ "acknowledged"
+    assert {:ok, dismissed} = DecisionStore.get(decision.decision_id, store)
+    assert dismissed.decision_status == :dismissed
+    assert dismissed.answer == nil
+  end
+
   test "human dashboard revision traverses the corrective queue and lifecycle projections" do
     orchestrator_name = Module.concat(__MODULE__, :RevisionCapstoneOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :RevisionCapstoneDecisionStore)
@@ -2785,7 +3043,11 @@ defmodule AiurWeb.DashboardLiveTest do
     assert {:ok, %{id: ^revision_queue_id} = revision_item} =
              OperatorMessages.claim_next_queue_item(orchestrator, "987")
 
-    assert {:ok, revision_queued} = DecisionStore.get(decision.decision_id, store)
+    # `:agent_queue_updated` is broadcast by the dispatch task while it is still
+    # enqueueing; the store only records `:revision_dispatched` once that task
+    # reports back. Await the store's own transition instead of reading through
+    # the queue signal.
+    assert {:ok, revision_queued} = await_dispatched_revision(store, decision.decision_id)
     revised_answer = Decision.active_answer(revision_queued)
 
     assert revision_queued.revision_sequence == 1
@@ -2935,7 +3197,7 @@ defmodule AiurWeb.DashboardLiveTest do
     assert initial_html =~ "Hold the cached rollout"
     assert initial_html =~ "Revision 1"
     refute initial_html =~ "Command latency"
-    assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
+    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}
     drain_dashboard_payload_notifications(orchestrator)
     assert :ok = DecisionPubSub.subscribe()
 
@@ -2944,7 +3206,7 @@ defmodule AiurWeb.DashboardLiveTest do
       assert_receive :decision_metrics_changed, 2_000
     end
 
-    assert_receive {:dashboard_payload_loaded, ^orchestrator, _count}, 2_000
+    refute_receive {:dashboard_payload_loaded, ^orchestrator, _count}
     converged_html = render(view)
     refute converged_html =~ "Command latency"
   end
@@ -3126,7 +3388,7 @@ defmodule AiurWeb.DashboardLiveTest do
     refute filtered_list =~ human.question
   end
 
-  test "keeps the mounted dashboard decision history bounded" do
+  test "paginates Command history ten rows at a time instead of rendering every resolved Command" do
     orchestrator_name = Module.concat(__MODULE__, :BoundedHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :BoundedHistoryDecisionStore)
 
@@ -3136,18 +3398,117 @@ defmodule AiurWeb.DashboardLiveTest do
       end)
 
     start_counting_orchestrator(orchestrator_name)
-    install_decision_history!(store, 51)
+
+    for index <- 1..25 do
+      decision = request_dashboard_decision(store, "history-#{index}")
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{
+                   "idempotency_key" => "history-answer-#{index}",
+                   "expected_version" => decision.version,
+                   "option_id" => "ship"
+                 },
+                 [actor: %{kind: :operator, id: "operator"}],
+                 store
+               )
+    end
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
       snapshot_timeout_ms: 100,
+      control_center_cache: false,
       decision_store: decision_store_name
     )
 
     {:ok, view, _html} = live(build_conn(), "/decisions")
 
-    rows = view |> render() |> Floki.parse_document!() |> Floki.find(".history-list .history-item")
-    assert length(rows) == 50
+    assert history_row_count(view) == 10
+    assert render(view) =~ "10 of 25"
+
+    view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
+    assert history_row_count(view) == 20
+
+    view |> element(~s(button[phx-click="load-more-history"])) |> render_click()
+    assert history_row_count(view) == 25
+    refute has_element?(view, ~s(button[phx-click="load-more-history"]))
+  end
+
+  test "an answered Command leaves the inbox and appears in green history" do
+    orchestrator_name = Module.concat(__MODULE__, :DismissToHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DismissToHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 508}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    decision = request_dashboard_decision(store, "dismiss-to-history")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    assert has_element?(view, "#decision-#{decision.decision_id}")
+    assert history_row_count(view) == 0
+
+    view
+    |> form("#decision-answer-form-#{decision.decision_id}", %{"answer" => %{"choice" => "option:ship"}})
+    |> render_submit()
+
+    refute has_element?(view, "#decision-#{decision.decision_id}")
+    assert has_element?(view, "#history-#{decision.decision_id}")
+    assert history_row_count(view) == 1
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{decision.decision_id}")
+    assert Floki.attribute(row, "data-severity") == ["good"]
+    assert row |> Floki.text() =~ "Answered"
+  end
+
+  test "notifying the Executor moves the Command to history without flattening it into an answer" do
+    orchestrator_name = Module.concat(__MODULE__, :DeferToHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeferToHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 509}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    decision = request_dashboard_decision(store, "defer-to-history")
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    view
+    |> element(~s(button[phx-click="defer-decision"][phx-value-decision-id="#{decision.decision_id}"]))
+    |> render_click()
+
+    refute has_element?(view, "#decision-#{decision.decision_id}")
+    assert has_element?(view, "#history-#{decision.decision_id}")
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{decision.decision_id}")
+    assert row |> Floki.text() =~ "Deferred to Executor"
+    refute row |> Floki.text() =~ "Answered"
+  end
+
+  defp history_row_count(view) do
+    view |> render() |> Floki.parse_document!() |> Floki.find("#command-history-rows tr") |> length()
   end
 
   test "round-trips validated Units URL state and exposes a named zero-result reset" do
@@ -3156,7 +3517,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :UnitsURLOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3214,7 +3575,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :UnitsUpdateOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3266,7 +3627,7 @@ defmodule AiurWeb.DashboardLiveTest do
     test_pid = self()
     {:ok, subscription_attempts} = Agent.start_link(fn -> 0 end)
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3356,10 +3717,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3412,10 +3770,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3450,10 +3805,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :ConversationUpdateOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3492,10 +3844,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator_name = Module.concat(__MODULE__, :ConversationRestartOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
 
-    :sys.replace_state(
-      orchestrator,
-      &Map.put(&1, :snapshot, units_conversation_snapshot(identity, handle))
-    )
+    replace_counting_snapshot(orchestrator, units_conversation_snapshot(identity, handle))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3522,7 +3871,7 @@ defmodule AiurWeb.DashboardLiveTest do
     orchestrator = start_counting_orchestrator(orchestrator_name)
     test_pid = self()
 
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3554,6 +3903,60 @@ defmodule AiurWeb.DashboardLiveTest do
 
     render_hook(view, "pause-agent", %{})
     assert_receive {:typed_agent_pause, ^identity}
+  end
+
+  test "the chat modal composer carries the writable agent log and passes the typed Unit identity" do
+    identity = units_identity()
+    membership = units_membership(identity)
+    handle = conversation_handle_value("c")
+    orchestrator_name = Module.concat(__MODULE__, :TypedConversationComposerOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    snapshot = units_orchestrator_snapshot(identity)
+
+    running =
+      snapshot.running
+      |> hd()
+      |> Map.merge(%{
+        live_conversation: %{generation_handle: handle, state: :live, health: :healthy, freshness: :current},
+        workspace_path: Path.join(System.tmp_dir!(), "units-chat-composer-log")
+      })
+
+    replace_counting_snapshot(orchestrator, %{snapshot | running: [running]})
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> membership end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      live_conversation_resolve_fun: fn _handle -> {:ok, conversation_snapshot(handle)} end,
+      live_conversation_subscribe_fun: fn _handle -> :ok end,
+      agent_chat_send_fun: fn selected, text ->
+        send(test_pid, {:drawer_agent_message, selected, text})
+        {:ok, 9}
+      end,
+      agent_chat_pause_fun: fn selected ->
+        send(test_pid, {:drawer_agent_pause, selected})
+        {:ok, 10}
+      end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+    token = UnitsPresenter.row_token(%{identity: identity})
+
+    html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
+
+    assert html =~ ~s(phx-submit="send-operator-message")
+    assert html =~ "Agent log"
+
+    render_submit(view, "send-operator-message", %{"message" => "drawer hello"})
+    assert_receive {:drawer_agent_message, ^identity, "drawer hello"}
+
+    render_hook(view, "pause-agent", %{})
+    assert_receive {:drawer_agent_pause, ^identity}
   end
 
   describe "unit controls (DASH-005)" do
@@ -3686,7 +4089,7 @@ defmodule AiurWeb.DashboardLiveTest do
       test_pid = self()
       {:ok, membership_agent} = Agent.start_link(fn -> units_membership(identity) end)
 
-      :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, units_orchestrator_snapshot(identity)))
+      replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
 
       start_test_endpoint(
         orchestrator: orchestrator_name,
@@ -3763,7 +4166,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     alpha_row = units_orchestrator_snapshot(alpha).running |> hd()
     beta_row = units_orchestrator_snapshot(beta).running |> hd() |> Map.put(:issue_id, "issue-1111")
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]}))
+    replace_counting_snapshot(orchestrator, %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]})
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -3822,7 +4225,7 @@ defmodule AiurWeb.DashboardLiveTest do
     beta_row = units_orchestrator_snapshot(beta).running |> hd() |> Map.put(:issue_id, "issue-other-1110")
 
     snapshot = %{units_orchestrator_snapshot(alpha) | running: [alpha_row, beta_row]}
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+    replace_counting_snapshot(orchestrator, snapshot)
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -4075,32 +4478,6 @@ defmodule AiurWeb.DashboardLiveTest do
     }
   end
 
-  defp install_decision_history!(store, count) do
-    :sys.replace_state(store, fn state ->
-      histories = decision_histories(count)
-
-      state
-      |> Map.put(:audit_history, histories)
-      |> Map.put(:recent_audit, histories |> Map.values() |> List.flatten() |> Enum.reverse())
-    end)
-  end
-
-  defp decision_histories(count) do
-    %{
-      "dec-dashboard" =>
-        Enum.map(1..count, fn version ->
-          %{
-            decision_id: "dec-dashboard",
-            version: version,
-            ticket: %{identifier: "1051", title: "Decision history", url: nil},
-            source: %{agent_id: "agent-1", session_id: "session-1", event_id: nil},
-            question: "Decision version #{version}?",
-            created_at: DateTime.add(~U[2026-07-12 12:00:00Z], version, :second)
-          }
-        end)
-    }
-  end
-
   defp start_unit_control(name, opts) do
     identity = units_identity()
     membership = units_membership(identity)
@@ -4109,7 +4486,7 @@ defmodule AiurWeb.DashboardLiveTest do
     test_pid = self()
 
     snapshot = unit_control_snapshot(identity, Keyword.get(opts, :work_state, :working))
-    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+    replace_counting_snapshot(orchestrator, snapshot)
 
     start_test_endpoint(
       orchestrator: orchestrator_name,
@@ -4412,6 +4789,12 @@ defmodule AiurWeb.DashboardLiveTest do
          rate_limits: nil
        }}
     )
+  end
+
+  defp replace_counting_snapshot(orchestrator, snapshot) do
+    :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
+    {:registered_name, name} = Process.info(orchestrator, :registered_name)
+    :ok = SnapshotStore.publish(name, snapshot)
   end
 
   defp configure_provider_meter_stub(config) do
@@ -4832,7 +5215,7 @@ defmodule AiurWeb.DashboardLiveTest do
     if expire?, do: expire_cached_payloads(cache)
     Enum.each(views, &reload_view/1)
 
-    assert CountingOrchestrator.snapshot_count(orchestrator) == baseline_count + 1
+    assert CountingOrchestrator.snapshot_count(orchestrator) == baseline_count
   end
 
   defp expire_cached_payloads(cache) do
@@ -4855,6 +5238,16 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp eventually(_fun, 0), do: false
+
+  defp await_dispatched_revision(store, decision_id) do
+    assert eventually(
+             fn -> match?({:ok, %{revision_result: :dispatched}}, DecisionStore.get(decision_id, store)) end,
+             200
+           ),
+           "the store never recorded the revision dispatch: #{inspect(DecisionStore.get(decision_id, store))}"
+
+    DecisionStore.get(decision_id, store)
+  end
 
   defp reload_view(view) do
     send(view.pid, :reload_payload)

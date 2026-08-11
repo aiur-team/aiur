@@ -4,18 +4,31 @@ defmodule Aiur.Orchestrator.StatusReport do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Config, Issue, TicketActivity, TrackerIdentity}
+  alias Aiur.AgentEvents
+  alias Aiur.AgentPubSub
+  alias Aiur.AgentQueueStore
+  alias Aiur.CodingAgent
+  alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
+  alias Aiur.Issue
+  alias Aiur.Orchestrator.AutoResume
+  alias Aiur.Orchestrator.ControlLifecycle
+  alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
+  alias Aiur.Orchestrator.SnapshotPublisher
   alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
-  alias AiurWeb.ObservabilityPubSub
+  alias Aiur.RepoBase
+  alias Aiur.TicketActivity
+  alias Aiur.TrackerIdentity
 
   @activity_snapshot_timeout_ms 100
+  @repo_base_status_timeout_ms 100
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
   def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
@@ -64,6 +77,8 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec notify_dashboard(State.t()) :: :ok
   def notify_dashboard(state) do
+    if state.snapshot_ready? == true, do: :ok = publish_snapshot(state)
+
     state
     |> running_summaries()
     |> AgentPubSub.broadcast_running_change()
@@ -74,7 +89,117 @@ defmodule Aiur.Orchestrator.StatusReport do
       max_concurrent_agents: Slots.max_concurrent_agent_limit(state)
     })
 
-    ObservabilityPubSub.broadcast_update()
+    :ok
+  end
+
+  @spec publish_snapshot(State.t()) :: :ok
+  def publish_snapshot(%State{} = state) do
+    # The snapshot publish cadence is owned by SnapshotPublisher, a separate
+    # process reading the shared write-model, so dispatch load in this mailbox
+    # cannot starve the dashboard. Projection may call other stores, so it still
+    # runs inside SnapshotStore rather than on the Orchestrator's dispatch
+    # critical path. Project only the bounded dashboard input, not the entire
+    # orchestration state.
+    SnapshotPublisher.write(
+      state.snapshot_key || self(),
+      state.snapshot_generation,
+      snapshot_input(state)
+    )
+  end
+
+  @doc false
+  @spec snapshot_input(State.t()) :: State.t()
+  def snapshot_input(%State{} = state) do
+    state
+    |> Map.take([
+      :agent_rate_limits,
+      :agent_totals,
+      :capacity_hold,
+      :dispatch_hold,
+      :effective_concurrent_agents,
+      :global_pause,
+      :globally_paused,
+      :last_polled_issues,
+      :load_envelope_state,
+      :max_concurrent_agents,
+      :next_poll_due_at_ms,
+      :poll_check_in_progress,
+      :poll_interval_ms,
+      :retry_attempts,
+      :running,
+      :session_max_concurrent_agents
+    ])
+    |> then(&struct!(State, &1))
+    |> Map.put(:ci_lifecycle, snapshot_ci_lifecycle(state))
+    |> Map.put(:control_lifecycle, snapshot_control_lifecycle(state))
+    |> Map.put(:queue_store, snapshot_queue_store(state))
+  end
+
+  # The asynchronous projection needs only the cached result for rows it can
+  # render. Keeping the rest of this lifecycle map out of the cast prevents
+  # historical CI data from being copied along with every dashboard refresh.
+  defp snapshot_ci_lifecycle(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+    poll_cache = state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.take(identifiers)
+
+    %{
+      approved_heads: %{},
+      test_failure_heads: %{},
+      base_repair_invalidations: %{},
+      poll_cache: poll_cache,
+      rewakes: %{}
+    }
+  end
+
+  # A dashboard can show a pending control only for a running issue. Preserve
+  # those records, not the full bounded-but-fleet-wide control history.
+  defp snapshot_control_lifecycle(%State{} = state) do
+    Enum.reduce(state.running, %ControlLifecycle{}, fn {_issue_id, entry}, lifecycle ->
+      issue_id = entry |> Map.get(:issue, %{}) |> Map.get(:id)
+
+      case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+        %{request_id: request_id} = request ->
+          %{
+            lifecycle
+            | pending: Map.put(lifecycle.pending, issue_id, request_id),
+              records: Map.put(lifecycle.records, request_id, request)
+          }
+
+        nil ->
+          lifecycle
+      end
+    end)
+  end
+
+  # Queue depth and visible operator messages are dashboard contract fields.
+  # Copy only the queue entries for rows this snapshot can render so an
+  # unrelated queue backlog cannot inflate the projection cast.
+  defp snapshot_queue_store(%State{} = state) do
+    identifiers = snapshot_identifiers(state)
+
+    {items, pending_ids_by_target} =
+      Enum.reduce(identifiers, {%{}, %{}}, fn identifier, {items, pending_ids_by_target} ->
+        pending = AgentQueueStore.list_pending(state.queue_store, identifier)
+        visible = AgentQueueStore.list_visible_operator_messages(state.queue_store, identifier)
+        queue_items = pending ++ visible
+
+        {
+          Map.merge(items, Map.new(queue_items, &{&1.id, &1})),
+          Map.put(pending_ids_by_target, identifier, Enum.map(pending, & &1.id))
+        }
+      end)
+
+    %AgentQueueStore{items: items, pending_ids_by_target: pending_ids_by_target}
+  end
+
+  defp snapshot_identifiers(%State{} = state) do
+    state.running
+    |> Map.values()
+    |> Enum.map(&Map.get(&1, :identifier))
+    |> Kernel.++(Enum.map(state.last_polled_issues, fn {_issue_id, issue} -> issue.identifier || issue.id end))
+    |> Kernel.++(Enum.map(state.retry_attempts, fn {_issue_id, retry} -> Map.get(retry, :identifier) end))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
   end
 
   @spec poll_status(State.t()) :: {:reply, map(), State.t()}
@@ -117,6 +242,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
   def snapshot(%State{} = state) do
     state = Lifecycle.refresh_runtime_config(state)
+
+    {:reply, snapshot_payload(state), state}
+  end
+
+  @doc false
+  @spec snapshot_payload(State.t()) :: map()
+  def snapshot_payload(%State{} = state) do
     now = DateTime.utc_now()
     now_ms = System.monotonic_time(:millisecond)
     stall_timeout_seconds = stall_timeout_seconds()
@@ -124,28 +256,64 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     running = Enum.map(state.running, &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity))
     retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
-    idle = idle_snapshot(state, activity_by_identity)
+    idle = idle_snapshot(state, now_ms, activity_by_identity)
 
-    {:reply,
-     %{
-       running: running,
-       retrying: retrying,
-       idle: idle,
-       agent_totals: state.agent_totals,
-       capacity: Slots.max_concurrent_agent_status(state),
-       globally_paused: state.globally_paused == true,
-       global_pause: %{
-         globally_paused: state.globally_paused == true,
-         paused_at: Map.get(state.global_pause, :paused_at),
-         source: Map.get(state.global_pause, :source)
-       },
-       rate_limits: Map.get(state, :agent_rate_limits),
-       polling: %{
-         checking?: state.poll_check_in_progress == true,
-         next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
-         poll_interval_ms: state.poll_interval_ms
-       }
-     }, state}
+    %{
+      running: running,
+      retrying: retrying,
+      idle: idle,
+      agent_totals: state.agent_totals,
+      capacity: Slots.max_concurrent_agent_status(state),
+      capacity_hold: capacity_hold_payload(state, now_ms),
+      dispatch_hold: dispatch_hold_payload(state, now_ms),
+      globally_paused: state.globally_paused == true,
+      global_pause: %{
+        globally_paused: state.globally_paused == true,
+        paused_at: Map.get(state.global_pause, :paused_at),
+        source: Map.get(state.global_pause, :source)
+      },
+      rate_limits: Map.get(state, :agent_rate_limits),
+      polling: %{
+        checking?: state.poll_check_in_progress == true,
+        next_poll_in_ms: next_poll_in_ms(state.next_poll_due_at_ms, now_ms),
+        poll_interval_ms: state.poll_interval_ms
+      }
+    }
+  end
+
+  defp capacity_hold_active?(%State{} = state) do
+    match?(%{signal: _signal}, state.capacity_hold)
+  end
+
+  defp capacity_hold_payload(%State{} = state, now_ms) do
+    case state.capacity_hold do
+      %{signal: signal, measured: measured, threshold: threshold, held_since_ms: held_since_ms} ->
+        %{
+          held?: true,
+          signal: signal,
+          measured: measured,
+          threshold: threshold,
+          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+        }
+
+      _other ->
+        %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+    end
+  end
+
+  defp dispatch_hold_payload(%State{} = state, now_ms) do
+    case state.dispatch_hold do
+      %{reason: reason, detail: detail, held_since_ms: held_since_ms} ->
+        %{
+          held?: true,
+          reason: reason,
+          detail: detail,
+          held_for_seconds: max(div(now_ms - held_since_ms, 1_000), 0)
+        }
+
+      _other ->
+        %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
+    end
   end
 
   defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds, activity_by_identity) do
@@ -196,6 +364,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       runtime_seconds: State.running_seconds(started_at, now),
       stale_for_seconds: stale_for_seconds,
       waiting_reason: waiting_reason,
+      blocked_by: known_blocked_by(metadata.issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
@@ -225,6 +394,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       worker_host: Map.get(retry, :worker_host),
       workspace_path: Map.get(retry, :workspace_path),
       waiting_reason: WaitingReason.for_retry(),
+      blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
@@ -234,7 +404,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.merge(issue_execution_facts(issue))
   end
 
-  defp idle_snapshot(%State{} = state, activity_by_identity) do
+  defp idle_snapshot(%State{} = state, now_ms, activity_by_identity) do
     running_issue_ids = MapSet.new(Map.keys(state.running))
 
     # Also exclude issues already shown in the retry-backoff bucket — they're
@@ -245,15 +415,24 @@ defmodule Aiur.Orchestrator.StatusReport do
     excluded_issue_ids = MapSet.union(running_issue_ids, retrying_issue_ids)
     terminal_states = DispatchPolicy.terminal_state_set()
 
-    state.last_polled_issues
-    |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_issue_snapshot(state, issue, terminal_states, activity_by_identity) end)
+    idle_issues =
+      state.last_polled_issues
+      |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
+
+    # One durable-store read for the whole board, not one per idle ticket.
+    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {id, _} -> id end))
+
+    Enum.map(idle_issues, fn {_issue_id, issue} ->
+      idle_issue_snapshot(state, issue, terminal_states, now_ms, latch_statuses, activity_by_identity)
+    end)
   end
 
-  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states, activity_by_identity) do
+  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states, now_ms, latch_statuses, activity_by_identity) do
     identifier = issue.identifier || issue.id
     blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+    latch = Map.get(latch_statuses, issue.id, :none)
+    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, issue.id, now_ms)
 
     %{
       issue_id: issue.id,
@@ -265,7 +444,21 @@ defmodule Aiur.Orchestrator.StatusReport do
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
-      waiting_reason: WaitingReason.for_idle(issue.state, blocked_by_open?, open_decision_count),
+      # #1453 supplies the idle-reason evidence; #1457 renders it.
+      dispatch_latch: latch,
+      auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+      waiting_reason:
+        WaitingReason.for_idle(
+          issue.state,
+          blocked_by_open?,
+          open_decision_count,
+          latched_lifetime: latch != :none,
+          tracker_paused: Issue.paused?(issue),
+          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+          dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
+          capacity_hold_active?: capacity_hold_active?(state)
+        ),
+      blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),
@@ -472,15 +665,24 @@ defmodule Aiur.Orchestrator.StatusReport do
   # the status rows so `aiur watch` can render the cx column without a tracker
   # round-trip — the issue is already in memory.
   defp issue_complexity(%Issue{} = issue), do: CodingAgent.complexity_level(issue)
+  defp issue_complexity(_issue), do: nil
 
   @spec agent_statuses(State.t()) :: [map()]
   def agent_statuses(%State{} = state) do
+    status_fun = if Config.prewarm_enabled?(), do: &RepoBase.status/1, else: fn _timeout -> {:unavailable, nil} end
+    agent_statuses(state, status_fun)
+  end
+
+  @doc false
+  @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
+  def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
     now = DateTime.utc_now()
+    prewarm_phase = prewarm_phase(status_fun)
 
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now) ++ idle_statuses(state, running_by_identifier))
+    (running_statuses(state, now) ++ retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
     |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
   end
 
@@ -515,24 +717,97 @@ defmodule Aiur.Orchestrator.StatusReport do
       complexity: issue_complexity(issue),
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
-      last_codex_event: Map.get(entry, :last_codex_event)
+      last_codex_event: Map.get(entry, :last_codex_event),
+      reason: if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
     }
   end
 
-  defp idle_statuses(%State{} = state, _running_by_identifier) do
-    state.last_polled_issues
-    |> Enum.reject(fn {issue_id, _issue} -> Map.has_key?(state.running, issue_id) end)
-    |> Enum.map(fn {_issue_id, issue} -> idle_status(state, issue) end)
+  defp retry_statuses(%State{} = state) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    Enum.map(state.retry_attempts, fn {issue_id, retry} ->
+      issue = Map.get(state.last_polled_issues, issue_id)
+      identifier = Map.get(retry, :identifier) || Map.get(issue || %{}, :identifier) || issue_id
+      due_in_ms = max(0, Map.get(retry, :due_at_ms, now_ms) - now_ms)
+      retry_reason = StatusReason.for_retry(Map.get(retry, :error), due_in_ms)
+      tracker_paused = tracker_paused?(issue)
+
+      %{
+        issue_id: issue_id,
+        identifier: identifier,
+        tracker_identity: retry_snapshot_tracker_identity(retry, issue),
+        state: :paused,
+        work_state: :paused,
+        tracker_state: Map.get(issue || %{}, :state),
+        tracker_paused: tracker_paused,
+        tag: State.issue_tag(issue),
+        title: Map.get(issue || %{}, :title),
+        url: Map.get(issue || %{}, :url),
+        worker_host: Map.get(retry, :worker_host),
+        workspace_path: Map.get(retry, :workspace_path),
+        session_id: nil,
+        live_conversation: nil,
+        runtime_seconds: 0,
+        queue_depth: idle_queue_depth(state, identifier),
+        complexity: issue_complexity(issue),
+        last_codex_timestamp: nil,
+        last_codex_message: nil,
+        last_codex_event: nil,
+        retry_attempt: Map.get(retry, :attempt),
+        retry_reason: retry_reason,
+        reason:
+          if tracker_paused do
+            StatusReason.for_paused_retry(
+              tracker_pause_cause(state),
+              Map.get(retry, :error),
+              due_in_ms
+            )
+          else
+            retry_reason
+          end
+      }
+    end)
   end
 
-  defp idle_status(%State{} = state, issue) do
+  defp tracker_paused?(%Issue{} = issue), do: Issue.paused?(issue)
+  defp tracker_paused?(issue) when is_map(issue), do: Map.get(issue, :paused) == true
+  defp tracker_paused?(_issue), do: false
+
+  # `Config.agent_max_dispatches_per_ticket/0` is a `WorkflowStore` GenServer
+  # call that re-stats and re-reads the config file, so resolving it per idle
+  # row turned one status render into one round-trip per backlog ticket, all
+  # serialized inside this handle_call. That is why `status` and `agents` were
+  # slow (and `alerts`, which never touches the orchestrator, was not) — #1684.
+  # Read it once per snapshot.
+  defp idle_statuses(%State{} = state, _running_by_identifier, prewarm_phase) do
+    max_dispatches = Config.agent_max_dispatches_per_ticket()
+
+    idle_issues =
+      Enum.reject(state.last_polled_issues, fn {issue_id, _issue} ->
+        Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id)
+      end)
+
+    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {issue_id, _issue} -> issue_id end))
+
+    Enum.map(idle_issues, fn {issue_id, issue} ->
+      idle_status(state, issue, prewarm_phase, max_dispatches, Map.get(latch_statuses, issue_id, :none))
+    end)
+  end
+
+  defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches, latch_status) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
+    budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
+    prewarm_blocked? = prewarm_blocked?(prewarm_phase)
+
+    work_state = idle_issue_work_state(issue)
+    pause_reason = idle_issue_pause_reason(issue)
 
     %{
       issue_id: Map.get(issue, :id),
       identifier: identifier,
       tracker_identity: Issue.tracker_identity(issue),
-      state: :idle,
+      state: if(work_state == :paused, do: :paused, else: :idle),
+      work_state: work_state,
       tracker_state: Map.get(issue, :state),
       tracker_paused: Issue.paused?(issue),
       tag: State.issue_tag(issue),
@@ -546,9 +821,42 @@ defmodule Aiur.Orchestrator.StatusReport do
       complexity: issue_complexity(issue),
       last_codex_timestamp: nil,
       last_codex_message: nil,
-      last_codex_event: nil
+      last_codex_event: nil,
+      reason: idle_status_reason(work_state, pause_reason, prewarm_blocked?, budget, max_dispatches, latch_status)
     }
   end
+
+  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, _max_dispatches, {:lifetime, lifetime, maximum}),
+    do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
+
+  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, _max_dispatches, :none),
+    do: StatusReason.for_pause(pause_reason)
+
+  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, max_dispatches, :none) do
+    StatusReason.for_idle(
+      prewarm_blocked?,
+      Map.get(budget, :tripped),
+      Map.get(budget, :lifetime, 0),
+      max_dispatches
+    )
+  end
+
+  @doc false
+  # A status projection must never wait behind a base build or crash while the
+  # RepoBase process is restarting. Treat a timeout or process exit as an
+  # unavailable snapshot; dispatch admission remains the authoritative gate.
+  @spec prewarm_phase((timeout() -> term())) :: atom() | :unavailable
+  def prewarm_phase(status_fun \\ &RepoBase.status/1) when is_function(status_fun, 1) do
+    case status_fun.(@repo_base_status_timeout_ms) do
+      {phase, _path} when is_atom(phase) -> phase
+      _ -> :unavailable
+    end
+  catch
+    :exit, _reason -> :unavailable
+  end
+
+  defp prewarm_blocked?(phase) when phase in [:cloning, :fetching, :building, :checking], do: true
+  defp prewarm_blocked?(_phase), do: false
 
   defp idle_queue_depth(%State{} = state, identifier) when is_binary(identifier) do
     OM.queue_depth_for_issue(state, identifier)
@@ -558,6 +866,14 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp retry_snapshot_tracker_identity(retry, nil), do: Map.get(retry, :tracker_identity)
   defp retry_snapshot_tracker_identity(_retry, issue), do: Issue.tracker_identity(issue)
+
+  # Distinguishes "this issue has no upstreams" from "we never resolved this
+  # issue". Only the first is an empty list; the second is `nil`, which
+  # `StreamDeckGrid.dependency_ready?/2` treats as blocking. Defaulting the
+  # unknown case to `[]` would read as "no dependencies" and render the key
+  # `Unblocked` — the same fail-open this projection exists to remove.
+  defp known_blocked_by(%Issue{blocked_by: blockers}) when is_list(blockers), do: blockers
+  defp known_blocked_by(_issue), do: nil
 
   defp idle_issue_work_state(%Issue{} = issue) do
     if Issue.paused?(issue), do: :paused, else: :idle
@@ -570,6 +886,13 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp idle_issue_pause_reason(_issue), do: nil
+
+  # A ticket with no running entry (idle or awaiting retry) carries no local
+  # pause cause, so the tracker label is normally the whole story. A fleet-wide
+  # pause is the one cause that is still knowable, and it explains the stall far
+  # better than rendering every such row as an operator pause.
+  defp tracker_pause_cause(%State{globally_paused: true}), do: :global_pause
+  defp tracker_pause_cause(_state), do: :label_override
 
   @spec next_poll_in_ms(integer() | nil, integer()) :: non_neg_integer() | nil
   def next_poll_in_ms(nil, _now_ms), do: nil

@@ -14,6 +14,10 @@ defmodule Aiur.Init.Templates do
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
 
+  @executor_handoff_example_path Path.expand("../../../../.aiur/examples/executor-handoff.md.example", __DIR__)
+  @external_resource @executor_handoff_example_path
+  @executor_handoff_example_template File.read!(@executor_handoff_example_path)
+
   @env_content "GITHUB_TOKEN=\n"
 
   # Embed the annotated example at compile time so the wizard works from a
@@ -69,6 +73,10 @@ defmodule Aiur.Init.Templates do
   @spec prompt_file_template() :: String.t()
   def prompt_file_template, do: @prompt_example_template
 
+  @doc "Raw executor handoff template that `aiur init` seeds in the repository state node."
+  @spec executor_handoff_template() :: String.t()
+  def executor_handoff_template, do: @executor_handoff_example_template
+
   @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
   @spec prompt_file_scaffold(String.t() | nil) :: String.t()
   def prompt_file_scaffold(repo) do
@@ -79,6 +87,7 @@ defmodule Aiur.Init.Templates do
   def build_fills(d) do
     %{
       "{{TRACKER_KIND}}" => d.tracker.kind,
+      "{{BASE_BRANCH}}" => d.tracker |> Aiur.Config.base_branch() |> Jason.encode!(),
       "{{TRACKER_PROVIDER}}" => tracker_provider_block(d.tracker),
       "{{AGENT_KIND}}" => Questions.primary_kind(d.agents),
       "{{MAX_AGENTS}}" => Integer.to_string(d.max_agents),

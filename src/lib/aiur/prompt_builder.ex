@@ -49,7 +49,9 @@ defmodule Aiur.PromptBuilder do
     This workflow's configured `tracker.base_branch` is `#{base_branch}`. The agent process exposes the same value as
     `AIUR_BASE_BRANCH`; it is authoritative even when the repository default differs. Create pull requests with
     `--base "$AIUR_BASE_BRANCH"`, never from `origin/HEAD`, and verify an existing pull request's base before CI
-    handoff.
+    handoff. After committing and immediately before pushing or opening a PR, run
+    `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. It fetches the exact remote base and refuses PRs that would delete
+    more than 50 files the feature did not touch; never bypass a refusal.
 
     """
   end

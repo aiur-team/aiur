@@ -4,6 +4,7 @@ defmodule Aiur.AgentControlCLIUsageTest do
   import ExUnit.CaptureIO
 
   alias Aiur.{AgentControlCLI, ProviderMeterProjection}
+  alias Aiur.Webhooks.{DeliveryMode, ModePresenter}
 
   setup do
     # Start a private projection rather than fighting the app-supervised one
@@ -62,6 +63,33 @@ defmodule Aiur.AgentControlCLIUsageTest do
     refute output =~ "90%"
   end
 
+  test "credit windows print an exact dollar balance without a percentage", ctx do
+    send_observation(ctx.pid, :openrouter, ~U[2026-07-27 12:04:30Z], %{
+      "credits" => %{kind: :credit, name: :credits, credits: %{status: :available, amount: 77.5}}
+    })
+
+    output = capture_io(fn -> AgentControlCLI.usage(ctx.projection) end)
+    assert output =~ "$77.50 remaining"
+    refute output =~ "openrouter  0%"
+  end
+
+  test "DeepSeek concurrency prints as a local count rather than provider utilization", ctx do
+    send_observation(ctx.pid, :deepseek, ~U[2026-07-27 12:04:30Z], %{
+      "local-concurrency" => %{
+        kind: :rate_limit,
+        name: "Local concurrency",
+        used: 2,
+        limit: 2_500,
+        used_percent: 0.08
+      }
+    })
+
+    output = capture_io(fn -> AgentControlCLI.usage(ctx.projection) end)
+    assert output =~ "2/2500 in flight"
+    refute output =~ "%"
+    refute output =~ "░"
+  end
+
   test "ages scale from seconds through hours", ctx do
     send_observation(ctx.pid, :claude, ~U[2026-07-27 12:04:45Z], %{"s" => window(10)})
     assert capture_io(fn -> AgentControlCLI.usage(ctx.projection) end) =~ "15s ago"
@@ -75,6 +103,47 @@ defmodule Aiur.AgentControlCLIUsageTest do
     assert AgentControlCLI.usage_bar(100) == String.duplicate("█", 10)
     assert AgentControlCLI.usage_bar(140) == String.duplicate("█", 10)
     assert AgentControlCLI.usage_bar(-20) == String.duplicate("░", 10)
+  end
+
+  describe "per-repo event delivery mode prints alongside the meters" do
+    test "each repo names its mode, last delivery, and reason for polling", ctx do
+      output = capture_io(fn -> AgentControlCLI.usage(ctx.projection, delivery_modes: delivery_mode_rows()) end)
+
+      assert output =~ "events  aiur-team/degraded  polling  last delivery 2026-07-27T11:00:00Z  (degraded — deliveries went silent)"
+      assert output =~ "events  aiur-team/proven  webhook  last delivery 2026-07-27T12:00:00Z"
+      assert output =~ "events  aiur-team/silent  polling  last delivery never  (webhook configured but never delivered)"
+      assert output =~ "events  aiur-team/plain  polling  last delivery never  (no webhook configured)"
+    end
+
+    test "a webhook-backed repo is given no reason for polling", ctx do
+      output = capture_io(fn -> AgentControlCLI.usage(ctx.projection, delivery_modes: delivery_mode_rows()) end)
+
+      proven_line = output |> String.split("\n") |> Enum.find(&String.contains?(&1, "aiur-team/proven"))
+
+      refute proven_line =~ "("
+    end
+
+    test "a fleet with no webhooks anywhere prints no delivery section", ctx do
+      output = capture_io(fn -> AgentControlCLI.usage(ctx.projection, delivery_modes: []) end)
+
+      refute output =~ "events  "
+    end
+  end
+
+  defp delivery_mode_rows do
+    {proven, :proven} = "aiur-team/proven" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 12:00:00Z])
+
+    {fallen, :proven} = "aiur-team/degraded" |> DeliveryMode.new(configured?: true) |> DeliveryMode.record_delivery(~U[2026-07-27 11:00:00Z])
+    {fallen, :degraded} = DeliveryMode.sweep(fallen, ~U[2026-07-27 12:00:00Z], 900_000)
+
+    ModePresenter.rows(
+      modes: [
+        proven,
+        fallen,
+        DeliveryMode.new("aiur-team/silent", configured?: true),
+        DeliveryMode.new("aiur-team/plain")
+      ]
+    )
   end
 
   defp send_observation(pid, provider, observed_at, windows) do

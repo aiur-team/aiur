@@ -685,7 +685,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
     %{
       actor: %{kind: :agent, id: "ticket-agent"},
       source: %{
-        agent_id: stringify_identity(SessionLifecycle.session_backend(app_session)),
+        agent_id: stringify_identity(SessionLifecycle.session_backend_label(app_session)),
         session_id: stringify_identity(Map.get(app_session, :thread_id)),
         invocation_id: stringify_invocation_id(invocation_id())
       }
@@ -842,7 +842,7 @@ defmodule Aiur.AgentRunner.ToolExecutor do
 
   defp trusted_source(app_session) do
     %{
-      agent_id: SessionLifecycle.session_backend(app_session),
+      agent_id: SessionLifecycle.session_backend_label(app_session),
       session_id: Map.get(app_session, :thread_id),
       event_id: stringify_invocation_id(invocation_id())
     }

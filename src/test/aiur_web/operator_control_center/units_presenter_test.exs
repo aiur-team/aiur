@@ -60,6 +60,23 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     refute_received :activity_read
   end
 
+  test "current orchestrator rows prevent a healthy empty membership from reporting Active 0" do
+    alpha = identity("NODE-restarted", "41")
+
+    catalog =
+      UnitsPresenter.load(payload(alpha),
+        membership_fun: fn -> membership([]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert catalog.status == :ready
+    assert [%{identity: ^alpha}] = catalog.snapshot.rows
+    assert view.counts.active == 1
+    refute UnitsPresenter.announcement(view) =~ "No units have been observed"
+  end
+
   test "provider failure is named unavailable instead of becoming a healthy empty catalog" do
     catalog =
       UnitsPresenter.load(%{},
@@ -79,6 +96,24 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert Enum.all?(view.counts, fn {_name, count} -> is_nil(count) end)
     assert UnitsPresenter.announcement(view) =~ "Units catalog unavailable"
     refute UnitsPresenter.announcement(view) =~ "0 of 0"
+  end
+
+  test "unavailable membership with current agents reports unknown counts instead of zero" do
+    alpha = identity("NODE-membership-unavailable", "41")
+
+    catalog =
+      UnitsPresenter.load(payload(alpha),
+        membership_fun: fn -> raise "membership down" end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    view = UnitsPresenter.project(catalog, UnitsURL.default_selection())
+
+    assert catalog.status == :stale
+    assert [%{identity: ^alpha}] = catalog.snapshot.rows
+    assert view.count_status == :partial
+    assert view.counts.active == 1
+    assert catalog.message == "current-run membership is unavailable"
   end
 
   test "truncated membership qualifies every catalog count as a lower bound" do
@@ -130,6 +165,83 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     assert catalog.status == :unavailable
     assert catalog.message == "Units catalog is unavailable."
     assert catalog.snapshot.health.membership == :unknown
+  end
+
+  test "a stale fleet snapshot marks the catalog stale and names the age, not membership health" do
+    alpha = identity("NODE-stale-fleet", "41")
+
+    stale_payload =
+      alpha
+      |> payload()
+      |> put_in([:fleet, :snapshot_freshness], %{status: :stale, reason: :snapshot_timeout, age_seconds: 42, observed_at: "2026-07-17T11:59:18Z"})
+
+    catalog =
+      UnitsPresenter.load(stale_payload,
+        membership_fun: fn -> membership([member(alpha)]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    assert catalog.status == :stale
+    assert catalog.message =~ "last-known-good Units catalog"
+    assert catalog.message =~ "42s old"
+    refute catalog.message =~ "membership is healthy"
+    assert [%{identity: ^alpha}] = catalog.snapshot.rows
+  end
+
+  test "an unavailable fleet snapshot never reports a healthy membership as the reason" do
+    alpha = identity("NODE-no-fleet", "41")
+
+    unpublished_payload = %{
+      generated_at: "2026-07-17T12:00:00Z",
+      provider_health: %{fleet: :unavailable, decisions: :ok},
+      fleet: %{error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"}, running: [], retrying: [], idle: []},
+      decisions: []
+    }
+
+    catalog =
+      UnitsPresenter.load(unpublished_payload,
+        membership_fun: fn -> membership([member(alpha)]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    assert catalog.status == :stale
+    assert catalog.message == "Showing the last-known-good Units catalog while the fleet snapshot is unavailable."
+    refute catalog.message =~ "healthy"
+    assert [%{identity: ^alpha}] = catalog.snapshot.rows
+  end
+
+  test "a stale catalog with nothing retained does not claim to be showing a last-known-good catalog" do
+    empty_fleet_payload = %{
+      generated_at: "2026-07-17T12:00:00Z",
+      provider_health: %{fleet: :unavailable, decisions: :ok},
+      fleet: %{error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"}, running: [], retrying: [], idle: []},
+      decisions: []
+    }
+
+    catalog =
+      UnitsPresenter.load(empty_fleet_payload,
+        membership_fun: fn -> membership([]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    assert catalog.status == :stale
+    assert catalog.snapshot.rows == []
+    assert catalog.message == "No last-known-good Units catalog is retained while the fleet snapshot is unavailable."
+    refute catalog.message =~ "Showing the last-known-good"
+  end
+
+  test "a reconciling membership is stale without claiming membership is healthy" do
+    alpha = identity("NODE-reconciling", "41")
+
+    reconciling = fn ->
+      alpha |> List.wrap() |> Enum.map(&member/1) |> membership() |> Map.put(:freshness, %{status: :stale})
+    end
+
+    catalog = UnitsPresenter.load(payload(alpha), membership_fun: reconciling, activity_fun: fn -> %{entries: []} end)
+
+    assert catalog.status == :stale
+    assert catalog.message == "Showing the last-known-good Units catalog while current-run membership reconciles."
+    refute catalog.message =~ "healthy"
   end
 
   test "selection helpers validate scopes and independently toggle conditions" do

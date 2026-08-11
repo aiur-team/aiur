@@ -12,6 +12,7 @@ from pathlib import Path, PurePosixPath
 from typing import Any
 
 from publication_common import SHA, Report, strict_object, valid_issue_title
+from publication_body_limits import MAX_ISSUE_BODY_CHARACTERS
 from publication_paths import safe_repository_relative
 
 
@@ -134,6 +135,12 @@ def inspect_issue_body(
     if not isinstance(body, str):
         report.error(f"{label} must be UTF-8 text")
         return None
+    if len(body) > MAX_ISSUE_BODY_CHARACTERS:
+        report.warn(
+            f"{logical_id} rendered issue body is {len(body):,} characters, "
+            f"exceeding GitHub's {MAX_ISSUE_BODY_CHARACTERS:,}-character "
+            f"issue body limit by {len(body) - MAX_ISSUE_BODY_CHARACTERS:,}"
+        )
     marker_count = body.count(f"<!-- {MARKER_NAME}")
     matches = list(MARKER.finditer(body))
     if marker_count != 1 or len(matches) != 1:

@@ -67,6 +67,27 @@ defmodule Aiur.DecisionHistoryTest do
     assert supervisor_entry.acknowledgement_result == "acknowledged"
   end
 
+  test "keeps executor provenance distinct from operator and supervisor provenance" do
+    executor_entry =
+      DecisionHistory.project_record(
+        record(%{
+          actor: %{kind: :executor, id: "executor-1"},
+          change_kind: :answered
+        })
+      )
+
+    operator_entry =
+      DecisionHistory.project_record(
+        record(%{
+          actor: %{kind: :operator, id: "operator-1"},
+          change_kind: :answered
+        })
+      )
+
+    assert executor_entry.actor == %{type: :executor, id: "executor-1", label: "Executor"}
+    assert operator_entry.actor == %{type: :human_operator, id: "operator-1", label: "Operator"}
+  end
+
   test "does not infer actor type from a source-agent name" do
     entry = DecisionHistory.project_record(record(%{source: %{agent_id: "supervisor"}}))
 

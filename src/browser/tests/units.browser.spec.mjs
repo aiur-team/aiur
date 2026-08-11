@@ -55,8 +55,8 @@ test('Units keeps complete semantic rows, named actions, and 44px targets across
       // Named, accessible row actions live in the Command column.
       const actions = first.locator('nav.units-actions')
       await expect(actions).toHaveAttribute('aria-label', 'Actions for its-everdred/aiur #1110')
-      // The running Unit exposes an agent-log button and a (disabled) chat button.
-      await expect(first.getByRole('button', { name: 'Read agent log for its-everdred/aiur #1110' })).toBeVisible()
+      // The running Unit exposes a chat button (which carries the agent log
+      // beneath the conversation); the standalone agent-log row action is gone.
       await expect(first.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' })).toBeVisible()
 
       // Live-region status is a single polite, atomic node.
@@ -163,11 +163,28 @@ test('Units URL history restores independent conditions and copied links', async
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
 })
 
+test('Units conversation drawer hook manages focus, Escape, and focus return', async ({ page }) => {
+  await openUnits(page)
+
+  const origin = page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' })
+  await origin.click()
+
+  const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
+  await expect(drawer).toBeVisible()
+  await expect(drawer.getByRole('heading', { name: 'Responsive Units interface' })).toBeFocused()
+  await expect(drawer).toContainText('Conversation drawer hook is running.')
+
+  await page.keyboard.press('Escape')
+
+  await expect(drawer).toHaveCount(0)
+  await expect(origin).toBeFocused()
+})
+
 test('Units preserves focused controls on stable updates and restores dialog focus with a safe fallback', async ({ page }) => {
   await openUnits(page)
 
   // Focus a real, named row action; a stable same-identity update must not steal focus.
-  const agentLog = page.getByRole('button', { name: 'Read agent log for its-everdred/aiur #1110' })
+  const agentLog = page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' })
   const agentLogId = await agentLog.getAttribute('id')
 
   // Open the ticket-context dialog by clicking the ID cell (the inspect origin).

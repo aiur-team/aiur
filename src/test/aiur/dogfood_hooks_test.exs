@@ -4,7 +4,6 @@ defmodule Aiur.DogfoodHooksTest do
   alias Aiur.Workspace.Reconstruction
 
   @hooks_path Path.expand("../../../.aiur/hooks", __DIR__)
-  @repo_root Path.expand("../../..", __DIR__)
   @config_path Path.expand("../../../.aiur/config", __DIR__)
   @gitignore_path Path.expand("../../../.gitignore", __DIR__)
   @prompt_path Path.expand("../../../.aiur/prompt.md", __DIR__)
@@ -31,8 +30,8 @@ defmodule Aiur.DogfoodHooksTest do
     assert dogfood_base == "develop"
 
     hooks = dogfood_hooks!()
-    assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-develop}")
-    assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:-develop}")
+    assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
+    assert hooks["before_run"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
     refute File.read!(@hooks_path) =~ "find . -mindepth 1 -maxdepth 1 -exec rm -rf"
     refute File.read!(@hooks_path) =~ "logs_backup="
     refute File.read!(@hooks_path) =~ "origin/v2"
@@ -46,14 +45,12 @@ defmodule Aiur.DogfoodHooksTest do
     refute contributing =~ ~r/PRs target[^\n]*`v2`/
   end
 
-  test "per-workspace package-manager caches are ignored and untracked" do
-    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez"] do
-      assert {_output, 0} =
-               System.cmd("git", ["-C", @repo_root, "check-ignore", "--quiet", path], stderr_to_stdout: true)
-    end
-
-    assert {"", 0} =
-             System.cmd("git", ["-C", @repo_root, "ls-files", ".aiur-hex", ".aiur-mix"], stderr_to_stdout: true)
+  test "checked-in hooks use the repository state node for package-manager caches" do
+    hooks = File.read!(@hooks_path)
+    assert hooks =~ "AIUR_REPO_STATE_PATH"
+    assert hooks =~ "meta/retros"
+    assert hooks =~ "meta/findings.ndjson"
+    refute hooks =~ "HEX_HOME=\"$PWD/.aiur-hex\""
   end
 
   test "checked-in hooks checkout and merge the configured base branch", context do
@@ -62,7 +59,13 @@ defmodule Aiur.DogfoodHooksTest do
 
     assert_hook_ok!("after_create", workspace, context.origin)
     assert current_branch!(workspace) == ticket_branch()
+
+    assert String.trim(git!(["-C", workspace, "rev-parse", "refs/aiur/branch-start"])) ==
+             String.trim(git!(["-C", workspace, "rev-parse", "origin/#{configured_base()}"]))
+
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
+    assert File.regular?(Path.join([cache_root(workspace), "meta", "findings.ndjson"]))
+    assert File.dir?(Path.join([cache_root(workspace), "meta", "retros"]))
 
     File.write!(Path.join(context.seed, "README.md"), "stable two\n")
     git!(["-C", context.seed, "commit", "-am", "advance stable"])
@@ -84,6 +87,26 @@ defmodule Aiur.DogfoodHooksTest do
     assert current_branch!(workspace) == ticket_branch()
     assert File.read!(Path.join(workspace, "README.md")) == "stable one\n"
     assert File.read!(log_path) == "prior agent transcript\n"
+  end
+
+  test "reconstruction restores branch start for an existing remote ticket branch", context do
+    original = Path.join(context.test_root, "original-ticket")
+    File.mkdir_p!(original)
+    assert_hook_ok!("after_create", original, context.origin)
+    git!(["-C", original, "config", "user.name", "Aiur Test"])
+    git!(["-C", original, "config", "user.email", "aiur@example.test"])
+
+    File.write!(Path.join(original, "feature.txt"), "feature\n")
+    git!(["-C", original, "add", "feature.txt"])
+    git!(["-C", original, "commit", "-m", "feature"])
+    git!(["-C", original, "push", "origin", ticket_branch()])
+
+    reconstructed = Path.join(context.test_root, "reconstructed-ticket")
+    File.mkdir_p!(reconstructed)
+    assert_hook_ok!("after_create", reconstructed, context.origin)
+
+    assert String.trim(git!(["-C", reconstructed, "rev-parse", "refs/aiur/branch-start"])) ==
+             String.trim(git!(["-C", reconstructed, "merge-base", "origin/#{configured_base()}", "HEAD"]))
   end
 
   test "after_create reconstructs a log-only workspace and preserves its logs", context do
@@ -234,8 +257,7 @@ defmodule Aiur.DogfoodHooksTest do
     git!(["-C", workspace, "add", "TICKET.md"])
     git!(["-C", workspace, "commit", "--quiet", "-m", "intentional ticket work"])
 
-    File.write!(Path.join(workspace, ".aiur-hex/cache.ets"), "rewritten hex cache\n")
-    File.write!(Path.join(workspace, ".aiur-mix/archives/hex.ez"), "rewritten mix cache\n")
+    write_workspace_caches!(workspace)
     reused_package = Path.join(workspace, ".aiur-hex/packages/hexpm/reused.tar")
     File.mkdir_p!(Path.dirname(reused_package))
     File.write!(reused_package, "reusable package cache\n")
@@ -250,14 +272,12 @@ defmodule Aiur.DogfoodHooksTest do
              System.cmd("git", ["-C", workspace, "merge-base", "--is-ancestor", base_head, "HEAD"], stderr_to_stdout: true)
 
     assert File.read!(Path.join(workspace, "TICKET.md")) == "intentional ticket work\n"
-    assert File.read!(Path.join(workspace, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
-    assert File.read!(Path.join(workspace, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
-    assert File.read!(reused_package) == "reusable package cache\n"
+    state = cache_root(workspace)
+    assert File.read!(Path.join(state, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
+    assert File.read!(Path.join(state, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
+    assert File.read!(Path.join(state, ".aiur-hex/packages/hexpm/reused.tar")) == "reusable package cache\n"
+    refute File.exists?(reused_package)
     assert git!(["-C", workspace, "ls-files", ".aiur-hex", ".aiur-mix"]) == ""
-
-    for path <- [".aiur-hex/cache.ets", ".aiur-mix/archives/hex.ez", ".aiur-hex/packages/hexpm/reused.tar"] do
-      assert {_output, 0} = System.cmd("git", ["-C", workspace, "check-ignore", "--quiet", path])
-    end
 
     assert String.trim(git!(["-C", workspace, "status", "--short"])) == ""
   end
@@ -274,8 +294,7 @@ defmodule Aiur.DogfoodHooksTest do
 
     File.write!(Path.join(workspace, "README.md"), "ticket branch conflict\n")
     git!(["-C", workspace, "commit", "--quiet", "-am", "ticket branch conflict"])
-    File.write!(Path.join(workspace, ".aiur-hex/cache.ets"), "rewritten hex cache\n")
-    File.write!(Path.join(workspace, ".aiur-mix/archives/hex.ez"), "rewritten mix cache\n")
+    write_workspace_caches!(workspace)
     reused_package = Path.join(workspace, ".aiur-hex/packages/hexpm/reused.tar")
     File.mkdir_p!(Path.dirname(reused_package))
     File.write!(reused_package, "reusable package cache\n")
@@ -288,9 +307,11 @@ defmodule Aiur.DogfoodHooksTest do
     assert {output, status} = run_hook("before_run", workspace, context.origin)
     refute status == 0
     assert output =~ "CONFLICT"
-    assert File.read!(Path.join(workspace, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
-    assert File.read!(Path.join(workspace, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
-    assert File.read!(reused_package) == "reusable package cache\n"
+    state = cache_root(workspace)
+    assert File.read!(Path.join(state, ".aiur-hex/cache.ets")) == "rewritten hex cache\n"
+    assert File.read!(Path.join(state, ".aiur-mix/archives/hex.ez")) == "rewritten mix cache\n"
+    assert File.read!(Path.join(state, ".aiur-hex/packages/hexpm/reused.tar")) == "reusable package cache\n"
+    refute File.exists?(reused_package)
   end
 
   test "before_run refuses to overwrite tracked WIP", context do
@@ -322,6 +343,17 @@ defmodule Aiur.DogfoodHooksTest do
     File.write!(Path.join(repo, ".gitignore"), "/.aiur-hex/\n/.aiur-mix/\n")
     git!(["-C", repo, "add", ".gitignore"])
     git!(["-C", repo, "commit", "--quiet", "-m", "stop tracking package caches"])
+  end
+
+  defp write_workspace_caches!(workspace) do
+    for {path, contents} <- [
+          {".aiur-hex/cache.ets", "rewritten hex cache\n"},
+          {".aiur-mix/archives/hex.ez", "rewritten mix cache\n"}
+        ] do
+      full_path = Path.join(workspace, path)
+      File.mkdir_p!(Path.dirname(full_path))
+      File.write!(full_path, contents)
+    end
   end
 
   defp create_origin!(test_root) do
@@ -371,10 +403,13 @@ defmodule Aiur.DogfoodHooksTest do
       env: [
         {"THIS_REPOSITORY_URL", origin},
         {"THIS_BASE_BRANCH", configured_base()},
-        {"AIUR_TICKET_BRANCH", ticket_branch()}
+        {"AIUR_TICKET_BRANCH", ticket_branch()},
+        {"AIUR_REPO_STATE_PATH", cache_root(workspace)}
       ]
     )
   end
+
+  defp cache_root(workspace), do: Path.join(Path.dirname(workspace), "repo-state")
 
   defp dogfood_hooks! do
     {:ok, hooks} = YamlElixir.read_from_file(@hooks_path)

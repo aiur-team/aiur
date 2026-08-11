@@ -16,9 +16,9 @@ defmodule Aiur.GitHub.Labels do
   """
 
   alias Aiur.CodingAgent
+  alias Aiur.GitHub.Transport
 
   @base_url "https://api.github.com"
-  @api_version "2022-11-28"
 
   # Agent lifecycle state suffixes the orchestrator manages. Test-reset cleanup
   # consumes `state_labels/1` directly so this remains the single source.
@@ -201,13 +201,5 @@ defmodule Aiur.GitHub.Labels do
 
   defp already_exists?(_body), do: false
 
-  defp default_request_fun(%{method: :post, url: url, token: token, body: body}) do
-    headers = [
-      {"Authorization", "Bearer #{token}"},
-      {"Accept", "application/vnd.github+json"},
-      {"X-GitHub-Api-Version", @api_version}
-    ]
-
-    Req.post(url, headers: headers, json: body, connect_options: [timeout: 30_000])
-  end
+  defp default_request_fun(request), do: Transport.default_request_fun(request)
 end

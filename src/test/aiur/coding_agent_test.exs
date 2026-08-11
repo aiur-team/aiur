@@ -16,7 +16,7 @@ defmodule Aiur.CodingAgentTest do
   describe "provider presentation descriptors (registry-driven rendering)" do
     test "provider_families/0 lists families in card order, deduped across a shared family" do
       # claude and claude-repl share family :claude, so it appears once.
-      assert CodingAgent.provider_families() == [:codex, :claude, :fake]
+      assert CodingAgent.provider_families() == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
     end
 
     test "default fallback is owned by the default backend registry entry" do
@@ -25,19 +25,32 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "provider_family_map/0 keys usage attribution by registered backend" do
-      assert CodingAgent.provider_family_map() == %{"codex" => :codex, "claude" => :claude, "fake" => :fake}
+      assert CodingAgent.provider_family_map() == %{
+               "codex" => :codex,
+               "claude" => :claude,
+               "kimi" => :kimi,
+               "deepseek" => :deepseek,
+               "openrouter" => :openrouter,
+               "fake" => :fake
+             }
     end
 
     test "provider_descriptor/1 exposes the fields every provider surface renders from" do
       codex = CodingAgent.provider_descriptor(:codex)
       assert codex.label == "Codex"
       assert codex.logo == "/provider-assets/codex-color.svg"
-      assert codex.token_icon == "/provider-assets/codex-token.svg"
+      assert codex.token_icon == "/provider-assets/claude-token.svg"
       assert codex.css_class == "is-codex"
 
       claude = CodingAgent.provider_descriptor(:claude)
       assert claude.label == "Claude"
+      assert claude.logo == "/provider-assets/claude-symbol.svg"
+      assert claude.token_icon == "/provider-assets/codex-token.svg"
       assert claude.css_class == "is-claude"
+
+      assert CodingAgent.provider_descriptor(:kimi).label == "Kimi"
+      assert CodingAgent.provider_descriptor(:deepseek).label == "DeepSeek"
+      assert CodingAgent.provider_descriptor(:openrouter).label == "OpenRouter"
     end
 
     test "provider_descriptor/1 is nil for an unknown provider (surfaces fall back generically)" do
@@ -45,7 +58,14 @@ defmodule Aiur.CodingAgentTest do
     end
 
     test "provider_descriptors/0 carries the resolved provider family atom and is card-ordered" do
-      assert [%{provider: :codex, order: 0}, %{provider: :claude, order: 1}, %{provider: :fake, order: 2}] =
+      assert [
+               %{provider: :codex, order: 0},
+               %{provider: :claude, order: 1},
+               %{provider: :kimi, order: 2},
+               %{provider: :deepseek, order: 3},
+               %{provider: :openrouter, order: 4},
+               %{provider: :fake, order: 99}
+             ] =
                CodingAgent.provider_descriptors()
     end
 
@@ -62,6 +82,9 @@ defmodule Aiur.CodingAgentTest do
       assert Catalog.adapters_for(:codex) == [Aiur.Usage.Headless.Codex.ThreadUsage, Aiur.Usage.Headless.Codex.TurnUsage]
       assert Catalog.adapters_for(:claude) == [Aiur.Usage.Headless.Claude.RequestUsage]
       assert Catalog.adapters_for(:fake) == [Aiur.Usage.Headless.Fake.RequestUsage]
+      assert Catalog.adapters_for(:kimi) == [Aiur.Usage.Headless.Kimi.RequestUsage]
+      assert Catalog.adapters_for(:deepseek) == [Aiur.Usage.Headless.DeepSeek.RequestUsage]
+      assert Catalog.adapters_for(:openrouter) == [Aiur.Usage.Headless.OpenRouter.RequestUsage]
       assert Dimensions.validate(:fake, Dimensions.from_options(:fake, [])) == :ok
     end
   end
@@ -312,6 +335,15 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.resolve_model("codex", nil) == nil
     end
 
+    test "a bare model:<backend> override resolves to that backend's registered default model" do
+      # A bare `model:deepseek` selects the backend without pinning a model; the
+      # routing table is codex/claude shaped and does not name it. The session
+      # must fall back to the backend's `openai_compat.default_model` rather
+      # than starting with `nil` (which surfaces as `unsupported_model`).
+      assert CodingAgent.resolve_model("deepseek", nil) == "deepseek-v4-flash"
+      assert CodingAgent.resolve_model("kimi", nil) == "kimi-k2.7-code"
+    end
+
     test "known_model?/2 covers both aliases and pinned versions, and nothing else" do
       assert CodingAgent.known_model?("codex", "sol")
       assert CodingAgent.known_model?("codex", "gpt-5.4")
@@ -344,7 +376,23 @@ defmodule Aiur.CodingAgentTest do
 
   describe "registry dispatch" do
     test "known_backends comes from the registry" do
-      assert Enum.sort(CodingAgent.known_backends()) == ["claude", "claude-repl", "codex", "fake"]
+      assert Enum.sort(CodingAgent.known_backends()) == [
+               "claude",
+               "claude-repl",
+               "codex",
+               "deepseek",
+               "fake",
+               "kimi",
+               "openrouter"
+             ]
+    end
+
+    test "DeepSeek stays registered for meters but requires an explicit dispatch opt-in" do
+      assert "deepseek" in CodingAgent.known_backends()
+      refute "deepseek" in CodingAgent.dispatchable_backends()
+      assert "deepseek" in CodingAgent.dispatchable_backends(%{"deepseek" => %{"enabled" => true}})
+      refute "deepseek" in CodingAgent.configurable_backends()
+      refute CodingAgent.override_backend(issue(["model:deepseek"]))
     end
 
     test "adapter and transcript_module resolve per backend" do
@@ -354,12 +402,19 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.transcript_module("claude") == Aiur.Claude.Transcript
       assert CodingAgent.transcript_module("codex") == Aiur.Codex.Transcript
       assert CodingAgent.transcript_module("claude-repl") == Aiur.Claude.Transcript
+      assert CodingAgent.adapter("kimi") == Aiur.OpenAICompat.CodingAgent
+      assert CodingAgent.adapter("deepseek") == Aiur.OpenAICompat.CodingAgent
+      assert CodingAgent.adapter("openrouter") == Aiur.OpenAICompat.CodingAgent
+      assert CodingAgent.transcript_module("kimi") == Aiur.OpenAICompat.Transcript
     end
 
     test "family_for keeps transport names separate from agent family" do
       assert CodingAgent.family_for("codex") == "codex"
       assert CodingAgent.family_for("claude") == "claude"
       assert CodingAgent.family_for("claude-repl") == "claude"
+      assert CodingAgent.family_for("kimi") == "kimi"
+      assert CodingAgent.family_for("deepseek") == "deepseek"
+      assert CodingAgent.family_for("openrouter") == "openrouter"
       assert CodingAgent.family_for("unknown") == nil
     end
 
@@ -367,6 +422,8 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.can_interrupt?("codex")
       assert CodingAgent.safe_checkpoints("codex") == [:notification, :tool_result]
       assert CodingAgent.safe_checkpoints("claude") == [:notification]
+      refute CodingAgent.can_interrupt?("kimi")
+      assert CodingAgent.safe_checkpoints("kimi") == [:notification, :tool_result]
       # The REPL holds nothing at a checkpoint, but Ctrl+C to its pane is
       # an out-of-band interrupt, so it advertises the capability.
       assert CodingAgent.can_interrupt?("claude-repl")
@@ -377,6 +434,9 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.control_application_confirmation("codex") == :confirmed
       assert CodingAgent.control_application_confirmation("claude") == :confirmed
       assert CodingAgent.control_application_confirmation("claude-repl") == :confirmed
+      assert CodingAgent.control_application_confirmation("kimi") == :request_only
+      assert CodingAgent.control_application_confirmation("deepseek") == :request_only
+      assert CodingAgent.control_application_confirmation("openrouter") == :request_only
       assert CodingAgent.control_application_confirmation("unknown") == :unsupported
     end
 
@@ -404,6 +464,15 @@ defmodule Aiur.CodingAgentTest do
       assert CodingAgent.remote_control?("claude")
       assert CodingAgent.remote_control?("claude-repl")
       refute CodingAgent.remote_control?("codex")
+    end
+
+    test "remote_worker? is false only for direct local transports" do
+      assert CodingAgent.remote_worker?("codex")
+      assert CodingAgent.remote_worker?("claude")
+      refute CodingAgent.remote_worker?("kimi")
+      refute CodingAgent.remote_worker?("deepseek")
+      refute CodingAgent.remote_worker?("openrouter")
+      refute CodingAgent.remote_worker?("opencode")
     end
 
     test "resumable? is true for codex and claude-repl, false for headless claude" do
@@ -447,6 +516,50 @@ defmodule Aiur.CodingAgentTest do
   end
 
   describe "send_operator_message/2" do
+    test "raises when the session has no backend instead of using the global default" do
+      session = %{thread_id: "thread-missing-backend"}
+
+      error =
+        assert_raise ArgumentError, fn ->
+          CodingAgent.send_operator_message(session, %{kind: :text, body: "hello agent"})
+        end
+
+      assert error.message =~ inspect(session)
+      assert error.message =~ "expected a binary :backend"
+    end
+
+    test "raises when the session backend is not a binary" do
+      session = %{backend: :claude, thread_id: "thread-invalid-backend"}
+
+      error =
+        assert_raise ArgumentError, fn ->
+          CodingAgent.send_operator_message(session, %{kind: :text, body: "hello agent"})
+        end
+
+      assert error.message =~ inspect(session)
+      assert error.message =~ "expected a binary :backend"
+    end
+
+    test "every session-routed entry point raises, not just send_operator_message/2" do
+      # `adapter_for_session/1` is private, so each public caller is pinned
+      # here. A new entry point that reintroduces the global-default fallback
+      # on its own path would not be caught by the two tests above.
+      malformed = [%{thread_id: "thread-no-backend"}, %{backend: :claude, thread_id: "thread-atom-backend"}]
+
+      entry_points = [
+        {"run_turn/4", fn session -> CodingAgent.run_turn(session, "prompt", %{}, []) end},
+        {"stop_session/1", fn session -> CodingAgent.stop_session(session) end},
+        {"send_operator_message/2", fn session -> CodingAgent.send_operator_message(session, %{kind: :text, body: "x"}) end}
+      ]
+
+      for {name, call} <- entry_points, session <- malformed do
+        error = assert_raise ArgumentError, fn -> call.(session) end
+
+        assert error.message =~ inspect(session), "#{name} did not name the malformed session"
+        assert error.message =~ "expected a binary :backend", "#{name} did not fail loudly"
+      end
+    end
+
     test "Codex adapter writes a turn/start frame with a fresh request id" do
       port = open_cat_port()
 

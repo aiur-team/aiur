@@ -1121,7 +1121,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "workspace installs only agent skills (no repo content) when no bootstrap hook is configured" do
+  test "workspace installs agent support (no repo content) when no bootstrap hook is configured" do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
@@ -1138,11 +1138,12 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.dir?(workspace)
 
       # With no bootstrap hook the workspace gets no repo content, but aiur still
-      # seeds its bundled agent skills (#689) so a dispatched agent can load them
-      # without a filesystem search.
+      # seeds its bundled agent skills (#689) and GitHub quota guard so a
+      # dispatched agent has its operating support without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".claude", ".codex", ".fake"]
+      assert Enum.sort(entries) == [".aiur-runtime", ".claude", ".codex", ".fake"]
       assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
+      assert File.exists?(Path.join([workspace, ".aiur-runtime", "bin", "gh"]))
     after
       File.rm_rf(workspace_root)
     end
@@ -1974,7 +1975,10 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert config.workspace.bootstrap_image == nil
     refute config.workspace.bootstrap_image_pull
     assert config.worker.max_concurrent_agents_per_host == nil
-    assert config.agent.max_concurrent_agents == 10
+    # `max_concurrent_agents` is nil at the schema level; the derived default
+    # (calibrated from host schedulers) is resolved by `Config.max_concurrent_agents/0`.
+    assert config.agent.max_concurrent_agents == nil
+    assert Config.max_concurrent_agents() == Config.default_max_concurrent_agents()
 
     # Dashboard binds a free loopback port by default so claude remote-control's
     # transcript hook works without explicit server config. Port 0 = OS-assigned;
@@ -2207,6 +2211,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     """
 
     File.write!(Workflow.workflow_file_path(), config)
+    # A raw write bypasses `write_workflow_file!/2`, which normally reloads the
+    # store for you. Since #1731 a read no longer reloads on the caller's
+    # behalf — the store owns freshness — so ask for the reload explicitly
+    # rather than racing its one-second poll.
+    assert :ok = WorkflowStore.force_reload()
 
     assert Config.settings!().agent.max_concurrent_agents == 10
     assert Config.max_concurrent_agents_for_state("Todo") == 1
@@ -2277,7 +2286,19 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert {:routing, {"complexity levels must be positive integers", []}} in bad.errors
 
     assert Enum.any?(bad.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
+             _ -> false
+           end)
+
+    # A registered-but-not-dispatch-enabled backend is rejected by the same path
+    # as an unknown one, so routing cannot reach an opt-in-only provider.
+    disabled =
+      {%{}, %{routing: :map}}
+      |> Changeset.cast(%{routing: %{4 => "deepseek"}}, [:routing])
+      |> AgentValidation.validate_agent_routing(:routing)
+
+    assert Enum.any?(disabled.errors, fn
+             {:routing, {msg, []}} -> msg =~ ~s(unknown or disabled backend "deepseek")
              _ -> false
            end)
 
@@ -2337,7 +2358,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       |> AgentValidation.validate_agent_routing(:routing)
 
     assert Enum.any?(bad_model_backend.errors, fn
-             {:routing, {msg, []}} -> msg =~ "unknown backend"
+             {:routing, {msg, []}} -> msg =~ "unknown or disabled backend"
              _ -> false
            end)
 
@@ -3242,7 +3263,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert trace =~ "-p 2200 worker-01 bash -lc"
       assert trace =~ "__AIUR_WORKSPACE__"
       assert trace =~ "~/.aiur-remote-workspaces/project/MT-SSH-WS"
-      assert trace =~ "${workspace#~/}"
+      assert trace =~ "${workspace#\\~/}"
       assert trace =~ "echo before-run"
       assert trace =~ "echo after-run"
       assert trace =~ "echo before-remove"

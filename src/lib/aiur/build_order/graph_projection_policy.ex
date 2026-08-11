@@ -1,7 +1,7 @@
 defmodule Aiur.BuildOrder.GraphProjection.Policy do
   @moduledoc false
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, ProviderResult, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, ProviderResult, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
 
@@ -125,11 +125,19 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
       not selected_repository?(selected, expected, repository) ->
         {:error, :provider_identity_mismatch, nil}
 
-      not SelectedRoot.structurally_valid?(selected) ->
+      SelectedRoot.structurally_valid?(selected) ->
+        {:ok, selected}
+
+      # A structural verdict is a claim about the operator's Build Order, so it
+      # may only be made from data we actually read. When every diagnostic on
+      # the candidate is provider-sourced ("we could not fetch this"), the graph
+      # is not malformed — the read is — and the specific read fault is reported
+      # instead of a fabricated `:structurally_invalid` (#1777).
+      structurally_defective?(selected) ->
         {:error, :structurally_invalid, nil}
 
       true ->
-        {:ok, selected}
+        {:error, provider_failure_class(selected), nil}
     end
   end
 
@@ -163,6 +171,26 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
   def failure_class(:call_budget_exhausted), do: :call_budget
   def failure_class(:structurally_invalid), do: :structurally_invalid
 
+  # Faults the provider names precisely. Each already records a matching
+  # `Diagnostic`, and folding them into `:provider_unavailable` threw that
+  # evidence away: the operator was told GitHub was down when the real fault was
+  # an inconsistent page, a repeated identity or a misconfigured authority
+  # (#1777).
+  def failure_class(reason)
+      when reason in [
+             :pagination_mismatch,
+             :duplicate_identity,
+             :provider_identity_mismatch,
+             :invalid_planning_bounds,
+             :invalid_planning_authority,
+             :connection_overflow,
+             :graphql_partial
+           ],
+      do: reason
+
+  def failure_class(:missing_github_token), do: :permission
+  def failure_class(:provider_schema), do: :schema
+
   def failure_class(reason)
       when reason in [:invalid_connection, :invalid_graphql_response, :invalid_root, :schema],
       do: :schema
@@ -170,6 +198,24 @@ defmodule Aiur.BuildOrder.GraphProjection.Policy do
   def failure_class(reason) when reason in [:timeout, :transport, :rate_limited, :permission], do: reason
   def failure_class(:invalid_requested_root), do: :invalid_root
   def failure_class(_reason), do: :provider_unavailable
+
+  # A defect the read actually observed: a bad root summary, or any diagnostic
+  # that is not provider-sourced (duplicate identity, malformed member, member
+  # overflow). Those are real claims about the graph.
+  defp structurally_defective?(%SelectedRoot{root: root, diagnostics: diagnostics}) do
+    not RootSummary.valid?(root) or Enum.any?(diagnostics, &(not Diagnostic.provider_sourced?(&1)))
+  end
+
+  defp structurally_defective?(_selected), do: true
+
+  defp provider_failure_class(%SelectedRoot{diagnostics: diagnostics}) do
+    diagnostics
+    |> Enum.find(&Diagnostic.provider_sourced?/1)
+    |> case do
+      %Diagnostic{code: code} -> failure_class(code)
+      _ -> :provider_unavailable
+    end
+  end
 
   defp aged_health(%{data: nil, health: health}, _now_ms, _interval_ms), do: health
 

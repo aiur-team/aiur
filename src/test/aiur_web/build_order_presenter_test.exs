@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrderPresenterTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Dependency, Diagnostic, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderPresenter
@@ -447,6 +447,50 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert length(model.edges) == 1
     assert node(model, 1).activity.provenance == %{}
     refute inspect(model) =~ token
+  end
+
+  test "reports an unavailable provider as a provider problem, not a malformed graph" do
+    # The shape the projection stores after a failed read of a perfectly
+    # well-formed Build Order: no data, and a provider that could not fetch.
+    health = ProviderHealth.new(:unknown, :unavailable, false, last_success_at: @now)
+
+    model =
+      BuildOrderPresenter.present(
+        %Snapshot{scope: {:selected, identity(100)}, repository: @repository, generation: :unknown, data: nil, health: health},
+        status_snapshot(),
+        activity_snapshot()
+      )
+
+    assert model.status == :provider_unavailable
+    assert diagnostic_codes(model) == [:provider_unavailable]
+
+    # Zeros must never stand in for unknown: the counts were never resolved.
+    refute model.summary.resolved?
+  end
+
+  test "reports a fetched-but-degraded selected root as unavailable rather than structurally invalid" do
+    degraded = %{SelectedRoot.new(root(identity(100)), [], ProviderHealth.new(:unknown, :unavailable, false)) | diagnostics: [Diagnostic.new(:call_budget_exhausted)]}
+
+    snapshot = %Snapshot{
+      scope: {:selected, identity(100)},
+      repository: @repository,
+      generation: 7,
+      data: degraded,
+      health: ProviderHealth.new(:unknown, :unavailable, false)
+    }
+
+    model = BuildOrderPresenter.present(snapshot, status_snapshot(), activity_snapshot())
+
+    assert model.status == :provider_unavailable
+  end
+
+  test "still reports a genuinely malformed graph as structurally invalid" do
+    malformed = Member.new(%{identity: identity(2), title: "Member", url: issue_url(2), dependencies: [:malformed]})
+
+    model = BuildOrderPresenter.present(snapshot([malformed]), status_snapshot(), activity_snapshot())
+
+    assert model.status == :structurally_invalid
+    assert model.summary.resolved?
   end
 
   defp snapshot(members, opts \\ []) do

@@ -1,6 +1,8 @@
 defmodule Aiur.ApplicationTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Application, as: AiurApp
 
   defmodule SuccessStubDistribution do
@@ -20,6 +22,12 @@ defmodule Aiur.ApplicationTest do
     # shutdown. There's no cleanup to perform — releases unmount on
     # node halt — so the callback just returns :ok.
     assert :ok = AiurApp.stop(:any_state)
+  end
+
+  test "logs the resolved base branch exactly once at info level" do
+    log = capture_log(fn -> assert :ok = AiurApp.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
+
+    assert length(Regex.scan(~r/aiur_boot phase=config base_branch="develop"/, log)) == 1
   end
 
   describe "start_distribution/1" do
@@ -252,6 +260,18 @@ defmodule Aiur.ApplicationTest do
         tracked_set = Enum.find_index(mods, &(&1 == Aiur.Orchestrator.TrackedSet))
         orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
         assert tracked_set < orchestrator, "TrackedSet must precede Orchestrator for #{inspect(opts)}"
+      end
+    end
+
+    test "GitHub quota authority starts before the orchestrator in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        quota = Enum.find_index(mods, &(&1 == Aiur.GitHub.Quota))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        assert quota < orchestrator
       end
     end
 

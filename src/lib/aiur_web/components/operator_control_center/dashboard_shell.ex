@@ -7,6 +7,9 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
+  attr(:title, :string, default: nil)
+  attr(:back_path, :string, default: nil)
+  attr(:back_label, :string, default: "Back")
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -78,9 +81,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <%!-- The same glyph the nav uses for this route, so the heading and
                   the nav item read as the same thing. Decorative: the heading
                   text already names the route. --%>
-            <h1 id="route-title">
-              <span class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
-              <span>{@route.label}</span>
+            <h1 id="route-title" aria-label={@title || @route.label}>
+              <.link :if={@back_path} patch={@back_path} class="route-title-icon route-title-back" aria-label={@back_label}>
+                <span aria-hidden="true">{nav_icon(@route.id)}</span>
+              </.link>
+              <span :if={is_nil(@back_path)} class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
+              <span>{@title || @route.label}</span>
             </h1>
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>

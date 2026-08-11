@@ -1,5 +1,6 @@
 tracker:
   kind: github
+  base_branch: your-base-branch
   active_states:
     - todo
     - in-progress
@@ -8,6 +9,7 @@ tracker:
     - merging
   terminal_states:
     - done
+    - closed
     - cancelled
     - canceled
   github:
@@ -63,13 +65,22 @@ hooks:
     # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
     issue_id="$(basename "$PWD")"
-    git checkout -b "aiur/${issue_id}" origin/main
+    git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
+    git update-ref refs/aiur/branch-start HEAD
   before_remove: |
     git status --short
 agent:
   kind: codex
   max_concurrent_agents: 2
   max_turns: 12
+  # Cold backend switches continue from workspace context; provider transcripts
+  # are never transferred across backends.
+  prior_work_continuation: true
+  # Direct OpenAI-compatible instances use keys from the environment (prefer
+  # ~/.aiur/.env) and can be enabled/selected without adding provider unions:
+  # backend_configs:
+  #   deepseek: {enabled: false}
+  #   openrouter: {model: moonshotai/kimi-k2.7-code}
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
   # unlabeled issues fall back to `kind`; a `model:<backend>` issue label

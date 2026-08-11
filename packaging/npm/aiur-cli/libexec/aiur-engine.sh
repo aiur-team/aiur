@@ -316,6 +316,12 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur stop             stop the running session
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
+       aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
+       aiur executor-answer <decision-id> --expected-version <n> (--option <id>|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]
+       aiur executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]
+       aiur units [--scope live|unfinished|all|none] [--condition active|alert|paused|queued|finished]... [--format auto|table|records] [--json]
+       aiur build-orders [<root>] [--json]  show the Build Order catalog or one root
+       aiur analytics [--range run|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]
        aiur alerts [--needs-attention]  show structured alert feed
        aiur watch [--full|--changes] [--interval <secs>]  server-side status board
        aiur executor-listen [--topic <pattern>]  stream Executor events as JSON lines
@@ -327,6 +333,13 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur pause <ids|--all> | resume <ids|--all>  per-agent pause/resume
        aiur message <id> <text>  send Executor text to a running agent
        aiur --todo <ids...> [--only]  queue tickets; optionally dequeue all other pending tickets
+       aiur findings [--unfiled] [--slugs] [--scope aiur|repo]  inspect host-local findings
+       aiur findings --record <json> --repo <owner/repo>  append one validated finding
+       aiur findings --digest [--scope aiur|repo]  generate the promoted Markdown digest
+       aiur guard-pr-deletions [base-branch]  refuse PRs with excessive untouched deletions
+       aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]
+       aiur ask --done <id> [--note <text>]  create or resolve an operator request
+       aiur asks [--open|--all] [--json]  inspect current-repository operator requests
        aiur cleanup-stale [--dry-run]  list/reap stale manual-smoke leftovers
        aiur --version
 EOF
@@ -406,16 +419,32 @@ run_todo() {
   run_control_rpc "Aiur.AgentControlCLI.todo($(elixir_list_literal "${parsed_targets[@]}"), only: $only_arg, emit_exit_marker: true)"
 }
 
+# --- one-shot: findings (distribution-free, no daemon/tmux) -------------------
+
+run_findings() {
+  run_init "$@"
+}
+
+# --- one-shot: ask / asks (distribution-free, no daemon/tmux) ----------------
+
+run_asks() {
+  run_init "$@"
+}
+
 # --- interactive / background run -------------------------------------------
 #
 # mode=foreground attaches the UI and tears down on exit; mode=background leaves
 # the detached tmux session running and returns.
 
-# Load KEY=VALUE pairs from ./.env into the environment so the running release
-# (e.g. GITHUB_TOKEN, dashboard creds) sees what `aiur init` scaffolded there.
-# An already-exported variable always wins, so a shell export overrides the file.
+# Load operator/machine credentials before repo-local settings. Since each file
+# only fills unset names, shell exports win first, then ~/.aiur/.env, then ./.env.
 load_dotenv() {
-  local file=".env" line key val
+  load_dotenv_file "$HOME/.aiur/.env"
+  load_dotenv_file ".env"
+}
+
+load_dotenv_file() {
+  local file="$1" line key val
   [ -f "$file" ] || return 0
   while IFS= read -r line || [ -n "$line" ]; do
     line="${line#"${line%%[![:space:]]*}"}"
@@ -433,6 +462,13 @@ load_dotenv() {
     [ -n "${!key+x}" ] && continue
     export "$key=$val"
   done <"$file"
+}
+
+# The readiness token grants the one-shot `aiur init` assessment access that a
+# normal daemon and its child agents must never inherit. Keep dotenv loading
+# generic, then remove this run-only secret before any session process starts.
+scrub_run_only_env() {
+  unset AIUR_CI_READINESS_TOKEN
 }
 
 run_argv=()
@@ -505,6 +541,7 @@ run_session() {
   # Pick up GITHUB_TOKEN / dashboard creds the wizard wrote to ./.env so the
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
+  scrub_run_only_env
 
   init_argv_file
 
@@ -601,6 +638,7 @@ run_session() {
   {
     printf '#!/usr/bin/env bash\n'
     printf 'set -o pipefail\n'
+    printf 'unset AIUR_CI_READINESS_TOKEN\n'
     printf 'cd %q || exit 1\n' "$PWD"
     local v
     for v in AIUR_RELEASE_DIR AIUR_ARGV_FILE RELEASE_DISTRIBUTION RELEASE_NODE \
@@ -1717,9 +1755,49 @@ run_release_rpc_with_timeout() {
   return "$status"
 }
 
+control_command_label() {
+  printf '%s' "${AIUR_CONTROL_COMMAND:-control rpc}"
+}
+
+# Every line a control RPC surfaces to the operator routes through one of these
+# two helpers, so `run_control_rpc` can prove it never returns non-zero while
+# saying nothing (#1684): a silent failure is indistinguishable from a healthy
+# idle fleet, and nobody reads exit codes interactively.
+control_rpc_say() {
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
+control_rpc_echo_output() {
+  [ -n "$1" ] || return 0
+  AIUR_CONTROL_RPC_DIAGNOSED=1
+  printf '%s\n' "$1" >&2
+}
+
 # RPC an expression into the running node. The control CLI prints a trailing
 # `__AIUR_CONTROL_EXIT__:<code>` marker we translate into the process exit code.
+#
+# Wrapper contract: a non-zero return ALWAYS carries at least one stderr line
+# naming the command that failed. EX_TEMPFAIL (75) is exempt — it is the dev
+# shim's internal rebuild-and-retry signal, never an operator-visible outcome.
 run_control_rpc() {
+  local status=0
+
+  AIUR_CONTROL_RPC_DIAGNOSED=0
+  run_control_rpc_dispatch "$@" || status=$?
+
+  if [ "$status" -ne 0 ] && [ "$status" -ne 75 ] && [ "${AIUR_CONTROL_RPC_DIAGNOSED:-0}" -ne 1 ]; then
+    if [ "$status" -eq 124 ]; then
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown. The daemon did not reply within the budget - commonly one blocked process inside it, not host load. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
+    else
+      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no diagnostic output; outcome is unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
+    fi
+  fi
+
+  return "$status"
+}
+
+run_control_rpc_dispatch() {
   local expression="$1"
   resolve_release || return $?
   prepare_distribution || die "distribution setup failed; cannot contact aiur"
@@ -1728,8 +1806,8 @@ run_control_rpc() {
     prepare_distribution || die "distribution setup failed; cannot contact aiur"
   fi
 
-  local marker="__AIUR_CONTROL_EXIT__:"
-  local output status exit_code=0 saw_marker=0 line
+  local marker="__AIUR_CONTROL_EXIT__:" error_marker="__AIUR_CONTROL_ERROR__:"
+  local output status exit_code=0 saw_marker=0 saw_error=0 saw_output=0 line partial_suffix=""
 
   set +e
   run_release_rpc_with_timeout "$expression"
@@ -1744,9 +1822,8 @@ run_control_rpc() {
   fi
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
-    [ -n "$output" ] && printf '%s\n' "$output" >&2
-    echo "aiur: control rpc to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; helper process was terminated" >&2
-    echo "aiur: the daemon may be scheduler-saturated; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again" >&2
+    [ -n "$output" ] && partial_suffix="; partial output was discarded"
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; outcome is unknown${partial_suffix}. Commonly one blocked process inside the daemon, not host load."
     return 124
   fi
 
@@ -1759,17 +1836,31 @@ run_control_rpc() {
     # node epmd confirms is down earns the friendly "start aiur" hint; an `up`
     # node failed for a real reason, and an `unknown` probe must not be assumed
     # down — in both of those cases surface the actual rpc output, never mask it.
+    #
+    # An empty buffer is its own case: `--rpc-eval` kills itself without a word
+    # when the evaluated expression exits (a GenServer call timing out against a
+    # saturated daemon does exactly that), so "see the error above" would point
+    # at nothing (#1684). Name the failure instead.
     case "$(probe_node_liveness)" in
       down)
         print_control_down_message
+        AIUR_CONTROL_RPC_DIAGNOSED=1
         ;;
       up)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (node is running); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (node is running); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no diagnostic output (node is running); outcome is unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
+        fi
         ;;
       *)
-        [ -n "$output" ] && printf '%s\n' "$output" >&2
-        echo "aiur: rpc to ${RELEASE_NODE} failed (could not query epmd to confirm node state); see the error above" >&2
+        control_rpc_echo_output "$output"
+        if [ -n "$output" ]; then
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (could not query epmd to confirm node state); see the error above"
+        else
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (could not query epmd to confirm node state)"
+        fi
         ;;
     esac
     return 1
@@ -1781,14 +1872,27 @@ run_control_rpc() {
         saw_marker=1
         exit_code="${line#"$marker"}"
         ;;
+      "$error_marker"*)
+        saw_error=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
+        printf '%s\n' "${line#"$error_marker"}" >&2
+        ;;
       :ok | "") ;;
-      *) printf '%s\n' "$line" ;;
+      *)
+        saw_output=1
+        AIUR_CONTROL_RPC_DIAGNOSED=1
+        printf '%s\n' "$line"
+        ;;
     esac
   done <<<"$output"
 
   if [ "$saw_marker" -ne 1 ]; then
-    echo "aiur: control rpc to ${RELEASE_NODE} returned no exit marker; command output may be incomplete" >&2
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} returned no exit marker; command output may be incomplete"
     return 1
+  fi
+
+  if [ "$exit_code" -ne 0 ] && [ "$saw_error" -ne 1 ] && [ "$saw_output" -ne 1 ]; then
+    control_rpc_say "aiur: $(control_command_label) failed with exit ${exit_code} and returned no diagnostic output"
   fi
 
   return "$exit_code"
@@ -1808,7 +1912,13 @@ run_control_stream() {
     print_control_down_message
     return 1
   fi
-  exec "$release_bin" rpc "$expression"
+  if "$release_bin" rpc "$expression"; then
+    return 0
+  else
+    local status=$?
+    echo "aiur: streaming control RPC failed with exit ${status}" >&2
+    return "$status"
+  fi
 }
 
 elixir_list_literal() {
@@ -1887,6 +1997,27 @@ cmd_pause_resume() {
   run_control_rpc "$expression"
 }
 
+# `aiur reset-budget <id>...` — clear the lifetime dispatch latch for one or
+# more tickets (the supported exit from the #1453 latch; no JSON hand-editing).
+cmd_reset_budget() {
+  if ! parse_issue_targets "$@"; then
+    echo "aiur: reset-budget expects issue IDs (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  # --all is rejected (exit 64 with guidance) rather than silently no-opping:
+  # clearing every ticket's latch at once is not a documented operation and
+  # would mask which tickets are structurally stuck (#1453 review P2d).
+  if [ "$parsed_all" -eq 1 ]; then
+    echo "aiur: reset-budget does not accept --all; name ticket IDs explicitly (e.g. aiur reset-budget 44 45,46)" >&2
+    exit 64
+  fi
+
+  local expression
+  expression="Aiur.AgentControlCLI.reset_budget($(elixir_list_literal "${parsed_targets[@]}"))"
+  run_control_rpc "$expression"
+}
+
 # `aiur message <issue> <text>` — deliver Executor text to one running agent.
 # The text is base64-encoded for the RPC hop so arbitrary content (quotes,
 # backslashes, `#{}`, newlines) survives without Elixir-string escaping.
@@ -1916,6 +2047,266 @@ cmd_message() {
 cmd_agents() {
   [ "$#" -eq 0 ] || die "agents does not accept arguments"
   run_control_rpc "Aiur.AgentControlCLI.agents()"
+}
+
+# `aiur commands` — read the dashboard's retained Decision projection without
+# exposing any dispatch or answer mutation path.
+cmd_commands() {
+  local filter="all" blocking=0 json=0 decision_id="" ticket="" search="" cursor="" limit="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --filter) [ "$#" -gt 1 ] || { echo "aiur: commands --filter requires a value" >&2; exit 64; }; shift; filter="$1" ;;
+      --filter=*) filter="${arg#--filter=}" ;;
+      --blocking) blocking=1 ;;
+      --ticket) [ "$#" -gt 1 ] || { echo "aiur: commands --ticket requires a value" >&2; exit 64; }; shift; ticket="$1" ;;
+      --ticket=*) ticket="${arg#--ticket=}" ;;
+      --search) [ "$#" -gt 1 ] || { echo "aiur: commands --search requires a value" >&2; exit 64; }; shift; search="$1" ;;
+      --search=*) search="${arg#--search=}" ;;
+      --cursor) [ "$#" -gt 1 ] || { echo "aiur: commands --cursor requires a value" >&2; exit 64; }; shift; cursor="$1" ;;
+      --cursor=*) cursor="${arg#--cursor=}" ;;
+      --limit) [ "$#" -gt 1 ] || { echo "aiur: commands --limit requires a value" >&2; exit 64; }; shift; limit="$1" ;;
+      --limit=*) limit="${arg#--limit=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: commands received an unknown option: $arg" >&2; exit 64 ;;
+      *)
+        if [ -n "$decision_id" ]; then
+          echo "aiur: commands accepts at most one decision ID" >&2
+          exit 64
+        fi
+        decision_id="$arg"
+        ;;
+    esac
+    shift
+  done
+
+  case "$filter" in all|open|blocking|resolved) ;; *) echo "aiur: commands --filter accepts all, open, blocking, or resolved" >&2; exit 64 ;; esac
+  [ -z "$limit" ] || [[ "$limit" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: commands --limit expects a positive integer" >&2; exit 64; }
+  [ -z "$ticket" ] || [ "$filter" = "all" ] || { echo "aiur: commands --ticket requires --filter all" >&2; exit 64; }
+  [ -z "$search" ] || [ "$filter" = "all" ] || { echo "aiur: commands --search requires --filter all" >&2; exit 64; }
+
+  local opts="filter: :$filter"
+  [ "$blocking" -eq 1 ] && opts="$opts, blocking: true"
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  [ -n "$limit" ] && opts="$opts, limit: $limit"
+  local key raw encoded
+  for key in decision_id ticket search cursor; do
+    raw="${!key}"
+    [ -n "$raw" ] || continue
+    encoded="$(printf '%s' "$raw" | base64 | tr -d '\n')"
+    opts="$opts, $key: Base.decode64!(\"$encoded\")"
+  done
+
+  run_control_rpc "Aiur.AgentControlCLI.commands([$opts])"
+}
+
+encode_control_value() {
+  printf '%s' "$1" | base64 | tr -d '\n'
+}
+
+# These are explicit trusted-Executor mutations, deliberately separate from
+# the read-only `commands` catalog. Revisions remain dashboard-owned.
+cmd_executor_answer() {
+  local decision_id="${1:-}" expected_version="" option_id="" custom_response="" rationale="" idempotency_key="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-answer expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --option) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --option requires a value" >&2; exit 64; }; shift; option_id="$1" ;;
+      --option=*) option_id="${arg#--option=}" ;;
+      --custom-response) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --custom-response requires a value" >&2; exit 64; }; shift; custom_response="$1" ;;
+      --custom-response=*) custom_response="${arg#--custom-response=}" ;;
+      --rationale) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --rationale requires a value" >&2; exit 64; }; shift; rationale="$1" ;;
+      --rationale=*) rationale="${arg#--rationale=}" ;;
+      --idempotency-key) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --idempotency-key requires a value" >&2; exit 64; }; shift; idempotency_key="$1" ;;
+      --idempotency-key=*) idempotency_key="${arg#--idempotency-key=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-answer --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-answer received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-answer expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-answer --expected-version expects a positive integer" >&2; exit 64; }
+  if { [ -n "$option_id" ] && [ -n "$custom_response" ]; } || { [ -z "$option_id" ] && [ -z "$custom_response" ]; }; then
+    echo "aiur: executor-answer requires exactly one of --option or --custom-response" >&2
+    exit 64
+  fi
+  [ -n "$rationale" ] || { echo "aiur: executor-answer --rationale is required" >&2; exit 64; }
+  [ -n "$idempotency_key" ] || { echo "aiur: executor-answer --idempotency-key is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-answer --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  if [ -n "$option_id" ]; then
+    opts="$opts, option_id: Base.decode64!(\"$(encode_control_value "$option_id")\")"
+  else
+    opts="$opts, custom_response: Base.decode64!(\"$(encode_control_value "$custom_response")\")"
+  fi
+  opts="$opts, rationale: Base.decode64!(\"$(encode_control_value "$rationale")\")"
+  opts="$opts, idempotency_key: Base.decode64!(\"$(encode_control_value "$idempotency_key")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_answer([$opts])"
+}
+
+cmd_executor_escalate() {
+  local decision_id="${1:-}" expected_version="" reason="" executor_id="aiur-cli" arg
+  if [ -z "$decision_id" ] || [[ "$decision_id" = -* ]]; then
+    echo "aiur: executor-escalate expects exactly one decision ID" >&2
+    exit 64
+  fi
+  shift
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --expected-version) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --expected-version requires a value" >&2; exit 64; }; shift; expected_version="$1" ;;
+      --expected-version=*) expected_version="${arg#--expected-version=}" ;;
+      --reason) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --reason requires a value" >&2; exit 64; }; shift; reason="$1" ;;
+      --reason=*) reason="${arg#--reason=}" ;;
+      --executor-id) [ "$#" -gt 1 ] || { echo "aiur: executor-escalate --executor-id requires a value" >&2; exit 64; }; shift; executor_id="$1" ;;
+      --executor-id=*) executor_id="${arg#--executor-id=}" ;;
+      -*) echo "aiur: executor-escalate received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: executor-escalate expects exactly one decision ID" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  [[ "$expected_version" =~ ^[1-9][0-9]*$ ]] || { echo "aiur: executor-escalate --expected-version expects a positive integer" >&2; exit 64; }
+  [ -n "$reason" ] || { echo "aiur: executor-escalate --reason is required" >&2; exit 64; }
+  [ -n "$executor_id" ] || { echo "aiur: executor-escalate --executor-id must not be empty" >&2; exit 64; }
+
+  local opts="decision_id: Base.decode64!(\"$(encode_control_value "$decision_id")\"), expected_version: $expected_version"
+  opts="$opts, reason: Base.decode64!(\"$(encode_control_value "$reason")\")"
+  opts="$opts, executor_id: Base.decode64!(\"$(encode_control_value "$executor_id")\")"
+  run_control_rpc "Aiur.AgentControlCLI.executor_escalate([$opts])"
+}
+
+# `aiur units` — read the dashboard Units catalog through its own projection,
+# including non-running tickets in current-run membership.
+cmd_units() {
+  local scope="live" format="" json=0 arg condition condition_value condition_encoded conditions_literal=""
+  local -a conditions=() condition_values=()
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --scope) [ "$#" -gt 1 ] || { echo "aiur: units --scope requires a value" >&2; exit 64; }; shift; scope="$1" ;;
+      --scope=*) scope="${arg#--scope=}" ;;
+      --condition) [ "$#" -gt 1 ] || { echo "aiur: units --condition requires a value" >&2; exit 64; }; shift; conditions+=("$1") ;;
+      --condition=*) conditions+=("${arg#--condition=}") ;;
+      --format) [ "$#" -gt 1 ] || { echo "aiur: units --format requires a value" >&2; exit 64; }; shift; format="$1" ;;
+      --format=*) format="${arg#--format=}" ;;
+      --json) json=1 ;;
+      -*) echo "aiur: units received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: units does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  for condition in "${conditions[@]+"${conditions[@]}"}"; do
+    IFS=',' read -r -a condition_values <<< "$condition"
+    for condition_value in "${condition_values[@]+"${condition_values[@]}"}"; do
+      if [ -n "$conditions_literal" ]; then conditions_literal="$conditions_literal, "; fi
+      condition_encoded="$(printf '%s' "$condition_value" | base64 | tr -d '\n')"
+      conditions_literal="${conditions_literal}Base.decode64!(\"${condition_encoded}\")"
+    done
+  done
+
+  local scope_encoded
+  scope_encoded="$(printf '%s' "$scope" | base64 | tr -d '\n')"
+  local opts="scope: Base.decode64!(\"$scope_encoded\")"
+  [ -z "$conditions_literal" ] || opts="$opts, conditions: [$conditions_literal]"
+
+  if [ -n "$format" ]; then
+    local format_encoded
+    format_encoded="$(printf '%s' "$format" | base64 | tr -d '\n')"
+    opts="$opts, format: Base.decode64!(\"$format_encoded\")"
+  fi
+
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  run_control_rpc "Aiur.AgentControlCLI.units([$opts])"
+}
+
+# `aiur build-orders` — read the dashboard Build Order projection without a
+# second GitHub or API derivation. A root selector switches from catalog to the
+# selected-root graph view.
+cmd_build_orders() {
+  local json=0 root="" arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --json) json=1 ;;
+      -*) echo "aiur: build-orders received an unknown option: $arg" >&2; exit 64 ;;
+      *)
+        if [ -n "$root" ]; then
+          echo "aiur: build-orders accepts at most one root" >&2
+          exit 64
+        fi
+        root="$arg"
+        ;;
+    esac
+    shift
+  done
+
+  local opts=""
+  [ "$json" -eq 1 ] && opts="json: true"
+
+  if [ -n "$root" ]; then
+    local encoded
+    encoded="$(printf '%s' "$root" | base64 | tr -d '\n')"
+    [ -n "$opts" ] && opts="$opts, "
+    opts="${opts}root: Base.decode64!(\"$encoded\")"
+  fi
+
+  run_control_rpc "Aiur.AgentControlCLI.build_orders([$opts])"
+}
+
+# `aiur analytics` — render the dashboard analytics projection for an explicit
+# time window. This is read-only and obtains the same durable telemetry snapshot
+# the page uses through the running node.
+cmd_analytics() {
+  local range="run" json=0 since="" until="" build_order="" has_build_order=0 arg
+
+  while [ "$#" -gt 0 ]; do
+    arg="$1"
+    case "$arg" in
+      --range) [ "$#" -gt 1 ] || { echo "aiur: analytics --range requires a value" >&2; exit 64; }; shift; range="$1" ;;
+      --range=*) range="${arg#--range=}" ;;
+      --since) [ "$#" -gt 1 ] || { echo "aiur: analytics --since requires a value" >&2; exit 64; }; shift; since="$1" ;;
+      --since=*) since="${arg#--since=}" ;;
+      --until) [ "$#" -gt 1 ] || { echo "aiur: analytics --until requires a value" >&2; exit 64; }; shift; until="$1" ;;
+      --until=*) until="${arg#--until=}" ;;
+      --build-order) [ "$#" -gt 1 ] || { echo "aiur: analytics --build-order requires a value" >&2; exit 64; }; shift; build_order="$1"; has_build_order=1 ;;
+      --build-order=*) build_order="${arg#--build-order=}"; has_build_order=1 ;;
+      --json) json=1 ;;
+      -*) echo "aiur: analytics received an unknown option: $arg" >&2; exit 64 ;;
+      *) echo "aiur: analytics does not accept positional arguments" >&2; exit 64 ;;
+    esac
+    shift
+  done
+
+  case "$range" in run|full) ;; *) echo "aiur: analytics --range accepts run or full" >&2; exit 64 ;; esac
+  [ "$has_build_order" -eq 0 ] || [[ "$build_order" =~ ^[0-9]+$ ]] || { echo "aiur: analytics --build-order expects a numeric ticket ID" >&2; exit 64; }
+
+  local opts="range: :$range" key raw encoded
+  [ "$json" -eq 1 ] && opts="$opts, json: true"
+  for key in since until build_order; do
+    raw="${!key}"
+    [ -n "$raw" ] || continue
+    encoded="$(printf '%s' "$raw" | base64 | tr -d '\n')"
+    opts="$opts, $key: Base.decode64!(\"$encoded\")"
+  done
+
+  run_control_rpc "Aiur.AgentControlCLI.analytics([$opts])"
 }
 
 # `aiur alerts` — newline-delimited structured alert feed from persisted
@@ -2339,6 +2730,9 @@ dispatch_run() {
 
 aiur_engine_main() {
   local cmd="${1:-}"
+  # Names the running subcommand in control-RPC diagnostics so a failure says
+  # which command failed instead of a generic "control rpc" (#1684).
+  AIUR_CONTROL_COMMAND="${cmd:-run}"
   case "$cmd" in
     __identity)
       aiur_print_identity
@@ -2359,6 +2753,16 @@ aiur_engine_main() {
     init)
       run_init "$@"
       ;;
+    findings)
+      run_findings "$@"
+      ;;
+    guard-pr-deletions)
+      shift
+      "$engine_dir/guard-pr-deletions.sh" "$@"
+      ;;
+    ask | asks)
+      run_asks "$@"
+      ;;
     --bg)
       dispatch_run "$@"
       ;;
@@ -2377,6 +2781,30 @@ aiur_engine_main() {
     agents)
       shift
       cmd_agents "$@"
+      ;;
+    commands)
+      shift
+      cmd_commands "$@"
+      ;;
+    executor-answer)
+      shift
+      cmd_executor_answer "$@"
+      ;;
+    executor-escalate)
+      shift
+      cmd_executor_escalate "$@"
+      ;;
+    units)
+      shift
+      cmd_units "$@"
+      ;;
+    build-orders)
+      shift
+      cmd_build_orders "$@"
+      ;;
+    analytics)
+      shift
+      cmd_analytics "$@"
       ;;
     alerts)
       shift
@@ -2409,6 +2837,10 @@ aiur_engine_main() {
     pause | resume)
       shift
       cmd_pause_resume "$cmd" "$@"
+      ;;
+    reset-budget)
+      shift
+      cmd_reset_budget "$@"
       ;;
     message)
       shift

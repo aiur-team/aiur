@@ -1,10 +1,14 @@
 tracker:
   kind: github
+  base_branch: main
   active_states:
     - todo
     - in-progress
   terminal_states:
     - done
+    - closed
+    - cancelled
+    - canceled
   github:
     repo: test-org/test-repo
     label_prefix: agent

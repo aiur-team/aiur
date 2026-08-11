@@ -10,7 +10,7 @@ defmodule Aiur.Workspace.Remote do
       "#{variable_name}=#{Aiur.Shell.escape(raw_path)}",
       "case \"$#{variable_name}\" in",
       "  '~') #{variable_name}=\"$HOME\" ;;",
-      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#~/}\" ;;",
+      "  '~/'*) " <> variable_name <> "=\"$HOME/${" <> variable_name <> "#\\~/}\" ;;",
       "esac"
     ]
     |> Enum.join("\n")
@@ -20,10 +20,20 @@ defmodule Aiur.Workspace.Remote do
           {:ok, {String.t(), non_neg_integer()}} | {:error, term()}
   def run_remote_command(worker_host, script, timeout_ms)
       when is_binary(worker_host) and is_binary(script) and is_integer(timeout_ms) and timeout_ms > 0 do
-    task =
-      Task.async(fn ->
-        SSH.run(worker_host, script, stderr_to_stdout: true)
-      end)
+    run_bounded(timeout_ms, fn -> SSH.run(worker_host, script, stderr_to_stdout: true) end)
+  end
+
+  @spec run_remote_script(String.t(), String.t(), pos_integer()) ::
+          {:ok, {String.t(), non_neg_integer()}} | {:error, term()}
+  def run_remote_script(worker_host, script, timeout_ms)
+      when is_binary(worker_host) and is_binary(script) and is_integer(timeout_ms) and timeout_ms > 0 do
+    SSH.with_script(worker_host, script, [stderr_to_stdout: true], fn command ->
+      run_bounded(timeout_ms, command)
+    end)
+  end
+
+  defp run_bounded(timeout_ms, fun) do
+    task = Task.async(fun)
 
     case Task.yield(task, timeout_ms) do
       {:ok, result} ->

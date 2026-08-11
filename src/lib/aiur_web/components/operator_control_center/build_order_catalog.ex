@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
 
   use Phoenix.Component
 
-  alias Aiur.BuildOrder.{Catalog, RootSummary}
+  alias Aiur.BuildOrder.{Catalog, ProgressRenderer, RootSummary}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.RouteState
@@ -44,6 +44,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       assigns
       |> assign(:entries, entries)
       |> assign(:catalog, catalog)
+      |> assign(:search_paths, catalog.search_paths)
       |> assign(:catalog_notice, catalog_notice(snapshot))
 
     ~H"""
@@ -71,27 +72,21 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
               <span :if={is_nil(catalog_path(entry))} class="bo-catalog-invalid">{entry.title}</span>
             </td>
             <td class="bo-catalog-progress-cell">
-              <div
-                :if={is_integer(entry.progress)}
-                class="bo-catalog-progress"
-                role="img"
-                aria-label={"#{entry.progress}% complete"}
-              >
-                <span class="bo-catalog-progress-track"><i style={"width:#{entry.progress}%"}></i></span>
-                <span class="bo-catalog-progress-label mono num">{entry.progress}%</span>
-              </div>
-              <span :if={is_nil(entry.progress)} class="bo-catalog-invalid">—</span>
+              <.catalog_progress entry={entry} />
             </td>
             <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
-            <td class="bo-catalog-num mono num">{count_display(entry.epic_count)}</td>
-            <td class="bo-catalog-num mono num">{count_display(entry.phase_count)}</td>
+            <td class="bo-catalog-num mono num"><.catalog_count count={entry.epic_count} label="Epics" /></td>
+            <td class="bo-catalog-num mono num"><.catalog_count count={entry.phase_count} label="Waves" /></td>
           </tr>
         </tbody>
       </table>
 
       <div :if={@entries == []} class="bo-state-card">
-        <h3>No Build Orders</h3>
-        <p>The healthy catalog contains no roots.</p>
+        <h3>No Build Orders for this repository</h3>
+        <p>No packs matching this daemon's tracked repository were found.</p>
+        <p :if={@search_paths != []}>
+          Searched: {Enum.join(@search_paths, ", ")}
+        </p>
       </div>
 
       <ul :if={@catalog.diagnostics != []} class="bo-diagnostics" aria-label="Catalog diagnostics">
@@ -109,6 +104,56 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
       <h3>{catalog_state_title(@catalog_state)}</h3>
       <p>{catalog_state_message(@catalog_state)}</p>
     </div>
+    """
+  end
+
+  defp catalog_progress(assigns) do
+    assigns = assign(assigns, :progress, ProgressRenderer.html(assigns.entry))
+
+    ~H"""
+    <div
+      :if={is_integer(@progress.percent)}
+      class={["bo-catalog-progress", @progress.state == :partial && "bo-catalog-progress-partial"]}
+      data-progress-state={@progress.state}
+      role="img"
+      aria-label={@progress.aria_label}
+      title={@progress.title}
+    >
+      <span class="bo-catalog-progress-track"><i style={"width:#{@progress.percent}%"}></i></span>
+      <span class="bo-catalog-progress-label mono num">{@progress.label}</span>
+      <span :if={@progress.coverage} class="bo-catalog-progress-coverage mono num">{@progress.coverage}</span>
+    </div>
+    <span
+      :if={is_nil(@progress.percent)}
+      class={if(@progress.state == :unresolved, do: "bo-catalog-progress-unresolved", else: "bo-catalog-invalid")}
+      data-progress-state={@progress.state}
+      role="img"
+      aria-label={@progress.aria_label}
+      title={@progress.title}
+    >
+      {@progress.label}
+    </span>
+    """
+  end
+
+  attr(:count, :any, required: true)
+  attr(:label, :string, required: true)
+
+  defp catalog_count(assigns) do
+    ~H"""
+    <%= if is_integer(@count) do %>
+      {@count}
+    <% else %>
+      <span
+        class="bo-catalog-progress-unresolved bo-catalog-count-unresolved"
+        data-count-state="unresolved"
+        role="img"
+        aria-label={"#{@label} unresolved; count not fetched"}
+        title={"#{@label} were not fetched for this catalog entry"}
+      >
+        Unresolved
+      </span>
+    <% end %>
     """
   end
 

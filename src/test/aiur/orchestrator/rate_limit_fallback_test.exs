@@ -231,6 +231,38 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       refute_received {:label_op, _}
     end
 
+    test "carries an authoritative lifecycle fence to the live fallback replacement" do
+      fence = %{
+        generation: 7,
+        authoritative_state: "rework",
+        pending_item_ids: MapSet.new([872, 874, 887, 891]),
+        opened_at: DateTime.utc_now()
+      }
+
+      state =
+        fallback_state([], "codex")
+        |> put_in([Access.key(:running), "1", :lifecycle_fence], fence)
+        |> Map.put(:claimed, MapSet.new(["1"]))
+
+      result =
+        RateLimitFallback.reconcile(
+          state,
+          reconcile_opts(
+            add_label_fun: fn _, _ -> :ok end,
+            teardown_fun: fn current_state, _running_entry, _reason -> current_state end,
+            dispatch_fun: fn current_state, issue, _attempt, _worker_host ->
+              record_started_dispatch(current_state, issue)
+            end
+          )
+        )
+
+      replacement = result.running["1"]
+
+      assert replacement.lifecycle_fence == fence
+      assert replacement.issue.selected_backend == "claude"
+      assert result.claimed == MapSet.new(["1"])
+    end
+
     test "reverts the fallback labels and redispatches to the original worker" do
       state = fallback_state(["model:claude", @marker_label], "claude")
       test_pid = self()
@@ -393,7 +425,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       assert RateLimitFallback.reconcile(state, opts) == state
     end
 
-    test "releases a torn-down entry and schedules retry when dispatch unexpectedly no-ops" do
+    test "parks a torn-down entry and schedules retry when dispatch unexpectedly no-ops" do
       identity = %Aiur.TrackerIdentity{
         version: 1,
         status: :joinable,
@@ -428,7 +460,7 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
           )
         )
 
-      refute Map.has_key?(result.running, "1")
+      assert %{pid: nil, ref: nil, control: %{status: :completed}, rate_limit_fallback_replacement: true} = result.running["1"]
       assert Map.has_key?(result.retry_attempts, "1")
       assert_received {:retry, "1", _, %{worker_host: "worker-2", tracker_identity: ^identity}}
 
@@ -617,6 +649,38 @@ defmodule Aiur.Orchestrator.RateLimitFallbackTest do
       state = %State{running: %{"1" => %{control: %{status: :paused}}}}
 
       assert RateLimitFallback.reconcile(state, reconcile_opts()) == state
+    end
+
+    test "hands the pause cause to resume so the pause attention can be resolved" do
+      # PauseResume reads `:paused_reason` off the entry it is given to emit the
+      # matching `agent.attention.paused-<cause>.resolved`. Cancelling a
+      # deferred revert used to strip the reason first, so the resolution was
+      # skipped and the pause attention stayed active forever.
+      issue = %Issue{id: "1", identifier: "repo#1", labels: ["model:claude", @marker_label], selected_backend: "claude"}
+
+      entry =
+        fallback_entry(%{
+          issue: issue,
+          control: %{status: :paused},
+          paused_reason: :rate_limit_fallback_recovery,
+          rate_limit_fallback_revert_pending: true
+        })
+
+      test_pid = self()
+
+      RateLimitFallback.reconcile(
+        %State{running: %{issue.id => entry}},
+        reconcile_opts(
+          # Force the deferred-revert cancel path.
+          dispatch_ready_fun: fn _state, _issue, _worker_host -> {:error, :max_concurrent_agents_reached} end,
+          resume_fun: fn current_state, resumed_entry ->
+            send(test_pid, {:resumed_with, Map.get(resumed_entry, :paused_reason)})
+            {{:ok, :resumed}, current_state}
+          end
+        )
+      )
+
+      assert_received {:resumed_with, :rate_limit_fallback_recovery}
     end
   end
 

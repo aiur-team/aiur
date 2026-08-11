@@ -1,14 +1,64 @@
 defmodule Aiur.AgentControlCLI do
   @moduledoc false
 
-  alias Aiur.{AgentChat, AlertFeed, BuildGate, Config, ExecutorEvents, Orchestrator, PauseContainment, ProviderMeterProjection}
+  alias Aiur.{
+    AgentChat,
+    AlertFeed,
+    AnalyticsCLI,
+    Asks,
+    BuildGate,
+    BuildOrdersCLI,
+    CommandsCLI,
+    Config,
+    ExecutorCommandCLI,
+    ExecutorEvents,
+    Issue,
+    Orchestrator,
+    PauseContainment,
+    ProviderMeterProjection,
+    RepoBase,
+    SupervisionHealth,
+    UnitsCLI
+  }
+
   alias Aiur.Codex.EventHumanizer, as: CodexEventHumanizer
-  alias Aiur.GitHub.{CodeOwners, StatePolicy}
+  alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
+  alias Aiur.Orchestrator.StatusReason
+  alias Aiur.Webhooks.ModePresenter
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
+  @error_marker "__AIUR_CONTROL_ERROR__:"
+  @status_timeout_ms 5_000
+  # Leave the launcher watchdog room to receive and render the daemon's explicit
+  # timeout result instead of racing it at the shared 10-second edge. Eight
+  # seconds was not enough: RPC BEAM startup costs ~2s, so a saturated snapshot
+  # measured 10335ms and lost the race — the launcher killed it at 10s and the
+  # operator got a truncated fleet listing plus exit 124 instead of one honest
+  # "agents query timed out after 8s" line (#1684).
+  @agents_timeout_ms 6_000
+
+  # `{:ok, :resumed}` from the orchestrator means a resume control request was
+  # *enqueued* for the agent, not that the agent left the paused state (see
+  # `Aiur.Orchestrator.PauseResume.send_resume_control_message/3`). Printing
+  # "resumed #44" at that point is a confident wrong outcome: in #1634 three
+  # agents stayed paused while the CLI reported no failure at all. So observe
+  # the agent's own control status leaving `:paused` before claiming it, and
+  # report an unconfirmed request as a failure rather than as success.
+  #
+  # One invocation shares a single confirmation budget across every queued
+  # resume, so `resume --all` over a large fleet still fits inside the
+  # launcher's 10s control-RPC timeout.
+  @resume_confirm_timeout_ms 4_000
+  @resume_confirm_poll_ms 100
+
+  # RepoBase phases that mean the warm base is still becoming dispatchable
+  # (the gate holds new work). Anything else with prewarm enabled — :ready
+  # (normal), {:error, _} (fail-open cold clone), :idle — is not a "warming"
+  # state and is handled separately.
+  @prewarm_warming_phases [:cloning, :fetching, :building, :checking]
 
   # `aiur watch` remembers the last board it reported (per-row signature) in a
   # node-local persistent term so `--changes` can print only state-level deltas
@@ -17,52 +67,61 @@ defmodule Aiur.AgentControlCLI do
   @watch_baseline_key {__MODULE__, :watch_baseline}
   @watch_stuck_after_seconds 600
 
-  @spec status() :: :ok
-  def status do
-    case Orchestrator.status() do
-      statuses when is_list(statuses) ->
-        case print_global_pause_banner() do
-          :ok ->
-            print_codeowners_trust()
+  @spec status(keyword()) :: :ok
+  def status(opts \\ []) do
+    guarded("status", fn ->
+      timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-            statuses
-            |> Enum.filter(&visible_status_row?/1)
-            |> print_status_table()
+      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
+           :ok <- print_global_pause_banner(opts, timeout_ms) do
+        print_status_report(statuses, opts)
+      else
+        {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
+        error -> report_control_query_failure(error, "status", timeout_ms)
+      end
+    end)
+  end
 
-            print_capacity_status(Orchestrator.max_concurrent_agents())
+  defp print_status_report(statuses, opts) do
+    print_codeowners_trust()
 
-            print_build_gate_status()
-            exit_marker(0)
+    tracker_states = tracker_state_sets()
 
-          {:error, :unavailable} ->
-            exit_marker(1)
-        end
+    statuses
+    |> Enum.filter(&visible_status_row?(&1, tracker_states))
+    |> print_status_table()
 
-      error ->
-        print_orchestrator_status_error(error)
-        exit_marker(1)
-    end
+    print_capacity_status(Orchestrator.max_concurrent_agents())
+
+    supervision_exit_code = print_supervision_health()
+    print_ci_readiness()
+    print_build_gate_status()
+    print_prewarm_status()
+    print_blocking_asks(opts)
+    exit_marker(supervision_exit_code)
   end
 
   # Concise one-line-per-agent activity summary — the built-in, headless
   # equivalent of the dashboard / `aiur-status` log-tailing skill. Pulls the
   # orchestrator snapshot (richer than `status/0`: work-state + latest
   # activity) and prints state + what each agent is doing right now.
-  @spec agents() :: :ok
-  def agents do
-    case Orchestrator.snapshot(Orchestrator, 10_000) do
-      %{running: running} when is_list(running) ->
-        print_agents_table(running)
-        exit_marker(0)
+  @spec agents(keyword()) :: :ok
+  def agents(opts \\ []) do
+    guarded("agents", fn ->
+      timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
-      error when error in [:timeout, :unavailable] ->
-        print_orchestrator_status_error(error)
-        exit_marker(1)
+      case Orchestrator.snapshot(Orchestrator, timeout_ms) do
+        %{running: running} when is_list(running) ->
+          print_agents_table(running)
+          exit_marker(0)
 
-      _other ->
-        print_orchestrator_status_error(:unavailable)
-        exit_marker(1)
-    end
+        error when error in [:timeout, :unavailable] ->
+          report_control_query_failure(error, "agents", timeout_ms)
+
+        _other ->
+          report_control_query_failure(:unavailable, "agents", timeout_ms)
+      end
+    end)
   end
 
   # `aiur watch` — the server-side status board. Compiles one row per active
@@ -74,39 +133,77 @@ defmodule Aiur.AgentControlCLI do
   # changed since the previous call, keeping the periodic Executor pull cheap.
   @spec watch(keyword()) :: :ok
   def watch(opts \\ []) do
-    case Orchestrator.status() do
-      statuses when is_list(statuses) ->
-        case print_global_pause_banner() do
-          :ok ->
-            rows =
-              statuses
-              |> Enum.filter(&visible_status_row?/1)
-              |> Enum.map(&watch_row/1)
-              |> Enum.sort_by(& &1.sort_key)
+    guarded("watch", fn ->
+      timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-            alerts = latest_attention_alerts(opts)
-            mode = Keyword.get(opts, :mode, :changes)
-            {changed, removed} = update_watch_baseline(rows)
-            render_watch(rows, alerts, mode, changed, removed)
-            exit_marker(0)
+      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
+           :ok <- print_global_pause_banner(opts, timeout_ms) do
+        print_watch_board(statuses, opts)
+      else
+        {:error, error} -> report_control_query_failure(error, "watch", timeout_ms)
+        error -> report_control_query_failure(error, "watch", timeout_ms)
+      end
+    end)
+  end
 
-          {:error, :unavailable} ->
-            exit_marker(1)
-        end
+  defp print_watch_board(statuses, opts) do
+    print_prewarm_status()
 
-      error ->
-        print_orchestrator_status_error(error)
-        exit_marker(1)
-    end
+    tracker_states = tracker_state_sets()
+
+    rows =
+      statuses
+      |> Enum.filter(&visible_status_row?(&1, tracker_states))
+      |> Enum.map(&watch_row/1)
+      |> Enum.sort_by(& &1.sort_key)
+
+    alerts = latest_attention_alerts(opts)
+    blocking_asks = blocking_asks(opts)
+    mode = Keyword.get(opts, :mode, :changes)
+    {changed, removed} = update_watch_baseline(rows)
+    render_watch(rows, alerts, blocking_asks, mode, changed, removed)
+    exit_marker(0)
   end
 
   @spec alerts(keyword()) :: :ok
   def alerts(opts \\ []) do
-    opts
-    |> AlertFeed.list()
-    |> Enum.each(&IO.puts(Jason.encode!(&1)))
+    guarded("alerts", fn ->
+      opts
+      |> AlertFeed.list()
+      |> Enum.each(&IO.puts(Jason.encode!(&1)))
 
-    exit_marker(0)
+      exit_marker(0)
+    end)
+  end
+
+  @spec commands(keyword()) :: :ok
+  def commands(opts \\ []) do
+    guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec executor_answer(keyword()) :: :ok
+  def executor_answer(opts) when is_list(opts) do
+    guarded("executor-answer", fn -> ExecutorCommandCLI.answer(opts) |> exit_marker() end)
+  end
+
+  @spec executor_escalate(keyword()) :: :ok
+  def executor_escalate(opts) when is_list(opts) do
+    guarded("executor-escalate", fn -> ExecutorCommandCLI.escalate(opts) |> exit_marker() end)
+  end
+
+  @spec units(keyword()) :: :ok
+  def units(opts \\ []) do
+    UnitsCLI.run(opts) |> exit_marker()
+  end
+
+  @spec build_orders(keyword()) :: :ok
+  def build_orders(opts \\ []) do
+    guarded("build-orders", fn -> BuildOrdersCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec analytics(keyword()) :: :ok
+  def analytics(opts \\ []) do
+    guarded("analytics", fn -> AnalyticsCLI.run(opts) |> exit_marker() end)
   end
 
   @spec executor_emit(String.t(), String.t()) :: :ok
@@ -446,6 +543,29 @@ defmodule Aiur.AgentControlCLI do
   @spec resume(:all | [String.t()]) :: :ok
   def resume(targets), do: control(:resume, targets)
 
+  # `aiur reset-budget <id>...` — the supported exit from the #1453 lifetime
+  # dispatch latch. Clears the in-memory + durable budget entries so a latched
+  # ticket returns to dispatchable without hand-editing `dispatch-budgets.json`.
+  @spec reset_budget([String.t()]) :: :ok
+  def reset_budget(targets) when is_list(targets) do
+    targets
+    |> Enum.map(&to_string/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.each(&reset_budget_one/1)
+
+    exit_marker(0)
+  end
+
+  defp reset_budget_one(target) do
+    case Orchestrator.reset_dispatch_budget(target) do
+      {:ok, :queued} ->
+        IO.puts("aiur: queued lifetime dispatch budget reset for ##{target}")
+
+      {:error, reason} ->
+        print_failure(:reset_budget, %{identifier: target, issue_id: target}, reason)
+    end
+  end
+
   # The global pause switch — `aiur pause` / `aiur resume` with no targets. A
   # single daemon-wide halt distinct from per-agent pause: it stops all
   # provisioning and holds every running agent, and unpause resumes only the
@@ -473,9 +593,11 @@ defmodule Aiur.AgentControlCLI do
 
   @spec message(String.t(), String.t()) :: :ok
   def message(issue, text) when is_binary(issue) and is_binary(text) do
-    issue
-    |> message_status(text, Orchestrator.status())
-    |> exit_marker()
+    guarded("message", fn ->
+      issue
+      |> message_status(text, Orchestrator.status())
+      |> exit_marker()
+    end)
   end
 
   defp message_status(issue, text, statuses) when is_list(statuses) do
@@ -561,10 +683,94 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_selected(selected, action, _targets) do
-    results = Enum.map(selected, &control_one(action, &1))
+    results =
+      selected
+      |> Enum.map(&control_one(action, &1))
+      |> resolve_queued_resumes()
+
     failed = Enum.count(results, &match?({:error, _}, &1))
 
-    if failed == length(results), do: 1, else: 0
+    if failed > 0, do: 1, else: 0
+  end
+
+  # Every resume queued by this invocation is confirmed by one shared polling
+  # loop against one shared deadline: a single fleet read per tick settles all
+  # of them at once. The wait is therefore bounded by the budget no matter how
+  # many targets `--all` selected, and each read is capped by the time actually
+  # left so a slow orchestrator cannot walk past the launcher's RPC timeout.
+  defp resolve_queued_resumes(results) do
+    queued = for {:queued_resume, status} <- results, do: canonical_identifier(status)
+
+    if queued == [] do
+      results
+    else
+      deadline = System.monotonic_time(:millisecond) + resume_confirm_timeout_ms()
+      outcomes = await_resumes_applied(queued, deadline, %{})
+
+      Enum.map(results, fn
+        {:queued_resume, status} ->
+          report_resume(status, Map.fetch!(outcomes, canonical_identifier(status)))
+
+        result ->
+          result
+      end)
+    end
+  end
+
+  defp await_resumes_applied(pending, deadline, outcomes) do
+    case read_control_states(pending, remaining_ms(deadline)) do
+      {:error, error} ->
+        settle_all(pending, {:status_unreadable, error}, outcomes)
+
+      {:ok, observed} ->
+        {settled, still_paused} = Enum.split_with(pending, &(Map.fetch!(observed, &1) != :paused))
+        outcomes = Enum.into(settled, outcomes, &{&1, Map.fetch!(observed, &1)})
+
+        cond do
+          still_paused == [] ->
+            outcomes
+
+          remaining_ms(deadline) <= @resume_confirm_poll_ms ->
+            settle_all(still_paused, :still_paused, outcomes)
+
+          true ->
+            Process.sleep(@resume_confirm_poll_ms)
+            await_resumes_applied(still_paused, deadline, outcomes)
+        end
+    end
+  end
+
+  defp settle_all(pending, outcome, outcomes), do: Enum.into(pending, outcomes, &{&1, outcome})
+
+  defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  # Read every queued target from one fleet snapshot. The read never outlives
+  # the confirmation budget, and never claims more than the status timeout.
+  defp read_control_states(pending, remaining) do
+    case Orchestrator.status(Orchestrator, remaining |> max(@resume_confirm_poll_ms) |> min(@status_timeout_ms)) do
+      statuses when is_list(statuses) ->
+        {:ok,
+         Map.new(pending, fn canonical ->
+           case Enum.find(statuses, &target_matches?(&1, canonical)) do
+             nil -> {canonical, :no_longer_tracked}
+             %{state: :paused} -> {canonical, :paused}
+             _status -> {canonical, :applied}
+           end
+         end)}
+
+      error when error in [:timeout, :unavailable] ->
+        {:error, error}
+    end
+  end
+
+  defp report_resume(status, :applied) do
+    IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
+    :ok
+  end
+
+  defp report_resume(status, detail) do
+    print_unconfirmed_resume(status, detail)
+    {:error, {:resume_unconfirmed, detail}}
   end
 
   defp select_targets(:pause, :all, statuses) do
@@ -607,17 +813,11 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_one(:resume, %{state: :paused} = status) do
-    canonical = canonical_identifier(status)
+    resume_selected(status)
+  end
 
-    case resume_agent(canonical) do
-      {:ok, result} when result in [:resumed, :started] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: paused)")
-        :ok
-
-      {:error, reason} ->
-        print_failure(:resume, status, reason)
-        {:error, reason}
-    end
+  defp control_one(:resume, %{state: :running, tracker_paused: true} = status) do
+    resume_selected(status)
   end
 
   defp control_one(:resume, %{state: :running} = status) do
@@ -626,11 +826,27 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_one(:resume, %{state: :idle} = status) do
+    resume_selected(status)
+  end
+
+  defp control_one(:resume, status) do
+    print_failure(:resume, status, :no_running_agent)
+    {:error, :no_running_agent}
+  end
+
+  defp resume_selected(%{state: previous_state} = status) do
     canonical = canonical_identifier(status)
 
     case resume_agent(canonical) do
-      {:ok, result} when result in [:started, :resumed] ->
-        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: idle)")
+      # Only the paused-agent path is asynchronous: the orchestrator hands the
+      # agent a resume control request and answers before the agent acts on it.
+      # `:started` and `:reactivated` have already moved the issue into the
+      # running set by the time they are returned, so they are claimable.
+      {:ok, :resumed} when previous_state == :paused ->
+        {:queued_resume, status}
+
+      {:ok, result} when result in [:started, :resumed, :reactivated] ->
+        IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
         :ok
 
       {:error, reason} ->
@@ -639,9 +855,29 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp control_one(:resume, status) do
-    print_failure(:resume, status, :no_running_agent)
-    {:error, :no_running_agent}
+  defp print_unconfirmed_resume(status, :still_paused) do
+    IO.puts(
+      :stderr,
+      "aiur: resume request accepted for #{display_identifier(status)} but it was still paused #{format_timeout_budget(resume_confirm_timeout_ms())} later; the resume is unconfirmed"
+    )
+  end
+
+  defp print_unconfirmed_resume(status, :no_longer_tracked) do
+    IO.puts(
+      :stderr,
+      "aiur: resume request accepted for #{display_identifier(status)} but the agent left the fleet before the resume was confirmed; outcome is unknown"
+    )
+  end
+
+  defp print_unconfirmed_resume(status, {:status_unreadable, error}) do
+    IO.puts(
+      :stderr,
+      "aiur: resume request accepted for #{display_identifier(status)} but agent status could not be read (#{format_reason(error)}); the resume is unconfirmed"
+    )
+  end
+
+  defp resume_confirm_timeout_ms do
+    Application.get_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms, @resume_confirm_timeout_ms)
   end
 
   defp print_status_table([]) do
@@ -658,10 +894,14 @@ defmodule Aiur.AgentControlCLI do
         " ",
         String.pad_trailing(to_string(status.state), 7),
         " ",
-        to_string(status.title || "")
+        to_string(status.title || ""),
+        status_reason_suffix(status)
       ])
     end)
   end
+
+  defp status_reason_suffix(%{reason: reason}) when not is_nil(reason), do: " (#{StatusReason.render(reason)})"
+  defp status_reason_suffix(_status), do: ""
 
   defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
@@ -717,21 +957,44 @@ defmodule Aiur.AgentControlCLI do
   defp paused_reservation_binding?(_capacity), do: false
 
   @doc """
-  Print Codex and Claude limit headroom from the daemon-owned meter projection.
+  Print registry provider headroom from the daemon-owned meter projection.
 
   Every value carries the age of the observation, because meters are observed
   from live agent sessions: a number with no age cannot be told apart from a
   current one. A provider never observed prints as unknown, never as zero.
-  """
-  @spec usage(GenServer.server()) :: :ok
-  def usage(server \\ ProviderMeterProjection) do
-    server
-    |> ProviderMeterProjection.snapshot()
-    |> Enum.sort_by(fn {provider, _view} -> provider end)
-    |> Enum.each(&print_provider_usage/1)
 
-    exit_marker(0)
+  Per-repo event delivery mode prints alongside the meters, because the two
+  answer the same operator question — where is my quota going. A repo in
+  polling mode always says *why*: never configured, configured but never
+  delivered, or degraded after going silent. Repos with no webhooks anywhere
+  print nothing extra, so this section only appears once it has something to
+  say.
+  """
+  @spec usage(GenServer.server(), keyword()) :: :ok
+  def usage(server \\ ProviderMeterProjection, opts \\ []) do
+    guarded("usage", fn ->
+      server
+      |> ProviderMeterProjection.snapshot()
+      |> Enum.sort_by(fn {provider, _view} -> provider end)
+      |> Enum.each(&print_provider_usage/1)
+
+      opts
+      |> Keyword.get_lazy(:delivery_modes, fn -> ModePresenter.rows() end)
+      |> print_delivery_modes()
+
+      exit_marker(0)
+    end)
   end
+
+  defp print_delivery_modes([]), do: :ok
+
+  defp print_delivery_modes(rows) do
+    IO.puts("")
+    Enum.each(rows, &IO.puts("events  #{&1.repo}  #{&1.mode_label}  last delivery #{&1.last_delivery_label}#{polling_reason_suffix(&1)}"))
+  end
+
+  defp polling_reason_suffix(%{reason_label: nil}), do: ""
+  defp polling_reason_suffix(%{reason_label: label}), do: "  (#{label})"
 
   defp print_provider_usage({provider, %{state: :unknown}}) do
     IO.puts("#{provider_label(provider)}  no observation yet")
@@ -751,7 +1014,7 @@ defmodule Aiur.AgentControlCLI do
 
   defp usage_windows(%{windows: windows}) when is_map(windows) do
     windows
-    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) == :rate_limit end)
+    |> Enum.filter(fn {_id, window} -> Map.get(window, :kind) in [:rate_limit, :credit] end)
     |> Enum.sort_by(fn {id, _window} -> id end)
   end
 
@@ -761,9 +1024,26 @@ defmodule Aiur.AgentControlCLI do
   # bar is not available for it. Name what is known rather than drawing an empty
   # bar, which would read as "0% consumed".
   defp usage_window_line({id, window}) do
-    case Map.get(window, :used_percent) do
-      percent when is_number(percent) -> "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
-      _unknown -> "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
+    case {
+      Map.get(window, :name),
+      Map.get(window, :kind),
+      Map.get(window, :used),
+      Map.get(window, :limit),
+      Map.get(window, :used_percent),
+      Map.get(window, :credits)
+    } do
+      {name, :rate_limit, used, limit, _percent, _credits}
+      when name in [:concurrency, "Local concurrency"] and is_number(used) and is_number(limit) ->
+        "#{String.pad_trailing(id, 10)} #{used}/#{limit} in flight"
+
+      {_name, :credit, _used, _limit, _percent, %{amount: amount}} when is_number(amount) ->
+        "#{String.pad_trailing(id, 10)} $#{:erlang.float_to_binary(amount / 1, decimals: 2)} remaining"
+
+      {_name, _kind, _used, _limit, percent, _credits} when is_number(percent) ->
+        "#{String.pad_trailing(id, 10)} #{usage_bar(percent)} #{round(percent)}%"
+
+      _unknown ->
+        "#{String.pad_trailing(id, 10)} #{window_standing_line(window)}"
     end
   end
 
@@ -805,8 +1085,13 @@ defmodule Aiur.AgentControlCLI do
 
   # Surface the global pause switch above the status table so an operator sees
   # at a glance that the whole daemon is halted (silent otherwise).
-  defp print_global_pause_banner do
-    case Orchestrator.global_pause_status() do
+  defp print_global_pause_banner(opts, timeout_ms) do
+    result =
+      Keyword.get_lazy(opts, :global_pause_status, fn ->
+        Orchestrator.global_pause_status(Orchestrator, timeout_ms)
+      end)
+
+    case result do
       {:ok, %{globally_paused: true, paused_at: paused_at, source: source}} ->
         provenance = [format_pause_source(source), format_pause_time(paused_at)] |> Enum.reject(&is_nil/1) |> Enum.join(", ")
         suffix = if provenance == "", do: "", else: " (#{provenance})"
@@ -815,8 +1100,11 @@ defmodule Aiur.AgentControlCLI do
       {:ok, _} ->
         :ok
 
+      {:error, :timeout} ->
+        {:error, :timeout}
+
       {:error, :orchestrator_unavailable} ->
-        print_global_pause_status_unavailable()
+        {:error, :unavailable}
     end
   end
 
@@ -893,44 +1181,103 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp visible_status_row?(%{work_state: :deactivated}), do: false
-  defp visible_status_row?(%{work_state: "deactivated"}), do: false
+  defp print_supervision_health do
+    health_status = Application.get_env(:aiur, :supervision_health_status_fun, &SupervisionHealth.status/0)
 
-  defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}) do
-    active_tracker_state?(tracker_state) and not terminal_tracker_state?(tracker_state)
+    case health_status.() do
+      {:ok, %{missing: []} = snapshot} ->
+        IO.puts(SupervisionHealth.format(snapshot))
+        0
+
+      {:ok, snapshot} ->
+        IO.puts(SupervisionHealth.format(snapshot))
+        1
+
+      {:error, :unavailable} ->
+        IO.puts("SUPERVISION unavailable")
+        1
+    end
   end
 
-  defp visible_status_row?(%{tracker_state: tracker_state}) do
-    not terminal_tracker_state?(tracker_state)
+  defp print_ci_readiness do
+    if Config.tracker_kind() == "github" do
+      case CiReadiness.cached_result() do
+        :unavailable -> IO.puts("CI readiness: unavailable (no completed dispatcher assessment)")
+        readiness -> IO.puts(CiReadiness.format(readiness))
+      end
+    end
   end
 
-  defp visible_status_row?(_status), do: true
+  # Surface the warm-base state so a gated fleet is distinguishable from an idle
+  # one (#1404): with prewarm enabled, a warming base holds dispatch on every
+  # poll tick and an errored base degrades to cold clones. A :ready base is the
+  # normal steady state and prints nothing. No-op when prewarm is disabled or
+  # RepoBase is not running.
+  defp print_prewarm_status do
+    if Config.prewarm_enabled?() do
+      case prewarm_status_safe() do
+        {phase, _base} when phase in @prewarm_warming_phases ->
+          IO.puts("PREWARM prewarm: warming phase=#{phase} — dispatch held while the base build completes")
 
-  defp active_tracker_state?(tracker_state) when is_binary(tracker_state) do
-    tracker_state
-    |> normalized_tracker_state()
-    |> then(&MapSet.member?(active_tracker_states(), &1))
+        {{:error, reason}, _base} ->
+          IO.puts("PREWARM prewarm: unavailable reason=#{inspect(reason)} — dispatching via cold clone")
+
+        _steady_or_unknown ->
+          :ok
+      end
+    end
   end
 
-  defp active_tracker_state?(_tracker_state), do: false
-
-  defp terminal_tracker_state?(tracker_state) when is_binary(tracker_state) do
-    tracker_state
-    |> normalized_tracker_state()
-    |> then(&MapSet.member?(terminal_tracker_states(), &1))
+  defp prewarm_status_safe do
+    if Process.whereis(RepoBase), do: RepoBase.status(), else: {:idle, nil}
+  rescue
+    _ -> {:idle, nil}
+  catch
+    :exit, _ -> {:idle, nil}
   end
 
-  defp terminal_tracker_state?(_tracker_state), do: false
+  defp visible_status_row?(%{work_state: :deactivated}, _tracker_states), do: false
+  defp visible_status_row?(%{work_state: "deactivated"}, _tracker_states), do: false
 
-  defp active_tracker_states do
-    Config.settings!().tracker.active_states
-    |> Enum.map(&normalized_tracker_state/1)
-    |> Enum.reject(&(&1 == ""))
-    |> MapSet.new()
+  # A latched-out agent is idle but terminal: the lifetime dispatch budget is
+  # exhausted and will not clear on its own (#1712). Keep the row visible even
+  # when the tracker-state filters below would hide it, so `aiur status` shows
+  # the state an operator has to act on.
+  defp visible_status_row?(%{state: :idle, reason: {:latched, _lifetime, _maximum}}, _tracker_states),
+    do: true
+
+  defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}, tracker_states) do
+    in_tracker_state_set?(tracker_state, tracker_states.active) and
+      not in_tracker_state_set?(tracker_state, tracker_states.terminal)
   end
 
-  defp terminal_tracker_states do
-    Config.settings!().tracker.terminal_states
+  defp visible_status_row?(%{tracker_state: tracker_state}, tracker_states) do
+    not in_tracker_state_set?(tracker_state, tracker_states.terminal)
+  end
+
+  defp visible_status_row?(_status, _tracker_states), do: true
+
+  defp in_tracker_state_set?(tracker_state, set) when is_binary(tracker_state) do
+    MapSet.member?(set, normalized_tracker_state(tracker_state))
+  end
+
+  defp in_tracker_state_set?(_tracker_state, _set), do: false
+
+  # Read the configured tracker states ONCE per command. Resolving them per row
+  # meant two `Config.settings!/0` reads per agent, and each of those is a
+  # `WorkflowStore` GenServer call — nine agents turned one status render into
+  # eighteen chances to stall on a saturated daemon (#1684).
+  defp tracker_state_sets do
+    tracker = Config.settings!().tracker
+
+    %{
+      active: normalized_tracker_state_set(tracker.active_states),
+      terminal: normalized_tracker_state_set(tracker.terminal_states)
+    }
+  end
+
+  defp normalized_tracker_state_set(states) do
+    states
     |> Enum.map(&normalized_tracker_state/1)
     |> Enum.reject(&(&1 == ""))
     |> MapSet.new()
@@ -1062,6 +1409,7 @@ defmodule Aiur.AgentControlCLI do
     run_state = Map.get(status, :state)
     stuck? = run_state == :running and is_integer(age) and age >= @watch_stuck_after_seconds
     pr_ready? = state in ["human-review", "merging"]
+    reason = Map.get(status, :reason)
 
     %{
       id: display_identifier(status),
@@ -1073,7 +1421,7 @@ defmodule Aiur.AgentControlCLI do
       stuck?: stuck?,
       pr_ready?: pr_ready?,
       doing: watch_activity(status),
-      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), stuck?, pr_ready?}
+      signature: {state, Map.get(status, :complexity), Map.get(status, :work_state, run_state), watch_reason_signature(reason), stuck?, pr_ready?}
     }
   end
 
@@ -1081,12 +1429,21 @@ defmodule Aiur.AgentControlCLI do
   defp watch_state(%{tracker_paused: "true"}), do: "paused"
   defp watch_state(status), do: to_string(status[:tracker_state] || status[:state] || "")
 
+  defp watch_activity(%{tracker_paused: paused, reason: reason})
+       when paused in [true, "true"] and not is_nil(reason),
+       do: "(paused: #{StatusReason.render(reason)})"
+
   defp watch_activity(%{tracker_paused: true}), do: "(paused: label override)"
   defp watch_activity(%{tracker_paused: "true"}), do: "(paused: label override)"
   defp watch_activity(%{tracker_state: "ci-wait"}), do: "(waiting for CI)"
   defp watch_activity(%{state: "ci-wait"}), do: "(waiting for CI)"
+  defp watch_activity(%{state: :idle, reason: reason}) when not is_nil(reason), do: "(idle: #{StatusReason.render(reason)})"
   defp watch_activity(%{state: :idle}), do: "(idle)"
+  defp watch_activity(%{state: :paused, reason: reason}) when not is_nil(reason), do: "(paused: #{StatusReason.render(reason)})"
   defp watch_activity(status), do: agent_activity(status)
+
+  defp watch_reason_signature(nil), do: nil
+  defp watch_reason_signature(reason), do: StatusReason.render(reason)
 
   defp watch_sort_key(status) do
     raw = to_string(Map.get(status, :issue_id) || Map.get(status, :identifier) || "")
@@ -1115,7 +1472,7 @@ defmodule Aiur.AgentControlCLI do
   # concern per agent rather than replaying the whole log.
   defp latest_attention_alerts(opts) do
     [needs_attention: true]
-    |> Keyword.merge(Keyword.take(opts, [:roots, :log_roots]))
+    |> Keyword.merge(Keyword.take(opts, [:roots, :log_roots, :ledger_paths]))
     |> AlertFeed.list()
     |> Enum.group_by(&Map.get(&1, "ticket"))
     |> Enum.map(fn {_ticket, alerts} -> List.last(alerts) end)
@@ -1146,12 +1503,12 @@ defmodule Aiur.AgentControlCLI do
 
   @watch_header "TICKET  STATE         CX  AGE     DOING"
 
-  defp render_watch(rows, alerts, mode, changed, removed) do
+  defp render_watch(rows, alerts, blocking_asks, mode, changed, removed) do
     rows
     |> watch_rows_for_mode(mode, changed)
     |> print_watch_table(mode)
 
-    print_watch_actionable(rows, alerts, removed)
+    print_watch_actionable(rows, alerts, blocking_asks, removed)
   end
 
   defp watch_rows_for_mode(rows, :changes, changed) do
@@ -1192,9 +1549,10 @@ defmodule Aiur.AgentControlCLI do
   defp format_complexity(n) when is_integer(n), do: to_string(n)
   defp format_complexity(_n), do: "-"
 
-  defp print_watch_actionable(rows, alerts, removed) do
+  defp print_watch_actionable(rows, alerts, blocking_asks, removed) do
     lines =
       watch_alert_lines(alerts) ++
+        watch_ask_lines(blocking_asks) ++
         watch_stuck_lines(rows) ++
         watch_pr_ready_lines(rows) ++
         watch_removed_lines(removed)
@@ -1215,6 +1573,58 @@ defmodule Aiur.AgentControlCLI do
       "! ##{Map.get(alert, "ticket")} · #{Map.get(alert, "name")} · #{Map.get(alert, "reason")}"
     end)
   end
+
+  defp watch_ask_lines({:ok, asks}) do
+    Enum.map(asks, fn ask ->
+      "! BLOCKING ASK #{ask["id"]} · #{ask["urgency"]} · #{ask["created_at"]} · #{truncate(ask["title"], 56)}"
+    end)
+  end
+
+  defp watch_ask_lines({:error, reason}), do: ["! BLOCKING ASKS UNAVAILABLE · #{format_ask_store_error(reason)}"]
+
+  defp print_blocking_asks(opts) do
+    case blocking_asks(opts) do
+      {:ok, []} ->
+        :ok
+
+      {:ok, asks} ->
+        IO.puts("OPERATOR ASKS (blocking)")
+
+        Enum.each(asks, fn ask ->
+          IO.puts("! #{ask["id"]} · #{ask["urgency"]} · from #{ask["created_by"]} at #{ask["created_at"]} · #{ask["title"]}")
+        end)
+
+      {:error, reason} ->
+        IO.puts("OPERATOR ASKS (blocking) UNAVAILABLE")
+        IO.puts("! #{format_ask_store_error(reason)}")
+    end
+  end
+
+  defp blocking_asks(opts) do
+    case Keyword.fetch(opts, :blocking_asks) do
+      {:ok, asks} when is_list(asks) ->
+        {:ok, asks}
+
+      _ ->
+        blocking_asks_for_configured_repo()
+    end
+  end
+
+  defp blocking_asks_for_configured_repo do
+    case GitHubConfig.repo() do
+      repo when is_binary(repo) and repo != "" -> blocking_asks_for_repo(repo)
+      _ -> {:ok, []}
+    end
+  end
+
+  defp blocking_asks_for_repo(repo) do
+    with {:ok, asks} <- Asks.open(repo), do: {:ok, Enum.filter(asks, &(&1["blocking"] == true))}
+  end
+
+  defp format_ask_store_error({:invalid_ask_record, _path, line_number, reason}),
+    do: "could not read durable ask record #{line_number}: #{inspect(reason)}"
+
+  defp format_ask_store_error(_reason), do: "could not read the durable operator ask store"
 
   defp watch_stuck_lines(rows) do
     rows
@@ -1239,6 +1649,102 @@ defmodule Aiur.AgentControlCLI do
     IO.puts(:stderr, Map.fetch!(%{timeout: "aiur: timed out while reading agent status", unavailable: "aiur: orchestrator is not running"}, error))
   end
 
+  # The old wording said "daemon may be scheduler-saturated". That is a cause,
+  # confidently asserted, that this code has no evidence for — and in #1731 it
+  # was wrong: the run queue was 1, the host was fine, and one process was
+  # head-of-line blocked. A wrong diagnosis printed with confidence is worse
+  # than none; it sends the operator to look at host load.
+  #
+  # So report only what is observable here: which query did not answer, and the
+  # state of the process that owed the answer. `Process.info/2` reads the
+  # target's mailbox and current function without needing it to be scheduled,
+  # which is exactly the measurement an operator would otherwise take by hand.
+  #
+  # "outcome is unknown" is kept verbatim from #1720/#1812: it is a *different*
+  # claim from this one — that the command may or may not have taken effect —
+  # and the operator needs both. This adds the evidence, it does not replace it.
+  defp print_control_query_error(:timeout, query, timeout_ms) do
+    IO.puts(
+      "#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}" <>
+        "; outcome is unknown. #{orchestrator_liveness()}"
+    )
+  end
+
+  defp print_control_query_error(:unavailable, query, _timeout_ms) do
+    IO.puts("#{@error_marker}aiur: #{query} query failed because the orchestrator is not running")
+  end
+
+  defp orchestrator_liveness do
+    case Process.whereis(Orchestrator) do
+      nil ->
+        "The orchestrator process is not registered, so the daemon is down or still starting."
+
+      pid ->
+        describe_orchestrator(Process.info(pid, [:message_queue_len, :status, :current_function]))
+    end
+  end
+
+  defp describe_orchestrator(nil), do: "The orchestrator process has exited."
+
+  defp describe_orchestrator(info) do
+    "Orchestrator mailbox=#{Keyword.get(info, :message_queue_len)} status=#{Keyword.get(info, :status)}" <>
+      " in #{format_mfa(Keyword.get(info, :current_function))}. " <>
+      "A large mailbox or a blocked current function means one process is stuck, not that the host is busy."
+  end
+
+  defp format_mfa({module, function, arity}), do: "#{inspect(module)}.#{function}/#{arity}"
+  defp format_mfa(_other), do: "an unknown function"
+
+  defp control_query_exit_code(:timeout), do: 124
+  defp control_query_exit_code(_error), do: 1
+
+  defp report_control_query_failure(error, query, timeout_ms) do
+    print_control_query_error(error, query, timeout_ms)
+    exit_marker(control_query_exit_code(error))
+  end
+
+  # Last-resort guard for the read-only query commands (#1684). An unexpected
+  # raise or process exit inside a command body used to kill the RPC evaluator
+  # outright, and the operator saw a non-zero exit with an empty buffer — the
+  # one failure mode indistinguishable from a healthy idle fleet. Whatever goes
+  # wrong, the command now says what failed in one line and still emits an exit
+  # marker, so the launcher never has to guess.
+  @spec guarded(String.t(), (-> :ok)) :: :ok
+  defp guarded(query, fun) do
+    fun.()
+  rescue
+    error -> report_control_query_crash(query, Exception.message(error))
+  catch
+    :exit, {:timeout, {GenServer, :call, [_server, _request, timeout_ms]}} when is_integer(timeout_ms) ->
+      print_control_query_error(:timeout, query, timeout_ms)
+      exit_marker(control_query_exit_code(:timeout))
+
+    :exit, reason ->
+      report_control_query_crash(query, "process exited: #{inspect(reason)}")
+
+    kind, payload ->
+      report_control_query_crash(query, "#{kind}: #{inspect(payload)}")
+  end
+
+  defp report_control_query_crash(query, detail) do
+    IO.puts("#{@error_marker}aiur: #{query} query failed (#{single_line(detail)})")
+    exit_marker(1)
+  end
+
+  defp single_line(text) do
+    text |> to_string() |> String.replace(~r/\s+/, " ") |> String.trim() |> String.slice(0, 300)
+  end
+
+  defp control_query_timeout(opts, key, default) do
+    case Keyword.get(opts, key, default) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _invalid -> default
+    end
+  end
+
+  defp format_timeout_budget(timeout_ms) when rem(timeout_ms, 1_000) == 0, do: "#{div(timeout_ms, 1_000)}s"
+  defp format_timeout_budget(timeout_ms), do: "#{timeout_ms}ms"
+
   defp application_started? do
     Enum.any?(Application.started_applications(), fn {app, _description, _version} -> app == :aiur end)
   end
@@ -1247,16 +1753,23 @@ defmodule Aiur.AgentControlCLI do
     "error: aiur is not running. Start it with `aiurdev run` (or `aiurdev --bg`), then retry."
   end
 
+  defp print_failure(:resume, status, {:pause_override_clear_failed, reason}) do
+    IO.puts(
+      :stderr,
+      "aiur: failed to resume #{display_identifier(status)}; resume will not hold because agent:paused could not be removed (#{format_reason(reason)})"
+    )
+  end
+
+  defp print_failure(:message, status, reason) do
+    IO.puts(:stderr, "aiur: failed to message #{display_identifier(status)} (#{format_message_reason(reason)})")
+  end
+
   defp print_failure(action, status, reason) do
     IO.puts(:stderr, "aiur: failed to #{action} #{display_identifier(status)} (#{format_reason(reason)})")
   end
 
   defp target_matches?(status, target) do
-    target = to_string(target)
-    identifier = to_string(status.identifier || "")
-    issue_id = to_string(status.issue_id || "")
-
-    target == identifier or target == issue_id or String.ends_with?(identifier, "##{target}")
+    Issue.identifier_matches?(status.issue_id, status.identifier, target)
   end
 
   defp canonical_identifier(status) do
@@ -1309,7 +1822,13 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp result_verb(result), do: Map.fetch!(%{resumed: "resumed", started: "started"}, result)
+  defp result_verb(result),
+    do: Map.fetch!(%{resumed: "resumed", started: "started", reactivated: "reactivated"}, result)
+
+  # Keep the real fault visible instead of collapsing it to a cause the CLI
+  # has not established (#1634).
+  defp format_reason({:orchestrator_call_failed, reason}),
+    do: "orchestrator call failed: #{inspect(reason)}"
 
   defp format_reason(reason) do
     Map.get(
@@ -1323,12 +1842,20 @@ defmodule Aiur.AgentControlCLI do
         message_too_long: "message is too long",
         invalid_message: "invalid message",
         unavailable: "orchestrator unavailable",
-        timeout: "orchestrator timed out"
+        timeout: "orchestrator timed out",
+        unknown_issue: "unknown issue",
+        lifetime_dispatch_latch: "lifetime dispatch latch (run `aiurdev reset-budget <id>` to clear; resume cannot)",
+        dispatch_failed: "dispatch failed"
       },
       reason,
       inspect(reason)
     )
   end
+
+  defp format_message_reason(:agent_finished), do: "agent is not accepting messages (agent finished)"
+  defp format_message_reason(:immediate_not_supported), do: "agent is not accepting immediate messages"
+  defp format_message_reason(:interrupt_not_supported), do: "agent is not accepting interrupt messages"
+  defp format_message_reason(reason), do: format_reason(reason)
 
   defp exit_marker(code) do
     IO.puts("#{@exit_marker}#{code}")

@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrder.RouteStateTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.RouteState
@@ -178,6 +178,21 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
 
       assert RouteState.status(state) == :selected_invalid
       assert RouteState.selected_snapshot(state).data == invalid
+    end
+
+    test "routes a provider-degraded selected root to unavailable, not invalid", %{identity: identity, state: state} do
+      # A read that failed for provider reasons leaves no root and no members.
+      # Calling that `:selected_invalid` tells the usage and analytics regions
+      # the operator's Build Order is malformed when it was merely unfetched.
+      degraded = %{
+        SelectedRoot.new(nil, [], health(1, :unavailable))
+        | diagnostics: [Diagnostic.new(:provider_unavailable)]
+      }
+
+      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, degraded, 1, :unavailable))
+
+      assert RouteState.status(state) == :selected_unavailable
+      refute RouteState.status(state) == :selected_invalid
     end
 
     test "scoped async tokens expire on root and planning generation changes", %{identity: identity, state: state} do

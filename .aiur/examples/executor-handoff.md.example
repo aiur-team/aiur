@@ -1,0 +1,18 @@
+# Executor Handoff
+
+This is machine-local operational state for the current Aiur run. Replace this
+document wholesale when handing off; do not append dated checkpoints.
+
+## Identity and credentials
+
+## Operator non-negotiables
+
+## Current state (packs, versions, dashboard)
+
+## Live work and PRs needing attention
+
+## Environment hazards measured this run
+
+## Known dispatch failure modes
+
+## What to do next, ranked

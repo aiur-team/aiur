@@ -76,6 +76,48 @@ defmodule Aiur.CLITest do
     assert :ok = CLI.evaluate([@ack_flag], deps)
   end
 
+  test "parses the findings command and its filters without starting the app" do
+    assert {:findings, %{unfiled: true, slugs: true, scope: "aiur"}} =
+             CLI.evaluate(["findings", "--unfiled", "--slugs", "--scope", "aiur"], deps())
+
+    assert {:error, usage} = CLI.evaluate(["findings", "--scope", "host"], deps())
+    assert usage =~ "aiur findings"
+  end
+
+  test "parses validated findings writes and digest generation" do
+    record = Jason.encode!(%{"slug" => "dispatch-pressure"})
+
+    assert {:findings, %{record: ^record, repo: "aiur-team/aiur"}} =
+             CLI.evaluate(["findings", "--record", record, "--repo", "aiur-team/aiur"], deps())
+
+    assert {:findings, %{digest: true, scope: "aiur"}} =
+             CLI.evaluate(["findings", "--digest", "--scope", "aiur"], deps())
+
+    assert {:error, _usage} = CLI.evaluate(["findings", "--record", record], deps())
+    assert {:error, _usage} = CLI.evaluate(["findings", "--digest", "--unfiled"], deps())
+  end
+
+  test "parses ask creation, resolution, and JSON reads without starting the app" do
+    assert {:asks, {:create, %{title: "Enable CI readiness", body: "gh auth refresh -s workflow", urgency: "high", blocking: true}}} =
+             CLI.evaluate(["ask", "Enable CI readiness", "--body", "gh auth refresh -s workflow", "--urgency", "high", "--blocking"], deps())
+
+    assert {:asks, {:done, %{id: "ask_abc", note: "operator completed it"}}} =
+             CLI.evaluate(["ask", "--done", "ask_abc", "--note", "operator completed it"], deps())
+
+    assert {:asks, {:list, %{status: :all, json: true}}} = CLI.evaluate(["asks", "--all", "--json"], deps())
+    assert {:error, _usage} = CLI.evaluate(["ask", "title", "--body", "x", "--body-file", "body.txt"], deps())
+    assert {:error, _usage} = CLI.evaluate(["asks", "--open", "--all"], deps())
+  end
+
+  test "loads ask body files without changing command blocks" do
+    path = Path.join(System.tmp_dir!(), "aiur-ask-body-#{System.unique_integer([:positive])}")
+    body = "gh auth refresh -h github.com -s workflow\ngh auth token\n"
+    File.write!(path, body)
+    on_exit(fn -> File.rm(path) end)
+
+    assert {:asks, {:create, %{body: ^body}}} = CLI.evaluate(["ask", "Enable CI readiness", "--body-file", path], deps())
+  end
+
   test "uses an explicit workflow path override when provided" do
     parent = self()
     workflow_path = "tmp/custom/operator.config"

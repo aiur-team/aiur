@@ -7,7 +7,16 @@ defmodule Aiur.Config do
   alias Aiur.BuildGate
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
+  alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
+
+  # Every environment variable `Schema.parse/1` can read that is *not* named by
+  # the config itself. `finalize_settings/1` reads the first two directly, and
+  # the workspace-root default is `System.tmp_dir!/0`, which is TMPDIR/TEMP/TMP
+  # and then non-environment fallbacks. Anything added to that function must be
+  # added here, or its memo will not expire when the variable changes.
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -23,7 +32,6 @@ defmodule Aiur.Config do
   {% endif %}
   """
 
-  @default_base_branch "main"
   @default_telemetry_retention_max_bytes 64 * 1024 * 1024
   @default_telemetry_retention_max_age_days 30
   @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
@@ -34,8 +42,120 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc """
+  The parsed config.
+
+  This is the single most-called read in the system, so it must be cheap and it
+  must not serialize. Two things make it so (#1731):
+
+    * `Workflow.current_with_generation/0` is an ETS lookup, not a
+      `GenServer.call` into `Aiur.WorkflowStore`.
+    * the `Schema.parse/1` result is memoized against the store generation, so
+      the schema work happens once per *config change* rather than once per
+      read. Before this, every caller re-prepared and re-parsed the same map.
+  """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings, do: settings_from(Workflow.current())
+  def settings do
+    case Workflow.current_with_generation() do
+      {:ok, workflow, generation} when is_integer(generation) ->
+        cached_settings(workflow, generation)
+
+      {:ok, workflow, _unknown} ->
+        settings_from({:ok, workflow})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # `Schema.parse/1` is not a pure function of the config map: `$ENV` references,
+  # `LINEAR_API_KEY`/`LINEAR_ASSIGNEE` and the workspace-root default all read
+  # the process environment at parse time. Keying the memo on the config
+  # generation alone would freeze a resolved secret for the life of the config —
+  # and would break every test that sets an env var and re-reads settings. So
+  # the key carries an environment epoch as well; a `System.put_env` to any
+  # variable the parse depends on invalidates the memo exactly like a config
+  # edit does. See `env_epoch/2` for why that is not the whole environment.
+  defp cached_settings(workflow, generation) do
+    key = {generation, env_epoch(workflow, generation)}
+
+    case WorkflowStoreCache.fetch_settings(key) do
+      {:ok, settings} ->
+        {:ok, settings}
+
+      :error ->
+        case settings_from({:ok, workflow}) do
+          {:ok, settings} = result ->
+            WorkflowStoreCache.put_settings(key, settings)
+            result
+
+          error ->
+            # Never memoize a parse failure: the operator fixes the config in
+            # place and the fix arrives as a new generation anyway, but a
+            # cached error would also mask a transient read.
+            error
+        end
+    end
+  end
+
+  # The memo must expire when any environment variable the parse depends on
+  # changes, or a resolved secret freezes for the life of the config. Hashing
+  # the *whole* environment does that, but it is not free: 154us per call on a
+  # 226-variable host, against ~0.5us for the ETS lookup it guards. Since
+  # `settings/0` is the most-called read in the system — a single status render
+  # reaches it dozens of times — that made the env hash essentially 100% of the
+  # remaining cost of this function.
+  #
+  # The variables the parse can actually consult are fixed by the config
+  # content: the `$NAME` tokens the config itself references, plus the implicit
+  # set above. So derive that list once per generation and sample only those.
+  # The dependency set is a superset of what is really read (every `$NAME`
+  # anywhere in the config, not just in fields that resolve one), so the key
+  # can only expire too eagerly, never too late.
+  defp env_epoch(workflow, generation) do
+    workflow
+    |> env_names(generation)
+    |> Enum.map(&System.get_env/1)
+    |> :erlang.phash2()
+  end
+
+  defp env_names(workflow, generation) do
+    case WorkflowStoreCache.fetch_env_names(generation) do
+      {:ok, names} ->
+        names
+
+      :error ->
+        names = referenced_env_names(workflow)
+        WorkflowStoreCache.put_env_names(generation, names)
+        names
+    end
+  end
+
+  defp referenced_env_names(%{config: config}) when is_map(config) do
+    @implicit_env_vars
+    |> MapSet.new()
+    |> collect_env_names(config)
+    |> Enum.sort()
+  end
+
+  defp collect_env_names(acc, value) when is_map(value) and not is_struct(value) do
+    Enum.reduce(value, acc, fn {key, nested}, acc ->
+      acc |> collect_env_names(key) |> collect_env_names(nested)
+    end)
+  end
+
+  defp collect_env_names(acc, value) when is_list(value) do
+    Enum.reduce(value, acc, &collect_env_names(&2, &1))
+  end
+
+  defp collect_env_names(acc, value) when is_binary(value) do
+    case EnvResolver.env_reference_name(value) do
+      {:ok, name} -> MapSet.put(acc, name)
+      :error -> acc
+    end
+  end
+
+  defp collect_env_names(acc, _value), do: acc
 
   # Like `settings/0` but reads the config file directly, bypassing the
   # `WorkflowStore` cache. For callers that must see on-disk truth rather than a
@@ -70,24 +190,63 @@ defmodule Aiur.Config do
     Map.get(
       config.agent.max_concurrent_agents_by_state,
       AgentValidation.normalize_issue_state(state_name),
-      config.agent.max_concurrent_agents
+      max_concurrent_agents()
     )
   end
 
-  def max_concurrent_agents_for_state(_state_name), do: settings!().agent.max_concurrent_agents
+  def max_concurrent_agents_for_state(_state_name), do: max_concurrent_agents()
 
   @spec tracker_kind() :: String.t() | nil
   def tracker_kind do
     settings!().tracker.kind
   end
 
-  @doc "The configured tracker integration branch, defaulting to `main`."
+  @doc "The configured tracker integration branch. Raises when it cannot be resolved safely."
   @spec base_branch() :: String.t()
-  def base_branch do
-    case settings() do
-      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
-      _ -> @default_base_branch
+  @spec base_branch(term()) :: String.t()
+  @spec base_branch(term(), keyword()) :: String.t()
+  def base_branch(source \\ settings(), context \\ [])
+
+  def base_branch({:ok, %{tracker: tracker}}, context), do: base_branch(tracker, context)
+
+  def base_branch({:error, reason}, context) do
+    raise_unresolved_base_branch({:config_error, reason}, context)
+  end
+
+  def base_branch(opts, context) when is_list(opts) do
+    case Keyword.fetch(opts, :base_branch) do
+      {:ok, branch} -> require_base_branch(branch, context)
+      :error -> base_branch(settings(), context)
     end
+  end
+
+  def base_branch(%{tracker: tracker}, context), do: base_branch(tracker, context)
+  def base_branch(%{"tracker" => tracker}, context), do: base_branch(tracker, context)
+  def base_branch(%{base_branch: branch}, context), do: require_base_branch(branch, context)
+  def base_branch(%{"base_branch" => branch}, context), do: require_base_branch(branch, context)
+  def base_branch(%{}, context), do: raise_unresolved_base_branch(:missing, context)
+  def base_branch(source, context), do: raise_unresolved_base_branch({:invalid_source, source}, context)
+
+  defp require_base_branch(branch, context) when is_binary(branch) and byte_size(branch) > 0 do
+    case String.trim(branch) do
+      "" -> raise_unresolved_base_branch(:empty, context)
+      trimmed -> trimmed
+    end
+  end
+
+  defp require_base_branch(branch, context), do: raise_unresolved_base_branch({:invalid, branch}, context)
+
+  defp raise_unresolved_base_branch(reason, context) do
+    cwd = context |> Keyword.get_lazy(:cwd, &File.cwd!/0) |> Path.expand()
+
+    config_path =
+      context
+      |> Keyword.get_lazy(:config_path, &Workflow.workflow_file_path/0)
+      |> Path.expand(cwd)
+
+    raise ArgumentError,
+          "tracker.base_branch could not be resolved; config path searched: #{config_path}; " <>
+            "resolved working directory: #{cwd}; reason: #{inspect(reason)}"
   end
 
   @spec agent_kind() :: String.t()
@@ -101,6 +260,10 @@ defmodule Aiur.Config do
     settings!().agent.backend_configs
     |> Map.get(backend, %{})
   end
+
+  @doc "Raw settings for all registry-named backends."
+  @spec agent_backend_configs() :: map()
+  def agent_backend_configs, do: settings!().agent.backend_configs || %{}
 
   @spec agent_routing() :: %{pos_integer() => String.t()}
   def agent_routing do
@@ -162,16 +325,17 @@ defmodule Aiur.Config do
 
   @doc """
   Whether a recycled re-dispatch that could not resume its thread gets
-  continuation guidance instead of the cold-start prompt. Defaults to false, so
-  the dispatch path is unchanged until an operator opts in.
+  continuation guidance instead of the cold-start prompt. Defaults to true so
+  a non-resumable backend switch picks up the shared workspace without claiming
+  cross-backend conversation continuity.
   """
   @spec agent_prior_work_continuation?() :: boolean()
   def agent_prior_work_continuation? do
     case settings() do
       # Map.get, not dot access, so a config cached before this field existed
-      # returns false rather than raising after a schema upgrade.
-      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation) || false
-      _ -> false
+      # uses the current default rather than raising after a schema upgrade.
+      {:ok, settings} -> Map.get(settings.agent, :prior_work_continuation, true)
+      _ -> true
     end
   end
 
@@ -225,6 +389,18 @@ defmodule Aiur.Config do
   @spec terminal_states() :: [String.t()]
   def terminal_states do
     settings!().tracker.terminal_states
+  end
+
+  @doc """
+  How long a terminal tracker observation stays lifecycle-fenced while a queued
+  authoritative item is undelivered before the daemon finalizes the running
+  entry. Defaults to 30 seconds; raise it when provider turn-delivery latency is
+  longer (a queued authoritative input that lands after the grace expires is
+  dropped at teardown).
+  """
+  @spec terminal_fence_grace_seconds() :: pos_integer()
+  def terminal_fence_grace_seconds do
+    settings!().tracker.terminal_fence_grace_seconds
   end
 
   @spec poll_interval_seconds() :: pos_integer()
@@ -341,9 +517,48 @@ defmodule Aiur.Config do
     end
   end
 
+  @doc """
+  Ceiling for new fleet admissions, derived from measured host capacity when the
+  workflow omits `max_concurrent_agents`. Explicit config always wins; see
+  `default_max_concurrent_agents/1` for the calibration.
+  """
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
-    settings!().agent.max_concurrent_agents
+    case settings!().agent.max_concurrent_agents do
+      n when is_integer(n) and n > 0 -> n
+      _other -> default_max_concurrent_agents()
+    end
+  end
+
+  @doc """
+  Default fleet admission ceiling calibrated from measured host capacity rather
+  than a hard-coded global agent count.
+
+  The 2026-07-31 capacity run found a 16-core host saturates near ~19-20
+  concurrent agents (load ~14 of 16), so the calibration is
+  `schedulers + schedulers / 4` (16 → 20), floored at 2. This is a ceiling the
+  load envelope adaptively backs off from under pressure, not a guaranteed
+  concurrency target.
+  """
+  @spec default_max_concurrent_agents() :: pos_integer()
+  @spec default_max_concurrent_agents(pos_integer()) :: pos_integer()
+  def default_max_concurrent_agents(schedulers \\ System.schedulers_online())
+
+  def default_max_concurrent_agents(schedulers)
+      when is_integer(schedulers) and schedulers > 0 do
+    max(schedulers + div(schedulers, 4), 2)
+  end
+
+  def default_max_concurrent_agents(_schedulers), do: 2
+
+  @doc """
+  Per-scheduler runnable-process ceiling for the instantaneous run-queue
+  dispatch gate (#1430). `nil` disables the gate; a positive value holds new
+  dispatch while `procs_running` strictly exceeds it times the scheduler count.
+  """
+  @spec run_queue_threshold() :: float() | nil
+  def run_queue_threshold do
+    settings!().agent.run_queue_threshold
   end
 
   @doc """
@@ -374,6 +589,16 @@ defmodule Aiur.Config do
   @spec mix_scheduler_cap() :: pos_integer()
   def mix_scheduler_cap do
     settings!().agent.mix_scheduler_cap || 4
+  end
+
+  @doc """
+  Whether the saturation sentinel recorder is enabled. The sentinel appends
+  VM-internal + host diagnostics to `saturation.log` when 1-min load crosses
+  the escalation threshold, so a crash under saturation is interpretable.
+  """
+  @spec saturation_log_enabled?() :: boolean()
+  def saturation_log_enabled? do
+    settings!().agent.saturation_log_enabled
   end
 
   @doc """
@@ -579,8 +804,9 @@ defmodule Aiur.Config do
 
   @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
   @spec telemetry_enabled?() :: boolean()
-  def telemetry_enabled? do
-    case settings() do
+  @spec telemetry_enabled?(term()) :: boolean()
+  def telemetry_enabled?(settings \\ settings_uncached()) do
+    case settings do
       {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
     end
@@ -752,7 +978,7 @@ defmodule Aiur.Config do
       settings.tracker.kind not in ["linear", "github", "memory"] ->
         {:error, {:unsupported_tracker_kind, settings.tracker.kind}}
 
-      settings.agent.kind not in Aiur.CodingAgent.known_backends() ->
+      settings.agent.kind not in Aiur.CodingAgent.dispatchable_backends(settings.agent.backend_configs) ->
         {:error, {:unsupported_agent_kind, settings.agent.kind}}
 
       settings.tracker.kind == "linear" and not is_binary(settings.tracker.linear.api_key) ->

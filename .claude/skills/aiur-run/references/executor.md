@@ -26,6 +26,16 @@ alerts, and events; planning documents preserve approved intent.
 
 ## Establish the authority envelope
 
+Before consulting repository documentation, read
+`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live
+ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that
+cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been
+recorded. When replacing an Executor, rewrite it wholesale with the next
+Executor's ranked work and hazards; never append another dated checkpoint.
+
 Record these decisions before making the corresponding mutations. Reuse clear
 answers already present in the request or handoff instead of asking again.
 
@@ -107,6 +117,52 @@ The Executor continuously:
 8. reviews its own structured monitoring wake/outcome history once per hour,
    records avoidable no-action checks and small evidence-based cadence/trigger
    adjustments, and remains available without polling merely to appear active.
+9. listens for newly created Commands, answers settled and reversible ones
+   with explicit Executor attribution, and escalates uncertain or consequential
+   ones to the operator without answering them.
+
+## Command decision loop
+
+Subscribe the durable Executor listener to `executor.decision.requested` for the
+lifetime of the run. Creation events wake the Executor immediately, and the
+listener's persisted replay cursor delivers events missed during disconnects.
+This listener is the command inbox: do not discover new Commands by polling or
+sweeping the decision store. Periodic monitoring remains necessary for runtime
+health, but it is not a parallel decision-discovery mechanism.
+
+Evaluate each Command in its current run, ticket, and decision-history context.
+This is a judgment call, not a rules engine: do not encode a table of command
+types that may be answered automatically. A direct answer is appropriate when
+it repeats a settled answer, follows from an established fact, or chooses an
+obvious reversible operation already inside the authority envelope. Submit it
+only through the `executor-answer` command so the durable answer actor is the
+Executor, not the operator. The dashboard must expose that attribution and
+history so the operator can find, revise, or supersede every Executor-made
+decision later; explanatory prose is not a substitute for actor attribution.
+Pass the event's current decision version, exactly one option or custom answer,
+a rationale, and an idempotency key. Use a stable `--executor-id` for the run
+when available (the CLI otherwise records `aiur-cli`), so replay stays
+idempotent and stale events cannot overwrite a later answer.
+
+If the Command is uncertain, irreversible, changes feature scope or product
+direction, exceeds the authority envelope, or requires the Executor to guess,
+do not answer it. Use the `executor-escalate` command to invoke the existing
+operator-notification path with the concrete question and uncertainty, and
+leave the decision open for the operator. Auto-answered Commands do not notify;
+explicitly escalated Commands do. Escalation also carries the current decision
+version and Executor identity, so stale escalation attempts are rejected and
+the operator-facing alert remains attributable.
+
+This judgement sits on top of a floor the store enforces, not in place of it.
+`DecisionStore` refuses an Executor-attributed answer unless the Command itself
+declares `authority: supervisor_allowed | supervisor_preferred` **and**
+`reversibility: reversible`; anything else — `human_required`, irreversible or
+partially reversible work, or an absent declaration — is rejected with
+`{:executor_scope, …}` and must be escalated. Treat that rejection as the
+Command telling you it was always the operator's. Escalations are appended to
+the Decision's durable event log as an attributed `executor_escalated` event,
+so "the Executor deferred to the human" is as recoverable later as "the
+Executor decided".
 
 ## Capacity policy
 
@@ -326,15 +382,21 @@ token-bearing URL from the first push, and open agent pull requests with the
 agent's own token: GitHub counts the PR **opener**, not the commit author, when
 deciding self-approval.
 
-The repository ruleset has no `required_status_checks` rule, so nothing prevents
-merging with failing CI. Verify checks by hand before every merge.
+The declaration requires every blocking CI job as required status checks,
+including `build`, `test`, and `workflow security`, with strict status checks
+enabled, and the gate is enforced once that declaration is applied to the live
+ruleset. The CI `merge ruleset drift` check verifies the live ruleset against
+that declaration on every PR and merge, so a regressed gate fails CI visibly.
+The Executor must wait for the required checks and the review conditions before
+merging; never merge a pending, failing, or stale head.
 
 A solo operator cannot merge `develop` into `main` through the gate
 (issue #1437). With a two-owner CODEOWNERS entry plus `require_code_owner_review`
 and `require_last_push_approval`, the only in-gate path is a bot approval, which
-defeats the gate; `--admin` does not bypass it. The current workaround is a
-documented ruleset window: back up the ruleset, disable it, merge, restore it,
-and re-read the ruleset to confirm restoration rather than trusting the write.
+defeats the gate; `--admin` does not bypass it. Any approved maintenance window
+must change only the review-side rules while leaving the required-status-check
+rule active. Back up and re-read the ruleset to confirm the review-side change
+rather than trusting the write.
 
 ## Ticket close-out
 
@@ -396,45 +458,36 @@ where it repeatedly paid for itself):
    tickets per pattern, and never expand the active feature boundary with
    them — process/infra tickets ride alongside the build order; feature
    tickets need operator sign-off.
-4. **File the findings; writing them down is not filing them.** A finding
-   recorded without a ticket number is not a completed retrospective. Prose on a
-   handoff branch is a record, not a repair, and the only thing converting it
-   into a ticket is the Executor remembering to — which is why the 2026-07/08
-   run produced 71 findings and 23 of them reached no ticket at all. The
-   retrospective is a filing step: append every finding to the ledger below,
-   and before ending the retrospective confirm each one carries either a ticket
-   number or an explicit deliberate-skip note.
+4. **Write and file the entry** in the repository state node. The narrative
+   retrospective is `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`;
+   each actionable item is an append-only `meta/findings.ndjson` record with a
+   reusable slug, evidence references, and its filed ticket (or `ticket: null`).
+   Write it only through `aiurdev findings --record '<json>' --repo
+   <owner>/<repo>` so schema validation and the atomic size cap cannot be
+   bypassed.
+   `aiur init` creates the tree and `aiurdev findings --unfiled` makes a missing
+   ticket visible before a retrospective can be treated as complete. Raw records
+   remain host-local; periodically run `mkdir -p docs/executor && aiurdev
+   findings --digest > docs/executor/open-findings.md`, inspect the regenerated
+   file, and commit it. That generated digest is the deliberate git channel
+   between machines, not a sync of host paths or boot IDs.
 
-   The ledger is `~/.aiur/repo/<owner>/<repo>/meta/findings.ndjson`; create the
-   directory if it is absent. Write one JSON object per line, each line hard
-   capped at 4 KiB so `O_APPEND` stays atomic when two Executor instances share
-   a host. Cite evidence by reference — an issue number, a log path plus line —
-   never a pasted log dump, which is also how a record stays inside the cap.
+   The ledger contains one JSON object per line, hard-capped at 4 KiB so
+   `O_APPEND` remains atomic when two Executor instances share a host. Cite
+   evidence by reference - an issue number or a log path plus line - never a
+   pasted log dump.
 
    ```json
-   {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":"#1442; ~/.aiur/logs/agent-1442.log:8812","cost":"5.8h","ticket":1451,"status":"filed"}
+   {"slug":"vitest-glob-excludes-tests","observed_at":"2026-08-01T18:04:00Z","scope":"repo","observed_in":"aiur-team/aiur","instance":"executor-1","summary":"20 tests outside the configured vitest include glob never ran","evidence":["#1442","~/.aiur/logs/agent-1442.log:8812"],"cost":"5.8h","ticket":1451,"status":"filed"}
    ```
 
-   `slug` is a reusable kebab join key, so the same finding observed twice
-   groups into a recurrence count instead of a second entry to triage — that is
-   what makes the "3+ reproductions" threshold in step 3 a number to read
-   rather than one to remember. `scope` is `aiur` when the finding reproduces
-   on any repository and `repo` when it names this repository's tests, CI, or
-   code. `status` moves `open` -> `filed` -> `resolved`. A record left at
-   `ticket: null` with no deliberate-skip note is a bug in the retrospective,
-   not an accepted state.
-
-   Issue #1464 is landing this as product: schema validation, an
-   `aiurdev findings --unfiled` query, and `aiur init` creating the tree. Until
-   it ships the Executor writes the file directly. Keep the path and the record
-   shape identical so no migration is needed.
-5. **Write the narrative entry down** in a durable retrospective log, e.g.
-   `docs/executor/hourly-retrospectives.md` on the run's research/handoff
-   branch: the bottleneck, the number, the proposed reduction, what was filed
-   vs deferred. The log is what makes the daily skill-review pass possible and
-   what a replacement Executor resumes from; the ledger above is what proves
-   nothing fell through.
-6. **Daily**, review the accumulated hourly notes and ask whether any Aiur
+   `slug` is a reusable kebab join key, so repeated observations group into a
+   recurrence count. `scope` is `aiur` when the finding reproduces on any
+   repository and `repo` when it names this repository's tests, CI, or code.
+   `status` moves `open` -> `filed` -> `resolved`. A record left at
+   `ticket: null` remains visible to the unfiled gate; it is not an accepted
+   completed finding.
+5. **Daily**, review the accumulated hourly notes and ask whether any Aiur
    skill should change so the next run never rediscovers the lesson. Capture
    that as a concrete skill-doc edit and land it as a small PR.
 
