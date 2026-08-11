@@ -274,6 +274,51 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.dashboard_snapshot(stalled_name, 50)
   end
 
+  test "an orchestrator wedged after draining its mailbox still reports a stale fleet snapshot" do
+    orchestrator_name = Module.concat(__MODULE__, :DrainedWedgeSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+    Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 60)
+
+    on_exit(fn ->
+      if is_nil(previous_ceiling) do
+        Application.delete_env(:aiur, :snapshot_stale_age_ceiling_ms)
+      else
+        Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, previous_ceiling)
+      end
+
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
+
+    # The symmetric failure to a backlogged orchestrator: this one wedges with
+    # an empty mailbox, so there is no backlog to corroborate the stall. A
+    # depth-gated rule would keep serving this snapshot as `:current` forever,
+    # which is the "stale renders as current" defect the Units page exists to
+    # prevent. Age alone must be enough.
+    :sys.suspend(pid)
+    Process.sleep(90)
+
+    assert 0 = pid |> Process.info(:message_queue_len) |> elem(1)
+
+    assert {:stale, %{running: [], retrying: [], idle: []}, %{status: :stale, reason: :snapshot_stalled, age_seconds: age_seconds}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 5_000)
+
+    assert is_integer(age_seconds)
+
+    # A long read timeout must not buy back currency: the ceiling is absolute.
+    assert {:stale, _snapshot, %{reason: :snapshot_stalled}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 600_000)
+  end
+
   test "decoupled publisher keeps the fleet snapshot current while the orchestrator is starved" do
     orchestrator_name = Module.concat(__MODULE__, :PublisherDecoupledSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)

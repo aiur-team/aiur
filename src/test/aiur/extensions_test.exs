@@ -1331,8 +1331,9 @@ defmodule Aiur.ExtensionsTest do
     )
 
     {:ok, _view, html} = live(build_conn(), "/")
-    assert html =~ "Snapshot unavailable"
+    assert html =~ "Fleet snapshot unavailable"
     assert html =~ "orchestrator_unavailable"
+    refute html =~ "No fleet snapshot published yet"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
