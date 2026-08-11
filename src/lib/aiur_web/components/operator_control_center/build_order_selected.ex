@@ -29,7 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       assigns
       |> assign(:status, RouteState.status(assigns.route_state))
       |> assign(:snapshot, RouteState.selected_snapshot(assigns.route_state))
-      |> assign(:graph_failure, graph_failure(assigns.model, RouteState.status(assigns.route_state), RouteState.root_identifier(assigns.route_state)))
+      |> assign(:graph_failure, graph_failure(assigns.model, assigns.route_state))
 
     ~H"""
     <header class="bo-page-header">
@@ -41,6 +41,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       <div :if={@graph_failure} class="bo-state-card bo-error-state" role={@graph_failure.role}>
         <h3>{@graph_failure.title}</h3>
         <p>{@graph_failure.message}</p>
+        <p class="bo-error-fault">
+          Reported fault: <code>{@graph_failure.code}</code>
+        </p>
 
         <div id="build-order-debug-prompt-copy" class="bo-debug-prompt" phx-hook="CopyToClipboard">
           <label for="build-order-debug-prompt">Debug prompt</label>
@@ -115,41 +118,91 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     """
   end
 
-  defp graph_failure(%{status: :provider_unavailable} = model, _route_status, identifier),
-    do: failure(:provider_unavailable, identifier, model)
+  # One upstream read fault degrades the whole page. State it once, name the
+  # specific code the provider actually reported, and hand the operator a prompt
+  # that already carries what an agent needs to start.
+  defp graph_failure(model, route_state) do
+    case failure_kind(model, RouteState.status(route_state)) do
+      nil ->
+        nil
 
-  defp graph_failure(%{status: :structurally_invalid} = model, _route_status, identifier),
-    do: failure(:structurally_invalid, identifier, model)
+      kind ->
+        snapshot = RouteState.selected_snapshot(route_state)
 
-  defp graph_failure(nil, :selected_unavailable, identifier),
-    do: failure(:provider_unavailable, identifier, nil)
+        failure(kind, %{
+          identifier: RouteState.root_identifier(route_state),
+          code: failure_code(model, snapshot, kind),
+          model: model,
+          snapshot: snapshot
+        })
+    end
+  end
 
-  defp graph_failure(nil, :selected_invalid, identifier),
-    do: failure(:structurally_invalid, identifier, nil)
+  defp failure_kind(%{status: :provider_unavailable}, _route_status), do: :unfetched
+  defp failure_kind(%{status: :structurally_invalid}, _route_status), do: :malformed
+  defp failure_kind(nil, :selected_unavailable), do: :unfetched
+  defp failure_kind(nil, :selected_invalid), do: :malformed
+  defp failure_kind(_model, _route_status), do: nil
 
-  defp graph_failure(_model, _route_status, _identifier), do: nil
+  # `failure_class/1` preserves the specific code (`rate_limited`, `permission`,
+  # `schema`, …). Report that, never a laundered stand-in for every outage.
+  defp failure_code(model, snapshot, kind) do
+    Enum.find([health_failure(model), snapshot_failure(snapshot), default_code(kind)], &(is_atom(&1) and not is_nil(&1)))
+  end
 
-  defp failure(:provider_unavailable, identifier, model) do
+  defp health_failure(%{planning_health: %{failure: failure}}) when is_atom(failure), do: failure
+  defp health_failure(_model), do: nil
+
+  defp snapshot_failure(%Snapshot{health: %{failure: failure}}) when is_atom(failure), do: failure
+  defp snapshot_failure(_snapshot), do: nil
+
+  defp default_code(:unfetched), do: :provider_unavailable
+  defp default_code(:malformed), do: :structurally_invalid
+
+  defp failure(:unfetched, context) do
     %{
       role: "status",
+      code: context.code,
       title: "Could not fetch planning graph",
       message: "The selected-root provider did not return a graph, so its counts and dependent views are unavailable.",
       prompt:
-        "Investigate why #{root_label(identifier)}'s planning graph could not be fetched. " <>
-          "The selected-root provider reports `provider_unavailable`; graph counts are unresolved#{diagnostic_suffix(model)}."
+        "Investigate why #{root_label(context.identifier)}'s planning graph could not be fetched. " <>
+          "The selected-root provider reports `#{context.code}`#{scope_suffix(context.snapshot)}; " <>
+          "graph counts are unresolved#{diagnostic_suffix(context.model, context.code)}."
     }
   end
 
-  defp failure(:structurally_invalid, identifier, model) do
+  defp failure(:malformed, context) do
     %{
       role: "alert",
+      code: context.code,
       title: "Fetched planning graph is malformed",
       message: "The selected-root provider returned a graph that failed structural validation.",
       prompt:
-        "Investigate why #{root_label(identifier)}'s fetched planning graph is malformed. " <>
-          "The selected-root provider reports `structurally_invalid`#{member_observation(model)}#{diagnostic_suffix(model)}."
+        "Investigate why #{root_label(context.identifier)}'s fetched planning graph is malformed. " <>
+          "The selected-root provider reports `#{context.code}`#{scope_suffix(context.snapshot)}" <>
+          "#{member_observation(context.model)}#{diagnostic_suffix(context.model, context.code)}."
     }
   end
+
+  defp scope_suffix(%Snapshot{repository: repository, generation: generation}) do
+    [repository_clause(repository), generation_clause(generation)]
+    |> Enum.reject(&(&1 == ""))
+    |> case do
+      [] -> ""
+      clauses -> " (" <> Enum.join(clauses, ", ") <> ")"
+    end
+  end
+
+  defp scope_suffix(_snapshot), do: ""
+
+  defp repository_clause({owner, name}) when is_binary(owner) and is_binary(name),
+    do: "reading the selected-root graph for #{owner}/#{name}"
+
+  defp repository_clause(_repository), do: "reading the selected-root graph"
+
+  defp generation_clause(generation) when is_integer(generation) and generation > 0, do: "provider generation #{generation}"
+  defp generation_clause(_generation), do: ""
 
   defp root_label(identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
   defp root_label(_identifier), do: "the selected Build Order"
@@ -159,16 +212,28 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   defp member_observation(_model), do: "; the fetched response failed structural validation"
 
-  defp diagnostic_suffix(%{diagnostics: diagnostics}) when is_list(diagnostics) do
-    codes = diagnostics |> Enum.map(&Map.get(&1, :code)) |> Enum.filter(&is_atom/1) |> Enum.uniq() |> Enum.sort()
+  # Only genuinely distinct faults earn a mention. A diagnostic that restates the
+  # reported fault is the same fact twice, which is the defect this state fixes.
+  defp diagnostic_suffix(%{diagnostics: diagnostics}, code) when is_list(diagnostics) do
+    codes =
+      diagnostics
+      |> Enum.map(&Map.get(&1, :code))
+      |> Enum.filter(&is_atom/1)
+      |> Enum.reject(&restates?(&1, code))
+      |> Enum.uniq()
+      |> Enum.sort()
 
     case codes do
       [] -> ""
-      codes -> "; diagnostics: " <> Enum.map_join(codes, ", ", &"`#{&1}`")
+      codes -> "; also reported: " <> Enum.map_join(codes, ", ", &"`#{&1}`")
     end
   end
 
-  defp diagnostic_suffix(_model), do: ""
+  defp diagnostic_suffix(_model, _code), do: ""
+
+  defp restates?(code, code), do: true
+  defp restates?(:provider_unavailable, _code), do: true
+  defp restates?(_diagnostic_code, _code), do: false
 
   # An unresolved graph has no counts to show. Rendering the zeros of an empty
   # model would state a number we never read — "Unresolved" is the honest cell.

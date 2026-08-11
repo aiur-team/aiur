@@ -1427,8 +1427,12 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       repository: @repository,
       authority_epoch: 1,
       generation: 9,
-      data: nil,
-      health: health(9, :unavailable)
+      # #1791's reported shape: the root is known but its members could not be
+      # read, so every downstream pane used to raise its own alarm about the one
+      # fault. A specific read fault, not a laundered outage — the page must
+      # repeat the code the provider actually reported.
+      data: SelectedRoot.new(root(1567, "Unavailable planning graph"), [], unavailable_health()),
+      health: unavailable_health()
     }
 
     {:ok, snapshot}
@@ -1523,6 +1527,14 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
   end
 
   defp issue_url(number), do: "https://github.com/owner/repo/issues/#{number}"
+
+  defp unavailable_health do
+    ProviderHealth.new(9, :unavailable, false,
+      observed_at: @observed_at,
+      last_success_at: @observed_at,
+      failure: :rate_limited
+    )
+  end
 
   defp health(generation, state) do
     ProviderHealth.new(generation, state, state == :healthy,

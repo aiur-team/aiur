@@ -654,6 +654,20 @@ textarea:focus-visible,
   gap: 1rem;
 }
 
+.bo-error-fault {
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.bo-error-fault code {
+  padding: 0.1rem 0.35rem;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: 0.76rem/1.4 "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+}
+
 .bo-debug-prompt {
   display: grid;
   gap: 0.55rem;

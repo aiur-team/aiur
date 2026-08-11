@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Aiur.BuildOrder.{Diagnostic, Icon}
+  alias Aiur.BuildOrder.{Diagnostic, Icon, ProviderHealth}
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
@@ -894,6 +894,42 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Build Order analytics"
     refute html =~ "Usage and cost"
     refute html =~ "Root data is unavailable"
+  end
+
+  # #1808 stopped `failure_class/1` laundering every read fault into
+  # `provider_unavailable`. The one error card must report the code the provider
+  # actually gave, or the debug prompt sends an agent after the wrong problem.
+  test "the single failure state names the specific reported fault, not a generic outage" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited}
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Reported fault:"
+    assert html =~ "`rate_limited`"
+    refute html =~ "provider_unavailable"
+  end
+
+  # Collapsing restatements of one fault is the point; hiding a second, genuinely
+  # different fault would trade a wall of text for a confident wrong reason.
+  test "the single failure state still reports genuinely distinct faults" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | planning_health: %ProviderHealth{generation: 9, state: :unavailable, failure: :rate_limited},
+          diagnostics: [Diagnostic.new(:provider_unavailable), Diagnostic.new(:pagination_mismatch)]
+      })
+
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "also reported: `pagination_mismatch`"
+    # `provider_unavailable` here restates the reported fault rather than adding one.
+    refute html =~ "provider_unavailable"
   end
 
   defp render_selected(model) do

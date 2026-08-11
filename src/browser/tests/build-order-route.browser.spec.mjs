@@ -260,10 +260,15 @@ test('an unresolvable Build Order renders one copyable page-level error state', 
     await expect(page.locator('.bo-summary-grid, .bo-breakdown, .bo-analytics, .bo-usage, .bo-diagnostics')).toHaveCount(0)
 
     const prompt = page.locator('#build-order-debug-prompt')
+    // The prompt must name the specific reported fault, the root, and what was
+    // being read — enough that pasting it to an agent starts real work.
     await expect(prompt).toHaveValue(
       "Investigate why Build Order #1567's planning graph could not be fetched. " +
-      'The selected-root provider reports `provider_unavailable`; graph counts are unresolved; diagnostics: `provider_unavailable`.'
+      'The selected-root provider reports `rate_limited` ' +
+      '(reading the selected-root graph for owner/repo, provider generation 9); ' +
+      'graph counts are unresolved.'
     )
+    await expect(card).toContainText('Reported fault: rate_limited')
 
     await page.getByRole('button', { name: 'Copy debug prompt' }).click()
     await expect(page.locator('[data-copy-status]')).toHaveText('Copied')
