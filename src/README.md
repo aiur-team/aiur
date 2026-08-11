@@ -398,6 +398,32 @@ daemon requests are rejected locally and agent-launched `gh` commands wait on
 the recorded reset instead of retrying into the exhausted budget. Quota state
 that has not yet been observed fails open so startup is not blocked by a meter.
 
+Aiur also coordinates request *shape* across all local instances that share a
+credential. A host-local SQLite broker at `~/.aiur/github-budget/` keys state
+by a SHA-256 fingerprint, never the token itself. It enforces a shared
+requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and
+jittered admission starts. A primary exhaustion holds its resource globally;
+a secondary-limit response or `Retry-After` holds every consumer of that token,
+including separately started daemons and agent `gh` commands.
+
+The defaults are deliberately conservative and can be tuned per workflow:
+
+```yaml
+tracker:
+  github:
+    max_inflight: 4
+    max_inflight_per_endpoint: 2
+    requests_per_minute: 120
+    stagger_ms: 75
+```
+
+At startup Aiur installs an optional Executor-shell wrapper at
+`~/.aiur/github-budget/bin/gh`. Put that directory ahead of the system `gh` in
+an Executor shell's `PATH` to share the same budget for direct CLI calls. The
+wrapper fingerprints the `GITHUB_TOKEN` or `gh auth` credential it actually
+uses, so distinct daemon and Executor credentials never share a budget. Agent
+workspaces receive the wrapper automatically.
+
 ### Supervisor Decision API
 
 The machine Decision API under `/api/v1/decisions` uses a dedicated bearer

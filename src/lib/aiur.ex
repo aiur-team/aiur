@@ -23,6 +23,7 @@ defmodule Aiur.Application do
 
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
+  alias Aiur.{AgentGitHubGuard, GitHub.Budget}
   alias Aiur.GitHub.Config
 
   @impl true
@@ -41,6 +42,7 @@ defmodule Aiur.Application do
     install_signal_handlers()
     maybe_start_distribution()
     if Application.get_env(:aiur, :resolve_github_token_on_boot, true), do: resolve_github_token()
+    if Budget.enabled?(), do: AgentGitHubGuard.install_host()
 
     no_dashboard? = Application.get_env(:aiur, :no_dashboard, false)
 

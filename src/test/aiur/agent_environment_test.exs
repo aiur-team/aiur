@@ -106,7 +106,8 @@ defmodule Aiur.AgentEnvironmentTest do
           {"BINDIR", "/opt/user-otp/bin"},
           {"EMU", "custom-beam"},
           {"PROGNAME", "custom-erl"},
-          {"PATH", unrelated_path}
+          {"PATH", unrelated_path},
+          {"AIUR_AGENT_BIN", ""}
         ]
       )
 
@@ -369,6 +370,10 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_AGENT_QUOTA_STATE_PATH", ~c"/work/aiur/440/.aiur-runtime/github-quota"} =
                List.keyfind(env, ~c"AIUR_AGENT_QUOTA_STATE_PATH", 0)
 
+      # The guard fingerprints the credential that `gh` actually uses. Passing
+      # the daemon credential's key here would merge unrelated App/PAT budgets.
+      assert {~c"AIUR_GITHUB_BUDGET_KEY", false} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_KEY", 0)
+
       assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
                List.keyfind(env, ~c"AIUR_BASE_BRANCH", 0)
 
@@ -440,6 +445,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
+      assert prefix =~ "unset AIUR_GITHUB_BUDGET_KEY"
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)

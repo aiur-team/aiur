@@ -7,17 +7,26 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     {:ok, _started} = Application.ensure_all_started(:req)
     previous_options = Application.get_env(:aiur, :github_transport_test_options)
     previous_quota = Application.get_env(:aiur, :github_quota_server)
+    previous_budget_enabled = Application.get_env(:aiur, :github_budget_enabled?)
+    previous_budget_dir = Application.get_env(:aiur, :github_budget_dir)
+    previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
+    budget_dir = Path.join(System.tmp_dir!(), "aiur-transport-budget-#{System.unique_integer([:positive])}")
 
     Application.put_env(:aiur, :github_transport_test_options, plug: {Req.Test, __MODULE__})
     Application.put_env(:aiur, :github_quota_server, quota)
+    Application.put_env(:aiur, :github_budget_enabled?, false)
 
     on_exit(fn ->
       restore_env(:github_transport_test_options, previous_options)
       restore_env(:github_quota_server, previous_quota)
+      restore_env(:github_budget_enabled?, previous_budget_enabled)
+      restore_env(:github_budget_dir, previous_budget_dir)
+      restore_env(:github_budget_settings_override, previous_budget_settings)
+      File.rm_rf(budget_dir)
     end)
 
-    {:ok, quota: quota}
+    {:ok, quota: quota, budget_dir: budget_dir}
   end
 
   test "records the authoritative budget and ticket attribution from a response", %{quota: quota} do
@@ -144,6 +153,49 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     assert Transport.header(response.headers, "x-ratelimit-resource") == "graphql"
     refute_receive :graphql_request_sent
+  end
+
+  test "holds a second daemon-shaped request behind the shared host lease", %{budget_dir: budget_dir} do
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+
+    Application.put_env(:aiur, :github_budget_settings_override, %{
+      max_inflight: 1,
+      max_inflight_per_endpoint: 1,
+      requests_per_minute: 20,
+      stagger_ms: 0
+    })
+
+    test_pid = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_pid, {:request_started, self()})
+
+      receive do
+        :release_request -> Req.Test.json(conn, [])
+      end
+    end)
+
+    request = fn ->
+      Transport.default_request_fun(%{
+        method: :get,
+        url: "https://api.github.com/repos/owner/repo/issues/1477",
+        token: "shared-token"
+      })
+    end
+
+    first = Task.async(request)
+    assert_receive {:request_started, first_conn}, 1_000
+
+    second = Task.async(request)
+    refute_receive {:request_started, _second_conn}, 80
+
+    send(first_conn, :release_request)
+    assert_receive {:request_started, second_conn}, 1_000
+    send(second_conn, :release_request)
+
+    assert {:ok, %{status: 200}} = Task.await(first, 1_500)
+    assert {:ok, %{status: 200}} = Task.await(second, 1_500)
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)

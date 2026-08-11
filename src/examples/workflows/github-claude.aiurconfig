@@ -27,6 +27,11 @@ tracker:
     planning_root_limit: 100
     planning_page_budget: 4
     planning_call_budget: 4
+    # Host-local coordination for daemons and agent `gh` calls sharing one token.
+    max_inflight: 4
+    max_inflight_per_endpoint: 2
+    requests_per_minute: 120
+    stagger_ms: 75
 build_order:
   # Supervised configured-repository detail and sanitized typed-history providers.
   # Restart clears retained snapshots; selected tickets reload on demand.

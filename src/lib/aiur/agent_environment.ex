@@ -4,6 +4,7 @@ defmodule Aiur.AgentEnvironment do
   """
 
   alias Aiur.{AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.GitHub.Budget
   alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -134,9 +135,10 @@ defmodule Aiur.AgentEnvironment do
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
     real_gh = System.find_executable("gh")
+    github_budget = Budget.guard_settings()
 
     unset_inherited_env =
-      Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names(), fn name ->
+      Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"], fn name ->
         {String.to_charlist(name), false}
       end)
 
@@ -149,6 +151,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> Path.join(".aiur-runtime/github-quota") |> String.to_charlist()},
         {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
+        {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_MAX_INFLIGHT", github_budget.max_inflight |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_STAGGER_MS", github_budget.stagger_ms |> Integer.to_string() |> String.to_charlist()},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
@@ -221,6 +229,7 @@ defmodule Aiur.AgentEnvironment do
     state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
+    github_budget = Budget.guard_settings()
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -249,6 +258,14 @@ defmodule Aiur.AgentEnvironment do
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
+      "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
+      "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
+      "unset AIUR_GITHUB_BUDGET_KEY\n" <>
+      "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
+      "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
+      "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>
+      "export AIUR_GITHUB_REQUESTS_PER_MINUTE=#{github_budget.requests_per_minute}\n" <>
+      "export AIUR_GITHUB_STAGGER_MS=#{github_budget.stagger_ms}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
       ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>

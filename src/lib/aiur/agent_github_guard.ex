@@ -11,12 +11,37 @@ defmodule Aiur.AgentGitHubGuard do
   alias Aiur.Workspace.Remote
 
   @script_path Path.expand("../../priv/github_quota_guard.sh", __DIR__)
+  @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
   @external_resource @script_path
+  @external_resource @broker_path
   @script File.read!(@script_path)
+  @broker File.read!(@broker_path)
   @relative_path ".aiur-runtime/bin/gh"
+  @broker_relative_path ".aiur-runtime/bin/aiur-github-budget"
 
   @spec bin_dir(Path.t()) :: Path.t()
   def bin_dir(workspace), do: Path.join(workspace, ".aiur-runtime/bin")
+
+  @spec budget_broker_path(Path.t()) :: Path.t()
+  def budget_broker_path(workspace), do: Path.join(workspace, @broker_relative_path)
+
+  @doc "Installs an opt-in wrapper for Executor shells under the shared budget root."
+  @spec install_host() :: :ok | {:error, term()}
+  def install_host do
+    bin = Path.join(System.user_home!(), ".aiur/github-budget/bin")
+
+    with :ok <- ensure_directory(Path.join(System.user_home!(), ".aiur")),
+         :ok <- ensure_directory(Path.dirname(bin)),
+         :ok <- ensure_directory(bin),
+         :ok <- atomic_install(Path.join(bin, "gh"), @script),
+         :ok <- atomic_install(Path.join(bin, "aiur-github-budget"), @broker) do
+      :ok
+    else
+      {:error, reason} = error ->
+        Logger.warning("host GitHub guard install failed reason=#{inspect(reason)}")
+        error
+    end
+  end
 
   @spec install(Path.t() | nil) :: :ok | {:error, term()}
   def install(workspace) when is_binary(workspace) do
@@ -24,7 +49,8 @@ defmodule Aiur.AgentGitHubGuard do
 
     with :ok <- ensure_directory(Path.join(workspace, ".aiur-runtime")),
          :ok <- ensure_directory(Path.dirname(target)),
-         :ok <- atomic_install(target) do
+         :ok <- atomic_install(target, @script),
+         :ok <- atomic_install(budget_broker_path(workspace), @broker) do
       :ok
     else
       {:error, reason} = error ->
@@ -38,6 +64,7 @@ defmodule Aiur.AgentGitHubGuard do
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do
     encoded = Base.encode64(@script)
+    broker_encoded = Base.encode64(@broker)
 
     [
       "set -eu",
@@ -53,6 +80,13 @@ defmodule Aiur.AgentGitHubGuard do
       "printf '%s' '#{encoded}' | base64 -d > \"$tmp\"",
       "chmod 755 \"$tmp\"",
       "mv -f \"$tmp\" \"$target\"",
+      "budget_target=\"$workspace/#{@broker_relative_path}\"",
+      "budget_tmp=\"$budget_target.tmp.$$\"",
+      "trap 'rm -f \"$tmp\" \"$budget_tmp\"' EXIT HUP INT TERM",
+      "(set -C; : > \"$budget_tmp\")",
+      "printf '%s' '#{broker_encoded}' | base64 -d > \"$budget_tmp\"",
+      "chmod 755 \"$budget_tmp\"",
+      "mv -f \"$budget_tmp\" \"$budget_target\"",
       "trap - EXIT HUP INT TERM"
     ]
     |> Enum.join("\n")
@@ -67,11 +101,11 @@ defmodule Aiur.AgentGitHubGuard do
     end
   end
 
-  defp atomic_install(target) do
+  defp atomic_install(target, contents) do
     temporary = target <> ".#{System.unique_integer([:positive])}.tmp"
 
     with {:ok, file} <- File.open(temporary, [:write, :binary, :exclusive]),
-         :ok <- IO.binwrite(file, @script),
+         :ok <- IO.binwrite(file, contents),
          :ok <- File.close(file),
          :ok <- File.chmod(temporary, 0o755),
          :ok <- File.rename(temporary, target) do

@@ -4,6 +4,7 @@ defmodule Aiur.GitHub.Transport do
   """
 
   alias Aiur.GitHub
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Quota
@@ -96,12 +97,32 @@ defmodule Aiur.GitHub.Transport do
 
     case quota_preflight(quota, request) do
       :ok ->
-        result = request_fun.()
-        quota_observe(quota, request, result)
-        result
+        budget_request(quota, request, request_fun)
 
       {:hold, hold} ->
         {:ok, held_response(hold)}
+    end
+  end
+
+  defp budget_request(quota, request, request_fun) do
+    case Budget.acquire(request, timeout_ms: Map.get(request, :timeout_ms, 30_000)) do
+      {:ok, lease} ->
+        try do
+          result = request_fun.()
+          :ok = Budget.observe(request, result, timeout_ms: Map.get(request, :timeout_ms, 30_000))
+          quota_observe(quota, request, result)
+          result
+        after
+          Budget.release(lease)
+        end
+
+      {:hold, hold} ->
+        {:ok, held_response(hold)}
+
+      :bypass ->
+        result = request_fun.()
+        quota_observe(quota, request, result)
+        result
     end
   end
 
@@ -110,13 +131,15 @@ defmodule Aiur.GitHub.Transport do
 
   defp held_response(hold) do
     reset_unix = DateTime.to_unix(hold.reset_at)
+    remaining = Map.get(hold, :remaining, 0)
+    limit = Map.get(hold, :limit, 1)
 
     %{
       status: 429,
       headers: [
         {"x-ratelimit-resource", hold.resource},
-        {"x-ratelimit-limit", Integer.to_string(hold.limit)},
-        {"x-ratelimit-remaining", Integer.to_string(hold.remaining)},
+        {"x-ratelimit-limit", Integer.to_string(limit)},
+        {"x-ratelimit-remaining", Integer.to_string(remaining)},
         {"x-ratelimit-reset", Integer.to_string(reset_unix)}
       ],
       body: %{"message" => "GitHub #{hold.resource} quota is exhausted locally; retry after #{DateTime.to_iso8601(hold.reset_at)}"}
