@@ -76,6 +76,12 @@ aiur build-orders
 aiur build-orders 1363 --json
 ```
 
+On the dashboard, a selected root whose planning provider is unavailable or
+whose fetched graph fails structural validation shows one page-level diagnostic
+state, including a copyable agent debug prompt. Valid graphs, stale
+last-known-good graphs, and valid empty graphs keep their normal selected-root
+views.
+
 ## Quickstart
 
 ```bash
