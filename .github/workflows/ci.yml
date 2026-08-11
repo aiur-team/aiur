@@ -157,7 +157,6 @@ jobs:
         with:
           path: src/_build
           key: ${{ runner.os }}-quarantine-build-${{ hashFiles('src/mix.lock', 'src/mix.exs') }}
-          restore-keys: ${{ runner.os }}-quarantine-build-
       - name: Run quarantined tests
         # `--exclude test` narrows to the tag without failing while the queue
         # is empty; unlike `--only`, that lets this non-blocking job stay green
