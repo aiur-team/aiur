@@ -70,6 +70,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
     emit_alert_fun.(
       "ticket.#{issue.identifier}.dependency.merged_blocker_reconciled",
       issue: issue,
+      message: "Merged PR ##{merge.number} reconciled ticket #{issue.identifier} and is resuming #{blockee_count} dependent agent(s).",
       reason: "Merged PR ##{merge.number} closed this active ticket by reference; reconciling it and resuming #{blockee_count} dependent agent(s).",
       needs_attention: false,
       severity: "warning"
@@ -85,6 +86,7 @@ defmodule Aiur.Orchestrator.MergedTicketReconciler do
       emit_alert_fun.(
         "ticket.#{issue.identifier}.agent.attention.merged_pr_reconciliation_failed",
         issue: issue,
+        message: "Merged PR ##{merge.number} could not reconcile ticket #{issue.identifier}; #{blockee_count} dependent agent(s) remain paused.",
         reason: "Merged PR ##{merge.number} closes this active ticket, but the transition to done failed (#{inspect(reason)}); #{blockee_count} dependent agent(s) remain paused.",
         needs_attention: true,
         severity: "warning",
