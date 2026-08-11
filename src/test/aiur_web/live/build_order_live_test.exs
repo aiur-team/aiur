@@ -5,6 +5,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
+  alias Aiur.TestSupport.AwaitingCommands
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -1431,6 +1432,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ ~s(href="/decisions")
   end
 
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
   test "omits the awaiting-Commands banner from Build Order when nothing is waiting" do
     {:ok, _view, html} = live(build_conn(), "/build-orders")
 
@@ -1442,7 +1444,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   defp awaiting_commands_config(context) do
     case context[:awaiting_commands] do
       nil -> []
-      counts -> [decision_store: Aiur.TestSupport.AwaitingCommands.start(counts)]
+      counts -> [decision_store: AwaitingCommands.start(counts)]
     end
   end
 end

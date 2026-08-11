@@ -135,19 +135,22 @@ defmodule AiurWeb.DashboardLiveTest do
     """
 
     def counts(decision) do
-      open? = decision.decision_status == :open
-      deferred? = decision.decision_status == :deferred
-      blocking? = Map.get(decision, :blocking, false)
+      open = flag(decision.decision_status == :open)
+      deferred = flag(decision.decision_status == :deferred)
+      blocking = flag(Map.get(decision, :blocking, false))
 
       %{
         total: 1,
-        open: if(open? or deferred?, do: 1, else: 0),
-        blocking: if((open? or deferred?) and blocking?, do: 1, else: 0),
-        deferred: if(deferred?, do: 1, else: 0),
-        awaiting: if(open?, do: 1, else: 0),
-        awaiting_blocking: if(open? and blocking?, do: 1, else: 0)
+        open: open + deferred,
+        blocking: (open + deferred) * blocking,
+        deferred: deferred,
+        awaiting: open,
+        awaiting_blocking: open * blocking
       }
     end
+
+    defp flag(true), do: 1
+    defp flag(_false), do: 0
 
     def empty_query do
       %{

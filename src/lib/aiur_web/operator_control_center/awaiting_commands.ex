@@ -73,11 +73,12 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
 
   def nav_counts(_counts), do: %{}
 
+  # The provider answers `{:ok, counts}` even for an unreadable store, so an
+  # error tuple is not a case to branch on — but a store that is down exits or
+  # raises, and that must leave the banner with no number rather than a zero.
   defp counts do
-    case DecisionProvider.counts(decision_store: decision_store()) do
-      {:ok, counts} -> counts
-      _unavailable -> @unavailable
-    end
+    {:ok, counts} = DecisionProvider.counts(decision_store: decision_store())
+    counts
   rescue
     _error -> @unavailable
   catch

@@ -7,6 +7,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{RunTelemetry, TrackerIdentity}
+  alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
 
@@ -531,17 +532,18 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ "2 units awaiting commands"
 
     # A best-effort broadcast is the fast path.
-    :ok = Aiur.TestSupport.AwaitingCommands.put_counts(store, open: 1, awaiting: 1, blocking: 0, awaiting_blocking: 0)
+    :ok = AwaitingCommands.put_counts(store, open: 1, awaiting: 1, blocking: 0, awaiting_blocking: 0)
     send(view.pid, {:decision_changed, "dec-1", 2})
     assert render(view) =~ "1 unit awaiting commands"
 
     # The tick is the safety net for a broadcast that never arrives: without it
     # this page would keep showing a count the Commands page has moved past.
-    :ok = Aiur.TestSupport.AwaitingCommands.put_counts(store, open: 0, awaiting: 0)
+    :ok = AwaitingCommands.put_counts(store, open: 0, awaiting: 0)
     send(view.pid, :awaiting_commands_tick)
     refute render(view) =~ "units awaiting commands"
   end
 
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
   test "omits the awaiting-Commands banner when nothing is waiting" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
@@ -556,7 +558,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   defp awaiting_commands_config(context) do
     case context[:awaiting_commands] do
       nil -> []
-      counts -> [decision_store: Aiur.TestSupport.AwaitingCommands.start(counts)]
+      counts -> [decision_store: AwaitingCommands.start(counts)]
     end
   end
 end

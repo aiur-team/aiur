@@ -5,6 +5,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, IssueLog}
+  alias Aiur.TestSupport.AwaitingCommands
   alias AiurWeb.Endpoint
 
   @endpoint Endpoint
@@ -1358,6 +1359,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(href="/decisions")
   end
 
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
   test "omits the awaiting-Commands banner from Stream Deck when nothing is waiting" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
@@ -1369,7 +1371,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
   defp awaiting_commands_config(context) do
     case context[:awaiting_commands] do
       nil -> []
-      counts -> [decision_store: Aiur.TestSupport.AwaitingCommands.start(counts)]
+      counts -> [decision_store: AwaitingCommands.start(counts)]
     end
   end
 end
