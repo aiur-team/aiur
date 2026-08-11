@@ -261,10 +261,20 @@ Set `poll_widen_factor: 1.0` to register repos without changing any interval.
 
 It doubles as the end-to-end confirmation that ingress works: once a verified
 delivery lands, the agent-control `usage` view (`Aiur.AgentControlCLI.usage/2`,
-rows from `Aiur.Webhooks.ModePresenter`) prints an
-`events <repo> <mode> last delivery <age>` line. A repo still reading
-`configured_unproven` after a redelivery means the delivery is not reaching the
-receiver — check the ingress rules before suspecting the verifier.
+rows from `Aiur.Webhooks.ModePresenter`) prints one line per known repo:
+
+```text
+events  owner/name  webhook  last delivery 2026-07-27T12:00:00Z
+events  owner/other  polling  last delivery never  (webhook configured but never delivered)
+```
+
+The mode word is `webhook` or `polling`, and the last-delivery field is an
+ISO-8601 timestamp or `never` — not an age, so do not expect a `5m ago`. A repo
+still printing `(webhook configured but never delivered)` after a redelivery
+means the delivery is not reaching the receiver — check the ingress rules before
+suspecting the verifier. That parenthetical is the operator-visible form of the
+`configured_unproven` state; the atom itself is never printed, so grepping the
+output for it finds nothing whether ingress works or not.
 
 ## Verify the scoping
 
