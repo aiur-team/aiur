@@ -166,4 +166,161 @@ if ! grep -Fq "base URL must be https://" <<<"$output"; then
 fi
 
 echo "ok: guard refuses a plaintext base URL"
+
+# --- AC 5: restarting the daemon does not change the webhook URL -------------
+#
+# Every case above collapses the edge and the daemon into one process, so none
+# of them can say anything about a restart: killing that process takes the
+# public URL down with it. The hazard the runbook's port prerequisite exists to
+# prevent lives in the seam between the two tiers -- the hostname stays put
+# while the origin moves out from under it -- so these cases run them apart.
+#
+# The edge is started once and never restarted, which is the point: its port
+# cannot drift, so whether the guard still passes after an origin restart
+# depends only on whether the origin came back where the edge is looking.
+
+edge_pid=""
+origin_pid=""
+# Declared before the trap that reads them: `set -u` would abort the trap on an
+# unset name if a failure fired it before `start_tier` ran.
+tier_pid=""
+tier_port=""
+
+restart_cleanup() {
+  # `tier_pid` is in this list because `start_tier` sets it before the caller
+  # copies it into `origin_pid`/`edge_pid`. A failure in between would otherwise
+  # leave that process running with the test's stderr still open, which hangs
+  # any caller reading this script through a pipe rather than just leaking.
+  for pid in "$tier_pid" "$origin_pid" "$edge_pid"; do
+    if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
+      kill "$pid" 2>/dev/null || true
+      wait "$pid" 2>/dev/null || true
+    fi
+  done
+  tier_pid=""
+  origin_pid=""
+  edge_pid=""
+}
+
+trap 'cleanup; restart_cleanup' EXIT
+
+# Starts one tier and sets `tier_pid` / `tier_port`. Same reason as
+# `start_fixture` for assigning globals rather than echoing: a command
+# substitution would discard the background PID in a subshell.
+start_tier() {
+  local port_file attempt
+
+  tier_pid=""
+  tier_port=""
+  port_file="$(mktemp)"
+
+  python3 "$fixture" "$@" >"$port_file" &
+  tier_pid=$!
+
+  for attempt in $(seq 1 100); do
+    tier_port="$(head -n 1 "$port_file")"
+    [[ -n "$tier_port" ]] && break
+
+    if ! kill -0 "$tier_pid" 2>/dev/null; then
+      echo "webhook ingress tests: tier ($*) exited before binding" >&2
+      cat "$port_file" >&2
+      rm -f "$port_file"
+      exit 1
+    fi
+
+    sleep 0.1
+  done
+
+  rm -f "$port_file"
+
+  if [[ -z "$tier_port" ]]; then
+    echo "webhook ingress tests: tier ($*) did not report a port" >&2
+    exit 1
+  fi
+}
+
+stop_origin() {
+  kill "$origin_pid" 2>/dev/null || true
+  wait "$origin_pid" 2>/dev/null || true
+  origin_pid=""
+}
+
+start_tier origin
+origin_pid="$tier_pid"
+origin_port="$tier_port"
+
+start_tier edge --origin-port "$origin_port"
+edge_pid="$tier_pid"
+edge_base="http://127.0.0.1:$tier_port"
+
+if ! output="$(run_guard "$edge_base")"; then
+  echo "expected the guard to PASS against a two-tier edge before any restart," >&2
+  echo "but it failed -- the restart cases below would be meaningless:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+echo "ok: guard passes a two-tier edge (origin up, nothing restarted yet)"
+
+# A pinned restart. The daemon goes away and comes back on the same port, which
+# is what `server.port: <n>` in .aiur/config buys. The URL under test is byte
+# for byte the one that just passed, and nothing about the edge was touched --
+# so this is the ticket's AC 5 claim, checked rather than asserted.
+stop_origin
+start_tier origin --port "$origin_port"
+origin_pid="$tier_pid"
+
+if [[ "$tier_port" != "$origin_port" ]]; then
+  echo "fixture did not honour --port: wanted $origin_port, got $tier_port" >&2
+  exit 1
+fi
+
+if ! output="$(run_guard "$edge_base")"; then
+  echo "expected the guard to PASS after a PINNED origin restart, but it failed:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+echo "ok: the webhook URL survives a restart when the origin port is pinned"
+
+# The negative control, and the reason the case above is not vacuous: an
+# unpinned restart must break the very same URL. Without this, a guard that
+# passed unconditionally would look like a clean AC 5 result.
+#
+# The expected reason is load-bearing too. The edge is up and its ingress rule
+# still matches, so the guard has to blame the origin; a guard that reports
+# this as a routing problem sends the operator to the one file that is correct.
+stop_origin
+start_tier origin
+origin_pid="$tier_pid"
+
+if [[ "$tier_port" == "$origin_port" ]]; then
+  echo "unpinned restart landed on the same port by chance; cannot test the" >&2
+  echo "moved-origin case. Re-run." >&2
+  exit 1
+fi
+
+if output="$(run_guard "$edge_base")"; then
+  echo "expected the guard to REJECT the same URL after an UNPINNED origin" >&2
+  echo "restart, but it passed -- a moved origin would go unnoticed:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if ! grep -Fq "pin server.port in .aiur/config" <<<"$output"; then
+  echo "guard rejected a moved origin without pointing at the port pin:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if grep -Fq "is the ingress rule matching this exact path?" <<<"$output"; then
+  echo "guard blamed the ingress rule for a moved origin; the rule is correct" >&2
+  echo "and the operator would be sent to the wrong file:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+restart_cleanup
+echo "ok: guard rejects the same URL after an unpinned restart, naming the port pin"
+
 echo "webhook ingress tests passed"

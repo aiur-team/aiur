@@ -134,6 +134,14 @@ case "$status" in
   000)
     fail "POST $webhook_path -> no response (tunnel down, or origin port moved: pin server.port in .aiur/config)"
     ;;
+  50[234])
+    # The edge answered, so the tunnel and the ingress rule are both fine -- it
+    # reached the origin address and got nothing back. That is what Cloudflare
+    # returns once a restarted daemon comes back on a different port, which is
+    # precisely what an unpinned `server.port` does. Blaming the ingress rule
+    # here sends the operator to the one file that is not the problem.
+    fail "POST $webhook_path -> $status (edge is up but the origin is not answering: is the daemon down, or did it restart onto a new port? pin server.port in .aiur/config)"
+    ;;
   *)
     fail "POST $webhook_path -> $status (expected 401; is the ingress rule matching this exact path?)"
     ;;
