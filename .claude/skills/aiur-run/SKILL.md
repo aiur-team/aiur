@@ -535,12 +535,20 @@ visible to the unfiled gate, not an accepted completed state.
 ### Merge mechanics
 
 Branch protection measures the identity of the **pusher**, not the commit
-author, and `require_last_push_approval` uses it. An inline
-`git -c credential.helper=` override silently falls back to the cached `gh`
-credential, and a token-bearing remote URL does not repair a branch whose last
-push already carries the wrong identity. Push agent work with an explicit
-token-bearing URL from the start, and open agent PRs with the agent token —
-GitHub counts the PR **opener** for self-approval, not the commit author.
+author, and `require_last_push_approval` evaluates the last **reviewable** push.
+The authenticating token determines the pusher; the URL username and commit
+author do not. Never embed a token in the remote URL. Use the fail-closed helper
+recipe in `using-aiur/dev-loop.md`, which resets inherited GitHub credential
+helpers before supplying `GITHUB_TOKEN`, and open agent PRs with the agent
+identity — GitHub counts the PR **opener** for self-approval, not the commit
+author. Tree-identical empty commits do not replace an earlier reviewable-push
+attribution.
+
+If a current human approval and green checks still leave a PR `BLOCKED` and
+`REVIEW_REQUIRED`, follow `references/executor.md`: after the first ordinary
+merge refusal, read the failed rule suite with the operator-only credential and
+emit GitHub's exact active-rule detail as a `merge.rule-violation` alert. Do not
+use `--admin` as a diagnostic probe.
 
 The declaration requires every blocking CI job as required status checks,
 including `build`, `test`, and `workflow security`, with strict status checks

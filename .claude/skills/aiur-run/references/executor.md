@@ -328,13 +328,49 @@ evidence named by the planning handoff.
 ## Merge mechanics
 
 Branch protection measures the identity of the **pusher**, not the commit
-author, and `require_last_push_approval` evaluates that identity. An inline
-`git -c credential.helper=` override silently falls back to the cached `gh`
-credential, and adding a token-bearing remote URL later does not repair a branch
-whose last push already carries the wrong identity. Push with an explicit
-token-bearing URL from the first push, and open agent pull requests with the
-agent's own token: GitHub counts the PR **opener**, not the commit author, when
-deciding self-approval.
+author, and `require_last_push_approval` evaluates the last **reviewable** push.
+The authenticating token determines the pusher; the URL username and commit
+author do not. An inline helper is additive unless the helper list is reset, so
+it can silently fall through to the Executor's cached `gh` credential. A
+token-bearing URL is both unsafe and ineffective as an after-the-fact repair:
+the #1401 experiment used the agent token, but pushed only tree-identical empty
+commits, which did not replace the earlier human reviewable-push attribution.
+Use the fail-closed recipe in `using-aiur/dev-loop.md` from the first real push,
+and open worker pull requests with the agent identity; GitHub counts the PR
+**opener**, not the commit author, when deciding self-approval.
+
+When required checks are green and a current CODEOWNER approval exists, but
+GitHub still reports `mergeStateStatus: BLOCKED` and
+`reviewDecision: REVIEW_REQUIRED`, do not spend another review or use
+`--admin` as a diagnostic probe. After an ordinary merge/queue attempt produces
+GitHub's generic policy error, fetch the read-only rule-suite evidence:
+
+```bash
+<loaded-aiur-run-skill>/scripts/diagnose-pr-merge-gate.sh <pr-number> <owner/repo>
+```
+
+The rule-suite endpoint requires repository Administration: read. The helper
+uses `AIUR_CI_READINESS_TOKEN` when present, otherwise the operator's `gh`
+keyring with `GITHUB_TOKEN`/`GH_TOKEN` overrides removed; it never gives that
+authority to the daemon or worker token. It correlates the failed suite to the
+pull request's generated merge commit and prints GitHub's exact active-rule
+`details`. When it succeeds, immediately emit an Executor-facing alert with
+that output verbatim:
+
+```text
+emit_alert(
+  name: "merge.rule-violation",
+  message: <exact diagnostic output>,
+  reason: "PR #N is green and approved but GitHub still blocks the merge",
+  needs_attention: true,
+  severity: "critical"
+)
+```
+
+If no suite matches, report that the exact diagnostic is unavailable; do not
+invent a GitHub message. The normal attempt is what creates the failed suite,
+so this path surfaces the reason immediately after the first refusal instead of
+requiring a second `--admin` attempt.
 
 The declaration requires every blocking CI job as required status checks,
 including `build`, `test`, and `workflow security`, with strict status checks
