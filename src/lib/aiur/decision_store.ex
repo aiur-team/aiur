@@ -53,6 +53,7 @@ defmodule Aiur.DecisionStore do
     SecretRedactor
   }
 
+  alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
@@ -425,15 +426,60 @@ defmodule Aiur.DecisionStore do
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
           audit_history: audit_history,
-          recent_audit: records |> Enum.reverse() |> Enum.take(@recent_audit_limit),
+          # Unrecognized records are retained on disk and in `records`, but
+          # they are not shown: this binary cannot render an event whose shape
+          # it does not know, and guessing would be worse than omitting.
+          recent_audit:
+            records
+            |> Enum.reject(&match?(%Unrecognized{}, &1))
+            |> Enum.reverse()
+            |> Enum.take(@recent_audit_limit),
           writable?: true,
           health: :writable
         }
         |> repair_projection()
+        |> report_unrecognized_records(records, ndjson_path)
         |> apply_corruption(transition_corruption || corruption)
 
       {:error, reason} ->
         unavailable_state(ndjson_path, {:replay_failed, reason})
+    end
+  end
+
+  # A newer binary wrote event types this one cannot interpret. That is version
+  # skew, not damage, so the store stays writable and keeps answering Commands
+  # — but the operator is told, because their projection is silently missing
+  # whatever those events said. Deliberately not `needs_attention`: the fix is
+  # to roll forward again, and nothing is lost by waiting.
+  defp report_unrecognized_records(state, records, path) do
+    types =
+      records
+      |> Enum.filter(&match?(%Unrecognized{}, &1))
+      |> Enum.map(& &1.event_type)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    if types == [] do
+      state
+    else
+      listed = Enum.join(types, ", ")
+
+      Logger.warning(
+        "aiur_decision_store phase=unrecognized_event_types path=#{path} types=#{listed} " <>
+          "action=retained_and_skipped"
+      )
+
+      _ =
+        Alerts.emit_custom(
+          "decision_store.unrecognized_event_types",
+          "DecisionStore replayed audit records this build does not understand (#{listed}) at #{path}. " <>
+            "They are retained on disk and skipped; the store stays writable. " <>
+            "This build is older than the one that wrote them — roll forward to project them.",
+          needs_attention: false,
+          severity: "warning"
+        )
+
+      state
     end
   end
 

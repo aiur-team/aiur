@@ -24,6 +24,8 @@ defmodule Aiur.DecisionEvent do
     SecretRedactor
   }
 
+  alias Aiur.DecisionEvent.Unrecognized
+
   @schema_version 1
   @versioned_snapshot_schema_version 2
   @provenance_event_id_prefix "decision-provenance-v1:"
@@ -150,11 +152,38 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
-  @doc "Decode and fully validate one typed durable event."
-  @spec from_json_safe(map()) :: {:ok, t()} | {:error, term()}
+  @doc """
+  Decode and fully validate one typed durable event.
+
+  An `event_type` this binary does not know is version skew, not damage: it
+  decodes to an opaque `Aiur.DecisionEvent.Unrecognized` that the projection
+  retains and skips, so an older binary replaying a newer log stays writable
+  instead of latching read-only. Every other decode failure — malformed JSON,
+  a missing or ill-typed envelope field, an unsupported schema version for a
+  type we *do* know, a content-hash mismatch — stays fail-closed.
+  """
+  @spec from_json_safe(map()) :: {:ok, t() | Unrecognized.t()} | {:error, term()}
   def from_json_safe(raw) when is_map(raw) do
+    raw_type = Map.get(raw, "event_type")
+
+    case decode_type(raw_type) do
+      {:ok, type} ->
+        decode_known_event(raw, type)
+
+      # Only a genuinely named type is forward compatible. An empty name is not
+      # a future event, it is a broken record, so it keeps failing closed.
+      {:error, {:event_type, :unknown}} when is_binary(raw_type) and raw_type != "" ->
+        Unrecognized.decode(raw, raw_type)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  def from_json_safe(_other), do: {:error, :not_a_map}
+
+  defp decode_known_event(raw, type) do
     with {:ok, schema_version} <- decode_schema_version(Map.get(raw, "schema_version")),
-         {:ok, type} <- decode_type(Map.get(raw, "event_type")),
          :ok <- validate_schema_for_type(schema_version, type),
          {:ok, decision_id} <- fetch_string(raw, "decision_id", :decision_id),
          {:ok, decision_version} <- fetch_version(raw, "decision_version", :decision_version),
@@ -169,8 +198,6 @@ defmodule Aiur.DecisionEvent do
       {:ok, event}
     end
   end
-
-  def from_json_safe(_other), do: {:error, :not_a_map}
 
   @doc "JSON-safe durable representation."
   @spec to_json_safe(t()) :: map()
