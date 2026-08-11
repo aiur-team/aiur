@@ -100,6 +100,18 @@ defmodule Aiur.RecentMergeStoreTest do
              RecentMerge.from_github_event(event, live?: true, run_id: "run-live", now: @now)
   end
 
+  test "derives every same-repository closing ticket from a merged PR body" do
+    event =
+      merged_event(%{
+        "payload" => %{
+          "pull_request" => merged_pr(%{"body" => "Closes #1570, #1571\nFixes #1572"})
+        }
+      })
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert RecentMerge.closing_issue_identifiers(merge) == ["1570", "1571", "1572"]
+  end
+
   test "repeated rows dedupe while a later live observation appends one enriched snapshot", %{dir: dir} do
     event = merged_event()
 

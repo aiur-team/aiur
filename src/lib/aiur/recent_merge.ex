@@ -88,6 +88,26 @@ defmodule Aiur.RecentMerge do
 
   def from_github_event(_event, _opts), do: :not_merge
 
+  @doc """
+  Returns same-repository issue identifiers named by GitHub closing keywords in
+  a merged pull request body.
+
+  This remains derived rather than persisted so existing merge-audit records
+  retain their original content hashes.
+  """
+  @spec closing_issue_identifiers(t()) :: [String.t()]
+  def closing_issue_identifiers(%__MODULE__{summary: summary}) when is_binary(summary) do
+    summary
+    |> then(&Regex.scan(~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+((?:#\d+)(?:\s*,\s*#\d+)*)/i, &1))
+    |> Enum.flat_map(fn [_, references] -> Regex.scan(~r/#(\d+)/, references) end)
+    |> Enum.map(fn [_, number] -> number end)
+    |> Enum.filter(&(String.to_integer(&1) > 0))
+    |> Enum.map(&(String.to_integer(&1) |> Integer.to_string()))
+    |> Enum.uniq()
+  end
+
+  def closing_issue_identifiers(%__MODULE__{}), do: []
+
   defp normalize_github_merge(event, pull, opts) do
     live? = Keyword.get(opts, :live?, false) == true
     now = Keyword.get(opts, :now, DateTime.utc_now())
