@@ -14,6 +14,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
 
   @resolve_review_thread_mutation """
   mutation AiurResolveReviewThread($threadId: ID!) {
+    rateLimit { cost }
     resolveReviewThread(input: {threadId: $threadId}) {
       thread {
         id
@@ -25,6 +26,7 @@ defmodule Aiur.GitHub.ReviewThreads.Resolution do
 
   @unresolve_review_thread_mutation """
   mutation AiurUnresolveReviewThread($threadId: ID!) {
+    rateLimit { cost }
     unresolveReviewThread(input: {threadId: $threadId}) {
       thread {
         id

@@ -13,6 +13,7 @@ defmodule Aiur.GitHub.ReviewThreads.Reply do
 
   @reply_review_thread_mutation """
   mutation AiurReplyReviewThread($threadId: ID!, $body: String!) {
+    rateLimit { cost }
     addPullRequestReviewThreadReply(input: {pullRequestReviewThreadId: $threadId, body: $body}) {
       comment {
         id

@@ -33,6 +33,8 @@ defmodule Aiur.GitHub.ReviewThreads.ReplyTest do
       request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
         cond do
           body["query"] =~ "addPullRequestReviewThreadReply" ->
+            assert body["query"] =~ "rateLimit { cost }"
+
             {:ok,
              %{
                status: 200,

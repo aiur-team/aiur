@@ -41,6 +41,8 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
             ])
 
           body["query"] =~ "resolveReviewThread" ->
+            assert body["query"] =~ "rateLimit { cost }"
+
             {:ok,
              %{
                status: 200,
@@ -100,6 +102,7 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
             end
 
           body["query"] =~ "unresolveReviewThread" ->
+            assert body["query"] =~ "rateLimit { cost }"
             Agent.update(unresolve_count, &(&1 + 1))
 
             {:ok,
@@ -115,6 +118,8 @@ defmodule Aiur.GitHub.ReviewThreads.ResolutionTest do
              }}
 
           body["query"] =~ "resolveReviewThread" ->
+            assert body["query"] =~ "rateLimit { cost }"
+
             {:ok,
              %{
                status: 200,
