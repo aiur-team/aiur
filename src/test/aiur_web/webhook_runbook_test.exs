@@ -439,6 +439,31 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
+    test "every /api/v1 state-changing route is probed, not merely its controller" do
+      # The GET pin above closed this hole for reads and left it open for writes,
+      # which are the higher-consequence half: pausing an agent, injecting a
+      # message into its session, answering an operator's decision. A `POST`
+      # added to a controller the list already reaches passes every other check
+      # here — the controller pin is satisfied by a sibling path, and the GET pin
+      # never looks at it — so it would be published by an over-broad rule with
+      # the guard still printing `exposure is scoped`.
+      #
+      # The guard probes these with GET on purpose and reads the router's
+      # `match(:*, ...)` 405 as proof of reachability; that is why a write route
+      # can be covered without the probe ever being able to fire it.
+      for route <- api_state_changing_routes() do
+        assert Enum.any?(
+                 guard_denied_paths(),
+                 &(route_pattern_for(&1, route.verb) == route.path)
+               ),
+               "#{String.upcase(to_string(route.verb))} #{route.path} " <>
+                 "(#{inspect(route.plug)}.#{route.plug_opts}) changes state under " <>
+                 "#{@api_prefix} but no path in the guard's denied_paths resolves to it. An " <>
+                 "over-broad ingress rule would publish it and the guard would still pass. Add " <>
+                 "a concrete representative path to denied_paths."
+      end
+    end
+
     test "the webhook path is not in the denied list" do
       # It is the one path that must be reachable; asserting it is denied would
       # invert the whole check.
@@ -653,11 +678,34 @@ defmodule AiurWeb.WebhookRunbookTest do
     )
   end
 
-  # The router's *pattern* a GET on this concrete path resolves to (e.g. "/api/v1/1"
-  # -> "/api/v1/:issue_identifier"), so a probe can be matched against a route
-  # without re-implementing Phoenix's segment matching.
-  defp route_pattern_for(path) do
-    case Phoenix.Router.route_info(AiurWeb.Router, "GET", path, "host") do
+  # Every state-changing route under /api/v1, minus the webhook receiver itself —
+  # that one is the route the tunnel is *supposed* to publish. Read off the router
+  # for the same reason `api_get_routes/0` is: the router grows and the guard's
+  # hand-maintained list does not follow on its own.
+  #
+  # `:*` is excluded rather than overlooked. Those are the `match(:*, ...)`
+  # method-not-allowed clauses, which change nothing and exist to answer 405 —
+  # they are what makes a GET probe load-bearing rather than a surface needing
+  # one. Losing a clause is already caught, as a GET then falls to the router's
+  # catch-all and the vacuity pin fires.
+  defp api_state_changing_routes do
+    AiurWeb.Router.__routes__()
+    |> Enum.filter(
+      &(&1.verb not in [:get, :*] and String.starts_with?(&1.path, @api_prefix) and
+          &1.plug != AiurWeb.GithubWebhookController)
+    )
+  end
+
+  # The router's *pattern* a request on this concrete path resolves to (e.g.
+  # "/api/v1/1" -> "/api/v1/:issue_identifier"), so a probe can be matched against
+  # a route without re-implementing Phoenix's segment matching. The verb matters:
+  # `/api/v1/streamdeck/token` resolves to the router's catch-all under GET and to
+  # the real handler under POST, so resolving every route as a GET would report
+  # the entry covering it as covering nothing.
+  defp route_pattern_for(path, verb \\ :get) do
+    method = verb |> to_string() |> String.upcase()
+
+    case Phoenix.Router.route_info(AiurWeb.Router, method, path, "host") do
       %{route: route} when route != "/*path" -> route
       _other -> nil
     end
