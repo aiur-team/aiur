@@ -153,6 +153,17 @@ explicitly escalated Commands do. Escalation also carries the current decision
 version and Executor identity, so stale escalation attempts are rejected and
 the operator-facing alert remains attributable.
 
+This judgement sits on top of a floor the store enforces, not in place of it.
+`DecisionStore` refuses an Executor-attributed answer unless the Command itself
+declares `authority: supervisor_allowed | supervisor_preferred` **and**
+`reversibility: reversible`; anything else — `human_required`, irreversible or
+partially reversible work, or an absent declaration — is rejected with
+`{:executor_scope, …}` and must be escalated. Treat that rejection as the
+Command telling you it was always the operator's. Escalations are appended to
+the Decision's durable event log as an attributed `executor_escalated` event,
+so "the Executor deferred to the human" is as recoverable later as "the
+Executor decided".
+
 ## Capacity policy
 
 The objective is the fastest safe convergence on the bounded outcome. Achieve

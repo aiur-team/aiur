@@ -188,6 +188,16 @@ defmodule Aiur.ExecutorCommandCLI do
     1
   end
 
+  defp command_error(_action, {:answer_invalid, {:executor_scope, {field, value}}}) do
+    IO.puts(
+      :stderr,
+      "aiur: this Command is outside what the Executor may answer directly (#{field}: #{inspect(value)}); " <>
+        "escalate it to the operator instead"
+    )
+
+    1
+  end
+
   defp command_error(action, reason) do
     IO.puts(:stderr, "aiur: failed to #{action} Command (#{inspect(reason)})")
     1

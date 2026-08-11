@@ -36,6 +36,7 @@ defmodule Aiur.DecisionEvent do
     :decision_expired,
     :decision_dismissed,
     :decision_deferred,
+    :executor_escalated,
     :answer_recorded,
     :revision_recorded,
     :dispatch_queued,
@@ -60,6 +61,7 @@ defmodule Aiur.DecisionEvent do
           | :decision_expired
           | :decision_dismissed
           | :decision_deferred
+          | :executor_escalated
           | :answer_recorded
           | :revision_recorded
           | :dispatch_queued
@@ -262,6 +264,18 @@ defmodule Aiur.DecisionEvent do
     end
   end
 
+  # The Executor deferring a Command to the operator is a decision about that
+  # Command exactly as an Executor answer is, so it earns the same durability
+  # and attribution instead of living only in an alert marker file. `detail`
+  # carries the Executor's stated reason for escalating.
+  defp normalize_data(:executor_escalated, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
+    with {:ok, actor} <- normalize_actor(get(raw, :actor)),
+         :ok <- require_executor_actor(actor),
+         {:ok, detail} <- bounded_required(get(raw, :detail), @detail_max, :detail) do
+      {:ok, %{actor: actor, detail: detail}}
+    end
+  end
+
   defp normalize_data(:decision_expired, raw, _decision_id, _version, _trusted_provenance) when is_map(raw) do
     with {:ok, reason_class} <- bounded_required(get(raw, :reason_class), @reason_max, :reason_class),
          {:ok, actor} <- normalize_actor(get(raw, :actor)),
@@ -436,6 +450,9 @@ defmodule Aiur.DecisionEvent do
   defp require_system_actor(%{kind: :system}), do: :ok
   defp require_system_actor(_actor), do: {:error, {:actor_kind, :not_system}}
 
+  defp require_executor_actor(%{kind: :executor}), do: :ok
+  defp require_executor_actor(_actor), do: {:error, {:actor_kind, :not_executor}}
+
   defp require_supervisor_actor(%{kind: :supervisor}), do: :ok
   defp require_supervisor_actor(_actor), do: {:error, {:actor_kind, :not_supervisor}}
 
@@ -501,6 +518,13 @@ defmodule Aiur.DecisionEvent do
 
   defp data_to_json_safe(:decision_deferred, data) do
     %{"actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id}}
+  end
+
+  defp data_to_json_safe(:executor_escalated, data) do
+    %{
+      "actor" => %{"kind" => Atom.to_string(data.actor.kind), "id" => data.actor.id},
+      "detail" => data.detail
+    }
   end
 
   defp data_to_json_safe(:decision_expired, data) do

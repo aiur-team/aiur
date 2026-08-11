@@ -267,21 +267,22 @@ defmodule Aiur.ExecutorEvents do
     }
   end
 
-  @doc false
+  @doc """
+  Publishes `executor.decision.requested` only if this exact Decision version
+  is not already journaled.
+
+  This is the retry/reconciliation entry point, so it must converge rather than
+  amplify: an already-published version returns its cached event id with zero
+  new subscribers, exactly like `publish_deferred/2`. Publishing a fresh event
+  here made every failed retry re-deliver Commands the Executor had already
+  seen.
+  """
   @spec ensure_requested(Decision.t()) :: {:ok, pos_integer(), non_neg_integer()} | {:error, term()}
   def ensure_requested(%Decision{} = decision) do
     case requested_event_id(decision.decision_id, decision.version) do
-      {:ok, id} ->
-        decision
-        |> requested_payload()
-        |> Map.put(:replayed_event_id, id)
-        |> then(&publish("executor.decision.requested", &1, source: :internal))
-
-      :not_found ->
-        publish_requested(decision)
-
-      {:error, reason} ->
-        {:error, reason}
+      {:ok, id} -> {:ok, id, 0}
+      :not_found -> publish_requested(decision)
+      {:error, reason} -> {:error, reason}
     end
   end
 
@@ -304,13 +305,23 @@ defmodule Aiur.ExecutorEvents do
     Enum.reject(decisions, &MapSet.member?(existing, {&1.decision_id, &1.version}))
   end
 
+  # Never halts part-way. Halting left the untried tail unpublished while the
+  # caller retried the whole batch, so every already-published Decision was
+  # published a second time. Each Decision is attempted exactly once here and
+  # only the still-unpublished ones can be retried by the caller.
   defp publish_missing_requested(decisions) do
-    Enum.reduce_while(decisions, {:ok, 0}, fn decision, {:ok, count} ->
-      case publish_requested(decision) do
-        {:ok, _id, _subscribers} -> {:cont, {:ok, count + 1}}
-        {:error, reason} -> {:halt, {:error, reason}}
-      end
-    end)
+    {published, failures} =
+      Enum.reduce(decisions, {0, []}, fn decision, {count, failures} ->
+        case publish_requested(decision) do
+          {:ok, _id, _subscribers} -> {count + 1, failures}
+          {:error, reason} -> {count, [reason | failures]}
+        end
+      end)
+
+    case Enum.reverse(failures) do
+      [] -> {:ok, published}
+      [reason | _rest] -> {:error, reason}
+    end
   end
 
   defp requested_event_id(decision_id, version) do

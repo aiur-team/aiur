@@ -6,7 +6,11 @@ defmodule Aiur.ExecutorCommandCLITest do
   alias Aiur.ExecutorCommandCLI
 
   describe "answer/2" do
-    test "records an attributed Executor answer without emitting an alert" do
+    # The "answering does not alert the operator" guarantee is asserted where
+    # alerting actually lives — see the DecisionStore test that installs a
+    # flunking `executor_attention_opener`. This CLI test owns the narrower
+    # claim it can genuinely enforce: the exact call it makes into the store.
+    test "routes one attributed Executor answer through the serialized store API" do
       test_pid = self()
 
       params = [
@@ -23,7 +27,6 @@ defmodule Aiur.ExecutorCommandCLITest do
           send(test_pid, {:answer, decision_id, payload, opts, store})
           {:ok, %{status: :accepted, action: %{action_id: "action-1"}}}
         end,
-        alert_fun: fn _topic, _message, _opts -> flunk("direct answers must not alert the operator") end,
         decision_store: :decision_store
       ]
 
@@ -40,6 +43,27 @@ defmodule Aiur.ExecutorCommandCLITest do
              }
 
       assert output =~ "Executor codex-executor answered Command decision:42"
+    end
+
+    test "tells the Executor to escalate a Command the store refuses to let it answer" do
+      output =
+        capture_io(:stderr, fn ->
+          assert ExecutorCommandCLI.answer(
+                   [
+                     decision_id: "decision:42",
+                     expected_version: 3,
+                     custom_response: "Looks obvious",
+                     rationale: "Seemed fine",
+                     idempotency_key: "key"
+                   ],
+                   answer_fun: fn _, _, _, _ ->
+                     {:error, {:answer_invalid, {:executor_scope, {:reversibility, :irreversible}}}}
+                   end
+                 ) == 1
+        end)
+
+      assert output =~ "outside what the Executor may answer directly"
+      assert output =~ "escalate it to the operator instead"
     end
 
     test "requires exactly one option or custom response" do
@@ -102,7 +126,7 @@ defmodule Aiur.ExecutorCommandCLITest do
       assert replay_output =~ "already escalated"
     end
 
-    test "rejects a stale version without alerting" do
+    test "reports a stale version as a command error" do
       output =
         capture_io(:stderr, fn ->
           assert ExecutorCommandCLI.escalate(
@@ -114,7 +138,7 @@ defmodule Aiur.ExecutorCommandCLITest do
       assert output =~ "stale version"
     end
 
-    test "rejects a non-open Command without alerting" do
+    test "reports a non-open Command as a command error" do
       output =
         capture_io(:stderr, fn ->
           assert ExecutorCommandCLI.escalate(

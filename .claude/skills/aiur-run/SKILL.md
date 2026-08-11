@@ -193,6 +193,11 @@ operator-notification path; record the concrete uncertainty and the decision
 the operator must make. Direct Executor answers do not notify. Escalated
 Commands do notify and remain open until the operator answers them.
 
+The store enforces this floor independently of your judgement: it accepts an
+Executor answer only for a Command declaring a delegable authority
+(`supervisor_allowed` or `supervisor_preferred`) and `reversibility:
+reversible`. Everything else is refused and must be escalated.
+
 ```bash
 "$AIUR_CMD" executor-escalate <decision-id> --expected-version <n> \
   --reason <text> [--executor-id <id>]

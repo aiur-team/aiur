@@ -29,6 +29,7 @@ defmodule Aiur.DecisionHistory do
     "enriched" => :enriched,
     "decision_expired" => :expired,
     "expired" => :expired,
+    "executor_escalated" => :executor_escalated,
     "answered" => :answered,
     "revised" => :revised,
     "superseded" => :superseded,
@@ -219,6 +220,10 @@ defmodule Aiur.DecisionHistory do
       follow_up_slug: data.slug,
       follow_up_handled_at: base.recorded_at
     })
+  end
+
+  defp event_record(%DecisionEvent{type: :executor_escalated, data: data}, base, _revisions) do
+    Map.merge(base, %{actor: data.actor, escalated_to_operator: true, escalation_reason: data.detail})
   end
 
   defp event_record(%DecisionEvent{type: type, data: data}, base, actions)

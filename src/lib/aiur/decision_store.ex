@@ -64,7 +64,10 @@ defmodule Aiur.DecisionStore do
   @default_dispatch_delay_ms 0
   @default_reconcile_delay_ms 250
   @default_retry_delays_ms [250, 1_000, 5_000]
-  @executor_notification_retry_ms 15_000
+  # Code-enforced ceiling on what the Executor may answer without the operator.
+  # Kept as explicit allowlists so an unknown or missing value fails closed.
+  @executor_answerable_authorities [:supervisor_allowed, :supervisor_preferred]
+  @executor_answerable_reversibilities [:reversible]
   @recent_audit_limit 50
   @recent_decision_limit 50
   @maximum_legacy_page_limit 200
@@ -129,7 +132,16 @@ defmodule Aiur.DecisionStore do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
   end
 
-  @doc "Serializes an Executor escalation with terminal Decision transitions."
+  @doc """
+  Durably records that the Executor deferred one still-undecided Command to
+  the operator, then opens the keyed operator attention.
+
+  The Command's status is deliberately unchanged: it stays exactly as
+  answerable as it was, so the operator can still answer it and can still
+  override the Executor. What changes is the audit trail — the escalation is
+  appended as an attributed `:executor_escalated` event, so a later reader can
+  see that the Executor deferred rather than decided.
+  """
   @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) ::
           {:ok, map()} | {:error, term()}
   def escalate_executor_command(decision_id, payload, server \\ __MODULE__, timeout \\ @request_timeout)
@@ -503,13 +515,45 @@ defmodule Aiur.DecisionStore do
          executor_id when is_binary(executor_id) <- executor_id,
          reason when is_binary(reason) <- reason,
          {:ok, decision} <- fetch_decision(state, decision_id),
-         :ok <- validate_executor_escalation(decision, expected_version),
-         {:ok, status} <- open_executor_attention(state, decision, executor_id, reason) do
-      {:reply, {:ok, %{status: status, decision: decision}}, state}
+         :ok <- validate_executor_escalation(decision, expected_version) do
+      record_executor_escalation(state, decision, executor_id, reason)
     else
       false -> {:reply, {:error, :invalid_expected_version}, state}
       nil -> {:reply, {:error, :invalid_escalation}, state}
       {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # "The Executor decided" and "the Executor deferred to the human" are both
+  # decisions about the same Command, so both are appended to the same durable
+  # event log before any alert is attempted. The alert marker can be cleaned
+  # up, replaced, or lost; the DecisionEvent is what makes the escalation
+  # auditable and attributable afterwards.
+  defp record_executor_escalation(state, decision, executor_id, reason) do
+    if executor_escalation_recorded?(state, decision) do
+      open_and_reply(state, decision, executor_id, reason)
+    else
+      data = %{actor: %{kind: :executor, id: executor_id}, detail: reason}
+
+      case build_and_persist_event(:executor_escalated, decision, data, DateTime.utc_now(), state) do
+        {:ok, next_state, updated} -> open_and_reply(next_state, updated, executor_id, reason)
+        {:error, reason} -> {:reply, {:error, reason}, state}
+      end
+    end
+  end
+
+  # Re-escalating an already-recorded Command version is a no-op append: the
+  # attention opener is separately idempotent and reports `:already_open`.
+  defp executor_escalation_recorded?(state, decision) do
+    state.audit_history
+    |> Map.get(decision.decision_id, [])
+    |> Enum.any?(&(&1.type == :executor_escalated and &1.decision_version == decision.version))
+  end
+
+  defp open_and_reply(state, decision, executor_id, reason) do
+    case open_executor_attention(state, decision, executor_id, reason) do
+      {:ok, status} -> {:reply, {:ok, %{status: status, decision: decision}}, state}
+      {:error, failure} -> {:reply, {:error, failure}, state}
     end
   end
 
@@ -1072,6 +1116,28 @@ defmodule Aiur.DecisionStore do
 
   defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}),
     do: {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
+
+  # The Executor may answer a Command directly, but "obvious" needs a floor the
+  # code enforces rather than one the Executor's prompt is trusted to observe.
+  # The Command's own author declares how consequential it is, so that
+  # declaration is the gate: only an already-delegable authority and a fully
+  # reversible outcome may be auto-answered. Everything else — human_required,
+  # irreversible or partially reversible work, and any unrecognized or missing
+  # value — is refused here so the Executor must escalate it to the operator
+  # instead. This mirrors the supervisor basis check directly above: both bind
+  # a non-operator answer to the Decision's own declared policy fields.
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, %Decision{} = request) do
+    cond do
+      request.authority not in @executor_answerable_authorities ->
+        {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
+
+      request.reversibility not in @executor_answerable_reversibilities ->
+        {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}}
+
+      true ->
+        :ok
+    end
+  end
 
   defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
 
@@ -1769,6 +1835,7 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:decision_expired), do: "expired"
   defp lifecycle_slug(:decision_dismissed), do: "dismissed"
   defp lifecycle_slug(:decision_deferred), do: "deferred"
+  defp lifecycle_slug(:executor_escalated), do: "executor-escalated"
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
@@ -3098,16 +3165,28 @@ defmodule Aiur.DecisionStore do
       schedule_executor_request_retry(decision, state, attempt)
   end
 
+  # Bounded exactly like every sibling retry path (`schedule_append_retry`,
+  # `schedule_transient_retry`): once the configured delay ladder is exhausted
+  # the store gives up rather than reconciling the whole journal forever.
   defp schedule_executor_request_retry(decision, state, attempt) do
-    delay = Enum.at(state.retry_delays_ms, attempt, @executor_notification_retry_ms)
+    case Enum.at(state.retry_delays_ms, attempt) do
+      delay when is_integer(delay) and delay >= 0 ->
+        state.dispatch_scheduler.(
+          self(),
+          {:retry_executor_request_notification, decision.decision_id, decision.version, attempt + 1},
+          delay
+        )
 
-    state.dispatch_scheduler.(
-      self(),
-      {:retry_executor_request_notification, decision.decision_id, decision.version, attempt + 1},
-      delay
-    )
+        :ok
 
-    :ok
+      _exhausted ->
+        Logger.warning(
+          "aiur_decision_store phase=executor_request_notification_retry_exhausted " <>
+            "decision_id=#{decision.decision_id} version=#{decision.version} attempts=#{attempt}"
+        )
+
+        :ok
+    end
   end
 
   defp recent_audit_payload(state, records) do

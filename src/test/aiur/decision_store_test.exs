@@ -4,7 +4,18 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.EventsDigest
-  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore, ExecutorCommandAttention, ExecutorCommandCLI}
+  alias Aiur.{
+    AlertFeed,
+    Boot,
+    Decision,
+    DecisionEvent,
+    DecisionHistory,
+    DecisionLog,
+    DecisionPubSub,
+    DecisionStore,
+    ExecutorCommandAttention,
+    ExecutorCommandCLI
+  }
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
@@ -1402,6 +1413,8 @@ defmodule Aiur.DecisionStoreTest do
              request(pid, %{
                "question" => "Reuse the established answer?",
                "blocking" => true,
+               "authority" => "supervisor_allowed",
+               "reversibility" => "reversible",
                "options" => [%{"id" => "yes", "label" => "Yes"}]
              })
 
@@ -1428,6 +1441,146 @@ defmodule Aiur.DecisionStoreTest do
     assert DecisionStore.health(replayed) == :writable
     assert {:ok, durable} = DecisionStore.get(decision.decision_id, replayed)
     assert durable.answer == answer
+  end
+
+  test "refuses an Executor answer for any Command the operator should see", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    delegable = %{
+      "blocking" => true,
+      "authority" => "supervisor_allowed",
+      "reversibility" => "reversible",
+      "options" => [%{"id" => "yes", "label" => "Yes"}]
+    }
+
+    refused = [
+      {"human_required authority", %{"authority" => "human_required"}, {:authority, :human_required}},
+      {"an irreversible outcome", %{"reversibility" => "irreversible"}, {:reversibility, :irreversible}},
+      {"a partially reversible outcome", %{"reversibility" => "partially_reversible"},
+       {:reversibility, :partially_reversible}}
+    ]
+
+    for {label, override, expected} <- refused do
+      payload = delegable |> Map.merge(override) |> Map.put("question", "Escalate #{label}?")
+      assert {:ok, %{decision: decision}} = request(pid, payload)
+
+      assert {:error, {:answer_invalid, {:executor_scope, ^expected}}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{"idempotency_key" => "executor-#{label}", "expected_version" => 1, "option_id" => "yes"},
+                 [actor: %{kind: :executor, id: "executor-1"}],
+                 pid
+               )
+
+      # Refused, not recorded: the Command stays open for the operator.
+      assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
+
+      # The operator keeps the authority the Executor was just denied.
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, decision.decision_id, %{
+                 "idempotency_key" => "operator-#{label}",
+                 "expected_version" => 1,
+                 "option_id" => "yes"
+               })
+    end
+  end
+
+  test "fails an Executor answer closed when the Command declares no delegable policy", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    # No authority or reversibility supplied: the request defaults are
+    # human_required/irreversible, so an absent declaration must refuse rather
+    # than fall through to the permissive branch.
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Undeclared policy?", "blocking" => true})
+    assert decision.authority == :human_required
+    assert decision.reversibility == :irreversible
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-undeclared",
+                 "expected_version" => 1,
+                 "custom_response" => "Looks obvious to me."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+  end
+
+  test "an Executor answer never opens an operator attention", %{dir: dir} do
+    # `executor_attention_opener` is the store's only path to an operator
+    # alert for a Command, so flunking it is the real form of "answering
+    # directly does not page the operator".
+    opener = fn _decision, _executor_id, _reason -> flunk("a direct Executor answer must not alert the operator") end
+    pid = start_store!(dir, executor_attention_opener: opener, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Answer this without paging anyone?",
+               "blocking" => true,
+               "authority" => "supervisor_preferred",
+               "reversibility" => "reversible",
+               "options" => [%{"id" => "yes", "label" => "Yes"}]
+             })
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "executor-quiet", "expected_version" => 1, "option_id" => "yes"},
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+  end
+
+  test "records an Executor escalation durably, attributably, and idempotently", %{dir: dir} do
+    pid = start_store!(dir, executor_attention_opener: fn _d, _e, _r -> {:ok, :opened} end, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{"question" => "Rename the public API?", "blocking" => true})
+
+    assert {:ok, %{status: :opened}} =
+             DecisionStore.escalate_executor_command(
+               decision.decision_id,
+               %{expected_version: 1, executor_id: "executor-1", reason: "This changes a published contract."},
+               pid
+             )
+
+    assert {:ok, history} = DecisionStore.audit_history(decision.decision_id, pid)
+
+    assert [%DecisionEvent{type: :executor_escalated, decision_version: 1, data: data}] =
+             Enum.filter(history, &(&1.type == :executor_escalated))
+
+    assert data.actor == %{kind: :executor, id: "executor-1"}
+    assert data.detail == "This changes a published contract."
+
+    # Deferring to the operator must not consume the Command.
+    assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
+
+    # A repeated escalation of the same version is a no-op append.
+    assert {:ok, %{status: _status}} =
+             DecisionStore.escalate_executor_command(
+               decision.decision_id,
+               %{expected_version: 1, executor_id: "executor-1", reason: "Same reason, retried."},
+               pid
+             )
+
+    assert {:ok, replayed_history} = DecisionStore.audit_history(decision.decision_id, pid)
+    assert Enum.count(replayed_history, &(&1.type == :executor_escalated)) == 1
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir, dispatch_delay_ms: 60_000)
+    assert DecisionStore.health(restarted) == :writable
+
+    assert {:ok, durable} = DecisionStore.audit_history(decision.decision_id, restarted)
+
+    assert [%DecisionEvent{type: :executor_escalated, data: durable_data}] =
+             Enum.filter(durable, &(&1.type == :executor_escalated))
+
+    assert durable_data == data
+    assert {:ok, %Decision{decision_status: :open}} = DecisionStore.get(decision.decision_id, restarted)
   end
 
   test "answering an escalated Command clears its operator attention", %{dir: dir} do

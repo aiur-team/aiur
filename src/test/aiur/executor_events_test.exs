@@ -109,10 +109,11 @@ defmodule Aiur.ExecutorEventsTest do
                     }},
                    500
 
-    assert {:ok, replay_id, replay_count} = ExecutorEvents.ensure_requested(decision)
-    assert replay_id > first_id
-    assert replay_count >= 1
-    assert_receive {:event, %{id: ^replay_id, decision_version: 2, replayed_event_id: ^first_id}}, 500
+    # Reconciliation converges instead of amplifying: an already-journaled
+    # version returns its cached event id with zero fan-out, so a retry never
+    # re-delivers a Command the Executor has already seen.
+    assert {:ok, ^first_id, 0} = ExecutorEvents.ensure_requested(decision)
+    refute_receive {:event, %{topic: "executor.decision.requested", decision_version: 2}}, 100
 
     assert {:ok, 0} = ExecutorEvents.reconcile_requested([decision])
     refute_receive {:event, %{decision_version: 2}}, 100
@@ -121,6 +122,22 @@ defmodule Aiur.ExecutorEventsTest do
     assert {:ok, 1} = ExecutorEvents.reconcile_requested([next_version])
     assert_receive {:event, %{id: second_id, decision_version: 3}}, 500
     assert second_id != first_id
+  end
+
+  test "reconciles every missing requested decision in one pass" do
+    :ok = Exchange.subscribe("executor.decision.requested")
+
+    first = %{deferred_decision("dec-reconcile-a") | version: 1}
+    second = %{deferred_decision("dec-reconcile-b") | version: 1}
+
+    assert {:ok, 2} = ExecutorEvents.reconcile_requested([first, second])
+    assert_receive {:event, %{topic: "executor.decision.requested", decision_id: "dec-reconcile-a"}}, 500
+    assert_receive {:event, %{topic: "executor.decision.requested", decision_id: "dec-reconcile-b"}}, 500
+
+    # A second pass must find nothing left to publish, so a caller that retries
+    # the whole batch cannot re-deliver Commands the Executor already received.
+    assert {:ok, 0} = ExecutorEvents.reconcile_requested([first, second])
+    refute_receive {:event, %{topic: "executor.decision.requested"}}, 100
   end
 
   test "dedups duplicate defers but an explicit re-notify fans out a fresh event" do
