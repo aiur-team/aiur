@@ -116,6 +116,38 @@ dashboard Basic Auth credentials to satisfy the boot guard.
 This is what makes "restarting the daemon does not change the webhook URL"
 true. It is the prerequisite, not a detail.
 
+**A `--host` or `--port` on the command line overrides this file, and some
+launchers inject one.** `Aiur.HttpServer.start_link/1` resolves both as
+`Keyword.get(opts, :host, Config.server_host())` — the flag wins, every time. So
+`.aiur/config` saying `host: 127.0.0.1` is not evidence that the daemon is on
+loopback: it can be bound to a single routable address with nothing listening on
+`127.0.0.1` at all.
+
+That is a problem for the tunnel rather than for the daemon. The `service:` line
+in the next section has to name the address the daemon **actually** bound, and
+pointing it at loopback while the daemon is elsewhere returns 502 on every
+delivery — with the config file still reading `127.0.0.1`, the daemon healthy,
+and nothing anywhere warning you. Read the bind instead of assuming it, once the
+daemon is running and before you write the tunnel config:
+
+```sh
+ss -ltnp | grep beam.smp
+```
+
+That lists every address and port the daemon is listening on. If more than one
+line comes back, or you want to be sure the listener is this daemon rather than
+some other BEAM process, ask for the answer only this receiver gives:
+
+```sh
+curl -s -m 2 -X POST "http://<address>:<port>/api/v1/github/webhook" \
+  -H 'X-GitHub-Event: ping' -d '{}' | grep -q invalid_signature && echo "daemon here"
+```
+
+Use the address that answers. If that is not `127.0.0.1`, the daemon was started
+with an explicit host and the tunnel must follow it — or restart the daemon with
+`--host 127.0.0.1` so the loopback posture this document describes is the one you
+actually get.
+
 ### Generate the webhook secret
 
 At least 32 bytes from a CSPRNG. Do not reuse `GITHUB_TOKEN`, the App private
@@ -202,6 +234,10 @@ ingress:
   # cannot match a longer path that merely contains this one.
   - hostname: hooks.<domain>
     path: ^/api/v1/github/webhook$
+    # The address the daemon actually bound, read with `ss -ltnp | grep beam.smp`
+    # in "Pin the daemon's port" -- not assumed to be loopback. A `--host` flag
+    # overrides `.aiur/config`, and naming the wrong address here is a 502 on
+    # every delivery with nothing else looking wrong.
     service: http://127.0.0.1:4099
 
   # Default deny. Everything else -- the dashboard, the Decision API, every
