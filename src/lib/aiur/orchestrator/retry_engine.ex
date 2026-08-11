@@ -413,14 +413,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # parking until an operator notices (#1453). The structured transient
       # reason wins when recorded; otherwise the formatted error string is the
       # fallback (which `AutoResume.classify/1` treats as terminal).
-      released = release_issue_claim(state, issue_id)
+      exhaustion_reason = effective_exhaustion_reason(transient_reason, error)
+
+      released =
+        state
+        |> release_issue_claim(issue_id)
+        |> record_claim_release(issue_id, exhaustion_reason)
 
       released =
         maybe_schedule_transient_auto_resume(
           released,
           issue_id,
-          effective_exhaustion_reason(transient_reason, error)
+          exhaustion_reason
         )
+
+      emit_claim_released_alert(released, issue_id, identifier, failed_attempts, exhaustion_reason, %{worker_host: worker_host})
 
       released
       |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
@@ -537,6 +544,20 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec release_issue_claim(State.t(), String.t()) :: State.t()
   def release_issue_claim(%State{} = state, issue_id) do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+  end
+
+  @doc false
+  @spec record_claim_release(State.t(), String.t(), term()) :: State.t()
+  def record_claim_release(%State{} = state, issue_id, reason) when is_binary(issue_id) do
+    {cause, details} = claim_release_reason(reason)
+
+    release = %{
+      cause: cause,
+      details: details,
+      released_at_ms: System.monotonic_time(:millisecond)
+    }
+
+    %{state | released_claims: Map.put(state.released_claims || %{}, issue_id, release)}
   end
 
   @doc false
@@ -707,7 +728,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       cause ->
         Logger.info("Scheduling transient auto-resume issue_id=#{issue_id} cause=#{cause} reason=#{inspect(reason)}")
 
-        AutoResume.schedule(state, issue_id, cause)
+        AutoResume.schedule(state, issue_id, cause, recovery_delay_options(reason))
     end
   end
 
@@ -726,6 +747,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       released =
         state
         |> release_issue_claim(issue_id)
+        |> record_claim_release(issue_id, reason)
         |> maybe_schedule_transient_auto_resume(issue_id, reason)
 
       emit_claim_released_alert(released, issue_id, identifier, attempt, reason, metadata)
@@ -749,10 +771,10 @@ defmodule Aiur.Orchestrator.RetryEngine do
     {reason_code, details} = claim_release_reason(reason)
     auto_reclaim = Map.get(state.auto_resume, issue_id)
     recovery = claim_recovery_message(auto_reclaim)
-    token_identity = GitHubConfig.bot_account() || "configured GitHub tracker credential"
+    token_identity = GitHubConfig.bot_account() || credential_fingerprint()
 
     message =
-      "Released claim for ticket=#{identifier} agent=#{identifier} after #{@max_retry_poll_failures} tracker failures " <>
+      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
         "(reason=#{reason_code}, token_identity=#{token_identity}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
@@ -773,6 +795,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   defp claim_release_reason({:github, :rate_limited, details}) when is_map(details), do: {:rate_limit_exhausted, details}
   defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+
+  defp recovery_delay_options({:github, :rate_limited, details}) when is_map(details) do
+    [retry_after: details[:retry_after], reset_at: details[:reset_at]]
+  end
+
+  defp recovery_delay_options(_reason), do: []
+
+  defp credential_fingerprint do
+    case GitHubConfig.token() do
+      token when is_binary(token) and byte_size(token) > 0 ->
+        "token-sha256:" <> (:crypto.hash(:sha256, token) |> Base.encode16(case: :lower) |> binary_part(0, 12))
+
+      _ ->
+        "token-identity-unavailable"
+    end
+  end
 
   defp claim_release_detail_suffix(details) do
     [:remaining, :reset_at, :retry_after]

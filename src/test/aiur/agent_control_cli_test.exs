@@ -549,7 +549,8 @@ defmodule Aiur.AgentControlCLITest do
         | last_polled_issues: %{released.id => released},
           auto_resume: %{
             released.id => %{attempt: 1, cause: :rate_limit, scheduled_at_ms: System.monotonic_time(:millisecond)}
-          }
+          },
+          released_claims: %{released.id => %{cause: :rate_limit, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}}
       }
     end)
 
@@ -557,6 +558,23 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~ "#1475  idle    Reclaim me (claim released: rate limit; automatic re-claim ~2m)"
     assert output =~ "RELEASED CLAIMS 1 (automatic re-claim pending)"
+  end
+
+  test "status retains a released claim after automatic re-claim is unavailable", %{orchestrator: pid} do
+    released = %Issue{id: "issue-released-no-retry", identifier: "repo#1476", state: "todo", title: "Needs operator recovery"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{released.id => released},
+          released_claims: %{released.id => %{cause: :tracker_retry_exhausted, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1476  idle    Needs operator recovery (claim released: tracker retry exhausted)"
+    assert output =~ "RELEASED CLAIMS 1 (operator recovery required for some claims)"
   end
 
   test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do

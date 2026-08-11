@@ -86,13 +86,17 @@ defmodule Aiur.AgentControlCLI do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
-    released_claims = Enum.count(statuses, &match?(%{reason: {:claim_released, _, _}}, &1))
+    released_claims = Enum.count(statuses, &(&1[:claim_released?] == true))
+    automatic_reclaims = Enum.count(statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
     statuses
     |> Enum.filter(&visible_status_row?(&1, tracker_states))
     |> print_status_table()
 
-    if released_claims > 0, do: IO.puts("RELEASED CLAIMS #{released_claims} (automatic re-claim pending)")
+    if released_claims > 0 do
+      recovery = if automatic_reclaims == released_claims, do: "automatic re-claim pending", else: "operator recovery required for some claims"
+      IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
+    end
 
     print_capacity_status(Orchestrator.max_concurrent_agents())
 

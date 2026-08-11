@@ -119,6 +119,12 @@ defmodule Aiur.Orchestrator.AutoResumeTest do
       assert AutoResume.retry_in_ms(state, @issue_id, System.monotonic_time(:millisecond)) > 0
     end
 
+    test "honors a rate-limit retry-after before attempting re-claim" do
+      state = AutoResume.schedule(%State{}, @issue_id, :rate_limit, retry_after: 600)
+
+      assert AutoResume.retry_in_ms(state, @issue_id, System.monotonic_time(:millisecond)) > 590_000
+    end
+
     test "advances through the bounded backoff schedule" do
       state = %State{}
       assert AutoResume.backoff_ms(1) == 120_000

@@ -126,6 +126,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :poll_check_in_progress,
       :poll_interval_ms,
       :retry_attempts,
+      :released_claims,
       :running,
       :session_max_concurrent_agents
     ])
@@ -433,7 +434,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     latch = Map.get(latch_statuses, issue.id, :none)
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, issue.id, now_ms)
-    auto_resume_cause = get_in(state.auto_resume, [issue.id, :cause])
+    release = Map.get(state.released_claims, issue.id)
 
     %{
       issue_id: issue.id,
@@ -448,15 +449,15 @@ defmodule Aiur.Orchestrator.StatusReport do
       # #1453 supplies the idle-reason evidence; #1457 renders it.
       dispatch_latch: latch,
       auto_resume_retry_in_ms: auto_resume_retry_in_ms,
-      claim_released?: not is_nil(auto_resume_cause),
-      claim_release_cause: auto_resume_cause,
+      claim_released?: not is_nil(release),
+      claim_release_cause: release && release.cause,
       waiting_reason:
         idle_waiting_reason(
           issue,
           blocked_by_open?,
           open_decision_count,
           latch,
-          auto_resume_cause,
+          release && release.cause,
           auto_resume_retry_in_ms,
           state
         ),
@@ -817,7 +818,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
-    auto_resume_cause = get_in(state.auto_resume, [Map.get(issue, :id), :cause])
+    release = Map.get(state.released_claims, Map.get(issue, :id))
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), System.monotonic_time(:millisecond))
 
     work_state = idle_issue_work_state(issue)
@@ -843,8 +844,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
-      claim_released?: not is_nil(auto_resume_cause),
-      claim_release_cause: auto_resume_cause,
+      claim_released?: not is_nil(release),
+      claim_release_cause: release && release.cause,
       reason:
         idle_status_reason(
           work_state,
@@ -853,7 +854,7 @@ defmodule Aiur.Orchestrator.StatusReport do
           budget,
           max_dispatches,
           latch_status,
-          auto_resume_cause,
+          release && release.cause,
           auto_resume_retry_in_ms
         )
     }
