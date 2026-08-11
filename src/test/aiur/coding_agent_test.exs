@@ -516,6 +516,30 @@ defmodule Aiur.CodingAgentTest do
   end
 
   describe "send_operator_message/2" do
+    test "raises when the session has no backend instead of using the global default" do
+      session = %{thread_id: "thread-missing-backend"}
+
+      error =
+        assert_raise ArgumentError, fn ->
+          CodingAgent.send_operator_message(session, %{kind: :text, body: "hello agent"})
+        end
+
+      assert error.message =~ inspect(session)
+      assert error.message =~ "expected a binary :backend"
+    end
+
+    test "raises when the session backend is not a binary" do
+      session = %{backend: :claude, thread_id: "thread-invalid-backend"}
+
+      error =
+        assert_raise ArgumentError, fn ->
+          CodingAgent.send_operator_message(session, %{kind: :text, body: "hello agent"})
+        end
+
+      assert error.message =~ inspect(session)
+      assert error.message =~ "expected a binary :backend"
+    end
+
     test "Codex adapter writes a turn/start frame with a fresh request id" do
       port = open_cat_port()
 
