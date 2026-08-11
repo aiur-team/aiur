@@ -26,8 +26,15 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec adjust_max_concurrent_agents(GenServer.server(), integer()) ::
           {:ok, map()} | {:error, term()}
-  def adjust_max_concurrent_agents(server, delta) when is_integer(delta),
-    do: control_api_call(server, {:adjust_max_concurrent_agents, delta})
+  def adjust_max_concurrent_agents(server, delta) when is_integer(delta) do
+    with {:ok, pid} <- resolve_control_server(server) do
+      if canonical_orchestrator?(pid) do
+        apply_runtime_max_concurrent_agents(pid, fn current -> max(current + delta, 1) end)
+      else
+        control_api_call(pid, {:adjust_max_concurrent_agents, delta})
+      end
+    end
+  end
 
   @spec set_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, term()}
   def set_max_concurrent_agents(next),
@@ -35,8 +42,15 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec set_max_concurrent_agents(GenServer.server(), pos_integer()) ::
           {:ok, map()} | {:error, term()}
-  def set_max_concurrent_agents(server, next) when is_integer(next) and next > 0,
-    do: control_api_call(server, {:set_max_concurrent_agents, next})
+  def set_max_concurrent_agents(server, next) when is_integer(next) and next > 0 do
+    with {:ok, pid} <- resolve_control_server(server) do
+      if canonical_orchestrator?(pid) do
+        apply_runtime_max_concurrent_agents(pid, fn _current -> next end)
+      else
+        control_api_call(pid, {:set_max_concurrent_agents, next})
+      end
+    end
+  end
 
   @doc "Applies the runtime cap without waiting behind the dispatch mailbox."
   @spec set_runtime_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, :unavailable}
@@ -47,12 +61,8 @@ defmodule Aiur.Orchestrator.Slots do
           {:ok, map()} | {:error, :unavailable}
   def set_runtime_max_concurrent_agents(server, next)
       when is_integer(next) and next > 0 do
-    if GenServer.whereis(server) do
-      :ok = Config.put_max_concurrent_agents_override(next)
-      GenServer.cast(server, {:refresh_max_concurrent_agents_override, next})
-      {:ok, %{max: next}}
-    else
-      {:error, :unavailable}
+    with {:ok, pid} <- resolve_control_server(server) do
+      apply_runtime_max_concurrent_agents(pid, fn _current -> next end)
     end
   end
 
@@ -78,9 +88,6 @@ defmodule Aiur.Orchestrator.Slots do
   @spec apply_session_max_concurrent_agents(State.t(), pos_integer()) ::
           {:reply, {:ok, map()}, State.t()}
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
-    if state.snapshot_key == Aiur.Orchestrator,
-      do: Config.put_max_concurrent_agents_override(next)
-
     state = refresh_max_concurrent_agents_override(state, next)
     {:reply, {:ok, max_concurrent_agent_status(state)}, state}
   end
@@ -102,14 +109,26 @@ defmodule Aiur.Orchestrator.Slots do
   end
 
   defp control_api_call(server, request) do
-    if GenServer.whereis(server) do
-      GenServer.call(server, request, 5_000)
-    else
-      {:error, :unavailable}
-    end
+    GenServer.call(server, request, 5_000)
   catch
     :exit, {:timeout, _} -> {:error, :timeout}
     :exit, _ -> {:error, :unavailable}
+  end
+
+  defp resolve_control_server(server) do
+    case GenServer.whereis(server) do
+      nil -> {:error, :unavailable}
+      pid -> {:ok, pid}
+    end
+  end
+
+  defp canonical_orchestrator?(pid),
+    do: pid == Process.whereis(Aiur.Orchestrator)
+
+  defp apply_runtime_max_concurrent_agents(pid, update_fun) do
+    next = Config.update_max_concurrent_agents_override(update_fun)
+    GenServer.cast(pid, {:refresh_max_concurrent_agents_override, next})
+    {:ok, %{max: next}}
   end
 
   @spec slot_status(State.t()) :: %{active: non_neg_integer(), paused: non_neg_integer()}

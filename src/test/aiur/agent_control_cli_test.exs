@@ -2042,6 +2042,74 @@ defmodule Aiur.AgentControlCLITest do
       end
 
       assert %{max: 5, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
+      assert :sys.get_state(pid).session_max_concurrent_agents == 5
+    end
+
+    test "canonical dashboard and TUI controls bypass a blocked orchestrator mailbox", %{orchestrator: pid} do
+      :sys.suspend(pid)
+
+      try do
+        assert {:ok, %{max: 3}} = Orchestrator.set_max_concurrent_agents(3)
+        assert {:ok, %{max: 5}} = Orchestrator.adjust_max_concurrent_agents(2)
+        assert Config.max_concurrent_agents() == 5
+      after
+        :sys.resume(pid)
+      end
+
+      assert %{max: 5, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
+      assert :sys.get_state(pid).session_max_concurrent_agents == 5
+    end
+
+    test "concurrent relative cap updates are serialized" do
+      :ok = Config.put_max_concurrent_agents_override(10)
+      parent = self()
+
+      update = fn id ->
+        Task.async(fn ->
+          send(parent, {:started, id})
+
+          Config.update_max_concurrent_agents_override(fn current ->
+            send(parent, {:entered, id, current})
+            receive do: (:release -> current + 1)
+          end)
+        end)
+      end
+
+      first = update.(:first)
+      assert_receive {:started, :first}
+      assert_receive {:entered, :first, 10}
+
+      second = update.(:second)
+      assert_receive {:started, :second}
+      refute_receive {:entered, :second, _current}, 100
+
+      send(first.pid, :release)
+      assert Task.await(first) == 11
+      assert_receive {:entered, :second, 11}, 1_000
+
+      send(second.pid, :release)
+      assert Task.await(second) == 12
+      assert Config.max_concurrent_agents() == 12
+    end
+
+    test "a queued legacy control write cannot replace a newer CLI cap", %{orchestrator: pid} do
+      :sys.suspend(pid)
+      legacy_ref = make_ref()
+
+      try do
+        send(pid, {:"$gen_call", {self(), legacy_ref}, {:set_max_concurrent_agents, 3}})
+
+        output = capture_io(fn -> AgentControlCLI.set_max_agents(5) end)
+
+        assert output =~ "aiur: max-agents set to 5"
+        assert Config.max_concurrent_agents() == 5
+      after
+        :sys.resume(pid)
+      end
+
+      assert_receive {^legacy_ref, {:ok, _status}}
+      assert %{max: 5, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
+      assert :sys.get_state(pid).session_max_concurrent_agents == 5
     end
 
     test "allows a cap below the active agent count and reports draining", %{orchestrator: pid} do

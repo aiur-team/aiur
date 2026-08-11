@@ -539,7 +539,20 @@ defmodule Aiur.Config do
   @doc false
   @spec put_max_concurrent_agents_override(pos_integer()) :: :ok
   def put_max_concurrent_agents_override(n) when is_integer(n) and n > 0 do
-    Application.put_env(:aiur, :max_concurrent_agents_override, n)
+    update_max_concurrent_agents_override(fn _current -> n end)
+    :ok
+  end
+
+  @doc false
+  @spec update_max_concurrent_agents_override((pos_integer() -> pos_integer())) :: pos_integer()
+  def update_max_concurrent_agents_override(fun) when is_function(fun, 1) do
+    lock = {{__MODULE__, :max_concurrent_agents_override}, self()}
+
+    :global.trans(lock, fn ->
+      next = fun.(max_concurrent_agents())
+      :ok = Application.put_env(:aiur, :max_concurrent_agents_override, next)
+      next
+    end)
   end
 
   @doc false
