@@ -194,7 +194,9 @@ defmodule Aiur.InitTest do
         create_labels: fn tracker, labels ->
           send(parent, {:labels, tracker, labels})
           :ok
-        end
+        end,
+        detect_operator_skill_harnesses: fn -> [] end,
+        install_operator_skills: fn _mode, _harnesses, _opts -> {:ok, %{created: [], existing: []}} end
       },
       overrides
     )
@@ -929,6 +931,47 @@ defmodule Aiur.InitTest do
       log = puts_log()
       assert Enum.any?(log, &(&1 =~ "Building the warm base now"))
       assert Enum.any?(log, &(&1 =~ "Warm base ready"))
+    end
+  end
+
+  describe "global operator skills" do
+    test "offers the detected harnesses and installs the selected mode", %{dir: dir, target: target} do
+      parent = self()
+
+      answers =
+        github_answers(%{
+          select: %{
+            @location_label => "repo",
+            "Issue tracker" => "github",
+            "Install Aiur's operator skills globally so they work in any repository?" => "symlink (recommended)"
+          }
+        })
+
+      d =
+        deps(parent, dir, target, %{
+          detect_operator_skill_harnesses: fn -> [:codex] end,
+          install_operator_skills: fn mode, harnesses, opts ->
+            send(parent, {:operator_skills, mode, harnesses, opts})
+            {:ok, %{created: ["/home/test/.codex/skills/aiur-run"], existing: []}}
+          end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, answers), d)
+      assert_received {:operator_skills, :symlink, [:codex], []}
+      assert Enum.any?(puts_log(), &(&1 =~ "installed for codex only"))
+    end
+
+    test "skip leaves global skill installation untouched", %{dir: dir, target: target} do
+      parent = self()
+
+      d =
+        deps(parent, dir, target, %{
+          detect_operator_skill_harnesses: fn -> [:claude] end,
+          install_operator_skills: fn _mode, _harnesses, _opts -> send(parent, :operator_skills_called) end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, github_answers()), d)
+      refute_received :operator_skills_called
     end
   end
 

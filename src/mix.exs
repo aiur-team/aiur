@@ -195,7 +195,7 @@ defmodule Aiur.MixProject do
       aiur: [
         applications: [aiur: :permanent],
         include_executables_for: [:unix],
-        steps: [:assemble, &Aiur.MixProject.copy_cli_launcher/1]
+        steps: [:assemble, &Aiur.MixProject.bundle_operator_skills/1, &Aiur.MixProject.copy_cli_launcher/1]
       ]
     ]
   end
@@ -264,6 +264,22 @@ defmodule Aiur.MixProject do
 
     File.write!(wrapper_path, contents)
     File.chmod!(wrapper_path, 0o755)
+
+    release
+  end
+
+  @doc false
+  def bundle_operator_skills(release) do
+    source_root = Path.expand("../.claude/skills", File.cwd!())
+    destination = Path.join(release.path, "operator-skills")
+    skills = ~w(aiur-agent aiur-build aiur-debug aiur-monitor aiur-run design-import using-aiur)
+
+    File.rm_rf!(destination)
+    File.mkdir_p!(destination)
+
+    Enum.each(skills, fn skill ->
+      File.cp_r!(Path.join(source_root, skill), Path.join(destination, skill))
+    end)
 
     release
   end

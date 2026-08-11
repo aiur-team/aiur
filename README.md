@@ -66,13 +66,12 @@ an agent as Executor. Agent-operated mode is an option, not a requirement.
 
 ## Using Aiur with a coding agent
 
-Using Claude Code or Codex? You can drive Aiur yourself, or make the repository's Executor skills
-available to your agent and ask it to "run aiur":
+Using Claude Code or Codex? You can drive Aiur yourself, or run `aiur init` and choose the optional
+global operator-skill install before asking your agent to "run aiur":
 
-> The npm package installs the `aiur` CLI; it does not install these coding-agent skills. They are
-> bundled in this source repository under `.claude/skills` (with shared Codex links under
-> `.codex/skills`). Use a source checkout or your agent's supported skill-install mechanism to
-> make them available to the agent that will be Executor.
+> `aiur init` detects Claude and Codex on the machine, then can symlink Aiur's operator skills into
+> their global skill roots. Symlinks follow the installed Aiur release; select **copy** if you want a
+> pinned version. The default is **skip**, and existing skill paths are never overwritten.
 
 | Skill | What it does |
 |-------|--------------|
@@ -84,6 +83,13 @@ available to your agent and ask it to "run aiur":
 
 Once `aiur-intro` is available to your agent, ask *"what is aiur?"* or *"how do I install aiur?"*
 and it will walk you through setup and ask which mode you want.
+
+To uninstall the global skills, remove their exact directories from each harness you enabled:
+
+```bash
+rm -rf "$HOME"/.claude/skills/{aiur-agent,aiur-build,aiur-debug,aiur-monitor,aiur-run,aiur-design-import,aiur-using-aiur}
+rm -rf "$HOME"/.codex/skills/{aiur-agent,aiur-build,aiur-debug,aiur-monitor,aiur-run,aiur-design-import,aiur-using-aiur}
+```
 
 ## Additional Capabilities
 

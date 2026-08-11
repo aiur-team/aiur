@@ -81,6 +81,7 @@ defmodule Aiur.Init do
             Resume.backfill_missing_sections(io, deps, location, tracker, config, effective_target)
             Prewarm.maybe_resume_prewarm(io, deps, tracker, config)
             Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+            maybe_install_operator_skills(io, deps)
             provision(io, deps, tracker, Resume.agents_from_config(config), rate_limit_pair(config))
 
           {:error, reason} ->
@@ -148,6 +149,7 @@ defmodule Aiur.Init do
             Scaffold.setup_env(io, deps, tracker)
             Scaffold.maybe_offer_gitignore(io, deps, location)
             Aiur.Init.Codeowners.setup_codeowners(io, deps, tracker)
+            maybe_install_operator_skills(io, deps)
 
             provision(
               io,
@@ -191,6 +193,40 @@ defmodule Aiur.Init do
     Aiur.Init.AgentCli.check_agent_clis(io, deps, agents)
     final_screen(io)
     :ok
+  end
+
+  defp maybe_install_operator_skills(io, deps) do
+    harnesses = deps.detect_operator_skill_harnesses.()
+
+    case Questions.prompt_operator_skills(io, harnesses) do
+      :skip ->
+        :ok
+
+      mode ->
+        case deps.install_operator_skills.(mode, harnesses, []) do
+          {:ok, %{created: created, existing: existing}} ->
+            announce_operator_skills(io, created, existing)
+
+          {:conflict, _paths} ->
+            if io.confirm.("Existing global Aiur skill links point elsewhere. Repoint them?", false) do
+              case deps.install_operator_skills.(mode, harnesses, replace_links?: true) do
+                {:ok, %{created: created, existing: existing}} -> announce_operator_skills(io, created, existing)
+                {:conflict, _paths} -> io.puts.("Left existing global skills unchanged.")
+                {:error, reason} -> io.puts.("Couldn't install operator skills: #{inspect(reason)}")
+              end
+            else
+              io.puts.("Left existing global skills unchanged.")
+            end
+
+          {:error, reason} ->
+            io.puts.("Couldn't install operator skills: #{inspect(reason)}")
+        end
+    end
+  end
+
+  defp announce_operator_skills(io, created, existing) do
+    if created != [], do: io.puts.("Installed #{length(created)} global operator skills.")
+    if existing != [], do: io.puts.("Kept #{length(existing)} existing global operator skills.")
   end
 
   defp provision_github_with_token(io, deps, tracker, agents, pair) do

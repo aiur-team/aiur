@@ -128,16 +128,23 @@ walks:
    routing, the permission mode, and an optional ordered rate-limit fallback.
 4. **Limits** — max concurrent agents, max turns, max duration, pre-warmed
    sessions, and the tracker polling interval.
-5. **GitHub token** — used to create labels and act as the bot account. With no
+5. **Operator skills** — when Claude Code or Codex is detected, optionally
+   symlinks Aiur's fleet-operation skills into its global skill directory so
+   they resolve from any repository. Skip is the safe default; copy makes a
+   pinned installation. Existing paths are left alone unless an operator
+   explicitly confirms repointing an old Aiur link. To undo an install, remove
+   the `aiur-*` directories that `aiur init` created under the relevant
+   `~/.claude/skills/` or `~/.codex/skills/` root.
+6. **GitHub token** — used to create labels and act as the bot account. With no
    `GITHUB_TOKEN` yet, the wizard calmly explains the one next step instead of
    failing.
-6. **CI readiness** — for GitHub repositories, verifies the configured base
+7. **CI readiness** — for GitHub repositories, verifies the configured base
    branch exists, a pull-request workflow targets it, branch protection or an
    applicable ruleset requires a check, and that a workflow produces that check.
    A gap stops setup with a clear error; when no pull-request workflow exists,
    the wizard offers a minimal `ci.yml` scaffold with a stable aggregator check
    name (`ci / required`).
-7. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
+8. **Labels** — creates the lifecycle (`agent:*`), pause/watch marker,
    complexity, model, and remote-control labels the orchestrator routes on.
    Each stage creates only the labels that are missing; when a group already exists it reports
    `<group> tags: created.` and skips the prompt.

@@ -6,6 +6,7 @@ defmodule Aiur.Init.Questions do
 
   @tracker_kinds ["github", "linear"]
   @permission_modes ["bypassPermissions", "default (coming soon)", "acceptEdits (coming soon)"]
+  @operator_skills_prompt "Install Aiur's operator skills globally so they work in any repository?"
   @spec workspace_default(map()) :: String.t()
   def workspace_default(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "",
     do: "~/.aiur/workspaces/" <> repo
@@ -118,6 +119,24 @@ defmodule Aiur.Init.Questions do
       other ->
         io.puts.("⚠️ #{other} needs an approval UI (coming soon) — using bypassPermissions.")
         "bypassPermissions"
+    end
+  end
+
+  @spec prompt_operator_skills(Aiur.Init.io(), [:claude | :codex]) :: :copy | :skip | :symlink
+  def prompt_operator_skills(_io, []), do: :skip
+
+  def prompt_operator_skills(io, harnesses) do
+    names = harnesses |> Enum.map(&Atom.to_string/1) |> Enum.join(" and ")
+
+    io.puts.(
+      "Aiur ships operator skills for running and planning fleets. They will be installed for #{names} only, " <>
+        "and generic names are prefixed with `aiur-` to avoid collisions."
+    )
+
+    case io.select.(@operator_skills_prompt, ["skip", "symlink (recommended)", "copy (pinned)"], "skip") do
+      "symlink (recommended)" -> :symlink
+      "copy (pinned)" -> :copy
+      _ -> :skip
     end
   end
 
