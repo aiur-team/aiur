@@ -429,6 +429,18 @@ at any point in this check. If it does, the URL was not stable.
 - **Reachable from the internet:** exactly one route, `POST /api/v1/github/webhook`.
 - **Not reachable:** the dashboard, the Supervisor Decision API, and every other
   `/api/v1/*` route. They are answered with 404 at Cloudflare's edge.
+
+  It is worth being concrete about what that sentence is protecting, because
+  "every other `/api/v1/*` route" reads like a list of read-only endpoints and is
+  not. The same listener serves `POST /api/v1/<issue>/pause` and `/resume`,
+  `/messages` (inject a message into a running agent's session),
+  `/claude-hook`, `POST /api/v1/decisions/<id>/decide` (answer an operator
+  decision), and `GET /api/v1/<issue>/events` and `/api/v1/<issue>`, which
+  return agent data to an unauthenticated caller on a loopback bind. An
+  over-broad ingress rule does not leak a status page; it hands over the fleet's
+  control plane. `scripts/verify-webhook-ingress` probes each of those paths by
+  name — with `GET`, so the check itself cannot pause an agent or decide a
+  decision as a side effect.
 - **No inbound socket exists — *if* you followed the loopback prerequisite.**
   With `server.host: 127.0.0.1`, `cloudflared` makes an outbound connection and
   there is no port forward and no firewall hole.
