@@ -59,6 +59,14 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert mounted.private.aiur_financial_data_access == context
   end
 
+  test "unconfigured dashboard authentication refuses the request with its cause" do
+    conn = FinancialDataAccess.call(session_conn(), [])
+
+    assert conn.status == 503
+    assert conn.halted
+    assert conn.resp_body =~ "Dashboard authentication is not configured"
+  end
+
   test "Plug callbacks fail closed and expose only verified socket-private context" do
     assert FinancialDataAccess.init(required?: true) == [required?: true]
 
@@ -113,7 +121,10 @@ defmodule AiurWeb.FinancialDataAccessTest do
     partial =
       session_conn()
       |> FinancialDataAccess.authenticate_request([])
-      |> FinancialDataAccess.persist_session([])
+
+    assert partial.status == 503
+    assert partial.halted
+    assert partial.resp_body =~ "Dashboard authentication is not configured"
 
     assert get_session(partial, FinancialDataAccess.session_key()) == nil
 
@@ -143,7 +154,7 @@ defmodule AiurWeb.FinancialDataAccessTest do
     refute inspect(stale) =~ sentinel
   end
 
-  test "an optional unauthenticated request clears prior session authority" do
+  test "an unconfigured request refuses prior session authority" do
     configure_credentials("operator", "secret")
     configure_endpoint(dashboard_auth_required: false)
     valid = authenticated_conn("operator", "secret")
@@ -157,9 +168,10 @@ defmodule AiurWeb.FinancialDataAccessTest do
       session_conn()
       |> put_session(FinancialDataAccess.session_key(), marker)
       |> FinancialDataAccess.authenticate_request([])
-      |> FinancialDataAccess.persist_session([])
 
-    assert get_session(cleared, FinancialDataAccess.session_key()) == nil
+    assert cleared.status == 503
+    assert cleared.halted
+    assert cleared.resp_body =~ "Dashboard authentication is not configured"
   end
 
   test "credential or enforcement-generation changes revoke an existing context" do

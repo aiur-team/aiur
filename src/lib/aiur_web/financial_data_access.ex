@@ -19,6 +19,7 @@ defmodule AiurWeb.FinancialDataAccess do
   @session_key "financial_data_access"
   @conn_private_key :aiur_financial_data_session_marker
   @socket_private_key :aiur_financial_data_access
+  @missing_credentials_message "Dashboard authentication is not configured. Set AIUR_DASHBOARD_USERNAME and AIUR_DASHBOARD_PASSWORD."
 
   defmodule Context do
     @moduledoc false
@@ -69,6 +70,8 @@ defmodule AiurWeb.FinancialDataAccess do
 
       {:error, :authentication_not_configured} ->
         conn
+        |> send_resp(503, @missing_credentials_message)
+        |> halt()
     end
   end
 

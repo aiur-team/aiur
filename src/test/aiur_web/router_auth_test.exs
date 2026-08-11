@@ -22,13 +22,15 @@ defmodule AiurWeb.RouterAuthTest do
     :ok
   end
 
-  test "allows dashboard requests when credentials are not configured" do
+  test "refuses dashboard requests when credentials are not configured" do
     System.delete_env("AIUR_DASHBOARD_USERNAME")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
 
     conn = Router.call(conn(:get, "/missing"), Router.init([]))
 
-    assert conn.status == 404
+    assert conn.status == 503
+    assert conn.halted
+    assert conn.resp_body =~ "Dashboard authentication is not configured"
   end
 
   test "requires basic auth when credentials are configured" do
