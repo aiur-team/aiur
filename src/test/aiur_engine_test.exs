@@ -658,7 +658,9 @@ defmodule AiurEngineTest do
         """
 
     {timeout_output, 0} = run_sourced_engine(timeout_script, [])
-    assert timeout_output =~ "control rpc to aiur-test@127.0.0.1 timed out after 10s"
+    assert timeout_output =~ "control rpc to aiur-test@127.0.0.1 timed out after 10s; outcome is unknown"
+    refute timeout_output =~ "scheduler-saturated"
+    refute timeout_output =~ "aiurdev stop"
     assert timeout_output =~ "CODE=124"
 
     missing_marker_script =

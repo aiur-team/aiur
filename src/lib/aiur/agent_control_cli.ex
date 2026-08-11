@@ -659,7 +659,7 @@ defmodule Aiur.AgentControlCLI do
     results = Enum.map(selected, &control_one(action, &1))
     failed = Enum.count(results, &match?({:error, _}, &1))
 
-    if failed == length(results), do: 1, else: 0
+    if failed > 0, do: 1, else: 0
   end
 
   defp select_targets(:pause, :all, statuses) do
@@ -1507,7 +1507,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp print_control_query_error(:timeout, query, timeout_ms) do
-    IO.puts("#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}; daemon may be scheduler-saturated")
+    IO.puts("#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}; outcome is unknown")
   end
 
   defp print_control_query_error(:unavailable, query, _timeout_ms) do

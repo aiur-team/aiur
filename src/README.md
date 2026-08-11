@@ -266,15 +266,14 @@ Concurrent `--only` invocations are not coordinated across processes; running
 two overlapping `aiurdev --todo ... --only` commands can drop each other's
 tickets, so avoid running them at the same time.
 
-If a control command times out while the daemon is still live, the host may be
-scheduler-saturated. Run `aiurdev stop` to interrupt that session and its workers,
-then start it again; this is a session-level recovery action, not a cooperative
-single-agent pause.
+If a control command times out while the daemon is still live, the outcome is
+unknown. Check the daemon state before retrying or taking destructive action;
+the CLI does not infer a cause or recommend restarting the whole session.
 
 Read-only fleet queries never use an empty buffer to mean success: `status`,
 `agents`, and `watch` print an affirmative empty-fleet row when no agents are
 active. Query failures print one stderr diagnostic and exit 1. Bounded query
-timeouts name their budget, warn that the daemon may be scheduler-saturated,
+timeouts name their budget and report that the outcome is unknown,
 and exit 124; any partial fleet output captured before an outer RPC timeout is
 discarded rather than presented as a trustworthy snapshot.
 

@@ -1011,7 +1011,7 @@ defmodule Aiur.AgentControlCLITest do
     assert_receive {:resume_agent, resume_request_id} when is_integer(resume_request_id), 500
   end
 
-  test "mixed target results exit successfully when at least one target works", %{orchestrator: pid} do
+  test "mixed target results exit non-zero when any target fails", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-44" => running_entry("issue-44", "repo#44", :paused)}}
     end)
@@ -1021,7 +1021,7 @@ defmodule Aiur.AgentControlCLITest do
         output = capture_io(fn -> AgentControlCLI.pause(["44", "45"]) end)
 
         assert output =~ "aiur: already paused #44"
-        assert output =~ "__AIUR_CONTROL_EXIT__:0"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
       end)
 
     assert stderr =~ "aiur: failed to pause #45 (no running agent)"
@@ -1299,7 +1299,7 @@ defmodule Aiur.AgentControlCLITest do
     try do
       output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
 
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; daemon may be scheduler-saturated"
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     after
       :sys.resume(pid)
@@ -1315,7 +1315,7 @@ defmodule Aiur.AgentControlCLITest do
         )
       end)
 
-    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; daemon may be scheduler-saturated"
+    assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1s; outcome is unknown"
     assert output =~ "__AIUR_CONTROL_EXIT__:124"
   end
 
@@ -1372,7 +1372,7 @@ defmodule Aiur.AgentControlCLITest do
 
       output = capture_io(fn -> AgentControlCLI.status() end)
 
-      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; daemon may be scheduler-saturated"
+      assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 8s; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
     end
   end
@@ -1622,7 +1622,7 @@ defmodule Aiur.AgentControlCLITest do
       try do
         output = capture_io(fn -> AgentControlCLI.agents(snapshot_timeout_ms: 1) end)
 
-        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; daemon may be scheduler-saturated"
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: agents query timed out after 1ms; outcome is unknown"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after
         :sys.resume(pid)
@@ -1756,7 +1756,7 @@ defmodule Aiur.AgentControlCLITest do
       try do
         output = capture_io(fn -> AgentControlCLI.watch(status_timeout_ms: 1) end)
 
-        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms; daemon may be scheduler-saturated"
+        assert output =~ "__AIUR_CONTROL_ERROR__:aiur: watch query timed out after 1ms; outcome is unknown"
         assert output =~ "__AIUR_CONTROL_EXIT__:124"
       after
         :sys.resume(pid)
