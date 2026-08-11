@@ -37,6 +37,8 @@ jobs:
         run: bash scripts/test-human-only-merge-ruleset-live.sh
       - name: Test webhook ingress scoping verifier
         run: bash scripts/test-webhook-ingress.sh
+      - name: Test pull request merge-gate diagnostics
+        run: bash scripts/test-pr-merge-gate-diagnostic.sh
       - name: Test rename preflight
         run: make test-rename-preflight
       - name: Test hourly retrospective visual check
