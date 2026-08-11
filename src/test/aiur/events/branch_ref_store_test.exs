@@ -260,9 +260,8 @@ defmodule Aiur.Events.BranchRefStoreTest do
     File.rm!(blocker)
     File.mkdir_p!(blocker)
 
-    assert_eventually(fn ->
-      BranchRefStore.latest("99") == %{ref: ref, sha: sha}
-    end)
+    :ok = BranchRefStore.await_settled()
+    assert BranchRefStore.latest("99") == %{ref: ref, sha: sha}
 
     {:ok, restarted} = BranchRefStore.start_link(name: nil, path: path)
     assert BranchRefStore.latest("99", restarted) == %{ref: ref, sha: sha}
