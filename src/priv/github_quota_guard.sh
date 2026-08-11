@@ -3,6 +3,13 @@
 # Fleet guard for agent-launched `gh` calls. The daemon prepends this wrapper's
 # directory to agent PATH and supplies the real executable separately.
 real_gh=${AIUR_REAL_GH:-}
+is_guard_gh() {
+  case "$1" in
+    "$HOME/.aiur/github-budget/bin/gh"|*/.aiur-runtime/bin/gh) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+if [ -n "$real_gh" ] && is_guard_gh "$real_gh"; then real_gh=; fi
 if [ -z "$real_gh" ]; then
   guard_dir=$(CDPATH= cd "$(dirname "$0")" && pwd)
   guard_path=${PATH:-}
@@ -12,6 +19,7 @@ if [ -z "$real_gh" ]; then
     [ -n "$guard_entry" ] || guard_entry=.
     [ "$guard_entry" = "$guard_dir" ] && continue
     guard_candidate=$guard_entry/gh
+    is_guard_gh "$guard_candidate" && continue
     if [ -x "$guard_candidate" ]; then real_gh=$guard_candidate; break; fi
   done
   IFS=$guard_old_ifs
@@ -32,6 +40,11 @@ budget_broker=${AIUR_GITHUB_BUDGET_BROKER:-"$(dirname "$0")/aiur-github-budget"}
 budget_db=
 budget_enabled=0
 budget_lease=
+budget_renewal_pid=
+budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
+budget_ignore_token_cooldown=0
+budget_consumer=${AIUR_GITHUB_BUDGET_CONSUMER:-"executor:${PPID:-$$}"}
+budget_consumer_key=
 
 if [ -n "$state_root" ]; then
   quota_dir=$state_root/github-quota
@@ -52,7 +65,7 @@ if [ -n "$budget_root" ] && [ -n "$budget_key" ] && [ -n "$budget_broker" ] && [
 fi
 
 if [ "$budget_enabled" -eq 0 ] && [ -x "$budget_broker" ]; then
-  budget_token=${GITHUB_TOKEN:-}
+  budget_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
   if [ -z "$budget_token" ]; then
     budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
   fi
@@ -65,6 +78,12 @@ if [ "$budget_enabled" -eq 0 ] && [ -x "$budget_broker" ]; then
   fi
   unset budget_token
 fi
+
+if [ "$budget_enabled" -eq 1 ]; then
+  budget_consumer_key=$(printf '%s' "$budget_consumer" | sha256sum 2>/dev/null | awk '{print $1}')
+  [ -n "$budget_consumer_key" ] || budget_consumer_key=shared
+fi
+unset budget_consumer
 
 direction=read
 track=1
@@ -135,24 +154,52 @@ budget_acquire() {
   [ "$budget_enabled" -eq 1 ] || return 0
 
   while :; do
-    budget_result=$(budget_command acquire --resource "$resource" --endpoint-family "$endpoint_family" \
+    budget_ignore_flag=
+    [ "$budget_ignore_token_cooldown" -eq 1 ] && budget_ignore_flag=--ignore-token-cooldown
+    if ! budget_result=$(budget_command acquire --resource "$resource" --consumer-key "$budget_consumer_key" --endpoint-family "$endpoint_family" \
+      $budget_ignore_flag \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
       --requests-per-minute "${AIUR_GITHUB_REQUESTS_PER_MINUTE:-120}" \
-      --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms 35000 2>/dev/null) || return 0
+      --stagger-ms "${AIUR_GITHUB_STAGGER_MS:-75}" --lease-ttl-ms "$budget_lease_ttl_ms" 2>/dev/null); then
+      printf '%s\n' 'aiur: GitHub budget broker unavailable; refusing uncoordinated request' >&2
+      return 75
+    fi
+    unset budget_ignore_flag
 
     case "$budget_result" in
       "granted "*) budget_lease=${budget_result#granted }; return 0 ;;
       "wait "*) budget_sleep_ms "${budget_result#wait }" || return 0 ;;
-      *) return 0 ;;
+      *)
+        printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
+        return 75
+        ;;
     esac
   done
 }
 
 budget_release() {
+  if [ -n "$budget_renewal_pid" ]; then
+    kill "$budget_renewal_pid" 2>/dev/null || true
+    budget_renewal_pid=
+  fi
   [ -n "$budget_lease" ] || return 0
   budget_command release --lease-id "$budget_lease" >/dev/null 2>&1 || true
   budget_lease=
+}
+
+budget_start_renewal() {
+  [ -n "$budget_lease" ] || return 0
+  budget_renew_interval=$((budget_lease_ttl_ms / 3 / 1000))
+  [ "$budget_renew_interval" -gt 0 ] || budget_renew_interval=1
+
+  (
+    while sleep "$budget_renew_interval"; do
+      budget_command renew --lease-id "$budget_lease" --lease-ttl-ms "$budget_lease_ttl_ms" >/dev/null 2>&1 || exit 0
+    done
+  ) >/dev/null 2>&1 &
+  budget_renewal_pid=$!
+  unset budget_renew_interval
 }
 
 budget_hold() {
@@ -163,8 +210,16 @@ budget_hold() {
   budget_command hold --scope "$budget_scope" --resource "$budget_resource" --delay-ms "$budget_delay" >/dev/null 2>&1 || true
 }
 
+trap 'budget_release; exit 143' HUP INT TERM
+trap 'budget_release' 0
+
 secondary_delay_ms() {
-  retry_after=$(sed -n -E 's/^[[:space:]]*[Rr][Ee][Tt][Rr][Yy]-[Aa][Ff][Tt][Ee][Rr]:[[:space:]]*([0-9]+).*/\1/p' "$1" | sed -n '1p')
+  retry_after=
+  for retry_source in "$@"; do
+    [ -n "$retry_source" ] && [ -f "$retry_source" ] || continue
+    retry_after=$(sed -n -E 's/^[[:space:]]*[Rr][Ee][Tt][Rr][Yy]-[Aa][Ff][Tt][Ee][Rr]:[[:space:]]*([0-9]+).*/\1/p' "$retry_source" | sed -n '1p')
+    [ -n "$retry_after" ] && break
+  done
 
   case "$retry_after" in
     ''|0|*[!0-9]*) printf '%s\n' 60000 ;;
@@ -224,7 +279,10 @@ if [ "$hold_until" -gt "$now" ]; then
   now=$(date -u +%s)
 fi
 
-if [ "$resource" != none ]; then budget_acquire; fi
+if [ "$resource" != none ]; then
+  budget_acquire || exit $?
+  budget_start_renewal
+fi
 
 if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   size=0
@@ -247,6 +305,10 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
 fi
 
 error_file=
+output_file=
+api_capture=0
+api_requested_include=0
+api_paginated=0
 if [ "$resource" != none ]; then
   old_umask=$(umask)
   umask 077
@@ -255,16 +317,82 @@ if [ "$resource" != none ]; then
 fi
 
 if [ -n "$error_file" ]; then
-  "$real_gh" "$@" 2> "$error_file"
+  if [ "${1:-}" = api ]; then
+    for api_arg in "$@"; do
+      case "$api_arg" in
+        --include|-i) api_requested_include=1 ;;
+        --paginate) api_paginated=1 ;;
+      esac
+    done
+
+    if [ "$api_paginated" -eq 0 ]; then
+      old_umask=$(umask)
+      umask 077
+      output_file=$(mktemp "${TMPDIR:-/tmp}/aiur-gh-stdout.XXXXXX" 2>/dev/null || true)
+      umask "$old_umask"
+      [ -n "$output_file" ] && api_capture=1
+    fi
+  fi
+
+  if [ "$api_capture" -eq 1 ]; then
+    if [ "$api_requested_include" -eq 1 ]; then
+      "$real_gh" "$@" > "$output_file" 2> "$error_file"
+    else
+      "$real_gh" "$@" --include > "$output_file" 2> "$error_file"
+    fi
+  else
+    "$real_gh" "$@" 2> "$error_file"
+  fi
   status=$?
+
+  if [ "$api_capture" -eq 1 ]; then
+    if [ "$api_requested_include" -eq 1 ]; then
+      cat "$output_file"
+    elif sed -n '1p' "$output_file" | grep -Eq '^HTTP/'; then
+      sed '1,/^[[:space:]]*$/d' "$output_file"
+    else
+      cat "$output_file"
+    fi
+  fi
+
   while IFS= read -r line || [ -n "$line" ]; do printf '%s\n' "$line" >&2; done < "$error_file"
 else
   "$real_gh" "$@"
   status=$?
 fi
 
-if [ "$status" -ne 0 ] && [ -n "$error_file" ] && grep -Eiq 'rate.?limit|rate_limit' "$error_file" && { [ -n "$agent_quota_dir" ] || [ "$budget_enabled" -eq 1 ]; }; then
-  observation=$("$real_gh" api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
+probe_rate_limit() {
+  original_resource=$resource
+  original_family=$endpoint_family
+  immediate_cooldown=$(secondary_delay_ms "$error_file" "$output_file")
+  budget_hold token "$immediate_cooldown"
+  budget_release
+  resource=core
+  endpoint_family=rate_limit
+  budget_ignore_token_cooldown=1
+  if budget_acquire; then
+    budget_start_renewal
+    rate_limit_observation=$("$real_gh" api rate_limit --template '{{.resources.core.remaining}} {{.resources.core.reset}} {{.resources.graphql.remaining}} {{.resources.graphql.reset}}' 2>/dev/null || true)
+  else
+    rate_limit_observation=
+  fi
+  budget_ignore_token_cooldown=0
+  budget_release
+  resource=$original_resource
+  endpoint_family=$original_family
+  unset original_resource original_family immediate_cooldown
+}
+
+rate_limited_response() {
+  grep -Eiq 'rate.?limit|rate_limit' "$error_file" && return 0
+  [ -n "$output_file" ] && grep -Eiq 'rate.?limit|rate_limit' "$output_file" && return 0
+  [ -n "$output_file" ] && grep -Eq '^HTTP/[0-9.]+[[:space:]]+(403|429)' "$output_file" && grep -Eiq '^[Rr]etry-[Aa]fter:' "$output_file"
+}
+
+if [ "$status" -ne 0 ] && [ -n "$error_file" ] && rate_limited_response && { [ -n "$agent_quota_dir" ] || [ "$budget_enabled" -eq 1 ]; }; then
+  probe_rate_limit
+  observation=$rate_limit_observation
+  unset rate_limit_observation
   set -- $observation
   exhausted=0
 
@@ -302,7 +430,7 @@ if [ "$status" -ne 0 ] && [ -n "$error_file" ] && grep -Eiq 'rate.?limit|rate_li
   # rejection. Honour Retry-After when gh exposes it, with GitHub's 60-second
   # guidance as the fallback.
   if [ "$exhausted" -eq 0 ]; then
-    secondary_delay=$(secondary_delay_ms "$error_file")
+    secondary_delay=$(secondary_delay_ms "$error_file" "$output_file")
     secondary_wait_seconds=$(( (secondary_delay + 999) / 1000 ))
     secondary_until=$(( $(date -u +%s) + secondary_wait_seconds ))
 
@@ -323,4 +451,5 @@ fi
 
 budget_release
 if [ -n "$error_file" ]; then rm -f "$error_file" 2>/dev/null || true; fi
+if [ -n "$output_file" ]; then rm -f "$output_file" 2>/dev/null || true; fi
 exit "$status"

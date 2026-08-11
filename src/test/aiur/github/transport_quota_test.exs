@@ -185,17 +185,41 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     end
 
     first = Task.async(request)
-    assert_receive {:request_started, first_conn}, 1_000
+    assert_receive {:request_started, first_conn}, 2_000
 
     second = Task.async(request)
     refute_receive {:request_started, _second_conn}, 80
 
     send(first_conn, :release_request)
-    assert_receive {:request_started, second_conn}, 1_000
+    assert_receive {:request_started, second_conn}, 2_000
     send(second_conn, :release_request)
 
     assert {:ok, %{status: 200}} = Task.await(first, 1_500)
     assert {:ok, %{status: 200}} = Task.await(second, 1_500)
+  end
+
+  test "does not send a request when configured broker state is unavailable", %{budget_dir: budget_dir} do
+    File.mkdir_p!(budget_dir)
+    blocked_dir = Path.join(budget_dir, "blocked")
+    File.write!(blocked_dir, "not a directory")
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, blocked_dir)
+
+    test_pid = self()
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_pid, :request_sent)
+      Req.Test.json(conn, [])
+    end)
+
+    assert {:ok, %{status: 429}} =
+             Transport.default_request_fun(%{
+               method: :get,
+               url: "https://api.github.com/repos/owner/repo/issues/1477",
+               token: "shared-token"
+             })
+
+    refute_receive :request_sent
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)

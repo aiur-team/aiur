@@ -2,6 +2,7 @@ defmodule Aiur.AgentEnvironmentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentEnvironment
+  alias Aiur.GitHub.Budget
 
   test "identifies inherited Erlang distribution environment names" do
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_AFLAGS")
@@ -373,6 +374,19 @@ defmodule Aiur.AgentEnvironmentTest do
       # The guard fingerprints the credential that `gh` actually uses. Passing
       # the daemon credential's key here would merge unrelated App/PAT budgets.
       assert {~c"AIUR_GITHUB_BUDGET_KEY", false} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_KEY", 0)
+      assert {~c"AIUR_GITHUB_BUDGET_ROOT", budget_root} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_ROOT", 0)
+      assert to_string(budget_root) == Budget.state_dir()
+
+      assert {~c"AIUR_GITHUB_BUDGET_BROKER", ~c"/work/aiur/440/.aiur-runtime/bin/aiur-github-budget"} =
+               List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_BROKER", 0)
+
+      assert {~c"AIUR_GITHUB_BUDGET_CONSUMER", ~c"workspace:/work/aiur/440"} =
+               List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_CONSUMER", 0)
+
+      assert {~c"AIUR_GITHUB_MAX_INFLIGHT", ~c"4"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT", 0)
+      assert {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", ~c"2"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", 0)
+      assert {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", ~c"120"} = List.keyfind(env, ~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", 0)
+      assert {~c"AIUR_GITHUB_STAGGER_MS", ~c"75"} = List.keyfind(env, ~c"AIUR_GITHUB_STAGGER_MS", 0)
 
       assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
                List.keyfind(env, ~c"AIUR_BASE_BRANCH", 0)
@@ -441,7 +455,14 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
-      assert prefix =~ "AIUR_REAL_GH=\"$(command -v gh"
+      assert prefix =~ "AIUR_REAL_GH=\nexport AIUR_REAL_GH"
+      assert prefix =~ "AIUR_GITHUB_BUDGET_CONSUMER='workspace:/work/aiur/440'"
+      assert prefix =~ "AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'"
+      assert prefix =~ "AIUR_GITHUB_BUDGET_BROKER='/work/aiur/440/.aiur-runtime/bin/aiur-github-budget'"
+      assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT=4"
+      assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=2"
+      assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=120"
+      assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"

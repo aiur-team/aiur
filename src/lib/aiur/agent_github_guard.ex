@@ -25,10 +25,21 @@ defmodule Aiur.AgentGitHubGuard do
   @spec budget_broker_path(Path.t()) :: Path.t()
   def budget_broker_path(workspace), do: Path.join(workspace, @broker_relative_path)
 
+  @spec host_bin_dir() :: Path.t()
+  def host_bin_dir, do: Path.join(System.user_home!(), ".aiur/github-budget/bin")
+
+  @spec real_gh() :: Path.t() | nil
+  def real_gh do
+    System.get_env("PATH", "")
+    |> String.split(":", trim: true)
+    |> Enum.map(&Path.join(&1, "gh"))
+    |> Enum.find(&real_gh_path?/1)
+  end
+
   @doc "Installs an opt-in wrapper for Executor shells under the shared budget root."
   @spec install_host() :: :ok | {:error, term()}
   def install_host do
-    bin = Path.join(System.user_home!(), ".aiur/github-budget/bin")
+    bin = host_bin_dir()
 
     with :ok <- ensure_directory(Path.join(System.user_home!(), ".aiur")),
          :ok <- ensure_directory(Path.dirname(bin)),
@@ -115,5 +126,13 @@ defmodule Aiur.AgentGitHubGuard do
         _ = File.rm(temporary)
         {:error, {:agent_guard_install_failed, target, reason}}
     end
+  end
+
+  defp real_gh_path?(path) do
+    path = Path.expand(path)
+
+    path != Path.join(host_bin_dir(), "gh") and
+      not String.ends_with?(path, "/.aiur-runtime/bin/gh") and
+      match?({:ok, %File.Stat{type: :regular, mode: mode}} when Bitwise.band(mode, 0o111) != 0, File.stat(path))
   end
 end

@@ -80,16 +80,13 @@ defmodule Aiur.GitHub.Transport do
 
   def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
     quota_request(req, fn ->
-      Req.patch(url,
-        headers: github_headers(token, req),
-        json: body,
-        connect_options: [timeout: 30_000]
-      )
+      options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
+      Req.patch(url, options)
     end)
   end
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
-    quota_request(req, fn -> Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000]) end)
+    quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
   end
 
   defp quota_request(request, request_fun) do

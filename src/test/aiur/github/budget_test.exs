@@ -32,6 +32,36 @@ defmodule Aiur.GitHub.BudgetTest do
     assert :ok = Budget.release(second, opts)
   end
 
+  test "active consumers reconcile conflicting ceilings to the strictest policy", %{root: root} do
+    strict = [state_dir: root, consumer_key: "strict", max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0]
+    loose = [state_dir: root, consumer_key: "loose", max_inflight: 2, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+
+    assert {:ok, first} = Budget.acquire(request, strict)
+    waiter = Task.async(fn -> Budget.acquire(request, loose) end)
+
+    assert Task.yield(waiter, 80) == nil
+    assert :ok = Budget.release(first, strict)
+    assert {:ok, second} = Task.await(waiter, 1_000)
+    assert :ok = Budget.release(second, loose)
+  end
+
+  test "the endpoint-family ceiling does not consume capacity in other families", %{root: root} do
+    opts = [state_dir: root, max_inflight: 2, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0]
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+
+    assert {:ok, first} = Budget.acquire(issues, opts)
+    waiter = Task.async(fn -> Budget.acquire(issues, opts) end)
+
+    assert Task.yield(waiter, 80) == nil
+    assert {:ok, pulls_lease} = Budget.acquire(pulls, opts)
+    assert :ok = Budget.release(pulls_lease, opts)
+    assert :ok = Budget.release(first, opts)
+    assert {:ok, second} = Task.await(waiter, 1_000)
+    assert :ok = Budget.release(second, opts)
+  end
+
   test "a secondary limit cools down every endpoint family for the token", %{root: root} do
     opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
     issues = request("shared-token", "/repos/owner/repo/issues/1477")
@@ -44,6 +74,28 @@ defmodule Aiur.GitHub.BudgetTest do
     assert Task.yield(waiter, 80) == nil
     assert {:ok, lease} = Task.await(waiter, 1_500)
     assert :ok = Budget.release(lease, opts)
+  end
+
+  test "an exhausted response without a reset still creates a global fallback cooldown", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+
+    assert :ok =
+             Budget.observe(
+               issues,
+               {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "1"}], body: %{"message" => "rate limit exceeded"}}},
+               opts
+             )
+
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, Keyword.put(opts, :timeout_ms, 10))
+  end
+
+  test "a configured broker failure fails closed", %{root: root} do
+    opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 10]
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
   test "an exhausted successful response shares the resource named by GitHub", %{root: root} do

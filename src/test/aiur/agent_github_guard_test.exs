@@ -2,14 +2,18 @@ defmodule Aiur.AgentGitHubGuardTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentGitHubGuard
+  alias Aiur.GitHub.Budget
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-github-guard-#{System.unique_integer([:positive])}")
     workspace = Path.join(root, "1670")
     state_path = Path.join(root, "state")
-    fake_gh = Path.join(root, "real-gh")
+    fake_gh = Path.join(root, "real-bin/gh")
+    failing_broker = Path.join(root, "failing-broker.py")
     calls = Path.join(root, "calls")
     File.mkdir_p!(workspace)
+
+    File.mkdir_p!(Path.dirname(fake_gh))
 
     File.write!(
       fake_gh,
@@ -19,6 +23,12 @@ defmodule Aiur.AgentGitHubGuardTest do
         printf '%s' "${FAKE_RATE_LIMIT:-5000 0 5000 0}"
         exit 0
       fi
+      if [ "${FAKE_GH_REJECT_INCLUDE:-0}" = 1 ]; then
+        for fake_arg in "$@"; do
+          if [ "$fake_arg" = --include ]; then printf '%s\n' 'unexpected include' >&2; exit 99; fi
+        done
+      fi
+      if [ "${FAKE_GH_INCLUDE_HEADERS:-0}" = 1 ]; then printf '%b' "${FAKE_GH_HEADERS:-}"; fi
       printf '%s %s\n' "${1:-}" "${2:-}" >> "$FAKE_GH_CALLS"
       sleep "${FAKE_GH_SLEEP:-0}"
       if [ "${FAKE_GH_FAIL:-0}" = 1 ]; then printf '%s\n' "${FAKE_GH_ERROR:-failed}" >&2; exit 1; fi
@@ -27,11 +37,13 @@ defmodule Aiur.AgentGitHubGuardTest do
     )
 
     File.chmod!(fake_gh, 0o755)
+    File.write!(failing_broker, "import sys\nsys.exit(1)\n")
+    File.chmod!(failing_broker, 0o755)
     :ok = AgentGitHubGuard.install(workspace)
 
     on_exit(fn -> File.rm_rf(root) end)
 
-    {:ok, wrapper: Path.join(AgentGitHubGuard.bin_dir(workspace), "gh"), workspace: workspace, state_path: state_path, fake_gh: fake_gh, calls: calls}
+    {:ok, wrapper: Path.join(AgentGitHubGuard.bin_dir(workspace), "gh"), workspace: workspace, state_path: state_path, fake_gh: fake_gh, failing_broker: failing_broker, calls: calls}
   end
 
   test "installs the companion host-budget broker alongside the gh wrapper", context do
@@ -220,6 +232,108 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert cooldown_until >= System.os_time(:millisecond) + 59_000
   end
 
+  test "a wrapper secondary cooldown blocks daemon requests for the same credential", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    credential = "preferred-gh-token"
+    reset = System.os_time(:second) + 3_600
+
+    assert {_output, 1} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_REPO_STATE_PATH: "",
+               AIUR_AGENT_QUOTA_STATE_PATH: "",
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               GH_TOKEN: credential,
+               GITHUB_TOKEN: "different-github-token",
+               FAKE_GH_FAIL: "1",
+               FAKE_GH_ERROR: "HTTP 403: You have exceeded a secondary rate limit",
+               FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
+             )
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               %{method: :get, url: "https://api.github.com/repos/owner/repo/pulls/1670", token: credential},
+               state_dir: budget_root,
+               enabled?: true,
+               max_inflight: 4,
+               max_inflight_per_endpoint: 2,
+               requests_per_minute: 20,
+               stagger_ms: 0,
+               timeout_ms: 10
+             )
+
+    assert {:ok, different_lease} =
+             Budget.acquire(
+               %{method: :get, url: "https://api.github.com/repos/owner/repo/pulls/1670", token: "different-github-token"},
+               state_dir: budget_root,
+               enabled?: true,
+               max_inflight: 4,
+               max_inflight_per_endpoint: 2,
+               requests_per_minute: 20,
+               stagger_ms: 0
+             )
+
+    assert :ok = Budget.release(different_lease, state_dir: budget_root, enabled?: true)
+  end
+
+  test "a nested guard path resolves the underlying gh binary once", context do
+    nested_workspace = Path.join(Path.dirname(context.workspace), "1671")
+    File.mkdir_p!(nested_workspace)
+    :ok = AgentGitHubGuard.install(nested_workspace)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_REAL_GH: Path.join(AgentGitHubGuard.bin_dir(nested_workspace), "gh"),
+               PATH: "#{Path.dirname(context.fake_gh)}:#{System.get_env("PATH")}"
+             )
+
+    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
+  end
+
+  test "a core resource hold blocks high-level gh commands", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"", 0} =
+             System.cmd("python3", [broker, "hold", "--scope", "resource", "--resource", "core", "--delay-ms", "60000", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    timeout = System.find_executable("timeout") || flunk("timeout executable is required for this Linux-only guard test")
+
+    assert {_output, 124} =
+             System.cmd(timeout, ["0.2", context.wrapper, "pr", "view", "1670"],
+               env:
+                 guard_env(context) ++
+                   [
+                     {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
+                     {"AIUR_GITHUB_BUDGET_KEY", key},
+                     {"AIUR_GITHUB_BUDGET_BROKER", broker}
+                   ],
+               stderr_to_stdout: true
+             )
+
+    refute File.exists?(context.calls)
+  end
+
+  test "a paginated api call preserves its original command shape", context do
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate"], FAKE_GH_REJECT_INCLUDE: "1")
+  end
+
+  test "a broker failure refuses the real gh command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: context.failing_broker,
+               GITHUB_TOKEN: "shared-test-credential"
+             )
+
+    assert output =~ "refusing uncoordinated request"
+    refute File.exists?(context.calls)
+  end
+
   test "an Executor-style wrapper honours Retry-After in its shared cooldown", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -234,7 +348,9 @@ defmodule Aiur.AgentGitHubGuardTest do
                AIUR_GITHUB_BUDGET_KEY: key,
                AIUR_GITHUB_BUDGET_BROKER: broker,
                FAKE_GH_FAIL: "1",
-               FAKE_GH_ERROR: "HTTP 403: You have exceeded a secondary rate limit\nRetry-After: 2",
+               FAKE_GH_ERROR: "HTTP 403: request rejected",
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 403\nRetry-After: 2\n\n",
                FAKE_RATE_LIMIT: "4077 #{reset} 4405 #{reset}"
              )
 

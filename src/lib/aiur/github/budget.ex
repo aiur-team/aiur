@@ -2,7 +2,7 @@ defmodule Aiur.GitHub.Budget do
   @moduledoc """
   Coordinates GitHub request admission across local Aiur instances.
 
-  The broker is host-local and keyed by a one-way token fingerprint. It shares
+  The broker is host-local and keyed by one-way token and consumer fingerprints. It shares
   rate ceilings, global and endpoint-family in-flight leases, jittered request
   starts, and rate-limit cooldowns with the agent `gh` wrapper.
   """
@@ -20,6 +20,7 @@ defmodule Aiur.GitHub.Budget do
   @default_stagger_ms 75
   @default_timeout_ms 30_000
   @lease_grace_ms 5_000
+  @broker_failure_backoff_ms 5_000
   @retry_floor_ms 5
 
   @type lease :: %{id: String.t(), token_key: String.t()}
@@ -64,7 +65,8 @@ defmodule Aiur.GitHub.Budget do
          python when is_binary(python) <- python_executable(opts) do
       do_acquire(request, key, python, opts, deadline(opts))
     else
-      _unavailable -> :bypass
+      false -> :bypass
+      _unavailable -> {:hold, hold(request, @broker_failure_backoff_ms)}
     end
   end
 
@@ -92,7 +94,7 @@ defmodule Aiur.GitHub.Budget do
           with reset when is_integer(reset) and reset > 0 <- reset_after_ms(headers) do
             hold(key, :resource, resource, reset, opts)
           else
-            _missing -> :ok
+            _missing -> hold(key, :token, resource, retry_after_ms(response), opts)
           end
 
         Map.get(response, :status) in [403, 429] and secondary_limit?(response) ->
@@ -162,7 +164,7 @@ defmodule Aiur.GitHub.Budget do
         end
 
       _unavailable ->
-        :bypass
+        {:hold, hold(request, @broker_failure_backoff_ms)}
     end
   end
 
@@ -173,6 +175,8 @@ defmodule Aiur.GitHub.Budget do
       "acquire",
       "--resource",
       request_resource(request),
+      "--consumer-key",
+      consumer_key(opts),
       "--endpoint-family",
       endpoint_family(request),
       "--max-inflight",
@@ -237,7 +241,7 @@ defmodule Aiur.GitHub.Budget do
           @default_requests_per_minute
         ),
       stagger_ms: nonnegative(Keyword.get(opts, :stagger_ms, Map.get(github, :stagger_ms, @default_stagger_ms)), @default_stagger_ms),
-      lease_ttl_ms: positive(timeout_ms, @default_timeout_ms) + @lease_grace_ms
+      lease_ttl_ms: positive(timeout_ms, @default_timeout_ms) * 2 + @lease_grace_ms
     }
   end
 
@@ -257,6 +261,15 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp deadline(opts), do: System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
+
+  defp consumer_key(opts) do
+    identity =
+      Keyword.get(opts, :consumer_key) ||
+        System.get_env("AIUR_GITHUB_BUDGET_CONSUMER") ||
+        "daemon:#{node()}"
+
+    token_key(identity)
+  end
 
   defp hold(request, delay_ms) do
     %{resource: request_resource(request), reset_at: DateTime.add(DateTime.utc_now(), ceil(delay_ms / 1_000), :second), reason: :shared_budget}

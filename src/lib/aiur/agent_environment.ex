@@ -134,7 +134,7 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = sidecar_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
-    real_gh = System.find_executable("gh")
+    real_gh = AgentGitHubGuard.real_gh()
     github_budget = Budget.guard_settings()
 
     unset_inherited_env =
@@ -153,6 +153,7 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
         {~c"AIUR_GITHUB_MAX_INFLIGHT", github_budget.max_inflight |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
@@ -254,7 +255,7 @@ defmodule Aiur.AgentEnvironment do
     # covers workspaces provisioned before this existed; only redirect TMPDIR
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
-    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\nexport AIUR_REAL_GH\n" <>
+    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\nexport AIUR_REAL_GH\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
@@ -262,6 +263,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
       "unset AIUR_GITHUB_BUDGET_KEY\n" <>
       "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
+      "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
       "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>
       "export AIUR_GITHUB_REQUESTS_PER_MINUTE=#{github_budget.requests_per_minute}\n" <>
