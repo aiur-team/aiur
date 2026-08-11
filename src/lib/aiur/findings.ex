@@ -1,4 +1,6 @@
 defmodule Aiur.Findings do
+  require Logger
+
   @moduledoc """
   Durable executor findings stored as bounded NDJSON records in repository state
   nodes. Records are intentionally host-local; readers aggregate sibling nodes
@@ -12,6 +14,7 @@ defmodule Aiur.Findings do
   @statuses ~w(open filed resolved)
 
   @type record :: %{required(String.t()) => term()}
+  @type decode_error :: {:invalid_finding_record, Path.t(), pos_integer(), String.t()}
 
   @doc "Appends one validated finding with `O_APPEND` semantics."
   @spec append(String.t(), record()) :: :ok | {:error, term()}
@@ -25,6 +28,22 @@ defmodule Aiur.Findings do
   @doc "Returns findings from all repository nodes on this host."
   @spec all(keyword()) :: {:ok, [record()]} | {:error, term()}
   def all(opts \\ []) do
+    case all_with_diagnostics(opts) do
+      {:ok, findings, []} ->
+        {:ok, findings}
+
+      {:ok, findings, errors} ->
+        Enum.each(errors, &Logger.warning("skipping corrupt findings ledger record: #{inspect(&1)}"))
+        {:ok, findings}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Returns findings and invalid ledger lines without failing closed."
+  @spec all_with_diagnostics(keyword()) :: {:ok, [record()], [decode_error()]} | {:error, term()}
+  def all_with_diagnostics(opts \\ []) do
     scope = Keyword.get(opts, :scope)
 
     case validate_scope_filter(scope) do
@@ -46,6 +65,14 @@ defmodule Aiur.Findings do
   def unfiled(opts \\ []) do
     with {:ok, findings} <- all(opts) do
       {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""]))}
+    end
+  end
+
+  @doc "Returns unfiled findings and invalid ledger lines without failing closed."
+  @spec unfiled_with_diagnostics(keyword()) :: {:ok, [record()], [decode_error()]} | {:error, term()}
+  def unfiled_with_diagnostics(opts \\ []) do
+    with {:ok, findings, errors} <- all_with_diagnostics(opts) do
+      {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""])), errors}
     end
   end
 
@@ -116,16 +143,19 @@ defmodule Aiur.Findings do
 
   defp read_all(scope) do
     finding_paths()
-    |> Enum.reduce_while({:ok, []}, fn path, {:ok, findings} ->
+    |> Enum.reduce_while({:ok, [], []}, fn path, {:ok, findings, errors} ->
       case read_file(path) do
-        {:ok, records} -> {:cont, {:ok, Enum.reverse(filter_scope(records, scope)) ++ findings}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, records, line_errors} ->
+          {:cont, {:ok, Enum.reverse(filter_scope(records, scope)) ++ findings, errors ++ line_errors}}
+
+        {:error, reason} ->
+          {:halt, {:error, reason}}
       end
     end)
     |> reverse_findings()
   end
 
-  defp reverse_findings({:ok, findings}), do: {:ok, Enum.reverse(findings)}
+  defp reverse_findings({:ok, findings, errors}), do: {:ok, Enum.reverse(findings), errors}
   defp reverse_findings({:error, _reason} = error), do: error
 
   defp finding_paths do
@@ -153,13 +183,13 @@ defmodule Aiur.Findings do
     contents
     |> String.split("\n", trim: true)
     |> Enum.with_index(1)
-    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
+    |> Enum.reduce({[], []}, fn {line, line_number}, {records, errors} ->
       case decode_line(line, path, line_number) do
-        {:ok, finding} -> {:cont, {:ok, [finding | records]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, finding} -> {[finding | records], errors}
+        {:error, reason} -> {records, [reason | errors]}
       end
     end)
-    |> reverse_findings()
+    |> then(fn {records, errors} -> {:ok, Enum.reverse(records), Enum.reverse(errors)} end)
   end
 
   defp filter_scope(records, nil), do: records

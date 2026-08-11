@@ -46,6 +46,28 @@ defmodule Aiur.FindingsTest do
     assert slugs == ["first-failure", "second-failure"]
   end
 
+  test "keeps valid records and reports corrupt lines", %{repo: repo} do
+    assert :ok = Findings.append(repo, finding("first-failure", nil))
+    path = RepoBase.findings_path(repo)
+    File.write!(path, File.read!(path) <> "{not-json}\n" <> Jason.encode!(finding("second-failure", 42)) <> "\n")
+
+    assert {:ok, records, [{:invalid_finding_record, ^path, 2, "invalid JSON"}]} =
+             Findings.all_with_diagnostics()
+
+    assert Enum.map(records, & &1["slug"]) == ["first-failure", "second-failure"]
+  end
+
+  test "distinguishes an empty ledger from a ledger containing only corrupt lines", %{repo: repo} do
+    assert {:ok, [], []} = Findings.all_with_diagnostics()
+
+    path = RepoBase.findings_path(repo)
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, "{not-json}\n")
+
+    assert {:ok, [], [{:invalid_finding_record, ^path, 1, "invalid JSON"}]} =
+             Findings.all_with_diagnostics()
+  end
+
   test "uses the latest slug record to clear an unfiled finding without rewriting history", %{repo: repo} do
     assert :ok = Findings.append(repo, finding("shared-failure", nil))
 
