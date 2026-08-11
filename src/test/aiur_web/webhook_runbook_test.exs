@@ -280,6 +280,27 @@ defmodule AiurWeb.WebhookRunbookTest do
              "the runbook names #{inspect(mentioned)} but .env.example documents " <>
                "#{inspect(documented)}"
     end
+
+    test "AGENTS.md agrees too" do
+      # The third copy, and the one most likely to be read *instead of* the
+      # runbook: AGENTS.md is where the `GITHUB_*` variables are documented, and
+      # the ticket requires this name to sit alongside them so it is discoverable.
+      # Nothing read AGENTS.md until now, so the pin above and `.env.example`'s
+      # behavioural pin would both stay green while the file an agent actually
+      # follows named a variable the receiver no longer reads — every delivery
+      # 401s, and the failure surfaces nowhere near the rename.
+      documented = env_example_secret_name()
+      path = Path.join(@repo_root, "AGENTS.md")
+      mentioned = Regex.scan(~r/AIUR_[A-Z0-9_]*SECRET/, File.read!(path)) |> List.flatten() |> Enum.uniq()
+
+      refute mentioned == [],
+             "#{path} no longer names the webhook secret variable, so the name is no longer " <>
+               "discoverable beside the other GITHUB_* variables"
+
+      assert mentioned == [documented],
+             "AGENTS.md names #{inspect(mentioned)} but .env.example documents " <>
+               "#{inspect(documented)}"
+    end
   end
 
   describe "webhook path" do
