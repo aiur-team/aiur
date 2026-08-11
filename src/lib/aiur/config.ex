@@ -518,12 +518,33 @@ defmodule Aiur.Config do
   end
 
   @doc """
-  Ceiling for new fleet admissions, derived from measured host capacity when the
-  workflow omits `max_concurrent_agents`. Explicit config always wins; see
+  Ceiling for new fleet admissions. A runtime override wins immediately, then
+  explicit workflow config, then measured host capacity; see
   `default_max_concurrent_agents/1` for the calibration.
   """
   @spec max_concurrent_agents() :: pos_integer()
   def max_concurrent_agents do
+    max_concurrent_agents_override() || configured_max_concurrent_agents()
+  end
+
+  @doc false
+  @spec max_concurrent_agents_override() :: pos_integer() | nil
+  def max_concurrent_agents_override do
+    case Application.get_env(:aiur, :max_concurrent_agents_override) do
+      n when is_integer(n) and n > 0 -> n
+      _other -> nil
+    end
+  end
+
+  @doc false
+  @spec put_max_concurrent_agents_override(pos_integer()) :: :ok
+  def put_max_concurrent_agents_override(n) when is_integer(n) and n > 0 do
+    Application.put_env(:aiur, :max_concurrent_agents_override, n)
+  end
+
+  @doc false
+  @spec configured_max_concurrent_agents() :: pos_integer()
+  def configured_max_concurrent_agents do
     case settings!().agent.max_concurrent_agents do
       n when is_integer(n) and n > 0 -> n
       _other -> default_max_concurrent_agents()

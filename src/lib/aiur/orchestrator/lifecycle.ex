@@ -83,9 +83,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
       snapshot_generation: SnapshotStore.begin_generation(snapshot_key),
       poll_interval_ms: config.polling.interval_seconds * 1_000,
       max_concurrent_agents: config.agent.max_concurrent_agents,
-      # `--max-agents N` at launch: seed the session override (highest
-      # precedence; `refresh_runtime_config/1` never clobbers it) so the cap
-      # holds without editing `.aiur/config`.
+      # Seed the application-owned override into the cached projection. The
+      # application value remains authoritative and `refresh_runtime_config/1`
+      # never clobbers it, so launch and live overrides hold without editing
+      # `.aiur/config`.
       session_max_concurrent_agents: Slots.launch_max_concurrent_agents_override(),
       # `--pause` at launch: cold-start globally paused so no agents provision
       # even with agent:todo tickets, until the operator unpauses.

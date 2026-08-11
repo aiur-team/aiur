@@ -173,6 +173,7 @@ defmodule Aiur.AgentControlCLITest do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
+    original_max_agents_override = Application.get_env(:aiur, :max_concurrent_agents_override)
 
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
 
@@ -189,6 +190,12 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :supervision_health_status_fun, original_health_status_fun)
       else
         Application.delete_env(:aiur, :supervision_health_status_fun)
+      end
+
+      if is_nil(original_max_agents_override) do
+        Application.delete_env(:aiur, :max_concurrent_agents_override)
+      else
+        Application.put_env(:aiur, :max_concurrent_agents_override, original_max_agents_override)
       end
     end)
 
@@ -1850,14 +1857,53 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   describe "set_max_agents/1" do
+    test "applies the cap without waiting for the orchestrator mailbox and status reads it back", %{orchestrator: pid} do
+      :sys.suspend(pid)
+      started_at = System.monotonic_time(:millisecond)
+
+      output =
+        try do
+          capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
+        after
+          :sys.resume(pid)
+        end
+
+      elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+      assert elapsed_ms < 1_000
+      assert output =~ "aiur: max-agents set to 3"
+      assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert Config.max_concurrent_agents() == 3
+
+      status_output = capture_io(fn -> AgentControlCLI.status() end)
+      assert status_output =~ "AGENTS 0/3"
+    end
+
     test "sets the cap and reports the new limit", %{orchestrator: pid} do
       :sys.replace_state(pid, fn state -> %{state | session_max_concurrent_agents: nil} end)
 
       output = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
 
-      assert output =~ "aiur: max-agents set to 3 (0 active)"
+      assert output =~ "aiur: max-agents set to 3"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
       assert %{max: 3, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
+    end
+
+    test "the newest queued cap wins while the orchestrator mailbox is blocked", %{orchestrator: pid} do
+      :sys.suspend(pid)
+
+      try do
+        first = capture_io(fn -> AgentControlCLI.set_max_agents(3) end)
+        second = capture_io(fn -> AgentControlCLI.set_max_agents(5) end)
+
+        assert first =~ "aiur: max-agents set to 3"
+        assert second =~ "aiur: max-agents set to 5"
+        assert Config.max_concurrent_agents() == 5
+      after
+        :sys.resume(pid)
+      end
+
+      assert %{max: 5, session_override?: true} = Orchestrator.max_concurrent_agents(pid)
     end
 
     test "allows a cap below the active agent count and reports draining", %{orchestrator: pid} do
@@ -1873,8 +1919,9 @@ defmodule Aiur.AgentControlCLITest do
 
       output = capture_io(fn -> AgentControlCLI.set_max_agents(1) end)
 
-      assert output =~ "aiur: max-agents set to 1 (2 active, draining)"
+      assert output =~ "aiur: max-agents set to 1"
       assert output =~ "__AIUR_CONTROL_EXIT__:0"
+      assert %{active: 2, max: 1, draining?: true} = Orchestrator.max_concurrent_agents(pid)
     end
 
     test "rejects a non-positive cap without touching the orchestrator" do
@@ -1885,6 +1932,24 @@ defmodule Aiur.AgentControlCLITest do
         end)
 
       assert stderr =~ "must be a positive integer"
+    end
+
+    test "reports why the running daemon is unavailable", %{orchestrator: pid} do
+      previous = Config.max_concurrent_agents()
+      Process.unregister(Orchestrator)
+
+      try do
+        stderr =
+          capture_io(:stderr, fn ->
+            output = capture_io(fn -> AgentControlCLI.set_max_agents(4) end)
+            assert output =~ "__AIUR_CONTROL_EXIT__:1"
+          end)
+
+        assert stderr =~ "failed to set max-agents (orchestrator unavailable)"
+        assert Config.max_concurrent_agents() == previous
+      after
+        Process.register(pid, Orchestrator)
+      end
     end
   end
 

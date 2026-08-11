@@ -3,6 +3,19 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
 
   alias Aiur.Orchestrator.DispatchPolicy
 
+  setup do
+    previous = Application.get_env(:aiur, :max_concurrent_agents_override)
+    Application.delete_env(:aiur, :max_concurrent_agents_override)
+
+    on_exit(fn ->
+      if is_nil(previous),
+        do: Application.delete_env(:aiur, :max_concurrent_agents_override),
+        else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
+    end)
+
+    :ok
+  end
+
   defp running_entry(issue_id, identifier, status) do
     %{
       pid: self(),
@@ -26,31 +39,18 @@ defmodule Aiur.OrchestratorMaxAgentsTest do
 
   describe "--max-agents launch override" do
     test "seeds the session cap from :max_concurrent_agents_override at init" do
-      previous = Application.get_env(:aiur, :max_concurrent_agents_override)
       Application.put_env(:aiur, :max_concurrent_agents_override, 2)
-
-      on_exit(fn ->
-        if is_nil(previous),
-          do: Application.delete_env(:aiur, :max_concurrent_agents_override),
-          else: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
-      end)
 
       name = Module.concat(__MODULE__, :LaunchOverride)
       start_orchestrator(name)
+
+      assert Config.max_concurrent_agents() == 2
 
       assert %{max: 2, configured: 10, session_override?: true} =
                Orchestrator.max_concurrent_agents(name)
     end
 
     test "no override leaves the session cap at the configured default" do
-      previous = Application.get_env(:aiur, :max_concurrent_agents_override)
-      Application.delete_env(:aiur, :max_concurrent_agents_override)
-
-      on_exit(fn ->
-        if not is_nil(previous),
-          do: Application.put_env(:aiur, :max_concurrent_agents_override, previous)
-      end)
-
       name = Module.concat(__MODULE__, :NoOverride)
       start_orchestrator(name)
 

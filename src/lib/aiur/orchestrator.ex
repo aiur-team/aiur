@@ -459,6 +459,9 @@ defmodule Aiur.Orchestrator do
   def set_max_concurrent_agents(server, next),
     do: Slots.set_max_concurrent_agents(server, next)
 
+  @spec set_runtime_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, :unavailable}
+  def set_runtime_max_concurrent_agents(next), do: Slots.set_runtime_max_concurrent_agents(next)
+
   @spec globally_paused?() :: {:ok, boolean()} | {:error, :orchestrator_unavailable}
   def globally_paused?, do: GlobalPause.globally_paused?()
 
@@ -816,6 +819,11 @@ defmodule Aiur.Orchestrator do
     do: State.note_agent_activity(state, identifier)
 
   @impl true
+  def handle_cast({:refresh_max_concurrent_agents_override, next}, state)
+      when is_integer(next) and next > 0 do
+    {:noreply, Slots.refresh_max_concurrent_agents_override(state, next)}
+  end
+
   def handle_cast({:reset_dispatch_budget, issue_identifier}, state)
       when is_binary(issue_identifier),
       do: {:noreply, PauseResume.reset_dispatch_budget_cast(state, issue_identifier)}

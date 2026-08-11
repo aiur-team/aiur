@@ -557,8 +557,8 @@ function setupControlRpc() {
       '  case "${AIUR_FAKE_RPC_MODE:-ok}" in',
       // Transport succeeds; the control CLI prints output + the exit marker.
       '    ok) echo ":ok"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
-      '    set_success) echo "aiur: max-agents set to 3 (2 active)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
-      '    set_draining) echo "aiur: max-agents set to 1 (2 active, draining)"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
+      '    set_success) echo "aiur: max-agents set to 3"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
+      '    set_draining) echo "aiur: max-agents set to 1"; echo "__AIUR_CONTROL_EXIT__:0"; exit 0 ;;',
       '    appfail) echo "__AIUR_CONTROL_EXIT__:7"; exit 0 ;;',
       '    missing_marker) echo ":ok"; echo "remote diagnostic"; exit 0 ;;',
       '    missing_marker_empty) exit 0 ;;',
@@ -721,14 +721,14 @@ test("set max-agents succeeds through the control rpc path", () => {
   );
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain("aiur: max-agents set to 3 (2 active)");
+  expect(result.stdout).toContain("aiur: max-agents set to 3");
   expect(result.stderr).toBe("");
 
   const capture = readFileSync(captureFile, "utf8");
   expect(capture).toContain("Aiur.AgentControlCLI.set_max_agents(3)");
 });
 
-test("set max-agents reports below-active caps as draining", () => {
+test("set max-agents accepts a below-active cap without a transport failure", () => {
   const { launcher, releaseDir } = setupControlRpc();
   const result = runControl(
     launcher,
@@ -741,9 +741,26 @@ test("set max-agents reports below-active caps as draining", () => {
   );
 
   expect(result.status).toBe(0);
-  expect(result.stdout).toContain("aiur: max-agents set to 1 (2 active, draining)");
+  expect(result.stdout).toContain("aiur: max-agents set to 1");
   expect(result.stderr).not.toContain("no running aiur node");
   expect(result.stderr).not.toContain("rpc to");
+});
+
+test("set max-agents never returns nonzero with empty output", () => {
+  const { launcher, releaseDir } = setupControlRpc();
+  const result = runControl(
+    launcher,
+    releaseDir,
+    {
+      AIUR_FAKE_RPC_MODE: "appfail",
+      AIUR_FAKE_EPMD_REGISTERED: "1",
+    },
+    ["set", "max-agents", "3"],
+  );
+
+  expect(result.status).not.toBe(0);
+  expect(`${result.stdout}${result.stderr}`.trim()).not.toBe("");
+  expect(result.stderr).toContain("aiur: set failed with exit 7");
 });
 
 test("alerts supports needs-attention control rpc filter", () => {

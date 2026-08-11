@@ -3,7 +3,7 @@ defmodule Aiur.CLI do
   Escript entrypoint for running Aiur with an explicit config-file path.
   """
 
-  alias Aiur.LogFile
+  alias Aiur.{Config, LogFile}
 
   @acknowledgement_switch :i_understand_that_this_will_be_running_without_the_usual_guardrails
   @repo "aiur-team/aiur"
@@ -369,7 +369,7 @@ defmodule Aiur.CLI do
       set_server_port_override: &set_server_port_override/1,
       set_server_host_override: &set_server_host_override/1,
       ensure_all_started: fn -> Application.ensure_all_started(:aiur) end,
-      configured_max_agents: &Aiur.Config.max_concurrent_agents/0
+      configured_max_agents: &Aiur.Config.configured_max_concurrent_agents/0
     }
   end
 
@@ -538,8 +538,8 @@ defmodule Aiur.CLI do
   end
 
   # Override `agent.max_concurrent_agents` at launch without editing
-  # `.aiur/config`. Stored as the orchestrator's session override (highest
-  # precedence; survives config refresh) and read once in `Orchestrator.init/1`.
+  # `.aiur/config`. The application value stays authoritative after boot and is
+  # also seeded into the orchestrator's cached session projection.
   defp maybe_set_max_agents(opts) do
     case Keyword.get_values(opts, :max_agents) do
       [] ->
@@ -548,8 +548,7 @@ defmodule Aiur.CLI do
       values ->
         case List.last(values) do
           n when is_integer(n) and n > 0 ->
-            Application.put_env(:aiur, :max_concurrent_agents_override, n)
-            :ok
+            Config.put_max_concurrent_agents_override(n)
 
           _ ->
             {:error, usage_message()}

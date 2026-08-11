@@ -432,16 +432,31 @@ defmodule Aiur.CLITest do
     assert Application.get_env(:aiur, :max_concurrent_agents_override) == 4
   end
 
-  test "--max-agents above the configured ceiling warns and documents CLI precedence" do
+  test "--max-agents above the production configured ceiling warns and documents CLI precedence" do
     preserve_max_agents_override()
+    configured_max_agents = Aiur.Config.configured_max_concurrent_agents()
+    requested_max_agents = configured_max_agents + 1
+
+    deps =
+      Map.put(
+        passthrough_deps(),
+        :configured_max_agents,
+        &Aiur.Config.configured_max_concurrent_agents/0
+      )
 
     stderr =
       capture_io(:stderr, fn ->
-        assert :ok = CLI.evaluate([@ack_flag, "--max-agents", "20", ".aiurconfig"], configured_deps(8))
+        assert :ok =
+                 CLI.evaluate(
+                   [@ack_flag, "--max-agents", Integer.to_string(requested_max_agents), ".aiurconfig"],
+                   deps
+                 )
       end)
 
-    assert stderr =~ "warning: --max-agents 20 exceeds agent.max_concurrent_agents (8)"
-    assert stderr =~ "the explicit CLI value wins, so using 20"
+    assert stderr =~
+             "warning: --max-agents #{requested_max_agents} exceeds agent.max_concurrent_agents (#{configured_max_agents})"
+
+    assert stderr =~ "the explicit CLI value wins, so using #{requested_max_agents}"
   end
 
   test "duplicate --max-agents flags warn and apply the last value" do

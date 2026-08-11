@@ -257,12 +257,13 @@ defmodule Aiur.AgentControlCLI do
 
   # Absolute set of the concurrent-agent cap on a live node — `aiur set
   # max-agents N`. Positive validation lives in the CLI; the orchestrator
-  # applies the session cap and reports whether active work is draining down.
+  # applies the cap immediately and queues the orchestrator's cached projection
+  # refresh so a busy dispatch mailbox cannot block the operator control.
   @spec set_max_agents(integer()) :: :ok
   def set_max_agents(n) when is_integer(n) and n > 0 do
-    case Orchestrator.set_max_concurrent_agents(n) do
+    case Orchestrator.set_runtime_max_concurrent_agents(n) do
       {:ok, status} ->
-        IO.puts("aiur: max-agents set to #{status.max} (#{max_agents_status_suffix(status)})")
+        IO.puts("aiur: max-agents set to #{status.max}")
         exit_marker(0)
 
       {:error, reason} ->
@@ -526,16 +527,6 @@ defmodule Aiur.AgentControlCLI do
 
   defp normalized_label(label) when is_binary(label), do: label |> String.trim() |> String.downcase()
   defp normalized_label(_label), do: ""
-
-  defp max_agents_status_suffix(%{active: active} = status) do
-    paused = Map.get(status, :paused, 0)
-    drain = if Map.get(status, :draining?) == true, do: ", draining", else: ""
-
-    case paused do
-      0 -> "#{active} active#{drain}"
-      n -> "#{active} active, #{n} paused#{drain}"
-    end
-  end
 
   @spec pause(:all | [String.t()]) :: :ok
   def pause(targets), do: control(:pause, targets)

@@ -38,6 +38,24 @@ defmodule Aiur.Orchestrator.Slots do
   def set_max_concurrent_agents(server, next) when is_integer(next) and next > 0,
     do: control_api_call(server, {:set_max_concurrent_agents, next})
 
+  @doc "Applies the runtime cap without waiting behind the dispatch mailbox."
+  @spec set_runtime_max_concurrent_agents(pos_integer()) :: {:ok, map()} | {:error, :unavailable}
+  def set_runtime_max_concurrent_agents(next),
+    do: set_runtime_max_concurrent_agents(Aiur.Orchestrator, next)
+
+  @spec set_runtime_max_concurrent_agents(GenServer.server(), pos_integer()) ::
+          {:ok, map()} | {:error, :unavailable}
+  def set_runtime_max_concurrent_agents(server, next)
+      when is_integer(next) and next > 0 do
+    if GenServer.whereis(server) do
+      :ok = Config.put_max_concurrent_agents_override(next)
+      GenServer.cast(server, {:refresh_max_concurrent_agents_override, next})
+      {:ok, %{max: next}}
+    else
+      {:error, :unavailable}
+    end
+  end
+
   @spec max_concurrent_agents_call(State.t()) :: {:reply, map(), State.t()}
   def max_concurrent_agents_call(%State{} = state) do
     {:reply, max_concurrent_agent_status(state), state}
@@ -60,9 +78,27 @@ defmodule Aiur.Orchestrator.Slots do
   @spec apply_session_max_concurrent_agents(State.t(), pos_integer()) ::
           {:reply, {:ok, map()}, State.t()}
   def apply_session_max_concurrent_agents(%State{} = state, next) when is_integer(next) do
-    state = %{state | session_max_concurrent_agents: next}
-    StatusReport.notify_dashboard(state)
+    if state.snapshot_key == Aiur.Orchestrator,
+      do: Config.put_max_concurrent_agents_override(next)
+
+    state = refresh_max_concurrent_agents_override(state, next)
     {:reply, {:ok, max_concurrent_agent_status(state)}, state}
+  end
+
+  @doc false
+  @spec refresh_max_concurrent_agents_override(State.t(), pos_integer()) :: State.t()
+  def refresh_max_concurrent_agents_override(%State{} = state, next)
+      when is_integer(next) and next > 0 do
+    current_override = Config.max_concurrent_agents_override()
+    canonical_orchestrator? = state.snapshot_key == Aiur.Orchestrator
+
+    if (not canonical_orchestrator? or current_override == next) and state.session_max_concurrent_agents != next do
+      state = %{state | session_max_concurrent_agents: next}
+      StatusReport.notify_dashboard(state)
+      state
+    else
+      state
+    end
   end
 
   defp control_api_call(server, request) do
@@ -157,12 +193,7 @@ defmodule Aiur.Orchestrator.Slots do
   # `--max-agents N` at launch lands in `:max_concurrent_agents_override`
   # (set by `Aiur.CLI`). Returns a positive integer or nil (no override).
   @spec launch_max_concurrent_agents_override() :: pos_integer() | nil
-  def launch_max_concurrent_agents_override do
-    case Application.get_env(:aiur, :max_concurrent_agents_override) do
-      n when is_integer(n) and n > 0 -> n
-      _ -> nil
-    end
-  end
+  def launch_max_concurrent_agents_override, do: Config.max_concurrent_agents_override()
 
   # `--pause` at launch lands in `:launch_globally_paused` (set by `Aiur.CLI`).
   # When true, the orchestrator cold-starts globally paused and never provisions
@@ -174,22 +205,34 @@ defmodule Aiur.Orchestrator.Slots do
 
   @spec max_concurrent_agent_limit(State.t()) :: pos_integer()
   def max_concurrent_agent_limit(%State{} = state) do
-    cond do
-      is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
-        state.session_max_concurrent_agents
+    max_concurrent_agent_limit(state, Config.max_concurrent_agents_override())
+  end
 
-      is_integer(state.max_concurrent_agents) and state.max_concurrent_agents > 0 ->
-        state.max_concurrent_agents
+  defp max_concurrent_agent_limit(%State{} = state, override) do
+    case override do
+      override when is_integer(override) ->
+        override
 
-      true ->
-        Config.max_concurrent_agents()
+      nil ->
+        cond do
+          is_integer(state.session_max_concurrent_agents) and state.session_max_concurrent_agents > 0 ->
+            state.session_max_concurrent_agents
+
+          is_integer(state.max_concurrent_agents) and state.max_concurrent_agents > 0 ->
+            state.max_concurrent_agents
+
+          true ->
+            Config.configured_max_concurrent_agents()
+        end
     end
   end
 
   @spec effective_concurrent_agent_limit(State.t()) :: pos_integer()
   def effective_concurrent_agent_limit(%State{} = state) do
-    static_limit = max_concurrent_agent_limit(state)
+    effective_concurrent_agent_limit(state, max_concurrent_agent_limit(state))
+  end
 
+  defp effective_concurrent_agent_limit(%State{} = state, static_limit) do
     case state.effective_concurrent_agents do
       effective when is_integer(effective) and effective > 0 -> min(effective, static_limit)
       _ -> static_limit
@@ -200,19 +243,21 @@ defmodule Aiur.Orchestrator.Slots do
   def max_concurrent_agent_status(%State{} = state) do
     active = State.active_running_count(state.running)
     reserved_paused = State.reserved_paused_running_count(state.running)
-    max = max_concurrent_agent_limit(state)
+    override = Config.max_concurrent_agents_override()
+    max = max_concurrent_agent_limit(state, override)
+    effective = effective_concurrent_agent_limit(state, max)
 
     %{
       active: active,
       paused: State.paused_running_count(state.running),
       reserved_paused: reserved_paused,
       occupied: active + reserved_paused,
-      configured: state.max_concurrent_agents || Config.max_concurrent_agents(),
+      configured: state.max_concurrent_agents || Config.configured_max_concurrent_agents(),
       max: max,
-      effective: effective_concurrent_agent_limit(state),
-      available: available_slots(state),
+      effective: effective,
+      available: available_slots(state, effective),
       queued_demand?: DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state),
-      session_override?: is_integer(state.session_max_concurrent_agents),
+      session_override?: is_integer(override) or is_integer(state.session_max_concurrent_agents),
       draining?: active > max
     }
   end
@@ -230,8 +275,13 @@ defmodule Aiur.Orchestrator.Slots do
   def available_slots(%State{globally_paused: true}), do: 0
 
   def available_slots(%State{} = state) do
-    max(effective_concurrent_agent_limit(state) - used_slots(state), 0)
+    available_slots(state, effective_concurrent_agent_limit(state))
   end
+
+  defp available_slots(%State{globally_paused: true}, _effective_limit), do: 0
+
+  defp available_slots(%State{} = state, effective_limit),
+    do: max(effective_limit - used_slots(state), 0)
 
   @spec resume_worker_slot_available?(State.t(), term()) :: boolean()
   def resume_worker_slot_available?(%State{} = state, worker_host) when is_binary(worker_host) do

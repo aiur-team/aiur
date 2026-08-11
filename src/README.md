@@ -541,6 +541,9 @@ path parameter and is never browser-cacheable.
   `agent.max_concurrent_agents`, including when it is higher. Aiur warns when
   the CLI value exceeds the configured value so the effective cap is visible; omit the flag or set it at
   or below the configured value to silence the warning.
+- `aiur set max-agents N` replaces that cap immediately on a running daemon,
+  without editing the workflow or waiting behind dispatch work. The override
+  lasts for the daemon lifetime; `aiur status` reports the effective cap.
 - `agent.switch_model_on_ratelimit` is an opt-in ordered list of configured
   backends, for example `[claude, codex]`. It applies only when no explicit
   `model:` label or complexity-routing rule selected a backend, and only to new
