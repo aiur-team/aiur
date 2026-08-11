@@ -119,6 +119,8 @@ defmodule Aiur.Orchestrator.State do
           ci_readiness_scope: {String.t(), String.t(), String.t()} | nil,
           ci_readiness_result: Aiur.GitHub.CiReadiness.result() | nil,
           global_pause: %{paused_at: DateTime.t() | nil, source: String.t() | nil},
+          merged_ticket_reconciliations: MapSet.t(),
+          merged_ticket_reconciliation_failures: MapSet.t(),
           control_lifecycle: ControlLifecycle.t(),
           # Consecutive poll ticks the prewarm gate has held dispatch for a
           # warming base. Drives the at-most-once-per-N-ticks hold log so a
@@ -204,6 +206,15 @@ defmodule Aiur.Orchestrator.State do
     github_poll_delays: %{},
     globally_paused: false,
     global_pause: %{paused_at: nil, source: nil},
+    # `{issue_identifier, recent_merge_id}` pairs already reconciled by
+    # `Aiur.Orchestrator.MergedTicketReconciler`, so a retained merge record
+    # cannot close the same ticket twice — a ticket reopened for rework must
+    # win over the merge that closed it before.
+    merged_ticket_reconciliations: MapSet.new(),
+    # `{{issue_identifier, recent_merge_id}, reason}` signatures already
+    # alerted on, so a permanently failing transition raises its attention
+    # once instead of once per poll.
+    merged_ticket_reconciliation_failures: MapSet.new(),
     snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{},
     prewarm_hold_ticks: 0
