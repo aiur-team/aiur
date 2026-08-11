@@ -142,13 +142,36 @@ defmodule Aiur.Orchestrator.PushRoutingTest do
 
       result = PushRouting.maybe_resume_blockees_on_merged_ticket(state, blocker_identifier)
 
-      assert result.running[blockee.id].pending_auto_resume == %{
-               blocker_identifier: blocker_identifier,
+      assert %{
+               blocker_identifier: ^blocker_identifier,
                topic: "ticket.1570.pr.merged",
                unblock_key: "ticket.1570.pr.merged",
                pause_generation: 1,
-               stamped_at: result.running[blockee.id].pending_auto_resume.stamped_at
-             }
+               stamped_at: %DateTime{}
+             } = result.running[blockee.id].pending_auto_resume
+    end
+
+    test "resumes a confirmed dependency pause after merged-ticket reconciliation" do
+      blocker_identifier = "1570"
+      blockee = %Aiur.Issue{id: "issue-1571", identifier: "1571", state: "in-progress"}
+
+      entry = %{
+        identifier: blockee.identifier,
+        pid: self(),
+        issue: blockee,
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :blocker_dependency,
+        blocker_pause_generation: 1,
+        blocker_pause: %{blocker_identifier: blocker_identifier, generation: 1}
+      }
+
+      state = %{base_state() | running: %{blockee.id => entry}, max_concurrent_agents: 2}
+
+      result = PushRouting.maybe_resume_blockees_on_merged_ticket(state, blocker_identifier)
+
+      assert_receive {:resume_agent, _request_id}
+      assert result.running[blockee.id].control.status == :working
+      refute Map.has_key?(result.running[blockee.id], :paused_reason)
     end
   end
 
