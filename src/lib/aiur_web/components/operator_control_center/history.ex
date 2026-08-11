@@ -58,7 +58,10 @@ defmodule AiurWeb.OperatorControlCenter.History do
                 <span class="history-question">{decision.question}</span>
               </td>
               <td class="history-outcome">{decision_choice(decision) || "—"}</td>
-              <td><span class={["chip", tone(decision)]}>{decision_status(decision)}</span></td>
+              <td>
+                <span class={["chip", tone(decision)]}>{decision_status(decision)}</span>
+                <span :if={answer_actor_label(decision)} class={answer_actor_class(decision)}>{answer_actor_label(decision)}</span>
+              </td>
               <td class="history-when mono">{raised_at(decision.created_at)}</td>
               <td class="history-open">
                 <.link patch={DecisionPath.detail(decision.decision_id, :all)} class="link-pill">Open</.link>
@@ -117,6 +120,30 @@ defmodule AiurWeb.OperatorControlCenter.History do
   end
 
   defp decision_choice(_decision), do: nil
+
+  # Who answered is part of the outcome, not decoration: an Executor answer and
+  # an operator answer are different facts about the same green row.
+  defp answer_actor_label(%{answer: answer}) when is_map(answer) do
+    case map_value(Map.get(answer, :actor), :kind) do
+      kind when kind in [:operator, "operator"] -> "Operator answer"
+      kind when kind in [:executor, "executor"] -> "Executor answer"
+      kind when kind in [:supervisor, "supervisor"] -> "Supervisor answer"
+      _kind -> nil
+    end
+  end
+
+  defp answer_actor_label(_decision), do: nil
+
+  defp answer_actor_class(%{answer: answer}) do
+    case map_value(Map.get(answer, :actor), :kind) do
+      kind when kind in [:operator, "operator"] -> "chip accent"
+      kind when kind in [:executor, "executor"] -> "chip good"
+      _kind -> "chip super"
+    end
+  end
+
+  defp map_value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
+  defp map_value(_map, _key), do: nil
 
   defp ticket_identifier(%{identifier: identifier}), do: identifier
   defp ticket_identifier(identifier) when is_binary(identifier), do: identifier

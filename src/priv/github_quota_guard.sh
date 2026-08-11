@@ -121,7 +121,16 @@ if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
   esac
   if [ "$size" -gt 1048576 ]; then mv -f "$events_file" "$events_file.1" 2>/dev/null || true; fi
 
-  printf '%s\t%s\t%s\n' "$now" "$consumer" "$direction" >> "$events_file" 2>/dev/null || true
+  # The resource column tells the daemon which budget the call was billed to.
+  # Without it every agent call was counted against core, and a GraphQL query —
+  # billed in points against a separate budget — landed in the wrong window.
+  track_resource=$resource
+  case "$track_resource" in
+    core|graphql) ;;
+    *) track_resource=core ;;
+  esac
+
+  printf '%s\t%s\t%s\t%s\n' "$now" "$consumer" "$direction" "$track_resource" >> "$events_file" 2>/dev/null || true
 fi
 
 error_file=

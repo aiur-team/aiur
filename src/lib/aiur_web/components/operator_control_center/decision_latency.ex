@@ -93,6 +93,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionLatency do
   defp format_duration(_value), do: "Pending"
 
   defp actor_label("human"), do: "Human"
+  defp actor_label("executor"), do: "Executor"
   defp actor_label("supervisor"), do: "Supervisor"
   defp actor_label(_actor), do: "Actor pending"
 

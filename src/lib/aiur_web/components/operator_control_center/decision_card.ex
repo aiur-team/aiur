@@ -26,6 +26,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       |> assign(:recommendation_label, recommendation_label(assigns.decision))
       |> assign(:option_previews, Enum.take(assigns.decision.options, 2))
       |> assign(:selected_answer_label, selected_answer_label(assigns.decision))
+      |> assign(:operator_answer?, operator_answer?(assigns.decision))
+      |> assign(:executor_answer?, executor_answer?(assigns.decision))
       |> assign(:supervisor_answer?, supervisor_answer?(assigns.decision))
       |> assign(:confidence, supervisor_confidence(assigns.decision))
       |> assign(:agent_label, agent_label(assigns.decision))
@@ -68,6 +70,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
             <span :if={@model_label} class="chip mono">{@model_label}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
             <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
+            <span :if={@operator_answer?} class="chip accent">Operator answer</span>
+            <span :if={@executor_answer?} class="chip good">Executor answer</span>
             <span :if={@supervisor_answer?} class="chip super">Supervisor answer</span>
             <span :if={is_integer(@confidence)} class="chip super">{@confidence}% confidence</span>
             <span :if={Map.get(@decision, :superseded?, false)} class="chip super">Superseded</span>
@@ -193,6 +197,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
     do: Map.get(answer, :selected_option_id) == option.id
 
   defp selected_option?(_decision, _option), do: false
+
+  defp operator_answer?(%{answer: answer}) when is_map(answer) do
+    get_in(answer, [:actor, :kind]) in [:operator, "operator"]
+  end
+
+  defp operator_answer?(_decision), do: false
+
+  defp executor_answer?(%{answer: answer}) when is_map(answer) do
+    get_in(answer, [:actor, :kind]) in [:executor, "executor"]
+  end
+
+  defp executor_answer?(_decision), do: false
 
   defp supervisor_answer?(%{answer: answer}) when is_map(answer) do
     get_in(answer, [:actor, :kind]) in [:supervisor, "supervisor"]

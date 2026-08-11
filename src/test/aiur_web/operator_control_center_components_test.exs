@@ -645,6 +645,56 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute readonly =~ ~s(phx-submit="answer-decision")
   end
 
+  test "labels executor answers distinctly while retaining supervisor answer labels" do
+    operator = inbox_decision("dec-operator-answer", decision_status: :decided, answer: action_answer(:operator))
+    executor = inbox_decision("dec-executor-answer", decision_status: :decided, answer: action_answer(:executor))
+    supervisor = inbox_decision("dec-supervisor-answer", decision_status: :decided, answer: action_answer(:supervisor))
+
+    operator_card =
+      render_component(&DecisionCard.decision_card/1, %{
+        decision: operator,
+        writable: false,
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    executor_card =
+      render_component(&DecisionCard.decision_card/1, %{
+        decision: executor,
+        writable: false,
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    supervisor_card =
+      render_component(&DecisionCard.decision_card/1, %{
+        decision: supervisor,
+        writable: false,
+        now: ~U[2026-07-12 13:00:00Z]
+      })
+
+    operator_history = render_history([operator])
+    executor_history = render_history([executor])
+    supervisor_history = render_history([supervisor])
+
+    executor_latency =
+      render_component(&DecisionLatency.decision_latency/1, %{
+        latency: %{status: :available, snapshot: %{actor: "executor"}}
+      })
+
+    assert operator_card =~ "Operator answer"
+    refute operator_card =~ "Executor answer"
+    refute operator_card =~ "Supervisor answer"
+    assert executor_card =~ "Executor answer"
+    refute executor_card =~ "Operator answer"
+    refute executor_card =~ "Supervisor answer"
+    assert supervisor_card =~ "Supervisor answer"
+    refute supervisor_card =~ "Operator answer"
+    refute supervisor_card =~ "Executor answer"
+    assert operator_history =~ "Operator answer"
+    assert executor_history =~ "Executor answer"
+    assert supervisor_history =~ "Supervisor answer"
+    assert executor_latency =~ "Executor"
+  end
+
   test "renders canonical OCC-9 latency with accessible labels and honest pending fields" do
     latency = %{
       status: :available,
