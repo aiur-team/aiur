@@ -14,9 +14,29 @@ Modes model the postures `scripts/verify-webhook-ingress` has to tell apart:
              not-publicly-routable assertion passes here, so the reachability
              assertion is the only thing that can catch it.
 
+The four modes above collapse the edge and the daemon into one process, which
+is all the guard's scoping assertions need. AC 5 -- "restarting the daemon does
+not change the webhook URL" -- is about the seam *between* those two tiers, so
+it needs them apart:
+
+  origin     the daemon alone: 401 on the webhook path, 404 elsewhere. Takes
+             `--port` to model a pinned `server.port`; without it the OS assigns
+             a fresh port on every start, which is what an unpinned daemon does.
+  edge       the tunnel alone: forwards the webhook path to `--origin-port` and
+             answers every other path from its own catch-all, so a route added
+             to the daemon later is not silently published. Answers 502 when the
+             origin does not accept the connection -- what Cloudflare returns
+             once a restarted daemon comes back on a different port.
+
+Restarting an `origin` behind a long-lived `edge` is the restart invariant: the
+edge's port never moves, so whether the public URL survives depends entirely on
+whether the origin's did.
+
 Prints the bound port on stdout, then serves until killed.
 """
 
+import argparse
+import http.client
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
@@ -63,14 +83,102 @@ def build_handler(mode):
     return Handler
 
 
+def build_origin_handler():
+    """The daemon alone, with no tunnel in front of it."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass
+
+        def _reply(self, status):
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def do_GET(self):
+            self._reply(405 if self.path.split("?")[0] == WEBHOOK_PATH else 404)
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            if length:
+                self.rfile.read(length)
+
+            self._reply(401 if self.path.split("?")[0] == WEBHOOK_PATH else 404)
+
+    return Handler
+
+
+def build_edge_handler(origin_port):
+    """The tunnel alone: one published route, everything else default-denied."""
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, fmt, *args):
+            pass
+
+        def _reply(self, status):
+            self.send_response(status)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _forward(self, method, body):
+            # A real edge holds no state about the origin beyond its address, so
+            # a moved origin surfaces here as a refused connection and nothing
+            # else. Answering 502 is what Cloudflare does in that case, and it
+            # is the status the guard has to interpret correctly.
+            try:
+                conn = http.client.HTTPConnection("127.0.0.1", origin_port, timeout=5)
+                conn.request(method, self.path, body=body)
+                self._reply(conn.getresponse().status)
+                conn.close()
+            except OSError:
+                self._reply(502)
+
+        def do_GET(self):
+            if self.path.split("?")[0] == WEBHOOK_PATH:
+                self._forward("GET", None)
+            else:
+                self._reply(404)
+
+        def do_POST(self):
+            length = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(length) if length else None
+
+            if self.path.split("?")[0] == WEBHOOK_PATH:
+                self._forward("POST", body)
+            else:
+                self._reply(404)
+
+    return Handler
+
+
 def main():
-    modes = {"scoped", "wide-open", "unsigned", "misrouted"}
+    modes = ("scoped", "wide-open", "unsigned", "misrouted", "origin", "edge")
 
-    if len(sys.argv) != 2 or sys.argv[1] not in modes:
-        print("usage: fake_ingress.py <%s>" % "|".join(sorted(modes)), file=sys.stderr)
-        return 2
+    parser = argparse.ArgumentParser(prog="fake_ingress.py")
+    parser.add_argument("mode", choices=modes)
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help="port to bind; models a pinned server.port. Default 0 (OS-assigned).",
+    )
+    parser.add_argument(
+        "--origin-port",
+        type=int,
+        help="required by `edge`: the origin port the published route forwards to.",
+    )
+    args = parser.parse_args()
 
-    server = HTTPServer(("127.0.0.1", 0), build_handler(sys.argv[1]))
+    if args.mode == "edge":
+        if args.origin_port is None:
+            parser.error("edge requires --origin-port")
+        handler = build_edge_handler(args.origin_port)
+    elif args.mode == "origin":
+        handler = build_origin_handler()
+    else:
+        handler = build_handler(args.mode)
+
+    server = HTTPServer(("127.0.0.1", args.port), handler)
     print(server.server_address[1], flush=True)
     server.serve_forever()
     return 0

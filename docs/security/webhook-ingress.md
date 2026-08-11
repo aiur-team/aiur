@@ -335,6 +335,15 @@ it delivers nothing passes *every* "not publicly routable" assertion, so the
 reachability line at the top is the only thing that catches it. A run whose
 denied-path list is all `ok` is not a pass on its own. That harness runs in CI.
 
+Those four fixtures collapse the edge and the daemon into a single process, so
+none of them can say anything about a restart — killing that process takes the
+public URL down with it. The harness therefore also runs a two-tier case, an
+`origin` (the daemon) behind a long-lived `edge` (the tunnel), and restarts the
+origin underneath an edge whose port never moves: pinned, and the same URL still
+passes; unpinned, and the same URL must fail. That pair is the restart invariant
+below, checked on every CI run rather than only when someone remembers to redo
+the manual procedure.
+
 Finally, confirm a real delivery: redeliver from the App's **Advanced →  Recent
 Deliveries** tab and check for a 2xx, then confirm the daemon logged the
 delivery id and event type.
@@ -398,6 +407,13 @@ reconfigured on the GitHub side, is the evidence for "restarting the daemon does
 not change the webhook URL". If step 2 reports `PORT MOVED`, `server.port` is
 not pinned — re-read the prerequisite above; the tunnel is fine and the config
 is not.
+
+The same fault reaches you through the guard in step 3 as a **502**, because
+`cloudflared` is up and its ingress rule still matches — it dialled the origin
+address and got nothing back. The guard calls that out and points at
+`server.port` rather than at the ingress rule, which is worth knowing because
+every instinct on seeing a routing-shaped failure is to go and edit the one file
+that is correct.
 
 If step 1 reports `MISMATCH`, stop and reconcile before going further. The
 daemon is up and deliveries may well be arriving, so nothing looks wrong — but
