@@ -265,6 +265,53 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
       assert log =~ "reset_at=2026-08-11T12:00:00Z"
     end
 
+    test "the claim-released alert names the credential actually used, never the configured bot_account (#1475)" do
+      github_retry_env!()
+
+      # `bot_account` is what an operator configured, not proof of who
+      # authenticated: under a GitHub App installation token the two differ, and
+      # a security-adjacent alert must not present a config value as the
+      # credential identity.
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_repo: "its-everdred/aiur",
+        tracker_active_states: ["todo", "in-progress"],
+        tracker_terminal_states: ["done"],
+        tracker_bot_account: "configured-not-authenticated",
+        max_retry_backoff_ms: 100
+      )
+
+      name = Module.concat(__MODULE__, :RetryPollCredentialIdentity)
+      pid = start_orchestrator(name)
+      token = make_ref()
+
+      retry = %{
+        attempt: 1,
+        retry_token: token,
+        timer_ref: nil,
+        due_at_ms: System.monotonic_time(:millisecond),
+        identifier: "D11C",
+        error: "agent exited: :timeout",
+        retry_poll_failures: 2
+      }
+
+      :sys.replace_state(pid, &%{&1 | claimed: MapSet.new(["d11c"]), retry_attempts: %{"d11c" => retry}})
+
+      log =
+        capture_log(fn ->
+          send(pid, {:retry_issue, "d11c", token})
+          _ = :sys.get_state(pid)
+        end)
+
+      expected_fingerprint =
+        "token-sha256:" <> (:crypto.hash(:sha256, "retry-poll-test-token") |> Base.encode16(case: :lower) |> binary_part(0, 12))
+
+      assert log =~ "orchestrator.claim_released"
+      assert log =~ "credential=#{expected_fingerprint}"
+      refute log =~ "configured-not-authenticated"
+      refute log =~ "token_identity="
+    end
+
     test "failure-retry exhaustion moves the ticket to error and releases the claim (#699/#723)" do
       write_workflow_file!(Workflow.workflow_file_path(),
         tracker_kind: "memory",

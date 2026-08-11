@@ -152,8 +152,30 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    %{state | last_polled_issues: retained_issues}
+    %{
+      state
+      | last_polled_issues: retained_issues,
+        released_claims: purge_resolved_released_claims(state.released_claims, current_issues, terminal_states)
+    }
   end
+
+  # A `released_claims` entry exists only to tell the operator that a claim was
+  # dropped and still needs recovery. Once the ticket reaches a terminal tracker
+  # state — or the tracker stops returning it at all — there is nothing left to
+  # recover, and the entry becomes a permanently inflated `RELEASED CLAIMS n`
+  # that an operator will chase and find nothing behind. Losing one line of
+  # history is cheap; a confident wrong count is not, so purge on every poll
+  # (#1475).
+  defp purge_resolved_released_claims(released_claims, current_issues, terminal_states) when is_map(released_claims) do
+    Map.filter(released_claims, fn {issue_id, _release} ->
+      case Map.get(current_issues, issue_id) do
+        %Issue{state: issue_state} -> not DispatchPolicy.terminal_issue_state?(issue_state, terminal_states)
+        _missing -> false
+      end
+    end)
+  end
+
+  defp purge_resolved_released_claims(_released_claims, _current_issues, _terminal_states), do: %{}
 
   defp issues_by_id(issues) do
     Enum.reduce(issues, %{}, fn

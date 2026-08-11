@@ -86,12 +86,18 @@ defmodule Aiur.AgentControlCLI do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
-    released_claims = Enum.count(statuses, &(&1[:claim_released?] == true))
-    automatic_reclaims = Enum.count(statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
 
-    statuses
-    |> Enum.filter(&visible_status_row?(&1, tracker_states))
-    |> print_status_table()
+    # Count from the rows that are actually printed. Counting the unfiltered
+    # `statuses` let `RELEASED CLAIMS n` claim releases whose rows were hidden,
+    # so the headline and the table disagreed (#1475).
+    visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
+
+    released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))
+
+    automatic_reclaims =
+      Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
+
+    print_status_table(visible_statuses)
 
     if released_claims > 0 do
       recovery = if automatic_reclaims == released_claims, do: "automatic re-claim pending", else: "operator recovery required for some claims"
@@ -1253,8 +1259,13 @@ defmodule Aiur.AgentControlCLI do
   defp visible_status_row?(%{state: :idle, reason: {:latched, _lifetime, _maximum}}, _tracker_states),
     do: true
 
-  defp visible_status_row?(%{state: :idle, reason: {:claim_released, _cause, _retry_in_ms}}, _tracker_states),
-    do: true
+  # A released claim is an operator-actionable idle state, so it stays visible
+  # even when the ticket is outside the active tracker states. It is NOT exempt
+  # from the terminal filter: a claim released on a ticket that has since been
+  # closed cannot be recovered, and showing it forever is a wrong count (#1475).
+  defp visible_status_row?(%{state: :idle, reason: {:claim_released, _cause, _retry_in_ms}} = status, tracker_states) do
+    not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
+  end
 
   defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}, tracker_states) do
     in_tracker_state_set?(tracker_state, tracker_states.active) and

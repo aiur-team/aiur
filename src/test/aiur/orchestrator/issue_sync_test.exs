@@ -353,6 +353,38 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute_receive {:event, %{topic: "system.fleet.capacity.starved"}}, 100
   end
 
+  test "purges released claims once the ticket is terminal or gone from the poll (#1475)" do
+    active = issue("released-active", "in-progress")
+    closed = issue("released-closed", "done")
+    vanished = issue("released-vanished", "todo")
+
+    release = %{cause: :rate_limit, details: %{}, released_at_ms: 1}
+
+    state = %State{
+      last_polled_issues: %{active.id => active, closed.id => closed, vanished.id => vanished},
+      released_claims: %{active.id => release, closed.id => release, vanished.id => release}
+    }
+
+    synced =
+      IssueSync.sync_polled_issue_state(
+        state,
+        [active, closed],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    # The claim an operator can still recover survives the poll.
+    assert %{cause: :rate_limit} = synced.released_claims[active.id]
+
+    # A closed ticket and a ticket the tracker stopped returning are both
+    # unrecoverable, so their entries must not keep inflating RELEASED CLAIMS.
+    refute Map.has_key?(synced.released_claims, closed.id)
+    refute Map.has_key?(synced.released_claims, vanished.id)
+  end
+
   test "alerts when the tracker adds or removes agent:paused" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("ticket.its-everdred/aiur#pause-transition.agent.paused")
