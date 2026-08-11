@@ -112,6 +112,30 @@ defmodule Aiur.Events.ExchangeTest do
       count = publish(exchange, "ticket.999.branch.push", %{id: 7})
       assert count == 0
     end
+
+    test "reaps every monitor for a subscriber with multiple bindings", %{exchange: exchange} do
+      test_pid = self()
+
+      sub =
+        spawn(fn ->
+          :ok = subscribe(exchange, "ticket.999.#")
+          :ok = subscribe(exchange, "ticket.999.branch.push")
+          send(test_pid, :subscribed)
+
+          receive do
+            :stop -> :ok
+          end
+        end)
+
+      assert_receive :subscribed, 500
+      assert length(bindings_for(exchange, sub)) == 2
+      ref = Process.monitor(sub)
+      send(sub, :stop)
+      assert_receive {:DOWN, ^ref, :process, ^sub, _}, 500
+
+      :ok = wait_until(fn -> bindings_for(exchange, sub) == [] end, 500)
+      :ok = wait_until(fn -> :sys.get_state(exchange).monitors == %{} end, 500)
+    end
   end
 
   describe "validate_pattern!" do

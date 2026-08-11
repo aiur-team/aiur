@@ -164,18 +164,13 @@ defmodule Aiur.Events.Exchange do
   end
 
   @impl true
-  def handle_info({:DOWN, _ref, :process, pid, _reason}, %{table: table} = state) do
+  def handle_info({:DOWN, ref, :process, pid, _reason}, %{table: table} = state) do
     # Reap every binding for the dead subscriber. We use match_delete
     # against the pid alone so a single :DOWN cleans up all of that
     # subscriber's patterns at once.
     :ets.match_delete(table, {:_, pid, :_})
 
-    monitors =
-      state.monitors
-      |> Enum.reject(fn {_ref, {_pattern, monitored_pid}} -> monitored_pid == pid end)
-      |> Map.new()
-
-    {:noreply, %{state | monitors: monitors}}
+    {:noreply, %{state | monitors: Map.delete(state.monitors, ref)}}
   end
 
   def handle_info(_other, state), do: {:noreply, state}
