@@ -77,6 +77,23 @@ sweep recovers them.
 
 ## Prerequisites
 
+### What you need before starting
+
+Two things are outside this repository, and both gate everything below — the
+second one especially, because it decides whether you can use this approach at
+all rather than merely how:
+
+- **`cloudflared` installed** on the machine that runs the daemon. Cloudflare's
+  package repositories and binaries are at
+  <https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/>.
+- **A domain whose DNS is served by Cloudflare.** The stable hostname is a CNAME
+  this tool creates in that zone, so without one there is no `route dns` step and
+  no stable URL — and a URL that changes means reconfiguring the GitHub webhook
+  after every restart, which is the thing this whole setup exists to avoid. If
+  you do not have one,
+  re-read "Options considered" before going further; Tailscale Funnel is the
+  fallback that does not need a domain.
+
 ### Pin the daemon's port
 
 `Aiur.Config.Schema.Server` defaults `port` to `0`, which means "bind a free
