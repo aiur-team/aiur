@@ -64,7 +64,7 @@ defmodule Aiur.CoreTest do
     )
 
     config = Config.settings!()
-    assert config.polling.interval_seconds == 30
+    assert config.polling.interval_seconds == 120
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     assert config.tracker.linear.assignee == nil
