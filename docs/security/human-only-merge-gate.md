@@ -42,6 +42,22 @@ own approval for no gain — the exact failure
 
 When a refresh is genuinely warranted, use the procedure below.
 
+If the pull request was armed with GitHub auto-merge, record that intent before
+refreshing it. GitHub clears `autoMergeRequest` when `update-branch` lands, and
+does not announce the cancellation. After the new head SHA is visible and its
+checks/mergeability have been re-read, explicitly re-arm auto-merge and verify
+that `autoMergeRequest` is present again:
+
+```sh
+gh pr merge "$PR" --squash --delete-branch --auto
+test "$(gh pr view "$PR" --json autoMergeRequest --jq '.autoMergeRequest != null')" = true
+```
+
+If the PR was not intentionally armed, leave it disarmed; the important rule
+is that a refresh must never leave the operator assuming the old auto-merge
+request survived. Do not re-arm until the refreshed head has settled and the
+approval/check state below has been evaluated.
+
 `require_last_push_approval` applies to the last reviewable push. A base refresh
 that brings new changes into the pull request's diff can therefore invalidate
 the Executor's approval. The refresh is also asynchronous, so an approval
