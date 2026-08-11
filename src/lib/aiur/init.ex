@@ -208,19 +208,23 @@ defmodule Aiur.Init do
             announce_operator_skills(io, created, existing)
 
           {:conflict, _paths} ->
-            if io.confirm.("Existing global Aiur skill links point elsewhere. Repoint them?", false) do
-              case deps.install_operator_skills.(mode, harnesses, replace_links?: true) do
-                {:ok, %{created: created, existing: existing}} -> announce_operator_skills(io, created, existing)
-                {:conflict, _paths} -> io.puts.("Left existing global skills unchanged.")
-                {:error, reason} -> io.puts.("Couldn't install operator skills: #{inspect(reason)}")
-              end
-            else
-              io.puts.("Left existing global skills unchanged.")
-            end
+            maybe_repoint_operator_skills(io, deps, mode, harnesses)
 
           {:error, reason} ->
             io.puts.("Couldn't install operator skills: #{inspect(reason)}")
         end
+    end
+  end
+
+  defp maybe_repoint_operator_skills(io, deps, mode, harnesses) do
+    if io.confirm.("Existing global Aiur skill links point elsewhere. Repoint them?", false) do
+      case deps.install_operator_skills.(mode, harnesses, replace_links?: true) do
+        {:ok, %{created: created, existing: existing}} -> announce_operator_skills(io, created, existing)
+        {:conflict, _paths} -> io.puts.("Left existing global skills unchanged.")
+        {:error, reason} -> io.puts.("Couldn't install operator skills: #{inspect(reason)}")
+      end
+    else
+      io.puts.("Left existing global skills unchanged.")
     end
   end
 

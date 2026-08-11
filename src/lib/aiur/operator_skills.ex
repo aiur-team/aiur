@@ -102,11 +102,7 @@ defmodule Aiur.OperatorSkills do
   defp destination_status(destination, source, :symlink, replace_links?) do
     case File.read_link(destination) do
       {:ok, target} ->
-        if Path.expand(target, Path.dirname(destination)) == Path.expand(source) do
-          :existing
-        else
-          if replace_links?, do: :replace_link, else: :conflict
-        end
+        symlink_status(target, destination, source, replace_links?)
 
       {:error, :einval} ->
         if File.exists?(destination), do: :conflict, else: :create
@@ -121,6 +117,14 @@ defmodule Aiur.OperatorSkills do
 
   defp destination_status(destination, _source, :copy, _replace_links?) do
     if File.exists?(destination) or match?({:ok, _}, File.lstat(destination)), do: :existing, else: :create
+  end
+
+  defp symlink_status(target, destination, source, replace_links?) do
+    cond do
+      Path.expand(target, Path.dirname(destination)) == Path.expand(source) -> :existing
+      replace_links? -> :replace_link
+      true -> :conflict
+    end
   end
 
   defp apply_plan(plan, mode, existing) do

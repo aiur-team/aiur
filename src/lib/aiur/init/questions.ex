@@ -126,7 +126,7 @@ defmodule Aiur.Init.Questions do
   def prompt_operator_skills(_io, []), do: :skip
 
   def prompt_operator_skills(io, harnesses) do
-    names = harnesses |> Enum.map(&Atom.to_string/1) |> Enum.join(" and ")
+    names = Enum.map_join(harnesses, " and ", &Atom.to_string/1)
 
     io.puts.(
       "Aiur ships operator skills for running and planning fleets. They will be installed for #{names} only, " <>
