@@ -18,9 +18,15 @@ defmodule Aiur.OrchestratorTrackedSetTest do
     {:ok, orchestrator_pid} = ensure_orchestrator_running()
     tracked_set_owner = Process.whereis(TrackedSet)
 
-    on_exit(&ensure_orchestrator_running/0)
+    on_exit(fn -> restore_orchestrator(orchestrator_pid) end)
+
+    freeze_orchestrator_poll(orchestrator_pid)
 
     assert :ok = TrackedSet.reset(["681"])
+
+    send(orchestrator_pid, :run_poll_cycle)
+    _state_after_stale_poll = :sys.get_state(orchestrator_pid)
+
     assert Orchestrator.issue_tracked?("681")
     refute Orchestrator.issue_tracked?("682")
 
@@ -32,6 +38,32 @@ defmodule Aiur.OrchestratorTrackedSetTest do
 
     assert {:ok, restarted_pid} = restart_orchestrator()
     assert is_pid(restarted_pid)
+  end
+
+  defp freeze_orchestrator_poll(pid) do
+    :sys.replace_state(pid, fn state ->
+      if is_reference(state.tick_timer_ref), do: Process.cancel_timer(state.tick_timer_ref)
+
+      %{
+        state
+        | tick_timer_ref: nil,
+          tick_token: make_ref(),
+          next_poll_due_at_ms: nil,
+          poll_check_in_progress: false,
+          # Fence a one-shot :run_poll_cycle that may already have been
+          # scheduled before the fixture reset below.
+          poll_frozen: true
+      }
+    end)
+  end
+
+  defp restore_orchestrator(original_pid) do
+    if Process.whereis(Orchestrator) == original_pid do
+      :ok = terminate_orchestrator()
+    end
+
+    {:ok, _pid} = ensure_orchestrator_running()
+    :ok
   end
 
   defp terminate_orchestrator do
