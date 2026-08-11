@@ -120,6 +120,11 @@ expect_pass "scoped"
 # the case the ticket's AC 4 is about; a guard that cannot fail here is useless.
 expect_failure "wide-open" "PUBLICLY REACHABLE"
 
+# A rule that publishes only one POST-only API route is still too broad. Every
+# GET outside the webhook receives the edge 404 in this mode, so only the
+# method-correct token probe can distinguish it from the intended posture.
+expect_failure "post-leak" "POST /api/v1/streamdeck/token"
+
 # Reachable receiver that accepts a delivery carrying no signature at all.
 expect_failure "unsigned" "ACCEPTED an unsigned delivery"
 
@@ -166,6 +171,34 @@ if ! grep -Fq "base URL must be https://" <<<"$output"; then
 fi
 
 echo "ok: guard refuses a plaintext base URL"
+
+# DENY_STATUS describes a deny response, not an arbitrary expected response.
+# Accepting 200 here would let a caller turn a wide-open edge green by declaring
+# every successful dashboard response to be the catch-all.
+start_fixture "wide-open"
+set +e
+output="$(
+  AIUR_WEBHOOK_INGRESS_ALLOW_HTTP=1 \
+    DENY_STATUS=200 \
+    scripts/verify-webhook-ingress "$fixture_base" 2>&1
+)"
+status=$?
+set -e
+cleanup
+
+if [[ "$status" -ne 2 ]]; then
+  echo "expected exit 2 for DENY_STATUS=200, got $status:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+if ! grep -Fq "DENY_STATUS must be 403 or 404" <<<"$output"; then
+  echo "unsafe DENY_STATUS rejected for the wrong reason:" >&2
+  echo "$output" >&2
+  exit 1
+fi
+
+echo "ok: guard refuses an unsafe DENY_STATUS"
 
 # --- AC 5: restarting the daemon does not change the webhook URL -------------
 #

@@ -49,8 +49,17 @@ fi
 
 # The status the ingress catch-all returns for an unpublished path. Cloudflare
 # Tunnel's `http_status:404` catch-all yields 404; a deny-by-WAF posture yields
-# 403. Anything in this set proves the request was answered at the edge.
+# 403. No other value is accepted: a caller-provided success status must never
+# turn a publicly reachable route into a green verification result.
 deny_status="${DENY_STATUS:-404}"
+
+case "$deny_status" in
+  403 | 404) ;;
+  *)
+    echo "webhook ingress guard: DENY_STATUS must be 403 or 404, got: $deny_status" >&2
+    exit 2
+    ;;
+esac
 
 webhook_path="/api/v1/github/webhook"
 
@@ -65,13 +74,14 @@ webhook_path="/api/v1/github/webhook"
 # these. For a path the daemon 404s, a pass here is weak evidence. The
 # load-bearing entries are the ones the daemon answers for at all -- 200 from a
 # real GET handler, or 405 from a `match(:*, ...)` clause -- because neither can
-# look like an edge deny. Two entries below are knowingly weak and are marked;
+# look like an edge deny. One entry below is knowingly weak and is marked;
 # `webhook_runbook_test.exs` fails if any *unmarked* entry becomes weak.
 #
-# Every probe here is a GET. That is what an attacker who learns the hostname
-# reaches for first, and it is also why it is safe to list the agent-control
-# mutation endpoints: none of them accept GET, so probing cannot pause an agent
-# or decide a decision -- the router answers 405 without reaching a handler.
+# Every probe in this list is a GET. That is what an attacker who learns the
+# hostname reaches for first, and it is also why it is safe to list the
+# agent-control mutation endpoints: none of them accept GET, so probing cannot
+# pause an agent or decide a decision -- the router answers 405 without reaching
+# a handler.
 denied_paths=(
   "/"
   "/decisions"
@@ -92,7 +102,6 @@ denied_paths=(
   "/api/v1/decisions/1"
   "/api/v1/refresh"
   "/api/v1/streamdeck/grid"
-  "/api/v1/streamdeck/token" # weak: no GET clause, so the daemon 404s it too
   "/api/v1/pane/interrupt"
   "/api/v1/pane/hide"
   # Reads as a webhook-adjacent path but is not one: there is no `/api/v1/github`
@@ -120,6 +129,14 @@ denied_paths=(
   "/api/v1/decisions/1/enrich"
   "/api/v1/decisions/1/revise"
   "/api/v1/" # weak: no route, exists to catch an over-broad prefix rule
+)
+
+# A GET cannot distinguish the POST-only Stream Deck token route from the
+# router's 404 catch-all. An unsigned POST is safe: when the route is exposed,
+# dashboard authentication rejects it with 401 before a token can be issued;
+# when the edge is scoped correctly, the edge catch-all answers instead.
+post_denied_paths=(
+  "/api/v1/streamdeck/token"
 )
 
 failures=0
@@ -204,6 +221,20 @@ for path in "${denied_paths[@]}"; do
     fail "GET $path -> no response (cannot distinguish scoped-out from tunnel-down)"
   else
     fail "GET $path -> $status (expected $deny_status; this path is PUBLICLY REACHABLE)"
+  fi
+done
+
+for path in "${post_denied_paths[@]}"; do
+  status="$(http_status POST "$base_url$path" \
+    --header 'Content-Type: application/json' \
+    --data '{}')"
+
+  if [[ "$status" == "$deny_status" ]]; then
+    pass "POST $path -> $status"
+  elif [[ "$status" == "000" ]]; then
+    fail "POST $path -> no response (cannot distinguish scoped-out from tunnel-down)"
+  else
+    fail "POST $path -> $status (expected $deny_status; this path is PUBLICLY REACHABLE)"
   fi
 done
 

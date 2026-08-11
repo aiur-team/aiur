@@ -56,7 +56,27 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
           | {:drop, term()}
           | {:error, term()}
 
+  @supported_event_types ~w(
+    issue_comment
+    issues
+    pull_request
+    pull_request_review
+    pull_request_review_comment
+    check_suite
+    check_run
+  )
+
   @closing_keyword ~r/\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)\b/i
+
+  @doc """
+  GitHub webhook event types this normalizer consumes.
+
+  This is the subscription inventory for operators configuring webhook
+  deliveries. `normalize/3` admits only values from this list so the inventory
+  cannot quietly drift away from the clauses below.
+  """
+  @spec supported_event_types() :: [String.t()]
+  def supported_event_types, do: @supported_event_types
 
   @doc """
   Normalizes one delivery.
@@ -84,7 +104,11 @@ defmodule Aiur.Events.GithubWebhook.Normalizer do
 
   def normalize(event_type, payload, opts) when is_binary(event_type) and is_map(payload) do
     with {:ok, repo} <- tracked_repo(payload, opts) do
-      normalize_event(event_type, payload, repo)
+      if event_type in @supported_event_types do
+        normalize_event(event_type, payload, repo)
+      else
+        {:drop, {:unsupported_event, event_type}}
+      end
     end
   rescue
     error -> {:error, {:normalizer_exception, Exception.message(error)}}

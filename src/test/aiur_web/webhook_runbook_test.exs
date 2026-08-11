@@ -22,6 +22,7 @@ defmodule AiurWeb.WebhookRunbookTest do
   alias Aiur.AgentControlCLI
   alias Aiur.Config.Schema
   alias Aiur.Events.GithubWebhook.Normalizer
+  alias Aiur.GitHub.AppToken
   alias Aiur.ProviderMeterProjection
   alias Aiur.Webhooks.DeliveryMode
   alias Aiur.Webhooks.ModePresenter
@@ -33,30 +34,14 @@ defmodule AiurWeb.WebhookRunbookTest do
   @harness_path Path.join(@repo_root, "scripts/test-webhook-ingress.sh")
   @api_prefix "/api/v1"
 
-  # `StreamdeckSessionController` serves exactly one route, `POST
-  # /api/v1/streamdeck/token`, and there is no `match(:*, ...)` clause for it — so
-  # a GET falls to the router's catch-all and no GET probe can ever reach the
-  # controller. The guard probes with GET on purpose (it must not be able to pause
-  # an agent or mint a token as a side effect of verifying scoping), so this
-  # surface is genuinely unprobeable from here rather than merely unprobed.
-  @unprobeable [AiurWeb.StreamdeckSessionController]
   @repo "acme/widgets"
-
-  # Deliberately wider than the supported set: the unsupported entries are what
-  # give the equality assertion its teeth. A table that listed every GitHub event
-  # would fail on these rather than passing vacuously.
-  @candidate_events ~w(
-    issue_comment issues pull_request pull_request_review pull_request_review_comment
-    check_suite check_run push create delete fork watch star release
-    workflow_run workflow_job status deployment member ping
-  )
 
   describe "event subscription table" do
     test "is exactly the set the normalizer consumes" do
       documented = documented_events()
 
       assert documented != [], "no subscription table found in #{@doc_path}"
-      assert Enum.sort(documented) == Enum.sort(Enum.filter(@candidate_events, &supported?/1))
+      assert Enum.sort(documented) == Enum.sort(Normalizer.supported_event_types())
     end
 
     test "lists only events the normalizer can reach" do
@@ -72,6 +57,14 @@ defmodule AiurWeb.WebhookRunbookTest do
       # table being correct.
       assert {:drop, {:unsupported_event, "push"}} = normalize("push")
       refute "push" in documented_events()
+    end
+
+    test "the repository-webhook default matches the current App permission posture" do
+      doc = File.read!(@doc_path)
+
+      refute Map.has_key?(AppToken.allowed_permissions(), "checks")
+      assert doc =~ "Use a **repository webhook**"
+      assert doc =~ "`check_run` and `check_suite` require at least **Checks: read**"
     end
   end
 
@@ -317,6 +310,15 @@ defmodule AiurWeb.WebhookRunbookTest do
       assert rule |> String.trim_leading("^") |> String.trim_trailing("$") == GithubWebhook.path()
     end
 
+    test "the documented ingress has one scoped origin followed by an exact default deny" do
+      config = parsed_tunnel_config()
+
+      assert [published, catch_all] = Map.fetch!(config, "ingress")
+      assert published["path"] == "^#{GithubWebhook.path()}$"
+      assert published["service"] == tunnel_origin()
+      assert catch_all == %{"service" => "http_status:404"}
+    end
+
     test "the ingress guard checks the route the app actually serves" do
       # If these drift apart the guard keeps exiting 0 while asserting things
       # about a path nothing serves — a green run that proves nothing.
@@ -349,12 +351,11 @@ defmodule AiurWeb.WebhookRunbookTest do
       /api/v1/decisions/1/decide /api/v1/decisions/1/enrich /api/v1/decisions/1/revise
     )
 
-    # Knowingly vacuous under GET: the daemon has no GET clause for either, so it
-    # answers 404 itself and a pass proves nothing an edge deny would not. They
-    # stay because `/api/v1/` is the tripwire for an over-broad prefix rule, and
-    # dropping the token path would read as reducing coverage. Naming them here is
-    # what keeps the rest of the list honest — anything *not* named must resolve.
-    @known_weak ~w(/api/v1/streamdeck/token /api/v1/)
+    # Knowingly vacuous under GET: the daemon has no route for `/api/v1/`, so it
+    # answers 404 itself and a pass proves nothing an edge deny would not. It
+    # stays as a tripwire for an over-broad prefix rule. Naming it here keeps the
+    # rest of the list honest — anything *not* named must resolve.
+    @known_weak ~w(/api/v1/)
 
     test "the load-bearing entries all resolve to real routes, not the catch-all" do
       for path <- @load_bearing do
@@ -399,18 +400,16 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
-    test "every /api/v1 controller is probed or explicitly named unprobeable" do
+    test "every /api/v1 controller is probed" do
       # The list is hand-maintained and the router grows. A new API controller
       # mounted under /api/v1 is published by exactly the same over-broad ingress
       # rule as the existing ones, and nothing would have probed it — the guard
       # would still print `exposure is scoped` while the new surface was live.
       for controller <- api_controllers() do
-        assert controller in @unprobeable or
-                 Enum.any?(guard_denied_paths(), &(controller_for(&1) == controller)),
+        assert Enum.any?(guard_probe_requests(), &(controller_for(&1) == controller)),
                "#{inspect(controller)} serves #{@api_prefix} routes but no path in the guard's " <>
-                 "denied_paths reaches it, so an over-broad ingress rule would publish it " <>
-                 "undetected. Add a GET-safe representative path, or add it to @unprobeable " <>
-                 "with the reason."
+                 "probe lists reaches it, so an over-broad ingress rule would publish it " <>
+                 "undetected. Add a side-effect-free representative request."
       end
     end
 
@@ -448,13 +447,15 @@ defmodule AiurWeb.WebhookRunbookTest do
       # never looks at it — so it would be published by an over-broad rule with
       # the guard still printing `exposure is scoped`.
       #
-      # The guard probes these with GET on purpose and reads the router's
-      # `match(:*, ...)` 405 as proof of reachability; that is why a write route
-      # can be covered without the probe ever being able to fire it.
+      # The guard normally probes these with GET and reads the router's
+      # `match(:*, ...)` 405 as proof of reachability, so the check cannot fire a
+      # mutation. The Stream Deck token route has no method-mismatch clause; its
+      # separate unauthenticated POST is safe because authentication rejects it
+      # before the controller can issue a token.
       for route <- api_state_changing_routes() do
         assert Enum.any?(
-                 guard_denied_paths(),
-                 &(route_pattern_for(&1, route.verb) == route.path)
+                 guard_probe_requests(),
+                 fn {method, path} -> route_pattern_for(path, method) == route.path end
                ),
                "#{String.upcase(to_string(route.verb))} #{route.path} " <>
                  "(#{inspect(route.plug)}.#{route.plug_opts}) changes state under " <>
@@ -494,6 +495,7 @@ defmodule AiurWeb.WebhookRunbookTest do
       # It is the one path that must be reachable; asserting it is denied would
       # invert the whole check.
       refute GithubWebhook.path() in guard_denied_paths()
+      refute GithubWebhook.path() in guard_post_denied_paths()
     end
   end
 
@@ -829,12 +831,14 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
-  # Which controller a GET on this path actually reaches. Deliberately resolved
+  # Which controller a guard request actually reaches. Deliberately resolved
   # through the router rather than by string-matching the path, because a path
   # that looks like it belongs to a controller can fall through to the catch-all —
   # which is the whole mistake `no unmarked entry is vacuous` exists to catch.
-  defp controller_for(path) do
-    case Phoenix.Router.route_info(AiurWeb.Router, "GET", path, "host") do
+  defp controller_for({method, path}) do
+    method = method |> to_string() |> String.upcase()
+
+    case Phoenix.Router.route_info(AiurWeb.Router, method, path, "host") do
       %{plug: plug, route: route} when route != "/*path" -> plug
       _other -> nil
     end
@@ -846,7 +850,16 @@ defmodule AiurWeb.WebhookRunbookTest do
     Regex.scan(~r/"([^"]+)"/, block) |> Enum.map(fn [_, p] -> p end)
   end
 
-  defp supported?(event), do: not match?({:drop, {:unsupported_event, _}}, normalize(event))
+  defp guard_post_denied_paths do
+    [_, block] = Regex.run(~r/^post_denied_paths=\((.*?)^\)/ms, File.read!(@guard_path))
+
+    Regex.scan(~r/"([^"]+)"/, block) |> Enum.map(fn [_, p] -> p end)
+  end
+
+  defp guard_probe_requests do
+    Enum.map(guard_denied_paths(), &{:get, &1}) ++
+      Enum.map(guard_post_denied_paths(), &{:post, &1})
+  end
 
   # An otherwise-empty payload is enough: a supported event type falls through to
   # its clause and reports a malformed payload, while an unsupported one is
@@ -878,6 +891,19 @@ defmodule AiurWeb.WebhookRunbookTest do
   end
 
   defp parsed_daemon_block, do: parsed_config_block("server")
+
+  defp parsed_tunnel_config do
+    yaml =
+      @doc_path
+      |> File.read!()
+      |> then(&Regex.scan(~r/```yaml\n(.*?)```/s, &1))
+      |> Enum.map(fn [_, block] -> block end)
+      |> Enum.find(&String.starts_with?(&1, "tunnel:"))
+
+    refute is_nil(yaml), "#{@doc_path} no longer contains the tunnel YAML block"
+    assert {:ok, decoded} = YamlElixir.read_from_string(yaml)
+    decoded
+  end
 
   # Mirrors production exactly: `Aiur.Workflow` hands `YamlElixir` output to
   # `Schema.parse/1`, so decoding the doc's own fenced block the same way is the
