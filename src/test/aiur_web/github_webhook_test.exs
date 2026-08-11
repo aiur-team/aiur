@@ -13,6 +13,7 @@ defmodule AiurWeb.GithubWebhookTest do
   import Plug.Conn
   import Plug.Test
 
+  alias Aiur.Webhooks.DeliveryLog
   alias AiurWeb.GithubWebhook
   alias AiurWeb.GithubWebhook.{Auth, BodyReader, Signature}
 
@@ -307,6 +308,109 @@ defmodule AiurWeb.GithubWebhookTest do
     end
   end
 
+  describe "delivery admission" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "aiur-webhook-receiver-#{System.unique_integer([:positive])}")
+
+      log =
+        start_supervised!({DeliveryLog, name: :"receiver_delivery_log_#{System.unique_integer([:positive])}", state_dir: dir})
+
+      original = Application.get_env(:aiur, :webhook_delivery_log)
+      Application.put_env(:aiur, :webhook_delivery_log, log)
+
+      on_exit(fn ->
+        if is_nil(original) do
+          Application.delete_env(:aiur, :webhook_delivery_log)
+        else
+          Application.put_env(:aiur, :webhook_delivery_log, original)
+        end
+
+        File.rm_rf!(dir)
+      end)
+
+      %{log: log}
+    end
+
+    test "a retried delivery reaches the receiver twice and is admitted once" do
+      body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      assert {:process, admission} = admit(body, delivery: "11111111-2222-3333-4444-555555555555")
+      assert admission.event == "issues"
+
+      assert {:drop, :duplicate_delivery, meta} = admit(body, delivery: "11111111-2222-3333-4444-555555555555")
+      assert meta.delivery_id == "11111111-2222-3333-4444-555555555555"
+    end
+
+    test "two different delivery ids carrying the same event are admitted once" do
+      body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      assert {:process, _admission} = admit(body, delivery: "aaaaaaaa-0000-0000-0000-000000000001")
+      assert {:drop, :duplicate_event, meta} = admit(body, delivery: "bbbbbbbb-0000-0000-0000-000000000002")
+      assert is_binary(meta.semantic_key)
+    end
+
+    test "an out-of-order labeled pair converges on the newer label list" do
+      newer = issue_payload(labels: ["bug", "priority:1"], updated_at: "2026-08-10T12:00:05Z")
+      older = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      assert {:process, admission} = admit(newer, delivery: "cccccccc-0000-0000-0000-000000000001")
+      assert admission.label_state.labels == ["bug", "priority:1"]
+      refute admission.label_state.refresh_required?
+
+      assert {:drop, :stale_state, _meta} = admit(older, delivery: "dddddddd-0000-0000-0000-000000000002")
+    end
+
+    test "every admission outcome still acknowledges with 202" do
+      body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      first = signed_delivery(body, "eeeeeeee-0000-0000-0000-000000000001")
+      duplicate = signed_delivery(body, "eeeeeeee-0000-0000-0000-000000000001")
+
+      assert first.status == 202
+      assert duplicate.status == 202
+      assert Jason.decode!(duplicate.resp_body) == %{"status" => "accepted"}
+    end
+
+    test "a wedged store cannot hold the response past GitHub's retry deadline" do
+      # A store that never answers. Without the admission deadline the receiver
+      # would block on its 30s call timeout, GitHub would abandon the delivery at
+      # 10s, and the retry would arrive with the original still in flight.
+      wedged = start_supervised!({Task, fn -> Process.sleep(:infinity) end}, id: :wedged_store)
+      Application.put_env(:aiur, :webhook_delivery_log, wedged)
+      Application.put_env(:aiur, :webhook_admission_timeout_ms, 50)
+      on_exit(fn -> Application.delete_env(:aiur, :webhook_admission_timeout_ms) end)
+
+      body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      {microseconds, conn} =
+        :timer.tc(fn -> signed_delivery(body, "99999999-0000-0000-0000-000000000001") end)
+
+      assert conn.status == 202
+      assert microseconds < 5_000_000, "receiver took #{div(microseconds, 1000)}ms against a wedged store"
+
+      # Fails open: an unverifiable delivery is admitted rather than lost.
+      assert {:process, admission} = Map.fetch!(conn.private, GithubWebhook.admission_key())
+      assert admission.delivery_id == "99999999-0000-0000-0000-000000000001"
+    end
+
+    test "a delivery that fails signature verification never reaches the store", %{log: log} do
+      body = issue_payload(labels: ["bug"], updated_at: "2026-08-10T12:00:00Z")
+
+      unsigned =
+        body
+        |> build_conn(signature: github_signature("wrong-secret", body))
+        |> put_req_header("x-github-delivery", "ffffffff-0000-0000-0000-000000000001")
+        |> put_req_header("x-github-event", "issues")
+        |> call()
+
+      assert unsigned.status == 401
+      assert DeliveryLog.size(log) == 0
+
+      # The same id is still claimable, proving the rejected request left no trace.
+      assert {:process, _admission} = admit(body, delivery: "ffffffff-0000-0000-0000-000000000001")
+    end
+  end
+
   describe "AiurWeb.GithubWebhook.Signature" do
     test "compares digests with a constant-time function" do
       # Asserted structurally as well as behaviourally: a naive `==` passes
@@ -351,6 +455,38 @@ defmodule AiurWeb.GithubWebhookTest do
     padding = bytes - byte_size(prefix) - byte_size(suffix)
 
     prefix <> :binary.copy("a", padding) <> suffix
+  end
+
+  # Shaped like a real `issues` delivery: the full post-action label list plus
+  # the `updated_at` the ordering watermark reads.
+  defp issue_payload(opts) do
+    Jason.encode!(%{
+      "action" => "labeled",
+      "label" => %{"name" => List.last(Keyword.fetch!(opts, :labels))},
+      "repository" => %{"full_name" => "aiur-team/aiur"},
+      "issue" => %{
+        "number" => 1679,
+        "updated_at" => Keyword.fetch!(opts, :updated_at),
+        "labels" => Enum.map(Keyword.fetch!(opts, :labels), &%{"name" => &1})
+      }
+    })
+  end
+
+  defp signed_delivery(body, delivery_id) do
+    body
+    |> build_conn(signature: github_signature(@secret, body))
+    |> put_req_header("x-github-delivery", delivery_id)
+    |> put_req_header("x-github-event", "issues")
+    |> call()
+  end
+
+  # The admission decision the receiver recorded, read back off the conn the
+  # production endpoint returned rather than by calling `Ingest` directly.
+  defp admit(body, opts) do
+    body
+    |> signed_delivery(Keyword.fetch!(opts, :delivery))
+    |> Map.fetch!(:private)
+    |> Map.fetch!(GithubWebhook.admission_key())
   end
 
   defp build_conn(body, opts) do
