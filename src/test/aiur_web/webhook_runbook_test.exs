@@ -278,6 +278,102 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  # AC 6: "documented well enough to redo on a new machine." Every pin above
+  # checks a value the runbook *states*. These check the things it tells a reader
+  # to go *look at* — the modules its security argument rests on, the reference
+  # doc it defers to, and the scripts it says to run. All of them are correct
+  # today and none of them had a test, so a rename or a move lands with the whole
+  # suite green while the runbook quietly starts citing code that is not there.
+  #
+  # The person who finds out is the one following it on a new machine, and they
+  # are the worst-placed to diagnose it: a reference that resolves to nothing is
+  # indistinguishable from their own mistake, on a document whose entire purpose
+  # is to be trusted while they cannot yet verify anything themselves.
+  describe "the things the runbook points a reader at" do
+    test "every module it names exists" do
+      refs = documented_code_refs()
+
+      refute refs == [], "#{@doc_path} no longer names any module — the regex or the doc has moved"
+
+      for {ref, module, _fun, _arity} <- refs do
+        assert Code.ensure_loaded?(module), "the runbook cites `#{ref}` but #{inspect(module)} does not exist"
+      end
+    end
+
+    test "every function it names is exported at the arity it names" do
+      for {ref, module, fun, arity} <- documented_code_refs(), not is_nil(fun) do
+        assert Code.ensure_loaded?(module) and function_exported?(module, fun, arity),
+               "the runbook cites `#{ref}` but #{inspect(module)} exports no #{fun}/#{arity}"
+      end
+    end
+
+    test "the reference doc it defers to is where it says" do
+      links = documented_relative_links()
+
+      refute links == [], "#{@doc_path} no longer links the configuration reference it defers to"
+
+      for {link, path} <- links do
+        assert File.exists?(path), "the runbook links `#{link}`, which resolves to no file"
+      end
+    end
+
+    test "the scripts it tells an operator to run exist and are runnable" do
+      scripts = documented_scripts()
+
+      refute scripts == [], "#{@doc_path} no longer names a script for an operator to run"
+
+      for {ref, path} <- scripts do
+        assert File.exists?(path), "the runbook says to run `#{ref}`, which does not exist"
+
+        # The runbook invokes it directly rather than through `bash`, so a file
+        # committed without its mode bit fails on a fresh clone and nowhere else.
+        assert Bitwise.band(File.stat!(path).mode, 0o111) != 0,
+               "the runbook says to run `#{ref}` directly but it is not executable"
+      end
+    end
+  end
+
+  # Matches a backticked `Module.Name` or `Module.Name.fun/arity`. Restricted to
+  # a capitalised first segment so the runbook's config keys (`webhooks.repos`)
+  # and hostnames (`hooks.<domain>`) are not mistaken for code.
+  @code_ref ~r/`((?:[A-Z][A-Za-z0-9]*)(?:\.[A-Za-z0-9_]+)+(?:\/[0-9]+)?)`/
+
+  defp documented_code_refs do
+    @doc_path
+    |> File.read!()
+    |> then(&Regex.scan(@code_ref, &1))
+    |> Enum.map(fn [_, ref] -> ref end)
+    |> Enum.uniq()
+    |> Enum.map(&parse_code_ref/1)
+  end
+
+  defp parse_code_ref(ref) do
+    case String.split(ref, "/") do
+      [path, arity] ->
+        {segments, [fun]} = path |> String.split(".") |> Enum.split(-1)
+        {ref, Module.concat(segments), String.to_atom(fun), String.to_integer(arity)}
+
+      [path] ->
+        {ref, path |> String.split(".") |> Module.concat(), nil, nil}
+    end
+  end
+
+  defp documented_relative_links do
+    @doc_path
+    |> File.read!()
+    |> then(&Regex.scan(~r/\]\((?!https?:)([^)#]+)\)/, &1))
+    |> Enum.map(fn [_, link] -> {link, Path.expand(link, Path.dirname(@doc_path))} end)
+    |> Enum.uniq()
+  end
+
+  defp documented_scripts do
+    @doc_path
+    |> File.read!()
+    |> then(&Regex.scan(~r/(scripts\/[A-Za-z0-9_.-]+)/, &1))
+    |> Enum.map(fn [_, ref] -> {ref, Path.join(@repo_root, ref)} end)
+    |> Enum.uniq()
+  end
+
   defp usage_output(projection) do
     capture_io(fn -> AgentControlCLI.usage(projection, delivery_modes: documented_example_rows()) end)
   end
