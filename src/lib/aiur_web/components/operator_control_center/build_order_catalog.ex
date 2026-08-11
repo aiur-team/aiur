@@ -75,8 +75,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
               <.catalog_progress entry={entry} />
             </td>
             <td class="bo-catalog-num mono num">{count_display(entry.member_count)}</td>
-            <td class="bo-catalog-num mono num">{count_display(entry.epic_count)}</td>
-            <td class="bo-catalog-num mono num">{count_display(entry.phase_count)}</td>
+            <td class="bo-catalog-num mono num"><.catalog_count count={entry.epic_count} label="Epics" /></td>
+            <td class="bo-catalog-num mono num"><.catalog_count count={entry.phase_count} label="Waves" /></td>
           </tr>
         </tbody>
       </table>
@@ -133,6 +133,27 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderCatalog do
     >
       {@progress.label}
     </span>
+    """
+  end
+
+  attr(:count, :any, required: true)
+  attr(:label, :string, required: true)
+
+  defp catalog_count(assigns) do
+    ~H"""
+    <%= if is_integer(@count) do %>
+      {@count}
+    <% else %>
+      <span
+        class="bo-catalog-progress-unresolved bo-catalog-count-unresolved"
+        data-count-state="unresolved"
+        role="img"
+        aria-label={"#{@label} unresolved; count not fetched"}
+        title={"#{@label} were not fetched for this catalog entry"}
+      >
+        Unresolved
+      </span>
+    <% end %>
     """
   end
 

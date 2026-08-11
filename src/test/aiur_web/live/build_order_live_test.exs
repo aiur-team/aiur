@@ -257,14 +257,76 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert length(Enum.uniq(rendered)) == 4
   end
 
+  test "catalog marks unresolved epic and wave counts without conflating resolved zero", %{source: source} do
+    entries = [
+      progress_root(identity(55, "NODE-55"), "Pack with unfetched dimensions",
+        member_count: 35,
+        epic_count: nil,
+        phase_count: nil
+      ),
+      progress_root(identity(56, "NODE-56"), "Pack with no members",
+        member_count: 0,
+        epic_count: 0,
+        phase_count: 0
+      )
+    ]
+
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+
+    unresolved_counts = catalog_count_cells(document, "Pack with unfetched dimensions")
+    empty_counts = catalog_count_cells(document, "Pack with no members")
+
+    assert Enum.map(unresolved_counts, &catalog_count_text/1) == ["35", "Unresolved", "Unresolved"]
+    assert Enum.map(empty_counts, &catalog_count_text/1) == ["0", "0", "0"]
+
+    assert unresolved_counts
+           |> Enum.drop(1)
+           |> Enum.all?(
+             &(Floki.find(
+                 &1,
+                 ~s(.bo-catalog-progress-unresolved.bo-catalog-count-unresolved[data-count-state="unresolved"])
+               ) != [])
+           )
+
+    unresolved_markers =
+      unresolved_counts
+      |> Enum.drop(1)
+      |> Enum.flat_map(&Floki.find(&1, ".bo-catalog-count-unresolved"))
+
+    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "role")) == [["img"], ["img"]]
+
+    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "aria-label")) == [
+             ["Epics unresolved; count not fetched"],
+             ["Waves unresolved; count not fetched"]
+           ]
+
+    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "title")) == [
+             ["Epics were not fetched for this catalog entry"],
+             ["Waves were not fetched for this catalog entry"]
+           ]
+
+    refute Floki.find(unresolved_counts, ".bo-catalog-invalid") != []
+    assert Enum.all?(empty_counts, &(Floki.find(&1, "[data-count-state]") == []))
+    refute Floki.raw_html(unresolved_counts) =~ "—"
+  end
+
   defp progress_cell(document, title) do
+    document |> catalog_row(title) |> Floki.find("td.bo-catalog-progress-cell")
+  end
+
+  defp catalog_count_cells(document, title),
+    do: document |> catalog_row(title) |> Floki.find("td.bo-catalog-num")
+
+  defp catalog_count_text(cell), do: cell |> Floki.text() |> String.trim()
+
+  defp catalog_row(document, title) do
     document
     |> Floki.find(".bo-catalog-table tbody tr")
     |> Enum.find(fn row -> Floki.text(row) =~ title end)
-    |> then(fn row ->
-      assert row, "no catalog row for #{inspect(title)}"
-      Floki.find(row, "td.bo-catalog-progress-cell")
-    end)
+    |> tap(&assert(&1, "no catalog row for #{inspect(title)}"))
   end
 
   defp progress_state(cell) do
