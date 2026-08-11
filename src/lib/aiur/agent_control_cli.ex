@@ -680,21 +680,86 @@ defmodule Aiur.AgentControlCLI do
     if failed > 0, do: 1, else: 0
   end
 
-  # Every resume queued by this invocation is confirmed against one shared
-  # deadline, so the wait is bounded by the budget rather than by the number
-  # of targets. Each target is still observed at least once before the
-  # deadline is allowed to fail it.
+  # Every resume queued by this invocation is confirmed by one shared polling
+  # loop against one shared deadline: a single fleet read per tick settles all
+  # of them at once. The wait is therefore bounded by the budget no matter how
+  # many targets `--all` selected, and each read is capped by the time actually
+  # left so a slow orchestrator cannot walk past the launcher's RPC timeout.
   defp resolve_queued_resumes(results) do
-    if Enum.any?(results, &match?({:queued_resume, _}, &1)) do
+    queued = for {:queued_resume, status} <- results, do: canonical_identifier(status)
+
+    if queued == [] do
+      results
+    else
       deadline = System.monotonic_time(:millisecond) + resume_confirm_timeout_ms()
+      outcomes = await_resumes_applied(queued, deadline, %{})
 
       Enum.map(results, fn
-        {:queued_resume, status} -> confirm_resume(status, deadline)
-        result -> result
+        {:queued_resume, status} ->
+          report_resume(status, Map.fetch!(outcomes, canonical_identifier(status)))
+
+        result ->
+          result
       end)
-    else
-      results
     end
+  end
+
+  defp await_resumes_applied([], _deadline, outcomes), do: outcomes
+
+  defp await_resumes_applied(pending, deadline, outcomes) do
+    case read_control_states(pending, remaining_ms(deadline)) do
+      {:error, error} ->
+        settle_all(pending, {:status_unreadable, error}, outcomes)
+
+      {:ok, observed} ->
+        {settled, still_paused} = Enum.split_with(pending, &(Map.fetch!(observed, &1) != :paused))
+        outcomes = Enum.into(settled, outcomes, &{&1, Map.fetch!(observed, &1)})
+
+        cond do
+          still_paused == [] ->
+            outcomes
+
+          remaining_ms(deadline) <= @resume_confirm_poll_ms ->
+            settle_all(still_paused, :still_paused, outcomes)
+
+          true ->
+            Process.sleep(@resume_confirm_poll_ms)
+            await_resumes_applied(still_paused, deadline, outcomes)
+        end
+    end
+  end
+
+  defp settle_all(pending, outcome, outcomes), do: Enum.into(pending, outcomes, &{&1, outcome})
+
+  defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
+
+  # Read every queued target from one fleet snapshot. The read never outlives
+  # the confirmation budget, and never claims more than the status timeout.
+  defp read_control_states(pending, remaining) do
+    case Orchestrator.status(Orchestrator, remaining |> max(@resume_confirm_poll_ms) |> min(@status_timeout_ms)) do
+      statuses when is_list(statuses) ->
+        {:ok,
+         Map.new(pending, fn canonical ->
+           case Enum.find(statuses, &target_matches?(&1, canonical)) do
+             nil -> {canonical, :no_longer_tracked}
+             %{state: :paused} -> {canonical, :paused}
+             _status -> {canonical, :applied}
+           end
+         end)}
+
+      error when error in [:timeout, :unavailable] ->
+        {:error, error}
+    end
+  end
+
+  defp report_resume(status, :applied) do
+    IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
+    :ok
+  end
+
+  defp report_resume(status, detail) do
+    print_unconfirmed_resume(status, detail)
+    {:error, {:resume_unconfirmed, detail}}
   end
 
   defp select_targets(:pause, :all, statuses) do
@@ -776,53 +841,6 @@ defmodule Aiur.AgentControlCLI do
       {:error, reason} ->
         print_failure(:resume, status, reason)
         {:error, reason}
-    end
-  end
-
-  defp confirm_resume(status, deadline) do
-    case await_resume_applied(canonical_identifier(status), deadline) do
-      :applied ->
-        IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
-        :ok
-
-      {:unconfirmed, detail} ->
-        print_unconfirmed_resume(status, detail)
-        {:error, {:resume_unconfirmed, detail}}
-    end
-  end
-
-  defp await_resume_applied(canonical, deadline) do
-    case observe_control_state(canonical) do
-      :running ->
-        :applied
-
-      {:unreadable, error} ->
-        {:unconfirmed, {:status_unreadable, error}}
-
-      :gone ->
-        {:unconfirmed, :no_longer_tracked}
-
-      :paused ->
-        if System.monotonic_time(:millisecond) + @resume_confirm_poll_ms < deadline do
-          Process.sleep(@resume_confirm_poll_ms)
-          await_resume_applied(canonical, deadline)
-        else
-          {:unconfirmed, :still_paused}
-        end
-    end
-  end
-
-  defp observe_control_state(canonical) do
-    case Orchestrator.status() do
-      statuses when is_list(statuses) ->
-        case Enum.find(statuses, &target_matches?(&1, canonical)) do
-          nil -> :gone
-          %{state: :paused} -> :paused
-          _status -> :running
-        end
-
-      error when error in [:timeout, :unavailable] ->
-        {:unreadable, error}
     end
   end
 
