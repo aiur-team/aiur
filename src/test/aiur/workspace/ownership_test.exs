@@ -27,9 +27,11 @@ defmodule Aiur.Workspace.OwnershipTest do
     parent = self()
     process_group_id = System.unique_integer([:positive])
     {:ok, group_alive} = Agent.start_link(fn -> true end)
+    {:ok, telemetry} = Agent.start_link(fn -> [] end)
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(group_alive)
+      Aiur.TestSupport.safe_stop(telemetry)
     end)
 
     assert {:ok, lease} =
@@ -44,23 +46,29 @@ defmodule Aiur.Workspace.OwnershipTest do
                  end
                end,
                telemetry_fun: fn ownership, boundary, outcome ->
-                 send(parent, {:ownership_telemetry, boundary, outcome, ownership})
+                 Agent.update(telemetry, &[{boundary, outcome, ownership} | &1])
                end
              )
 
-    assert_receive {:ownership_telemetry, :start, :claimed, %{phase: :provisioning}}
+    assert [{:start, :claimed, %{phase: :provisioning}}] = telemetry_events(telemetry)
     assert {:ok, active_lease} = Ownership.activate(lease)
-    assert_receive {:ownership_telemetry, :point, :active, %{phase: :active}}
+    assert [{:start, :claimed, %{phase: :provisioning}}, {:point, :active, %{phase: :active}}] = telemetry_events(telemetry)
     assert :ok = Ownership.track_process_group(active_lease, process_group_id)
 
     release = Task.async(fn -> Ownership.release_and_wait(active_lease) end)
 
-    assert_receive {:ownership_telemetry, :point, :reaping, %{phase: :reaping}}
     assert_receive {:telemetry_reap, reaper, ^process_group_id}
+
+    assert [{:start, :claimed, %{phase: :provisioning}}, {:point, :active, %{phase: :active}}, {:point, :reaping, %{phase: :reaping}}] =
+             telemetry_events(telemetry)
+
     assert {:ok, %{phase: :reaping}} = Ownership.current(ticket)
     send(reaper, :finish_telemetry_reap)
     assert {:ok, %{phase: :released}} = Task.await(release, 2_000)
-    assert_receive {:ownership_telemetry, :end, :released, %{phase: :released}}
+
+    assert [{:start, :claimed, %{phase: :provisioning}}, {:point, :active, %{phase: :active}}, {:point, :reaping, %{phase: :reaping}}, {:end, :released, %{phase: :released}}] =
+             telemetry_events(telemetry)
+
     assert :none = Ownership.current(ticket)
   end
 
@@ -1056,4 +1064,6 @@ defmodule Aiur.Workspace.OwnershipTest do
     assert_receive {:DOWN, ^guardian_monitor, :process, ^guardian, :normal}, 2_000
     assert :none = Ownership.current(ticket)
   end
+
+  defp telemetry_events(telemetry), do: Agent.get(telemetry, &Enum.reverse/1)
 end
