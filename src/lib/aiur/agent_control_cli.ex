@@ -10,6 +10,7 @@ defmodule Aiur.AgentControlCLI do
     BuildOrdersCLI,
     CommandsCLI,
     Config,
+    ExecutorCommandCLI,
     ExecutorEvents,
     Issue,
     Orchestrator,
@@ -172,6 +173,16 @@ defmodule Aiur.AgentControlCLI do
   @spec commands(keyword()) :: :ok
   def commands(opts \\ []) do
     guarded("commands", fn -> CommandsCLI.run(opts) |> exit_marker() end)
+  end
+
+  @spec executor_answer(keyword()) :: :ok
+  def executor_answer(opts) when is_list(opts) do
+    guarded("executor-answer", fn -> ExecutorCommandCLI.answer(opts) |> exit_marker() end)
+  end
+
+  @spec executor_escalate(keyword()) :: :ok
+  def executor_escalate(opts) when is_list(opts) do
+    guarded("executor-escalate", fn -> ExecutorCommandCLI.escalate(opts) |> exit_marker() end)
   end
 
   @spec units(keyword()) :: :ok
