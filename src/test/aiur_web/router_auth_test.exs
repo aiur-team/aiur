@@ -214,12 +214,16 @@ defmodule AiurWeb.RouterAuthTest do
   end
 
   test "write API does not trust an attacker-controlled Host as its own origin" do
+    System.put_env("AIUR_DASHBOARD_USERNAME", "operator")
+    System.put_env("AIUR_DASHBOARD_PASSWORD", "secret")
+
     conn =
       :get
       |> conn("/api/v1/pane/hide")
       |> Map.put(:host, "evil.example")
       |> put_req_header("origin", "http://evil.example")
       |> put_req_header("x-aiur-request", "1")
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
       |> Router.call(Router.init([]))
 
     assert conn.status == 403
