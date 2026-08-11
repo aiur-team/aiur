@@ -301,6 +301,21 @@ defmodule Aiur.Config.SchemaTest do
       assert settings.polling.interval_seconds == 60
     end
 
+    # The poll loop's GitHub spend is fixed cost that scales as 1/interval, so
+    # the default is what most fleets actually pay. At 30s it exceeded GitHub's
+    # whole 5,000 point/hour budget on its own. An operator who configures a
+    # tighter interval still gets it; only the unset case is widened.
+    test "interval_seconds defaults to the widened 120s" do
+      {:ok, unset} = Schema.parse(%{})
+      assert unset.polling.interval_seconds == 120
+
+      {:ok, empty_section} = Schema.parse(%{"polling" => %{}})
+      assert empty_section.polling.interval_seconds == 120
+
+      {:ok, tightened} = Schema.parse(%{"polling" => %{"interval_seconds" => 15}})
+      assert tightened.polling.interval_seconds == 15
+    end
+
     # Measured: the provider usage endpoint serves roughly one request per two
     # minutes. Below that the excess is rejected and the meters quietly stop
     # updating, so the floor is enforced rather than merely documented.

@@ -244,6 +244,8 @@ on your `PATH`:
 | `aiurdev --no-dashboard` | Start the foreground terminal UI without the web dashboard |
 | `aiurdev stop` | Stop the running session (BEAM + tmux) |
 | `aiurdev status` | Show active agents and their running/paused/idle state, GitHub CI readiness, and `SUPERVISION N/N` liveness; a degraded or unavailable supervision tree returns nonzero |
+| `aiurdev executor-answer <decision-id> --expected-version <n> (--option <id>\|--custom-response <text>) --rationale <text> --idempotency-key <key> [--executor-id <id>]` | Record a direct Command answer with an explicit Executor actor; version and idempotency fields make listener replay safe |
+| `aiurdev executor-escalate <decision-id> --expected-version <n> --reason <text> [--executor-id <id>]` | Leave a Command open and raise one keyed operator notification when Executor judgment is insufficient |
 | `aiurdev units [--scope live\|unfinished\|all\|none] [--condition active\|alert\|paused\|queued\|finished]... [--format auto\|table\|records] [--json]` | Render the dashboard's Units ticket view, including its filters and source freshness; `--format` picks the human layout (`auto` uses a table only on a wide terminal); `--json` emits the stable envelope |
 | `aiurdev analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiurdev pause <id...>` / `pause --all` | Cooperatively pause agents by issue ID |
@@ -266,15 +268,27 @@ Concurrent `--only` invocations are not coordinated across processes; running
 two overlapping `aiurdev --todo ... --only` commands can drop each other's
 tickets, so avoid running them at the same time.
 
-If a control command times out while the daemon is still live, the host may be
-unresponsive. Run `aiurdev stop` to interrupt that session and its workers,
-then start it again; this is a session-level recovery action, not a cooperative
-single-agent pause.
+If a control command times out while the daemon is still live, the outcome is
+unknown. Check the daemon state before retrying or taking destructive action;
+the CLI does not infer a cause or recommend restarting the whole session. It
+does print what it can observe without the daemon cooperating — the
+orchestrator's mailbox depth, run status and current function — because a large
+mailbox or a blocked current function means one process is stuck, not that the
+host is busy.
+
+`resume` on a paused agent never claims an outcome it has not observed. The
+orchestrator answers as soon as the resume control request is queued for the
+agent, so the CLI then waits for that agent to actually leave the paused state
+before printing `aiur: resumed #44`. Every resume in one invocation shares a
+single 4s confirmation budget, so `resume --all` stays inside the control-RPC
+timeout. If the agent is still paused when the budget expires, the CLI says the
+request was accepted but the resume is unconfirmed, and exits 1 — a queued
+request is never reported as a completed resume.
 
 Read-only fleet queries never use an empty buffer to mean success: `status`,
 `agents`, and `watch` print an affirmative empty-fleet row when no agents are
 active. Query failures print one stderr diagnostic and exit 1. Bounded query
-timeouts name their budget, report the observed orchestrator mailbox and current function rather than guessing a cause,
+timeouts name their budget, report that the outcome is unknown, and print the observed orchestrator mailbox and current function rather than guessing a cause,
 and exit 124; any partial fleet output captured before an outer RPC timeout is
 discarded rather than presented as a trustworthy snapshot.
 

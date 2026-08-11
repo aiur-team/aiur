@@ -15,10 +15,16 @@ defmodule Aiur.Config.Schema.Webhooks do
     # How often the registry checks proven repos for silence.
     field(:sweep_interval_seconds, :integer, default: 60)
     # Multiplier applied to the base poll interval for repos proven
-    # webhook-backed. Defaults to 1.0 so enabling webhook detection changes no
-    # interval on its own; widening is the cutover ticket's call. Values below
-    # 1.0 are rejected — this dial may only ever slow polling down.
-    field(:poll_widen_factor, :float, default: 1.0)
+    # webhook-backed. Values below 1.0 are rejected — this dial may only ever
+    # slow polling down.
+    #
+    # 2.0 is the cutover's first step (#1680), deliberately one step and not a
+    # jump: with the 120s base it puts a proven repo on a 240s reconciliation
+    # sweep. It applies only to a repo that has actually delivered, so a repo
+    # that is merely configured — or that has gone silent and been degraded by
+    # the sweep — polls at the base interval exactly as it did before webhooks
+    # existed. Widen further only after a fleet measurement at the current step.
+    field(:poll_widen_factor, :float, default: 2.0)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()

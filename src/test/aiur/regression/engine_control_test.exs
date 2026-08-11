@@ -255,7 +255,7 @@ defmodule Aiur.Regression.EngineControlTest do
 
       File.write!(Path.join([rel, "bin", "aiur"]), """
       #!/usr/bin/env bash
-      echo "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 5s; daemon may be scheduler-saturated"
+      echo "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 5s; outcome is unknown"
       echo "__AIUR_CONTROL_EXIT__:124"
       """)
 
@@ -275,7 +275,7 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "CODE=124"
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
-      assert out =~ "aiur: status query timed out after 5s; daemon may be scheduler-saturated"
+      assert out =~ "aiur: status query timed out after 5s; outcome is unknown"
       refute out =~ "__AIUR_CONTROL_ERROR__"
       refute out =~ "__AIUR_CONTROL_EXIT__"
     end
@@ -355,7 +355,7 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
       assert out =~ "timed out after 1s"
-      assert out =~ "cause unknown"
+      assert out =~ "outcome is unknown"
       assert out =~ "partial output was discarded"
       refute out =~ "ISSUE  STATE"
       refute out =~ "#44    working"
@@ -409,7 +409,7 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
       assert out =~ "aiur: status failed against"
-      assert out =~ "with no output (node is running); cause unknown"
+      assert out =~ "with no diagnostic output (node is running); outcome is unknown"
       refute out =~ "see the error above"
     end
 
