@@ -1066,6 +1066,48 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
+  # The compressed row's meta track is a fixed width that does not wrap, so the
+  # coverage statement is carried there in its short form. The full sentence —
+  # leader, its share, coverage and the estimation caveat — overflowed the
+  # grouped table and broke the row's no-horizontal-scroll guarantee.
+  test "the compressed row states coverage in short form and names no leader" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        quota =
+          github_quota_view()
+          |> Map.put(:attribution, [
+            %{consumer: "ticket:1790", reads: 3, writes: 0, total: 3, cost: 78, costs: %{"graphql" => 78}, estimated?: true}
+          ])
+          |> Map.put(:coverage, %{
+            attributed: 174,
+            named: 78,
+            spend: 5750,
+            fraction: 0.0303,
+            named_fraction: 0.0136,
+            estimated?: true,
+            resources: %{}
+          })
+
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: quota,
+            now: @now
+          })
+
+        assert html =~ "Attributed"
+        assert html =~ "1.4% of 5750 spent"
+
+        # The long form belongs to the full card, not to this row.
+        refute html =~ "spent this window"
+        refute html =~ "GraphQL cost partly estimated"
+        refute html =~ "ticket:1790"
+      end)
+    end)
+  end
+
   # The distinction the compressed row exists to preserve (issue #1564): a
   # stale or unavailable reading must never render like a healthy zero.
   test "the compressed row distinguishes stale and unavailable from a healthy zero" do

@@ -392,20 +392,27 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end) ++ compressed_backoff_lines(backoffs, now)
   end
 
-  # The compressed strip carries the coverage caveat too. Dropping it there
-  # would leave the same unqualified leader the full card no longer shows.
+  # The compressed strip carries the coverage caveat too: the grouped table
+  # shows GitHub's meters, and a meter with no statement of how much of it Aiur
+  # can explain is the surface #1805 reported.
+  #
+  # It carries the short form, though. This row's meta track is a fixed width
+  # that does not wrap, so the full sentence — leader, its share, coverage and
+  # the estimation caveat — pushed the whole table past the viewport and broke
+  # the compressed row's no-horizontal-scroll guarantee. The leader itself is
+  # not compressed at all; the compressed row never named one, and the fraction
+  # is the part that keeps the meter honest.
   defp compressed_coverage_lines(quota) do
     case github_coverage(quota) do
       nil -> []
-      coverage -> [%{label: "Attributed", percent: nil, class: "", meta: compressed_coverage_meta(quota, coverage)}]
+      coverage -> [%{label: "Attributed", percent: nil, class: "", meta: compressed_coverage_meta(coverage)}]
     end
   end
 
-  defp compressed_coverage_meta(quota, coverage) do
-    case github_top_consumer(quota) do
-      nil -> github_coverage_meta(coverage)
-      consumer -> "#{github_top_consumer_meta(consumer, coverage)} · #{github_coverage_meta(coverage)}"
-    end
+  defp compressed_coverage_meta(coverage) do
+    named = Map.get(coverage, :named_fraction) || 0.0
+
+    "#{percent_text(named)} of #{Map.get(coverage, :spend, 0)} spent"
   end
 
   # A backoff is a live stoppage rather than a measured window, so it renders
