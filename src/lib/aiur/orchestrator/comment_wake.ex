@@ -498,6 +498,60 @@ defmodule Aiur.Orchestrator.CommentWake do
   end
 
   @doc """
+  Re-deliver a comment wake later because a transient, non-tracker condition
+  blocked it.
+
+  The PR-anchored path (`Aiur.Orchestrator.PrAnchored`) builds a synthetic work
+  unit that carries no `agent:*` label and is not in the tracker, so the poll
+  loop can never rediscover it. When the host-pressure admission gate holds that
+  dispatch, dropping it would strand the work until a new human comment arrived.
+  This re-arms the same bounded, escalating `{:retry_comment_rework, ...}` chain
+  the tracker-failure path uses, so the held unit is re-offered to the gate on
+  its own.
+
+  Returns `{state, :scheduled | :exhausted}` so the caller can escalate when the
+  chain runs out and the work really is being dropped.
+  """
+  @spec schedule_comment_wake_retry(
+          State.t(),
+          String.t() | integer(),
+          String.t() | atom(),
+          map(),
+          pos_integer(),
+          String.t()
+        ) :: {State.t(), :scheduled | :exhausted}
+  def schedule_comment_wake_retry(%State{} = state, issue_number, source, event, attempt, reason_label)
+      when is_integer(attempt) and is_binary(reason_label) do
+    max_attempts = comment_rework_max_attempts()
+    key = comment_rework_retry_key(issue_number, source)
+
+    # At most one live timer per issue+source: the decision being made now
+    # supersedes any earlier scheduled attempt.
+    state = cancel_comment_rework_retry(state, key)
+
+    if attempt >= max_attempts do
+      {state, :exhausted}
+    else
+      next_attempt = attempt + 1
+      delay_ms = comment_rework_retry_delay_ms(attempt)
+
+      timer_ref =
+        Process.send_after(
+          self(),
+          {:retry_comment_rework, issue_number, source, event, next_attempt},
+          delay_ms
+        )
+
+      Logger.info(
+        "#{source} comment wake retry scheduled: issue_identifier=#{issue_number} " <>
+          "attempt=#{next_attempt}/#{max_attempts} delay_ms=#{delay_ms} reason=#{reason_label}"
+      )
+
+      {put_comment_rework_retry(state, key, {timer_ref, issue_number, source}), :scheduled}
+    end
+  end
+
+  @doc """
   Is a failed rework transition worth retrying?
 
   The retry chain runs up to `comment_rework_max_attempts/0` attempts with

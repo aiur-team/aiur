@@ -82,7 +82,7 @@ defmodule Aiur.AgentControlCLI do
       with {statuses, capacity} when is_list(statuses) and is_map(capacity) <-
              Orchestrator.status_with_capacity(Orchestrator, timeout_ms),
            :ok <- print_global_pause_banner(opts, timeout_ms) do
-        print_status_report(statuses, capacity, load_sample, opts)
+        print_status_report(statuses, capacity, opts)
       else
         {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
         error -> report_control_query_failure(error, "status", timeout_ms)
@@ -90,7 +90,7 @@ defmodule Aiur.AgentControlCLI do
     end)
   end
 
-  defp print_status_report(statuses, capacity, load_sample, opts) do
+  defp print_status_report(statuses, capacity, opts) do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -99,7 +99,7 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.filter(&visible_status_row?(&1, tracker_states))
     |> print_status_table()
 
-    print_capacity_status(capacity, load_sample)
+    print_capacity_status(capacity)
 
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
@@ -911,16 +911,17 @@ defmodule Aiur.AgentControlCLI do
   defp status_reason_suffix(%{reason: reason}) when not is_nil(reason), do: " (#{StatusReason.render(reason)})"
   defp status_reason_suffix(_status), do: ""
 
-  defp print_capacity_status(
-         %{occupied: occupied, max: max, effective: effective, configured: configured} = capacity,
-         load_sample
-       )
+  # The binding constraint is read ONLY from the daemon's own capacity report.
+  # The local load sample printed above is deliberately NOT merged in here: the
+  # CLI may not run on the daemon's host, and it reads its own config file
+  # rather than the daemon's live config, so a locally re-derived gate can name
+  # a fleet-level cause the daemon never decided (#1610).
+  defp print_capacity_status(%{occupied: occupied, max: max, effective: effective, configured: configured} = capacity)
        when is_integer(occupied) and is_integer(max) and is_integer(effective) and is_integer(configured) do
-    capacity = Map.merge(capacity, load_sample)
     IO.puts("AGENTS #{occupied}/#{max} (binding: #{capacity_binding_label(capacity_binding(capacity))})")
   end
 
-  defp print_capacity_status(_capacity, _load_sample), do: :ok
+  defp print_capacity_status(_capacity), do: :ok
 
   defp local_load_sample do
     threshold = Config.max_load_average()
@@ -946,43 +947,33 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, _detail}), do: "none"
 
-  # A persisted hold is the daemon's active admission decision. Local load is
-  # sampled before its RPC to keep the saturation signal visible through a
-  # timeout, but it must not erase a load hold that the daemon has not yet
-  # cleared on a later admission poll.
+  # `capacity_hold` is the daemon's own persisted admission decision — the only
+  # source allowed to name an admission signal as the fleet's binding
+  # constraint. Nothing here re-derives a gate locally.
   defp capacity_binding(%{capacity_hold: %{} = hold}),
     do: {:admission, hold}
 
   defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do
-    case load_gate_binding(capacity) do
-      nil ->
-        if capacity_binding_ticket_supply?(capacity) do
-          {:ticket_supply, 0}
-        else
-          capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
-        end
-
-      binding ->
-        binding
+    if capacity_binding_ticket_supply?(capacity) do
+      {:ticket_supply, 0}
+    else
+      capacity_binding_with_capacity(capacity, max, effective, configured, occupied)
     end
   end
 
-  defp load_gate_binding(%{load: load, load_threshold: threshold, schedulers: schedulers})
-       when is_integer(schedulers) and schedulers > 0 do
-    case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
-      {:hold, reason} -> {:admission, reason}
-      :dispatch -> nil
-    end
-  end
-
-  defp load_gate_binding(_capacity), do: nil
-
+  # A LOCAL host-pressure reading, taken before the control RPC so the
+  # saturation signal survives an RPC timeout (the timeout is most likely
+  # precisely when the box is loaded). It is explicitly not a fleet decision:
+  # the daemon may run on another host, with another config, and may not be
+  # holding at all. So the line says "local host sample" and, when the local
+  # reading is over the local threshold, predicts a possible hold rather than
+  # asserting one.
   defp print_load_status(%{load: load, load_threshold: threshold, schedulers: schedulers})
        when is_number(load) and is_number(threshold) and is_integer(schedulers) and schedulers > 0 do
     suffix =
       case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
-        {:hold, _reason} -> " (binding: load)"
-        :dispatch -> ""
+        {:hold, _reason} -> " (local host sample; over local threshold, dispatch may be held)"
+        :dispatch -> " (local host sample)"
       end
 
     IO.puts("LOAD #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")

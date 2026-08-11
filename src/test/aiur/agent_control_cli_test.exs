@@ -654,7 +654,7 @@ defmodule Aiur.AgentControlCLITest do
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
   end
 
-  test "status mirrors a held load admission and prints its raw sample", %{orchestrator: pid} do
+  test "status reports only the daemon's own admission hold as the binding constraint", %{orchestrator: pid} do
     local_schedulers = System.schedulers_online()
     local_load = local_schedulers * 2.0
     previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
@@ -706,33 +706,62 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
-    assert output =~ "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
 
+    assert output =~
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
+
+    # The daemon still holds. A quiet LOCAL sample must not clear the daemon's
+    # decision, and the local line must never claim to be the fleet's binding
+    # constraint.
     Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 1.0 1.0 1/1 1"} end)
 
     persisted_hold_output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert persisted_hold_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
-    assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers}"
-    refute persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
+    assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
+    refute persisted_hold_output =~ "(binding: load)"
 
+    # The inverse, and the actual regression guard: the daemon is NOT holding,
+    # but the CLI's own host is over the CLI's own threshold. A locally
+    # re-derived gate used to print "binding: load" here — a fleet-level cause
+    # the daemon never decided (#1610).
     Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
     :sys.replace_state(pid, fn _state -> %{sampled | capacity_hold: nil} end)
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert fallback_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert fallback_output =~ "AGENTS 0/10 (binding: none)"
+    refute fallback_output =~ "AGENTS 0/10 (binding: load"
 
     assert fallback_output =~
-             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
   end
 
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
+    # Deliberately run this at a HIGH local load with the daemon NOT holding
+    # (capacity_hold: nil). Ticket supply is the real binding constraint here;
+    # a locally re-derived load gate used to overwrite it with "binding: load"
+    # (#1610). A pinned 0.0 loadavg would let that defect pass unnoticed, so the
+    # sample is pushed well over the local threshold on purpose.
+    schedulers = System.schedulers_online()
+    saturated_load = schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{saturated_load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
     :sys.replace_state(pid, fn state ->
       %{
         state
         | max_concurrent_agents: 2,
           effective_concurrent_agents: 2,
+          capacity_hold: nil,
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
             "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
@@ -743,6 +772,13 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "AGENTS 0/2 (binding: ticket supply)"
+    refute output =~ "AGENTS 0/2 (binding: load"
+
+    # The local reading is still reported — just as a local host sample, not as
+    # the fleet's decision.
+    assert output =~
+             "LOAD #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -1544,7 +1580,10 @@ defmodule Aiur.AgentControlCLITest do
     try do
       output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
 
-      assert output =~ "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} (binding: load)"
+      assert output =~
+               "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+                 "(local host sample; over local threshold, dispatch may be held)"
+
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
 

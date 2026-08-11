@@ -23,6 +23,39 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16) == :dispatch
     end
+
+    # admission_gate/1 must never report a load decision that load_admission_reason/3
+    # would not make, and the reported threshold must always be the already
+    # multiplied `threshold * schedulers` — the operator reads that number
+    # straight off the status line, so the two surfaces cannot be allowed to
+    # print different values for the same gate (#1610).
+    test "admission_gate never disagrees with load_admission_reason" do
+      probes = fn load ->
+        %{
+          memory_mb: :unavailable,
+          memory_threshold_mb: nil,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: load,
+          load_threshold: 1.5,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          github_quota: :available,
+          cpu_snapshot: :unavailable,
+          target: nil,
+          queued_demand?: true
+        }
+      end
+
+      for load <- [0.0, 1.0, 23.9, 24.0, 24.1, 25.0, 400.0, :unavailable] do
+        assert DispatchPolicy.admission_gate(probes.(load)) ==
+                 DispatchPolicy.load_admission_reason(load, 1.5, 16)
+      end
+
+      assert {:hold, %{signal: :load, threshold: 24.0}} = DispatchPolicy.admission_gate(probes.(25.0))
+    end
   end
 
   describe "prewarm_gate/2" do
