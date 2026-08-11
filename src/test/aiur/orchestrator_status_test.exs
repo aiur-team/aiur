@@ -501,7 +501,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert :ok = GenServer.stop(orchestrator, :normal)
     assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
     refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
-    assert :snapshot_timeout = SnapshotStore.read(orchestrator, 50)
+    assert :orchestrator_unavailable = SnapshotStore.read(orchestrator, 50)
   end
 
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do

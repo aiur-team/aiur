@@ -417,7 +417,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   defp live_pid(orchestrator) do
-    GenServer.whereis(orchestrator)
+    case GenServer.whereis(orchestrator) do
+      pid when is_pid(pid) -> if(Process.alive?(pid), do: pid, else: nil)
+      _ -> nil
+    end
   catch
     :exit, _reason -> nil
   end
