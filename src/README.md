@@ -69,7 +69,9 @@ configured limit.
 captured-source freshness. Pass a root identifier to inspect its members,
 completion state, and directed dependency edges; `--json` returns the same read
 as a versioned JSON envelope. Unknown completion remains `unresolved` rather
-than being reported as zero.
+than being reported as zero. Selected graphs retain valid same-repository native
+dependencies whose endpoints are outside the Build Order as unknown edges;
+malformed or contradictory endpoint locators still invalidate the refresh.
 
 ```bash
 aiur build-orders

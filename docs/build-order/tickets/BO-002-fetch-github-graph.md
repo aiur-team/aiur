@@ -63,8 +63,11 @@ budgets at the 100-member bound.
   diagnostic plus an optional separately validated GitHub URL; never follow it
   with provider I/O or treat it as an internal missing member.
 - Reject a candidate on any required page/field error, pagination/count
-  mismatch, duplicate canonical identity, unresolved internal endpoint,
-  over-limit membership, or structurally invalid selected root.
+  mismatch, duplicate canonical identity, contradictory internal endpoint
+  locator, over-limit membership, or structurally invalid selected root.
+  After complete member pagination, retain a valid same-repository dependency
+  endpoint absent from the selected member set as an unknown edge rather than
+  treating it as missing provider data.
 - Detect exact configured bounds without truncation. A root catalog at 100 and
   a selected graph at 100 members succeed by default; `bound + 1`, `hasNextPage`
   at the bound, exhausted page budget, or exhausted call budget is a structured

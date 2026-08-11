@@ -59,8 +59,8 @@ defmodule Aiur.BuildOrder.GitHubGraph.Dependencies do
           :ok ->
             {dependency, diagnostics}
 
-          :unresolved ->
-            {dependency, [Diagnostic.new(:unresolved_internal_dependency) | diagnostics]}
+          :outside_graph ->
+            {dependency, diagnostics}
 
           :contradictory ->
             dependency = append_diagnostics(dependency, [Diagnostic.new(:invalid_endpoint_locator)])
@@ -75,7 +75,11 @@ defmodule Aiur.BuildOrder.GitHubGraph.Dependencies do
   defp status(%Dependency{kind: :native, identity: identity, url: url}, locators) do
     case Map.fetch(locators, Endpoint.key(identity)) do
       {:ok, canonical} -> if(Endpoint.locator_matches?(identity, url, canonical), do: :ok, else: :contradictory)
-      :error -> :unresolved
+      # Member pagination is complete before this validation runs, so a valid
+      # same-repository endpoint absent from the selected member set is outside
+      # this Build Order rather than missing provider data. Preserve it for the
+      # presenter to render conservatively as an unknown edge.
+      :error -> if(canonical_locator_conflict?(identity, locators), do: :contradictory, else: :outside_graph)
     end
   end
 
@@ -87,6 +91,20 @@ defmodule Aiur.BuildOrder.GitHubGraph.Dependencies do
       case Endpoint.key(record.identity) do
         nil -> locators
         key -> Map.put_new(locators, key, %{identity: record.identity, url: record.url})
+      end
+    end)
+  end
+
+  defp canonical_locator_conflict?(identity, locators) do
+    Enum.any?(locators, fn {_key, %{identity: canonical}} ->
+      case {Endpoint.key(identity), Endpoint.key(canonical)} do
+        {{:github, owner, repository, _}, {:github, canonical_owner, canonical_repository, _}}
+        when owner == canonical_owner and repository == canonical_repository ->
+          (not is_nil(identity.database_id) and identity.database_id == canonical.database_id) or
+            identity.identifier == canonical.identifier
+
+        _ ->
+          false
       end
     end)
   end

@@ -690,17 +690,31 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_identity in Enum.map(selected.root.diagnostics, & &1.code)
   end
 
-  test "detects a missing internal endpoint and accepts a cycle when every endpoint is present" do
+  test "keeps an in-flight root usable when a native dependency leaves the graph" do
     root = root(1)
-    missing_internal = member(2, root, blocked_by: [endpoint(99)])
+    completed = member(2, root)
+    in_flight = member(3, root, blocked_by: [endpoint(99)])
 
-    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
-             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_internal], 1)))
+    responses = [
+      selected_response(root, [completed], 2, has_next?: true, cursor: "member-page-2"),
+      selected_response(root, [in_flight], 2)
+    ]
 
-    assert :unresolved_internal_dependency in (selected.members
-                                               |> hd()
-                                               |> Map.fetch!(:diagnostics)
-                                               |> Enum.map(& &1.code))
+    assert {:ok, %{candidate: selected, calls: 2, pages: 2}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(queued_responses(responses), page_budget: 2, call_budget: 2)
+             )
+
+    assert Enum.map(selected.members, & &1.lifecycle.state) == [:closed, :open]
+
+    selected_in_flight = Enum.find(selected.members, &(&1.identity.identifier == "3"))
+    assert [%{kind: :native, identity: %{identifier: "99"}}] = selected_in_flight.dependencies
+    refute :unresolved_internal_dependency in Enum.map(selected_in_flight.diagnostics, & &1.code)
+  end
+
+  test "accepts a cycle when every endpoint is present" do
+    root = root(1)
 
     unqualified_endpoint = endpoint(98) |> Map.delete("repository")
     unqualified = member(3, root, blocked_by: [unqualified_endpoint])
@@ -720,6 +734,48 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
              GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [first, second], 2)))
 
     assert Enum.map(members, & &1.identity.identifier) == ["2", "3"]
+  end
+
+  test "rejects a changed node ID when another locator names a canonical member" do
+    root = root(1)
+    canonical_member = member(3, root)
+    endpoint = endpoint_from(canonical_member) |> Map.put("id", "Iunknown")
+
+    conflicting_endpoints = [
+      endpoint,
+      endpoint |> Map.put("number", 99) |> Map.put("url", "https://github.com/owner/repo/issues/99"),
+      Map.put(endpoint, "databaseId", 99)
+    ]
+
+    for conflicting_endpoint <- conflicting_endpoints do
+      child = member(2, root, blocking: [conflicting_endpoint])
+
+      assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+               GitHubGraph.fetch_selected_root(
+                 identity(root),
+                 base_opts(selected_response(root, [child, canonical_member], 2))
+               )
+
+      [selected_child, _canonical_member] = selected.members
+      assert :invalid_endpoint_locator in Enum.map(selected_child.diagnostics, & &1.code)
+    end
+  end
+
+  test "keeps a distinct outside endpoint when database IDs are absent" do
+    root = root(1)
+    canonical_member = member(3, root) |> Map.put("databaseId", nil)
+    outside_endpoint = endpoint(99) |> Map.put("databaseId", nil)
+    child = member(2, root, blocking: [outside_endpoint])
+
+    assert {:ok, %{candidate: %{members: [selected_child, _canonical_member]}}} =
+             GitHubGraph.fetch_selected_root(
+               identity(root),
+               base_opts(selected_response(root, [child, canonical_member], 2))
+             )
+
+    [dependency] = selected_child.dependencies
+    assert dependency.identity.identifier == "99"
+    refute :invalid_endpoint_locator in Enum.map(selected_child.diagnostics, & &1.code)
   end
 
   test "rejects native dependency endpoints with a matching node ID but contradictory locators" do
