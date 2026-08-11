@@ -1,6 +1,8 @@
 defmodule Aiur.GitHub.ConnectivityTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
   alias Aiur.GitHub.Connectivity
 
   # WHY: #617 — flaky GitHub DNS/auth failures used to only Logger.warning
@@ -108,6 +110,22 @@ defmodule Aiur.GitHub.ConnectivityTest do
                now: now,
                retry_after: 30
              }) == 3_600_000
+    end
+
+    test "rate_limited bounds and logs a malformed far-future reset" do
+      now = ~U[2026-08-09 21:00:00Z]
+      raw_reset_at = "2026-09-19T21:00:00Z"
+
+      log =
+        capture_log(fn ->
+          assert Connectivity.backoff_ms(:rate_limited, 1, %{
+                   reset_at: raw_reset_at,
+                   now: now
+                 }) == 3_600_000
+        end)
+
+      assert log =~ "github_reset_backoff_clamped"
+      assert log =~ "raw_reset_at=#{inspect(raw_reset_at)}"
     end
 
     test "rate_limited honors retry_after when present" do
