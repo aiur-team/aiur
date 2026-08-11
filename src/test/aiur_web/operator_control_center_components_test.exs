@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   import Phoenix.LiveViewTest, only: [render_component: 2]
 
-  alias Aiur.BuildOrder.Icon
+  alias Aiur.BuildOrder.{Diagnostic, Icon}
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.BuildOrderViewModel
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
@@ -846,31 +846,61 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Links &amp; artifacts"
   end
 
-  test "an unfetched Build Order shows unresolved counts and a provider explanation, not a structural verdict" do
-    html = render_selected(unresolved_model(:provider_unavailable))
+  test "an unfetched Build Order renders one copyable provider-failure state and no graph regions" do
+    html =
+      render_selected(%{
+        unresolved_model(:provider_unavailable)
+        | diagnostics: [Diagnostic.new(:provider_unavailable)]
+      })
 
-    # Zeros must never stand in for unknown: #1774 rendered `MEMBERS 0` for a
-    # Build Order with 27 members that was simply never fetched.
-    assert html =~ "Unresolved"
-    refute html =~ "<dd>0</dd>"
+    {:ok, document} = Floki.parse_document(html)
 
-    assert html =~ "Provider unavailable"
-    assert html =~ "could not be fetched"
-    refute html =~ "structurally invalid"
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Could not fetch planning graph"
+    assert html =~ ~s(phx-hook="CopyToClipboard")
+    assert html =~ "Investigate why Build Order #1567&#39;s planning graph could not be fetched."
+    assert html =~ "`provider_unavailable`"
+    assert html =~ "graph counts are unresolved"
+
+    # Unknown stays unknown, but the page-level failure suppresses the metric
+    # strip instead of repeating that fact in five cells and three panels.
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Unresolved"
+    refute html =~ "Plan distribution"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    refute html =~ "GitHub planning data is unavailable"
   end
 
-  test "a genuinely malformed Build Order still shows its real counts and a structural verdict" do
-    html = render_selected(%{unresolved_model(:structurally_invalid) | summary: resolved_summary()})
+  test "a fetched malformed Build Order renders one structural-failure state with its observed count" do
+    html =
+      render_selected(%{
+        unresolved_model(:structurally_invalid)
+        | summary: resolved_summary(),
+          diagnostics: [Diagnostic.new(:invalid_root)]
+      })
 
-    assert html =~ "Structurally invalid graph"
-    assert html =~ "malformed"
-    assert html =~ "<dd>0</dd>"
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "Investigate why Build Order #1567&#39;s fetched planning graph is malformed."
+    assert html =~ "`structurally_invalid`"
+    assert html =~ "`members: 0`"
+    assert html =~ "`invalid_root`"
+    refute html =~ "Build Order graph summary"
     refute html =~ "Unresolved"
+    refute html =~ "Plan distribution"
+    refute html =~ "Build Order analytics"
+    refute html =~ "Usage and cost"
+    refute html =~ "Root data is unavailable"
   end
 
   defp render_selected(model) do
+    {route_state, _effects} = RouteState.new("mount-1") |> RouteState.navigate("1567")
+
     render_component(&BuildOrderSelected.build_order_selected/1, %{
-      route_state: RouteState.new("mount-1"),
+      route_state: route_state,
       model: model,
       now: ~U[2026-08-10 12:00:00Z],
       analytics_scope: %{state: :none},

@@ -466,7 +466,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_unavailable")
-    assert html =~ "Selected graph unavailable"
+    assert html =~ "Could not fetch planning graph"
+    assert html =~ "Investigate why Build Order #42&#39;s planning graph could not be fetched."
+    assert html =~ "`provider_unavailable`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Plan distribution"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
 
@@ -757,7 +763,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert health_html =~ "Stale last-known-good graph"
   end
 
-  test "keeps structurally invalid selected data visible as an explicit diagnostic state", %{
+  test "collapses structurally invalid selected data into one copyable page-level state", %{
     first: first
   } do
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
@@ -766,9 +772,19 @@ defmodule AiurWeb.BuildOrderLiveTest do
     send(view.pid, {:graph_projection_generation, selected_snapshot(first, invalid, 2, :healthy)})
 
     html = render(view)
+    {:ok, document} = Floki.parse_document(html)
+
     assert html =~ ~s(data-build-order-status="selected_invalid")
-    assert html =~ "Structurally invalid graph"
-    assert html =~ "Root data is unavailable."
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "Investigate why Build Order #42&#39;s fetched planning graph is malformed."
+    assert html =~ "`members: 0`"
+    assert html =~ "`invalid_root`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Plan distribution is structurally invalid"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    refute html =~ "Root data is unavailable."
   end
 
   test "rejects a delayed context completion after close", %{first: first} do

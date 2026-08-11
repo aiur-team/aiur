@@ -29,6 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       assigns
       |> assign(:status, RouteState.status(assigns.route_state))
       |> assign(:snapshot, RouteState.selected_snapshot(assigns.route_state))
+      |> assign(:graph_failure, graph_failure(assigns.model, RouteState.status(assigns.route_state), RouteState.root_identifier(assigns.route_state)))
 
     ~H"""
     <header class="bo-page-header">
@@ -37,12 +38,28 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     </header>
 
     <section class="bo-surface" aria-labelledby="build-order-selected-title">
-      <div :if={is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
+      <div :if={@graph_failure} class="bo-state-card bo-error-state" role={@graph_failure.role}>
+        <h3>{@graph_failure.title}</h3>
+        <p>{@graph_failure.message}</p>
+
+        <div id="build-order-debug-prompt-copy" class="bo-debug-prompt" phx-hook="CopyToClipboard">
+          <label for="build-order-debug-prompt">Debug prompt</label>
+          <textarea id="build-order-debug-prompt" rows="4" readonly data-copy-source>{@graph_failure.prompt}</textarea>
+          <div class="bo-debug-prompt-actions">
+            <button type="button" class="bo-debug-copy-button" data-copy-trigger>
+              Copy debug prompt
+            </button>
+            <span id="build-order-debug-prompt-status" role="status" aria-live="polite" data-copy-status></span>
+          </div>
+        </div>
+      </div>
+
+      <div :if={is_nil(@graph_failure) and is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
         <h3>{state_title(@status)}</h3>
         <p>{state_message(@status)}</p>
       </div>
 
-      <div :if={not is_nil(@model)} class="bo-selected-summary">
+      <div :if={is_nil(@graph_failure) and not is_nil(@model)} class="bo-selected-summary">
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
           <p>{model_summary(@model)}</p>
@@ -98,6 +115,61 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     """
   end
 
+  defp graph_failure(%{status: :provider_unavailable} = model, _route_status, identifier),
+    do: failure(:provider_unavailable, identifier, model)
+
+  defp graph_failure(%{status: :structurally_invalid} = model, _route_status, identifier),
+    do: failure(:structurally_invalid, identifier, model)
+
+  defp graph_failure(nil, :selected_unavailable, identifier),
+    do: failure(:provider_unavailable, identifier, nil)
+
+  defp graph_failure(nil, :selected_invalid, identifier),
+    do: failure(:structurally_invalid, identifier, nil)
+
+  defp graph_failure(_model, _route_status, _identifier), do: nil
+
+  defp failure(:provider_unavailable, identifier, model) do
+    %{
+      role: "status",
+      title: "Could not fetch planning graph",
+      message: "The selected-root provider did not return a graph, so its counts and dependent views are unavailable.",
+      prompt:
+        "Investigate why #{root_label(identifier)}'s planning graph could not be fetched. " <>
+          "The selected-root provider reports `provider_unavailable`; graph counts are unresolved#{diagnostic_suffix(model)}."
+    }
+  end
+
+  defp failure(:structurally_invalid, identifier, model) do
+    %{
+      role: "alert",
+      title: "Fetched planning graph is malformed",
+      message: "The selected-root provider returned a graph that failed structural validation.",
+      prompt:
+        "Investigate why #{root_label(identifier)}'s fetched planning graph is malformed. " <>
+          "The selected-root provider reports `structurally_invalid`#{member_observation(model)}#{diagnostic_suffix(model)}."
+    }
+  end
+
+  defp root_label(identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
+  defp root_label(_identifier), do: "the selected Build Order"
+
+  defp member_observation(%{summary: %{resolved?: true, members: members}}) when is_integer(members),
+    do: " with `members: #{members}`"
+
+  defp member_observation(_model), do: "; the fetched response failed structural validation"
+
+  defp diagnostic_suffix(%{diagnostics: diagnostics}) when is_list(diagnostics) do
+    codes = diagnostics |> Enum.map(&Map.get(&1, :code)) |> Enum.filter(&is_atom/1) |> Enum.uniq() |> Enum.sort()
+
+    case codes do
+      [] -> ""
+      codes -> "; diagnostics: " <> Enum.map_join(codes, ", ", &"`#{&1}`")
+    end
+  end
+
+  defp diagnostic_suffix(_model), do: ""
+
   # An unresolved graph has no counts to show. Rendering the zeros of an empty
   # model would state a number we never read — "Unresolved" is the honest cell.
   defp metric(%{resolved?: false}, _value), do: "Unresolved"
@@ -114,9 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_title(:not_found), do: "Build Order not found"
   defp state_title(:invalid_catalog), do: "Catalog identity conflict"
   defp state_title(:selected_loading), do: "Loading selected graph"
-  defp state_title(:selected_unavailable), do: "Selected graph unavailable"
   defp state_title(:selected_stale), do: "Selected graph is stale"
-  defp state_title(:selected_invalid), do: "Selected graph is structurally invalid"
   defp state_title(_status), do: "Build Order unavailable"
 
   defp state_message(:invalid_parameter), do: "Use one canonical positive GitHub issue number."
@@ -127,11 +197,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp state_message(:invalid_catalog), do: "This link matches more than one repository. Pick a specific one."
   defp state_message(:selected_loading), do: "The exact root is selected; its graph snapshot is loading."
 
-  defp state_message(:selected_unavailable),
-    do: "GitHub planning data could not be fetched for this root. This is a provider problem, not a malformed Build Order."
-
   defp state_message(:selected_stale), do: "The provider is stale and has no selected-root last-known-good snapshot."
-  defp state_message(:selected_invalid), do: "The selected-root provider response failed structural validation."
   defp state_message(_status), do: "Planning data is temporarily unavailable."
 
   defp state_role(:invalid_parameter), do: "alert"
@@ -143,19 +209,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   defp model_summary(%{status: :provider_stale}), do: "Showing the last saved plan while live data catches up."
 
-  defp model_summary(%{status: :structurally_invalid}),
-    do: "The selected planning graph is malformed and needs fixing in the Build Order itself."
-
-  defp model_summary(%{status: :provider_unavailable}),
-    do:
-      "GitHub planning data could not be fetched, so this graph is unresolved. " <>
-        "The Build Order itself is not known to be malformed — retry once the provider recovers."
-
   defp model_state_title(%{status: :provider_stale}), do: "Stale last-known-good graph"
-  defp model_state_title(%{status: :structurally_invalid}), do: "Structurally invalid graph"
-  defp model_state_title(%{status: :provider_unavailable}), do: "Provider unavailable"
   defp model_state_title(_model), do: "Build Order state"
 
-  defp model_state_role(%{status: :structurally_invalid}), do: "alert"
   defp model_state_role(_model), do: "status"
 end

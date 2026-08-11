@@ -1337,7 +1337,7 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def catalog do
-    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane")]
+    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane"), root(1567, "Unavailable planning graph")]
 
     %Snapshot{
       scope: :catalog,
@@ -1417,6 +1417,19 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
         data: SelectedRoot.new(root(43, "Stale planning lane"), [member(8, "Stale member")], health(8, :stale)),
         health: health(8, :stale)
       }
+
+    {:ok, snapshot}
+  end
+
+  defp selected_snapshot(%TrackerIdentity{identifier: "1567"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 9,
+      data: nil,
+      health: health(9, :unavailable)
+    }
 
     {:ok, snapshot}
   end
