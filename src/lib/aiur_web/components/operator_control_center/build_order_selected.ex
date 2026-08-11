@@ -4,6 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   use Phoenix.Component
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
+  alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderUsage}
 
@@ -38,6 +39,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       </div>
 
       <div :if={not is_nil(@model)} class="bo-selected-summary">
+        <p :if={root_title(@snapshot)} class="bo-selected-lede">{root_title(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
           <p>{model_summary(@model)}</p>
@@ -92,6 +94,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     </section>
     """
   end
+
+  # The header carries only "Build Order #<n>", so the root's own name has to
+  # render here or a bookmarked detail page never says which Build Order it is.
+  # An unresolved root has no name to state, and inventing one would be a lie.
+  defp root_title(%Snapshot{data: %SelectedRoot{root: %{title: title}}}) when is_binary(title) do
+    case String.trim(title) do
+      "" -> nil
+      trimmed -> trimmed
+    end
+  end
+
+  defp root_title(_snapshot), do: nil
 
   # An unresolved graph has no counts to show. Rendering the zeros of an empty
   # model would state a number we never read — "Unresolved" is the honest cell.

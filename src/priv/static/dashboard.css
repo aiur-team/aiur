@@ -633,6 +633,14 @@ textarea:focus-visible,
   gap: 0.85rem;
 }
 
+.bo-selected-summary > p.bo-selected-lede {
+  margin: 0;
+  color: var(--fg);
+  font-size: clamp(1.05rem, 2vw, 1.3rem);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
 .bo-summary-grid {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));

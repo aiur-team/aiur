@@ -438,6 +438,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert html =~ ~s(data-build-order-root="42")
     assert html =~ "Valid empty graph"
+    assert selected_lede(document) == "Root forty-two"
     refute html =~ ~s(data-layout-node)
 
     calls = FakeDataSource.calls(source)
@@ -473,6 +474,22 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute Enum.any?(FakeDataSource.calls(source), &match?({:demand, _}, &1))
   end
 
+  # The consolidated header states only "Build Order #<n>". Without this lede a
+  # bookmarked detail page never names the root, and the graph heading is
+  # sr-only boilerplate, so nothing on the surface identifies what you opened.
+  test "a resolved detail page names its root", %{first: first} do
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected_snapshot(first, "Release dashboard", 1, :healthy, members: [member(7)])]
+    )
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    document = Floki.parse_document!(html)
+
+    assert route_title(document) == "Build Order #42"
+    assert selected_lede(document) == "Release dashboard"
+  end
+
   test "marks a selected root unavailable when its initial demand fails", %{first: first} do
     source =
       install_source(
@@ -483,6 +500,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_unavailable")
     assert html =~ "Selected graph unavailable"
+    assert Floki.parse_document!(html) |> selected_lede() == nil
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
 
@@ -1434,6 +1452,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
   defp route_title(document) do
     document |> Floki.find("h1#route-title") |> Floki.text() |> String.trim()
+  end
+
+  defp selected_lede(document) do
+    case Floki.find(document, ".bo-selected-summary > p.bo-selected-lede") do
+      [] -> nil
+      found -> found |> Floki.text() |> String.trim()
+    end
   end
 
   defp put_telemetry_file(path) do
