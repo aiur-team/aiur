@@ -432,9 +432,16 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     notified = inbox_decision("dec-history-notified", decision_status: :deferred)
     dismissed = inbox_decision("dec-history-dismissed", decision_status: :dismissed)
 
+    notified_entry = %{
+      decision_id: notified.decision_id,
+      change: :executor_notified,
+      actor: %{type: :human_operator, id: "operator", label: "Executor"},
+      changed_at: ~U[2026-07-12 14:00:00Z]
+    }
+
     html =
       render_component(&History.history/1, %{
-        entries: [],
+        entries: [notified_entry],
         decisions: [answered, notified, dismissed],
         provider_health: :ok
       })
@@ -442,7 +449,10 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ ~s(data-severity="good")
     assert html =~ "Answered"
     assert html =~ "Executor notified"
+    assert html =~ "Executor"
+    assert html =~ "2026-07-12T14:00:00Z"
     assert html =~ "Acknowledged — closed without a recorded answer"
+    assert length(Regex.scan(~r/Executor notified/, html)) == 1
     refute html =~ ~s(class="decision-card)
   end
 
@@ -651,6 +661,35 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
     assert html =~ "Question dec-notification-retry"
     assert html =~ "The Executor notification failed."
+  end
+
+  test "failed Executor notification retries respect open and blocking filters" do
+    blocking =
+      inbox_decision("dec-blocking-notification-retry",
+        decision_status: :deferred,
+        lifecycle: :deferred,
+        blocking: true
+      )
+
+    non_blocking =
+      inbox_decision("dec-nonblocking-notification-retry",
+        decision_status: :deferred,
+        lifecycle: :deferred,
+        blocking: false
+      )
+
+    action_states = %{
+      blocking.decision_id => %{notification_retry_decision: blocking},
+      non_blocking.decision_id => %{notification_retry_decision: non_blocking}
+    }
+
+    open_html = render_inbox([], :open, %{total: 2, open: 0, blocking: 0}, action_states)
+    blocking_html = render_inbox([], :blocking, %{total: 2, open: 0, blocking: 0}, action_states)
+
+    assert open_html =~ "Question dec-blocking-notification-retry"
+    assert open_html =~ "Question dec-nonblocking-notification-retry"
+    assert blocking_html =~ "Question dec-blocking-notification-retry"
+    refute blocking_html =~ "Question dec-nonblocking-notification-retry"
   end
 
   test "Command cards put age at top right, use an icon chevron, and render the ticket identifier once" do

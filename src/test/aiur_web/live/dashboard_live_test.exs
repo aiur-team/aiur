@@ -2857,6 +2857,18 @@ defmodule AiurWeb.DashboardLiveTest do
     refute html =~ ">Executor notified<"
     assert {:ok, %{decision_status: :deferred}} = DecisionStore.get(decision.decision_id, store)
 
+    detail_decision = request_queue_decision(store, "dashboard-defer-detail-retry", "987")
+    {:ok, detail_view, _html} = live(build_conn(), "/decisions/#{detail_decision.decision_id}")
+
+    detail_html =
+      detail_view
+      |> element("#decision-#{detail_decision.decision_id} button[phx-click=\"defer-decision\"]")
+      |> render_click()
+
+    assert detail_html =~ ~s(id="decision-#{detail_decision.decision_id}")
+    assert detail_html =~ "Executor notification failed"
+    assert {:ok, %{decision_status: :deferred}} = DecisionStore.get(detail_decision.decision_id, store)
+
     File.write!(journal_path, "")
     assert :ok = Exchange.subscribe("executor.decision.deferred")
 

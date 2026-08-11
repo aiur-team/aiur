@@ -5,6 +5,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentPubSub, DecisionPubSub, TrackerIdentity}
+  alias Aiur.TestSupport.RetainedCountsStore
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -128,27 +129,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
   end
 
-  defmodule FakeDecisionStore do
-    use GenServer
-
-    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-
-    def put_counts(server, counts),
-      do: GenServer.call(server, {:put_counts, counts})
-
-    @impl true
-    def init(opts), do: {:ok, Keyword.fetch!(opts, :counts)}
-
-    @impl true
-    def handle_call(:retained_counts, _from, counts) do
-      {:reply, {:ok, %{counts: counts, health: :writable}}, counts}
-    end
-
-    def handle_call({:put_counts, counts}, _from, _current) do
-      {:reply, :ok, counts}
-    end
-  end
-
   setup do
     first = identity(42, "NODE-42")
     second = identity(43, "NODE-43")
@@ -172,7 +152,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
       )
 
     decision_store =
-      start_supervised!({FakeDecisionStore, counts: %{open: 0, blocking: 0, total: 0}})
+      start_supervised!({RetainedCountsStore, counts: %{open: 0, blocking: 0, total: 0}})
 
     previous_source = Application.get_env(:aiur, :build_order_data_source)
     previous_clock = Application.get_env(:aiur, :build_order_display_clock)
@@ -210,13 +190,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute html =~ "awaiting commands"
     refute has_element?(view, ".shell-nav-count.is-attention")
 
-    :ok = FakeDecisionStore.put_counts(decision_store, %{open: 2, blocking: 1, total: 3})
+    :ok = RetainedCountsStore.put_counts(decision_store, %{open: 2, blocking: 1, total: 3})
     :ok = DecisionPubSub.broadcast_changed("decision-live-count", 1)
 
     assert render(view) =~ "2 units awaiting commands"
     assert has_element?(view, ".shell-nav-count.is-attention", "2")
 
-    :ok = FakeDecisionStore.put_counts(decision_store, %{open: 0, blocking: 0, total: 3})
+    :ok = RetainedCountsStore.put_counts(decision_store, %{open: 0, blocking: 0, total: 3})
     :ok = DecisionPubSub.broadcast_changed("decision-live-count", 2)
 
     refute render(view) =~ "awaiting commands"

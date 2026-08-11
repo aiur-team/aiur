@@ -101,6 +101,9 @@ and it will walk you through setup and ask which mode you want.
   input while Aiur keeps the Codex/Claude runtime and transcript as the source of truth.
 - **Dashboard auth and hosting:** the Phoenix dashboard supports Basic Auth and can be bound to a
   configured host/port for private operational access.
+- **Fleet-wide Command visibility:** every dashboard page shows a banner while Commands await an
+  operator. Accepted answers and successful Executor notifications leave the active inbox and
+  retain their distinct outcomes in the ten-row, load-more Command history table.
 - **Supervisor Decision API:** an independently authenticated machine API can inspect, enrich,
   answer, and revise durable Decisions under an explicit fail-closed delegation policy.
 - **Workflow helpers:** repo-local skills and scripts keep issue work, PR creation, and landing

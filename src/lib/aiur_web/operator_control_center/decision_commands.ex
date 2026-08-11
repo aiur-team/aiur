@@ -305,6 +305,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
       state
       |> Map.put(:error, "The Command is deferred, but the Executor notification failed. Retry the notification.")
       |> Map.put(:notification_retry_decision, retry_decision)
+      |> Map.put(:decision_identity, decision_identity(retry_decision))
       |> Map.delete(:notice)
       |> Map.delete(:idempotency_key)
     end)

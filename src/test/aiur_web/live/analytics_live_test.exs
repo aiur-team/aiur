@@ -7,6 +7,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{DecisionPubSub, RunTelemetry, TrackerIdentity}
+  alias Aiur.TestSupport.RetainedCountsStore
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
 
@@ -37,26 +38,11 @@ defmodule AiurWeb.AnalyticsLiveTest do
     end
   end
 
-  defmodule FakeDecisionStore do
-    use GenServer
-
-    def start_link(opts), do: GenServer.start_link(__MODULE__, opts)
-    def put_counts(server, counts), do: GenServer.call(server, {:put_counts, counts})
-
-    @impl true
-    def init(opts), do: {:ok, Keyword.fetch!(opts, :counts)}
-
-    @impl true
-    def handle_call(:retained_counts, _from, counts), do: {:reply, {:ok, %{counts: counts, health: :writable}}, counts}
-
-    def handle_call({:put_counts, counts}, _from, _current), do: {:reply, :ok, counts}
-  end
-
   setup do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
-    decision_store = start_supervised!({FakeDecisionStore, counts: %{open: 0, blocking: 0, total: 0}})
+    decision_store = start_supervised!({RetainedCountsStore, counts: %{open: 0, blocking: 0, total: 0}})
 
     endpoint_config =
       :aiur
@@ -86,15 +72,24 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     refute html =~ "awaiting commands"
 
-    :ok = FakeDecisionStore.put_counts(decision_store, %{open: 3, blocking: 1, total: 3})
+    :ok = RetainedCountsStore.put_counts(decision_store, %{open: 3, blocking: 1, total: 3})
     :ok = DecisionPubSub.broadcast_changed("analytics-live-count", 1)
 
     assert render(view) =~ "3 units awaiting commands"
 
-    :ok = FakeDecisionStore.put_counts(decision_store, %{open: 0, blocking: 0, total: 3})
+    :ok = RetainedCountsStore.put_counts(decision_store, %{open: 0, blocking: 0, total: 3})
     :ok = DecisionPubSub.broadcast_changed("analytics-live-count", 2)
 
     refute render(view) =~ "awaiting commands"
+  end
+
+  test "ignores decision metrics broadcasts from the shared Command topic" do
+    Application.put_env(:aiur, :analytics_telemetry_file, "/nonexistent/telemetry.ndjson")
+    {:ok, view, _html} = live(build_conn(), "/analytics")
+
+    :ok = DecisionPubSub.broadcast_metrics_changed()
+
+    assert render(view) =~ "Run analytics"
   end
 
   test "shows the empty state when no run telemetry is available" do

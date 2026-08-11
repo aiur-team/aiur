@@ -50,6 +50,8 @@ defmodule AiurWeb.AnalyticsLive do
     {:noreply, assign(socket, :retained_counts, AwaitingCommands.counts())}
   end
 
+  def handle_info(:decision_metrics_changed, socket), do: {:noreply, socket}
+
   @impl true
   def handle_params(params, _uri, socket) do
     socket = socket |> assign(:analytics_scope, analytics_scope(Map.get(params, "build_order"))) |> load_model()

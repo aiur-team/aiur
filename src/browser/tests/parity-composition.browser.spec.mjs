@@ -17,6 +17,14 @@ const composedViewports = [
   { label: 'desktop 1440px', width: 1440, isMobile: false }
 ]
 
+async function activateNavLink(link, isMobile) {
+  if (isMobile) {
+    await link.evaluate((element) => element.click())
+  } else {
+    await link.click()
+  }
+}
+
 for (const { label, width, isMobile } of composedViewports) {
   test(`composed authenticated session preserves every named region (${label})`, async ({ browser }) => {
     const context = await browser.newContext({
@@ -41,32 +49,20 @@ for (const { label, width, isMobile } of composedViewports) {
       await assertNoDocumentOverflow(page)
 
       const commands = page.getByRole('link', { name: 'Commands', exact: true })
-      if (isMobile) {
-        await commands.evaluate((link) => link.click())
-      } else {
-        await commands.click()
-      }
+      await activateNavLink(commands, isMobile)
       await expect(page).toHaveURL(/\/decisions$/)
       await expect(page.locator('#route-title')).toHaveText('Commands')
       await expect(page.getByRole('link', { name: 'Commands', exact: true })).toHaveAttribute('aria-current', 'page')
       await assertNoDocumentOverflow(page)
 
       const buildOrder = page.getByRole('link', { name: 'Build Order' })
-      if (isMobile) {
-        await buildOrder.evaluate((link) => link.click())
-      } else {
-        await buildOrder.click()
-      }
+      await activateNavLink(buildOrder, isMobile)
       await expect(page).toHaveURL(/\/build-orders$/)
       await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
       await assertNoDocumentOverflow(page)
 
       const units = page.getByRole('link', { name: 'Units' })
-      if (isMobile) {
-        await units.evaluate((link) => link.click())
-      } else {
-        await units.click()
-      }
+      await activateNavLink(units, isMobile)
       await expect(page).toHaveURL(/\/$/)
       await expect(page.locator('#route-title')).toHaveText('Units')
 

@@ -2194,8 +2194,7 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 [data-severity="good"] > .severity-rail,
-.outcome-card > .severity-rail,
-.history-item > .severity-rail {
+.outcome-card > .severity-rail {
   background: var(--good);
 }
 
@@ -2250,7 +2249,6 @@ html[data-theme="light"] .toggle-icon .moon {
 .actor-tag,
 .link-list,
 .fleet-actions,
-.history-item footer,
 .outcome-card footer,
 .outcome-card header {
   display: flex;
@@ -4557,8 +4555,7 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.7rem;
 }
 
-.outcome-card,
-.history-item {
+.outcome-card {
   position: relative;
   overflow: hidden;
   padding: 0.88rem 0.95rem 0.88rem 1.05rem;
@@ -4578,8 +4575,7 @@ html[data-theme="light"] .toggle-icon .moon {
   font-size: 0.79rem;
 }
 
-.outcome-card footer,
-.history-item footer {
+.outcome-card footer {
   margin-top: 0.65rem;
 }
 
@@ -4587,11 +4583,6 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--good-ink);
   font-size: 0.72rem;
   font-weight: 700;
-}
-
-.history-list {
-  display: grid;
-  gap: 0.65rem;
 }
 
 .command-history-wrap {
@@ -4687,27 +4678,6 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .command-history-more {
   margin-top: 0.75rem;
-}
-
-.history-item header {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5rem;
-  flex-wrap: wrap;
-}
-
-.history-item header strong {
-  font-size: 0.87rem;
-}
-
-.history-choice,
-.history-rationale {
-  margin: 0.4rem 0 0;
-  font-size: 0.79rem;
-}
-
-.history-rationale {
-  color: var(--muted);
 }
 
 .empty-state {

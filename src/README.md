@@ -362,8 +362,11 @@ the lifecycle decision.
 
 When `server.port` (or CLI `--port`) is set, Aiur exposes:
 
-- LiveView dashboard at `/` — active agents, logs, read-only per-agent log modal
-  plus append-only Decision history and the 50 newest recent repository merges
+- LiveView dashboard at `/` — active agents, logs, read-only per-agent log modal,
+  a nonzero awaiting-Commands banner shared by Units, Commands, Build Order, and Analytics,
+  plus append-only Decision history and the 50 newest recent repository merges. Answered,
+  Executor-notified, acknowledged, resolved, and expired Commands retain distinct history
+  outcomes; the table reveals ten rows at a time through an explicit Load more control.
 - JSON API under `/api/v1/*` for operational debugging (read endpoints; agent-write
   endpoints are disabled unless `observability.dashboard_writable` is set)
 - Read-only telemetry analytics at `/analytics` when the current run has a
