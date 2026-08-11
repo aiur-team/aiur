@@ -75,7 +75,13 @@ webhook_path="/api/v1/github/webhook"
 denied_paths=(
   "/"
   "/decisions"
+  # The decision *detail* view, distinct from the index above -- the browser twin
+  # of the /api/v1/decisions/1 read below. It renders the whole decision, the
+  # long-context markdown included, so the index passing says nothing about it.
+  "/decisions/1"
   "/build-orders"
+  # Same shape: the build-order detail is its own LiveView, not the index.
+  "/build-orders/1"
   "/analytics"
   "/streamdeck"
   "/dashboard.css"
