@@ -5,6 +5,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.LiveViewTest
 
   alias Aiur.{AgentPubSub, TrackerIdentity}
+  alias Aiur.TestSupport.AwaitingCommands
 
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
@@ -128,7 +129,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
   end
 
-  setup do
+  setup context do
     first = identity(42, "NODE-42")
     second = identity(43, "NODE-43")
 
@@ -164,6 +165,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
         dashboard_writable: false,
         dashboard_auth_required: false
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -499,7 +501,15 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_unavailable")
-    assert html =~ "Selected graph unavailable"
+    assert html =~ "Could not fetch planning graph"
+    assert html =~ "Investigate why Build Order #42&#39;s planning graph could not be fetched."
+    assert html =~ "`provider_unavailable`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Plan distribution"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    # #1792: an unresolved root has no name to state, and the collapsed failure
+    # card must not resurrect one.
     assert Floki.parse_document!(html) |> selected_lede() == nil
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
@@ -797,7 +807,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert health_html =~ "Stale last-known-good graph"
   end
 
-  test "keeps structurally invalid selected data visible as an explicit diagnostic state", %{
+  test "collapses structurally invalid selected data into one copyable page-level state", %{
     first: first
   } do
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
@@ -806,9 +816,46 @@ defmodule AiurWeb.BuildOrderLiveTest do
     send(view.pid, {:graph_projection_generation, selected_snapshot(first, invalid, 2, :healthy)})
 
     html = render(view)
+    {:ok, document} = Floki.parse_document(html)
+
     assert html =~ ~s(data-build-order-status="selected_invalid")
-    assert html =~ "Structurally invalid graph"
-    assert html =~ "Root data is unavailable."
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "Investigate why Build Order #42&#39;s fetched planning graph is malformed."
+    assert html =~ "`members: 0`"
+    assert html =~ "`invalid_root`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Plan distribution is structurally invalid"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    refute html =~ "Root data is unavailable."
+  end
+
+  # A producer that fails closed on a structural defect marks provider health
+  # failed too. Sourcing the reported fault from health rendered one confident
+  # card that blamed `rate_limited` for a malformed graph — a card count of 1 is
+  # no better than six if the one card names the wrong reason.
+  test "names the structural fault, not the fail-closed provider health failure", %{first: first} do
+    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+
+    invalid = SelectedRoot.new(root(first, "Malformed planning graph"), [:not_a_member], health(2, :unavailable, failure: :rate_limited))
+
+    send(
+      view.pid,
+      {:graph_projection_generation, selected_snapshot(first, invalid, 2, :unavailable, failure: :rate_limited)}
+    )
+
+    html = render(view)
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [card] = Floki.find(document, ".bo-state-card")
+    card_text = Floki.text(card)
+
+    assert html =~ ~s(data-build-order-status="selected_invalid")
+    assert card_text =~ "Fetched planning graph is malformed"
+    assert card_text =~ "Reported fault: invalid_member"
+    assert html =~ "The selected-root provider reports `invalid_member`"
+    refute card_text =~ "rate_limited"
   end
 
   test "rejects a delayed context completion after close", %{first: first} do
@@ -1471,5 +1518,37 @@ defmodule AiurWeb.BuildOrderLiveTest do
         value -> Application.put_env(:aiur, :analytics_telemetry_file, value)
       end
     end)
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Build Order" do
+    {:ok, _view, html} = live(build_conn(), "/build-orders")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  test "omits the awaiting-Commands banner from Build Order when nothing is waiting" do
+    {:ok, _view, html} = live(build_conn(), "/build-orders")
+
+    refute html =~ "units awaiting commands"
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "survives every message the Command topic carries" do
+    {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert html =~ "2 units awaiting commands"
+
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: AwaitingCommands.start(counts)]
+    end
   end
 end

@@ -1,124 +1,115 @@
 defmodule AiurWeb.OperatorControlCenter.History do
-  @moduledoc false
+  @moduledoc """
+  Command history: one paginated table of Commands the operator has finished
+  with.
+
+  The rows are a LiveView stream, so "Load more" appends the next page without
+  re-fetching or re-rendering the pages already on screen. Every row is a
+  retained Command read back from the store, so a row appears here only once the
+  store says the Command actually left the queue — never because a click
+  optimistically hid a card.
+  """
 
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.DecisionPath
 
-  attr(:entries, :list, required: true)
-  attr(:decisions, :list, default: [])
+  @page_size 10
+
+  @spec page_size() :: pos_integer()
+  def page_size, do: @page_size
+
+  attr(:rows, :any, required: true)
+  attr(:loaded, :integer, default: 0)
+  attr(:total, :any, default: nil)
+  attr(:has_more, :boolean, default: false)
+  attr(:loading, :boolean, default: false)
   attr(:provider_health, :any, default: :ok)
 
   @spec history(map()) :: Phoenix.LiveView.Rendered.t()
   def history(assigns) do
-    historic_decisions = Enum.filter(assigns.decisions, &historic?/1)
-    historic_ids = MapSet.new(historic_decisions, & &1.decision_id)
-
-    assigns =
-      assigns
-      |> assign(:historic_decisions, historic_decisions)
-      |> assign(:audit_entries, Enum.reject(assigns.entries, &MapSet.member?(historic_ids, &1.decision_id)))
-      |> assign(:empty?, historic_decisions == [] and assigns.entries == [])
-
     ~H"""
-    <section class="recent-section" aria-labelledby="decision-history-title">
-      <p class="recent-subtitle" id="decision-history-title">Command history</p>
+    <section class="recent-section command-history" aria-labelledby="decision-history-title">
+      <div class="recent-subtitle-row">
+        <p class="recent-subtitle" id="decision-history-title">Command history</p>
+        <span class="history-count mono">{count_label(@loaded, @total)}</span>
+      </div>
       <div :if={@provider_health == :unavailable} class="empty-state compact">History provider is currently unavailable.</div>
       <div :if={@provider_health == :degraded} class="empty-state compact">
         Command history is degraded; showing the last validated prefix.
       </div>
-      <div :if={@provider_health == :ok and @empty?} class="empty-state compact">No Command actions have been recorded.</div>
-      <div class="history-list">
-        <article :for={decision <- @historic_decisions} class="history-item" data-severity="good">
-          <span class="severity-rail"></span>
-          <header>
-            <span class="ticket-id">{ticket_identifier(decision.ticket) || decision.decision_id}</span>
-            <strong>{decision.question}</strong>
-          </header>
-          <p :if={decision_choice(decision)} class="history-choice">Choice: <b>{decision_choice(decision)}</b></p>
-          <footer>
-            <span class="chip good">{decision_status(decision)}</span>
-            <span :if={answer_actor_label(decision)} class={answer_actor_class(decision)}>{answer_actor_label(decision)}</span>
-            <span :if={provenance_label(decision)} class="chip mono">{provenance_label(decision)}</span>
-            <.link patch={DecisionPath.detail(decision.decision_id, :all)} class="link-pill">Open Command</.link>
-          </footer>
-        </article>
-        <article :for={entry <- @audit_entries} class="history-item">
-          <span class="severity-rail"></span>
-          <header>
-            <span class="ticket-id">{ticket_identifier(entry.ticket) || entry.decision_id}</span>
-            <strong>{entry.question || humanize(entry.change)}</strong>
-          </header>
-          <p :if={entry.choice} class="history-choice">Choice: <b>{entry.choice}</b></p>
-          <p :if={entry.rationale} class="history-rationale">{entry.rationale}</p>
-          <footer>
-            <span class="actor-tag"><span class={["actor-glyph", actor_class(entry.actor)]}>{actor_code(entry.actor)}</span>{actor_label(entry.actor)}</span>
-            <span class="timeline-time mono">{format_datetime(entry.changed_at)}</span>
-            <.result_chip label="dispatch" result={entry.dispatch_result} />
-            <.result_chip label="ack" result={entry.acknowledgement_result} />
-            <.result_chip label="revision" result={Map.get(entry, :revision_result)} />
-            <span :if={is_integer(confidence(entry))} class="chip super">{confidence(entry)}% confidence</span>
-            <span :if={provenance_label(entry)} class="chip mono">{provenance_label(entry)}</span>
-            <span :if={identifier(Map.get(entry, :superseded_by))} class="chip attention">
-              Superseded by <span class="mono">{identifier(Map.get(entry, :superseded_by))}</span>
-            </span>
-            <span :if={identifier(Map.get(entry, :revision_of))} class="chip super">
-              Supersedes <span class="mono">{identifier(Map.get(entry, :revision_of))}</span>
-            </span>
-            <span :if={entry.revised?} class="chip super">Revised</span>
-            <span :if={entry.follow_up_required and not entry.follow_up_handled} class="chip blocking">Follow-up required</span>
-            <span :if={entry.follow_up_handled} class="chip good">Follow-up handled</span>
-            <.link patch={DecisionPath.detail(entry.decision_id, :all)} class="link-pill">Open Command</.link>
-          </footer>
-        </article>
+      <div :if={@provider_health == :ok and @loaded == 0} class="empty-state compact">No Command actions have been recorded.</div>
+
+      <div :if={@loaded > 0} class="history-table-wrap">
+        <table class="history-table" aria-label="Command history">
+          <thead>
+            <tr>
+              <th scope="col">Command</th>
+              <th scope="col">Outcome</th>
+              <th scope="col">Result</th>
+              <th scope="col">Raised</th>
+              <th scope="col"><span class="sr-only">Open</span></th>
+            </tr>
+          </thead>
+          <tbody id="command-history-rows" phx-update="stream">
+            <tr :for={{dom_id, decision} <- @rows} id={dom_id} data-severity={severity(decision)}>
+              <td>
+                <span class="ticket-id">{ticket_identifier(decision.ticket) || decision.decision_id}</span>
+                <span class="history-question">{decision.question}</span>
+              </td>
+              <td class="history-outcome">{decision_choice(decision) || "—"}</td>
+              <td>
+                <span class={["chip", tone(decision)]}>{decision_status(decision)}</span>
+                <span :if={answer_actor_label(decision)} class={answer_actor_class(decision)}>{answer_actor_label(decision)}</span>
+              </td>
+              <td class="history-when mono">{raised_at(decision.created_at)}</td>
+              <td class="history-open">
+                <.link patch={DecisionPath.detail(decision.decision_id, :all)} class="link-pill">Open</.link>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div :if={@has_more} class="history-more">
+        <button
+          type="button"
+          class="btn ghost"
+          phx-click="load-more-history"
+          phx-disable-with="Loading…"
+        >Load more</button>
       </div>
     </section>
     """
   end
 
-  attr(:label, :string, required: true)
-  attr(:result, :any, required: true)
+  # A count is only shown when the store reported an exact total. "23 of 91"
+  # with an unknown total would be a fabricated denominator.
+  defp count_label(loaded, total) when is_integer(total), do: "#{loaded} of #{total}"
+  defp count_label(loaded, _total), do: "#{loaded} loaded"
 
-  defp result_chip(assigns) do
-    ~H"""
-    <span :if={@result} class={["chip", result_tone(@result)]}>{@label}: {humanize(@result)}</span>
-    """
-  end
-
-  defp result_tone(result) when result in [:ok, :acknowledged, :delivered, "ok", "acknowledged", "delivered"], do: "good"
-  defp result_tone(result) when result in [:failed, :delivery_failed, "failed", "delivery_failed"], do: "blocking"
-  defp result_tone(result) when result in [:no_longer_applicable, "no_longer_applicable"], do: "blocking"
-  defp result_tone(result) when result in [:dispatched, "dispatched"], do: "good"
-  defp result_tone(_result), do: "attention"
-
-  defp confidence(entry) do
-    confidence = entry |> Map.get(:supervisor_basis) |> map_value(:confidence)
-    if is_integer(confidence) and confidence in 0..100, do: confidence
-  end
-
-  defp provenance_label(entry) do
-    provenance = Map.get(entry, :provenance)
-    backend = map_value(provenance, :backend) || map_value(provenance, :agent_family)
-    model = map_value(provenance, :resolved_model) || map_value(provenance, :requested_model)
-
-    case {identifier(backend), identifier(model)} do
-      {backend, model} when is_binary(backend) and is_binary(model) -> "#{backend} · #{model}"
-      {backend, nil} when is_binary(backend) -> backend
-      {nil, model} when is_binary(model) -> model
-      _unknown -> nil
-    end
-  end
-
-  defp historic?(decision), do: Map.get(decision, :decision_status) in [:expired, :decided, :acknowledged, :resolved, :dismissed]
-
+  # Answered, acknowledged and resolved are done and read green. Expired and
+  # deferred are not the same outcome and must not read as one: expired means
+  # nobody answered, deferred means the Executor still owes an answer.
   defp decision_status(%{decision_status: :expired}), do: "Expired"
   defp decision_status(%{decision_status: :decided}), do: "Answered"
   defp decision_status(%{decision_status: :acknowledged}), do: "Acknowledged"
   defp decision_status(%{decision_status: :resolved}), do: "Resolved"
   defp decision_status(%{decision_status: :dismissed}), do: "Acknowledged"
+  defp decision_status(%{decision_status: :deferred}), do: "Deferred to Executor"
+  defp decision_status(_decision), do: "Recorded"
+
+  defp tone(%{decision_status: :expired}), do: "attention"
+  defp tone(%{decision_status: :deferred}), do: "super"
+  defp tone(_decision), do: "good"
+
+  defp severity(%{decision_status: :expired}), do: "attn"
+  defp severity(%{decision_status: :deferred}), do: "attention"
+  defp severity(_decision), do: "good"
 
   defp decision_choice(%{decision_status: :expired}), do: "Expired — agent is no longer running"
-  defp decision_choice(%{decision_status: :dismissed}), do: "Acknowledged — closed without a recorded answer"
+  defp decision_choice(%{decision_status: :deferred}), do: "Handed to the Executor"
+  defp decision_choice(%{decision_status: :dismissed, answer: nil}), do: "Acknowledged — closed without a recorded answer"
   defp decision_choice(%{answer: %{custom_response: response}}) when is_binary(response), do: response
 
   defp decision_choice(%{answer: %{selected_option_id: option_id}, options: options}) when is_binary(option_id) do
@@ -130,6 +121,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   defp decision_choice(_decision), do: nil
 
+  # Who answered is part of the outcome, not decoration: an Executor answer and
+  # an operator answer are different facts about the same green row.
   defp answer_actor_label(%{answer: answer}) when is_map(answer) do
     case map_value(Map.get(answer, :actor), :kind) do
       kind when kind in [:operator, "operator"] -> "Operator answer"
@@ -149,36 +142,19 @@ defmodule AiurWeb.OperatorControlCenter.History do
     end
   end
 
-  defp identifier(value) when is_binary(value) do
-    case String.trim(value) do
-      "" -> nil
-      value -> value
-    end
-  end
-
-  defp identifier(_value), do: nil
-
   defp map_value(map, key) when is_map(map), do: Map.get(map, key, Map.get(map, Atom.to_string(key)))
   defp map_value(_map, _key), do: nil
 
   defp ticket_identifier(%{identifier: identifier}), do: identifier
   defp ticket_identifier(identifier) when is_binary(identifier), do: identifier
   defp ticket_identifier(_ticket), do: nil
-  defp actor_label(%{label: label}) when is_binary(label), do: label
-  defp actor_label(%{type: type}), do: humanize(type)
-  defp actor_label(_actor), do: "Unknown source"
-  defp actor_code(%{type: :human_operator}), do: "OP"
-  defp actor_code(%{type: :executor}), do: "EX"
-  defp actor_code(%{type: :supervising_agent}), do: "SA"
-  defp actor_code(%{type: :ticket_agent}), do: "TA"
-  defp actor_code(_actor), do: "··"
-  defp actor_class(%{type: :supervising_agent}), do: "supervising"
-  defp actor_class(%{type: :executor}), do: "human"
-  defp actor_class(%{type: :ticket_agent}), do: "ticket"
-  defp actor_class(_actor), do: "human"
-  defp humanize(nil), do: "System"
-  defp humanize(value), do: value |> to_string() |> String.replace("_", " ") |> String.capitalize()
-  defp format_datetime(%DateTime{} = datetime), do: datetime |> DateTime.truncate(:second) |> DateTime.to_iso8601()
-  defp format_datetime(value) when is_binary(value), do: value
-  defp format_datetime(_value), do: "unknown"
+
+  # Absolute, not relative: a history row is streamed in once and then left
+  # alone, so a rendered "2h ago" would keep ageing on screen without ever being
+  # re-rendered. A timestamp cannot go stale.
+  defp raised_at(%DateTime{} = created_at) do
+    created_at |> DateTime.truncate(:second) |> Calendar.strftime("%Y-%m-%d %H:%M UTC")
+  end
+
+  defp raised_at(_created_at), do: "unknown"
 end
