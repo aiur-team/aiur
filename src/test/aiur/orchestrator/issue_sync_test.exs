@@ -1,14 +1,280 @@
 defmodule Aiur.Orchestrator.IssueSyncTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
-  alias Aiur.Events.{Exchange, Publisher}
-  alias Aiur.Orchestrator.{IssueSync, State}
+  alias Aiur.{AgentQueueStore, AlertFeed, AlertLedger, Config, Issue, TrackerIdentity, Workflow}
+  alias Aiur.Events.{Exchange, Publisher, SubscriptionStore}
+  alias Aiur.Orchestrator.{IssueSync, PushRouting, State}
 
   test "ignores a non-list poll result" do
     state = %State{last_polled_issues: %{"42" => %{id: "42"}}}
 
     assert IssueSync.sync_polled_issue_state(state, :invalid) == state
+  end
+
+  test "resumes a dependency-paused agent when its recorded blocker becomes terminal" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+
+    blockee_identifier = "its-everdred/aiur#blockee"
+    pause_topic = "ticket.#{blockee_identifier}.agent.attention.paused-blocker_dependency"
+    resolved_pause_topic = "#{pause_topic}.resolved"
+    :ok = Exchange.subscribe(pause_topic)
+    :ok = Exchange.subscribe(resolved_pause_topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    assert_receive {:agent_started, ^agent}
+
+    blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
+    previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
+    current = %{previous | blocked_by: [%{blocker | state: "done"}]}
+
+    entry = %{
+      pid: agent,
+      identifier: blockee_identifier,
+      issue: previous,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    resumed =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}, running: %{previous.id => entry}, max_concurrent_agents: 2},
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:resume_agent, _request_id}
+    assert_receive {:event, %{topic: ^pause_topic} = alert}, 2_000
+    assert alert["reason"] =~ "Blocker its-everdred/aiur#blocker reached terminal state done"
+    assert get_in(resumed.running, [previous.id, :control, :status]) == :working
+    refute Map.has_key?(resumed.running[previous.id], :paused_reason)
+    assert_receive {:event, %{topic: ^resolved_pause_topic}}, 2_000
+  end
+
+  test "keeps a dependency-paused agent parked while its recorded blocker remains active" do
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    assert_receive {:agent_started, ^agent}
+
+    blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
+    previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
+    current = %{previous | blocked_by: [%{blocker | state: "rework"}]}
+
+    entry = %{
+      pid: agent,
+      identifier: previous.identifier,
+      issue: previous,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    unchanged =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}, running: %{previous.id => entry}, max_concurrent_agents: 2},
+        [current],
+        fn identifiers ->
+          assert identifiers == [blocker.id]
+          {:ok, [%{blocker | identifier: blocker.id, state: "rework"}]}
+        end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute_receive {:resume_agent, _}, 100
+    assert get_in(unchanged.running, [previous.id, :control, :status]) == :paused
+    assert unchanged.running[previous.id].paused_reason == :blocker_dependency
+  end
+
+  test "resumes a dependency-paused agent when its recorded blocker is removed" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+
+    blockee_identifier = "its-everdred/aiur#blockee"
+    pause_topic = "ticket.#{blockee_identifier}.agent.attention.paused-blocker_dependency"
+    :ok = Exchange.subscribe(pause_topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    assert_receive {:agent_started, ^agent}
+
+    blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
+    previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
+    current = %{previous | blocked_by: []}
+    :ok = SubscriptionStore.attach(blockee_identifier)
+    :ok = SubscriptionStore.attach(blocker.identifier)
+
+    on_exit(fn ->
+      SubscriptionStore.stop(blockee_identifier)
+      SubscriptionStore.stop(blocker.identifier)
+    end)
+
+    entry = %{
+      pid: agent,
+      identifier: blockee_identifier,
+      issue: previous,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    resumed =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}, running: %{previous.id => entry}, max_concurrent_agents: 2},
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:resume_agent, _request_id}
+    assert_receive {:event, %{"reason" => reason, topic: ^pause_topic}}, 2_000
+    assert reason =~ "Dependency on blocker its-everdred/aiur#blocker was removed"
+    assert get_in(resumed.running, [previous.id, :control, :status]) == :working
+  end
+
+  test "keeps a dependency-paused agent parked while another blocker remains active" do
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    assert_receive {:agent_started, ^agent}
+
+    blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
+    other_blocker = %{id: "other-blocker", identifier: "its-everdred/aiur#other-blocker", state: "rework"}
+    previous = %{issue("blockee", "in-progress") | blocked_by: [blocker, other_blocker]}
+    current = %{previous | blocked_by: [%{blocker | state: "done"}, other_blocker]}
+
+    entry = %{
+      pid: agent,
+      identifier: previous.identifier,
+      issue: previous,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    unchanged =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{previous.id => previous}, running: %{previous.id => entry}, max_concurrent_agents: 2},
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute_receive {:resume_agent, _}, 100
+    assert get_in(unchanged.running, [previous.id, :control, :status]) == :paused
+  end
+
+  test "rechecks a dependency pause when its blocker is absent from the active poll" do
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    assert_receive {:agent_started, ^agent}
+
+    blockee = issue("blockee", "in-progress")
+    blocker = issue("blocker", "done")
+
+    entry = %{
+      pid: agent,
+      identifier: blockee.identifier,
+      issue: blockee,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    resumed =
+      IssueSync.sync_polled_issue_state(
+        %State{last_polled_issues: %{blockee.id => blockee}, running: %{blockee.id => entry}, max_concurrent_agents: 2},
+        [blockee],
+        fn identifiers ->
+          assert identifiers == [blocker.id]
+          {:ok, [%{blocker | identifier: blocker.id}]}
+        end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    assert_receive {:resume_agent, _request_id}
+    assert get_in(resumed.running, [blockee.id, :control, :status]) == :working
+
+    {_queue_store, event} = AgentQueueStore.claim_next_deliverable(resumed.queue_store, blockee.identifier)
+    assert event.event_type == :blocker_became_terminal
+    assert event.body.blocker_issue_identifier == blocker.id
+  end
+
+  test "retries a cleared dependency resume when a later slot becomes available" do
+    parent = self()
+    agent = spawn_link(fn -> control_agent(parent) end)
+    assert_receive {:agent_started, ^agent}
+
+    blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "in-progress"}
+    previous = %{issue("blockee", "in-progress") | blocked_by: [blocker]}
+    current = %{previous | blocked_by: [%{blocker | state: "done"}]}
+
+    blockee = %{
+      pid: agent,
+      identifier: previous.identifier,
+      issue: previous,
+      control: %{status: :paused, can_interrupt: true},
+      paused_reason: :blocker_dependency,
+      blocker_pause_generation: 1,
+      blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+    }
+
+    busy = %{issue: issue("busy", "in-progress"), control: %{status: :working}}
+
+    deferred =
+      IssueSync.sync_polled_issue_state(
+        %State{
+          last_polled_issues: %{previous.id => previous},
+          running: %{previous.id => blockee, "busy" => busy},
+          max_concurrent_agents: 1
+        },
+        [current],
+        fn _ -> {:ok, []} end,
+        fn _identity, _lifecycle -> :ok end,
+        MapSet.new(["done"]),
+        fn _ -> :ok end,
+        fn _identity, _pending? -> :ok end
+      )
+
+    refute_receive {:resume_agent, _}, 100
+    assert deferred.running[previous.id].pending_auto_resume.resume_kind == :cleared_dependency
+
+    resumed =
+      %{deferred | running: %{previous.id => deferred.running[previous.id]}}
+      |> PushRouting.reconcile_pending_auto_resumes()
+
+    assert_receive {:resume_agent, _request_id}
+    assert get_in(resumed.running, [previous.id, :control, :status]) == :working
+    refute Map.has_key?(resumed.running[previous.id], :pending_auto_resume)
   end
 
   test "alerts once with observed dispatch constraints while ready work is held" do
@@ -1113,6 +1379,19 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
         reason: nil
       }
     }
+  end
+
+  defp control_agent(parent) do
+    send(parent, {:agent_started, self()})
+    control_agent_loop(parent)
+  end
+
+  defp control_agent_loop(parent) do
+    receive do
+      message ->
+        send(parent, message)
+        control_agent_loop(parent)
+    end
   end
 
   defp running_agents(count, issue_state \\ nil) do
