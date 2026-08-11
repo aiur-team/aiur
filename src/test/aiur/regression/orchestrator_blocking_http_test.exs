@@ -24,6 +24,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.Transport
+  alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.StatusReport
 
@@ -183,6 +184,58 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     end
   end
 
+  describe "the comment poll fan-out" do
+    # The second capture on #1837, and a different call site from the reported
+    # one: host load 1.68, quota healthy, and the Orchestrator parked in
+    # `Task.Supervised.stream_reduce/7` under `Dispatcher.do_maybe_dispatch/1`
+    # with a 5,729-message mailbox while `status` and `agents` timed out. A
+    # per-request deadline cannot bound an awaited fan-out — N targets cost N
+    # deadlines — so the poll has to leave the callback altogether.
+    test "is issued, not awaited, by the process that starts it" do
+      test_pid = self()
+
+      hanging_fetcher = fn _states ->
+        send(test_pid, :comment_poll_started)
+        Process.sleep(:infinity)
+      end
+
+      state = %Aiur.Orchestrator.State{running: %{}}
+
+      {elapsed_us, next_state} =
+        :timer.tc(fn ->
+          CommentPolling.start_async(state, comment_poll_opts(hanging_fetcher))
+        end)
+
+      assert_receive :comment_poll_started, 5_000
+      assert div(elapsed_us, 1_000) < 1_000
+      assert %{ref: ref} = next_state.github_comment_poll
+      assert is_reference(ref)
+    end
+
+    test "does not start a second poll while one is outstanding" do
+      test_pid = self()
+
+      hanging_fetcher = fn _states ->
+        send(test_pid, :comment_poll_started)
+        Process.sleep(:infinity)
+      end
+
+      opts = comment_poll_opts(hanging_fetcher)
+
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      assert_receive :comment_poll_started, 5_000
+
+      assert CommentPolling.start_async(state, opts).github_comment_poll == state.github_comment_poll
+      refute_receive :comment_poll_started, 500
+    end
+
+    test "drops a straggler from a poll the state is no longer waiting for" do
+      state = %Aiur.Orchestrator.State{running: %{}, github_comments_since: %{"57" => "2026-06-24T11:00:00Z"}}
+
+      assert CommentPolling.apply_async(state, make_ref(), {:error, :boom}) == state
+    end
+  end
+
   # The Orchestrator does still wait for its own GitHub reads — that wait is now
   # bounded, and bounded much nearer the operator's 5s control budget than the
   # general backstop, because everything else in its mailbox waits with it.
@@ -210,6 +263,13 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     assert output =~ "STALE FLEET VIEW — showing the last-known-good snapshot,"
     assert output =~ "old (the orchestrator has stopped publishing)"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
+  end
+
+  # The tracker gate is what this file cannot arrange from the shared workflow
+  # file, so it is stated here; the property under test is the fan-out, not the
+  # gate in front of it.
+  defp comment_poll_opts(review_issue_fetcher) do
+    [tracker_kind: "github", repo: "owner/repo", review_issue_fetcher: review_issue_fetcher]
   end
 
   # `:sys.replace_state/2` evaluates its function inside the target process, so

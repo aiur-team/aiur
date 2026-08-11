@@ -101,6 +101,7 @@ defmodule Aiur.Orchestrator.State do
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
+          github_comment_poll: map() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -193,6 +194,9 @@ defmodule Aiur.Orchestrator.State do
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
+    # In-flight marker for the asynchronous comment poll: `%{ref: reference(),
+    # started_at_ms: integer()}` while one is outstanding, `nil` otherwise.
+    github_comment_poll: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},

@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
@@ -173,6 +173,9 @@ defmodule Aiur.Orchestrator do
   def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
     {:noreply, EventTopics.route(state, event)}
   end
+
+  def handle_info({:github_comments_polled, ref, payload}, state) when is_reference(ref),
+    do: {:noreply, CommentPolling.apply_async(state, ref, payload)}
 
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")

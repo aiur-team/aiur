@@ -1,7 +1,13 @@
 defmodule Aiur.Orchestrator.CommentPolling do
   @moduledoc """
   GitHub firehose and comments poll drivers.
-  All functions execute inside the orchestrator GenServer process.
+
+  The firehose poll runs inside the orchestrator GenServer process. The comments
+  poll does not: it fans out over every watched target, and the Orchestrator
+  awaiting that fan-out inline is what left it unreadable on an idle host
+  (#1837). `start_async/2` issues it and `apply_async/3` folds the answer in.
+  `poll_github_comments/2` still does both in one step for callers that want the
+  synchronous shape.
   """
 
   require Logger
@@ -14,6 +20,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.Orchestrator.State
 
   @recent_merge_persistence_retry_limit 3
+
+  # Long enough that a slow but working poll is never restarted underneath
+  # itself (`GithubCommentsPoller` allows 60s per target), short enough that a
+  # worker lost without a reply costs one skipped cycle, not every future one.
+  @comment_poll_abandon_after_ms 180_000
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
@@ -144,21 +155,108 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp do_poll_github_comments(%State{} = state, opts) do
-    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets, cache} ->
-        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], cache)
-        poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
+    apply_comment_poll(state, run_comment_poll(state, opts))
+  end
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
-        state
+  @doc """
+  Starts the comment poll on another process and returns immediately.
+
+  The poll fans out over every watched target with `Task.async_stream` and the
+  Orchestrator used to consume that stream inline from its dispatch callback:
+  captured on an *idle* host (load 1.68, quota healthy) parked in
+  `Task.Supervised.stream_reduce/7` under `do_maybe_dispatch/1` with 5,729
+  messages queued behind it, while `aiur status` and `aiur agents` both timed
+  out. A per-request deadline cannot bound that — awaiting N targets costs N
+  deadlines — so the fetch leaves the callback entirely and comes back as
+  `{:github_comments_polled, ref, payload}`, which `apply_async/3` folds in.
+
+  One poll at a time: a second is not started while one is outstanding, or two
+  fan-outs would race the same cursors. That skip is time-boxed rather than
+  latched — a worker that dies without answering would otherwise silence comment
+  polling for the life of the daemon, and silence is exactly what this poller
+  exists to prevent.
+  """
+  @spec start_async(State.t(), keyword()) :: State.t()
+  def start_async(%State{} = state, opts \\ []) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    cond do
+      tracker_kind(opts) != "github" -> state
+      comment_poll_in_flight?(state, now_ms) -> state
+      true -> spawn_comment_poll(state, opts, now_ms)
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts), do: state
+  defp tracker_kind(opts), do: Keyword.get_lazy(opts, :tracker_kind, &Config.tracker_kind/0)
 
-  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
-       when is_list(targets) do
+  @doc """
+  Folds a completed asynchronous comment poll into the current state.
+
+  Results from an abandoned or superseded poll are dropped: the reference names
+  the poll this state is waiting for, and anything else is a straggler whose
+  cursors would move the fleet backwards.
+  """
+  @spec apply_async(State.t(), reference(), term()) :: State.t()
+  def apply_async(%State{github_comment_poll: %{ref: ref}} = state, ref, payload) do
+    state = %{state | github_comment_poll: nil}
+    apply_comment_poll(state, payload)
+  end
+
+  def apply_async(%State{} = state, _stale_ref, _payload), do: state
+
+  defp comment_poll_in_flight?(%State{github_comment_poll: %{started_at_ms: started_at_ms}}, now_ms)
+       when is_integer(started_at_ms) do
+    if now_ms - started_at_ms < @comment_poll_abandon_after_ms do
+      true
+    else
+      Logger.warning(
+        "GithubCommentsPoller poll has not answered in #{@comment_poll_abandon_after_ms}ms; " <>
+          "abandoning it and starting a fresh one"
+      )
+
+      false
+    end
+  end
+
+  defp comment_poll_in_flight?(_state, _now_ms), do: false
+
+  defp spawn_comment_poll(%State{} = state, opts, now_ms) do
+    orchestrator = self()
+    ref = make_ref()
+
+    spawn(fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end)
+
+    %{state | github_comment_poll: %{ref: ref, started_at_ms: now_ms}}
+  end
+
+  # The I/O half. Runs on whichever process the caller chose — never touches the
+  # state it was handed, so its result can be folded into a newer one.
+  defp run_comment_poll(%State{} = state, opts) do
+    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
+      {:ok, targets, human_review_targets, watch_targets, cache} ->
+        {:ok, cache, human_review_targets, poll_targets(state, targets, human_review_targets, watch_targets, opts)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # The fold half. Runs on the Orchestrator, against whatever state it holds now.
+  defp apply_comment_poll(%State{} = state, {:ok, cache, human_review_targets, poll_outcome}) do
+    state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], cache)
+    apply_poll_outcome(state, human_review_targets, poll_outcome)
+  end
+
+  defp apply_comment_poll(%State{} = state, {:error, reason}) do
+    Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
+    state
+  end
+
+  defp apply_comment_poll(%State{} = state, _unrecognised), do: state
+
+  defp poll_targets(%State{}, [], _human_review_targets, _watch_targets, _opts), do: :no_targets
+
+  defp poll_targets(%State{} = state, targets, human_review_targets, watch_targets, opts) when is_list(targets) do
     review_submission_targets = MapSet.new(human_review_targets, & &1.target)
 
     poll_opts =
@@ -173,7 +271,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
     poll_opts = put_comment_batch(poll_opts, targets)
 
-    case GithubCommentsPoller.poll(targets, poll_opts) do
+    {targets, GithubCommentsPoller.poll(targets, poll_opts)}
+  end
+
+  defp apply_poll_outcome(%State{} = state, _human_review_targets, :no_targets), do: state
+
+  defp apply_poll_outcome(%State{} = state, human_review_targets, {targets, poll_result}) do
+    case poll_result do
       {:ok, %{since: since, etags: etags, count: count, errors: errors, pr_review_seen_at: new_review_seen_at}} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")
