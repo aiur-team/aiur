@@ -224,6 +224,9 @@ defmodule AiurWeb.BuildOrderLive do
     <DashboardShell.dashboard_shell
       route={@current_route}
       routes={RouteRegistry.routes(@analytics)}
+      title={page_title(@current_route, @route_state)}
+      back_path={back_path(@current_route, @route_state)}
+      back_label="Back to all Build Orders"
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
@@ -271,6 +274,15 @@ defmodule AiurWeb.BuildOrderLive do
   end
 
   defp schedule_ui_tick, do: Process.send_after(self(), :build_order_ui_tick, @ui_tick_ms)
+
+  defp page_title(route, route_state) do
+    case {RouteState.route(route_state), RouteState.root_identifier(route_state)} do
+      {:selected, identifier} when is_binary(identifier) -> "#{route.label} ##{identifier}"
+      _route -> route.label
+    end
+  end
+
+  defp back_path(route, route_state), do: if(RouteState.route(route_state) == :selected, do: route.path)
 
   defp reconcile_time_domain(%{assigns: %{bo_analytics_model: nil}} = socket), do: assign(socket, :time_domain, nil)
 
