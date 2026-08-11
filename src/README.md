@@ -441,7 +441,7 @@ minutes. This prevents a permissive second instance from raising the shared
 limit above another instance's configured safety boundary.
 
 At startup Aiur installs an optional Executor-shell wrapper at
-`~/.aiur/github-budget/bin/gh`. Put that directory ahead of the system `gh` in
+`~/.aiur/bin/gh`. Put that directory ahead of the system `gh` in
 an Executor shell's `PATH` to share the same budget for direct CLI calls. The
 wrapper fingerprints the `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth` credential it actually
 uses, so distinct daemon and Executor credentials never share a budget. Agent

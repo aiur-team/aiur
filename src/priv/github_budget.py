@@ -151,11 +151,18 @@ def acquire(args):
         ).fetchone()[0]
 
         if total >= max_inflight or family >= max_inflight_per_endpoint:
-            earliest_expiry = conn.execute(
-                "SELECT MIN(expires_at_ms) FROM leases WHERE token_key = ?", (args.token_key,)
-            ).fetchone()[0]
+            if total >= max_inflight:
+                earliest_expiry = conn.execute(
+                    "SELECT MIN(expires_at_ms) FROM leases WHERE token_key = ?", (args.token_key,)
+                ).fetchone()[0]
+            else:
+                earliest_expiry = conn.execute(
+                    "SELECT MIN(expires_at_ms) FROM leases WHERE token_key = ? AND endpoint_family = ?",
+                    (args.token_key, args.endpoint_family),
+                ).fetchone()[0]
+
             base_wait = max(50, earliest_expiry - now if earliest_expiry else 50)
-            wait = min(250, base_wait) + secrets.randbelow(26)
+            wait = jitter_wait(min(250, base_wait))
             conn.execute("COMMIT")
             print(f"wait {wait}")
             return
@@ -166,12 +173,12 @@ def acquire(args):
                 (args.token_key, now - 60000),
             ).fetchone()[0]
             conn.execute("COMMIT")
-            print(f"wait {max(1, earliest + 60000 - now)}")
+            print(f"wait {jitter_wait(max(1, earliest + 60000 - now))}")
             return
 
         if next_admission > now:
             conn.execute("COMMIT")
-            print(f"wait {next_admission - now}")
+            print(f"wait {jitter_wait(next_admission - now)}")
             return
 
         lease_id = secrets.token_hex(16)
@@ -197,6 +204,10 @@ def acquire(args):
         raise
     finally:
         conn.close()
+
+
+def jitter_wait(delay_ms):
+    return max(1, delay_ms) + secrets.randbelow(26)
 
 
 def release(args):

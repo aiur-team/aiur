@@ -5,7 +5,7 @@
 real_gh=${AIUR_REAL_GH:-}
 is_guard_gh() {
   case "$1" in
-    "$HOME/.aiur/github-budget/bin/gh"|*/.aiur-runtime/bin/gh) return 0 ;;
+    "$HOME/.aiur/bin/gh"|"$HOME/.aiur/github-budget/bin/gh"|*/.aiur-runtime/bin/gh) return 0 ;;
     *) return 1 ;;
   esac
 }
@@ -89,6 +89,7 @@ direction=read
 track=1
 resource=unknown
 endpoint_family=rest
+api_paginated=0
 
 case "${1:-} ${2:-}" in
   "api rate_limit") resource=none ;;
@@ -114,6 +115,7 @@ case "${1:-} ${2:-}" in
       fi
       case "$arg" in
         -XPOST|-XPATCH|-XPUT|-XDELETE|--method=POST|--method=PATCH|--method=PUT|--method=DELETE|-f|-F|--field|--raw-field|--field=*|--raw-field=*) direction=write ;;
+        --paginate) api_paginated=1 ;;
       esac
       prior=$arg
     done
@@ -145,9 +147,14 @@ budget_command() {
 
 budget_sleep_ms() {
   budget_delay=$1
-  case "$budget_delay" in ''|*[!0-9]*) return 1 ;; esac
+  case "$budget_delay" in ''|0|*[!0-9]*) return 1 ;; esac
   budget_seconds=$(awk "BEGIN { printf \"%.3f\", $budget_delay / 1000 }")
   sleep "$budget_seconds"
+}
+
+valid_budget_lease() {
+  case "$1" in ''|*[!0-9abcdef]*) return 1 ;; esac
+  [ "${#1}" -eq 32 ]
 }
 
 budget_acquire() {
@@ -168,8 +175,18 @@ budget_acquire() {
     unset budget_ignore_flag
 
     case "$budget_result" in
-      "granted "*) budget_lease=${budget_result#granted }; return 0 ;;
-      "wait "*) budget_sleep_ms "${budget_result#wait }" || return 0 ;;
+      "granted "*)
+        budget_lease=${budget_result#granted }
+        if valid_budget_lease "$budget_lease"; then return 0; fi
+        printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
+        return 75
+        ;;
+      "wait "*)
+        if ! budget_sleep_ms "${budget_result#wait }"; then
+          printf '%s\n' 'aiur: GitHub budget broker returned an invalid or unusable wait response' >&2
+          return 75
+        fi
+        ;;
       *)
         printf '%s\n' 'aiur: GitHub budget broker returned an invalid admission response' >&2
         return 75
@@ -280,6 +297,10 @@ if [ "$hold_until" -gt "$now" ]; then
 fi
 
 if [ "$resource" != none ]; then
+  if [ "$api_paginated" -eq 1 ] && [ "$budget_enabled" -eq 1 ]; then
+    printf '%s\n' 'aiur: refusing gh api --paginate because its request count cannot be budgeted safely' >&2
+    exit 75
+  fi
   budget_acquire || exit $?
   budget_start_renewal
 fi
@@ -308,7 +329,6 @@ error_file=
 output_file=
 api_capture=0
 api_requested_include=0
-api_paginated=0
 if [ "$resource" != none ]; then
   old_umask=$(umask)
   umask 077
@@ -321,7 +341,7 @@ if [ -n "$error_file" ]; then
     for api_arg in "$@"; do
       case "$api_arg" in
         --include|-i) api_requested_include=1 ;;
-        --paginate) api_paginated=1 ;;
+        --paginate) : ;;
       esac
     done
 
@@ -388,6 +408,28 @@ rate_limited_response() {
   [ -n "$output_file" ] && grep -Eiq 'rate.?limit|rate_limit' "$output_file" && return 0
   [ -n "$output_file" ] && grep -Eq '^HTTP/[0-9.]+[[:space:]]+(403|429)' "$output_file" && grep -Eiq '^[Rr]etry-[Aa]fter:' "$output_file"
 }
+
+record_successful_budget_hold() {
+  [ "$status" -eq 0 ] || return 0
+  [ -n "$output_file" ] && [ -f "$output_file" ] || return 0
+
+  response_remaining=$(sed -n -E 's/^[[:space:]]*[Xx]-[Rr][Aa][Tt][Ee][Ll][Ii][Mm][Ii][Tt]-[Rr][Ee][Mm][Aa][Ii][Nn][Ii][Nn][Gg]:[[:space:]]*([0-9]+).*/\1/p' "$output_file" | tail -n 1)
+  response_reset=$(sed -n -E 's/^[[:space:]]*[Xx]-[Rr][Aa][Tt][Ee][Ll][Ii][Mm][Ii][Tt]-[Rr][Ee][Ss][Ee][Tt]:[[:space:]]*([0-9]+).*/\1/p' "$output_file" | tail -n 1)
+
+  case "$response_remaining:$response_reset" in
+    0:[0-9]*)
+      response_delay=$(( (response_reset - $(date -u +%s)) * 1000 ))
+      if [ "$response_delay" -gt 0 ]; then
+        if [ -n "$agent_quota_dir" ]; then printf '%s\n' "$response_reset" > "$agent_quota_dir/$resource-hold" 2>/dev/null || true; fi
+        budget_hold resource "$response_delay" "$resource"
+      fi
+      ;;
+  esac
+
+  unset response_remaining response_reset response_delay
+}
+
+record_successful_budget_hold
 
 if [ "$status" -ne 0 ] && [ -n "$error_file" ] && rate_limited_response && { [ -n "$agent_quota_dir" ] || [ "$budget_enabled" -eq 1 ]; }; then
   probe_rate_limit

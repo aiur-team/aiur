@@ -10,6 +10,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     state_path = Path.join(root, "state")
     fake_gh = Path.join(root, "real-bin/gh")
     failing_broker = Path.join(root, "failing-broker.py")
+    wait_broker = Path.join(root, "wait-broker.py")
     calls = Path.join(root, "calls")
     File.mkdir_p!(workspace)
 
@@ -39,6 +40,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.chmod!(fake_gh, 0o755)
     File.write!(failing_broker, "import sys\nsys.exit(1)\n")
     File.chmod!(failing_broker, 0o755)
+    File.write!(wait_broker, "import os\nprint(os.environ['FAKE_BROKER_RESPONSE'])\n")
+    File.chmod!(wait_broker, 0o755)
     :ok = AgentGitHubGuard.install(workspace)
 
     {:ok,
@@ -48,12 +51,17 @@ defmodule Aiur.AgentGitHubGuardTest do
      state_path: state_path,
      fake_gh: fake_gh,
      failing_broker: failing_broker,
+     wait_broker: wait_broker,
      calls: calls}
   end
 
   test "installs the companion host-budget broker alongside the gh wrapper", context do
     assert File.regular?(AgentGitHubGuard.budget_broker_path(context.workspace))
     assert File.stat!(AgentGitHubGuard.budget_broker_path(context.workspace)).mode |> Bitwise.band(0o111) != 0
+  end
+
+  test "keeps the Executor wrapper outside the budget state directory" do
+    refute String.starts_with?(AgentGitHubGuard.host_bin_dir(), Budget.state_dir())
   end
 
   test "records ticket-shaped read and write attribution without command arguments", context do
@@ -325,6 +333,20 @@ defmodule Aiur.AgentGitHubGuardTest do
              run_guard(context, ["api", "repos/owner/repo/issues", "--paginate"], FAKE_GH_REJECT_INCLUDE: "1")
   end
 
+  test "a paginated API call fails closed when the shared budget is active", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "request count cannot be budgeted safely"
+    refute File.exists?(context.calls)
+  end
+
   test "a broker failure refuses the real gh command", context do
     budget_root = Path.join(context.state_path, "host-budget")
 
@@ -336,6 +358,56 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     assert output =~ "refusing uncoordinated request"
+    refute File.exists?(context.calls)
+  end
+
+  test "a malformed broker wait response refuses the real gh command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "wait malformed"
+             )
+
+    assert output =~ "invalid or unusable wait response"
+    refute File.exists?(context.calls)
+  end
+
+  test "a malformed broker grant refuses the real gh command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "granted malformed"
+             )
+
+    assert output =~ "invalid admission response"
+    refute File.exists?(context.calls)
+  end
+
+  test "a broker wait whose delay cannot be slept refuses the real gh command", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    fake_bin = Path.join(context.workspace, "fake-bin")
+    File.mkdir_p!(fake_bin)
+    File.write!(Path.join(fake_bin, "awk"), "#!/bin/sh\nexit 1\n")
+    File.chmod!(Path.join(fake_bin, "awk"), 0o755)
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: context.wait_broker,
+               FAKE_BROKER_RESPONSE: "wait 100",
+               PATH: "#{fake_bin}:#{System.get_env("PATH")}"
+             )
+
+    assert output =~ "invalid or unusable wait response"
     refute File.exists?(context.calls)
   end
 
@@ -368,6 +440,35 @@ defmodule Aiur.AgentGitHubGuardTest do
     # still distinguishing Retry-After from the 60-second fallback.
     assert cooldown_until >= System.os_time(:millisecond) + 1_500
     assert cooldown_until <= System.os_time(:millisecond) + 3_000
+  end
+
+  test "a successful exhausted API response holds the budgeted resource globally", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    credential = "successful-exhaustion-token"
+    reset = System.os_time(:second) + 60
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_REPO_STATE_PATH: "",
+               AIUR_AGENT_QUOTA_STATE_PATH: "",
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               GH_TOKEN: credential,
+               FAKE_GH_INCLUDE_HEADERS: "1",
+               FAKE_GH_HEADERS: "HTTP/2 200\nX-RateLimit-Remaining: 0\nX-RateLimit-Reset: #{reset}\n\n"
+             )
+
+    assert {:hold, %{reason: :shared_budget, resource: "core"}} =
+             Budget.acquire(
+               %{method: :get, url: "https://api.github.com/repos/owner/repo/issues/1670", token: credential},
+               state_dir: budget_root,
+               enabled?: true,
+               max_inflight: 4,
+               max_inflight_per_endpoint: 2,
+               requests_per_minute: 20,
+               stagger_ms: 0,
+               timeout_ms: 10
+             )
   end
 
   test "git authentication uses only the agent token for github.com", context do

@@ -98,6 +98,28 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
+  test "refuses an unsafe shared state path", %{root: root} do
+    path = Path.join(root, "not-a-directory")
+    File.write!(path, "not a directory")
+
+    assert {:error, {:unsafe_budget_state_dir, ^path, :regular}} = Budget.ensure_state_dir(state_dir: path)
+  end
+
+  test "a malformed broker wait response fails closed", %{root: root} do
+    fake_python = Path.join(root, "malformed-broker")
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'wait malformed'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               request("shared-token", "/repos/owner/repo/issues/1477"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 10
+             )
+  end
+
   test "an exhausted successful response shares the resource named by GitHub", %{root: root} do
     opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
     core = request("shared-token", "/repos/owner/repo/issues/1477")
@@ -149,6 +171,14 @@ defmodule Aiur.GitHub.BudgetTest do
     refute key =~ "secret"
     assert Budget.endpoint_family(request("token", "/repos/owner/repo/issues/1477/comments")) == "issues"
     assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
+  end
+
+  test "resolves the broker from the installed application private directory" do
+    assert Budget.broker_path() ==
+             :aiur
+             |> :code.priv_dir()
+             |> to_string()
+             |> Path.join("github_budget.py")
   end
 
   defp request(token, path), do: %{method: :get, url: "https://api.github.com#{path}", token: token}

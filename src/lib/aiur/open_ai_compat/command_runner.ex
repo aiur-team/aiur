@@ -2,8 +2,11 @@ defmodule Aiur.OpenAICompat.CommandRunner do
   @moduledoc false
 
   alias Aiur.{AgentEnvironment, AgentGitHubGuard, BuildGate}
+  alias Aiur.GitHub.Budget
 
   @timeout_ms 300_000
+  @sandbox_real_gh "/opt/aiur-real-gh"
+  @system_gh_paths ~w(/usr/bin/gh /usr/local/bin/gh)
   @inherited_env_names ~w(GITHUB_TOKEN GH_TOKEN LANG LC_ALL TERM)
   @system_roots ~w(/usr)
   @system_files ~w(
@@ -23,21 +26,30 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     runner = Keyword.get(opts, :system_cmd, &System.cmd/3)
 
     case Keyword.get(opts, :sandbox_executable, System.find_executable("bwrap")) do
-      executable when is_binary(executable) -> run_sandboxed(executable, workspace, command, runner)
-      _ -> failure("command sandbox unavailable; install bubblewrap to enable exec_command")
+      executable when is_binary(executable) ->
+        with :ok <- ensure_budget_state() do
+          run_sandboxed(executable, workspace, command, runner)
+        else
+          {:error, _reason} -> failure("shared GitHub budget state unavailable")
+        end
+
+      _ ->
+        failure("command sandbox unavailable; install bubblewrap to enable exec_command")
     end
   end
 
   defp run_sandboxed(executable, workspace, command, runner) do
+    real_gh = AgentGitHubGuard.real_gh()
+
     args =
       [
         "--die-with-parent",
         "--unshare-all",
         "--share-net",
-        environment_args(workspace),
+        environment_args(workspace, real_gh),
         "--tmpfs",
         "/tmp",
-        base_filesystem_args(workspace),
+        base_filesystem_args(workspace, real_gh),
         "--bind",
         workspace,
         workspace,
@@ -66,14 +78,14 @@ defmodule Aiur.OpenAICompat.CommandRunner do
 
   defp failure(message), do: %{"success" => false, "output" => message, "exit_code" => nil}
 
-  defp environment_args(workspace) do
+  defp environment_args(workspace, real_gh) do
     command_env =
       [
         {"HOME", workspace},
         {"TMPDIR", "/tmp"},
         {"MISE_DATA_DIR", "/opt/aiur-mise"},
         {"PATH", AgentGitHubGuard.bin_dir(workspace) <> ":" <> sandbox_path()}
-      ] ++ git_identity_env() ++ agent_environment(workspace)
+      ] ++ git_identity_env() ++ agent_environment(workspace, real_gh)
 
     inherited =
       @inherited_env_names
@@ -87,7 +99,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     ["--clearenv" | Enum.flat_map(command_env ++ inherited, fn {name, value} -> ["--setenv", name, value] end)]
   end
 
-  defp base_filesystem_args(workspace) do
+  defp base_filesystem_args(workspace, real_gh) do
     [
       parent_directory_args(workspace),
       "--dir",
@@ -100,6 +112,8 @@ defmodule Aiur.OpenAICompat.CommandRunner do
       Enum.flat_map(existing(@system_files), &["--ro-bind", &1, &1]),
       mise_mount_args(),
       build_gate_mount_args(),
+      budget_mount_args(),
+      gh_overlay_args(workspace, real_gh),
       system_link_args(),
       "--proc",
       "/proc",
@@ -137,6 +151,34 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     ]
   end
 
+  # Agent commands run with HOME set to their workspace, so the host-level
+  # broker database must be mounted explicitly rather than relying on `~`.
+  # This is intentionally the narrow state directory, not the operator's
+  # broader home or .aiur tree.
+  defp budget_mount_args, do: bind_if_present(Budget.state_dir(), :writable)
+
+  # PATH prepending is not sufficient: an agent can invoke `/usr/bin/gh`
+  # directly. Keep the actual executable at a private sandbox path and overlay
+  # every reachable system path with the workspace guard.
+  defp gh_overlay_args(workspace, real_gh) when is_binary(real_gh) do
+    guard = Path.join(AgentGitHubGuard.bin_dir(workspace), "gh")
+
+    if File.regular?(guard) and File.regular?(real_gh) do
+      targets =
+        [real_gh | @system_gh_paths]
+        |> Enum.uniq()
+        |> Enum.filter(&File.regular?/1)
+
+      ["--ro-bind", real_gh, @sandbox_real_gh] ++
+        Enum.flat_map(targets, &parent_directory_args/1) ++
+        Enum.flat_map(targets, &["--ro-bind", guard, &1])
+    else
+      []
+    end
+  end
+
+  defp gh_overlay_args(_workspace, _real_gh), do: []
+
   defp bind_if_present(path, mode) when is_binary(path) do
     if File.exists?(path) do
       flag = if mode == :writable, do: "--bind", else: "--ro-bind"
@@ -163,13 +205,18 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     if File.dir?(path), do: ["--ro-bind", path, path], else: []
   end
 
-  defp agent_environment(workspace) do
+  defp agent_environment(workspace, real_gh) do
     workspace
     |> AgentEnvironment.workspace_env()
     |> Enum.flat_map(fn
+      {name, _value} when name == ~c"AIUR_REAL_GH" and is_binary(real_gh) -> [{"AIUR_REAL_GH", @sandbox_real_gh}]
       {name, value} when is_list(name) and is_list(value) -> [{to_string(name), to_string(value)}]
       _unset -> []
     end)
+  end
+
+  defp ensure_budget_state do
+    if Budget.enabled?(), do: Budget.ensure_state_dir(), else: :ok
   end
 
   defp sandbox_path do

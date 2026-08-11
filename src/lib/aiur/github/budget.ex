@@ -12,8 +12,11 @@ defmodule Aiur.GitHub.Budget do
 
   require Logger
 
-  @broker_path Path.expand("../../../priv/github_budget.py", __DIR__)
-  @external_resource @broker_path
+  # Keep this source-tree path strictly compile-time-only so changes to the
+  # broker invalidate the module. Runtime calls resolve `priv/` from the
+  # installed application because release layouts do not retain this checkout.
+  @broker_source_path Path.expand("../../../priv/github_budget.py", __DIR__)
+  @external_resource @broker_source_path
   @default_max_inflight 4
   @default_max_inflight_per_endpoint 2
   @default_requests_per_minute 120
@@ -50,8 +53,26 @@ defmodule Aiur.GitHub.Budget do
   @spec database_path(keyword()) :: Path.t()
   def database_path(opts \\ []), do: Path.join(state_dir(opts), "budget.sqlite3")
 
+  @spec ensure_state_dir(keyword()) :: :ok | {:error, term()}
+  def ensure_state_dir(opts \\ []) do
+    path = state_dir(opts)
+
+    with :ok <- File.mkdir_p(path),
+         {:ok, %File.Stat{type: :directory}} <- File.lstat(path) do
+      :ok
+    else
+      {:ok, %File.Stat{type: type}} -> {:error, {:unsafe_budget_state_dir, path, type}}
+      {:error, reason} -> {:error, {:budget_state_dir_unavailable, path, reason}}
+    end
+  end
+
   @spec broker_path() :: Path.t()
-  def broker_path, do: @broker_path
+  def broker_path do
+    :aiur
+    |> :code.priv_dir()
+    |> to_string()
+    |> Path.join("github_budget.py")
+  end
 
   @doc "Configuration exported to the agent-side `gh` wrapper."
   @spec guard_settings(keyword()) :: map()
@@ -128,7 +149,7 @@ defmodule Aiur.GitHub.Budget do
   defp do_acquire(request, key, python, opts, deadline_at) do
     case command(acquire_args(request, opts), key, Keyword.put(opts, :python, python)) do
       {:ok, "granted " <> id} ->
-        {:ok, %{id: String.trim(id), token_key: key}}
+        grant_or_hold(String.trim(id), request, key)
 
       {:ok, "wait " <> milliseconds} ->
         retry_admission(request, key, python, opts, deadline_at, milliseconds)
@@ -141,7 +162,15 @@ defmodule Aiur.GitHub.Budget do
   defp retry_admission(request, key, python, opts, deadline_at, milliseconds) do
     case Integer.parse(String.trim(milliseconds)) do
       {delay, ""} when delay > 0 -> retry_or_hold(request, key, python, opts, deadline_at, delay)
-      _invalid -> :bypass
+      _invalid -> {:hold, hold(request, @broker_failure_backoff_ms)}
+    end
+  end
+
+  defp grant_or_hold(id, request, key) do
+    if valid_lease_id?(id) do
+      {:ok, %{id: id, token_key: key}}
+    else
+      {:hold, hold(request, @broker_failure_backoff_ms)}
     end
   end
 
@@ -349,6 +378,8 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp atomize_snapshot(_snapshot), do: %{cooldown_until_ms: 0, inflight: %{}, admissions: []}
+
+  defp valid_lease_id?(id), do: String.match?(id, ~r/\A[a-f0-9]{32}\z/)
 
   defp positive(value, _default) when is_integer(value) and value > 0, do: value
   defp positive(_value, default), do: default
