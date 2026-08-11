@@ -131,7 +131,8 @@ pager segment relabels to `CONTROLLING` with the agent's number.
 In `logs`: the two-row transcript window plus hint labels under dials A and D.
 Both hints carry directional arrows whose visibility reflects whether there is
 anything further in that direction (`sdBackHint`, `sdEvHint`) — the arrows are
-state, not decoration.
+state, not decoration. The pager segment remains visible with `MORE AGENTS` and
+the current window dots; `CONTROLLING` is limited to `cmd`.
 
 Provider segments are per-provider with **two** meters each (session and
 weekly). A single combined percentage is not parity.

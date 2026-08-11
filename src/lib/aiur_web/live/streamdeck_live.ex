@@ -764,7 +764,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp pager_focus(%{assigns: %{sd_mode: mode, sd_active: active}}), do: mode_pager_focus(mode, active)
 
-  defp mode_pager_focus(mode, active) when mode in [:cmd, :logs] and not is_nil(active), do: active
+  defp mode_pager_focus(:cmd, active) when not is_nil(active), do: active
   defp mode_pager_focus(_mode, _active), do: nil
 
   defp refresh_pager(socket) do
@@ -1040,11 +1040,11 @@ defmodule AiurWeb.StreamdeckLive do
   defp enter_cmd(socket, _params), do: socket
 
   defp enter_logs(%{assigns: %{sd_mode: :cmd, sd_active: active}} = socket) when not is_nil(active),
-    do: socket |> assign(:sd_mode, :logs) |> refresh_knobs()
+    do: socket |> assign(:sd_mode, :logs) |> refresh_pager() |> refresh_knobs()
 
   defp enter_logs(socket), do: socket
 
-  defp back(%{assigns: %{sd_mode: :logs}} = socket), do: socket |> assign(:sd_mode, :cmd) |> refresh_knobs()
+  defp back(%{assigns: %{sd_mode: :logs}} = socket), do: socket |> assign(:sd_mode, :cmd) |> refresh_pager() |> refresh_knobs()
 
   defp back(%{assigns: %{sd_mode: :cmd}} = socket) do
     previous_identifier = socket.assigns.selected_identifier

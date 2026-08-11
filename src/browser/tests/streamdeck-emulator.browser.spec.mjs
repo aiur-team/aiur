@@ -544,7 +544,7 @@ test('Logs command transitions from cmd to logs mode', async ({ page }) => {
 // fleet-control command keys and a mic hold does not arm it' above, which
 // asserts the same gating plus the `is-disabled` face and the inert hold.
 
-test('CONTROLLING relabel rides the cmd page and the pager dots return on back', async ({ page }) => {
+test('CONTROLLING pager relabel is limited to cmd mode', async ({ page }) => {
   await openStreamdeck(page)
 
   const pager = page.locator('[data-segment="pager"]')
@@ -582,14 +582,17 @@ test('CONTROLLING relabel rides the cmd page and the pager dots return on back',
   await dialD.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
   await expect(page.locator('.sd-strip-logs')).toBeVisible()
-  await expect(pager.locator('.sd-pager-dot')).toHaveCount(0)
-  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
+  await expect(pager).toContainText('MORE AGENTS')
+  await expect(pager.locator('.sd-pager-dot')).toHaveCount(pageCount)
+  await expect(pager.locator('.sd-pager-label')).toHaveCount(0)
   await expect(page.locator('.sd-seg-info')).toHaveCount(0)
 
   // Dial A is the back press: logs -> cmd -> grid.
   const dialA = page.locator('.sd-knob').first()
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
+  await expect(pager.locator('.sd-seg-dlabel')).toHaveText('CONTROLLING')
+  await expect(pager.locator('.sd-pager-label')).toHaveText(`#${identifier}`)
   await expect(page.locator('.sd-strip-cmd-pager')).toHaveText(`CONTROLLING #${identifier}`)
   await dialA.click()
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'grid')

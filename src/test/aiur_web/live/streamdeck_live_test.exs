@@ -1087,7 +1087,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert has_element?(view, ".sd-strip-cmd-pager", "CONTROLLING #1352")
   end
 
-  test "the CONTROLLING relabel replaces MORE AGENTS while a command is focused" do
+  test "the CONTROLLING relabel is limited to cmd mode and clears in logs" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
     assert html =~ "MORE AGENTS"
@@ -1099,13 +1099,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ "MORE AGENTS"
     refute html =~ "data-pager-page="
 
-    # Descending into logs swaps the strip to this ticket's three-shape
-    # transcript window, but #1662/#1707 keep the pager segment so dial D stays
-    # labelled with the agent being read. Both hold at once.
+    # Descending into logs restores the grid pager label and window dots. The
+    # focused agent remains active for the logs view, but the design limits the
+    # CONTROLLING relabel to cmd mode.
     html = render_click(view, "command-press", %{"command" => "logs"})
     assert html =~ ~s(class="sd-strip-logs")
-    refute html =~ "MORE AGENTS"
-    assert html =~ ~s(data-pager-focus="#1352")
+    assert html =~ "MORE AGENTS"
+    refute html =~ "CONTROLLING"
+    refute html =~ ~s(data-pager-focus="#1352")
+    assert html =~ ~s(data-pager-page="0" aria-current="page")
     assert html =~ ~s(data-segment="pager")
 
     # Backing out of logs restores the cmd page and its CONTROLLING relabel.
