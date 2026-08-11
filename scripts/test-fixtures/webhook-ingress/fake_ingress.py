@@ -13,8 +13,11 @@ Modes model the postures `scripts/verify-webhook-ingress` has to tell apart:
              tunnel that is scoped so tightly it delivers nothing. Every
              not-publicly-routable assertion passes here, so the reachability
              assertion is the only thing that can catch it.
+  post-leak  the webhook and one POST-only API route are published while every
+             GET outside the webhook still receives the edge 404. This catches
+             a verifier that mistakes a GET-only sample for route scoping.
 
-The four modes above collapse the edge and the daemon into one process, which
+The five modes above collapse the edge and the daemon into one process, which
 is all the guard's scoping assertions need. AC 5 -- "restarting the daemon does
 not change the webhook URL" -- is about the seam *between* those two tiers, so
 it needs them apart:
@@ -73,6 +76,8 @@ def build_handler(mode):
 
             if mode == "misrouted":
                 self._reply(404)
+            elif mode == "post-leak" and self.path.split("?")[0] == "/api/v1/streamdeck/token":
+                self._reply(401)
             elif self.path.split("?")[0] != WEBHOOK_PATH:
                 self._reply(200 if mode == "wide-open" else 404)
             elif mode == "unsigned":
@@ -152,7 +157,7 @@ def build_edge_handler(origin_port):
 
 
 def main():
-    modes = ("scoped", "wide-open", "unsigned", "misrouted", "origin", "edge")
+    modes = ("scoped", "wide-open", "unsigned", "misrouted", "post-leak", "origin", "edge")
 
     parser = argparse.ArgumentParser(prog="fake_ingress.py")
     parser.add_argument("mode", choices=modes)

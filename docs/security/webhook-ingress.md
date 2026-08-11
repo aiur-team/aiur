@@ -50,7 +50,7 @@ default-deny.**
 | B. Hosted relay | yes | yes, hand-written | an always-on host, a second deploy artifact, a second secret boundary | yes |
 | C. Poll a relay's queue | n/a | n/a | same relay cost as B | yes |
 
-**A was chosen.** B's only advantage over A is surviving daemon restarts, and
+**A is recommended.** B's only advantage over A is surviving daemon restarts, and
 that is already covered: [#1675](https://github.com/aiur-team/aiur/issues/1675)
 keeps polling as a reconciliation sweep precisely because webhooks are missed
 while the daemon is down, and W-5 owns recovery. Buying a relay to solve it
@@ -143,10 +143,17 @@ curl -s -m 2 -X POST "http://<address>:<port>/api/v1/github/webhook" \
   -H 'X-GitHub-Event: ping' -d '{}' | grep -q invalid_signature && echo "daemon here"
 ```
 
-Use the address that answers. If that is not `127.0.0.1`, the daemon was started
-with an explicit host and the tunnel must follow it — or restart the daemon with
-`--host 127.0.0.1` so the loopback posture this document describes is the one you
-actually get.
+Use the address that answers. If that is not `127.0.0.1`, stop before configuring
+the tunnel: the daemon was started with an explicit host, and every dashboard and
+`/api/v1/*` route is directly reachable from every network that can route to that
+address. Cloudflare's path rule cannot scope that second path.
+
+The recommended repair is to restart the daemon with `--host 127.0.0.1`. If a
+non-loopback bind is an intentional, separately accepted deployment requirement,
+verify dashboard Basic Auth is configured and restrict that listener with the
+host firewall or network policy before proceeding. Only then should the tunnel's
+`service:` use the actual non-loopback address. Do not accept a new private-network
+control-plane exposure merely to make the tunnel reach its origin.
 
 ### Generate the webhook secret
 
@@ -234,10 +241,9 @@ ingress:
   # cannot match a longer path that merely contains this one.
   - hostname: hooks.<domain>
     path: ^/api/v1/github/webhook$
-    # The address the daemon actually bound, read with `ss -ltnp | grep beam.smp`
-    # in "Pin the daemon's port" -- not assumed to be loopback. A `--host` flag
-    # overrides `.aiur/config`, and naming the wrong address here is a 502 on
-    # every delivery with nothing else looking wrong.
+    # The documented posture is loopback. If an explicitly accepted and secured
+    # non-loopback bind is required, use the actual address identified above.
+    # Naming an address the daemon did not bind returns 502 on every delivery.
     service: http://127.0.0.1:4099
 
   # Default deny. Everything else -- the dashboard, the Decision API, every
@@ -260,26 +266,37 @@ cloudflared tunnel ingress rule https://hooks.<domain>/api/v1/state           # 
 Then install it as a service so it comes back after a reboot:
 
 ```sh
-sudo cloudflared service install
+sudo cloudflared --config /home/<user>/.cloudflared/config.yml service install
 sudo systemctl enable --now cloudflared
+sudo systemctl status cloudflared
 ```
+
+The explicit `--config` is load-bearing: under `sudo`, `$HOME` is normally
+`/root`, so an install without it can miss the user-owned config. Cloudflare's
+[Linux service guide](https://developers.cloudflare.com/cloudflare-one/networks/connectors/cloudflare-tunnel/do-more-with-tunnels/local-management/as-a-service/linux/)
+documents this exact form.
 
 ## Configure the GitHub webhook
 
-Where this is registered depends on how the daemon authenticates, and the two
-are not equivalent. `Aiur.GitHub.Config.token/0` prefers a GitHub App
+Webhook registration is independent from how the daemon authenticates to the
+GitHub API. `Aiur.GitHub.Config.token/0` prefers a GitHub App
 installation token when `GITHUB_APP_ID`, `GITHUB_APP_INSTALLATION_ID` and the
 App private key are set, and otherwise falls back to `GITHUB_TOKEN` or the `gh`
 CLI's credential.
 
-- **App deployment:** register once on the App. Every repo the installation
-  covers delivers to it, and a repo added later needs no webhook step.
-- **PAT / `gh` deployment (the common case):** there is no App to register on,
-  so add the webhook under **each repository's** Settings → Webhooks, using the
-  same payload URL and the same secret every time. This is per-repo work that
-  scales with the fleet — and it is the step most likely to be forgotten when a
-  repo is added to `webhooks.repos` later, which shows up as a repo stuck in
-  `configured_unproven`.
+Use a **repository webhook** under each repository's Settings → Webhooks for the
+current least-privilege posture, whether API authentication uses an App, PAT, or
+`gh`. This is per-repo work that scales with the fleet, and it is the step most
+likely to be forgotten when a repo is added to `webhooks.repos` later, which
+shows up as a repo stuck in `configured_unproven`.
+
+An App-level webhook is an optional alternative only when the App has every
+permission its selected events require. [GitHub hides events whose permissions
+are absent](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app#choosing-permissions-for-webhook-access);
+`check_run` and `check_suite` require at least **Checks: read**, while
+Aiur's current App token posture deliberately does not grant Checks. Do not
+silently widen the App to make this screen work. Keep the repository webhook, or
+treat an App permission change as its own reviewed security decision.
 
 Either way, the settings are:
 
@@ -293,9 +310,10 @@ receiver also accepts `application/x-www-form-urlencoded`, where GitHub sends th
 JSON inside a single `payload` field, and both resolve to the same payload. That
 is covered by tests, so an existing registration already using the form encoding
 does not need to be changed. It matters that this is verified rather than
-assumed — every outcome on this endpoint answers `202`, so if the form path ever
-broke, a repo configured that way would show green ticks in GitHub's delivery UI
-while nothing was ever processed.
+assumed — every signature-valid request that reaches `GithubWebhookController`
+answers `202`, so if the form path ever broke, a repo configured that way would
+show green ticks in GitHub's delivery UI while nothing was ever processed.
+Authentication failures still answer `401` before the controller runs.
 
 One secret is shared across every registration. The receiver verifies against
 the single configured value, so a per-repo secret would not be checked against
@@ -381,14 +399,15 @@ the same hostname. It exits non-zero if any of that is untrue.
 
 Its own assertions are covered by `scripts/test-webhook-ingress.sh`, which runs
 the guard against loopback fixtures modelling a correctly scoped edge, a
-wide-open one, a receiver that accepts unsigned deliveries, and an ingress rule
-that never matches the webhook path. That last case is the one worth knowing
+wide-open one, an edge exposing only a POST-only API route, a receiver that
+accepts unsigned deliveries, and an ingress rule that never matches the webhook
+path. That last case is the one worth knowing
 about when you are reading the guard's output: a tunnel scoped so tightly that
 it delivers nothing passes *every* "not publicly routable" assertion, so the
 reachability line at the top is the only thing that catches it. A run whose
 denied-path list is all `ok` is not a pass on its own. That harness runs in CI.
 
-Those four fixtures collapse the edge and the daemon into a single process, so
+Those five fixtures collapse the edge and the daemon into a single process, so
 none of them can say anything about a restart — killing that process takes the
 public URL down with it. The harness therefore also runs a two-tier case, an
 `origin` (the daemon) behind a long-lived `edge` (the tunnel), and restarts the
@@ -397,9 +416,11 @@ passes; unpinned, and the same URL must fail. That pair is the restart invariant
 below, checked on every CI run rather than only when someone remembers to redo
 the manual procedure.
 
-Finally, confirm a real delivery: redeliver from the App's **Advanced →  Recent
-Deliveries** tab and check for a 2xx, then confirm the daemon logged the
-delivery id and event type.
+Finally, confirm a real delivery and check for a 2xx, then confirm the daemon
+logged the delivery id and event type. For the recommended repository webhook,
+use **Repository Settings → Webhooks → select the webhook → Recent Deliveries**.
+For an explicitly configured App-level webhook, use the App's **Advanced →
+Recent Deliveries** tab instead.
 
 ### Verify the URL survives a restart
 
@@ -445,8 +466,18 @@ before=$(bound)
 : "${before:?no aiur daemon is listening — start it before running this check}"
 echo "daemon is bound to $before"
 [ "$before" = "$pinned" ] || echo "MISMATCH: bound to $before, but this runbook and the tunnel origin pin $pinned — reconcile before continuing"
+```
 
+Now perform a real daemon restart with the same launcher or service mechanism
+the machine normally uses. Wait for the old process to exit and the replacement
+to become ready. This boundary is deliberately outside the copyable shell block:
+running the before/after probes back-to-back without crossing an actual restart
+does not test the invariant.
+
+```sh
 # 2. Restart the daemon, then confirm it came back on the same port.
+: "${before:?run step 1 in this same shell before restarting}"
+type bound >/dev/null 2>&1 || { echo "bound() is missing; run step 1 in this same shell" >&2; exit 1; }
 after=$(bound)
 : "${after:?daemon did not come back up}"
 [ "$after" = "$before" ] || echo "PORT MOVED: $before -> $after; server.port is not pinned"
