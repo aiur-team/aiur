@@ -715,17 +715,54 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert :invalid_identity in Enum.map(selected.root.diagnostics, & &1.code)
   end
 
-  test "detects a missing internal endpoint and accepts a cycle when every endpoint is present" do
+  # A same-repository blocker that is not a member of this root is an ordinary
+  # fact about a Build Order still in flight, not a defect in the member. It is
+  # recorded on the member and the read still succeeds — failing the read here
+  # erased every member of a 27-member root from the page (#1777).
+  test "records a missing internal endpoint without failing the read" do
     root = root(1)
     missing_internal = member(2, root, blocked_by: [endpoint(99)])
 
-    assert {:error, %{error: :structurally_invalid, candidate: selected}} =
+    assert {:ok, %{candidate: selected}} =
              GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, [missing_internal], 1)))
+
+    assert SelectedRoot.structurally_valid?(selected)
+    assert selected.diagnostics == []
+    assert length(selected.members) == 1
 
     assert :unresolved_internal_dependency in (selected.members
                                                |> hd()
                                                |> Map.fetch!(:diagnostics)
                                                |> Enum.map(& &1.code))
+  end
+
+  # The failing root had 24 closed and 3 open members, and only roots with open
+  # members failed — open members are the ones that acquire blockers filed
+  # outside their own Build Order (#1777).
+  test "reads a root whose open members are blocked by issues outside the root" do
+    root = root(1)
+    closed_member = member(2, root)
+    open_member = member(3, root, blocked_by: [endpoint(99)])
+    second_open_member = member(5, root, blocked_by: [endpoint(98)], blocking: [endpoint(3)])
+    members = [closed_member, open_member, second_open_member]
+
+    assert {:ok, %ProviderResult{status: :complete, candidate: selected}} =
+             GitHubGraph.fetch_selected_root(identity(root), base_opts(selected_response(root, members, 3)))
+
+    assert Enum.map(selected.members, & &1.identity.identifier) == ["2", "3", "5"]
+    assert Enum.map(selected.members, & &1.lifecycle.state) == [:closed, :open, :open]
+    assert SelectedRoot.status(selected) == :ready
+
+    unresolved =
+      Enum.filter(selected.members, fn member ->
+        :unresolved_internal_dependency in Enum.map(member.diagnostics, & &1.code)
+      end)
+
+    assert Enum.map(unresolved, & &1.identity.identifier) == ["3", "5"]
+  end
+
+  test "rejects an unqualified endpoint and accepts a cycle when every endpoint is present" do
+    root = root(1)
 
     unqualified_endpoint = endpoint(98) |> Map.delete("repository")
     unqualified = member(3, root, blocked_by: [unqualified_endpoint])
