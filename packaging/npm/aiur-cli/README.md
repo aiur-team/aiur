@@ -85,7 +85,7 @@ processes; running two overlapping `aiur --todo ... --only` commands can drop
 each other's tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
-scheduler-saturated. Run `aiur stop` to interrupt that session and its workers,
+unresponsive. Run `aiur stop` to interrupt that session and its workers,
 then start it again; this is a session-level recovery action, not a cooperative
 single-agent pause.
 
