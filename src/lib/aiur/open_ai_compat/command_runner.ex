@@ -27,9 +27,8 @@ defmodule Aiur.OpenAICompat.CommandRunner do
 
     case Keyword.get(opts, :sandbox_executable, System.find_executable("bwrap")) do
       executable when is_binary(executable) ->
-        with :ok <- ensure_budget_state() do
-          run_sandboxed(executable, workspace, command, runner)
-        else
+        case ensure_budget_state() do
+          :ok -> run_sandboxed(executable, workspace, command, runner)
           {:error, _reason} -> failure("shared GitHub budget state unavailable")
         end
 

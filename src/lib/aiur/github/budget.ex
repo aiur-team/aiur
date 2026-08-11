@@ -57,12 +57,25 @@ defmodule Aiur.GitHub.Budget do
   def ensure_state_dir(opts \\ []) do
     path = state_dir(opts)
 
-    with :ok <- File.mkdir_p(path),
-         {:ok, %File.Stat{type: :directory}} <- File.lstat(path) do
-      :ok
-    else
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :directory}} -> :ok
       {:ok, %File.Stat{type: type}} -> {:error, {:unsafe_budget_state_dir, path, type}}
+      {:error, :enoent} -> create_state_dir(path)
       {:error, reason} -> {:error, {:budget_state_dir_unavailable, path, reason}}
+    end
+  end
+
+  defp create_state_dir(path) do
+    case File.mkdir_p(path) do
+      :ok ->
+        case File.lstat(path) do
+          {:ok, %File.Stat{type: :directory}} -> :ok
+          {:ok, %File.Stat{type: type}} -> {:error, {:unsafe_budget_state_dir, path, type}}
+          {:error, reason} -> {:error, {:budget_state_dir_unavailable, path, reason}}
+        end
+
+      {:error, reason} ->
+        {:error, {:budget_state_dir_unavailable, path, reason}}
     end
   end
 
