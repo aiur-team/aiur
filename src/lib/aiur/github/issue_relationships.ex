@@ -9,6 +9,7 @@ defmodule Aiur.GitHub.IssueRelationships do
 
   @linked_pull_requests_query """
   query AiurLinkedPullRequests($owner: String!, $repository: String!, $number: Int!, $limit: Int!) {
+    rateLimit { cost }
     repository(owner: $owner, name: $repository) {
       issue(number: $number) {
         id

@@ -116,11 +116,82 @@ defmodule Aiur.GitHub.QuotaTest do
     Quota.observe(quota, request(:get, "/repos/owner/repo/issues"), response("core", 5000, 4997))
     Quota.observe(quota, graphql_request("mutation AddLabel { addLabelsToLabelable(input: {}) { clientMutationId } }", %{"number" => 1671}), response("graphql", 5000, 4999))
 
-    assert Quota.snapshot(quota).attribution == [
-             %{consumer: "ticket:1670", reads: 1, writes: 1, total: 2},
-             %{consumer: "ticket:1671", reads: 0, writes: 1, total: 1},
-             %{consumer: "unattributed", reads: 1, writes: 0, total: 1}
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.attribution == [
+             %{consumer: "ticket:1670", resource: "core", reads: 1, writes: 1, requests: 2, points: 2},
+             %{consumer: "unattributed", resource: "core", reads: 1, writes: 0, requests: 1, points: 1}
            ]
+
+    assert snapshot.coverage["core"] == %{attributed_points: 2, spent_points: 3, percent: 66.7}
+  end
+
+  test "attributes GraphQL points inside the authoritative reset window and ranks the heavy consumer" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      graphql_request("query AiurCommentPollBatch { viewer { login } rateLimit { cost } }", %{}),
+      graphql_response(5000, 4974, 26)
+    )
+
+    Quota.observe(
+      quota,
+      Map.put(graphql_request("query Light { viewer { login } rateLimit { cost } }", %{}), :consumer, "ticket:light"),
+      graphql_response(5000, 4973, 1)
+    )
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.attribution == [
+             %{consumer: "github:AiurCommentPollBatch", resource: "graphql", reads: 1, writes: 0, requests: 1, points: 26},
+             %{consumer: "ticket:light", resource: "graphql", reads: 1, writes: 0, requests: 1, points: 1}
+           ]
+
+    assert snapshot.coverage["graphql"] == %{attributed_points: 27, spent_points: 27, percent: 100.0}
+  end
+
+  test "reports partial GraphQL coverage instead of treating an uncosted request as one point" do
+    quota = start_quota()
+
+    Quota.observe(
+      quota,
+      Map.put(graphql_request("query Uncosted { viewer { login } }", %{}), :consumer, "ticket:unknown-cost"),
+      response("graphql", 5000, 4974)
+    )
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.attribution == []
+    assert snapshot.coverage["graphql"] == %{attributed_points: 0, spent_points: 26, percent: 0.0}
+  end
+
+  test "drops prior attribution when GitHub advances the resource reset window" do
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+    quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
+
+    Quota.observe(
+      quota,
+      Map.put(graphql_request("query OldWindow { viewer { login } rateLimit { cost } }", %{}), :consumer, "ticket:old"),
+      graphql_response(5000, 4974, 26)
+    )
+
+    next_reset = DateTime.add(@reset, 3600, :second)
+    Agent.update(clock, fn _ -> DateTime.add(@reset, 1, :second) end)
+
+    Quota.observe(
+      quota,
+      Map.put(graphql_request("query NewWindow { viewer { login } rateLimit { cost } }", %{}), :consumer, "ticket:new"),
+      graphql_response(5000, 4999, 1, next_reset)
+    )
+
+    snapshot = Quota.snapshot(quota)
+
+    assert snapshot.attribution == [
+             %{consumer: "ticket:new", resource: "graphql", reads: 1, writes: 0, requests: 1, points: 1}
+           ]
+
+    assert snapshot.coverage["graphql"] == %{attributed_points: 1, spent_points: 1, percent: 100.0}
   end
 
   test "hydrates all primary resources from the rate-limit endpoint body" do
@@ -148,15 +219,16 @@ defmodule Aiur.GitHub.QuotaTest do
 
     File.write!(
       path,
-      "#{now_unix}\tticket:1670\tread\n#{now_unix}\tticket:1671\twrite\n#{now_unix - 3601}\tticket:999\tread\nmalformed\n"
+      "#{now_unix}\tticket:1670\tcore\tread\t1\n#{now_unix}\tticket:1671\tgraphql\twrite\t7\n#{now_unix - 3601}\tticket:999\tcore\tread\t1\nmalformed\n"
     )
 
     on_exit(fn -> File.rm(path) end)
     quota = start_quota(shell_log_path: path)
+    Quota.observe(quota, request(:get, "/rate_limit"), rate_limit_response(5000, 4999, 5000, 4993))
 
     assert Quota.snapshot(quota).attribution == [
-             %{consumer: "ticket:1670", reads: 1, writes: 0, total: 1},
-             %{consumer: "ticket:1671", reads: 0, writes: 1, total: 1}
+             %{consumer: "ticket:1671", resource: "graphql", reads: 0, writes: 1, requests: 1, points: 7},
+             %{consumer: "ticket:1670", resource: "core", reads: 1, writes: 0, requests: 1, points: 1}
            ]
   end
 
@@ -336,6 +408,39 @@ defmodule Aiur.GitHub.QuotaTest do
          {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(@reset))}
        ],
        body: %{}
+     }}
+  end
+
+  defp graphql_response(limit, remaining, cost, reset \\ @reset) do
+    {:ok, response} = response("graphql", limit, remaining, reset)
+    {:ok, put_in(response, [:body], %{"data" => %{"rateLimit" => %{"cost" => cost}}})}
+  end
+
+  defp response(resource, limit, remaining, reset) do
+    {:ok,
+     %{
+       status: 200,
+       headers: [
+         {"x-ratelimit-resource", resource},
+         {"x-ratelimit-limit", Integer.to_string(limit)},
+         {"x-ratelimit-remaining", Integer.to_string(remaining)},
+         {"x-ratelimit-reset", Integer.to_string(DateTime.to_unix(reset))}
+       ],
+       body: %{}
+     }}
+  end
+
+  defp rate_limit_response(core_limit, core_remaining, graphql_limit, graphql_remaining) do
+    {:ok,
+     %{
+       status: 200,
+       headers: [],
+       body: %{
+         "resources" => %{
+           "core" => %{"limit" => core_limit, "remaining" => core_remaining, "reset" => DateTime.to_unix(@reset)},
+           "graphql" => %{"limit" => graphql_limit, "remaining" => graphql_remaining, "reset" => DateTime.to_unix(@reset)}
+         }
+       }
      }}
   end
 end

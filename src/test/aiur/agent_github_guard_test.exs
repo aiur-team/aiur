@@ -34,13 +34,18 @@ defmodule Aiur.AgentGitHubGuardTest do
   end
 
   test "records ticket-shaped read and write attribution without command arguments", context do
-    assert {"ok\n", 0} = run_guard(context, ["issue", "view", "1670"])
-    assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/1670"])
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues/1670", "-X", "PATCH", "-f", "body=secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tticket:1670\tread\n"
-    assert events =~ "\tticket:1670\twrite\n"
+    assert events =~ "\tticket:1670\tcore\tread\t1\n"
+    assert events =~ "\tticket:1670\tcore\twrite\t1\n"
     refute events =~ "secret body"
+  end
+
+  test "does not present an unknown GraphQL cost as one attributed point", context do
+    assert {"ok\n", 0} = run_guard(context, ["api", "graphql", "-f", "query=query { viewer { login } }"])
+    refute File.exists?(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do
@@ -152,6 +157,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     [
       {"AIUR_REAL_GH", context.fake_gh},
       {"AIUR_REPO_STATE_PATH", context.state_path},
+      {"AIUR_AGENT_QUOTA_STATE_PATH", Path.join(context.state_path, "github-quota")},
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls}
     ]

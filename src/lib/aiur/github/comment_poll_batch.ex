@@ -100,6 +100,7 @@ defmodule Aiur.GitHub.CommentPollBatch do
 
     """
     query AiurCommentPollBatch($owner: String!, $repo: String!) {
+      rateLimit { cost }
       repository(owner: $owner, name: $repo) {
         #{aliases}
       }

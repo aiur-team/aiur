@@ -25,8 +25,8 @@ if [ -n "$agent_quota_dir" ]; then
 fi
 
 direction=read
-track=1
 resource=unknown
+points=unknown
 
 case "${1:-} ${2:-}" in
   "api rate_limit") resource=none ;;
@@ -38,6 +38,7 @@ case "${1:-} ${2:-}" in
     ;;
   "api "*)
     resource=core
+    points=1
     prior=
     for arg in "$@"; do
       if [ "$prior" = -X ] || [ "$prior" = --method ]; then
@@ -45,14 +46,14 @@ case "${1:-} ${2:-}" in
       fi
       case "$arg" in
         -XPOST|-XPATCH|-XPUT|-XDELETE|--method=POST|--method=PATCH|--method=PUT|--method=DELETE|-f|-F|--field|--raw-field|--field=*|--raw-field=*) direction=write ;;
+        --paginate|--slurp) points=unknown ;;
       esac
       prior=$arg
     done
     ;;
   "pr view"|"pr list"|"pr status"|"pr checks"|"pr diff"|"issue view"|"issue list"|"issue status"|"run view"|"run list"|"run watch"|"search "*) ;;
   "pr "*|"issue "*|"run rerun"|"run cancel"|"run delete"|"label create"|"label delete"|"label edit") direction=write ;;
-  "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none ;;
-  "auth "*|"extension "*) track=0 ;;
+  "config "*|"alias "*|"completion "*|"help "*|"version "*) resource=none ;;
 esac
 
 consumer=unattributed
@@ -113,17 +114,6 @@ if [ "$hold_until" -gt "$now" ]; then
   now=$(date -u +%s)
 fi
 
-if [ "$track" -eq 1 ] && [ -n "$events_file" ]; then
-  size=0
-  if [ -f "$events_file" ]; then size=$(wc -c < "$events_file" 2>/dev/null || printf '0'); fi
-  case "$size" in
-    ''|*[!0-9]*) size=0 ;;
-  esac
-  if [ "$size" -gt 1048576 ]; then mv -f "$events_file" "$events_file.1" 2>/dev/null || true; fi
-
-  printf '%s\t%s\t%s\n' "$now" "$consumer" "$direction" >> "$events_file" 2>/dev/null || true
-fi
-
 error_file=
 if [ "$resource" != none ]; then
   old_umask=$(umask)
@@ -139,6 +129,26 @@ if [ -n "$error_file" ]; then
 else
   "$real_gh" "$@"
   status=$?
+fi
+
+# Only exact primary-budget units enter attribution. High-level `gh` commands
+# may fan out internally, paginated REST calls spend an unknown number of
+# requests, and GraphQL cost is available only from a query's `rateLimit.cost`
+# field. Recording those as one would recreate the misleading coverage this
+# ledger exists to expose.
+if [ "$status" -eq 0 ] && [ -n "$events_file" ]; then
+  case "$points" in
+    ''|*[!0-9]*) ;;
+    *)
+      size=$(wc -c 2>/dev/null < "$events_file") || size=0
+      case "$size" in
+        ''|*[!0-9]*) size=0 ;;
+      esac
+      if [ "$size" -gt 1048576 ]; then mv -f "$events_file" "$events_file.1" 2>/dev/null || true; fi
+
+      printf '%s\t%s\t%s\t%s\t%s\n' "$now" "$consumer" "$resource" "$direction" "$points" >> "$events_file" 2>/dev/null || true
+      ;;
+  esac
 fi
 
 if [ "$status" -ne 0 ] && [ -n "$agent_quota_dir" ] && [ -n "$error_file" ] && grep -Eiq 'rate.?limit|rate_limit' "$error_file"; then

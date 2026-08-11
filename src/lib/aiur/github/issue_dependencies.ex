@@ -291,7 +291,7 @@ defmodule Aiur.GitHub.IssueDependencies do
         "issue_#{node}: issue(number: #{node}) { blocking(first: 100, after: $after_#{node}) { nodes { number } pageInfo { hasNextPage endCursor } } }"
       end)
 
-    "query AiurDependencyClosure($owner: String!, $repo: String!, #{variables}) { repository(owner: $owner, name: $repo) { #{aliases} } }"
+    "query AiurDependencyClosure($owner: String!, $repo: String!, #{variables}) { rateLimit { cost } repository(owner: $owner, name: $repo) { #{aliases} } }"
   end
 
   defp blocking_page(body, nodes) do

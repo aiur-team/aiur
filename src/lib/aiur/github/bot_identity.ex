@@ -8,6 +8,7 @@ defmodule Aiur.GitHub.BotIdentity do
 
   @viewer_login_query """
   query AiurViewerLogin {
+    rateLimit { cost }
     viewer {
       login
     }

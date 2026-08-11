@@ -5,7 +5,8 @@ defmodule Aiur.GitHub.Quota do
   GitHub returns an authoritative budget snapshot on every API response. This
   process retains those snapshots, rejects requests against an exhausted
   resource until its reset, sheds new dispatch at the low-water floor, and
-  keeps coarse rolling attribution for the shared credential.
+  keeps reset-window point attribution for exact-cost traffic on the shared
+  credential. Coverage remains explicit when a caller cannot expose its cost.
 
   The primary windows are not the only way GitHub refuses a call. Secondary
   (abuse) rate limits reject with `403`/`429` while `x-ratelimit-remaining`
@@ -26,7 +27,7 @@ defmodule Aiur.GitHub.Quota do
 
   @primary_resources ~w(core graphql)
   @low_water_percent 10.0
-  @attribution_window_seconds 60 * 60
+  @quota_window_seconds 60 * 60
   @refresh_interval_ms 60_000
   @shell_refresh_interval_seconds 60
 
@@ -36,7 +37,7 @@ defmodule Aiur.GitHub.Quota do
   @secondary_backoff_seconds 60
   @max_secondary_backoff_seconds 60 * 60
 
-  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], backoffs: []}
+  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], coverage: %{}, backoffs: []}
 
   @type request :: map()
   @type hold :: %{resource: String.t(), remaining: non_neg_integer(), limit: pos_integer(), reset_at: DateTime.t()}
@@ -60,6 +61,10 @@ defmodule Aiur.GitHub.Quota do
   catch
     :exit, _reason -> @unknown_snapshot
   end
+
+  @doc "Empty quota projection used before the first GitHub observation."
+  @spec unknown_snapshot() :: map()
+  def unknown_snapshot, do: @unknown_snapshot
 
   @spec preflight(GenServer.server(), request()) :: :ok | {:hold, hold()}
   def preflight(server \\ __MODULE__, request) do
@@ -118,11 +123,14 @@ defmodule Aiur.GitHub.Quota do
   def handle_call(:snapshot, _from, state) do
     now = state.clock.()
     state = state |> prune_backoffs(now) |> prune_observations(now) |> refresh_shell_observations(now)
+    observations = current_observations(state, now)
+    attribution = summarize_attribution(observations)
 
     snapshot = %{
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
       windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
-      attribution: summarize_attribution(state.observations ++ state.shell_observations),
+      attribution: attribution,
+      coverage: attribution_coverage(state.windows, attribution),
       backoffs: present_backoffs(state, now)
     }
 
@@ -379,31 +387,76 @@ defmodule Aiur.GitHub.Quota do
 
   defp secondary_topic(resource), do: "system.github.quota.#{resource}.secondary"
 
-  defp attribute_request(state, request, {:ok, %{status: status}}, now) when is_integer(status) do
-    if rate_limit_endpoint?(request) do
-      state
+  defp attribute_request(state, request, {:ok, %{status: status} = response}, now) when is_integer(status) do
+    resource = response_resource(response, request)
+
+    with false <- rate_limit_endpoint?(request),
+         true <- resource in @primary_resources,
+         %{reset_at: reset_at} <- Map.get(state.windows, resource),
+         points when is_integer(points) and points > 0 <- request_points(resource, status, response) do
+      observation = %{
+        consumer: request_consumer(request),
+        resource: resource,
+        direction: request_direction(request),
+        points: points,
+        reset_at: reset_at,
+        observed_at: now
+      }
+
+      %{state | observations: [observation | state.observations]}
     else
-      observation = %{consumer: request_consumer(request), direction: request_direction(request), observed_at: now}
-      prune_observations(%{state | observations: [observation | state.observations]}, now)
+      _unattributable -> state
     end
   end
 
   defp attribute_request(state, _request, _result, _now), do: state
 
   defp prune_observations(state, now) do
-    cutoff = DateTime.add(now, -@attribution_window_seconds, :second)
-    %{state | observations: Enum.filter(state.observations, &(DateTime.compare(&1.observed_at, cutoff) != :lt))}
+    %{state | observations: Enum.filter(state.observations, &current_observation?(&1, state.windows, now))}
   end
 
   defp summarize_attribution(observations) do
     observations
-    |> Enum.group_by(& &1.consumer)
-    |> Enum.map(fn {consumer, entries} ->
-      reads = Enum.count(entries, &(&1.direction == :read))
-      writes = length(entries) - reads
-      %{consumer: consumer, reads: reads, writes: writes, total: length(entries)}
+    |> Enum.reduce(%{}, fn observation, totals ->
+      key = {observation.consumer, observation.resource}
+
+      Map.update(
+        totals,
+        key,
+        %{
+          consumer: observation.consumer,
+          resource: observation.resource,
+          reads: if(observation.direction == :read, do: 1, else: 0),
+          writes: if(observation.direction == :write, do: 1, else: 0),
+          requests: 1,
+          points: observation.points
+        },
+        fn entry ->
+          entry
+          |> Map.update!(:reads, &(&1 + if(observation.direction == :read, do: 1, else: 0)))
+          |> Map.update!(:writes, &(&1 + if(observation.direction == :write, do: 1, else: 0)))
+          |> Map.update!(:requests, &(&1 + 1))
+          |> Map.update!(:points, &(&1 + observation.points))
+        end
+      )
     end)
-    |> Enum.sort_by(&{-&1.total, &1.consumer})
+    |> Map.values()
+    |> Enum.sort_by(&{-&1.points, &1.consumer, &1.resource})
+  end
+
+  defp attribution_coverage(windows, attribution) do
+    attributed_by_resource =
+      attribution
+      |> Enum.reject(&(&1.consumer == "unattributed"))
+      |> Enum.group_by(& &1.resource)
+      |> Map.new(fn {resource, entries} -> {resource, Enum.sum_by(entries, & &1.points)} end)
+
+    Map.new(windows, fn {resource, window} ->
+      spent = window.limit - window.remaining
+      attributed = Map.get(attributed_by_resource, resource, 0)
+      percent = if(spent == 0, do: 100.0, else: percent(attributed, spent))
+      {resource, %{attributed_points: attributed, spent_points: spent, percent: percent}}
+    end)
   end
 
   defp refresh_shell_observations(%{shell_refreshed_at: %DateTime{} = refreshed_at} = state, now) do
@@ -423,16 +476,12 @@ defmodule Aiur.GitHub.Quota do
   defp shell_observations(nil, _now), do: []
 
   defp shell_observations(path, now) when is_binary(path) do
-    cutoff = DateTime.add(now, -@attribution_window_seconds, :second)
-
     [path <> ".1", path]
     |> Enum.flat_map(&Path.wildcard/1)
     |> Stream.flat_map(&shell_file_lines/1)
     |> Stream.map(&parse_shell_observation/1)
     |> Stream.reject(&is_nil/1)
-    |> Enum.filter(fn observation ->
-      DateTime.compare(observation.observed_at, cutoff) != :lt and DateTime.compare(observation.observed_at, now) != :gt
-    end)
+    |> Enum.filter(&(DateTime.compare(&1.observed_at, now) != :gt))
   rescue
     _unavailable -> []
   end
@@ -459,16 +508,55 @@ defmodule Aiur.GitHub.Quota do
   end
 
   defp parse_shell_observation(line) do
-    with [unix, consumer, direction] <- line |> String.trim() |> String.split("\t"),
+    with [unix, consumer, resource, direction, points] <- line |> String.trim() |> String.split("\t"),
          {unix, ""} <- Integer.parse(unix),
          {:ok, observed_at} <- DateTime.from_unix(unix),
+         true <- resource in @primary_resources,
          true <- direction in ["read", "write"],
-         true <- consumer == "unattributed" or Regex.match?(~r/^ticket:\d+$/, consumer) do
-      %{consumer: consumer, direction: String.to_existing_atom(direction), observed_at: observed_at}
+         true <- consumer == "unattributed" or Regex.match?(~r/^(?:ticket:\d+|[a-z][a-z0-9_.:-]*)$/, consumer),
+         {points, ""} when points > 0 <- Integer.parse(points) do
+      %{
+        consumer: consumer,
+        resource: resource,
+        direction: String.to_existing_atom(direction),
+        points: points,
+        reset_at: nil,
+        observed_at: observed_at
+      }
     else
       _invalid -> nil
     end
   end
+
+  defp current_observations(state, now) do
+    Enum.filter(state.observations ++ state.shell_observations, &current_observation?(&1, state.windows, now))
+  end
+
+  defp current_observation?(%{resource: resource, observed_at: observed_at, reset_at: nil}, windows, now) do
+    case Map.get(windows, resource) do
+      %{reset_at: reset_at} ->
+        window_start = DateTime.add(reset_at, -@quota_window_seconds, :second)
+        DateTime.compare(observed_at, window_start) != :lt and DateTime.compare(observed_at, now) != :gt
+
+      nil ->
+        false
+    end
+  end
+
+  defp current_observation?(%{resource: resource, observed_at: observed_at, reset_at: reset_at}, windows, now) do
+    case Map.get(windows, resource) do
+      %{reset_at: ^reset_at} -> DateTime.compare(observed_at, now) != :gt
+      _other_window -> false
+    end
+  end
+
+  defp request_points("core", status, _response) when status in 200..299, do: 1
+
+  defp request_points("graphql", status, %{body: body}) when status in 200..299 and is_map(body) do
+    get_in(body, ["data", "rateLimit", "cost"]) || get_in(body, ["data", "aiurQuota", "cost"])
+  end
+
+  defp request_points(_resource, _status, _request), do: nil
 
   defp default_shell_log_path do
     Config.workspace_root()
@@ -502,6 +590,16 @@ defmodule Aiur.GitHub.Quota do
 
   defp request_resource(_request), do: "core"
 
+  defp response_resource(response, request) do
+    response
+    |> Map.get(:headers, [])
+    |> Transport.header("x-ratelimit-resource")
+    |> case do
+      resource when is_binary(resource) and resource != "" -> resource
+      _missing -> request_resource(request)
+    end
+  end
+
   defp request_direction(%{method: :post, url: url, body: %{"query" => query}}) when is_binary(url) and is_binary(query) do
     if URI.parse(url).path == "/graphql" and Regex.match?(~r/^\s*mutation\b/i, query), do: :write, else: :read
   end
@@ -512,8 +610,17 @@ defmodule Aiur.GitHub.Quota do
   defp request_consumer(%{consumer: consumer}) when is_binary(consumer) and consumer != "", do: consumer
 
   defp request_consumer(request) do
-    ticket_number_from_url(request) || ticket_number_from_variables(request) || "unattributed"
+    ticket_number_from_url(request) || ticket_number_from_variables(request) || graphql_operation(request) || "unattributed"
   end
+
+  defp graphql_operation(%{body: %{"query" => query}}) when is_binary(query) do
+    case Regex.run(~r/^\s*(?:query|mutation)\s+([_A-Za-z][_0-9A-Za-z]*)/, query) do
+      [_, operation] -> "github:#{operation}"
+      _anonymous -> nil
+    end
+  end
+
+  defp graphql_operation(_request), do: nil
 
   defp ticket_number_from_url(%{url: url}) when is_binary(url) do
     case Regex.run(~r{/(?:issues|pulls)/(\d+)(?:/|$)}, URI.parse(url).path || "") do

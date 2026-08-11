@@ -41,6 +41,7 @@ defmodule Aiur.GitHub.BotIdentityTest do
       assert req.method == :post
       assert req.url == Transport.graphql_url()
       assert req.body["query"] =~ "viewer"
+      assert req.body["query"] =~ "rateLimit { cost }"
       {:ok, %{status: 200, body: %{"data" => %{"viewer" => %{"login" => "viewer-bot"}}}}}
     end
 

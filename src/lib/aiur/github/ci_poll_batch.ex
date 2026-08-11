@@ -106,6 +106,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
     """
     query AiurCIPollBatch($owner: String!, $repo: String!) {
+      rateLimit { cost }
       repository(owner: $owner, name: $repo) {
         #{aliases}
       }

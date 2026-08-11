@@ -9,6 +9,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # The dispatch-limits ledger's buckets, used to find the governing one when a
   # provider has no live meter observation this boot.
   @durable_windows ~w(hourly weekly monthly)
+  @primary_github_resources ~w(core graphql)
 
   # The provider card that leads the strip. The run summary moved out of the
   # strip into the compact above-filters section, so the first provider card
@@ -18,7 +19,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
-  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], backoffs: []})
+  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: %{}, backoffs: []})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -60,6 +61,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:windows, github_windows(assigns.quota))
       |> assign(:attribution, github_attribution(assigns.quota))
       |> assign(:top_consumer, github_top_consumer(assigns.quota))
+      |> assign(:coverage, github_coverage(assigns.quota))
       |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
@@ -69,7 +71,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <span class="rs-name">GitHub API</span>
         <div :if={@attribution} class="rs-head-stats">
           <div class="rs-stat">
-            <span class="rs-stat-label">1h traffic</span>
+            <span class="rs-stat-label">Attributed calls</span>
             <span class="rs-stat-val">{@attribution.reads}R / {@attribution.writes}W</span>
           </div>
         </div>
@@ -95,9 +97,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
           <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
           <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
         </div>
+        <div :for={coverage <- @coverage} class="github-quota-attribution">
+          <span class="rs-limit-label">{github_window_label(coverage)} attribution</span>
+          <span class="rs-limit-meta">
+            {github_window_label(coverage)} attribution {github_coverage_meta(coverage)}<span :if={coverage.percent < 100}> · Partial attribution</span>
+          </span>
+        </div>
         <div :if={@top_consumer} class="github-quota-attribution">
           <span class="rs-limit-label">Top consumer</span>
-          <span class="rs-limit-meta">{@top_consumer.consumer} · {@top_consumer.total} requests</span>
+          <span class="rs-limit-meta">{github_top_consumer_meta(@top_consumer)}</span>
         </div>
       </div>
     </div>
@@ -351,26 +359,28 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp compressed_github_row(quota, now) do
     windows = github_windows(quota)
     backoffs = github_backoffs(quota)
-    {state_label, state_class} = compressed_github_state(windows, backoffs)
+    coverage = github_coverage(quota)
+    top_consumer = github_top_consumer(quota)
+    {state_label, state_class} = compressed_github_state(windows, backoffs, coverage)
 
     %{
       logo: nil,
       name: "GitHub API",
-      lines: compressed_github_lines(windows, backoffs, now),
+      lines: compressed_github_lines(windows, backoffs, coverage, top_consumer, now),
       state_label: state_label,
       state_class: state_class
     }
   end
 
-  defp compressed_github_lines([], backoffs, now) do
+  defp compressed_github_lines([], backoffs, coverage, top_consumer, now) do
     # No window yet is the absence of a reading, not a quota observed to be
     # untouched. It draws the hollow track rather than a full-width empty one,
     # so it cannot be read as a healthy 0% consumed.
     [%{label: "Quota", percent: nil, class: "", meta: "Awaiting GitHub response"}] ++
-      compressed_backoff_lines(backoffs, now)
+      compressed_backoff_lines(backoffs, now) ++ compressed_coverage_lines(coverage) ++ compressed_top_consumer_lines(top_consumer)
   end
 
-  defp compressed_github_lines(windows, backoffs, now) do
+  defp compressed_github_lines(windows, backoffs, coverage, top_consumer, now) do
     Enum.map(windows, fn window ->
       %{
         label: github_window_label(window),
@@ -378,7 +388,33 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         class: meter_class(window.used_percent, 90),
         meta: github_window_meta(window, now)
       }
-    end) ++ compressed_backoff_lines(backoffs, now)
+    end) ++ compressed_backoff_lines(backoffs, now) ++ compressed_coverage_lines(coverage) ++ compressed_top_consumer_lines(top_consumer)
+  end
+
+  defp compressed_coverage_lines(coverage) do
+    Enum.map(coverage, fn entry ->
+      partial = if(entry.percent < 100, do: " · Partial attribution", else: "")
+
+      %{
+        label: "#{github_window_label(entry)} attribution",
+        percent: nil,
+        class: "",
+        meta: github_coverage_meta(entry) <> partial
+      }
+    end)
+  end
+
+  defp compressed_top_consumer_lines(nil), do: []
+
+  defp compressed_top_consumer_lines(consumer) do
+    [
+      %{
+        label: "Top consumer",
+        percent: nil,
+        class: "",
+        meta: github_top_consumer_meta(consumer)
+      }
+    ]
   end
 
   # A backoff is a live stoppage rather than a measured window, so it renders
@@ -395,9 +431,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end)
   end
 
-  defp compressed_github_state([], _backoffs), do: {"Awaiting", "is-nodata"}
-  defp compressed_github_state(_windows, [_ | _]), do: {"Backoff", "is-partial"}
-  defp compressed_github_state(_windows, _backoffs), do: {"Observed", "is-healthy"}
+  defp compressed_github_state([], _backoffs, _coverage), do: {"Awaiting", "is-nodata"}
+  defp compressed_github_state(_windows, [_ | _], _coverage), do: {"Backoff", "is-partial"}
+
+  defp compressed_github_state(_windows, _backoffs, coverage) do
+    if Enum.any?(coverage, &(&1.percent < 100)), do: {"Partial", "is-partial"}, else: {"Observed", "is-healthy"}
+  end
 
   # A card whose only standing is the durable dispatch ledger is stale by
   # construction, whatever its live state says.
@@ -439,7 +478,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp github_windows(%{windows: windows}) when is_map(windows) do
-    ~w(core graphql)
+    @primary_github_resources
     |> Enum.map(&Map.get(windows, &1))
     |> Enum.reject(&is_nil/1)
   end
@@ -459,14 +498,39 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_top_consumer(%{attribution: attribution}) when is_list(attribution) do
     attribution
-    |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed"))
-    |> Enum.max_by(&Map.get(&1, :total, 0), fn -> nil end)
+    |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed" or Map.get(&1, :points, 0) <= 0))
+    |> Enum.max_by(&Map.get(&1, :points, 0), fn -> nil end)
   end
 
   defp github_top_consumer(_quota), do: nil
 
+  defp github_coverage(%{coverage: coverage}) when is_map(coverage) do
+    Enum.flat_map(@primary_github_resources, fn resource ->
+      case Map.get(coverage, resource) do
+        %{} = entry -> [Map.put(entry, :resource, resource)]
+        nil -> []
+      end
+    end)
+  end
+
+  defp github_coverage(_quota), do: []
+
   defp github_window_label(%{resource: "graphql"}), do: "GraphQL"
   defp github_window_label(%{resource: resource}), do: String.capitalize(resource)
+
+  defp github_points_label("core"), do: "requests"
+  defp github_points_label(_resource), do: "points"
+
+  defp github_coverage_meta(coverage) do
+    "#{coverage.attributed_points}/#{coverage.spent_points} #{github_points_label(coverage.resource)} (#{format_percent(coverage.percent)})"
+  end
+
+  defp github_top_consumer_meta(consumer) do
+    "#{consumer.consumer} · #{consumer.points} #{github_window_label(consumer)} #{github_points_label(consumer.resource)}"
+  end
+
+  defp format_percent(percent) when is_float(percent) and percent == trunc(percent), do: "#{trunc(percent)}%"
+  defp format_percent(percent), do: "#{percent}%"
 
   defp github_window_meta(window, now) do
     "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"

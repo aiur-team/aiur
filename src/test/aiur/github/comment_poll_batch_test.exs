@@ -16,6 +16,7 @@ defmodule Aiur.GitHub.CommentPollBatchTest do
   test "batches target issues with per-target headRefName pull request aliases" do
     request_fun = fn %{method: :post, url: url, body: body} ->
       assert url == "https://api.github.com/graphql"
+      assert body["query"] =~ "rateLimit { cost }"
       assert body["query"] =~ "target_0: issueOrPullRequest(number: 42)"
       assert body["query"] =~ ~s(branch_0_0: pullRequests(headRefName: "aiur/42-comment-batch", states: OPEN, orderBy:)
       # The cost claim: aliases only, never a scan of the repository's open PR

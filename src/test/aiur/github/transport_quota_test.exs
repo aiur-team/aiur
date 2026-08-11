@@ -39,7 +39,10 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     snapshot = Quota.snapshot(quota)
     assert snapshot.windows["core"].remaining == 4100
-    assert snapshot.attribution == [%{consumer: "ticket:1670", reads: 1, writes: 0, total: 1}]
+
+    assert snapshot.attribution == [
+             %{consumer: "ticket:1670", resource: "core", reads: 1, writes: 0, requests: 1, points: 1}
+           ]
   end
 
   test "returns a local rate-limit response without sending another exhausted request", %{quota: quota} do
@@ -81,14 +84,14 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     refute_receive :request_sent
   end
 
-  test "records GraphQL quota and mutation attribution", %{quota: quota} do
+  test "records GraphQL quota and point attribution", %{quota: quota} do
     Req.Test.stub(__MODULE__, fn conn ->
       conn
       |> Plug.Conn.put_resp_header("x-ratelimit-resource", "graphql")
       |> Plug.Conn.put_resp_header("x-ratelimit-limit", "5000")
       |> Plug.Conn.put_resp_header("x-ratelimit-remaining", "3999")
       |> Plug.Conn.put_resp_header("x-ratelimit-reset", Integer.to_string(System.os_time(:second) + 3600))
-      |> Req.Test.json(%{"data" => %{"addLabelsToLabelable" => %{"clientMutationId" => nil}}})
+      |> Req.Test.json(%{"data" => %{"repository" => %{"issue" => %{"id" => "I_1670"}}, "rateLimit" => %{"cost" => 26}}})
     end)
 
     assert {:ok, %{status: 200}} =
@@ -97,14 +100,17 @@ defmodule Aiur.GitHub.TransportQuotaTest do
                url: Transport.graphql_url(),
                token: "token",
                body: %{
-                 "query" => "mutation AddLabels($number: Int!) { addLabelsToLabelable(input: {}) { clientMutationId } }",
+                 "query" => "query Ticket($number: Int!) { repository { issue(number: $number) { id } } rateLimit { cost } }",
                  "variables" => %{"number" => 1670}
                }
              })
 
     snapshot = Quota.snapshot(quota)
     assert snapshot.windows["graphql"].remaining == 3999
-    assert snapshot.attribution == [%{consumer: "ticket:1670", reads: 0, writes: 1, total: 1}]
+
+    assert snapshot.attribution == [
+             %{consumer: "ticket:1670", resource: "graphql", reads: 1, writes: 0, requests: 1, points: 26}
+           ]
   end
 
   test "blocks exhausted GraphQL without an outbound request", %{quota: quota} do

@@ -12,6 +12,7 @@ defmodule Aiur.GitHub.ReviewThreads do
 
   @review_thread_query """
   query AiurReviewThread($id: ID!) {
+    rateLimit { cost }
     node(id: $id) {
       ... on PullRequestReviewThread {
         id
@@ -38,6 +39,7 @@ defmodule Aiur.GitHub.ReviewThreads do
 
   @unaddressed_review_threads_query """
   query AiurUnaddressedReviewThreads($owner: String!, $repo: String!, $number: Int!, $cursor: String) {
+    rateLimit { cost }
     repository(owner: $owner, name: $repo) {
       pullRequest(number: $number) {
         reviewThreads(first: 100, after: $cursor) {

@@ -53,6 +53,7 @@ defmodule Aiur.GitHub.ReviewThreadsTest do
 
       request_fun = fn %{method: :post, url: "https://api.github.com/graphql", body: body} ->
         assert body["query"] =~ "AiurUnaddressedReviewThreads"
+        assert body["query"] =~ "rateLimit { cost }"
         assert body["variables"]["owner"] == "owner"
         assert body["variables"]["repo"] == "repo"
         assert body["variables"]["number"] == 61

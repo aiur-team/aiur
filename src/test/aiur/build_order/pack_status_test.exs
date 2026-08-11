@@ -95,6 +95,8 @@ defmodule Aiur.BuildOrder.PackStatusTest do
 
     # Drafts have no tracker fact and must not be invented.
     assert_receive {:query, query}
+    assert query =~ "query AiurBuildOrderPackStatus"
+    assert query =~ "rateLimit { cost }"
     assert query =~ "i4101: issue(number: 4101)"
     refute query =~ "4104"
 

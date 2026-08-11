@@ -371,7 +371,8 @@ defmodule Aiur.BuildOrder.PackStatus do
     fields = Enum.map_join(numbers, "\n    ", &"i#{&1}: issue(number: #{&1}) { number state stateReason }")
 
     """
-    query($owner: String!, $name: String!) {
+    query AiurBuildOrderPackStatus($owner: String!, $name: String!) {
+      rateLimit { cost }
       repository(owner: $owner, name: $name) {
         #{fields}
       }

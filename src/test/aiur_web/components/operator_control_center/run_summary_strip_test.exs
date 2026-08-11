@@ -93,9 +93,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         "graphql" => %{resource: "graphql", remaining: 500, limit: 5000, used_percent: 90.0, reset_at: DateTime.add(@now, 45, :minute)}
       },
       attribution: [
-        %{consumer: "ticket:1670", reads: 8, writes: 2, total: 10},
-        %{consumer: "unattributed", reads: 1, writes: 0, total: 1}
-      ]
+        %{consumer: "ticket:1670", resource: "graphql", reads: 8, writes: 2, requests: 10, points: 260},
+        %{consumer: "unattributed", resource: "core", reads: 1, writes: 0, requests: 1, points: 1}
+      ],
+      coverage: %{
+        "core" => %{attributed_points: 0, spent_points: 1250, percent: 0.0},
+        "graphql" => %{attributed_points: 260, spent_points: 4500, percent: 5.8}
+      }
     }
 
     html =
@@ -111,7 +115,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
     assert html =~ "9R / 2W"
-    assert html =~ "ticket:1670 · 10 requests"
+    assert html =~ "ticket:1670 · 260 GraphQL points"
+    assert html =~ "GraphQL attribution 260/4500 points (5.8%)"
+    assert html =~ "Core attribution 0/1250 requests (0%)"
+    assert html =~ "Partial attribution"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
   end
 
@@ -1065,6 +1072,34 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
+  test "the compressed GitHub row keeps point attribution and partial coverage visible" do
+    with_deepseek_key(fn ->
+      with_kimi_key(fn ->
+        quota = %{
+          github_quota_view()
+          | attribution: [%{consumer: "github:AiurCommentPollBatch", resource: "graphql", reads: 1, writes: 0, requests: 1, points: 26}],
+            coverage: %{
+              "core" => %{attributed_points: 0, spent_points: 1250, percent: 0.0},
+              "graphql" => %{attributed_points: 26, spent_points: 100, percent: 26.0}
+            }
+        }
+
+        html =
+          render_component(&RunSummaryStrip.run_summary_strip/1, %{
+            run: run_view(),
+            usage: usage_view(),
+            meters: %{state: :authorized, cards: compressed_cards()},
+            github_quota: quota,
+            now: @now
+          })
+
+        assert html =~ "26/100 points (26%) · Partial attribution"
+        assert html =~ "github:AiurCommentPollBatch · 26 GraphQL points"
+        assert html =~ ~s(<span class="rs-state is-partial">Partial</span>)
+      end)
+    end)
+  end
+
   test "a GitHub row still awaiting a response draws no bar rather than an empty one" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
@@ -1139,6 +1174,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         "core" => %{resource: "core", remaining: 3750, limit: 5000, used_percent: 25.0, reset_at: DateTime.add(@now, 30, :minute)}
       },
       attribution: [],
+      coverage: %{},
       backoffs: []
     }
   end
