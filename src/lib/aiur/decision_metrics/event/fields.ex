@@ -93,6 +93,7 @@ defmodule Aiur.DecisionMetrics.Event.Fields do
   defp normalize_actor(actor) when is_binary(actor) do
     case actor |> String.downcase() |> String.replace("-", "_") do
       kind when kind in ["human", "operator", "human_operator"] -> "human"
+      "executor" -> "executor"
       kind when kind in ["supervisor", "supervising_agent", "supervisor_agent"] -> "supervisor"
       _other -> nil
     end

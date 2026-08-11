@@ -38,9 +38,21 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert {"ok\n", 0} = run_guard(context, ["issue", "edit", "1670", "--body", "secret body"])
 
     events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
-    assert events =~ "\tticket:1670\tread\n"
-    assert events =~ "\tticket:1670\twrite\n"
+    assert events =~ "\tticket:1670\tread\tcore\n"
+    assert events =~ "\tticket:1670\twrite\tcore\n"
     refute events =~ "secret body"
+  end
+
+  # GraphQL is billed in points against its own budget. A row that does not say
+  # which budget it spent gets counted against core, putting agent GraphQL
+  # traffic in the wrong window (#1805).
+  test "names the budget each recorded call was billed to", context do
+    assert {"ok\n", 0} = run_guard(context, ["api", "graphql", "-f", "query=query { viewer { login } }"])
+    assert {"ok\n", 0} = run_guard(context, ["api", "repos/owner/repo/issues"])
+
+    events = File.read!(Path.join(context.state_path, "github-quota/agent-requests.tsv"))
+    assert events =~ "\tread\tgraphql\n"
+    assert events =~ "\tread\tcore\n"
   end
 
   test "an ordinary failed call does not create quota holds or probe the API", context do
