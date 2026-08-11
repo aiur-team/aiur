@@ -134,6 +134,29 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  describe "the repo-registration block an operator pastes" do
+    # Same silent-drop mechanic as the `server:` block above, with a worse
+    # consequence. If `webhooks` or `repos` is ever renamed or renested, the
+    # pasted block registers nothing: the repo never leaves
+    # `configured_unproven`, its polls never widen, and #1675's entire quota
+    # mitigation quietly does not happen.
+    #
+    # Nothing looks broken from outside — deliveries still arrive and are still
+    # accepted, so the ingress guard and the delivery-mode diagnostic both stay
+    # green. This is already the step the runbook flags as most likely to be
+    # skipped; it should not also be the step that can fail after being done.
+    test "actually registers the repo it lists" do
+      settings = parsed_config_block("webhooks")
+
+      refute settings.webhooks.repos == %Schema.Webhooks{}.repos,
+             "the runbook's `webhooks:` block no longer populates webhooks.repos — the pasted " <>
+               "YAML is being silently ignored, so a repo registered by following the runbook " <>
+               "stays in configured_unproven and never widens its poll interval"
+
+      assert settings.webhooks.repos == ["owner/name"]
+    end
+  end
+
   describe "webhook path" do
     test "the documented ingress rule publishes exactly the route the app serves" do
       # The rule is a Go regexp anchored at both ends. Anchoring is load-bearing:
@@ -238,15 +261,21 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  defp parsed_daemon_block, do: parsed_config_block("server")
+
   # Mirrors production exactly: `Aiur.Workflow` hands `YamlElixir` output to
   # `Schema.parse/1`, so decoding the doc's own fenced block the same way is the
   # real path, not a re-implementation of it.
-  defp parsed_daemon_block do
+  defp parsed_config_block(top_level_key) do
     yaml =
-      case Regex.run(~r/```yaml\n(server:\n.*?)```/s, File.read!(@doc_path)) do
-        [_, block] -> block
-        nil -> flunk("#{@doc_path} no longer contains a `server:` YAML block to paste")
-      end
+      @doc_path
+      |> File.read!()
+      |> then(&Regex.scan(~r/```yaml\n(.*?)```/s, &1))
+      |> Enum.map(fn [_, block] -> block end)
+      |> Enum.find(&String.starts_with?(&1, top_level_key <> ":"))
+
+    refute is_nil(yaml),
+           "#{@doc_path} no longer contains a `#{top_level_key}:` YAML block for an operator to paste"
 
     assert {:ok, decoded} = YamlElixir.read_from_string(yaml)
     assert {:ok, settings} = Schema.parse(decoded)
