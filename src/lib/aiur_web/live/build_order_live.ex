@@ -22,11 +22,13 @@ defmodule AiurWeb.BuildOrderLive do
   alias AiurWeb.Presenter
 
   alias AiurWeb.OperatorControlCenter.{
+    AwaitingCommands,
     BuildOrderCatalog,
     BuildOrderSelected,
     BuildOrderTicketContext,
     DashboardShell,
     NavState,
+    Overview,
     RouteRegistry
   }
 
@@ -45,6 +47,7 @@ defmodule AiurWeb.BuildOrderLive do
 
     socket =
       socket
+      |> AwaitingCommands.mount(connected)
       |> assign(:route_state, route_state)
       |> SourceRuntime.initialize(source)
       |> ContextRuntime.initialize(request_epoch)
@@ -103,6 +106,11 @@ defmodule AiurWeb.BuildOrderLive do
   def handle_info(:flush_bo_usage, socket) do
     {:noreply, UsageRuntime.flush(socket)}
   end
+
+  def handle_info({:decision_changed, _decision_id, _version}, socket),
+    do: {:noreply, AwaitingCommands.refresh(socket)}
+
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
 
   def handle_info(:build_order_ui_tick, socket) do
     schedule_ui_tick()
@@ -230,7 +238,12 @@ defmodule AiurWeb.BuildOrderLive do
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
+      nav_counts={@nav_counts}
     >
+      <:banner>
+        <Overview.decisions_banner retained_counts={@retained_counts} navigate />
+      </:banner>
+
       <section
         id="build-order-page"
         class="bo-page"
