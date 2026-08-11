@@ -120,6 +120,25 @@ defmodule AiurWeb.WebhookRunbookTest do
       assert parsed_daemon_block().server.host in ~w(127.0.0.1 ::1 localhost)
     end
 
+    test "the restart check greps for the port that block binds" do
+      # AC 5's verification step. Same two-literals-that-must-agree shape as the
+      # tunnel origin below, and the same reason it matters: if the pinned port
+      # changes and this check does not, the operator greps for a port nothing
+      # is bound to, sees no output, and concludes the restart *broke* something
+      # — or worse, greps for the old port, matches some other process, and
+      # signs off on a restart-stability claim that was never tested.
+      settings = parsed_daemon_block()
+      ports = restart_check_ports()
+
+      refute ports == [], "the runbook no longer documents a restart check for AC 5"
+
+      for port <- ports do
+        assert port == settings.server.port,
+               "the restart check greps for port #{port} but the documented config binds " <>
+                 "#{settings.server.port}"
+      end
+    end
+
     test "the tunnel's origin is the address that block binds" do
       # Two YAML blocks, a page apart, that must agree by hand. If they drift,
       # `cloudflared tunnel ingress validate` still passes — it does not dial
@@ -280,6 +299,23 @@ defmodule AiurWeb.WebhookRunbookTest do
     assert {:ok, decoded} = YamlElixir.read_from_string(yaml)
     assert {:ok, settings} = Schema.parse(decoded)
     settings
+  end
+
+  # Scoped to the restart section alone: `4099` appears elsewhere in the runbook
+  # (the config block, the tunnel origin), and matching those here would make
+  # this test pass on a document that had lost its restart check entirely.
+  defp restart_check_ports do
+    doc = File.read!(@doc_path)
+
+    case Regex.run(~r/### Verify the URL survives a restart\n(.*?)(?=\n## )/s, doc) do
+      [_, section] ->
+        ~r/ss -ltn \| grep (\d+)/
+        |> Regex.scan(section)
+        |> Enum.map(fn [_, port] -> String.to_integer(port) end)
+
+      nil ->
+        []
+    end
   end
 
   defp tunnel_origin do
