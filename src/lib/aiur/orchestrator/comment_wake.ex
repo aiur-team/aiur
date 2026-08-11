@@ -14,7 +14,7 @@ defmodule Aiur.Orchestrator.CommentWake do
   alias Aiur.GitHub.Config
   alias Aiur.Issue
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, ReviewFreshness, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, MembershipLifecycle, PrAnchored, PushRouting, ReviewFreshness, State}
   alias Aiur.RunTelemetry.Lifecycle
   alias Aiur.Tracker
   alias Aiur.TrackerIdentity
@@ -72,6 +72,9 @@ defmodule Aiur.Orchestrator.CommentWake do
     emit_alert_fun =
       Keyword.get(opts, :emit_alert_fun, &emit_merge_alert/2)
 
+    resume_blockees_fun =
+      Keyword.get(opts, :resume_blockees_fun, &PushRouting.maybe_resume_blockees_on_merged_ticket/2)
+
     merged_by_login = Keyword.get(opts, :merged_by_login)
 
     Logger.info("PR merge received: issue_identifier=#{identifier} merged_by=#{inspect(merged_by_login)}")
@@ -79,8 +82,8 @@ defmodule Aiur.Orchestrator.CommentWake do
     terminal_state =
       case update_issue_state_fun.(to_string(identifier), "done") do
         :ok ->
-          complete_merged_issue(
-            state,
+          state
+          |> complete_merged_issue(
             identifier,
             clear_session_handle_fun,
             observe_membership_fun,
@@ -88,6 +91,7 @@ defmodule Aiur.Orchestrator.CommentWake do
             mark_reconciled_fun,
             set_terminal_verification_pending_fun
           )
+          |> resume_blockees_fun.(to_string(identifier))
 
         {:error, reason} ->
           Logger.warning("PR merge terminal transition skipped: issue_identifier=#{identifier} reason=#{inspect(reason)}")

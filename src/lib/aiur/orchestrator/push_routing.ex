@@ -188,6 +188,48 @@ defmodule Aiur.Orchestrator.PushRouting do
     end
   end
 
+  @doc false
+  @spec maybe_resume_blockees_on_merged_ticket(State.t(), String.t() | integer()) :: State.t()
+  def maybe_resume_blockees_on_merged_ticket(%State{} = state, blocker_identifier) do
+    blocker_identifier = to_string(blocker_identifier)
+    topic = "ticket.#{blocker_identifier}.pr.merged"
+
+    state.running
+    |> Map.values()
+    |> Enum.reduce(state, fn entry, state_acc ->
+      case matching_blocker_pause_generation(entry, blocker_identifier) do
+        {:ok, pause_generation} ->
+          if State.paused_running_entry?(entry) do
+            attempt_auto_resume(
+              state_acc,
+              entry,
+              Map.get(entry, :identifier),
+              blocker_identifier,
+              topic,
+              topic,
+              pause_generation
+            )
+          else
+            state_acc
+          end
+
+        :error ->
+          state_acc
+      end
+    end)
+  end
+
+  @doc false
+  @spec merged_ticket_blockee_count(State.t(), String.t() | integer()) :: non_neg_integer()
+  def merged_ticket_blockee_count(%State{} = state, blocker_identifier) do
+    blocker_identifier = to_string(blocker_identifier)
+
+    Enum.count(state.running, fn {_issue_id, entry} ->
+      Map.get(entry, :paused_reason) == :blocker_dependency and
+        get_in(entry, [:blocker_pause, :blocker_identifier]) == blocker_identifier
+    end)
+  end
+
   defp resume_and_maybe_ack_unblock(state, blocker_identifier, topic, metadata, unblock_key) do
     recipient_identifiers = relevant_recipient_identifiers(state, blocker_identifier, topic)
     next = resume_matching_running_entries(state, blocker_identifier, topic, unblock_key)
