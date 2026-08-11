@@ -787,6 +787,33 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute html =~ "Root data is unavailable."
   end
 
+  # A producer that fails closed on a structural defect marks provider health
+  # failed too. Sourcing the reported fault from health rendered one confident
+  # card that blamed `rate_limited` for a malformed graph — a card count of 1 is
+  # no better than six if the one card names the wrong reason.
+  test "names the structural fault, not the fail-closed provider health failure", %{first: first} do
+    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+
+    invalid = SelectedRoot.new(root(first, "Malformed planning graph"), [:not_a_member], health(2, :unavailable, failure: :rate_limited))
+
+    send(
+      view.pid,
+      {:graph_projection_generation, selected_snapshot(first, invalid, 2, :unavailable, failure: :rate_limited)}
+    )
+
+    html = render(view)
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [card] = Floki.find(document, ".bo-state-card")
+    card_text = Floki.text(card)
+
+    assert html =~ ~s(data-build-order-status="selected_invalid")
+    assert card_text =~ "Fetched planning graph is malformed"
+    assert card_text =~ "Reported fault: invalid_member"
+    assert html =~ "The selected-root provider reports `invalid_member`"
+    refute card_text =~ "rate_limited"
+  end
+
   test "rejects a delayed context completion after close", %{first: first} do
     parent = self()
 

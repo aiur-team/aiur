@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   use Phoenix.Component
 
+  alias Aiur.BuildOrder.Diagnostic
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
@@ -132,6 +133,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         failure(kind, %{
           identifier: RouteState.root_identifier(route_state),
           code: failure_code(model, snapshot, kind),
+          kind: kind,
           model: model,
           snapshot: snapshot
         })
@@ -146,9 +148,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
 
   # `failure_class/1` preserves the specific code (`rate_limited`, `permission`,
   # `schema`, …). Report that, never a laundered stand-in for every outage.
-  defp failure_code(model, snapshot, kind) do
-    Enum.find([health_failure(model), snapshot_failure(snapshot), default_code(kind)], &(is_atom(&1) and not is_nil(&1)))
-  end
+  defp failure_code(model, snapshot, :unfetched),
+    do: first_code([health_failure(model), snapshot_failure(snapshot)], :provider_unavailable)
+
+  # A structural verdict may only be sourced from structure. Producers that fail
+  # closed on a structural defect deliberately mark provider health failed, and
+  # `SelectedRoot.availability/2` states that "that marking must not be read as
+  # an outage". Reading health here named `rate_limited` as the reason a fetched
+  # graph was malformed and sent the debug prompt after the wrong problem.
+  defp failure_code(model, _snapshot, :malformed),
+    do: first_code([structural_failure(model)], :structurally_invalid)
+
+  defp first_code(candidates, default), do: Enum.find(candidates, default, &(is_atom(&1) and not is_nil(&1)))
 
   defp health_failure(%{planning_health: %{failure: failure}}) when is_atom(failure), do: failure
   defp health_failure(_model), do: nil
@@ -156,8 +167,20 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp snapshot_failure(%Snapshot{health: %{failure: failure}}) when is_atom(failure), do: failure
   defp snapshot_failure(_snapshot), do: nil
 
-  defp default_code(:unfetched), do: :provider_unavailable
-  defp default_code(:malformed), do: :structurally_invalid
+  # The defect the read actually observed. A provider-sourced diagnostic says
+  # "we could not fetch this", never "this is malformed", so it can never be the
+  # reported fault for a structural verdict.
+  defp structural_failure(%{diagnostics: diagnostics}) when is_list(diagnostics) do
+    diagnostics
+    |> Enum.filter(&match?(%Diagnostic{}, &1))
+    |> Enum.reject(&Diagnostic.provider_sourced?/1)
+    |> Enum.map(& &1.code)
+    |> Enum.filter(&is_atom/1)
+    |> Enum.sort()
+    |> List.first()
+  end
+
+  defp structural_failure(_model), do: nil
 
   defp failure(:unfetched, context) do
     %{
@@ -168,7 +191,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       prompt:
         "Investigate why #{root_label(context.identifier)}'s planning graph could not be fetched. " <>
           "The selected-root provider reports `#{context.code}`#{scope_suffix(context.snapshot)}; " <>
-          "graph counts are unresolved#{diagnostic_suffix(context.model, context.code)}."
+          "graph counts are unresolved#{diagnostic_suffix(context)}."
     }
   end
 
@@ -181,7 +204,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       prompt:
         "Investigate why #{root_label(context.identifier)}'s fetched planning graph is malformed. " <>
           "The selected-root provider reports `#{context.code}`#{scope_suffix(context.snapshot)}" <>
-          "#{member_observation(context.model)}#{diagnostic_suffix(context.model, context.code)}."
+          "#{member_observation(context.model)}#{diagnostic_suffix(context)}."
     }
   end
 
@@ -210,16 +233,19 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   defp member_observation(%{summary: %{resolved?: true, members: members}}) when is_integer(members),
     do: " with `members: #{members}`"
 
-  defp member_observation(_model), do: "; the fetched response failed structural validation"
+  # No resolved count was read, so there is no observation to add. The card's own
+  # message already states the structural verdict, and repeating it here would be
+  # the restatement this state exists to remove.
+  defp member_observation(_model), do: ""
 
   # Only genuinely distinct faults earn a mention. A diagnostic that restates the
   # reported fault is the same fact twice, which is the defect this state fixes.
-  defp diagnostic_suffix(%{diagnostics: diagnostics}, code) when is_list(diagnostics) do
+  defp diagnostic_suffix(%{model: %{diagnostics: diagnostics}, code: code, kind: kind}) when is_list(diagnostics) do
     codes =
       diagnostics
       |> Enum.map(&Map.get(&1, :code))
       |> Enum.filter(&is_atom/1)
-      |> Enum.reject(&restates?(&1, code))
+      |> Enum.reject(&restates?(&1, code, kind))
       |> Enum.uniq()
       |> Enum.sort()
 
@@ -229,11 +255,16 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
     end
   end
 
-  defp diagnostic_suffix(_model, _code), do: ""
+  defp diagnostic_suffix(_context), do: ""
 
-  defp restates?(code, code), do: true
-  defp restates?(:provider_unavailable, _code), do: true
-  defp restates?(_diagnostic_code, _code), do: false
+  defp restates?(code, code, _kind), do: true
+
+  # `:provider_unavailable` is the generic label a fetch fault launders into, so
+  # beside a specific fetch fault it is the same outage said twice. Beside a
+  # structural verdict it is a second, genuinely distinct fault: the graph is
+  # malformed *and* the provider is down. Dropping it there would hide a fault.
+  defp restates?(:provider_unavailable, _code, :unfetched), do: true
+  defp restates?(_diagnostic_code, _code, _kind), do: false
 
   # An unresolved graph has no counts to show. Rendering the zeros of an empty
   # model would state a number we never read — "Unresolved" is the honest cell.

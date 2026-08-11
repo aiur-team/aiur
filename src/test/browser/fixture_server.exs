@@ -1337,7 +1337,13 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def catalog do
-    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane"), root(1567, "Unavailable planning graph")]
+    entries = [
+      root(42, "Release dashboard"),
+      RootSummary.new(%{}),
+      root(43, "Stale planning lane"),
+      root(1567, "Unavailable planning graph"),
+      root(1568, "Malformed planning graph")
+    ]
 
     %Snapshot{
       scope: :catalog,
@@ -1432,6 +1438,22 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       # fault. A specific read fault, not a laundered outage — the page must
       # repeat the code the provider actually reported.
       data: SelectedRoot.new(root(1567, "Unavailable planning graph"), [], unavailable_health()),
+      health: unavailable_health()
+    }
+
+    {:ok, snapshot}
+  end
+
+  # The fail-closed shape: a malformed root the provider *did* return, alongside
+  # provider health deliberately marked failed. The page must name the structural
+  # defect, never the `rate_limited` marking that only records failing closed.
+  defp selected_snapshot(%TrackerIdentity{identifier: "1568"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 9,
+      data: SelectedRoot.new(root(1568, "Malformed planning graph"), [:malformed_member], unavailable_health()),
       health: unavailable_health()
     }
 
