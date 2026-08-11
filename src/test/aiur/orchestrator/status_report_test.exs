@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.StatusReportTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.Issue
   alias Aiur.Orchestrator.{State, StatusReport}
 
   test "calculates the remaining poll interval" do
@@ -65,5 +66,34 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert_receive {:repo_base_status_called, 100}
     refute_receive {:repo_base_status_called, _}
     assert Enum.all?(statuses, &(&1.reason == :prewarm_blocked))
+  end
+
+  test "status rows expose waiting and pause reasons consistently" do
+    issue = %Issue{id: "paused", identifier: "repo#paused", state: "in-progress", title: "Needs input"}
+
+    entry = %{
+      identifier: issue.identifier,
+      issue: issue,
+      started_at: DateTime.add(DateTime.utc_now(), -900, :second),
+      paused_reason: :agent_pause_request,
+      control: %{status: :paused}
+    }
+
+    [status] = StatusReport.agent_statuses(%State{running: %{issue.id => entry}})
+
+    assert status.state == :paused
+    assert status.waiting_reason == :waiting_for_human
+    assert status.pause_reason == :agent_pause_request
+    assert status.blocked_by == []
+  end
+
+  test "idle dependency rows expose the blocker and dependency waiting reason" do
+    blocker = %{id: "blocker", identifier: "repo#blocker", state: "in-progress"}
+    issue = %Issue{id: "waiting", identifier: "repo#waiting", state: "todo", blocked_by: [blocker]}
+
+    [status] = StatusReport.agent_statuses(%State{last_polled_issues: %{issue.id => issue}}, fn _ -> {:unavailable, nil} end)
+
+    assert status.waiting_reason == :waiting_for_dependency
+    assert status.blocked_by == [blocker]
   end
 end
