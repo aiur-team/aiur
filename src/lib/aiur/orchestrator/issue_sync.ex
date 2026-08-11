@@ -152,7 +152,9 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun)
+    # `issues` is the active poll: pass it so the recheck prefers a freshly
+    # polled blockee over the snapshot stored in the running entry.
+    state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
 
     %{state | last_polled_issues: retained_issues}
   end
