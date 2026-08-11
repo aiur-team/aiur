@@ -205,8 +205,6 @@ defmodule Aiur.GitHub.HardwareVerificationGate do
     end
   end
 
-  defp issue_revision_order(_issue_body), do: nil
-
   defp latest_acceptance_revision(events) do
     events
     |> Enum.filter(fn event -> Map.get(event, "event") in ["opened", "edited"] end)

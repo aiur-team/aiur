@@ -41,7 +41,7 @@ defmodule Aiur.GitHub.BlockerCache do
   @doc false
   @spec scheduled_refreshes([String.t()], non_neg_integer()) :: MapSet.t(String.t())
   def scheduled_refreshes(issue_ids, limit) when is_list(issue_ids) and is_integer(limit) and limit >= 0 do
-    candidates = Enum.uniq(issue_ids)
+    candidates = issue_ids |> string_issue_ids() |> Enum.uniq()
 
     case candidates do
       [] ->
@@ -134,6 +134,10 @@ defmodule Aiur.GitHub.BlockerCache do
   defp blocker_identifier(%{"number" => number}), do: to_string(number)
   defp blocker_identifier(%{number: number}), do: to_string(number)
   defp blocker_identifier(_blocker), do: nil
+
+  defp string_issue_ids([]), do: []
+  defp string_issue_ids([issue_id | rest]) when is_binary(issue_id), do: [issue_id | string_issue_ids(rest)]
+  defp string_issue_ids([_issue_id | rest]), do: string_issue_ids(rest)
 
   defp ensure_table do
     case :ets.whereis(@table) do

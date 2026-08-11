@@ -287,13 +287,11 @@ defmodule Aiur.GitHub.IssuesTest do
       issue = %{"number" => 42, "title" => "Dependent", "body" => "## Acceptance\n- Verify /dev/hidraw0.", "labels" => [%{"name" => "sym:todo"}], "state" => "open"}
 
       request_fun = fn %{url: url} ->
-        cond do
-          String.contains?(url, "/dependencies/blocked_by") ->
-            send(test_pid, :dependency_request)
-            {:ok, %{status: 200, body: []}}
-
-          true ->
-            {:ok, %{status: 200, body: issue}}
+        if String.contains?(url, "/dependencies/blocked_by") do
+          send(test_pid, :dependency_request)
+          {:ok, %{status: 200, body: []}}
+        else
+          {:ok, %{status: 200, body: issue}}
         end
       end
 

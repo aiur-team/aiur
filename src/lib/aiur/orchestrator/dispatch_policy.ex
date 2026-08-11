@@ -783,8 +783,6 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       not HardwareVerification.dependency_resolved?(blocker, Aiur.GitHub.Config.label_prefix())
   end
 
-  defp blocker_unresolved?(_blocker, _terminal_states), do: true
-
   defp blocker_blocks_dispatch?(blocker, issue_state, terminal_states) when is_map(blocker) do
     blocker_state = Map.get(blocker, :state) || Map.get(blocker, "state")
     hardware_blocker? = HardwareVerification.signoff_required?(blocker, Aiur.GitHub.Config.label_prefix())

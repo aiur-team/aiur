@@ -157,9 +157,8 @@ defmodule Aiur.GitHub.Issues do
       labels = Enum.map(state_names, &StatePolicy.state_label(prefix, &1))
 
       with {:ok, issues} <-
-             fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- enrich_issues(issues, request_fun, token, owner, repo, prefix, opts) do
-        {:ok, issues}
+             fetch_issues_for_each_label(labels, request_fun, token, owner, repo, prefix) do
+        enrich_issues(issues, request_fun, token, owner, repo, prefix, opts)
       end
     end
   end
@@ -274,9 +273,8 @@ defmodule Aiur.GitHub.Issues do
       request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
 
       with {:ok, issues} <-
-             do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix),
-           {:ok, issues} <- enrich_issues(issues, request_fun, token, owner, repo, prefix, opts) do
-        {:ok, issues}
+             do_fetch_issues_by_id_list(issue_ids, request_fun, token, owner, repo, prefix) do
+        enrich_issues(issues, request_fun, token, owner, repo, prefix, opts)
       end
     end
   end
@@ -425,8 +423,10 @@ defmodule Aiur.GitHub.Issues do
 
     {enriched, _hydration_state} =
       Enum.map_reduce(issues, hydration_state, fn issue, hydration_state ->
+        scheduled? = scheduled_refresh?(scheduled_refreshes, issue.id)
+
         {blockers, hydration_state} =
-          hydrate_blockers(issue, cache?, context, hydration_state, MapSet.member?(scheduled_refreshes, issue.id))
+          hydrate_blockers(issue, cache?, context, hydration_state, scheduled?)
 
         normalized = Enum.map(blockers, &normalize_blocker(&1, owner, repo, prefix))
         {%{issue | blocked_by: normalized}, hydration_state}
@@ -444,16 +444,23 @@ defmodule Aiur.GitHub.Issues do
   defp refreshable_blocker_ids(issues, false, _cache_opts, _context), do: Enum.map(issues, & &1.id)
 
   defp refreshable_blocker_ids(issues, true, cache_opts, context) do
-    Enum.flat_map(issues, fn issue ->
-      case BlockerCache.cached(blocker_cache_key(issue.id, context), cache_opts) do
-        {:fresh, blockers} when is_list(blockers) ->
-          if requires_current_signoff_labels?(blockers, context.prefix), do: [issue.id], else: []
-
-        _stale_or_missing ->
-          [issue.id]
-      end
-    end)
+    Enum.flat_map(issues, &refreshable_blocker_id(&1, cache_opts, context))
   end
+
+  defp refreshable_blocker_id(issue, cache_opts, context) do
+    case BlockerCache.cached(blocker_cache_key(issue.id, context), cache_opts) do
+      {:fresh, blockers} when is_list(blockers) ->
+        if requires_current_signoff_labels?(blockers, context.prefix), do: [issue.id], else: []
+
+      _stale_or_missing ->
+        [issue.id]
+    end
+  end
+
+  defp scheduled_refresh?(scheduled_refreshes, issue_id) when is_binary(issue_id),
+    do: MapSet.member?(scheduled_refreshes, issue_id)
+
+  defp scheduled_refresh?(_scheduled_refreshes, _issue_id), do: false
 
   defp hydrate_blockers(issue, true, context, hydration_state, scheduled?) do
     cache_opts = Keyword.take(context.opts, [:now_ms, :ttl_ms])
