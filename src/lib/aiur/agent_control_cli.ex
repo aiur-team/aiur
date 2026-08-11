@@ -72,10 +72,13 @@ defmodule Aiur.AgentControlCLI do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
+    released_claims = Enum.count(statuses, &match?(%{reason: {:claim_released, _, _}}, &1))
 
     statuses
     |> Enum.filter(&visible_status_row?(&1, tracker_states))
     |> print_status_table()
+
+    if released_claims > 0, do: IO.puts("RELEASED CLAIMS #{released_claims} (automatic re-claim pending)")
 
     print_capacity_status(Orchestrator.max_concurrent_agents())
 
@@ -1112,6 +1115,9 @@ defmodule Aiur.AgentControlCLI do
   # when the tracker-state filters below would hide it, so `aiur status` shows
   # the state an operator has to act on.
   defp visible_status_row?(%{state: :idle, reason: {:latched, _lifetime, _maximum}}, _tracker_states),
+    do: true
+
+  defp visible_status_row?(%{state: :idle, reason: {:claim_released, _cause, _retry_in_ms}}, _tracker_states),
     do: true
 
   defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}, tracker_states) do

@@ -433,6 +433,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     latch = Map.get(latch_statuses, issue.id, :none)
     auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, issue.id, now_ms)
+    auto_resume_cause = get_in(state.auto_resume, [issue.id, :cause])
 
     %{
       issue_id: issue.id,
@@ -447,16 +448,17 @@ defmodule Aiur.Orchestrator.StatusReport do
       # #1453 supplies the idle-reason evidence; #1457 renders it.
       dispatch_latch: latch,
       auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+      claim_released?: not is_nil(auto_resume_cause),
+      claim_release_cause: auto_resume_cause,
       waiting_reason:
-        WaitingReason.for_idle(
-          issue.state,
+        idle_waiting_reason(
+          issue,
           blocked_by_open?,
           open_decision_count,
-          latched_lifetime: latch != :none,
-          tracker_paused: Issue.paused?(issue),
-          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
-          dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
-          capacity_hold_active?: capacity_hold_active?(state)
+          latch,
+          auto_resume_cause,
+          auto_resume_retry_in_ms,
+          state
         ),
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
@@ -466,6 +468,23 @@ defmodule Aiur.Orchestrator.StatusReport do
       ci_result: cached_ci_result(state, identifier)
     }
     |> Map.merge(issue_execution_facts(issue))
+  end
+
+  defp idle_waiting_reason(_issue, _blocked_by_open?, _open_decision_count, _latch, cause, retry_in_ms, _state)
+       when not is_nil(cause),
+       do: StatusReason.for_claim_release(cause, retry_in_ms)
+
+  defp idle_waiting_reason(issue, blocked_by_open?, open_decision_count, latch, _cause, retry_in_ms, state) do
+    WaitingReason.for_idle(
+      issue.state,
+      blocked_by_open?,
+      open_decision_count,
+      latched_lifetime: latch != :none,
+      tracker_paused: Issue.paused?(issue),
+      auto_resume_retry_in_ms: retry_in_ms,
+      dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
+      capacity_hold_active?: capacity_hold_active?(state)
+    )
   end
 
   defp issue_execution_facts(%Issue{} = issue) do
@@ -798,6 +817,8 @@ defmodule Aiur.Orchestrator.StatusReport do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
+    auto_resume_cause = get_in(state.auto_resume, [Map.get(issue, :id), :cause])
+    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), System.monotonic_time(:millisecond))
 
     work_state = idle_issue_work_state(issue)
     pause_reason = idle_issue_pause_reason(issue)
@@ -822,17 +843,42 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
-      reason: idle_status_reason(work_state, pause_reason, prewarm_blocked?, budget, max_dispatches, latch_status)
+      claim_released?: not is_nil(auto_resume_cause),
+      claim_release_cause: auto_resume_cause,
+      reason:
+        idle_status_reason(
+          work_state,
+          pause_reason,
+          prewarm_blocked?,
+          budget,
+          max_dispatches,
+          latch_status,
+          auto_resume_cause,
+          auto_resume_retry_in_ms
+        )
     }
   end
 
-  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, _max_dispatches, {:lifetime, lifetime, maximum}),
+  defp idle_status_reason(
+         _work_state,
+         _pause_reason,
+         _prewarm_blocked?,
+         _budget,
+         _max_dispatches,
+         _latch_status,
+         cause,
+         retry_in_ms
+       )
+       when not is_nil(cause),
+       do: StatusReason.for_claim_release(cause, retry_in_ms)
+
+  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, _max_dispatches, {:lifetime, lifetime, maximum}, _cause, _retry_in_ms),
     do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
 
-  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, _max_dispatches, :none),
+  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, _max_dispatches, :none, _cause, _retry_in_ms),
     do: StatusReason.for_pause(pause_reason)
 
-  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, max_dispatches, :none) do
+  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, max_dispatches, :none, _cause, _retry_in_ms) do
     StatusReason.for_idle(
       prewarm_blocked?,
       Map.get(budget, :tripped),

@@ -15,7 +15,7 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
         _ -> :ok
       end
 
-      {:error, {:github_api_status, 403}}
+      {:error, {:github, :rate_limited, %{status: 403, remaining: 0, reset_at: "2026-08-11T12:00:00Z", retry_after: 60}}}
     end
 
     def fetch_issues_by_states(_states), do: {:ok, []}
@@ -231,7 +231,7 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
       assert %{attempt: 1, retry_poll_failures: 1} = :sys.get_state(pid).retry_attempts["d10"]
     end
 
-    test "the third consecutive retry-poll failure releases the claim and alerts" do
+    test "a rate-limited retry-poll exhaustion releases the claim, alerts, and schedules automatic re-claim" do
       github_retry_env!()
       name = Module.concat(__MODULE__, :RetryPollExhausted)
       pid = start_orchestrator(name)
@@ -258,7 +258,11 @@ defmodule Aiur.Regression.OrchestratorDispatchRetryTest do
       state = :sys.get_state(pid)
       refute Map.has_key?(state.retry_attempts, "d11")
       refute MapSet.member?(state.claimed, "d11")
-      assert log =~ "orchestrator.retry_poll.exhausted"
+      assert %{cause: :rate_limit, attempt: 1} = state.auto_resume["d11"]
+      assert log =~ "orchestrator.claim_released"
+      assert log =~ "reason=rate_limit_exhausted"
+      assert log =~ "remaining=0"
+      assert log =~ "reset_at=2026-08-11T12:00:00Z"
     end
 
     test "failure-retry exhaustion moves the ticket to error and releases the claim (#699/#723)" do

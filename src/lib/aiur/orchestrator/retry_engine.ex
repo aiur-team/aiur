@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workspace.Ownership
@@ -719,13 +720,16 @@ defmodule Aiur.Orchestrator.RetryEngine do
     )
 
     if retry_poll_failures >= @max_retry_poll_failures and not metadata[:terminal_membership_pending?] do
-      emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata)
-
       # A transient tracker failure (403 / rate limit / provider timeout) that
       # exhausted retry polling schedules a bounded automatic re-dispatch once
       # the cause clears, instead of parking until an operator notices (#1453).
-      release_issue_claim(state, issue_id)
-      |> maybe_schedule_transient_auto_resume(issue_id, reason)
+      released =
+        state
+        |> release_issue_claim(issue_id)
+        |> maybe_schedule_transient_auto_resume(issue_id, reason)
+
+      emit_claim_released_alert(released, issue_id, identifier, attempt, reason, metadata)
+      released
     else
       schedule_issue_retry(
         state,
@@ -741,16 +745,23 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata) do
+  defp emit_claim_released_alert(state, issue_id, identifier, attempt, reason, metadata) do
+    {reason_code, details} = claim_release_reason(reason)
+    auto_reclaim = Map.get(state.auto_resume, issue_id)
+    recovery = claim_recovery_message(auto_reclaim)
+    token_identity = GitHubConfig.bot_account() || "configured GitHub tracker credential"
+
     message =
-      "Retry polling could not confirm issue state for #{identifier} after #{@max_retry_poll_failures} tracker failure(s); released claim so the ticket can be picked up after tracker recovery. Last tracker error: #{inspect(reason)}. Last agent retry attempt remains #{attempt}."
+      "Released claim for ticket=#{identifier} agent=#{identifier} after #{@max_retry_poll_failures} tracker failures " <>
+        "(reason=#{reason_code}, token_identity=#{token_identity}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
-      "Retry poll exhausted for issue_id=#{issue_id} issue_identifier=#{identifier} agent_attempt=#{attempt} max_retry_poll_failures=#{@max_retry_poll_failures} tracker_error=#{inspect(reason)}; releasing claim"
+      "Claim released for issue_id=#{issue_id} issue_identifier=#{identifier} agent_attempt=#{attempt} " <>
+        "max_retry_poll_failures=#{@max_retry_poll_failures} reason=#{reason_code} tracker_error=#{inspect(reason)}"
     )
 
     Alerts.emit_custom(
-      "orchestrator.retry_poll.exhausted",
+      "orchestrator.claim_released",
       message,
       issue: identifier,
       worker_host: metadata[:worker_host],
@@ -759,6 +770,30 @@ defmodule Aiur.Orchestrator.RetryEngine do
       severity: "warning"
     )
   end
+
+  defp claim_release_reason({:github, :rate_limited, details}) when is_map(details), do: {:rate_limit_exhausted, details}
+  defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+
+  defp claim_release_detail_suffix(details) do
+    [:remaining, :reset_at, :retry_after]
+    |> Enum.flat_map(fn key ->
+      case Map.get(details, key) do
+        nil -> []
+        value -> [", #{key}=#{value}"]
+      end
+    end)
+    |> Enum.join()
+  end
+
+  defp claim_recovery_message(%{cause: :rate_limit, attempt: attempt}) do
+    "Automatic re-claim is scheduled after rate-limit recovery (attempt #{attempt}/#{AutoResume.max_attempts()})."
+  end
+
+  defp claim_recovery_message(%{cause: cause, attempt: attempt}) do
+    "Automatic re-claim is scheduled after #{cause} recovery (attempt #{attempt}/#{AutoResume.max_attempts()})."
+  end
+
+  defp claim_recovery_message(_auto_reclaim), do: "Automatic re-claim is not scheduled; operator recovery is required."
 
   @doc false
   @spec handle_retry_issue_lookup(

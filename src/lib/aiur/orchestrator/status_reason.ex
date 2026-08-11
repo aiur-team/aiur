@@ -5,6 +5,7 @@ defmodule Aiur.Orchestrator.StatusReason do
           :awaiting_dispatch
           | :prewarm_blocked
           | {:latched, non_neg_integer(), non_neg_integer()}
+          | {:claim_released, atom() | String.t(), non_neg_integer() | nil}
           | {:transient, String.t() | nil, non_neg_integer() | nil}
           | {:paused, atom() | String.t() | nil}
           | {:paused, atom() | String.t() | nil, t()}
@@ -20,6 +21,9 @@ defmodule Aiur.Orchestrator.StatusReason do
   @spec for_retry(String.t() | nil, non_neg_integer() | nil) :: t()
   def for_retry(error, due_in_ms), do: {:transient, error, due_in_ms}
 
+  @spec for_claim_release(atom() | String.t(), non_neg_integer() | nil) :: t()
+  def for_claim_release(cause, retry_in_ms), do: {:claim_released, cause, retry_in_ms}
+
   @spec for_pause(atom() | String.t() | nil) :: t()
   def for_pause(reason), do: {:paused, reason}
 
@@ -30,6 +34,11 @@ defmodule Aiur.Orchestrator.StatusReason do
   def render(:awaiting_dispatch), do: "awaiting-dispatch"
   def render(:prewarm_blocked), do: "prewarm-blocked"
   def render({:latched, lifetime, maximum}), do: "latched #{lifetime}/#{maximum}"
+
+  def render({:claim_released, cause, retry_in_ms}) do
+    retry = if is_integer(retry_in_ms), do: "; automatic re-claim #{format_duration(retry_in_ms)}", else: ""
+    "claim released: #{humanize(cause)}#{retry}"
+  end
 
   def render({:transient, error, due_in_ms}) do
     detail = if is_binary(error) and error != "", do: ": #{compact(error)}", else: ""

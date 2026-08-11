@@ -487,6 +487,25 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
+  test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
+    released = %Issue{id: "issue-released", identifier: "repo#1475", state: "todo", title: "Reclaim me"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{released.id => released},
+          auto_resume: %{
+            released.id => %{attempt: 1, cause: :rate_limit, scheduled_at_ms: System.monotonic_time(:millisecond)}
+          }
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1475  idle    Reclaim me (claim released: rate limit; automatic re-claim ~2m)"
+    assert output =~ "RELEASED CLAIMS 1 (automatic re-claim pending)"
+  end
+
   test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do
     write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "memory",
