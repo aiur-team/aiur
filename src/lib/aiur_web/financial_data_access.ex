@@ -50,22 +50,7 @@ defmodule AiurWeb.FinancialDataAccess do
   def authenticate_request(conn, opts) do
     case Proof.configuration(opts, @version) do
       {:ok, config} ->
-        if config.required? do
-          authenticated =
-            Plug.BasicAuth.basic_auth(conn,
-              username: config.username,
-              password: config.password,
-              realm: "Aiur"
-            )
-
-          if authenticated.halted do
-            authenticated
-          else
-            put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
-          end
-        else
-          conn
-        end
+        authenticate_configured_request(conn, config)
 
       {:error, :authentication_required} ->
         conn
@@ -78,6 +63,26 @@ defmodule AiurWeb.FinancialDataAccess do
         |> halt()
     end
   end
+
+  defp authenticate_configured_request(conn, config) do
+    authenticated = configured_conn(conn, config)
+
+    if authenticated.halted do
+      authenticated
+    else
+      put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
+    end
+  end
+
+  defp configured_conn(conn, %{required?: true} = config) do
+    Plug.BasicAuth.basic_auth(conn,
+      username: config.username,
+      password: config.password,
+      realm: "Aiur"
+    )
+  end
+
+  defp configured_conn(conn, _config), do: conn
 
   @doc "Persists staged auth evidence only after the browser session is fetched."
   @spec persist_session(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
