@@ -393,6 +393,26 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
+    test "every /api/v1 GET route is probed, not merely its controller" do
+      # The controller-level pin above is too coarse to catch a *route* added to a
+      # controller the list already reaches. That is not hypothetical: it happened
+      # twice on this branch. `GET /api/v1/:issue_identifier` and
+      # `GET /api/v1/decisions/:decision_id` are both real handlers answering 200
+      # with fleet data, and both went unprobed while their controllers were
+      # covered by sibling paths — so the guard printed `exposure is scoped` with
+      # an over-broad rule publishing agent and decision reads.
+      #
+      # GET routes specifically: those are what an attacker who learns the
+      # hostname reaches for, and what the guard can safely probe.
+      for route <- api_get_routes() do
+        assert Enum.any?(guard_denied_paths(), &(route_pattern_for(&1) == route.path)),
+               "GET #{route.path} (#{inspect(route.plug)}.#{route.plug_opts}) is served under " <>
+                 "#{@api_prefix} but no path in the guard's denied_paths resolves to it. An " <>
+                 "over-broad ingress rule would publish it and the guard would still pass. Add " <>
+                 "a concrete representative path to denied_paths."
+      end
+    end
+
     test "the webhook path is not in the denied list" do
       # It is the one path that must be reachable; asserting it is denied would
       # invert the whole check.
@@ -594,6 +614,27 @@ defmodule AiurWeb.WebhookRunbookTest do
     |> Enum.map(& &1.plug)
     |> Enum.uniq()
     |> Enum.reject(&(&1 == AiurWeb.GithubWebhookController))
+  end
+
+  # Every GET route under /api/v1 except the webhook receiver itself. Read off the
+  # router rather than hand-listed, because the point of the pin that uses it is
+  # that the router grows and the guard's list does not follow on its own.
+  defp api_get_routes do
+    AiurWeb.Router.__routes__()
+    |> Enum.filter(
+      &(&1.verb == :get and String.starts_with?(&1.path, @api_prefix) and
+          &1.plug != AiurWeb.GithubWebhookController)
+    )
+  end
+
+  # The router's *pattern* a GET on this concrete path resolves to (e.g. "/api/v1/1"
+  # -> "/api/v1/:issue_identifier"), so a probe can be matched against a route
+  # without re-implementing Phoenix's segment matching.
+  defp route_pattern_for(path) do
+    case Phoenix.Router.route_info(AiurWeb.Router, "GET", path, "host") do
+      %{route: route} when route != "/*path" -> route
+      _other -> nil
+    end
   end
 
   # Which controller a GET on this path actually reaches. Deliberately resolved

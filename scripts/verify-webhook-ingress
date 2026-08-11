@@ -81,6 +81,9 @@ denied_paths=(
   "/dashboard.css"
   "/api/v1/state"
   "/api/v1/decisions"
+  # The decision *detail* read, distinct from the index above. Both are real GET
+  # handlers and the index passing says nothing about the show route.
+  "/api/v1/decisions/1"
   "/api/v1/refresh"
   "/api/v1/streamdeck/grid"
   "/api/v1/streamdeck/token" # weak: no GET clause, so the daemon 404s it too
@@ -90,14 +93,17 @@ denied_paths=(
   # The per-issue agent-control surface. This is the highest-consequence group
   # on the endpoint and it was unprobed until now: an over-broad ingress rule
   # publishes the ability to pause a running agent, inject a message into its
-  # session, drive its Claude hook, and read its event stream. The last two are
-  # real GET handlers that answer 200 with agent data, which makes them the
-  # strongest evidence in this list rather than the weakest.
+  # session, drive its Claude hook, and read its event stream and detail. The
+  # mutation entries are POST-only, so a GET reaches their `match(:*, ...)`
+  # clause and answers 405 -- still load-bearing, because an edge deny is a 404.
+  # The last two are real GET handlers that answer 200 with agent data, which
+  # makes them the strongest evidence in this list rather than the weakest.
   "/api/v1/1/pause"
   "/api/v1/1/resume"
   "/api/v1/1/messages"
   "/api/v1/1/claude-hook"
   "/api/v1/1/events"
+  "/api/v1/1"
   # Decision mutation. An attacker who reaches these answers the operator's
   # decisions for them, which on this fleet is a control-plane write.
   "/api/v1/decisions/1/decide"
