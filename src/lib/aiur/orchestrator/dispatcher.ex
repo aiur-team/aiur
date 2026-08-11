@@ -102,7 +102,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case fetch_candidate_issues(state) do
       {:ok, issues, state} ->
-        {state, issues} = MergedTicketReconciler.reconcile(state, issues)
+        {state, issues} = reconcile_merged_tickets(state, issues)
 
         state =
           state
@@ -134,6 +134,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
+  end
+
+  # Runs before anything else consumes the polled candidates: a ticket already
+  # closed by a merged pull request must not be state-synced, counted towards
+  # capacity, or dispatched as though it were still open. The returned list is
+  # the candidates that survived reconciliation.
+  @doc false
+  @spec reconcile_merged_tickets(State.t(), [Issue.t()], keyword()) :: {State.t(), [Issue.t()]}
+  def reconcile_merged_tickets(%State{} = state, issues, opts \\ []) when is_list(issues) and is_list(opts) do
+    MergedTicketReconciler.reconcile(state, issues, opts)
   end
 
   # Readiness is advisory at dispatch: the operator may be deliberately
