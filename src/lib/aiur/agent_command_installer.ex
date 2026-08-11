@@ -24,7 +24,7 @@ defmodule Aiur.AgentCommandInstaller do
   def remote_install_script(workspace, relative_dir, command_names, script)
       when is_binary(workspace) and is_list(command_names) and is_binary(script) do
     encoded = Base.encode64(script)
-    commands = command_names |> Enum.map(&Aiur.Shell.escape/1) |> Enum.join(" ")
+    commands = Enum.map_join(command_names, " ", &Aiur.Shell.escape/1)
 
     [
       "set -eu",

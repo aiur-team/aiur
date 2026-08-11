@@ -269,19 +269,19 @@ defmodule Aiur.AgentEnvironment do
 
   defp build_gate_export_prefix(workspace, opts) do
     if Keyword.get(opts, :build_gate, false) do
-      build_gate_env = BuildGate.shell_env()
-
-      if build_gate_env == [] do
-        ""
-      else
-        [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
-        |> Enum.map_join("", fn {name, value} ->
-          "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
-        end)
-      end
+      format_build_gate_exports(workspace, BuildGate.shell_env())
     else
       ""
     end
+  end
+
+  defp format_build_gate_exports(_workspace, []), do: ""
+
+  defp format_build_gate_exports(workspace, build_gate_env) do
+    [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
+    |> Enum.map_join("", fn {name, value} ->
+      "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
+    end)
   end
 
   @doc """
