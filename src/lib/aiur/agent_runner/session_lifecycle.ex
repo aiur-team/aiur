@@ -37,7 +37,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       recipient,
       {:session_execution_info, issue_id,
        %{
-         backend: session_backend(session),
+         backend: session_backend_label(session),
          requested_model: Map.get(session, :model),
          effort: Map.get(session, :effort)
        }}
@@ -62,7 +62,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   defp report_pause_containment(_recipient, _issue, _session), do: :ok
 
   defp session_runtime_info(session) do
-    case CodingAgent.runtime_report(session_backend(session)) do
+    case CodingAgent.runtime_report(session_backend!(session)) do
       :repl_pane ->
         %{
           pane_id: Map.get(session, :pane_id),
@@ -406,7 +406,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
     report_pause_containment(codex_update_recipient, issue, session)
 
     display_authority? =
-      should_display_tail?(session_backend(session), session_context.rc?, issue.identifier)
+      should_display_tail?(session_backend!(session), session_context.rc?, issue.identifier)
 
     opts =
       opts
@@ -441,7 +441,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       # on the actual session, so terminal health must close that same source.
       MessageHandler.finish_live_conversation(
         issue,
-        session_backend(session),
+        session_backend_label(session),
         result,
         current_display_source_opts(opts, display_tailer)
       )
@@ -451,7 +451,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
       kind, reason ->
         MessageHandler.mark_live_conversation_degraded(
           issue,
-          session_backend(session),
+          session_backend_label(session),
           current_display_source_opts(opts, display_tailer)
         )
 
@@ -650,7 +650,7 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   # Headless/codex/RC-off sessions stream their own rich transcript and are left
   # untouched. Started UNLINKED with `owner: self()` so display failure never affects the run.
   defp maybe_start_display_tailer(session, issue, rc?, opts) do
-    backend = session_backend(session)
+    backend = session_backend!(session)
 
     if should_display_tail?(backend, rc?, issue.identifier) do
       # DISPLAY-ONLY: broadcast straight to the opencode pane's transcript
@@ -1028,8 +1028,40 @@ defmodule Aiur.AgentRunner.SessionLifecycle do
   def session_worker_host(%{worker_host: worker_host}), do: worker_host
   def session_worker_host(_session), do: nil
 
-  @doc false
-  @spec session_backend(map()) :: String.t()
-  def session_backend(%{backend: backend}) when is_binary(backend), do: backend
-  def session_backend(_session), do: Config.agent_kind()
+  @unknown_backend "unknown"
+
+  @doc """
+  The backend that created this session, for paths where a wrong answer
+  changes behaviour.
+
+  Raises when the session carries no binary `:backend`, matching
+  `Aiur.CodingAgent`'s refusal to dispatch such a session. There is no global
+  default here on purpose: `agent.kind` is the configured *default for new
+  work*, not evidence about the session in hand, and substituting it made a
+  caller-side bug look like a routine run against the wrong provider
+  (issue #1621).
+
+  Use `session_backend_label/1` instead on reporting-only paths.
+  """
+  @spec session_backend!(map()) :: String.t()
+  def session_backend!(%{backend: backend}) when is_binary(backend), do: backend
+
+  def session_backend!(session) do
+    raise ArgumentError,
+          "cannot resolve the coding-agent backend for session #{inspect(session)}; expected a binary :backend"
+  end
+
+  @doc """
+  The backend that created this session, for reporting only.
+
+  Returns `#{@unknown_backend}` when the session carries no binary `:backend`.
+  Alerts, telemetry, and lifecycle records must never take down a turn, so
+  they cannot use `session_backend!/1` — but they must not invent a backend
+  either. An alert naming the configured default as the provider that hit a
+  usage limit is a confidently wrong reason, which costs more to unwind than
+  an honest `#{@unknown_backend}`.
+  """
+  @spec session_backend_label(map()) :: String.t()
+  def session_backend_label(%{backend: backend}) when is_binary(backend), do: backend
+  def session_backend_label(_session), do: @unknown_backend
 end

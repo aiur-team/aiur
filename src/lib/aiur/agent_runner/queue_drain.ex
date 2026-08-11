@@ -596,7 +596,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
     workspace = SessionLifecycle.session_workspace(app_session)
     worker_host = SessionLifecycle.session_worker_host(app_session)
 
-    backend = SessionLifecycle.session_backend(app_session)
+    backend = SessionLifecycle.session_backend!(app_session)
 
     callbacks =
       TurnCallbacks.build(
@@ -665,7 +665,7 @@ defmodule Aiur.AgentRunner.QueueDrain do
           issue,
           SessionLifecycle.session_workspace(app_session),
           SessionLifecycle.session_worker_host(app_session),
-          Map.put(pause_payload, :backend, SessionLifecycle.session_backend(app_session))
+          Map.put(pause_payload, :backend, SessionLifecycle.session_backend_label(app_session))
         )
 
         :ok = Aiur.Orchestrator.restore_delivered_queue_items(orchestrator, issue.identifier)

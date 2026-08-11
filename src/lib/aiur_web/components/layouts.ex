@@ -174,6 +174,50 @@ defmodule AiurWeb.Layouts do
               }
             };
 
+            Hooks.CopyToClipboard = {
+              mounted: function () {
+                this.source = this.el.querySelector("[data-copy-source]");
+                this.trigger = this.el.querySelector("[data-copy-trigger]");
+                this.status = this.el.querySelector("[data-copy-status]");
+
+                this.onCopy = async () => {
+                  if (!this.source || !this.trigger) return;
+
+                  try {
+                    var copied = false;
+
+                    if (navigator.clipboard?.writeText) {
+                      try {
+                        await navigator.clipboard.writeText(this.source.value);
+                        copied = true;
+                      } catch (_error) {}
+                    }
+
+                    if (!copied) {
+                      this.selectSource();
+                      copied = document.execCommand("copy");
+                    }
+
+                    if (!copied) throw new Error("copy unavailable");
+                    if (this.status) this.status.textContent = "Copied";
+                  } catch (_error) {
+                    this.selectSource();
+                    if (this.status) this.status.textContent = "Copy unavailable — prompt selected";
+                  }
+                };
+
+                this.trigger?.addEventListener("click", this.onCopy);
+              },
+              destroyed: function () {
+                this.trigger?.removeEventListener("click", this.onCopy);
+              },
+              selectSource: function () {
+                this.source.focus();
+                this.source.select();
+                this.source.setSelectionRange(0, this.source.value.length);
+              }
+            };
+
             if (window.AiurTicketContextDialogHook) {
               Hooks.TicketContextDialog = window.AiurTicketContextDialogHook;
             }
