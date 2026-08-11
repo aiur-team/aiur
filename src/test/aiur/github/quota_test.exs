@@ -175,7 +175,13 @@ defmodule Aiur.GitHub.QuotaTest do
   # The panel must never present a leader as though it were the whole picture.
   # With 5,000 points spent and two calls seen, the honest report is that the
   # ranking accounts for a fraction of a percent.
-  test "reports the share of the window's real spend the ranking accounts for" do
+  #
+  # Per budget, and only per budget: core bills requests and GraphQL bills
+  # points, on windows that reset at different times. A combined denominator
+  # (5,100 "spent this window") names a quantity and a window that do not
+  # exist, which is the defect #1805 reported, committed by the figure that
+  # claims to quantify honesty.
+  test "reports the share of each budget's real spend the ranking accounts for" do
     quota = start_quota()
 
     Quota.observe(quota, graphql_request("query Catalog { repository { id } }", %{"number" => 1790}), graphql_response(0, 26))
@@ -183,25 +189,54 @@ defmodule Aiur.GitHub.QuotaTest do
 
     coverage = Quota.snapshot(quota).coverage
 
-    # GitHub billed 5,000 GraphQL points and 100 core requests this window.
-    assert coverage.spend == 5100
-    assert coverage.attributed == 27
-    assert coverage.named == 26
-    assert coverage.fraction == Float.round(27 / 5100, 4)
-    assert coverage.named_fraction == Float.round(26 / 5100, 4)
+    # GitHub billed 5,000 GraphQL points this window; 26 of them are named.
+    assert coverage.resources["graphql"] == %{
+             attributed: 26,
+             named: 26,
+             spend: 5000,
+             fraction: Float.round(26 / 5000, 4),
+             named_fraction: Float.round(26 / 5000, 4),
+             estimated?: false
+           }
 
-    assert coverage.resources["graphql"] == %{attributed: 26, spend: 5000, fraction: Float.round(26 / 5000, 4)}
-    assert coverage.resources["core"] == %{attributed: 1, spend: 100, fraction: Float.round(1 / 100, 4)}
+    # And 100 core requests, of which the one Aiur saw could not be named.
+    assert coverage.resources["core"] == %{
+             attributed: 1,
+             named: 0,
+             spend: 100,
+             fraction: Float.round(1 / 100, 4),
+             named_fraction: 0.0,
+             estimated?: false
+           }
+
+    # There is no combined figure to render by accident.
+    refute Map.has_key?(coverage, :spend)
+    refute Map.has_key?(coverage, :fraction)
+    refute Map.has_key?(coverage, :named_fraction)
   end
 
   test "coverage is unavailable rather than fabricated before any window is observed" do
     quota = start_quota()
 
-    coverage = Quota.snapshot(quota).coverage
+    assert Quota.snapshot(quota).coverage.resources == %{}
+  end
 
-    assert coverage.spend == 0
-    assert coverage.fraction == nil
-    assert coverage.resources == %{}
+  # A window whose reset has passed is not the live window: attribution has
+  # already fallen back to the rolling hour, so pairing it with the expired
+  # window's `used` would state a coverage figure "this window" for a window
+  # that closed, over calls that window never contained.
+  test "reports no coverage for a budget whose window has already reset" do
+    {:ok, clock} = Agent.start_link(fn -> @now end)
+    quota = start_quota(clock: fn -> Agent.get(clock, & &1) end)
+
+    Quota.observe(quota, request(:get, "/repos/owner/repo/issues/1670"), response("core", 5000, 4000))
+
+    assert %{"core" => %{spend: 1000, named: 1}} = Quota.snapshot(quota).coverage.resources
+
+    # Past the reset, with no fresh reading from GitHub.
+    Agent.update(clock, fn _ -> DateTime.add(@reset, 1, :minute) end)
+
+    assert Quota.snapshot(quota).coverage.resources == %{}
   end
 
   # Attribution used to summarize a rolling hour while the meter beside it

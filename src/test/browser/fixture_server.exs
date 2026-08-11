@@ -1677,9 +1677,15 @@ defmodule Aiur.BrowserHarness.MeterRowLive do
       },
       attribution: [
         %{consumer: "ticket:1790", reads: 3, writes: 0, total: 3, cost: 78, costs: %{"graphql" => 78}, estimated?: false},
-        %{consumer: "unattributed", reads: 40, writes: 2, total: 42, cost: 96, costs: %{"core" => 96}, estimated?: true}
+        %{consumer: "unattributed", reads: 40, writes: 2, total: 42, cost: 96, costs: %{"core" => 96}, estimated?: false}
       ],
-      coverage: %{attributed: 174, named: 78, spend: 5_750, fraction: 0.0303, named_fraction: 0.0136, estimated?: true, resources: %{}},
+      coverage: %{
+        estimated?: false,
+        resources: %{
+          "core" => %{attributed: 96, named: 0, spend: 1_250, fraction: 0.0768, named_fraction: 0.0, estimated?: false},
+          "graphql" => %{attributed: 78, named: 78, spend: 4_500, fraction: 0.0173, named_fraction: 0.0173, estimated?: false}
+        }
+      },
       backoffs: []
     }
   end
@@ -1746,8 +1752,13 @@ defmodule Aiur.BrowserHarness.QuotaPanelLive do
   end
 
   # The reported numbers: both budgets exhausted, a heavy GraphQL consumer
-  # measured in points, and a ranking that accounts for a stated 4% of what the
-  # window actually cost.
+  # measured in points, and a coverage figure stated per budget — core's
+  # requests against core's window, GraphQL's points against GraphQL's, which
+  # reset seven minutes apart and therefore share no denominator.
+  #
+  # Only the GraphQL rows carry `estimated?`, because that is the only place the
+  # quota module can produce it: core calls are always billed one request and
+  # recorded `:reported`.
   defp github_quota do
     %{
       state: :observed,
@@ -1758,9 +1769,15 @@ defmodule Aiur.BrowserHarness.QuotaPanelLive do
       attribution: [
         %{consumer: "ticket:1790", reads: 12, writes: 1, total: 13, cost: 338, costs: %{"graphql" => 312, "core" => 26}, estimated?: false},
         %{consumer: "ticket:1792", reads: 44, writes: 3, total: 47, cost: 47, costs: %{"core" => 47}, estimated?: false},
-        %{consumer: "unattributed", reads: 21, writes: 0, total: 21, cost: 21, costs: %{"core" => 21}, estimated?: true}
+        %{consumer: "unattributed", reads: 21, writes: 0, total: 21, cost: 21, costs: %{"graphql" => 21}, estimated?: true}
       ],
-      coverage: %{attributed: 406, named: 385, spend: 10_000, fraction: 0.0406, named_fraction: 0.0385, estimated?: true, resources: %{}},
+      coverage: %{
+        estimated?: true,
+        resources: %{
+          "core" => %{attributed: 73, named: 73, spend: 5_000, fraction: 0.0146, named_fraction: 0.0146, estimated?: false},
+          "graphql" => %{attributed: 333, named: 312, spend: 5_000, fraction: 0.0666, named_fraction: 0.0624, estimated?: true}
+        }
+      },
       backoffs: []
     }
   end

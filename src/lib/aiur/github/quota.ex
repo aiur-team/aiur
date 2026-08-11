@@ -56,7 +56,7 @@ defmodule Aiur.GitHub.Quota do
   @secondary_backoff_seconds 60
   @max_secondary_backoff_seconds 60 * 60
 
-  @empty_coverage %{attributed: 0, named: 0, spend: 0, fraction: nil, named_fraction: nil, estimated?: false, resources: %{}}
+  @empty_coverage %{resources: %{}, estimated?: false}
   @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], coverage: @empty_coverage, backoffs: []}
 
   @type request :: map()
@@ -146,7 +146,7 @@ defmodule Aiur.GitHub.Quota do
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
       windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
       attribution: summarize_attribution(in_window),
-      coverage: coverage(in_window, state.windows),
+      coverage: coverage(in_window, state.windows, now),
       backoffs: present_backoffs(state, now)
     }
 
@@ -507,34 +507,46 @@ defmodule Aiur.GitHub.Quota do
     |> Enum.sort_by(&{-&1.cost, -&1.total, &1.consumer})
   end
 
-  # What the ranking above is worth. `attributed` is every call Aiur saw,
-  # `named` only the calls it could tie to a ticket — the ones the ranking can
-  # order — and `spend` is what GitHub says the window actually cost. Callers
-  # render the fraction rather than a bare leader so an unmeasured majority
-  # cannot read as the whole picture.
-  defp coverage(observations, windows) do
-    spend = windows |> Map.values() |> Enum.map(&window_spend/1) |> Enum.sum()
-    attributed = total_cost(observations)
-    named = observations |> Enum.reject(&(&1.consumer == @unattributed)) |> total_cost()
-
-    %{
-      attributed: attributed,
-      named: named,
-      spend: spend,
-      fraction: fraction(attributed, spend),
-      named_fraction: fraction(named, spend),
-      estimated?: estimated?(observations),
-      resources: coverage_by_resource(observations, windows)
-    }
+  # What the ranking above is worth — stated per budget, never combined.
+  #
+  # Core bills requests and GraphQL bills points, on separate windows that reset
+  # at different times. Adding the two and printing the sum would invent a
+  # quantity ("4% of 10000 spent this window") that describes neither budget and
+  # no single window: the same confident-wrong-number failure #1805 reported,
+  # committed by the sentence that claims to quantify honesty. So there is no
+  # combined figure to render by accident. Each budget carries `attributed`
+  # (every call Aiur saw), `named` (only the calls it could tie to a ticket —
+  # the ones the ranking can order) and `spend` (what GitHub says that window
+  # actually cost).
+  defp coverage(observations, windows, now) do
+    %{resources: coverage_by_resource(observations, windows, now), estimated?: estimated?(observations)}
   end
 
-  defp coverage_by_resource(observations, windows) do
-    Map.new(windows, fn {resource, window} ->
-      attributed = observations |> Enum.filter(&(observation_resource(&1) == resource)) |> total_cost()
-      spend = window_spend(window)
+  defp coverage_by_resource(observations, windows, now) do
+    windows
+    |> Enum.flat_map(fn {resource, window} ->
+      case window_spend(window, now) do
+        nil ->
+          []
 
-      {resource, %{attributed: attributed, spend: spend, fraction: fraction(attributed, spend)}}
+        spend ->
+          entries = Enum.filter(observations, &(observation_resource(&1) == resource))
+          named = Enum.reject(entries, &(&1.consumer == @unattributed))
+
+          [
+            {resource,
+             %{
+               attributed: total_cost(entries),
+               named: total_cost(named),
+               spend: spend,
+               fraction: fraction(total_cost(entries), spend),
+               named_fraction: fraction(total_cost(named), spend),
+               estimated?: estimated?(entries)
+             }}
+          ]
+      end
     end)
+    |> Map.new()
   end
 
   # Core and GraphQL are separate budgets billed in different units, so the
@@ -546,7 +558,17 @@ defmodule Aiur.GitHub.Quota do
     |> Map.new(fn {resource, entries} -> {resource, total_cost(entries)} end)
   end
 
-  defp window_spend(%{limit: limit, remaining: remaining}), do: max(limit - remaining, 0)
+  # A window whose reset has already passed is not the live window. Its
+  # `limit - remaining` describes a span that has closed, while attribution has
+  # already fallen back to the rolling hour (`window_start/3`) — so reporting
+  # one against the other would state a coverage figure "this window" for a
+  # window that no longer exists, over calls it never contained. The resource
+  # reports no coverage at all until GitHub is observed again.
+  defp window_spend(%{limit: limit, remaining: remaining, reset_at: %DateTime{} = reset_at}, now) do
+    if DateTime.compare(now, reset_at) == :lt, do: max(limit - remaining, 0), else: nil
+  end
+
+  defp window_spend(_window, _now), do: nil
 
   defp total_cost(observations), do: Enum.reduce(observations, 0, &(observation_cost(&1) + &2))
 

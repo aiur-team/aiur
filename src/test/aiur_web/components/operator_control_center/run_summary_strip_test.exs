@@ -96,7 +96,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         %{consumer: "ticket:1670", reads: 8, writes: 2, total: 10, cost: 120, costs: %{"core" => 120}, estimated?: false},
         %{consumer: "unattributed", reads: 1, writes: 0, total: 1, cost: 12, costs: %{"core" => 12}, estimated?: false}
       ],
-      coverage: %{attributed: 132, named: 120, spend: 5750, fraction: 0.023, named_fraction: 0.0209, estimated?: false, resources: %{}}
+      coverage: %{
+        estimated?: false,
+        resources: %{
+          "core" => %{attributed: 132, named: 120, spend: 1250, fraction: 0.1056, named_fraction: 0.096, estimated?: false},
+          "graphql" => %{attributed: 0, named: 0, spend: 4500, fraction: 0.0, named_fraction: 0.0, estimated?: false}
+        }
+      }
     }
 
     html =
@@ -112,8 +118,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
     assert html =~ "9R / 2W"
-    assert html =~ "ticket:1670 · 120 points · 2.1% of window spend"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
+
+    # The leader spent 120 of core's 1,250 requests: 9.6% of the budget it is
+    # actually draining. Against a core-plus-GraphQL denominator (5,750) it
+    # would read 2.1% — a number belonging to no budget.
+    assert 120 / 1250 == 0.096
+    assert html =~ "ticket:1670 · Core 120 requests (9.6%)"
+    refute html =~ "5750"
+    refute html =~ "of window spend"
+
+    # Coverage is stated per budget, each against its own window's spend.
+    assert 132 / 1250 == 0.1056
+    assert html =~ "Attributed Core"
+    assert html =~ "9.6% of 1250 spent this window · 11% observed"
+    assert html =~ "Attributed GraphQL"
+    assert html =~ "0% of 4500 spent this window · 0% observed"
   end
 
   # The reported bug: 5,000 points spent, "top consumer · 2 requests". The
@@ -130,7 +150,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         %{consumer: "ticket:1790", reads: 2, writes: 0, total: 2, cost: 52, costs: %{"graphql" => 52}, estimated?: false},
         %{consumer: "ticket:1791", reads: 40, writes: 0, total: 40, cost: 40, costs: %{"graphql" => 40}, estimated?: false}
       ],
-      coverage: %{attributed: 92, named: 92, spend: 5000, fraction: 0.0184, named_fraction: 0.0184, estimated?: false, resources: %{}}
+      coverage: %{
+        estimated?: false,
+        resources: %{"graphql" => %{attributed: 92, named: 92, spend: 5000, fraction: 0.0184, named_fraction: 0.0184, estimated?: false}}
+      }
     }
 
     html =
@@ -142,23 +165,39 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "ticket:1790 · 52 points · 1.0% of window spend"
+    # 52 of GraphQL's 5,000 points, stated in points against the GraphQL budget.
+    assert 52 / 5000 == 0.0104
+    assert html =~ "ticket:1790 · GraphQL 52 points (1.0%)"
     refute html =~ "ticket:1791 ·"
-    assert html =~ "Attributed"
+
+    assert 92 / 5000 == 0.0184
+    assert html =~ "Attributed GraphQL"
     assert html =~ "1.8% of 5000 spent this window · 1.8% observed"
+
+    # Core reported no window, so the card claims no core coverage rather than
+    # folding a budget it cannot see into a combined figure.
+    refute html =~ "Attributed Core"
   end
 
   # An unattributed 99.96% presented as a leader invites acting on it. With no
   # named consumer the panel must still say what it can account for, rather
   # than falling silent and leaving the meter unexplained.
+  #
+  # The estimation caveat sits on GraphQL because that is the only place the
+  # quota module can produce it: `request_cost/3` marks core calls `:reported`
+  # always, and only a GraphQL response that did not report `rateLimit { cost }`
+  # is recorded as assumed.
   test "states coverage even when nothing can be attributed to a ticket" do
     github_quota = %{
       state: :observed,
       windows: %{
-        "core" => %{resource: "core", remaining: 0, limit: 5000, used_percent: 100.0, reset_at: DateTime.add(@now, 12, :minute)}
+        "graphql" => %{resource: "graphql", remaining: 0, limit: 5000, used_percent: 100.0, reset_at: DateTime.add(@now, 12, :minute)}
       },
-      attribution: [%{consumer: "unattributed", reads: 2, writes: 0, total: 2, cost: 2, costs: %{"core" => 2}, estimated?: true}],
-      coverage: %{attributed: 2, named: 0, spend: 5000, fraction: 0.0004, named_fraction: 0.0, estimated?: true, resources: %{}}
+      attribution: [%{consumer: "unattributed", reads: 2, writes: 0, total: 2, cost: 2, costs: %{"graphql" => 2}, estimated?: true}],
+      coverage: %{
+        estimated?: true,
+        resources: %{"graphql" => %{attributed: 2, named: 0, spend: 5000, fraction: 0.0004, named_fraction: 0.0, estimated?: true}}
+      }
     }
 
     html =
@@ -171,8 +210,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     refute html =~ "Top consumer"
-    assert html =~ "0% of 5000 spent this window · 0.04% observed"
-    assert html =~ "GraphQL cost partly estimated"
+    assert html =~ "Attributed GraphQL"
+    assert 2 / 5000 == 0.0004
+    assert html =~ "0% of 5000 spent this window · 0.04% observed · cost partly estimated"
   end
 
   test "names an active secondary-limit backoff, which the primary meters cannot show" do
@@ -1070,7 +1110,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   # coverage statement is carried there in its short form. The full sentence —
   # leader, its share, coverage and the estimation caveat — overflowed the
   # grouped table and broke the row's no-horizontal-scroll guarantee.
-  test "the compressed row states coverage in short form and names no leader" do
+  test "the compressed row states coverage per budget in short form and names no leader" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         quota =
@@ -1079,13 +1119,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
             %{consumer: "ticket:1790", reads: 3, writes: 0, total: 3, cost: 78, costs: %{"graphql" => 78}, estimated?: true}
           ])
           |> Map.put(:coverage, %{
-            attributed: 174,
-            named: 78,
-            spend: 5750,
-            fraction: 0.0303,
-            named_fraction: 0.0136,
             estimated?: true,
-            resources: %{}
+            resources: %{
+              "core" => %{attributed: 18, named: 18, spend: 1250, fraction: 0.0144, named_fraction: 0.0144, estimated?: false},
+              "graphql" => %{attributed: 96, named: 78, spend: 4500, fraction: 0.0213, named_fraction: 0.0173, estimated?: true}
+            }
           })
 
         html =
@@ -1097,12 +1135,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
             now: @now
           })
 
+        # A percent per budget with no denominator: true at any width, where a
+        # shared denominator across two budgets is true at none.
+        assert 18 / 1250 == 0.0144
+        assert (78 / 4500) |> Float.round(4) == 0.0173
         assert html =~ "Attributed"
-        assert html =~ "1.4% of 5750 spent"
+        assert html =~ "Core 1.4% · GraphQL 1.7%"
 
-        # The long form belongs to the full card, not to this row.
+        # The long form belongs to the full card, not to this fixed-width row.
         refute html =~ "spent this window"
-        refute html =~ "GraphQL cost partly estimated"
+        refute html =~ "cost partly estimated"
         refute html =~ "ticket:1790"
       end)
     end)
