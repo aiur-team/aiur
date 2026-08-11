@@ -541,7 +541,7 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do
-    write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(),
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "memory",
       max_dispatches_per_ticket: 40
     )
@@ -1959,7 +1959,7 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
       restore_workflow_file_after_test()
-      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
 
       assert {:ok, ask} =
                Asks.create("owner/repo", %{
@@ -1994,7 +1994,7 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
       restore_workflow_file_after_test()
-      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
       :ok = RepoBase.ensure_state_tree("owner/repo")
 
       File.write!(
