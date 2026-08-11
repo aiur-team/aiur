@@ -270,6 +270,15 @@ If a control command times out while the daemon is still live, the outcome is
 unknown. Check the daemon state before retrying or taking destructive action;
 the CLI does not infer a cause or recommend restarting the whole session.
 
+`resume` on a paused agent never claims an outcome it has not observed. The
+orchestrator answers as soon as the resume control request is queued for the
+agent, so the CLI then waits for that agent to actually leave the paused state
+before printing `aiur: resumed #44`. Every resume in one invocation shares a
+single 4s confirmation budget, so `resume --all` stays inside the control-RPC
+timeout. If the agent is still paused when the budget expires, the CLI says the
+request was accepted but the resume is unconfirmed, and exits 1 — a queued
+request is never reported as a completed resume.
+
 Read-only fleet queries never use an empty buffer to mean success: `status`,
 `agents`, and `watch` print an affirmative empty-fleet row when no agents are
 active. Query failures print one stderr diagnostic and exit 1. Bounded query

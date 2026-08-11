@@ -39,6 +39,20 @@ defmodule Aiur.AgentControlCLI do
   # "agents query timed out after 8s" line (#1684).
   @agents_timeout_ms 6_000
 
+  # `{:ok, :resumed}` from the orchestrator means a resume control request was
+  # *enqueued* for the agent, not that the agent left the paused state (see
+  # `Aiur.Orchestrator.PauseResume.send_resume_control_message/3`). Printing
+  # "resumed #44" at that point is a confident wrong outcome: in #1634 three
+  # agents stayed paused while the CLI reported no failure at all. So observe
+  # the agent's own control status leaving `:paused` before claiming it, and
+  # report an unconfirmed request as a failure rather than as success.
+  #
+  # One invocation shares a single confirmation budget across every queued
+  # resume, so `resume --all` over a large fleet still fits inside the
+  # launcher's 10s control-RPC timeout.
+  @resume_confirm_timeout_ms 4_000
+  @resume_confirm_poll_ms 100
+
   # RepoBase phases that mean the warm base is still becoming dispatchable
   # (the gate holds new work). Anything else with prewarm enabled — :ready
   # (normal), {:error, _} (fail-open cold clone), :idle — is not a "warming"
@@ -656,10 +670,31 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp control_selected(selected, action, _targets) do
-    results = Enum.map(selected, &control_one(action, &1))
+    results =
+      selected
+      |> Enum.map(&control_one(action, &1))
+      |> resolve_queued_resumes()
+
     failed = Enum.count(results, &match?({:error, _}, &1))
 
     if failed > 0, do: 1, else: 0
+  end
+
+  # Every resume queued by this invocation is confirmed against one shared
+  # deadline, so the wait is bounded by the budget rather than by the number
+  # of targets. Each target is still observed at least once before the
+  # deadline is allowed to fail it.
+  defp resolve_queued_resumes(results) do
+    if Enum.any?(results, &match?({:queued_resume, _}, &1)) do
+      deadline = System.monotonic_time(:millisecond) + resume_confirm_timeout_ms()
+
+      Enum.map(results, fn
+        {:queued_resume, status} -> confirm_resume(status, deadline)
+        result -> result
+      end)
+    else
+      results
+    end
   end
 
   defp select_targets(:pause, :all, statuses) do
@@ -727,6 +762,13 @@ defmodule Aiur.AgentControlCLI do
     canonical = canonical_identifier(status)
 
     case resume_agent(canonical) do
+      # Only the paused-agent path is asynchronous: the orchestrator hands the
+      # agent a resume control request and answers before the agent acts on it.
+      # `:started` and `:reactivated` have already moved the issue into the
+      # running set by the time they are returned, so they are claimable.
+      {:ok, :resumed} when previous_state == :paused ->
+        {:queued_resume, status}
+
       {:ok, result} when result in [:started, :resumed, :reactivated] ->
         IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
         :ok
@@ -735,6 +777,78 @@ defmodule Aiur.AgentControlCLI do
         print_failure(:resume, status, reason)
         {:error, reason}
     end
+  end
+
+  defp confirm_resume(status, deadline) do
+    case await_resume_applied(canonical_identifier(status), deadline) do
+      :applied ->
+        IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
+        :ok
+
+      {:unconfirmed, detail} ->
+        print_unconfirmed_resume(status, detail)
+        {:error, {:resume_unconfirmed, detail}}
+    end
+  end
+
+  defp await_resume_applied(canonical, deadline) do
+    case observe_control_state(canonical) do
+      :running ->
+        :applied
+
+      {:unreadable, error} ->
+        {:unconfirmed, {:status_unreadable, error}}
+
+      :gone ->
+        {:unconfirmed, :no_longer_tracked}
+
+      :paused ->
+        if System.monotonic_time(:millisecond) + @resume_confirm_poll_ms < deadline do
+          Process.sleep(@resume_confirm_poll_ms)
+          await_resume_applied(canonical, deadline)
+        else
+          {:unconfirmed, :still_paused}
+        end
+    end
+  end
+
+  defp observe_control_state(canonical) do
+    case Orchestrator.status() do
+      statuses when is_list(statuses) ->
+        case Enum.find(statuses, &target_matches?(&1, canonical)) do
+          nil -> :gone
+          %{state: :paused} -> :paused
+          _status -> :running
+        end
+
+      error when error in [:timeout, :unavailable] ->
+        {:unreadable, error}
+    end
+  end
+
+  defp print_unconfirmed_resume(status, :still_paused) do
+    IO.puts(
+      :stderr,
+      "aiur: resume request accepted for #{display_identifier(status)} but it was still paused #{format_timeout_budget(resume_confirm_timeout_ms())} later; the resume is unconfirmed"
+    )
+  end
+
+  defp print_unconfirmed_resume(status, :no_longer_tracked) do
+    IO.puts(
+      :stderr,
+      "aiur: resume request accepted for #{display_identifier(status)} but the agent left the fleet before the resume was confirmed; outcome is unknown"
+    )
+  end
+
+  defp print_unconfirmed_resume(status, {:status_unreadable, error}) do
+    IO.puts(
+      :stderr,
+      "aiur: resume request accepted for #{display_identifier(status)} but agent status could not be read (#{format_reason(error)}); the resume is unconfirmed"
+    )
+  end
+
+  defp resume_confirm_timeout_ms do
+    Application.get_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms, @resume_confirm_timeout_ms)
   end
 
   defp print_status_table([]) do
@@ -1639,6 +1753,13 @@ defmodule Aiur.AgentControlCLI do
 
   defp result_verb(result),
     do: Map.fetch!(%{resumed: "resumed", started: "started", reactivated: "reactivated"}, result)
+
+  # Keep the real fault visible instead of collapsing it to a cause the CLI
+  # has not established (#1634).
+  defp format_reason({:orchestrator_call_failed, reason}),
+    do: "orchestrator call failed: #{inspect(reason)}"
+
+  defp format_reason({:resume_unconfirmed, detail}), do: "resume unconfirmed: #{inspect(detail)}"
 
   defp format_reason(reason) do
     Map.get(
