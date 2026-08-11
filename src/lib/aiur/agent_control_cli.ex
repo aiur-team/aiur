@@ -75,19 +75,28 @@ defmodule Aiur.AgentControlCLI do
     guarded("status", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-      case fleet_view(opts, timeout_ms) do
-        {:ok, snapshot, freshness} ->
-          print_snapshot_freshness(freshness)
-
-          case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
-            :ok -> print_status_report(fleet_statuses(snapshot), snapshot, opts)
-            {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
-          end
-
-        {:error, error} ->
-          report_control_query_failure(error, "status", timeout_ms)
-      end
+      with_fleet_view("status", opts, timeout_ms, fn snapshot ->
+        print_status_report(fleet_statuses(snapshot), snapshot, opts)
+      end)
     end)
+  end
+
+  # The shared shape of every fleet-reading control query: read the view, say so
+  # if it is stale, print the global-pause banner, then render.
+  defp with_fleet_view(query, opts, timeout_ms, render) do
+    case fleet_view(opts, timeout_ms) do
+      {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
+      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+    end
+  end
+
+  defp render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render) do
+    print_snapshot_freshness(freshness)
+
+    case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
+      :ok -> render.(snapshot)
+      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+    end
   end
 
   # `status`, `agents` and `watch` read state the daemon already knows. Serving
@@ -189,18 +198,9 @@ defmodule Aiur.AgentControlCLI do
     guarded("watch", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-      case fleet_view(opts, timeout_ms) do
-        {:ok, snapshot, freshness} ->
-          print_snapshot_freshness(freshness)
-
-          case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
-            :ok -> print_watch_board(fleet_statuses(snapshot), opts)
-            {:error, error} -> report_control_query_failure(error, "watch", timeout_ms)
-          end
-
-        {:error, error} ->
-          report_control_query_failure(error, "watch", timeout_ms)
-      end
+      with_fleet_view("watch", opts, timeout_ms, fn snapshot ->
+        print_watch_board(fleet_statuses(snapshot), opts)
+      end)
     end)
   end
 
