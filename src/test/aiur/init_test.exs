@@ -196,10 +196,18 @@ defmodule Aiur.InitTest do
           :ok
         end,
         detect_operator_skill_harnesses: fn -> [] end,
-        install_operator_skills: fn _mode, _harnesses, _opts -> {:ok, %{created: [], existing: []}} end
+        install_operator_skills: fn _mode, _harnesses, _opts -> {:ok, skills_report()} end
       },
       overrides
     )
+  end
+
+  defp skills_report(overrides \\ %{}) do
+    Map.merge(%{created: [], existing: [], skipped: [], failed: []}, overrides)
+  end
+
+  defp skill_entry(skill, harness) do
+    %{skill: skill, installed_name: skill, harness: harness, destination: "/home/test/.#{harness}/skills/#{skill}"}
   end
 
   defp existing_path(path) do
@@ -934,6 +942,16 @@ defmodule Aiur.InitTest do
     end
   end
 
+  defp operator_skill_answers(overrides \\ %{}) do
+    github_answers(
+      Map.merge(
+        %{select: %{"Install Aiur's operator skills globally so they work in any repository?" => "symlink (recommended)"}},
+        overrides,
+        fn _k, v1, v2 -> Map.merge(v1, v2) end
+      )
+    )
+  end
+
   describe "global operator skills" do
     test "offers the detected harnesses and installs the selected mode", %{dir: dir, target: target} do
       parent = self()
@@ -952,13 +970,103 @@ defmodule Aiur.InitTest do
           detect_operator_skill_harnesses: fn -> [:codex] end,
           install_operator_skills: fn mode, harnesses, opts ->
             send(parent, {:operator_skills, mode, harnesses, opts})
-            {:ok, %{created: ["/home/test/.codex/skills/aiur-run"], existing: []}}
+            {:ok, skills_report(%{created: [skill_entry("aiur-run", :codex)]})}
           end
         })
 
       assert :ok = Init.run(%{force: false}, io(parent, answers), d)
       assert_received {:operator_skills, :symlink, [:codex], []}
       assert Enum.any?(puts_log(), &(&1 =~ "installed for codex only"))
+    end
+
+    test "counts skills rather than destinations", %{dir: dir, target: target} do
+      parent = self()
+      created = for skill <- ~w(aiur-run aiur-meta), harness <- [:claude, :codex], do: skill_entry(skill, harness)
+
+      d =
+        deps(parent, dir, target, %{
+          detect_operator_skill_harnesses: fn -> [:claude, :codex] end,
+          install_operator_skills: fn _mode, _harnesses, _opts -> {:ok, skills_report(%{created: created})} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, operator_skill_answers()), d)
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "Installed 2 global operator skills"
+      assert log =~ "claude, codex"
+      refute log =~ "Installed 4 global operator skills"
+    end
+
+    test "names the blocking path and does not blame a link when a directory is in the way", %{dir: dir, target: target} do
+      parent = self()
+      blocked = Map.put(skill_entry("aiur-run", :claude), :reason, :occupied)
+
+      report =
+        skills_report(%{
+          created: [skill_entry("aiur-meta", :claude), skill_entry("aiur-build", :claude)],
+          skipped: [blocked]
+        })
+
+      d =
+        deps(parent, dir, target, %{
+          detect_operator_skill_harnesses: fn -> [:claude] end,
+          install_operator_skills: fn _mode, _harnesses, _opts -> {:ok, report} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, operator_skill_answers()), d)
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "Installed 2 global operator skills"
+      assert log =~ blocked.destination
+      refute log =~ "point elsewhere"
+      # A plain directory is not repointable, so we must not ask to repoint it.
+      refute_received {:confirm, "Repoint" <> _}
+    end
+
+    test "offers to repoint only the links that really point elsewhere", %{dir: dir, target: target} do
+      parent = self()
+      stale = Map.put(skill_entry("aiur-run", :claude), :reason, :link_elsewhere)
+
+      d =
+        deps(parent, dir, target, %{
+          detect_operator_skill_harnesses: fn -> [:claude] end,
+          install_operator_skills: fn _mode, _harnesses, opts ->
+            if opts[:replace_links?] do
+              {:ok, skills_report(%{created: [skill_entry("aiur-run", :claude)]})}
+            else
+              {:ok, skills_report(%{created: [skill_entry("aiur-meta", :claude)], skipped: [stale]})}
+            end
+          end
+        })
+
+      answers = operator_skill_answers(%{confirm: %{"Repoint 1 existing global Aiur skill link?" => true}})
+      assert :ok = Init.run(%{force: false}, io(parent, answers), d)
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ stale.destination
+      assert log =~ "links elsewhere"
+      assert log =~ "Repointed 1 global operator skill"
+    end
+
+    test "reports what was written even when part of the install failed", %{dir: dir, target: target} do
+      parent = self()
+      failure = Map.put(skill_entry("aiur-run", :claude), :reason, {:enotdir, "/home/test/.claude/skills/aiur-run"})
+
+      report = skills_report(%{created: [skill_entry("aiur-run", :codex)], failed: [failure]})
+
+      d =
+        deps(parent, dir, target, %{
+          detect_operator_skill_harnesses: fn -> [:claude, :codex] end,
+          install_operator_skills: fn _mode, _harnesses, _opts -> {:ok, report} end
+        })
+
+      assert :ok = Init.run(%{force: false}, io(parent, operator_skill_answers()), d)
+
+      log = Enum.join(puts_log(), "\n")
+      assert log =~ "Installed 1 global operator skill"
+      assert log =~ "Couldn't install"
+      assert log =~ failure.destination
+      assert log =~ "enotdir"
     end
 
     test "skip leaves global skill installation untouched", %{dir: dir, target: target} do
