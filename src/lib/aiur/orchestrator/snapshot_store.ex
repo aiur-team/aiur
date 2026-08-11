@@ -25,10 +25,15 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   @stale_window_margin 2
   @stale_window_ceiling_ms 60_000
 
+  # Two distinct degraded states must never collapse into one operator-facing
+  # message. A retained snapshot that has aged out is `{:stale, snapshot,
+  # metadata}` — it still carries a usable fleet view plus its age. Only a
+  # producer that has never published under the active generation is
+  # `:snapshot_unpublished`, which genuinely has nothing to show.
   @type result ::
           {:current, map(), map()}
           | {:stale, map(), map()}
-          | :snapshot_timeout
+          | :snapshot_unpublished
           | :orchestrator_unavailable
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -105,6 +110,12 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   a window derived from the Orchestrator's own recent publish cadence, so a
   busy-but-publishing Orchestrator under sustained dispatch does not demote a
   near-current fleet view to last-known-good.
+
+  A retained-but-aged snapshot is always returned as `{:stale, snapshot,
+  metadata}` so callers can render last-known-good data with its age.
+  `:snapshot_unpublished` is reserved for a live Orchestrator that has not
+  published under the active generation, which is the expected state for a
+  short window after every restart.
   """
   @spec read(GenServer.server(), timeout()) :: result()
   def read(orchestrator, timeout) do
@@ -267,7 +278,7 @@ defmodule Aiur.Orchestrator.SnapshotStore do
 
       pid ->
         maybe_log_initial_timeout(orchestrator, mailbox_depth(pid))
-        :snapshot_timeout
+        :snapshot_unpublished
     end
   end
 

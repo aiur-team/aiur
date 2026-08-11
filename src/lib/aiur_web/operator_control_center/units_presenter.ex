@@ -7,7 +7,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   """
 
   alias Aiur.{CurrentRunMembership, TicketActivity, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsRow}
+  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresentation, UnitsRow}
 
   @type catalog_status :: :ready | :empty | :stale | :unavailable
 
@@ -46,7 +46,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
     %{
       status: status,
-      message: catalog_message(status, membership),
+      message: catalog_message(status, membership, snapshot),
       truncated?: snapshot.truncated?,
       snapshot: snapshot
     }
@@ -281,17 +281,72 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   defp catalog_status(%{freshness: %{membership: %{status: status}}}) when status in [:stale, :unknown, :unavailable],
     do: :stale
 
-  defp catalog_status(%{rows: []}), do: :empty
-  defp catalog_status(_snapshot), do: :ready
+  # A degraded fleet source must be visible on the catalog itself: a stale
+  # `Active 0` and a current `Active 0` mean different things, so the catalog
+  # is never presented as ready while the fleet view behind it is last-known-good.
+  defp catalog_status(%{rows: []} = snapshot), do: if(fleet_view_degraded?(snapshot), do: :stale, else: :empty)
+  defp catalog_status(snapshot), do: if(fleet_view_degraded?(snapshot), do: :stale, else: :ready)
 
-  defp catalog_message(:ready, _membership), do: nil
-  defp catalog_message(:empty, _membership), do: "No units have been observed in this run."
+  defp fleet_view_degraded?(snapshot) do
+    fleet_health(snapshot) not in [:healthy, :available] or
+      fleet_freshness_status(snapshot) in [:stale, :unknown, :unavailable]
+  end
 
-  defp catalog_message(:stale, membership),
-    do: Map.get(membership, :health_message) || "Units are showing the last-known current-run membership."
+  defp fleet_health(snapshot), do: snapshot |> Map.get(:health, %{}) |> Map.get(:status, :unknown)
 
-  defp catalog_message(:unavailable, membership),
-    do: Map.get(membership, :health_message) || "Units catalog is unavailable."
+  defp fleet_freshness_status(snapshot) do
+    case snapshot |> Map.get(:freshness, %{}) |> Map.get(:status) do
+      %{status: status} -> status
+      status when is_atom(status) -> status
+      _freshness -> :unknown
+    end
+  end
+
+  defp fleet_age_seconds(snapshot) do
+    case snapshot |> Map.get(:freshness, %{}) |> Map.get(:status) do
+      %{age_seconds: age_seconds} when is_integer(age_seconds) and age_seconds >= 0 -> age_seconds
+      _freshness -> nil
+    end
+  end
+
+  defp catalog_message(:ready, _membership, _snapshot), do: nil
+  defp catalog_message(:empty, _membership, _snapshot), do: "No units have been observed in this run."
+
+  # Never quote a healthy membership as the reason for a stale catalog: the
+  # cause is whichever source is actually degraded.
+  defp catalog_message(:stale, membership, snapshot),
+    do: membership_fault(membership) || stale_source_message(snapshot)
+
+  defp catalog_message(:unavailable, membership, _snapshot),
+    do: membership_fault(membership) || "Units catalog is unavailable."
+
+  defp membership_fault(membership) do
+    case Map.get(membership, :health) do
+      health when health in [:healthy, :available] -> nil
+      _degraded_or_unknown -> Map.get(membership, :health_message)
+    end
+  end
+
+  defp stale_source_message(snapshot) do
+    cond do
+      fleet_health(snapshot) not in [:healthy, :available] ->
+        "Showing the last-known-good Units catalog while the fleet snapshot is unavailable."
+
+      fleet_freshness_status(snapshot) in [:stale, :unknown, :unavailable] ->
+        "Showing the last-known-good Units catalog while fleet snapshot refresh is degraded." <>
+          fleet_age_phrase(snapshot)
+
+      true ->
+        "Showing the last-known-good Units catalog while current-run membership reconciles."
+    end
+  end
+
+  defp fleet_age_phrase(snapshot) do
+    case fleet_age_seconds(snapshot) do
+      nil -> ""
+      age_seconds -> " Fleet view is #{UnitsPresentation.age_label(age_seconds)} old."
+    end
+  end
 
   defp count_status(%{status: :unavailable}), do: :unavailable
   defp count_status(%{status: :stale}), do: :partial

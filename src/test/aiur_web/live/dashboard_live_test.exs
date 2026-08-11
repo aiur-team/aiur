@@ -723,7 +723,8 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
     {:ok, view, initial_html} = live(build_conn(), "/")
-    assert initial_html =~ "Snapshot timed out"
+    assert initial_html =~ "No fleet snapshot published yet"
+    refute initial_html =~ "Fleet snapshot unavailable"
 
     :ok = ObservabilityPubSub.subscribe()
     :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
@@ -731,7 +732,35 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute_receive {:observability_updated, _event_id}, 20
     assert_receive {:observability_updated, _event_id}, 1_000
-    assert eventually(fn -> not String.contains?(render(view), "Snapshot timed out") end, 100)
+    assert eventually(fn -> not String.contains?(render(view), "No fleet snapshot published yet") end, 100)
+  end
+
+  test "an unpublished snapshot and an unreachable orchestrator read differently" do
+    unpublished =
+      render_component(&Overview.error/1, error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"})
+
+    unavailable =
+      render_component(&Overview.error/1, error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"})
+
+    assert unpublished =~ "No fleet snapshot published yet"
+    assert unpublished =~ "expected for a short time after a restart"
+    refute unpublished =~ "Fleet snapshot unavailable"
+
+    assert unavailable =~ "Fleet snapshot unavailable"
+    assert unavailable =~ "no last-known-good fleet view is retained"
+  end
+
+  test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
+    html =
+      render_component(&Overview.stale_snapshot/1,
+        freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
+      )
+
+    assert html =~ "Stale fleet snapshot"
+    assert html =~ "Showing the last-known-good fleet view while refresh is degraded"
+    assert html =~ "1m 35s old"
+    # The contradiction the operator reported: never unavailable and healthy at once.
+    refute html =~ "unavailable"
   end
 
   test "labels stale timeout and unavailable snapshots differently" do

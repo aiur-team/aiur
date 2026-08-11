@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.FleetFilters
+  alias AiurWeb.OperatorControlCenter.{FleetFilters, UnitsPresentation}
 
   @fleet_stats [
     {:running, "Active", "good"},
@@ -101,27 +101,50 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   @spec error(map()) :: Phoenix.LiveView.Rendered.t()
   def error(assigns) do
     ~H"""
-    <section :if={@error} class="error-card" role="alert">
-      <h2>Snapshot unavailable</h2>
-      <p><strong>{@error.code}:</strong> {@error.message}</p>
+    <section :if={@error} class="error-card" role={error_role(@error[:code])}>
+      <h2>{error_title(@error[:code])}</h2>
+      <p>{error_detail(@error[:code], @error[:message])}</p>
+      <p class="error-code"><strong>{@error[:code]}:</strong> {@error[:message]}</p>
     </section>
     """
   end
+
+  # A published-but-aged fleet view is never "unavailable": it is last-known-good
+  # data with an age. Only a producer with nothing published reaches `error/1`.
+  defp error_title("snapshot_unpublished"), do: "No fleet snapshot published yet"
+  defp error_title(_code), do: "Fleet snapshot unavailable"
+
+  defp error_detail("snapshot_unpublished", _message),
+    do:
+      "The Orchestrator is running but has not published a fleet view under this run yet. " <>
+        "This is expected for a short time after a restart; there is no last-known-good fleet view to show."
+
+  defp error_detail(_code, _message),
+    do: "The Orchestrator is not reachable and no last-known-good fleet view is retained."
+
+  defp error_role("snapshot_unpublished"), do: "status"
+  defp error_role(_code), do: "alert"
 
   attr(:freshness, :map, default: %{})
 
   @spec stale_snapshot(map()) :: Phoenix.LiveView.Rendered.t()
   def stale_snapshot(assigns) do
     ~H"""
-    <div :if={@freshness[:status] == :stale} class="readonly-banner" role="status" aria-live="polite">
+    <div :if={@freshness[:status] == :stale} class="readonly-banner stale-banner" role="status" aria-live="polite">
       <span aria-hidden="true">◉</span>
       <span>
-        <b>Fleet snapshot is stale.</b>
-        {stale_reason(@freshness[:reason])} Showing the last known-good fleet as of {@freshness[:age_seconds]}s ago.
+        <b>Stale fleet snapshot.</b>
+        Showing the last-known-good fleet view while refresh is degraded.
+        {stale_reason(@freshness[:reason])}
+      </span>
+      <span class="stale-age mono num" aria-label={"Fleet view observed #{age_label(@freshness[:age_seconds])} ago"}>
+        {age_label(@freshness[:age_seconds])} old
       </span>
     </div>
     """
   end
+
+  defp age_label(age_seconds), do: UnitsPresentation.age_label(age_seconds)
 
   defp stale_reason(:snapshot_timeout), do: "The Orchestrator is busy."
   defp stale_reason(:orchestrator_unavailable), do: "The Orchestrator is unavailable."

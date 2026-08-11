@@ -1845,6 +1845,30 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--fg);
 }
 
+/* Stale data must read as stale: the age sits at the end of the banner and
+   never scrolls out of the operator's line of sight. */
+.stale-banner {
+  justify-content: space-between;
+}
+
+.stale-age {
+  flex: 0 0 auto;
+  padding: 0.16rem 0.5rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--attention-ink);
+  font-size: 0.78rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.error-card .error-code {
+  margin-top: 0.4rem;
+  font-size: 0.78rem;
+  opacity: 0.85;
+}
+
 .decisions-banner {
   display: flex;
   align-items: center;

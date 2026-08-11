@@ -107,12 +107,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # (column headings + a single "No active agents" row) rather than an error.
     assert unavailable =~ "No active agents"
     assert unavailable =~ "units-table"
+    assert unavailable =~ "Units catalog unavailable"
+    assert unavailable =~ "membership failed"
     assert empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
     assert filtered =~ ~s(class="btn ghost units-reset")
-    assert stale =~ "Units may be stale"
+    assert stale =~ "Stale Units catalog"
     assert stale =~ "last known membership"
+    # Stale rows still render: the operator keeps the last known fleet view.
+    assert stale =~ "units-table"
     assert stale =~ "Responsive Units interface"
 
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
