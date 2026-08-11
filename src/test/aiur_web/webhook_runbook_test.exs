@@ -126,13 +126,17 @@ defmodule AiurWeb.WebhookRunbookTest do
       assert parsed_daemon_block().server.host in ~w(127.0.0.1 ::1 localhost)
     end
 
-    test "the restart check greps for the port that block binds" do
+    test "the restart check pins the same port that block binds" do
       # AC 5's verification step. Same two-literals-that-must-agree shape as the
       # tunnel origin below, and the same reason it matters: if the pinned port
-      # changes and this check does not, the operator greps for a port nothing
-      # is bound to, sees no output, and concludes the restart *broke* something
-      # — or worse, greps for the old port, matches some other process, and
-      # signs off on a restart-stability claim that was never tested.
+      # changes and this check does not, the operator compares against a port
+      # nothing is bound to, sees no output, and concludes the restart *broke*
+      # something — or worse, matches some other process and signs off on a
+      # restart-stability claim that was never tested.
+      #
+      # This test can only hold the document to its own numbers. It cannot see a
+      # deployment bound somewhere else, which is why the runbook's own check now
+      # discovers the live port and reports MISMATCH rather than assuming it.
       settings = parsed_daemon_block()
       ports = restart_check_ports()
 
@@ -140,7 +144,7 @@ defmodule AiurWeb.WebhookRunbookTest do
 
       for port <- ports do
         assert port == settings.server.port,
-               "the restart check greps for port #{port} but the documented config binds " <>
+               "the restart check pins port #{port} but the documented config binds " <>
                  "#{settings.server.port}"
       end
     end
@@ -472,7 +476,13 @@ defmodule AiurWeb.WebhookRunbookTest do
 
     case Regex.run(~r/### Verify the URL survives a restart\n(.*?)(?=\n## )/s, doc) do
       [_, section] ->
-        ~r/ss -ltn \| grep (\d+)/
+        # The check assigns the pinned port once and compares the observed port
+        # against that variable, rather than grepping for the literal in each
+        # step. That shape is deliberate: a bare `grep <port>` against a daemon
+        # bound elsewhere prints nothing both before and after the restart, and
+        # two empty results compare equal — the check silently passes in exactly
+        # the case it exists to catch.
+        ~r/^pinned=(\d+)$/m
         |> Regex.scan(section)
         |> Enum.map(fn [_, port] -> String.to_integer(port) end)
 
