@@ -563,7 +563,7 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
 
   test "retains a persisted lifetime latch attention when its budget store is unreadable" do
     Publisher.set_tracked_fn(fn _ -> true end)
-    write_workflow_file_synced!(Workflow.workflow_file_path(), max_dispatches_per_ticket: 10)
+    write_workflow_file!(Workflow.workflow_file_path(), max_dispatches_per_ticket: 10)
     issue = issue("latched-error-store-failure", "rework")
     topic = "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch"
     resolved_topic = "#{topic}.resolved"
