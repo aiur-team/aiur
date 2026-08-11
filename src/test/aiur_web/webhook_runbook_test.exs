@@ -17,6 +17,7 @@ defmodule AiurWeb.WebhookRunbookTest do
 
   use ExUnit.Case, async: true
 
+  alias Aiur.Config.Schema
   alias Aiur.Events.GithubWebhook.Normalizer
   alias AiurWeb.GithubWebhook
 
@@ -65,13 +66,13 @@ defmodule AiurWeb.WebhookRunbookTest do
   # asserting that listing a repo "changes no poll interval on its own", the
   # opposite of what now happens.
   @documented_defaults [
-    {~r/`poll_widen_factor` defaults to `([0-9.]+)`/, :float, Aiur.Config.Schema.Webhooks, :poll_widen_factor, "webhooks.poll_widen_factor"},
-    {~r/`silence_threshold_seconds` \(default ([0-9]+)\)/, :integer, Aiur.Config.Schema.Webhooks, :silence_threshold_seconds, "webhooks.silence_threshold_seconds"},
+    {~r/`poll_widen_factor` defaults to `([0-9.]+)`/, :float, Schema.Webhooks, :poll_widen_factor, "webhooks.poll_widen_factor"},
+    {~r/`silence_threshold_seconds` \(default ([0-9]+)\)/, :integer, Schema.Webhooks, :silence_threshold_seconds, "webhooks.silence_threshold_seconds"},
     # Load-bearing for AC 5. The whole "Pin the daemon's port" step exists
     # because this default means a new OS-assigned port on every restart; if it
     # ever became a fixed port, that rationale would be wrong rather than merely
     # stale.
-    {~r/`Aiur\.Config\.Schema\.Server` defaults `port` to `([0-9]+)`/, :integer, Aiur.Config.Schema.Server, :port, "server.port"}
+    {~r/`Aiur\.Config\.Schema\.Server` defaults `port` to `([0-9]+)`/, :integer, Schema.Server, :port, "server.port"}
   ]
 
   describe "documented defaults" do
@@ -104,7 +105,7 @@ defmodule AiurWeb.WebhookRunbookTest do
     test "parses through the real loader path and actually pins the port" do
       settings = parsed_daemon_block()
 
-      refute settings.server.port == %Aiur.Config.Schema.Server{}.port,
+      refute settings.server.port == %Schema.Server{}.port,
              "the runbook's `server:` block no longer changes server.port away from its " <>
                "default — the pasted YAML is being silently ignored, so the daemon still " <>
                "takes a new port on every restart and AC 5 is false"
@@ -248,7 +249,7 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
 
     assert {:ok, decoded} = YamlElixir.read_from_string(yaml)
-    assert {:ok, settings} = Aiur.Config.Schema.parse(decoded)
+    assert {:ok, settings} = Schema.parse(decoded)
     settings
   end
 
