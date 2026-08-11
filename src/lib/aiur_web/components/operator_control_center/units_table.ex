@@ -25,6 +25,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     <div class="units-results" aria-describedby="units-filter-note">
       <div :if={@status == :loading} class="units-state empty-state">Loading Units…</div>
 
+      <div :if={@status == :unavailable} class="units-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span><b>Units catalog unavailable.</b> {@message || "No last-known-good Units catalog is retained."}</span>
+      </div>
+
       <div :if={@status == :unavailable} class="units-table-wrap">
         <table class="units-table">
           <caption class="sr-only">Units catalog</caption>
@@ -49,9 +54,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         {@message || "No units have been observed in this run."}
       </div>
 
-      <div :if={@status == :stale} class="units-state readonly-banner" role="status">
+      <div :if={@status == :stale} class="units-state readonly-banner stale-banner" role="status">
         <span aria-hidden="true">◉</span>
-        <span><b>Units may be stale.</b> {@message || "Showing the last-known catalog."}</span>
+        <span>
+          <b>Stale Units catalog.</b>
+          {@message || "Showing the last-known-good Units catalog while refresh is degraded."}
+        </span>
+      </div>
+
+      <div :if={catalog_empty?(@status, @rows, @view)} class="units-state empty-state">
+        No units have been observed in this run.
       </div>
 
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
@@ -288,6 +300,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
   defp row_tone(_row), do: nil
+
+  # A stale catalog with nothing retained must still say so. Without this the
+  # staleness banner claims to be "showing the last-known-good Units catalog"
+  # over an empty area, which is a worse report than the unavailable panel this
+  # surface replaced. `zero_result?` owns the "rows exist but the filter hides
+  # them" case, so it is excluded here.
+  defp catalog_empty?(:stale, [], view), do: view[:zero_result?] != true
+  defp catalog_empty?(_status, _rows, _view), do: false
 
   defp display_rows(view) do
     view

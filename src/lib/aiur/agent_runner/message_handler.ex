@@ -19,6 +19,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     TrackerIdentity
   }
 
+  alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
@@ -576,9 +577,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
     )
   end
 
+  # Streaming deltas are coalesced here rather than dropped downstream: the
+  # orchestrator cannot filter what is already in its mailbox, and the mailbox
+  # is exactly what #1731 buried. See `CodexUpdateRelay`.
   defp send_codex_update(recipient, %Issue{id: issue_id}, message)
        when is_binary(issue_id) and is_pid(recipient) do
-    send(recipient, {:codex_worker_update, issue_id, message})
+    _decision = CodexUpdateRelay.relay(recipient, issue_id, message)
     :ok
   end
 

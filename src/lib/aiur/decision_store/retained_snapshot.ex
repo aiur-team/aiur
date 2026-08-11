@@ -5,7 +5,18 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
   alias Aiur.DecisionStore.RetainedIndex
   alias Aiur.DecisionStore.RetainedSnapshot.{LegacyPage, Query}
 
-  @lifecycle_statuses [:open, :deferred, :historic, :expired, :dismissed, :decided, :acknowledged, :resolved]
+  @lifecycle_statuses [
+    :open,
+    :awaiting,
+    :deferred,
+    :historic,
+    :history,
+    :expired,
+    :dismissed,
+    :decided,
+    :acknowledged,
+    :resolved
+  ]
 
   @type query :: %{
           required(:limit) => pos_integer(),
@@ -14,7 +25,7 @@ defmodule Aiur.DecisionStore.RetainedSnapshot do
           optional(:blocking) => boolean() | nil,
           optional(:kind) => String.t() | nil,
           optional(:ordering) => :audit | :current,
-          required(:lifecycle) => Decision.decision_status() | :historic | nil,
+          required(:lifecycle) => Decision.decision_status() | :awaiting | :historic | :history | nil,
           required(:search) => String.t() | nil,
           required(:ticket) => String.t() | nil
         }
