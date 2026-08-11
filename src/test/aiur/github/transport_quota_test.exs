@@ -39,7 +39,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     snapshot = Quota.snapshot(quota)
     assert snapshot.windows["core"].remaining == 4100
-    assert snapshot.attribution == [%{consumer: "ticket:1670", reads: 1, writes: 0, total: 1}]
+    assert [%{consumer: "ticket:1670", reads: 1, writes: 0, total: 1, cost: 1, costs: %{"core" => 1}}] = snapshot.attribution
   end
 
   test "returns a local rate-limit response without sending another exhausted request", %{quota: quota} do
@@ -104,7 +104,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     snapshot = Quota.snapshot(quota)
     assert snapshot.windows["graphql"].remaining == 3999
-    assert snapshot.attribution == [%{consumer: "ticket:1670", reads: 0, writes: 1, total: 1}]
+    assert [%{consumer: "ticket:1670", reads: 0, writes: 1, total: 1, cost: 1, costs: %{"graphql" => 1}}] = snapshot.attribution
   end
 
   test "blocks exhausted GraphQL without an outbound request", %{quota: quota} do
