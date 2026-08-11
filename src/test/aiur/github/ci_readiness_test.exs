@@ -1362,40 +1362,33 @@ defmodule Aiur.GitHub.CiReadinessTest do
   end
 
   defp gate_request_fun(protection, rulesets \\ []) do
-    encoded = Base.encode64(@workflow)
+    routes = gate_routes(protection, rulesets)
 
-    protection_response =
-      case protection do
-        :not_found -> {:ok, %{status: 404, body: %{}}}
-        body -> {:ok, %{status: 200, body: body}}
-      end
+    fn %{url: url} -> gate_response(routes, url) end
+  end
 
-    fn %{url: url} ->
-      cond do
-        String.ends_with?(url, "/branches/develop") ->
-          {:ok, %{status: 200, body: %{}}}
-
-        String.ends_with?(url, "/repos/owner/repo") ->
-          {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}
-
-        url =~ "/actions/workflows?per_page=100" ->
-          {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}
-
-        url =~ "/contents/.github/workflows" ->
-          {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}
-
-        url == "workflow-url?ref=develop" ->
-          {:ok, %{status: 200, body: %{"content" => encoded}}}
-
-        url =~ "/protection" ->
-          protection_response
-
-        url =~ "/rulesets" ->
-          {:ok, %{status: 200, body: rulesets}}
-
-        true ->
-          flunk("unexpected URL: #{url}")
-      end
+  defp gate_response(routes, url) do
+    case Enum.find(routes, fn {matches?, _response} -> matches?.(url) end) do
+      {_matches?, response} -> response
+      nil -> flunk("unexpected URL: #{url}")
     end
   end
+
+  # A route table rather than a cond chain: each readiness fixture only varies
+  # in its protection and ruleset replies, and the list keeps the stub under
+  # credo's complexity limit as more gate cases are added.
+  defp gate_routes(protection, rulesets) do
+    [
+      {&String.ends_with?(&1, "/branches/develop"), {:ok, %{status: 200, body: %{}}}},
+      {&String.ends_with?(&1, "/repos/owner/repo"), {:ok, %{status: 200, body: %{"default_branch" => "develop"}}}},
+      {&(&1 =~ "/actions/workflows?per_page=100"), {:ok, %{status: 200, body: %{"workflows" => [%{"path" => ".github/workflows/ci.yml", "state" => "active"}]}}}},
+      {&(&1 =~ "/contents/.github/workflows"), {:ok, %{status: 200, body: [%{"type" => "file", "path" => ".github/workflows/ci.yml", "url" => "workflow-url"}]}}},
+      {&(&1 == "workflow-url?ref=develop"), {:ok, %{status: 200, body: %{"content" => Base.encode64(@workflow)}}}},
+      {&(&1 =~ "/protection"), protection_response(protection)},
+      {&(&1 =~ "/rulesets"), {:ok, %{status: 200, body: rulesets}}}
+    ]
+  end
+
+  defp protection_response(:not_found), do: {:ok, %{status: 404, body: %{}}}
+  defp protection_response(body), do: {:ok, %{status: 200, body: body}}
 end
