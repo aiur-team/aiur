@@ -8,6 +8,7 @@ defmodule Aiur.Config do
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
   alias Aiur.Workflow
+  alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -33,8 +34,60 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc """
+  The parsed config.
+
+  This is the single most-called read in the system, so it must be cheap and it
+  must not serialize. Two things make it so (#1731):
+
+    * `Workflow.current_with_generation/0` is an ETS lookup, not a
+      `GenServer.call` into `Aiur.WorkflowStore`.
+    * the `Schema.parse/1` result is memoized against the store generation, so
+      the schema work happens once per *config change* rather than once per
+      read. Before this, every caller re-prepared and re-parsed the same map.
+  """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings, do: settings_from(Workflow.current())
+  def settings do
+    case Workflow.current_with_generation() do
+      {:ok, workflow, generation} when is_integer(generation) ->
+        cached_settings(workflow, generation)
+
+      {:ok, workflow, _unknown} ->
+        settings_from({:ok, workflow})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # `Schema.parse/1` is not a pure function of the config map: `$ENV` references,
+  # `LINEAR_API_KEY`/`LINEAR_ASSIGNEE` and the workspace-root default all read
+  # the process environment at parse time. Keying the memo on the config
+  # generation alone would freeze a resolved secret for the life of the config —
+  # and would break every test that sets an env var and re-reads settings. So
+  # the key carries an environment epoch as well; a `System.put_env` invalidates
+  # the memo exactly like a config edit does.
+  defp cached_settings(workflow, generation) do
+    key = {generation, :erlang.phash2(System.get_env())}
+
+    case WorkflowStoreCache.fetch_settings(key) do
+      {:ok, settings} ->
+        {:ok, settings}
+
+      :error ->
+        case settings_from({:ok, workflow}) do
+          {:ok, settings} = result ->
+            WorkflowStoreCache.put_settings(key, settings)
+            result
+
+          error ->
+            # Never memoize a parse failure: the operator fixes the config in
+            # place and the fix arrives as a new generation anyway, but a
+            # cached error would also mask a transient read.
+            error
+        end
+    end
+  end
 
   # Like `settings/0` but reads the config file directly, bypassing the
   # `WorkflowStore` cache. For callers that must see on-disk truth rather than a

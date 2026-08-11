@@ -355,7 +355,7 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
       assert out =~ "timed out after 1s"
-      assert out =~ "daemon may be scheduler-saturated"
+      assert out =~ "cause unknown"
       assert out =~ "partial output was discarded"
       refute out =~ "ISSUE  STATE"
       refute out =~ "#44    working"
@@ -409,7 +409,7 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "STDOUT_BYTES=0"
       assert out =~ "STDERR_LINES=1"
       assert out =~ "aiur: status failed against"
-      assert out =~ "with no output (node is running); the daemon may be scheduler-saturated"
+      assert out =~ "with no output (node is running); cause unknown"
       refute out =~ "see the error above"
     end
 

@@ -1786,9 +1786,9 @@ run_control_rpc() {
 
   if [ "$status" -ne 0 ] && [ "$status" -ne 75 ] && [ "${AIUR_CONTROL_RPC_DIAGNOSED:-0}" -ne 1 ]; then
     if [ "$status" -eq 124 ]; then
-      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated"
+      control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE:-the daemon} timed out after $(control_rpc_timeout_seconds)s; cause unknown. The daemon did not reply within the budget - commonly one blocked process inside it, not host load. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
     else
-      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no output; the daemon may be scheduler-saturated"
+      control_rpc_say "aiur: $(control_command_label) failed (exit ${status}) and produced no output; cause unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
     fi
   fi
 
@@ -1821,7 +1821,7 @@ run_control_rpc_dispatch() {
 
   if [ "${AIUR_CONTROL_RPC_TIMED_OUT:-0}" -eq 1 ]; then
     [ -n "$output" ] && partial_suffix="; partial output was discarded"
-    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; daemon may be scheduler-saturated${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again"
+    control_rpc_say "aiur: $(control_command_label) to ${RELEASE_NODE} timed out after $(control_rpc_timeout_seconds)s; cause unknown (commonly one blocked process inside the daemon, not host load)${partial_suffix}; rerun stop with the launcher that started this session (for example, 'aiurdev stop') to interrupt its workers, then start aiur again"
     return 124
   fi
 
@@ -1849,7 +1849,7 @@ run_control_rpc_dispatch() {
         if [ -n "$output" ]; then
           control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} (node is running); see the error above"
         else
-          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (node is running); the daemon may be scheduler-saturated"
+          control_rpc_say "aiur: $(control_command_label) failed against ${RELEASE_NODE} with no output (node is running); cause unknown. 'aiur alerts' is answered by a different process and can confirm the daemon is alive."
         fi
         ;;
       *)
