@@ -101,15 +101,30 @@ defmodule Aiur.RecentMergeStoreTest do
   end
 
   test "derives every same-repository closing ticket from a merged PR body" do
-    event =
-      merged_event(%{
-        "payload" => %{
-          "pull_request" => merged_pr(%{"body" => "Closes #1570, #1571\nFixes #1572"})
-        }
-      })
+    assert closing_identifiers_for("Closes #1570\nFixes #1571\nResolves #1572") == ["1570", "1571", "1572"]
+  end
 
-    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
-    assert RecentMerge.closing_issue_identifiers(merge) == ["1570", "1571", "1572"]
+  test "a comma-chained bare reference does not inherit the preceding keyword" do
+    # GitHub closes only #1570 here: the keyword does not carry across the
+    # comma. Treating #1571 as closed would close a ticket the PR never did.
+    assert closing_identifiers_for("Closes #1570, #1571") == ["1570"]
+    assert closing_identifiers_for("Closes #1570, closes #1571") == ["1570", "1571"]
+  end
+
+  test "ignores closing keywords GitHub itself ignores" do
+    assert closing_identifiers_for("Some notes\n```\nCloses #4242\n```\n") == []
+    assert closing_identifiers_for("> Closes #999") == []
+    assert closing_identifiers_for("Use `Closes #77` in the body") == []
+  end
+
+  test "ignores a closing keyword buried in prose" do
+    assert closing_identifiers_for("See also closed #55 last week") == []
+  end
+
+  test "accepts the documented keyword set, list items, and owner/repo references" do
+    assert closing_identifiers_for("- fixed #1\n* Resolve #2\n1. CLOSE #3") == ["1", "2", "3"]
+    assert closing_identifiers_for("Closes owner/repo#1570") == ["1570"]
+    assert closing_identifiers_for("Closes other/repo#1570") == []
   end
 
   test "retains closing references beyond the bounded merged PR summary" do
@@ -123,6 +138,17 @@ defmodule Aiur.RecentMergeStoreTest do
     assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
     assert String.length(merge.summary) <= 500
     assert RecentMerge.closing_issue_identifiers(merge) == ["1570"]
+  end
+
+  test "each reference retained past the summary bound keeps its own keyword" do
+    body = String.duplicate("x", 600) <> "\nCloses #1570\nCloses #1571"
+
+    event =
+      merged_event(%{"payload" => %{"pull_request" => merged_pr(%{"body" => body})}})
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert String.length(merge.summary) <= 500
+    assert RecentMerge.closing_issue_identifiers(merge) == ["1570", "1571"]
   end
 
   test "repeated rows dedupe while a later live observation appends one enriched snapshot", %{dir: dir} do
@@ -317,6 +343,13 @@ defmodule Aiur.RecentMergeStoreTest do
 
     assert :ok = RecentMergeStore.mark_reconciliation(false, 1, pid)
     assert %{status: :partial, partial?: true, pages_fetched: 5} = RecentMergeStore.reconciliation(pid)
+  end
+
+  defp closing_identifiers_for(body) do
+    event = merged_event(%{"payload" => %{"pull_request" => merged_pr(%{"body" => body})}})
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    RecentMerge.closing_issue_identifiers(merge)
   end
 
   defp start_store!(dir, opts \\ []) do
