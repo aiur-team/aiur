@@ -181,7 +181,7 @@ defmodule Aiur.Findings do
 
   defp decode_records(contents, path) do
     contents
-    |> String.split("\n", trim: true)
+    |> split_lines()
     |> Enum.with_index(1)
     |> Enum.reduce({[], []}, fn {line, line_number}, {records, errors} ->
       case decode_line(line, path, line_number) do
@@ -190,6 +190,22 @@ defmodule Aiur.Findings do
       end
     end)
     |> then(fn {records, errors} -> {:ok, Enum.reverse(records), Enum.reverse(errors)} end)
+  end
+
+  # Keep physical line numbers in diagnostics. A trailing newline terminates
+  # the final record; it is not an additional corrupt blank record. Interior
+  # blank lines, however, are ledger corruption and must remain addressable.
+  defp split_lines(""), do: []
+
+  defp split_lines(contents) do
+    case String.split(contents, "\n", trim: false) do
+      lines ->
+        if List.last(lines) == "" do
+          Enum.drop(lines, -1)
+        else
+          lines
+        end
+    end
   end
 
   defp filter_scope(records, nil), do: records
