@@ -112,6 +112,19 @@ defmodule Aiur.RecentMergeStoreTest do
     assert RecentMerge.closing_issue_identifiers(merge) == ["1570", "1571", "1572"]
   end
 
+  test "retains closing references beyond the bounded merged PR summary" do
+    event =
+      merged_event(%{
+        "payload" => %{
+          "pull_request" => merged_pr(%{"body" => String.duplicate("x", 600) <> "\nCloses #1570"})
+        }
+      })
+
+    assert {:ok, merge} = RecentMerge.from_github_event(event, live?: false, now: @now)
+    assert String.length(merge.summary) <= 500
+    assert RecentMerge.closing_issue_identifiers(merge) == ["1570"]
+  end
+
   test "repeated rows dedupe while a later live observation appends one enriched snapshot", %{dir: dir} do
     event = merged_event()
 
