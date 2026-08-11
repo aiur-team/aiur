@@ -58,7 +58,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
         {:noreply, state}
 
       issue_id ->
-        running_entry = Map.fetch!(running, issue_id)
+        running_entry = running |> Map.fetch!(issue_id) |> clear_completed_fallback_replacement()
         state = expire_pending_control(state, running_entry, issue_id)
         state = TokenAccounting.record_session_completion_totals(state, running_entry)
         session_id = State.running_entry_session_id(running_entry)
@@ -187,6 +187,19 @@ defmodule Aiur.Orchestrator.RetryEngine do
   end
 
   defp fallback_replacement?(running_entry), do: Map.get(running_entry, :rate_limit_fallback_replacement) == true
+
+  # The marker protects only a replacement that has not completed any work:
+  # its startup exit must retain the lifecycle fence for retry. Once the
+  # replacement completes a turn, its next task exit is the pop boundary, so
+  # a later dispatch selects the provider from the freshly fetched issue.
+  defp clear_completed_fallback_replacement(running_entry) do
+    if fallback_replacement?(running_entry) and
+         positive_turn_count?(Map.get(running_entry, :completed_turn_count)) do
+      Map.delete(running_entry, :rate_limit_fallback_replacement)
+    else
+      running_entry
+    end
+  end
 
   defp restore_fenced_failed_items(queue_store, %{pending_item_ids: %MapSet{} = item_ids}) do
     Enum.reduce(item_ids, queue_store, fn item_id, store ->

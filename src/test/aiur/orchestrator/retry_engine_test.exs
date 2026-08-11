@@ -628,6 +628,77 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
       refute launched_model == "terra"
     end
 
+    test "completed fallback exits before redispatching to the recovered primary" do
+      parent = self()
+      issue_id = "fallback-completed"
+
+      fallback_issue = %Issue{
+        id: issue_id,
+        identifier: "repo#fallback-completed",
+        title: "Fallback completed",
+        state: "in-progress",
+        labels: ["model:claude", "agent:rate-limit-fallback"],
+        selected_backend: "claude"
+      }
+
+      ref = make_ref()
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        claimed: MapSet.new([issue_id]),
+        running: %{
+          issue_id => %{
+            ref: ref,
+            pid: self(),
+            issue: fallback_issue,
+            identifier: fallback_issue.identifier,
+            started_at: DateTime.utc_now(),
+            control: %{status: :completed},
+            completed_turn_count: 1,
+            redispatch_safety: %{workspace_path: "/workspaces/fallback-completed"},
+            rate_limit_fallback_replacement: true
+          }
+        }
+      }
+
+      assert {:noreply, exited_state} = RetryEngine.handle_agent_down(state, ref, :normal)
+      assert %{pid: nil, ref: nil} = exited_state.running[issue_id]
+      refute Map.has_key?(exited_state.running[issue_id], :rate_limit_fallback_replacement)
+
+      recovered_primary_issue = %Issue{
+        id: issue_id,
+        identifier: fallback_issue.identifier,
+        title: fallback_issue.title,
+        state: "In Progress"
+      }
+
+      assert Aiur.Orchestrator.retry_candidate_issue?(recovered_primary_issue, MapSet.new(["done"]))
+      assert Aiur.Orchestrator.Slots.dispatch_slots_available?(recovered_primary_issue, exited_state)
+      assert Aiur.Orchestrator.Slots.worker_slots_available?(exited_state, nil)
+
+      assert {:noreply, redispatched_state} =
+               RetryEngine.handle_retry_issue_lookup(
+                 recovered_primary_issue,
+                 exited_state,
+                 issue_id,
+                 1,
+                 %{worker_host: nil, prior_work: true},
+                 terminal_states: MapSet.new(["done"]),
+                 dispatch_fun: fn current_state, ^recovered_primary_issue, 1, nil, _dispatch_opts ->
+                   send(parent, {:redispatched_backend, CodingAgent.backend_for(recovered_primary_issue)})
+
+                   put_in(current_state.running[issue_id], %{
+                     pid: parent,
+                     issue: recovered_primary_issue
+                   })
+                 end
+               )
+
+      assert_receive {:redispatched_backend, "codex"}
+      refute Map.has_key?(redispatched_state.running[issue_id], :rate_limit_fallback_replacement)
+    end
+
     test "park the fence and restore its failed authoritative item for retry" do
       issue = %Issue{id: "fallback-startup", identifier: "repo#fallback", state: "in-progress"}
       fence = %{generation: 7, authoritative_state: "rework", pending_item_ids: MapSet.new([1]), opened_at: DateTime.utc_now()}
