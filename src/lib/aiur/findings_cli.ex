@@ -38,21 +38,25 @@ defmodule Aiur.FindingsCLI do
 
   defp do_run(%{unfiled: unfiled, slugs: slugs, scope: scope}, puts) do
     opts = %{unfiled: unfiled, slugs: slugs, scope: scope}
-    reader = if opts.unfiled, do: &Findings.unfiled/1, else: &Findings.all/1
+
+    reader = if opts.unfiled, do: &Findings.unfiled_with_diagnostics/1, else: &Findings.all_with_diagnostics/1
 
     case reader.(scope: opts.scope) do
-      {:ok, findings} when opts.slugs ->
-        findings
-        |> Enum.map(& &1["slug"])
-        |> Enum.uniq()
-        |> Enum.sort()
-        |> Enum.each(puts)
+      {:ok, findings, errors} ->
+        Enum.each(errors, fn error -> puts.("aiur findings: skipping corrupt ledger record: #{format_error(error)}") end)
 
-        exit_code(opts, findings)
+        if opts.slugs do
+          findings
+          |> Enum.map(& &1["slug"])
+          |> Enum.uniq()
+          |> Enum.sort()
+          |> Enum.each(puts)
 
-      {:ok, findings} ->
-        Enum.each(findings, fn finding -> puts.(Jason.encode!(finding)) end)
-        exit_code(opts, findings)
+          exit_code(opts, findings)
+        else
+          Enum.each(findings, fn finding -> puts.(Jason.encode!(finding)) end)
+          exit_code(opts, findings)
+        end
 
       {:error, reason} ->
         write_error(puts, reason)
