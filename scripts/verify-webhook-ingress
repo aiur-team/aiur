@@ -63,8 +63,15 @@ webhook_path="/api/v1/github/webhook"
 # Note the asymmetry: this check reads "answered with $deny_status" as "not
 # routed through", and the daemon's own router also answers 404 for some of
 # these. For a path the daemon 404s, a pass here is weak evidence. The
-# load-bearing entries are the ones the daemon answers 200 for -- the dashboard
-# routes and `/api/v1/state` -- because those cannot look like an edge deny.
+# load-bearing entries are the ones the daemon answers for at all -- 200 from a
+# real GET handler, or 405 from a `match(:*, ...)` clause -- because neither can
+# look like an edge deny. Two entries below are knowingly weak and are marked;
+# `webhook_runbook_test.exs` fails if any *unmarked* entry becomes weak.
+#
+# Every probe here is a GET. That is what an attacker who learns the hostname
+# reaches for first, and it is also why it is safe to list the agent-control
+# mutation endpoints: none of them accept GET, so probing cannot pause an agent
+# or decide a decision -- the router answers 405 without reaching a handler.
 denied_paths=(
   "/"
   "/decisions"
@@ -76,10 +83,27 @@ denied_paths=(
   "/api/v1/decisions"
   "/api/v1/refresh"
   "/api/v1/streamdeck/grid"
-  "/api/v1/streamdeck/token"
+  "/api/v1/streamdeck/token" # weak: no GET clause, so the daemon 404s it too
   "/api/v1/pane/interrupt"
+  "/api/v1/pane/hide"
   "/api/v1/github"
-  "/api/v1/"
+  # The per-issue agent-control surface. This is the highest-consequence group
+  # on the endpoint and it was unprobed until now: an over-broad ingress rule
+  # publishes the ability to pause a running agent, inject a message into its
+  # session, drive its Claude hook, and read its event stream. The last two are
+  # real GET handlers that answer 200 with agent data, which makes them the
+  # strongest evidence in this list rather than the weakest.
+  "/api/v1/1/pause"
+  "/api/v1/1/resume"
+  "/api/v1/1/messages"
+  "/api/v1/1/claude-hook"
+  "/api/v1/1/events"
+  # Decision mutation. An attacker who reaches these answers the operator's
+  # decisions for them, which on this fleet is a control-plane write.
+  "/api/v1/decisions/1/decide"
+  "/api/v1/decisions/1/enrich"
+  "/api/v1/decisions/1/revise"
+  "/api/v1/" # weak: no route, exists to catch an over-broad prefix rule
 )
 
 failures=0
