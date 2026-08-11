@@ -704,8 +704,6 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp await_resumes_applied([], _deadline, outcomes), do: outcomes
-
   defp await_resumes_applied(pending, deadline, outcomes) do
     case read_control_states(pending, remaining_ms(deadline)) do
       {:error, error} ->
@@ -1776,8 +1774,6 @@ defmodule Aiur.AgentControlCLI do
   # has not established (#1634).
   defp format_reason({:orchestrator_call_failed, reason}),
     do: "orchestrator call failed: #{inspect(reason)}"
-
-  defp format_reason({:resume_unconfirmed, detail}), do: "resume unconfirmed: #{inspect(detail)}"
 
   defp format_reason(reason) do
     Map.get(
