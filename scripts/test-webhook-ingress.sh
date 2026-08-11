@@ -291,12 +291,31 @@ echo "ok: the webhook URL survives a restart when the origin port is pinned"
 # still matches, so the guard has to blame the origin; a guard that reports
 # this as a routing problem sends the operator to the one file that is correct.
 stop_origin
-start_tier origin
-origin_pid="$tier_pid"
 
-if [[ "$tier_port" == "$origin_port" ]]; then
-  echo "unpinned restart landed on the same port by chance; cannot test the" >&2
-  echo "moved-origin case. Re-run." >&2
+# An unpinned restart takes a fresh OS-assigned port -- but "fresh" is the
+# kernel's choice, and it is allowed to hand back the port just released. That
+# happens rarely and would make the URL keep working for a reason that has
+# nothing to do with pinning, so retry instead of failing: a security guard that
+# goes red for reasons unrelated to the property it checks is a guard people
+# learn to ignore, which costs more than the case is worth.
+moved=""
+
+for attempt in $(seq 1 10); do
+  start_tier origin
+  origin_pid="$tier_pid"
+
+  if [[ "$tier_port" != "$origin_port" ]]; then
+    moved=1
+    break
+  fi
+
+  stop_origin
+done
+
+if [[ -z "$moved" ]]; then
+  echo "ten unpinned restarts all landed back on port $origin_port, so the" >&2
+  echo "moved-origin case could not be exercised. That is not a port-pinning" >&2
+  echo "failure -- suspect the fixture or the platform's port assignment." >&2
   exit 1
 fi
 
