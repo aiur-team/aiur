@@ -268,8 +268,43 @@ are direct P0/P1 blockers.
 
 ### A quiet fleet is usually blocked, not idle
 
-Four distinct faults present identically as "the fleet is quiet", and none of
+Five distinct faults present identically as "the fleet is quiet", and none of
 them log anything. Work this ladder before any per-agent triage:
+
+0. **check for open tickets carrying no `agent:*` label.** A ticket without a
+   dispatch state is well-formed, visible in GitHub, and completely inert: it
+   appears in no state-scoped view, no agent can claim it, and the fleet
+   truthfully reports `binding: ticket supply` while it sits. This is the
+   fault most easily mistaken for "there is no work left".
+
+   ```bash
+   gh issue list --state open --limit 100 --json number,title,labels \
+     --jq '[.[]|{n:.number,t:.title,a:([.labels[].name]|map(select(startswith("agent:")))),l:[.labels[].name]}
+           |select(.a|length==0)
+           |select((.l|index("build-order"))==null)
+           |select((.t|test("^(BO|Epic):"))==false)
+           |"#\(.n) \(.t[0:60])"]|join("\n")'
+   ```
+
+   Build Order roots and epics legitimately carry no agent state — they are
+   containers, not work — so exclude them or the real signal drowns.
+
+   On 2026-08-10 this found **28** such tickets, eight of them `priority:1`,
+   while the fleet idled at 1-4 of 16 agents. Two described faults that then
+   cost hours to rediscover from scratch: the CPU load gate not being applied
+   (the fleet sat at `AGENTS 0/16` behind a load gate for an hour), and a third
+   test-flake mechanism found while merge-queue ejections were being chased
+   independently. A third had already diagnosed the operator's reported
+   Build Order failure, precisely, and sat unqueued while the Executor
+   investigated the same bug from the outside and filed a weaker duplicate.
+
+   **This is not an agent-side problem.** Authorship on that backlog was
+   roughly half agents and half the Executor's own identity, including two
+   tickets the Executor filed the same day it was failing to notice them. Check
+   your own filings, not just the fleet's — every ticket you open during a run
+   needs `agent:todo` at creation unless it is deliberately parked.
+
+   Tracked as #1793.
 
 1. run bare `"$AIUR_CMD" resume`. The global pause switch survives daemon
    restarts and machine reboots, and per-ticket `resume <id>` exits 0 silently
@@ -452,6 +487,11 @@ Alongside that, the meta-analysis of the work itself (proven repeatedly in the
    references, status, and ticket number (or `ticket: null` until it is filed).
    A finding without a ticket is not a completed retrospective:
    `aiurdev findings --unfiled` is the gate before treating the review as done.
+   **A ticket without `agent:todo` is not a filed finding.** An unlabelled
+   ticket is inert — no agent can claim it and it appears in no state-scoped
+   view — so filing one and moving on records the finding without scheduling
+   the work. Set the dispatch state in the same command that creates it, and
+   deliberately park it with a stated reason if it should not be worked yet;
    Raw state remains host-local; periodically run `mkdir -p docs/executor &&
    aiurdev findings --digest > docs/executor/open-findings.md`, inspect the
    regenerated file, and commit it to share the digest between machines;
