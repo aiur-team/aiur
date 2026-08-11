@@ -109,7 +109,10 @@ defmodule Aiur.Init do
         max_turns = Questions.prompt_max_turns(io)
         max_duration = Questions.prompt_max_duration(io)
         pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
+        # Matches Schema.Polling's default. The scaffold writes this value into
+        # .aiurconfig explicitly, so it — not the schema default — is what new
+        # installs actually poll at.
+        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 120, 1)
         prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
         prewarm = Prewarm.prompt_prewarm(io, deps, location)
         Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
