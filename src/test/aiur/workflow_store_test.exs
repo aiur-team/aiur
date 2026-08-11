@@ -39,10 +39,23 @@ defmodule Aiur.WorkflowStoreTest do
   # `:timeout` fell through the catch, `Config.settings!/0` — reached from the
   # `aiur status` render path — killed the RPC evaluator, and the operator saw a
   # non-zero exit with an empty buffer.
+  #
+  # Since #1731 a stalled store is stronger than "does not kill the caller": the
+  # read path never touches the store's mailbox, so it serves the cached value
+  # (with its real generation) and does not wait at all. The fallback proven
+  # here still exists — see `WorkflowStoreReadPathTest`, which kills the store
+  # outright — but a merely-suspended store is no longer even a slow path.
   test "a stalled store falls back to the config file instead of killing the caller" do
     ensure_workflow_store_running()
 
     pid = Process.whereis(WorkflowStore)
+
+    # Captured while the store is healthy so the suspended read below can be
+    # pinned to it exactly. Asserting only "integer or :unknown" would span the
+    # whole declared return type and could never fail.
+    assert {:ok, _workflow, generation} = WorkflowStore.current_with_generation()
+    assert is_integer(generation)
+
     Application.put_env(:aiur, :workflow_store_call_timeout_ms, 25)
     :sys.suspend(pid)
 
@@ -54,7 +67,9 @@ defmodule Aiur.WorkflowStoreTest do
     assert {:ok, %{config: config}} = WorkflowStore.current()
     assert is_map(config)
 
-    assert {:ok, %{}, :unknown} = WorkflowStore.current_with_generation()
+    # The suspended store cannot answer, so this is served from the cache — with
+    # the real generation it was published under, not a `:unknown` fallback.
+    assert {:ok, %{config: %{}}, ^generation} = WorkflowStore.current_with_generation()
 
     # The whole point: a saturated store must not take the read path down with it.
     assert %Aiur.Config.Schema{} = Config.settings!()

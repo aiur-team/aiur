@@ -2179,6 +2179,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     """
 
     File.write!(Workflow.workflow_file_path(), config)
+    # A raw write bypasses `write_workflow_file!/2`, which normally reloads the
+    # store for you. Since #1731 a read no longer reloads on the caller's
+    # behalf — the store owns freshness — so ask for the reload explicitly
+    # rather than racing its one-second poll.
+    assert :ok = WorkflowStore.force_reload()
 
     assert Config.settings!().agent.max_concurrent_agents == 10
     assert Config.max_concurrent_agents_for_state("Todo") == 1

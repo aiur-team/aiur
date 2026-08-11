@@ -1649,13 +1649,51 @@ defmodule Aiur.AgentControlCLI do
     IO.puts(:stderr, Map.fetch!(%{timeout: "aiur: timed out while reading agent status", unavailable: "aiur: orchestrator is not running"}, error))
   end
 
+  # The old wording said "daemon may be scheduler-saturated". That is a cause,
+  # confidently asserted, that this code has no evidence for — and in #1731 it
+  # was wrong: the run queue was 1, the host was fine, and one process was
+  # head-of-line blocked. A wrong diagnosis printed with confidence is worse
+  # than none; it sends the operator to look at host load.
+  #
+  # So report only what is observable here: which query did not answer, and the
+  # state of the process that owed the answer. `Process.info/2` reads the
+  # target's mailbox and current function without needing it to be scheduled,
+  # which is exactly the measurement an operator would otherwise take by hand.
+  #
+  # "outcome is unknown" is kept verbatim from #1720/#1812: it is a *different*
+  # claim from this one — that the command may or may not have taken effect —
+  # and the operator needs both. This adds the evidence, it does not replace it.
   defp print_control_query_error(:timeout, query, timeout_ms) do
-    IO.puts("#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}; outcome is unknown")
+    IO.puts(
+      "#{@error_marker}aiur: #{query} query timed out after #{format_timeout_budget(timeout_ms)}" <>
+        "; outcome is unknown. #{orchestrator_liveness()}"
+    )
   end
 
   defp print_control_query_error(:unavailable, query, _timeout_ms) do
     IO.puts("#{@error_marker}aiur: #{query} query failed because the orchestrator is not running")
   end
+
+  defp orchestrator_liveness do
+    case Process.whereis(Orchestrator) do
+      nil ->
+        "The orchestrator process is not registered, so the daemon is down or still starting."
+
+      pid ->
+        describe_orchestrator(Process.info(pid, [:message_queue_len, :status, :current_function]))
+    end
+  end
+
+  defp describe_orchestrator(nil), do: "The orchestrator process has exited."
+
+  defp describe_orchestrator(info) do
+    "Orchestrator mailbox=#{Keyword.get(info, :message_queue_len)} status=#{Keyword.get(info, :status)}" <>
+      " in #{format_mfa(Keyword.get(info, :current_function))}. " <>
+      "A large mailbox or a blocked current function means one process is stuck, not that the host is busy."
+  end
+
+  defp format_mfa({module, function, arity}), do: "#{inspect(module)}.#{function}/#{arity}"
+  defp format_mfa(_other), do: "an unknown function"
 
   defp control_query_exit_code(:timeout), do: 124
   defp control_query_exit_code(_error), do: 1
