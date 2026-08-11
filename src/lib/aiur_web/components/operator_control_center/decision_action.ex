@@ -19,7 +19,8 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
         choice: choice,
         answerable?: assigns.decision.decision_status in [:open, :deferred, :dismissed],
         deferrable?: assigns.decision.decision_status in [:open, :deferred],
-        acknowledgeable?: assigns.decision.options == [] and assigns.decision.decision_status == :open,
+        dismissible?: Map.get(assigns.decision, :blocking, false) and assigns.decision.decision_status in [:open, :deferred],
+        acknowledgeable?: assigns.decision.options == [] and assigns.decision.decision_status == :open and not Map.get(assigns.decision, :blocking, false),
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )
@@ -94,6 +95,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Deferring…"
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
+            <button
+              :if={@dismissible?}
+              class="btn ghost icon-only decision-dismiss"
+              type="button"
+              phx-click="dismiss-decision"
+              phx-value-decision-id={@decision.decision_id}
+              phx-disable-with="×"
+              aria-label="Dismiss blocker"
+              title="Dismiss blocker"
+            >×</button>
             <button
               :if={@acknowledgeable?}
               class="btn ghost"

@@ -266,6 +266,21 @@ defmodule Aiur.DecisionStoreTest do
     assert answerable.decision_status == :decided
   end
 
+  test "operator dismissal closes a deferred blocker durably", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Still blocked?", "blocking" => true})
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+    assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(deferred.decision_id, opts, pid)
+    assert dismissed.decision_status == :dismissed
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :dismissed
+  end
+
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
     pid = start_store!(dir)
     created_at = ~U[2026-07-24 12:00:00Z]
@@ -1112,6 +1127,17 @@ defmodule Aiur.DecisionStoreTest do
       assert v3.question == "Which owner should take this now?"
       assert v3.kind == v2.kind
       assert v3.options == v2.options
+    end
+
+    test "changed legacy evidence re-arms an operator-dismissed attention", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{decision: v1}} = project_attention(pid, minimal_attention("Original blocker evidence"))
+      assert {:ok, %{decision: dismissed}} = DecisionStore.dismiss(v1.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+      assert dismissed.decision_status == :dismissed
+
+      assert {:ok, %{decision: rearmed}} = project_attention(pid, minimal_attention("New blocker evidence"))
+      assert rearmed.version == 2
+      assert rearmed.decision_status == :open
     end
 
     test "a stale startup import cannot replace an enriched current question", %{dir: dir} do

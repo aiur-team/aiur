@@ -1244,6 +1244,7 @@ defmodule Aiur.DecisionStore do
          {:ok, actor} <- fetch_actor(opts) do
       case decision.decision_status do
         :open -> persist_dismissal(decision, actor, state)
+        :deferred -> persist_dismissal(decision, actor, state)
         :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
         status -> {:reply, {:error, {:conflict, status}}, state}
       end

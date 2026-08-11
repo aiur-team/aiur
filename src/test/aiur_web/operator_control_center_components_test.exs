@@ -536,6 +536,16 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ ">Acknowledge</button>"
   end
 
+  test "blocking optioned command offers an operator dismiss X" do
+    decision = action_decision(blocking: true)
+
+    html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+    assert html =~ ~s(phx-click="dismiss-decision")
+    assert html =~ ~s(aria-label="Dismiss blocker")
+    assert html =~ ">×</button>"
+  end
+
   test "dismissed historic card offers a change choice answer without another dismiss" do
     decision = action_decision(decision_status: :dismissed)
 

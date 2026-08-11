@@ -182,10 +182,15 @@ defmodule Aiur.DecisionProjection do
   defp maybe_replace_current(existing, _older), do: existing
 
   defp preserve_lifecycle(decision, existing) do
+    rearmed? =
+      existing.decision_status == :dismissed and
+        not is_nil(existing.legacy_attention) and
+        decision.content_hash != existing.content_hash
+
     %{
       decision
-      | decision_status: existing.decision_status,
-        delivery_status: existing.delivery_status,
+      | decision_status: if(rearmed?, do: :open, else: existing.decision_status),
+        delivery_status: if(rearmed?, do: :not_dispatched, else: existing.delivery_status),
         answer: existing.answer,
         active_action_id: existing.active_action_id,
         revision_sequence: existing.revision_sequence,
@@ -279,6 +284,10 @@ defmodule Aiur.DecisionProjection do
   end
 
   defp transition(%Decision{decision_status: :open} = decision, %DecisionEvent{type: :decision_dismissed}) do
+    {:ok, %{decision | decision_status: :dismissed, delivery_status: :not_dispatched}}
+  end
+
+  defp transition(%Decision{decision_status: :deferred} = decision, %DecisionEvent{type: :decision_dismissed}) do
     {:ok, %{decision | decision_status: :dismissed, delivery_status: :not_dispatched}}
   end
 
