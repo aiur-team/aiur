@@ -418,11 +418,12 @@ defmodule Aiur.DecisionEvent do
 
   defp normalize_lifecycle_source(_other), do: {:error, {:source, :invalid}}
 
-  defp decode_actor_kind(kind) when kind in [:operator, :agent, :supervisor, :system], do: {:ok, kind}
+  defp decode_actor_kind(kind) when kind in [:operator, :executor, :agent, :supervisor, :system], do: {:ok, kind}
 
   defp decode_actor_kind(kind) when is_binary(kind) do
     case kind do
       "operator" -> {:ok, :operator}
+      "executor" -> {:ok, :executor}
       "agent" -> {:ok, :agent}
       "supervisor" -> {:ok, :supervisor}
       "system" -> {:ok, :system}

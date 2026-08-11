@@ -117,6 +117,41 @@ The Executor continuously:
 8. reviews its own structured monitoring wake/outcome history once per hour,
    records avoidable no-action checks and small evidence-based cadence/trigger
    adjustments, and remains available without polling merely to appear active.
+9. listens for newly created Commands, answers settled and reversible ones
+   with explicit Executor attribution, and escalates uncertain or consequential
+   ones to the operator without answering them.
+
+## Command decision loop
+
+Subscribe the durable Executor listener to `executor.decision.requested` for the
+lifetime of the run. Creation events wake the Executor immediately, and the
+listener's persisted replay cursor delivers events missed during disconnects.
+This listener is the command inbox: do not discover new Commands by polling or
+sweeping the decision store. Periodic monitoring remains necessary for runtime
+health, but it is not a parallel decision-discovery mechanism.
+
+Evaluate each Command in its current run, ticket, and decision-history context.
+This is a judgment call, not a rules engine: do not encode a table of command
+types that may be answered automatically. A direct answer is appropriate when
+it repeats a settled answer, follows from an established fact, or chooses an
+obvious reversible operation already inside the authority envelope. Submit it
+only through the `executor-answer` command so the durable answer actor is the
+Executor, not the operator. The dashboard must expose that attribution and
+history so the operator can find, revise, or supersede every Executor-made
+decision later; explanatory prose is not a substitute for actor attribution.
+Pass the event's current decision version, exactly one option or custom answer,
+a rationale, and an idempotency key. Use a stable `--executor-id` for the run
+when available (the CLI otherwise records `aiur-cli`), so replay stays
+idempotent and stale events cannot overwrite a later answer.
+
+If the Command is uncertain, irreversible, changes feature scope or product
+direction, exceeds the authority envelope, or requires the Executor to guess,
+do not answer it. Use the `executor-escalate` command to invoke the existing
+operator-notification path with the concrete question and uncertainty, and
+leave the decision open for the operator. Auto-answered Commands do not notify;
+explicitly escalated Commands do. Escalation also carries the current decision
+version and Executor identity, so stale escalation attempts are rejected and
+the operator-facing alert remains attributable.
 
 ## Capacity policy
 

@@ -47,6 +47,7 @@ defmodule Aiur.DecisionStore do
     DecisionRevision,
     DecisionRevisionDispatch,
     DecisionValidation,
+    ExecutorCommandAttention,
     ExecutorEvents,
     JsonStore,
     SecretRedactor
@@ -63,6 +64,7 @@ defmodule Aiur.DecisionStore do
   @default_dispatch_delay_ms 0
   @default_reconcile_delay_ms 250
   @default_retry_delays_ms [250, 1_000, 5_000]
+  @executor_notification_retry_ms 15_000
   @recent_audit_limit 50
   @recent_decision_limit 50
   @maximum_legacy_page_limit 200
@@ -125,6 +127,14 @@ defmodule Aiur.DecisionStore do
   def answer(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_map(payload) and is_list(opts) do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
+  end
+
+  @doc "Serializes an Executor escalation with terminal Decision transitions."
+  @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def escalate_executor_command(decision_id, payload, server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(payload) do
+    GenServer.call(server, {:escalate_executor_command, decision_id, payload}, timeout)
   end
 
   @doc "Durably dismisses an open Decision without recording an answer."
@@ -346,6 +356,10 @@ defmodule Aiur.DecisionStore do
       revision_follow_up_projector: revision_projector,
       revision_follow_up_resolver: revision_resolver,
       event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
+      executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
+      executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
+      executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),
+      executor_request_reconciler: Keyword.get(opts, :executor_request_reconciler, &ExecutorEvents.ensure_requested/1),
       dispatching: MapSet.new(),
       retry_counts: %{},
       projecting_revision_follow_ups: MapSet.new(),
@@ -359,6 +373,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
+      reconcile_requested_executor_notifications(state)
       reconcile_deferred_executor_notifications(state)
       reproject_failure_attentions(state)
 
@@ -479,6 +494,62 @@ defmodule Aiur.DecisionStore do
     error -> {:error, Exception.message(error)}
   end
 
+  defp handle_executor_escalation(decision_id, payload, state) do
+    expected_version = Map.get(payload, :expected_version, Map.get(payload, "expected_version"))
+    executor_id = present_executor_field(payload, :executor_id)
+    reason = present_executor_field(payload, :reason)
+
+    with true <- is_integer(expected_version) and expected_version > 0,
+         executor_id when is_binary(executor_id) <- executor_id,
+         reason when is_binary(reason) <- reason,
+         {:ok, decision} <- fetch_decision(state, decision_id),
+         :ok <- validate_executor_escalation(decision, expected_version),
+         {:ok, status} <- open_executor_attention(state, decision, executor_id, reason) do
+      {:reply, {:ok, %{status: status, decision: decision}}, state}
+    else
+      false -> {:reply, {:error, :invalid_expected_version}, state}
+      nil -> {:reply, {:error, :invalid_escalation}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  defp validate_executor_escalation(decision, expected_version) do
+    cond do
+      decision.version != expected_version ->
+        {:error, {:stale_version, expected_version, decision.version}}
+
+      not is_nil(decision.answer) ->
+        {:error, :already_answered}
+
+      decision.decision_status not in [:open, :deferred] ->
+        {:error, {:not_open, decision.decision_status}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp open_executor_attention(state, decision, executor_id, reason) do
+    state.executor_attention_opener.(decision, executor_id, reason)
+  rescue
+    error -> {:error, {:attention_unavailable, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:attention_unavailable, reason}}
+  end
+
+  defp present_executor_field(payload, key) do
+    case Map.get(payload, key, Map.get(payload, Atom.to_string(key))) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          value -> value
+        end
+
+      _value ->
+        nil
+    end
+  end
+
   @impl true
   def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
@@ -515,6 +586,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:answer, decision_id, payload, opts}, _from, state) do
     handle_answer(decision_id, payload, opts, state)
+  end
+
+  def handle_call({:escalate_executor_command, _decision_id, _payload}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:escalate_executor_command, decision_id, payload}, _from, state) do
+    handle_executor_escalation(decision_id, payload, state)
   end
 
   def handle_call({:dismiss, _decision_id, _opts}, _from, %{writable?: false} = state) do
@@ -1511,7 +1590,7 @@ defmodule Aiur.DecisionStore do
         }
         |> repair_projection()
 
-      notify(current, event_id)
+      notify(current, event_id, state)
       {:reply, {:ok, %{status: :accepted, decision: current}}, new_state}
     else
       {:error, reason} -> {:reply, {:error, {:append_failed, reason}}, state}
@@ -1620,6 +1699,10 @@ defmodule Aiur.DecisionStore do
       notify_deferred_executor(decision)
     end
 
+    if event.type in [:answer_recorded, :decision_dismissed, :decision_expired] do
+      resolve_executor_escalation(decision)
+    end
+
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
     rescue
@@ -1629,11 +1712,48 @@ defmodule Aiur.DecisionStore do
     :ok
   end
 
+  defp resolve_executor_escalation(decision) do
+    case ExecutorCommandAttention.resolve(decision) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("aiur_decision_store phase=executor_escalation_resolution_failed reason=#{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.warning("aiur_decision_store phase=executor_escalation_resolution_failed error=#{Exception.message(error)}")
+  end
+
   defp reconcile_deferred_executor_notifications(state) do
     state.current
     |> Map.values()
     |> Enum.filter(&(&1.decision_status == :deferred))
     |> Enum.each(&notify_deferred_executor/1)
+  end
+
+  defp reconcile_requested_executor_notifications(state) do
+    decisions =
+      state.current
+      |> Map.values()
+      |> Enum.filter(&(&1.decision_status in [:open, :deferred]))
+
+    reconcile_requested_executor_notifications(decisions, state)
+  end
+
+  defp reconcile_requested_executor_notifications(decisions, state) do
+    case state.executor_request_boot_reconciler.(decisions) do
+      {:ok, _published_count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("aiur_decision_store phase=executor_request_reconciliation_failed reason=#{inspect(reason)}")
+        Enum.each(decisions, &schedule_executor_request_retry(&1, state, 0))
+    end
+  rescue
+    error ->
+      Logger.warning("aiur_decision_store phase=executor_request_reconciliation_failed error=#{Exception.message(error)}")
+      Enum.each(decisions, &schedule_executor_request_retry(&1, state, 0))
+  catch
+    :exit, reason ->
+      Logger.warning("aiur_decision_store phase=executor_request_reconciliation_failed exit=#{inspect(reason)}")
+      Enum.each(decisions, &schedule_executor_request_retry(&1, state, 0))
   end
 
   defp notify_deferred_executor(decision) do
@@ -2131,6 +2251,18 @@ defmodule Aiur.DecisionStore do
   end
 
   @impl true
+  def handle_info({:retry_executor_request_notification, decision_id, version, attempt}, state) do
+    case Map.get(state.current, decision_id) do
+      %Decision{version: ^version, decision_status: status} = decision when status in [:open, :deferred] ->
+        notify_requested_executor(decision, state, :executor_request_reconciler, attempt)
+
+      _terminal_or_replaced ->
+        :ok
+    end
+
+    {:noreply, state}
+  end
+
   def handle_info({:reconcile_dispatches, fences}, state) do
     next_state =
       Enum.reduce(fences, state, &reconcile_scheduled_decision/2)
@@ -2926,7 +3058,7 @@ defmodule Aiur.DecisionStore do
     MapSet.member?(Map.get(state, :lifecycle_append_failures, MapSet.new()), action_id)
   end
 
-  defp notify(decision, event_id) do
+  defp notify(decision, event_id, state) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.requested"
     payload = DecisionProjection.to_json_safe(decision)
 
@@ -2936,11 +3068,44 @@ defmodule Aiur.DecisionStore do
       error -> Logger.warning("aiur_decision_store phase=notify_publisher_failed error=#{Exception.message(error)}")
     end
 
+    notify_requested_executor(decision, state, :executor_request_publisher)
+
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
     rescue
       error -> Logger.warning("aiur_decision_store phase=notify_pubsub_failed error=#{Exception.message(error)}")
     end
+
+    :ok
+  end
+
+  defp notify_requested_executor(decision, state, publisher_key, attempt \\ 0) do
+    case state[publisher_key].(decision) do
+      {:ok, _id, _subscribers} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("aiur_decision_store phase=executor_request_notification_failed reason=#{inspect(reason)}")
+        schedule_executor_request_retry(decision, state, attempt)
+    end
+  rescue
+    error ->
+      Logger.warning("aiur_decision_store phase=executor_request_notification_failed error=#{Exception.message(error)}")
+      schedule_executor_request_retry(decision, state, attempt)
+  catch
+    :exit, reason ->
+      Logger.warning("aiur_decision_store phase=executor_request_notification_failed exit=#{inspect(reason)}")
+      schedule_executor_request_retry(decision, state, attempt)
+  end
+
+  defp schedule_executor_request_retry(decision, state, attempt) do
+    delay = Enum.at(state.retry_delays_ms, attempt, @executor_notification_retry_ms)
+
+    state.dispatch_scheduler.(
+      self(),
+      {:retry_executor_request_notification, decision.decision_id, decision.version, attempt + 1},
+      delay
+    )
 
     :ok
   end

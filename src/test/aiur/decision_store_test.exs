@@ -4,7 +4,7 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.EventsDigest
-  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
+  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore, ExecutorCommandAttention, ExecutorCommandCLI}
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
@@ -1395,6 +1395,141 @@ defmodule Aiur.DecisionStoreTest do
     end
   end
 
+  test "accepts and replays an executor-attributed answer without supervisor policy evidence", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Reuse the established answer?",
+               "blocking" => true,
+               "options" => [%{"id" => "yes", "label" => "Yes"}]
+             })
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-answer",
+                 "expected_version" => 1,
+                 "option_id" => "yes"
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.supervisor_basis == nil
+
+    assert {:ok, [_requested, %DecisionEvent{type: :answer_recorded, data: ^answer}]} =
+             DecisionStore.audit_history(decision.decision_id, pid)
+
+    GenServer.stop(pid)
+    replayed = start_store!(dir, dispatch_delay_ms: 60_000)
+    assert DecisionStore.health(replayed) == :writable
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, replayed)
+    assert durable.answer == answer
+  end
+
+  test "answering an escalated Command clears its operator attention", %{dir: dir} do
+    unless Process.whereis(IdGenerator) do
+      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-escalation-event-id.json"), batch_size: 50})
+    end
+
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    log_root = Path.join(dir, "executor-escalation-log")
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if previous_log_file,
+        do: Application.put_env(:aiur, :log_file, previous_log_file),
+        else: Application.delete_env(:aiur, :log_file)
+    end)
+
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{"question" => "Change the release scope?", "blocking" => true})
+
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert ExecutorCommandCLI.escalate(
+                      [
+                        decision_id: decision.decision_id,
+                        expected_version: decision.version,
+                        reason: "This changes product scope."
+                      ],
+                      decision_store: pid
+                    ) == 0
+           end) =~ "escalated Command"
+
+    topic = ExecutorCommandAttention.topic(decision.decision_id, decision.ticket.identifier)
+    alert_opts = [roots: [], log_roots: [log_root]]
+    assert AlertFeed.active_ticket_attention?(topic, alert_opts)
+
+    assert {:ok, %{status: :accepted}} =
+             answer(pid, decision.decision_id, %{
+               "idempotency_key" => "operator-answer-after-escalation",
+               "expected_version" => decision.version,
+               "custom_response" => "Keep the existing scope."
+             })
+
+    refute AlertFeed.active_ticket_attention?(topic, alert_opts)
+  end
+
+  test "serializes Executor escalation before a concurrent answer", %{dir: dir} do
+    unless Process.whereis(IdGenerator) do
+      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-serialize-event-id.json"), batch_size: 50})
+    end
+
+    parent = self()
+
+    opener = fn _decision, _executor_id, _reason ->
+      send(parent, {:attention_opening, self()})
+
+      receive do
+        :finish_attention -> {:ok, :opened}
+      end
+    end
+
+    pid = start_store!(dir, executor_attention_opener: opener, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Serialize this escalation?",
+               "blocking" => true,
+               "options" => [%{"id" => "yes", "label" => "Yes"}]
+             })
+
+    spawn(fn ->
+      result =
+        DecisionStore.escalate_executor_command(
+          decision.decision_id,
+          %{expected_version: 1, executor_id: "executor-1", reason: "Needs operator judgment"},
+          pid
+        )
+
+      send(parent, {:escalation_result, result})
+    end)
+
+    assert_receive {:attention_opening, opener_pid}
+
+    spawn(fn ->
+      result =
+        answer(pid, decision.decision_id, %{
+          "idempotency_key" => "answer-after-escalation",
+          "expected_version" => 1,
+          "option_id" => "yes"
+        })
+
+      send(parent, {:answer_result, result})
+    end)
+
+    refute_receive {:answer_result, _result}, 100
+    send(opener_pid, :finish_attention)
+
+    assert_receive {:escalation_result, {:ok, %{status: :opened}}}
+    assert_receive {:answer_result, {:ok, %{status: :accepted}}}
+  end
+
   describe "answer outbox" do
     test "persists the answer before dispatch and then records queue acceptance", %{dir: dir} do
       parent = self()
@@ -2169,6 +2304,7 @@ defmodule Aiur.DecisionStoreTest do
          %{dir: dir} do
       pid = start_store!(dir)
       :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
+      :ok = Exchange.subscribe("executor.decision.requested")
       :ok = DecisionPubSub.subscribe()
 
       payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
@@ -2185,6 +2321,18 @@ defmodule Aiur.DecisionStoreTest do
 
       assert cursor_event_id > 0
       assert EventsDigest.render([request_event], "979") =~ "ticket.979.agent.decision.requested"
+
+      assert_receive {:event,
+                      %{
+                        topic: "executor.decision.requested",
+                        decision_id: decision_id,
+                        decision_version: 1,
+                        issue_identifier: "979",
+                        provenance: :decision_store
+                      }},
+                     500
+
+      assert decision_id == decision.decision_id
 
       [persisted] =
         dir
@@ -2204,8 +2352,51 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, _} = request(pid, payload)
 
       :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
+      :ok = Exchange.subscribe("executor.decision.requested")
       assert {:ok, %{status: :duplicate}} = request(pid, payload)
       refute_receive {:event, %{topic: "ticket.979.agent.decision.requested"}}, 200
+      refute_receive {:event, %{topic: "executor.decision.requested"}}, 200
+    end
+
+    test "retries a failed requested notification from the canonical Decision", %{dir: dir} do
+      unless Process.whereis(IdGenerator) do
+        start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-request-retry-event-id.json"), batch_size: 50})
+      end
+
+      parent = self()
+
+      publisher = fn decision ->
+        send(parent, {:publish_failed, decision.decision_id, decision.version})
+        {:error, :journal_unavailable}
+      end
+
+      reconciler = fn decision ->
+        send(parent, {:reconciled, decision.decision_id, decision.version})
+        {:ok, 1788, 1}
+      end
+
+      scheduler = fn server, message, _delay ->
+        send(parent, {:retry_scheduled, server, message})
+        make_ref()
+      end
+
+      pid =
+        start_store!(dir,
+          executor_request_publisher: publisher,
+          executor_request_reconciler: reconciler,
+          dispatch_scheduler: scheduler
+        )
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Recover this Command?", "blocking" => true})
+
+      assert_receive {:publish_failed, decision_id, 1}
+      assert decision_id == decision.decision_id
+
+      assert_receive {:retry_scheduled, ^pid, {:retry_executor_request_notification, ^decision_id, 1, 1} = retry_message}
+
+      send(pid, retry_message)
+      assert_receive {:reconciled, ^decision_id, 1}
     end
   end
 
