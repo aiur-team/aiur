@@ -15,8 +15,10 @@ defmodule AiurWeb.AnalyticsLive do
   alias AiurWeb.{FinancialData, FinancialDataAccess}
 
   alias AiurWeb.OperatorControlCenter.{
+    AwaitingCommands,
     DashboardShell,
     NavState,
+    Overview,
     RouteRegistry,
     UsageSummaryPresenter
   }
@@ -30,6 +32,7 @@ defmodule AiurWeb.AnalyticsLive do
     {:ok,
      socket
      |> NavState.assign_nav()
+     |> AwaitingCommands.mount(connected?(socket))
      |> assign(:current_route, RouteRegistry.current_route(:analytics))
      |> assign(:analytics, AiurWeb.Presenter.analytics_navigation())
      |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
@@ -45,6 +48,13 @@ defmodule AiurWeb.AnalyticsLive do
     socket = socket |> assign(:analytics_scope, analytics_scope(Map.get(params, "build_order"))) |> load_model()
     {:noreply, socket}
   end
+
+  @impl true
+  def handle_info({:decision_changed, _decision_id, _version}, socket),
+    do: {:noreply, AwaitingCommands.refresh(socket)}
+
+  def handle_info(:awaiting_commands_tick, socket), do: {:noreply, AwaitingCommands.tick(socket)}
+  def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
   def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
@@ -101,7 +111,12 @@ defmodule AiurWeb.AnalyticsLive do
       tracker_kind={@tracker_kind}
       agent_kind={@agent_kind}
       nav_collapsed={@nav_collapsed}
+      nav_counts={@nav_counts}
     >
+      <:banner>
+        <Overview.decisions_banner retained_counts={@retained_counts} navigate />
+      </:banner>
+
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
 
       <section id="analytics-page" class="analytics-root" aria-label="Run analytics">
