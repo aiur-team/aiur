@@ -26,8 +26,14 @@ defmodule Aiur.TestSupport.AwaitingCommands do
      )}
   end
 
+  @doc "Moves the counts under a mounted view, the way an answered Command would."
+  @spec put_counts(GenServer.server(), keyword()) :: :ok
+  def put_counts(server, counts), do: GenServer.call(server, {:put_counts, Map.new(counts)})
+
   @impl true
   def handle_call(:health, _from, counts), do: {:reply, :writable, counts}
+
+  def handle_call({:put_counts, next}, _from, counts), do: {:reply, :ok, Map.merge(counts, next)}
 
   def handle_call(:retained_counts, _from, counts) do
     {:reply, {:ok, %{counts: counts, health: :writable}}, counts}

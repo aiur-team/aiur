@@ -54,9 +54,6 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
     refresh(socket)
   end
 
-  @spec tick_message() :: atom()
-  def tick_message, do: :awaiting_commands_tick
-
   defp schedule_tick, do: Process.send_after(self(), :awaiting_commands_tick, @tick_ms)
 
   @doc "Re-reads the canonical counts. Safe to call on every Command signal."
@@ -75,9 +72,6 @@ defmodule AiurWeb.OperatorControlCenter.AwaitingCommands do
     do: %{commands: awaiting}
 
   def nav_counts(_counts), do: %{}
-
-  @spec unavailable() :: map()
-  def unavailable, do: @unavailable
 
   defp counts do
     case DecisionProvider.counts(decision_store: decision_store()) do

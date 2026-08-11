@@ -522,6 +522,26 @@ defmodule AiurWeb.AnalyticsLiveTest do
     assert html =~ ~s(href="/decisions")
   end
 
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "re-reads the awaiting count on a Command signal and on its own tick" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+    store = Endpoint.config(:decision_store)
+
+    {:ok, view, html} = live(build_conn(), "/analytics")
+    assert html =~ "2 units awaiting commands"
+
+    # A best-effort broadcast is the fast path.
+    :ok = Aiur.TestSupport.AwaitingCommands.put_counts(store, open: 1, awaiting: 1, blocking: 0, awaiting_blocking: 0)
+    send(view.pid, {:decision_changed, "dec-1", 2})
+    assert render(view) =~ "1 unit awaiting commands"
+
+    # The tick is the safety net for a broadcast that never arrives: without it
+    # this page would keep showing a count the Commands page has moved past.
+    :ok = Aiur.TestSupport.AwaitingCommands.put_counts(store, open: 0, awaiting: 0)
+    send(view.pid, :awaiting_commands_tick)
+    refute render(view) =~ "units awaiting commands"
+  end
+
   test "omits the awaiting-Commands banner when nothing is waiting" do
     Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
 
