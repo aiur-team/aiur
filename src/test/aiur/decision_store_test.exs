@@ -196,10 +196,12 @@ defmodule Aiur.DecisionStoreTest do
   test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
     pid = start_store!(dir)
 
+    # Non-blocking: dismissal closes a notice outright. A blocking Command is
+    # covered separately — dismissal cannot release its agent.
     assert {:ok, %{decision: decision}} =
              request(pid, %{
                "question" => "Use blue or green?",
-               "blocking" => true,
+               "blocking" => false,
                "options" => [
                  %{"id" => "blue", "label" => "Blue"},
                  %{"id" => "green", "label" => "Green"}
@@ -266,10 +268,10 @@ defmodule Aiur.DecisionStoreTest do
     assert answerable.decision_status == :decided
   end
 
-  test "operator dismissal closes a deferred blocker durably", %{dir: dir} do
+  test "operator dismissal closes a deferred legacy blocker durably", %{dir: dir} do
     pid = start_store!(dir)
 
-    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Still blocked?", "blocking" => true})
+    assert {:ok, %{decision: decision}} = project_attention(pid, minimal_attention("Still blocked?"))
     opts = [actor: %{kind: :operator, id: "dashboard"}]
     assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
     assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(deferred.decision_id, opts, pid)
@@ -279,6 +281,38 @@ defmodule Aiur.DecisionStoreTest do
     restarted = start_store!(dir)
     assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
     assert durable.decision_status == :dismissed
+  end
+
+  test "dismissal is refused for a blocking Command it cannot release", %{dir: dir} do
+    pid = start_store!(dir)
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    # Agent-filed: blocking, with no legacy attention to resolve alongside it.
+    # Dismissal delivers nothing to the agent, so closing it would hide a live
+    # block rather than clear it.
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Push or hold?", "blocking" => true})
+
+    assert {:error, {:conflict, :blocking_requires_answer}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert {:ok, still_open} = DecisionStore.get(decision.decision_id, pid)
+    assert still_open.decision_status == :open
+
+    # Deferring first must not open a back door to the same hidden close.
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+
+    assert {:error, {:conflict, :blocking_requires_answer}} =
+             DecisionStore.dismiss(deferred.decision_id, opts, pid)
+
+    # Answering is the path that actually releases the agent.
+    assert {:ok, %{decision: answered}} =
+             answer(pid, decision.decision_id, %{
+               "idempotency_key" => "blocking-answer",
+               "expected_version" => 1,
+               "custom_response" => "Hold the push"
+             })
+
+    assert answered.decision_status == :decided
   end
 
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
@@ -549,6 +583,28 @@ defmodule Aiur.DecisionStoreTest do
 
       assert first.decision_id == second.decision_id
       assert {:ok, [^first]} = DecisionStore.history(first.decision_id, pid)
+    end
+
+    test "changed content re-arms a dismissed Command that is not a legacy attention", %{dir: dir} do
+      pid = start_store!(dir)
+      base = %{"question" => "Roll the index?", "blocking" => false, "source_id" => "rearm-1"}
+
+      assert {:ok, %{decision: v1}} = request(pid, base)
+      refute v1.legacy_attention
+
+      assert {:ok, %{decision: dismissed}} =
+               DecisionStore.dismiss(v1.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert dismissed.decision_status == :dismissed
+
+      # The operator closed this against evidence that no longer exists, so the
+      # re-file must bring it back — the same guarantee a legacy attention gets.
+      assert {:ok, %{decision: rearmed}} =
+               request(pid, Map.merge(base, %{"question" => "Roll the index after the backfill?", "version" => 2}))
+
+      assert rearmed.decision_id == v1.decision_id
+      assert rearmed.decision_status == :open
+      assert rearmed.delivery_status == :not_dispatched
     end
 
     test "the next version with different content is accepted as an enrichment", %{dir: dir} do
