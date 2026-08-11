@@ -497,6 +497,77 @@ defmodule AiurWeb.WebhookRunbookTest do
     end
   end
 
+  describe "the bind address the tunnel is pointed at" do
+    # The document used to present loopback as a given: `.aiur/config` says
+    # `host: 127.0.0.1`, so the daemon must be on loopback, so `service:` may as
+    # well hard-code it. That does not follow, and the deployment this ticket
+    # runs on is the counterexample — its config asks for `0.0.0.0`, a launcher
+    # injects `--host <address>`, and the daemon binds that address *only*, with
+    # nothing on loopback at all. An operator following the old text writes a
+    # loopback `service:` line and gets 502 on every delivery, while the config
+    # file still reads `127.0.0.1`, the daemon is healthy, and no check anywhere
+    # goes red. It is the slowest possible way to find out.
+    @http_server_path Path.join(@repo_root, "src/lib/aiur/http_server.ex")
+
+    test "the precedence the warning claims is the precedence the code implements" do
+      # Two-sided on purpose. The runbook *quotes* the resolution expression, so
+      # the quote is pinned to the source rather than to a paraphrase of it: if
+      # the daemon is ever changed to let the config file win, the warning
+      # becomes actively misleading — it would send an operator chasing a flag
+      # that no longer decides anything — and this fails rather than the prose
+      # quietly rotting.
+      doc = File.read!(@doc_path)
+      source = File.read!(@http_server_path)
+
+      for key <- ~w(host port) do
+        expression = "Keyword.get(opts, :#{key}, Config.server_#{key}())"
+
+        assert source =~ expression,
+               "#{@http_server_path} no longer resolves #{key} as `#{expression}`, so the " <>
+                 "runbook's warning that a `--#{key}` flag overrides `.aiur/config` may now be " <>
+                 "false. Re-read the resolution order and correct the document before changing " <>
+                 "this test."
+
+        if key == "host" do
+          assert doc =~ expression,
+                 "#{@doc_path} no longer quotes `#{expression}`. That quote is what ties the " <>
+                   "warning to the code; without it the claim is a paraphrase nothing checks."
+        end
+      end
+    end
+
+    test "the runbook tells the reader to read the bind rather than assume it" do
+      doc = File.read!(@doc_path)
+
+      assert doc =~ "--host",
+             "#{@doc_path} no longer names the `--host` flag, so nothing warns the reader that " <>
+               "a launcher can override the host they just pinned in `.aiur/config`"
+
+      assert doc =~ ~r/ss -ltnp.*beam\.smp/,
+             "#{@doc_path} no longer shows the reader how to list the daemon's actual bind. " <>
+               "The warning without the command is a worry rather than a step: the reader is " <>
+               "told loopback may be wrong and given no way to find out what is right."
+    end
+
+    test "the discovery step comes before the tunnel config that consumes it" do
+      # Ordering is the whole point, and it is the defect this document has
+      # already shipped once: the prerequisite that decides whether the approach
+      # works at all sat *below* the steps that depend on it, so the reader
+      # committed to a setup before learning it could not finish. A bind-check
+      # printed after the `service:` line is a check the reader reaches with the
+      # wrong address already written down.
+      doc = File.read!(@doc_path)
+
+      discovery = :binary.match(doc, "ss -ltnp") |> elem(0)
+      service = :binary.match(doc, "service: http://") |> elem(0)
+
+      assert discovery < service,
+             "#{@doc_path} now shows the `service:` line before it tells the reader how to " <>
+               "find the address it should name. Move the bind check back above the tunnel " <>
+               "config."
+    end
+  end
+
   # AC 3's confirmation step. This line is the operator's only end-to-end proof
   # that a real delivery reached the daemon, and it is the one diagnostic whose
   # internal vocabulary and on-screen vocabulary differ: the states are atoms in
