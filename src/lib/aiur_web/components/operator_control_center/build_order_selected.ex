@@ -4,7 +4,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   use Phoenix.Component
 
   alias Aiur.BuildOrder.GraphProjection.Snapshot
-  alias Aiur.BuildOrder.SelectedRoot
   alias AiurWeb.BuildOrder.RouteState
   alias AiurWeb.OperatorControlCenter.{BuildOrderAnalytics, BuildOrderBreakdown, BuildOrderGraph, BuildOrderUsage}
 
@@ -31,12 +30,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       |> assign(:snapshot, RouteState.selected_snapshot(assigns.route_state))
 
     ~H"""
-    <header class="bo-page-header">
-      <.link patch="/build-orders" class="bo-back-link" aria-label="Back to all Build Orders">‹</.link>
-      <h2 id="build-order-selected-title">{selected_title(@status, @snapshot, RouteState.root_identifier(@route_state))}</h2>
-    </header>
-
-    <section class="bo-surface" aria-labelledby="build-order-selected-title">
+    <section class="bo-surface" aria-labelledby="build-order-details-title">
+      <h2 id="build-order-details-title" class="sr-only">Build Order details</h2>
       <div :if={is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
         <h3>{state_title(@status)}</h3>
         <p>{state_message(@status)}</p>
@@ -102,10 +97,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   # model would state a number we never read — "Unresolved" is the honest cell.
   defp metric(%{resolved?: false}, _value), do: "Unresolved"
   defp metric(_summary, value), do: value
-
-  defp selected_title(_status, %Snapshot{data: %SelectedRoot{root: root}}, _identifier), do: root.title
-  defp selected_title(_status, _snapshot, identifier) when is_binary(identifier), do: "Build Order ##{identifier}"
-  defp selected_title(_status, _snapshot, _identifier), do: "Build Order"
 
   defp state_title(:invalid_parameter), do: "Invalid Build Order URL"
   defp state_title(:awaiting_catalog), do: "Loading catalog"

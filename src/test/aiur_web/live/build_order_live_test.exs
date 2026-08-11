@@ -180,8 +180,10 @@ defmodule AiurWeb.BuildOrderLiveTest do
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
-    assert Floki.parse_document!(html) |> Floki.find("h1#route-title") |> Floki.text() =~
-             "Build Order"
+    document = Floki.parse_document!(html)
+
+    assert route_title(document) == "Build Order"
+    assert Floki.find(document, "h1#route-title a") == []
 
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
@@ -363,8 +365,16 @@ defmodule AiurWeb.BuildOrderLiveTest do
   } do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
 
+    document = Floki.parse_document!(html)
+
+    assert route_title(document) == "Build Order #42"
+    assert length(Regex.scan(~r/#42/, Floki.text(document))) == 1
+    assert Floki.find(document, ".bo-page-header") == []
+
+    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert Floki.attribute(back_link, "href") == ["/build-orders"]
+
     assert html =~ ~s(data-build-order-root="42")
-    assert html =~ "Root forty-two"
     assert html =~ "Valid empty graph"
     refute html =~ ~s(data-layout-node)
 
@@ -389,9 +399,15 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
   test "malformed root parameters fail closed without a demand", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/01")
+    document = Floki.parse_document!(html)
 
     assert html =~ ~s(data-build-order-status="invalid_parameter")
     assert html =~ "Invalid Build Order URL"
+    assert route_title(document) == "Build Order"
+
+    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert Floki.attribute(back_link, "href") == ["/build-orders"]
+
     refute Enum.any?(FakeDataSource.calls(source), &match?({:demand, _}, &1))
   end
 
@@ -578,33 +594,39 @@ defmodule AiurWeb.BuildOrderLiveTest do
     first: first
   } do
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
-    assert html =~ "Root forty-two"
+    assert html =~ "Build Order #42"
 
     new_catalog =
       catalog_snapshot([root(first, "New-instance root")], 1, :healthy, repository(), 2)
 
     new_selected =
-      selected_snapshot(first, "New-instance generation one", 1, :healthy, authority_epoch: 2)
+      selected_snapshot(first, "New-instance generation one", 1, :healthy,
+        authority_epoch: 2,
+        members: [member(70)]
+      )
 
     :ok = FakeDataSource.put_catalog(source, new_catalog)
     :ok = FakeDataSource.put_selected(source, new_selected)
 
     send(view.pid, {:graph_projection_reset, 2})
-    assert render(view) =~ "New-instance generation one"
+    assert render(view) =~ "Ticket 70"
 
     old_catalog =
       catalog_snapshot([root(first, "Queued old catalog")], 99, :healthy, repository(), 1)
 
     old_selected =
-      selected_snapshot(first, "Queued old selected root", 99, :healthy, authority_epoch: 1)
+      selected_snapshot(first, "Queued old selected root", 99, :healthy,
+        authority_epoch: 1,
+        members: [member(71)]
+      )
 
     send(view.pid, {:graph_projection_generation, old_catalog})
     send(view.pid, {:graph_projection_generation, old_selected})
 
     final_html = render(view)
-    assert final_html =~ "New-instance generation one"
+    assert final_html =~ "Ticket 70"
     refute final_html =~ "Queued old catalog"
-    refute final_html =~ "Queued old selected root"
+    refute final_html =~ "Ticket 71"
   end
 
   test "coalesces source invalidation bursts behind one in-flight cached read" do
@@ -648,7 +670,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     html = render_patch(view, "/build-orders/43")
 
     assert html =~ ~s(data-build-order-root="43")
-    assert html =~ "Root forty-three"
+    assert html =~ "Build Order #43"
 
     calls = FakeDataSource.calls(source)
     release_index = call_index(calls, {:release, [first]})
@@ -666,21 +688,21 @@ defmodule AiurWeb.BuildOrderLiveTest do
     second: second
   } do
     {:ok, view, html} = live(build_conn(), "/build-orders/42")
-    assert html =~ "Root forty-two"
+    assert html =~ "Valid empty graph"
 
     send(
       view.pid,
-      {:graph_projection_generation, selected_snapshot(second, "Wrong delayed root", 99, :healthy)}
+      {:graph_projection_generation, selected_snapshot(second, "Wrong delayed root", 99, :healthy, members: [member(98)])}
     )
 
-    refute render(view) =~ "Wrong delayed root"
+    refute render(view) =~ "Ticket 98"
 
     send(
       view.pid,
-      {:graph_projection_generation, selected_snapshot(first, "Root forty-two updated", 2, :healthy)}
+      {:graph_projection_generation, selected_snapshot(first, "Root forty-two updated", 2, :healthy, members: [member(99)])}
     )
 
-    assert render(view) =~ "Root forty-two updated"
+    assert render(view) =~ "Ticket 99"
 
     send(
       view.pid,
@@ -689,7 +711,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     health_html = render(view)
     assert health_html =~ ~s(data-build-order-status="selected_stale")
-    assert health_html =~ "Root forty-two updated"
+    assert health_html =~ "Ticket 99"
     # Degraded provider states surface as an explicit state card (the always-on
     # health badge was removed from the header).
     assert health_html =~ "Stale last-known-good graph"
@@ -1346,6 +1368,10 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
     assert has_element?(view, "#selected-build-order-graph")
     assert has_element?(view, "section.bo-breakdown")
+  end
+
+  defp route_title(document) do
+    document |> Floki.find("h1#route-title") |> Floki.text() |> String.trim()
   end
 
   defp put_telemetry_file(path) do
