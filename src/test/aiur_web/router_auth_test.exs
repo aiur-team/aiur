@@ -11,11 +11,15 @@ defmodule AiurWeb.RouterAuthTest do
   setup do
     FinancialDataAccess.Generation.invalidate()
 
+    previous_endpoint = Application.get_env(:aiur, AiurWeb.Endpoint)
     original_username = System.get_env("AIUR_DASHBOARD_USERNAME")
     original_password = System.get_env("AIUR_DASHBOARD_PASSWORD")
     original_supervisor_token = System.get_env("AIUR_SUPERVISOR_TOKEN")
 
+    Application.put_env(:aiur, AiurWeb.Endpoint, Keyword.merge(previous_endpoint || [], dashboard_auth_required: true))
+
     on_exit(fn ->
+      restore_application_env(AiurWeb.Endpoint, previous_endpoint)
       restore_env("AIUR_DASHBOARD_USERNAME", original_username)
       restore_env("AIUR_DASHBOARD_PASSWORD", original_password)
       restore_env("AIUR_SUPERVISOR_TOKEN", original_supervisor_token)
@@ -27,6 +31,7 @@ defmodule AiurWeb.RouterAuthTest do
   test "refuses dashboard requests when credentials are not configured" do
     System.delete_env("AIUR_DASHBOARD_USERNAME")
     System.delete_env("AIUR_DASHBOARD_PASSWORD")
+    Application.put_env(:aiur, AiurWeb.Endpoint, dashboard_auth_required: false)
 
     conn = Router.call(conn(:get, "/missing"), Router.init([]))
 
@@ -284,4 +289,7 @@ defmodule AiurWeb.RouterAuthTest do
 
   defp restore_env(key, nil), do: System.delete_env(key)
   defp restore_env(key, value), do: System.put_env(key, value)
+
+  defp restore_application_env(module, nil), do: Application.delete_env(:aiur, module)
+  defp restore_application_env(module, value), do: Application.put_env(:aiur, module, value)
 end
