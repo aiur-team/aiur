@@ -583,6 +583,47 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
   end
 
   describe "maybe_reactivate_or_refresh/2 before_run_failure recovery" do
+    test "releases a zero-turn before_run_failure so the active ticket can dispatch again" do
+      issue = %Issue{
+        id: "issue-zero-turn-brf",
+        identifier: "issue-zero-turn-brf",
+        state: "rework",
+        tracker_identity: tracker_identity("I-zero-turn-before-run-failure")
+      }
+
+      task = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> Process.sleep(:infinity) end)
+      monitor_ref = Process.monitor(task.pid)
+
+      on_exit(fn ->
+        if Process.alive?(task.pid), do: Task.shutdown(task, :brutal_kill)
+      end)
+
+      entry = %{
+        pid: task.pid,
+        ref: task.ref,
+        identifier: issue.identifier,
+        issue: issue,
+        started_at: DateTime.utc_now(),
+        turn_count: 0,
+        control: paused_control(),
+        paused_reason: :before_run_failure
+      }
+
+      state = %State{
+        running: %{issue.id => entry},
+        claimed: MapSet.new([issue.id]),
+        retry_attempts: %{issue.id => %{attempt: 1}},
+        max_concurrent_agents: 10
+      }
+
+      result = Reconciler.maybe_reactivate_or_refresh(state, issue)
+
+      assert_receive {:DOWN, ^monitor_ref, :process, _pid, _reason}
+      refute Map.has_key?(result.running, issue.id)
+      refute MapSet.member?(result.claimed, issue.id)
+      refute Map.has_key?(result.retry_attempts, issue.id)
+    end
+
     test "resumes a before_run_failure pause on an active-state issue" do
       issue = %Issue{
         id: "issue-brf",
@@ -595,6 +636,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         pid: self(),
         identifier: "issue-brf",
         issue: issue,
+        turn_count: 1,
         control: paused_control(),
         paused_reason: :before_run_failure
       }
@@ -629,6 +671,7 @@ defmodule Aiur.Orchestrator.ReconcilerTest do
         pid: self(),
         identifier: "issue-brf-loop",
         issue: issue,
+        turn_count: 1,
         control: paused_control(),
         paused_reason: :before_run_failure
       }

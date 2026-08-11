@@ -543,7 +543,7 @@ defmodule Aiur.Orchestrator.Reconciler do
         reactivate_deactivated_issue(state, running_entry, issue)
 
       %{control: %{status: :paused}, paused_reason: :before_run_failure} = running_entry ->
-        resume_before_run_failure(state, running_entry, issue)
+        recover_before_run_failure(state, running_entry, issue)
 
       %{control: %{status: :paused}, paused_reason: pause_reason} = running_entry
       when pause_reason in [:ci_wait, :label_override] ->
@@ -581,16 +581,20 @@ defmodule Aiur.Orchestrator.Reconciler do
     end
   end
 
-  # Resume-to-live-pid: the parked agent is still alive and blocked awaiting the
-  # `:resume_agent` signal, so `resume_paused_issue` unblocks it directly (no
-  # re-dispatch). Because that bypasses the dispatch/thrash counter, we count the
-  # attempts here and give up once the budget is spent so a persistent failure
-  # cannot loop. Only a resume that actually fired (message delivered) burns
-  # budget — a capacity deferral leaves it for the next poll.
-  defp resume_before_run_failure(state, running_entry, issue) do
+  # A runner that has not started a turn has no work to preserve, so tear it down
+  # and let normal dispatch reclaim its active ticket. After a started turn, the
+  # parked agent is still alive and blocked awaiting `:resume_agent`; resume it
+  # directly (no re-dispatch) with a bounded attempt count so persistent hook
+  # failures cannot retry on every poll.
+  defp recover_before_run_failure(state, running_entry, issue) do
     attempts = Map.get(running_entry, :before_run_resume_attempts, 0)
 
     cond do
+      Map.get(running_entry, :turn_count, 0) == 0 ->
+        Logger.warning("orchestrator.before_run_zero_turn_release issue_id=#{issue.id} issue_identifier=#{Map.get(running_entry, :identifier)}; releasing claim for redispatch")
+
+        Orchestrator.terminate_running_issue(state, issue.id, false)
+
       attempts < @max_before_run_resume_attempts ->
         new_entry = Map.put(running_entry, :issue, issue)
         state = %{state | running: Map.put(state.running, issue.id, new_entry)}
