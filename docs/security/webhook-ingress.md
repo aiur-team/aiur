@@ -242,8 +242,13 @@ Listing a repo is a hint, never a promise. It starts in `configured_unproven`
 and keeps polling at full rate until a verified delivery actually arrives; if a
 proven repo then goes silent past `silence_threshold_seconds` (default 900) it
 degrades back to full polling and raises a needs-attention alert naming the
-repo. `poll_widen_factor` defaults to `1.0`, so registering a repo here changes
-no poll interval on its own — widening intervals is the cutover ticket's call.
+repo. Since [#1772](https://github.com/aiur-team/aiur/issues/1772),
+`poll_widen_factor` defaults to `2.0`, so listing a repo does eventually change
+its poll interval: once a delivery proves the repo webhook-backed, its polls
+widen by that factor. Nothing has to remember to restore the tighter interval —
+the widened value is recomputed per tick from the repo's current transport, so a
+silence degradation back to `:polling` narrows the very next tick on its own.
+Set `poll_widen_factor: 1.0` to register repos without changing any interval.
 
 It doubles as the end-to-end confirmation that ingress works: once a verified
 delivery lands, the agent-control `usage` view (`Aiur.AgentControlCLI.usage/2`,
