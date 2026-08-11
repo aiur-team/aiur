@@ -31,6 +31,15 @@ defmodule AiurWeb.WebhookRunbookTest do
   @doc_path Path.join(@repo_root, "docs/security/webhook-ingress.md")
   @guard_path Path.join(@repo_root, "scripts/verify-webhook-ingress")
   @harness_path Path.join(@repo_root, "scripts/test-webhook-ingress.sh")
+  @api_prefix "/api/v1"
+
+  # `StreamdeckSessionController` serves exactly one route, `POST
+  # /api/v1/streamdeck/token`, and there is no `match(:*, ...)` clause for it — so
+  # a GET falls to the router's catch-all and no GET probe can ever reach the
+  # controller. The guard probes with GET on purpose (it must not be able to pause
+  # an agent or mint a token as a side effect of verifying scoping), so this
+  # surface is genuinely unprobeable from here rather than merely unprobed.
+  @unprobeable [AiurWeb.StreamdeckSessionController]
   @repo "acme/widgets"
 
   # Deliberately wider than the supported set: the unsupported entries are what
@@ -312,7 +321,19 @@ defmodule AiurWeb.WebhookRunbookTest do
     # `/*path` catch-all 404s it, and the assertion passes — vacuously, on a path
     # nothing serves, while the real route goes unprobed. Nothing else notices:
     # the guard still exits 0 and still prints `exposure is scoped`.
-    @load_bearing ~w(/ /decisions /build-orders /analytics /streamdeck /api/v1/state)
+    @load_bearing ~w(
+      / /decisions /build-orders /analytics /streamdeck /api/v1/state
+      /api/v1/1/pause /api/v1/1/resume /api/v1/1/messages /api/v1/1/claude-hook
+      /api/v1/1/events /api/v1/pane/hide
+      /api/v1/decisions/1/decide /api/v1/decisions/1/enrich /api/v1/decisions/1/revise
+    )
+
+    # Knowingly vacuous under GET: the daemon has no GET clause for either, so it
+    # answers 404 itself and a pass proves nothing an edge deny would not. They
+    # stay because `/api/v1/` is the tripwire for an over-broad prefix rule, and
+    # dropping the token path would read as reducing coverage. Naming them here is
+    # what keeps the rest of the list honest — anything *not* named must resolve.
+    @known_weak ~w(/api/v1/streamdeck/token /api/v1/)
 
     test "the load-bearing entries all resolve to real routes, not the catch-all" do
       for path <- @load_bearing do
@@ -322,6 +343,53 @@ defmodule AiurWeb.WebhookRunbookTest do
         assert real_route?(path),
                "#{path} no longer resolves to a real route, so the guard's assertion about it " <>
                  "now passes vacuously via the router's /*path catch-all"
+      end
+    end
+
+    test "no unmarked entry is vacuous" do
+      # The pin above only speaks for the paths it names, so a *new* entry could
+      # be added that the daemon 404s itself — indistinguishable from an edge
+      # deny, and therefore evidence of nothing while reading like evidence of
+      # something. Two such entries already existed and went unnoticed until they
+      # were measured. This generalises the check to the whole list.
+      for path <- guard_denied_paths(), path not in @known_weak do
+        assert real_route?(path),
+               "#{path} is in the guard's denied_paths but resolves to the router's /*path " <>
+                 "catch-all, so the daemon 404s it too and the assertion cannot fail. Either " <>
+                 "probe a path the daemon actually serves, or add it to @known_weak with a " <>
+                 "comment saying why it stays."
+      end
+    end
+
+    test "each knowingly-weak entry is still marked as such in the guard" do
+      # Two-sided: the reason an entry is exempt lives in the script an operator
+      # reads, not only in this test. If the marker is dropped, the next reader
+      # takes a vacuous line for a real assertion.
+      guard = File.read!(@guard_path)
+
+      for path <- @known_weak do
+        line = Enum.find(String.split(guard, "\n"), &String.contains?(&1, "\"#{path}\""))
+
+        assert line, "#{path} is exempted as weak but no longer appears in #{@guard_path}"
+
+        assert line =~ "weak",
+               "#{path} is exempted from the vacuity check but its line in #{@guard_path} no " <>
+                 "longer says so: #{String.trim(line)}"
+      end
+    end
+
+    test "every /api/v1 controller is probed or explicitly named unprobeable" do
+      # The list is hand-maintained and the router grows. A new API controller
+      # mounted under /api/v1 is published by exactly the same over-broad ingress
+      # rule as the existing ones, and nothing would have probed it — the guard
+      # would still print `exposure is scoped` while the new surface was live.
+      for controller <- api_controllers() do
+        assert controller in @unprobeable or
+                 Enum.any?(guard_denied_paths(), &(controller_for(&1) == controller)),
+               "#{inspect(controller)} serves #{@api_prefix} routes but no path in the guard's " <>
+                 "denied_paths reaches it, so an over-broad ingress rule would publish it " <>
+                 "undetected. Add a GET-safe representative path, or add it to @unprobeable " <>
+                 "with the reason."
       end
     end
 
@@ -515,6 +583,27 @@ defmodule AiurWeb.WebhookRunbookTest do
       :error -> false
       %{route: route} -> route != "/*path"
       _other -> false
+    end
+  end
+
+  # Distinct controllers serving anything under /api/v1, minus the webhook
+  # receiver itself — that one is the route the tunnel is *supposed* to publish.
+  defp api_controllers do
+    AiurWeb.Router.__routes__()
+    |> Enum.filter(&String.starts_with?(&1.path, @api_prefix))
+    |> Enum.map(& &1.plug)
+    |> Enum.uniq()
+    |> Enum.reject(&(&1 == AiurWeb.GithubWebhookController))
+  end
+
+  # Which controller a GET on this path actually reaches. Deliberately resolved
+  # through the router rather than by string-matching the path, because a path
+  # that looks like it belongs to a controller can fall through to the catch-all —
+  # which is the whole mistake `no unmarked entry is vacuous` exists to catch.
+  defp controller_for(path) do
+    case Phoenix.Router.route_info(AiurWeb.Router, "GET", path, "host") do
+      %{plug: plug, route: route} when route != "/*path" -> plug
+      _other -> nil
     end
   end
 
