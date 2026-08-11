@@ -24,8 +24,8 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.GitHub.{CiReadiness, CodeOwners, StatePolicy}
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
-  alias Aiur.{SystemLoad}
   alias Aiur.Orchestrator.{DispatchPolicy, StatusReason}
+  alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
@@ -803,11 +803,11 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, _detail}), do: "none"
 
-  # A persisted non-load hold is still authoritative: it is the admission
-  # decision the daemon made for resources the CLI cannot sample locally. Load
-  # is different — status samples it directly, so always derive its binding
-  # from that same current sample rather than showing a stale prior decision.
-  defp capacity_binding(%{capacity_hold: %{signal: signal} = hold}) when signal != :load,
+  # A persisted hold is the daemon's active admission decision. Local load is
+  # sampled before its RPC to keep the saturation signal visible through a
+  # timeout, but it must not erase a load hold that the daemon has not yet
+  # cleared on a later admission poll.
+  defp capacity_binding(%{capacity_hold: %{} = hold}),
     do: {:admission, hold}
 
   defp capacity_binding(%{max: max, effective: effective, configured: configured, occupied: occupied} = capacity) do

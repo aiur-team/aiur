@@ -5,7 +5,7 @@ defmodule Aiur.AgentControlCLITest do
 
   alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, RepoBase}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.{DispatchPolicy, Dispatcher, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
 
   defp capture_todo(ids, opts) do
     parent = self()
@@ -120,8 +120,10 @@ defmodule Aiur.AgentControlCLITest do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
+    original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -143,6 +145,12 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :supervision_health_status_fun, original_health_status_fun)
       else
         Application.delete_env(:aiur, :supervision_health_status_fun)
+      end
+
+      if original_loadavg do
+        Application.put_env(:aiur, :loadavg_source_override, original_loadavg)
+      else
+        Application.delete_env(:aiur, :loadavg_source_override)
       end
     end)
 
@@ -648,6 +656,15 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
     assert output =~ "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
 
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 1.0 1.0 1/1 1"} end)
+
+    persisted_hold_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert persisted_hold_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers}"
+    refute persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (binding: load)"
+
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
     :sys.replace_state(pid, fn _state -> %{sampled | capacity_hold: nil} end)
 
     fallback_output = capture_io(fn -> AgentControlCLI.status() end)

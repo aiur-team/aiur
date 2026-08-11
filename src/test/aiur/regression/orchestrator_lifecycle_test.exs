@@ -128,6 +128,13 @@ defmodule Aiur.Regression.OrchestratorLifecycleTest do
   end
 
   describe "comment wake/rework transitions" do
+    setup do
+      previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
+
+      on_exit(fn -> restore_app_env(:loadavg_source_override, previous_loadavg) end)
+    end
+
     test "trusted PR review comment reactivates a deactivated entry to rework" do
       issue_id = "life-review-1"
       identifier = "7411"
