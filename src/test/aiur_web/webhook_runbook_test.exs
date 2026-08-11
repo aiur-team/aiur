@@ -49,24 +49,41 @@ defmodule AiurWeb.WebhookRunbookTest do
       end
     end
 
-    test "the documented poll_widen_factor default is the schema's actual default" do
-      # #1772 moved this default from 1.0 to 2.0 and the runbook kept asserting
-      # the old value, which reads as "registering a repo changes no interval"
-      # — the opposite of what now happens. Nothing failed: the doc and the
-      # schema have no other point of contact.
-      documented = documented_poll_widen_factor()
-      actual = %Aiur.Config.Schema.Webhooks{}.poll_widen_factor
-
-      assert documented == actual,
-             "runbook documents poll_widen_factor default #{documented}, schema default is #{actual}"
-    end
-
     test "an undocumented event is still rejected as unsupported" do
       # Guards the negative direction: if `normalize/3` ever started accepting
       # everything, the equality test could pass by widening rather than by the
       # table being correct.
       assert {:drop, {:unsupported_event, "push"}} = normalize("push")
       refute "push" in documented_events()
+    end
+  end
+
+  # Every entry is a number the runbook states outright and an operator acts on.
+  # They drift silently: the doc and the schema have no other point of contact,
+  # so a default can move under the runbook without any test noticing. #1772 did
+  # exactly that to `poll_widen_factor` — moved it 1.0 -> 2.0, leaving the doc
+  # asserting that listing a repo "changes no poll interval on its own", the
+  # opposite of what now happens.
+  @documented_defaults [
+    {~r/`poll_widen_factor` defaults to `([0-9.]+)`/, :float, Aiur.Config.Schema.Webhooks, :poll_widen_factor, "webhooks.poll_widen_factor"},
+    {~r/`silence_threshold_seconds` \(default ([0-9]+)\)/, :integer, Aiur.Config.Schema.Webhooks, :silence_threshold_seconds, "webhooks.silence_threshold_seconds"},
+    # Load-bearing for AC 5. The whole "Pin the daemon's port" step exists
+    # because this default means a new OS-assigned port on every restart; if it
+    # ever became a fixed port, that rationale would be wrong rather than merely
+    # stale.
+    {~r/`Aiur\.Config\.Schema\.Server` defaults `port` to `([0-9]+)`/, :integer, Aiur.Config.Schema.Server, :port, "server.port"}
+  ]
+
+  describe "documented defaults" do
+    for {regex, type, module, field, name} <- @documented_defaults do
+      test "the documented #{name} default is the schema's actual default" do
+        documented = documented_default(unquote(Macro.escape(regex)), unquote(type))
+        actual = Map.fetch!(struct!(unquote(module)), unquote(field))
+
+        assert documented == actual,
+               "runbook documents #{unquote(name)} default #{documented}, " <>
+                 "schema default is #{actual}"
+      end
     end
   end
 
@@ -164,11 +181,14 @@ defmodule AiurWeb.WebhookRunbookTest do
     end)
   end
 
-  defp documented_poll_widen_factor do
-    [_, value] =
-      Regex.run(~r/`poll_widen_factor` defaults to `([0-9.]+)`/, File.read!(@doc_path))
-
-    String.to_float(value)
+  # Fails loudly on a missing match rather than defaulting: a doc that stopped
+  # stating the number at all would otherwise pass this whole describe block.
+  defp documented_default(regex, type) do
+    case Regex.run(regex, File.read!(@doc_path)) do
+      [_, value] when type == :float -> String.to_float(value)
+      [_, value] when type == :integer -> String.to_integer(value)
+      nil -> flunk("#{@doc_path} no longer states a default matching #{inspect(regex)}")
+    end
   end
 
   defp ingress_rule_path do
