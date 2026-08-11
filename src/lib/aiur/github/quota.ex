@@ -7,6 +7,22 @@ defmodule Aiur.GitHub.Quota do
   resource until its reset, sheds new dispatch at the low-water floor, and
   keeps coarse rolling attribution for the shared credential.
 
+  Attribution is kept in the same unit and over the same span the meter
+  reports, because a ranking that does not reconcile with the budget beside it
+  names the wrong leader (#1805):
+
+    * GraphQL bills *points*, not calls. A catalog query costing 26 points and
+      a one-point read are both "one request", so a request-count ranking is
+      blind to the queries that actually drain the budget. Each observation
+      carries the cost the response reported in `rateLimit { cost }` where the
+      query asked for it, and one point where it did not.
+    * The span is the live quota window (`reset_at - 1h`), not a rolling hour,
+      so the attributed span and the meter's `used` count the same calls.
+    * Coverage is published alongside the ranking. Aiur cannot see every call
+      billed to the credential, and an unmeasured majority presented as a
+      leader invites acting on 0.04% of the spend, so the snapshot states what
+      share of the window's real spend the ranking accounts for.
+
   The primary windows are not the only way GitHub refuses a call. Secondary
   (abuse) rate limits reject with `403`/`429` while `x-ratelimit-remaining`
   still reads healthy, so nothing in the primary windows records the refusal
@@ -27,8 +43,12 @@ defmodule Aiur.GitHub.Quota do
   @primary_resources ~w(core graphql)
   @low_water_percent 10.0
   @attribution_window_seconds 60 * 60
+  # Both primary GitHub budgets run on a one-hour window, so the window that
+  # a `reset_at` closes opened an hour before it.
+  @quota_window_seconds 60 * 60
   @refresh_interval_ms 60_000
   @shell_refresh_interval_seconds 60
+  @unattributed "unattributed"
 
   # GitHub does not always say how long a secondary limit lasts. Its own
   # guidance is to wait at least a minute, and the ceiling keeps a hostile or
@@ -36,7 +56,8 @@ defmodule Aiur.GitHub.Quota do
   @secondary_backoff_seconds 60
   @max_secondary_backoff_seconds 60 * 60
 
-  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], backoffs: []}
+  @empty_coverage %{resources: %{}, estimated?: false}
+  @unknown_snapshot %{state: :unknown, windows: %{}, attribution: [], coverage: @empty_coverage, backoffs: []}
 
   @type request :: map()
   @type hold :: %{resource: String.t(), remaining: non_neg_integer(), limit: pos_integer(), reset_at: DateTime.t()}
@@ -119,10 +140,13 @@ defmodule Aiur.GitHub.Quota do
     now = state.clock.()
     state = state |> prune_backoffs(now) |> prune_observations(now) |> refresh_shell_observations(now)
 
+    in_window = observations_in_window(state, now)
+
     snapshot = %{
       state: if(map_size(state.windows) == 0, do: :unknown, else: :observed),
       windows: Map.new(state.windows, fn {resource, window} -> {resource, present_window(window)} end),
-      attribution: summarize_attribution(state.observations ++ state.shell_observations),
+      attribution: summarize_attribution(in_window),
+      coverage: coverage(in_window, state.windows, now),
       backoffs: present_backoffs(state, now)
     }
 
@@ -379,32 +403,185 @@ defmodule Aiur.GitHub.Quota do
 
   defp secondary_topic(resource), do: "system.github.quota.#{resource}.secondary"
 
-  defp attribute_request(state, request, {:ok, %{status: status}}, now) when is_integer(status) do
+  defp attribute_request(state, request, {:ok, %{status: status} = response}, now) when is_integer(status) do
     if rate_limit_endpoint?(request) do
       state
     else
-      observation = %{consumer: request_consumer(request), direction: request_direction(request), observed_at: now}
+      resource = request_resource(request)
+      {cost, cost_source} = request_cost(resource, status, response)
+
+      observation = %{
+        consumer: request_consumer(request),
+        direction: request_direction(request),
+        resource: resource,
+        cost: cost,
+        cost_source: cost_source,
+        observed_at: now
+      }
+
       prune_observations(%{state | observations: [observation | state.observations]}, now)
     end
   end
 
   defp attribute_request(state, _request, _result, _now), do: state
 
+  # What the call actually cost the budget it was billed to.
+  #
+  # A `304` is served from GitHub's cache and is not billed at all, so counting
+  # it would attribute spend that never happened. Core bills one request per
+  # call. GraphQL bills points: only the response body reports what the query
+  # spent, and it reports it only where the query asked for `rateLimit { cost }`
+  # (#1766). A query that did not ask is recorded at one point and marked
+  # estimated, which understates it — the coverage figure is what keeps that
+  # understatement visible instead of silently flattering the ranking.
+  defp request_cost(_resource, 304, _response), do: {0, :reported}
+
+  defp request_cost("graphql", _status, response) do
+    case graphql_reported_cost(response) do
+      cost when is_integer(cost) and cost >= 0 -> {cost, :reported}
+      _unreported -> {1, :assumed}
+    end
+  end
+
+  defp request_cost(_resource, _status, _response), do: {1, :reported}
+
+  defp graphql_reported_cost(%{body: %{"data" => %{"rateLimit" => %{"cost" => cost}}}}), do: cost
+  defp graphql_reported_cost(_response), do: nil
+
   defp prune_observations(state, now) do
     cutoff = DateTime.add(now, -@attribution_window_seconds, :second)
     %{state | observations: Enum.filter(state.observations, &(DateTime.compare(&1.observed_at, cutoff) != :lt))}
   end
+
+  # The meter counts the live quota window, which opened an hour before its
+  # reset — a rolling hour of attribution would summarize a different span than
+  # the number printed beside it. Where no window has been observed for a
+  # resource there is nothing to reconcile against, and the rolling hour is the
+  # honest fallback.
+  defp observations_in_window(state, now) do
+    starts = Map.new(@primary_resources, &{&1, window_start(state.windows, &1, now)})
+    Enum.filter(state.observations ++ state.shell_observations, &within_window?(&1, starts, now))
+  end
+
+  defp window_start(windows, resource, now) do
+    case Map.get(windows, resource) do
+      %{reset_at: reset_at} ->
+        if DateTime.compare(now, reset_at) == :lt,
+          do: DateTime.add(reset_at, -@quota_window_seconds, :second),
+          else: rolling_start(now)
+
+      _unobserved ->
+        rolling_start(now)
+    end
+  end
+
+  defp rolling_start(now), do: DateTime.add(now, -@attribution_window_seconds, :second)
+
+  defp within_window?(observation, starts, now) do
+    start = Map.get(starts, observation_resource(observation)) || rolling_start(now)
+    DateTime.compare(observation.observed_at, start) != :lt
+  end
+
+  # Agent-shell rows written before the resource column existed, and any row
+  # naming a resource Aiur does not meter, are counted against core: `gh` spends
+  # the core budget on everything but `api graphql`.
+  defp observation_resource(%{resource: resource}) when resource in @primary_resources, do: resource
+  defp observation_resource(_observation), do: "core"
 
   defp summarize_attribution(observations) do
     observations
     |> Enum.group_by(& &1.consumer)
     |> Enum.map(fn {consumer, entries} ->
       reads = Enum.count(entries, &(&1.direction == :read))
-      writes = length(entries) - reads
-      %{consumer: consumer, reads: reads, writes: writes, total: length(entries)}
+
+      %{
+        consumer: consumer,
+        reads: reads,
+        writes: length(entries) - reads,
+        total: length(entries),
+        cost: total_cost(entries),
+        costs: costs_by_resource(entries),
+        estimated?: estimated?(entries)
+      }
     end)
-    |> Enum.sort_by(&{-&1.total, &1.consumer})
+    |> Enum.sort_by(&{-&1.cost, -&1.total, &1.consumer})
   end
+
+  # What the ranking above is worth — stated per budget, never combined.
+  #
+  # Core bills requests and GraphQL bills points, on separate windows that reset
+  # at different times. Adding the two and printing the sum would invent a
+  # quantity ("4% of 10000 spent this window") that describes neither budget and
+  # no single window: the same confident-wrong-number failure #1805 reported,
+  # committed by the sentence that claims to quantify honesty. So there is no
+  # combined figure to render by accident. Each budget carries `attributed`
+  # (every call Aiur saw), `named` (only the calls it could tie to a ticket —
+  # the ones the ranking can order) and `spend` (what GitHub says that window
+  # actually cost).
+  defp coverage(observations, windows, now) do
+    %{resources: coverage_by_resource(observations, windows, now), estimated?: estimated?(observations)}
+  end
+
+  defp coverage_by_resource(observations, windows, now) do
+    windows
+    |> Enum.flat_map(fn {resource, window} ->
+      case window_spend(window, now) do
+        nil ->
+          []
+
+        spend ->
+          entries = Enum.filter(observations, &(observation_resource(&1) == resource))
+          named = Enum.reject(entries, &(&1.consumer == @unattributed))
+
+          [
+            {resource,
+             %{
+               attributed: total_cost(entries),
+               named: total_cost(named),
+               spend: spend,
+               fraction: fraction(total_cost(entries), spend),
+               named_fraction: fraction(total_cost(named), spend),
+               estimated?: estimated?(entries)
+             }}
+          ]
+      end
+    end)
+    |> Map.new()
+  end
+
+  # Core and GraphQL are separate budgets billed in different units, so the
+  # per-consumer figure keeps them apart as well as summed: an operator asking
+  # "which budget is this ticket burning" needs the split.
+  defp costs_by_resource(observations) do
+    observations
+    |> Enum.group_by(&observation_resource/1)
+    |> Map.new(fn {resource, entries} -> {resource, total_cost(entries)} end)
+  end
+
+  # A window whose reset has already passed is not the live window. Its
+  # `limit - remaining` describes a span that has closed, while attribution has
+  # already fallen back to the rolling hour (`window_start/3`) — so reporting
+  # one against the other would state a coverage figure "this window" for a
+  # window that no longer exists, over calls it never contained. The resource
+  # reports no coverage at all until GitHub is observed again.
+  defp window_spend(%{limit: limit, remaining: remaining, reset_at: %DateTime{} = reset_at}, now) do
+    if DateTime.compare(now, reset_at) == :lt, do: max(limit - remaining, 0), else: nil
+  end
+
+  defp window_spend(_window, _now), do: nil
+
+  defp total_cost(observations), do: Enum.reduce(observations, 0, &(observation_cost(&1) + &2))
+
+  defp observation_cost(%{cost: cost}) when is_integer(cost) and cost >= 0, do: cost
+  defp observation_cost(_observation), do: 1
+
+  defp estimated?(observations), do: Enum.any?(observations, &(Map.get(&1, :cost_source) == :assumed))
+
+  # A window can report more spend than Aiur attributed, never less that means
+  # anything: clamping keeps a stale or double-counted observation from
+  # claiming above-total coverage.
+  defp fraction(_attributed, spend) when not is_integer(spend) or spend <= 0, do: nil
+  defp fraction(attributed, spend), do: Float.round(min(attributed / spend, 1.0), 4)
 
   defp refresh_shell_observations(%{shell_refreshed_at: %DateTime{} = refreshed_at} = state, now) do
     if DateTime.diff(now, refreshed_at, :second) < @shell_refresh_interval_seconds do
@@ -425,8 +602,13 @@ defmodule Aiur.GitHub.Quota do
   defp shell_observations(path, now) when is_binary(path) do
     cutoff = DateTime.add(now, -@attribution_window_seconds, :second)
 
+    # `match_dot: true` is mandatory, not defensive: the log lives under each
+    # workspace's `.aiur-runtime/`, and without it `Path.wildcard/1` refuses to
+    # descend through a dot directory and silently matches nothing. Together
+    # with the unexpanded `~` above, that left every agent `gh` call outside
+    # attribution while the meter still billed them (#1805).
     [path <> ".1", path]
-    |> Enum.flat_map(&Path.wildcard/1)
+    |> Enum.flat_map(&Path.wildcard(&1, match_dot: true))
     |> Stream.flat_map(&shell_file_lines/1)
     |> Stream.map(&parse_shell_observation/1)
     |> Stream.reject(&is_nil/1)
@@ -458,20 +640,40 @@ defmodule Aiur.GitHub.Quota do
     _unavailable -> nil
   end
 
+  # The resource column was added with cost-weighted attribution; rows written
+  # before it are still valid and are read as core (see `observation_resource/1`).
+  # An agent shell cannot see what a GraphQL query cost, so its rows carry one
+  # point and are marked estimated rather than silently counted as exact.
   defp parse_shell_observation(line) do
-    with [unix, consumer, direction] <- line |> String.trim() |> String.split("\t"),
+    with [unix, consumer, direction | rest] <- line |> String.trim() |> String.split("\t"),
          {unix, ""} <- Integer.parse(unix),
          {:ok, observed_at} <- DateTime.from_unix(unix),
          true <- direction in ["read", "write"],
-         true <- consumer == "unattributed" or Regex.match?(~r/^ticket:\d+$/, consumer) do
-      %{consumer: consumer, direction: String.to_existing_atom(direction), observed_at: observed_at}
+         true <- consumer == @unattributed or Regex.match?(~r/^ticket:\d+$/, consumer) do
+      resource = shell_resource(rest)
+
+      %{
+        consumer: consumer,
+        direction: String.to_existing_atom(direction),
+        resource: resource,
+        cost: 1,
+        cost_source: if(resource == "graphql", do: :assumed, else: :reported),
+        observed_at: observed_at
+      }
     else
       _invalid -> nil
     end
   end
 
+  defp shell_resource([resource | _rest]) when resource in @primary_resources, do: resource
+  defp shell_resource(_columns), do: "core"
+
+  # `Path.wildcard/1` does not expand a leading `~`, so a configured workspace
+  # root written in tilde form matched nothing and every agent-shell call went
+  # uncounted while the meter still billed them (#1805).
   defp default_shell_log_path do
     Config.workspace_root()
+    |> Path.expand()
     |> Layout.issue_workspace_path("__github_quota_probe__")
     |> Path.dirname()
     |> Path.join("*/.aiur-runtime/github-quota/agent-requests.tsv")
