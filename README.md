@@ -87,8 +87,8 @@ and it will walk you through setup and ask which mode you want.
 To uninstall the global skills, remove their exact directories from each harness you enabled:
 
 ```bash
-rm -rf "$HOME"/.claude/skills/{aiur-agent,aiur-build,aiur-debug,aiur-monitor,aiur-run,aiur-design-import,aiur-using-aiur}
-rm -rf "$HOME"/.codex/skills/{aiur-agent,aiur-build,aiur-debug,aiur-monitor,aiur-run,aiur-design-import,aiur-using-aiur}
+rm -rf "$HOME"/.claude/skills/{aiur-agent,aiur-build,aiur-debug,aiur-intro,aiur-meta,aiur-monitor,aiur-run,aiur-design-import,aiur-using-aiur}
+rm -rf "$HOME"/.codex/skills/{aiur-agent,aiur-build,aiur-debug,aiur-intro,aiur-meta,aiur-monitor,aiur-run,aiur-design-import,aiur-using-aiur}
 ```
 
 ## Additional Capabilities
