@@ -242,7 +242,10 @@ defmodule Aiur.AgentGitHubGuardTest do
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"cooldown_until_ms" => cooldown_until} = Jason.decode!(snapshot)
-    assert cooldown_until >= System.os_time(:millisecond) + 1_800
+    # The wrapper command and SQLite snapshot consume a small part of the
+    # advertised two-second window; keep enough margin for a loaded host while
+    # still distinguishing Retry-After from the 60-second fallback.
+    assert cooldown_until >= System.os_time(:millisecond) + 1_500
     assert cooldown_until <= System.os_time(:millisecond) + 3_000
   end
 
