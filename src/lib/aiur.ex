@@ -21,9 +21,9 @@ defmodule Aiur.Application do
 
   require Logger
 
+  alias Aiur.{AgentGitHubGuard, GitHub.Budget}
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
-  alias Aiur.{AgentGitHubGuard, GitHub.Budget}
   alias Aiur.GitHub.Config
 
   @impl true

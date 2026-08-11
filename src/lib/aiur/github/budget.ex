@@ -83,27 +83,8 @@ defmodule Aiur.GitHub.Budget do
   @doc "Observes a response before releasing its lease so a rejection is global immediately."
   @spec observe(map(), {:ok, map()} | {:error, term()}, keyword()) :: :ok
   def observe(request, {:ok, %{} = response}, opts) do
-    with true <- enabled?(opts),
-         token when is_binary(token) <- Map.get(request, :token),
-         key when is_binary(key) <- token_key(token) do
-      headers = Map.get(response, :headers, [])
-      resource = response_resource(headers, request)
-
-      cond do
-        remaining(headers) == 0 ->
-          with reset when is_integer(reset) and reset > 0 <- reset_after_ms(headers) do
-            hold(key, :resource, resource, reset, opts)
-          else
-            _missing -> hold(key, :token, resource, retry_after_ms(response), opts)
-          end
-
-        Map.get(response, :status) in [403, 429] and secondary_limit?(response) ->
-          hold(key, :token, resource, retry_after_ms(response), opts)
-
-        true ->
-          :ok
-      end
-    else
+    case active_token_key(request, opts) do
+      key when is_binary(key) -> observe_response(key, request, response, opts)
       _unavailable -> :ok
     end
   end
@@ -150,21 +131,26 @@ defmodule Aiur.GitHub.Budget do
         {:ok, %{id: String.trim(id), token_key: key}}
 
       {:ok, "wait " <> milliseconds} ->
-        case Integer.parse(String.trim(milliseconds)) do
-          {delay, ""} when delay > 0 ->
-            if System.monotonic_time(:millisecond) + delay >= deadline_at do
-              {:hold, hold(request, delay)}
-            else
-              Process.sleep(max(delay, @retry_floor_ms))
-              do_acquire(request, key, python, opts, deadline_at)
-            end
-
-          _invalid ->
-            :bypass
-        end
+        retry_admission(request, key, python, opts, deadline_at, milliseconds)
 
       _unavailable ->
         {:hold, hold(request, @broker_failure_backoff_ms)}
+    end
+  end
+
+  defp retry_admission(request, key, python, opts, deadline_at, milliseconds) do
+    case Integer.parse(String.trim(milliseconds)) do
+      {delay, ""} when delay > 0 -> retry_or_hold(request, key, python, opts, deadline_at, delay)
+      _invalid -> :bypass
+    end
+  end
+
+  defp retry_or_hold(request, key, python, opts, deadline_at, delay) do
+    if System.monotonic_time(:millisecond) + delay >= deadline_at do
+      {:hold, hold(request, delay)}
+    else
+      Process.sleep(max(delay, @retry_floor_ms))
+      do_acquire(request, key, python, opts, deadline_at)
     end
   end
 
@@ -275,6 +261,36 @@ defmodule Aiur.GitHub.Budget do
     %{resource: request_resource(request), reset_at: DateTime.add(DateTime.utc_now(), ceil(delay_ms / 1_000), :second), reason: :shared_budget}
   end
 
+  defp active_token_key(request, opts) do
+    if enabled?(opts), do: token_key(Map.get(request, :token))
+  end
+
+  defp observe_response(key, request, response, opts) do
+    headers = Map.get(response, :headers, [])
+    resource = response_resource(headers, request)
+
+    case limit_hold(response, headers) do
+      {:resource, delay} -> hold(key, :resource, resource, delay, opts)
+      {:token, delay} -> hold(key, :token, resource, delay, opts)
+      :none -> :ok
+    end
+  end
+
+  defp limit_hold(response, headers) do
+    cond do
+      remaining(headers) == 0 -> primary_limit_hold(headers, response)
+      Map.get(response, :status) in [403, 429] and secondary_limit?(response) -> {:token, retry_after_ms(response)}
+      true -> :none
+    end
+  end
+
+  defp primary_limit_hold(headers, response) do
+    case reset_after_ms(headers) do
+      delay when is_integer(delay) and delay > 0 -> {:resource, delay}
+      _missing -> {:token, retry_after_ms(response)}
+    end
+  end
+
   defp secondary_limit?(response) do
     GraphQLErrors.rate_limited_response?(response, :unknown) and remaining(Map.get(response, :headers, [])) != 0
   end
@@ -287,21 +303,20 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp reset_after_ms(headers) do
-    case Transport.header(headers, "x-ratelimit-reset") do
-      value when is_binary(value) ->
-        with {reset, ""} <- Integer.parse(value) do
-          max(reset * 1_000 - System.system_time(:millisecond), 1)
-        else
-          _invalid -> nil
-        end
+    headers
+    |> Transport.header("x-ratelimit-reset")
+    |> reset_delay_ms()
+  end
 
-      value when is_integer(value) ->
-        max(value * 1_000 - System.system_time(:millisecond), 1)
-
-      _missing ->
-        nil
+  defp reset_delay_ms(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {reset, ""} -> reset_delay_ms(reset)
+      _invalid -> nil
     end
   end
+
+  defp reset_delay_ms(value) when is_integer(value), do: max(value * 1_000 - System.system_time(:millisecond), 1)
+  defp reset_delay_ms(_missing), do: nil
 
   defp remaining(headers) do
     case Transport.header(headers, "x-ratelimit-remaining") do

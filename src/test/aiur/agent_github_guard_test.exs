@@ -1,11 +1,11 @@
 defmodule Aiur.AgentGitHubGuardTest do
   use ExUnit.Case, async: true
+  @moduletag :tmp_dir
 
   alias Aiur.AgentGitHubGuard
   alias Aiur.GitHub.Budget
 
-  setup do
-    root = Path.join(System.tmp_dir!(), "aiur-github-guard-#{System.unique_integer([:positive])}")
+  setup %{tmp_dir: root} do
     workspace = Path.join(root, "1670")
     state_path = Path.join(root, "state")
     fake_gh = Path.join(root, "real-bin/gh")
@@ -41,9 +41,14 @@ defmodule Aiur.AgentGitHubGuardTest do
     File.chmod!(failing_broker, 0o755)
     :ok = AgentGitHubGuard.install(workspace)
 
-    on_exit(fn -> File.rm_rf(root) end)
-
-    {:ok, wrapper: Path.join(AgentGitHubGuard.bin_dir(workspace), "gh"), workspace: workspace, state_path: state_path, fake_gh: fake_gh, failing_broker: failing_broker, calls: calls}
+    {:ok,
+     wrapper: Path.join(AgentGitHubGuard.bin_dir(workspace), "gh"),
+     git_wrapper: Path.join(AgentGitHubGuard.bin_dir(workspace), "git"),
+     workspace: workspace,
+     state_path: state_path,
+     fake_gh: fake_gh,
+     failing_broker: failing_broker,
+     calls: calls}
   end
 
   test "installs the companion host-budget broker alongside the gh wrapper", context do
@@ -365,6 +370,84 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert cooldown_until <= System.os_time(:millisecond) + 3_000
   end
 
+  test "git authentication uses only the agent token for github.com", context do
+    global_config = Path.join(context.workspace, ".gitconfig")
+
+    File.write!(
+      global_config,
+      "[credential]\n\thelper = \"!f() { printf 'username=executor\\npassword=executor-token\\n'; }; f\"\n"
+    )
+
+    input = "protocol=https\nhost=github.com\n\n"
+
+    assert {output, 0} =
+             run_git_credential(context, input,
+               GITHUB_TOKEN: "agent-token",
+               GH_TOKEN: "wrong-precedence-token",
+               HOME: context.workspace
+             )
+
+    assert output =~ "username=x-access-token"
+    assert output =~ "password=agent-token"
+    refute output =~ "executor-token"
+
+    assert {output, exit_code} =
+             run_git_credential(context, input,
+               GITHUB_TOKEN: nil,
+               GH_TOKEN: nil,
+               HOME: context.workspace
+             )
+
+    assert exit_code != 0
+    refute output =~ "executor-token"
+  end
+
+  test "git authentication preserves configured helpers for another host", context do
+    global_config = Path.join(context.workspace, ".gitconfig")
+
+    File.write!(
+      global_config,
+      "[credential]\n\thelper = \"!f() { printf 'username=other\\npassword=other-token\\n'; }; f\"\n"
+    )
+
+    input = "protocol=https\nhost=example.com\n\n"
+
+    assert {output, 0} =
+             run_git_credential(context, input,
+               GITHUB_TOKEN: "agent-token",
+               HOME: context.workspace
+             )
+
+    assert output =~ "username=other"
+    assert output =~ "password=other-token"
+    refute output =~ "agent-token"
+  end
+
+  test "git push rejects a credential-bearing GitHub remote", context do
+    repo = Path.join(context.workspace, "repo")
+    File.mkdir_p!(repo)
+
+    assert {_, 0} = System.cmd("git", ["init", repo], stderr_to_stdout: true)
+
+    assert {_, 0} =
+             System.cmd(
+               "git",
+               ["-C", repo, "remote", "add", "origin", "https://agent:embedded-token@github.com/owner/repo.git"],
+               stderr_to_stdout: true
+             )
+
+    {output, exit_code} =
+      System.cmd(context.git_wrapper, ["push", "--dry-run", "origin", "HEAD"],
+        cd: repo,
+        env: [{"AIUR_REAL_GIT", System.find_executable("git")}, {"GITHUB_TOKEN", "agent-token"}],
+        stderr_to_stdout: true
+      )
+
+    assert exit_code == 64
+    assert output =~ "credential-free https://github.com remote"
+    refute output =~ "embedded-token"
+  end
+
   test "installer rejects symlinked runtime directories", context do
     runtime = Path.join(context.workspace, ".aiur-runtime")
     external = Path.join(Path.dirname(context.workspace), "outside")
@@ -385,11 +468,22 @@ defmodule Aiur.AgentGitHubGuardTest do
     )
   end
 
+  defp run_git_credential(context, input, extra_env) do
+    env =
+      [{"AIUR_REAL_GIT", System.find_executable("git")}] ++
+        Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+
+    System.cmd("sh", ["-c", ~s(printf '%s' "$2" | "$1" credential fill), "sh", context.git_wrapper, input],
+      env: env,
+      stderr_to_stdout: true
+    )
+  end
+
   defp guard_env(context) do
     [
       {"AIUR_REAL_GH", context.fake_gh},
       {"AIUR_REPO_STATE_PATH", context.state_path},
-      {"AIUR_AGENT_QUOTA_STATE_PATH", ""},
+      {"AIUR_AGENT_QUOTA_STATE_PATH", Path.join(context.state_path, "github-quota")},
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls},
       {"GITHUB_TOKEN", ""},

@@ -136,6 +136,7 @@ defmodule Aiur.AgentEnvironment do
     base_branch = configured_base_branch(opts)
     real_gh = AgentGitHubGuard.real_gh()
     github_budget = Budget.guard_settings()
+    real_git = System.find_executable("git")
 
     unset_inherited_env =
       Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"], fn name ->
@@ -158,6 +159,7 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_GITHUB_STAGGER_MS", github_budget.stagger_ms |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
@@ -255,7 +257,9 @@ defmodule Aiur.AgentEnvironment do
     # covers workspaces provisioned before this existed; only redirect TMPDIR
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
-    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\nexport AIUR_REAL_GH\n" <>
+    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\n" <>
+      "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
+      "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>

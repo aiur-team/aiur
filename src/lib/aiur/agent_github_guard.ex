@@ -1,22 +1,26 @@
 defmodule Aiur.AgentGitHubGuard do
   @moduledoc """
-  Installs the fleet quota guard that wraps agent-launched `gh` commands.
+  Installs the fleet guards that wrap agent-launched `gh` and `git` commands.
 
-  The wrapper is embedded at compile time so local and SSH workers receive the
-  same behavior from an OTP release without depending on the source checkout.
+  The wrappers are embedded at compile time so local and SSH workers receive
+  the same behavior from an OTP release without depending on the source
+  checkout.
   """
 
   require Logger
 
   alias Aiur.Workspace.Remote
 
-  @script_path Path.expand("../../priv/github_quota_guard.sh", __DIR__)
+  @gh_script_path Path.expand("../../priv/github_quota_guard.sh", __DIR__)
+  @git_script_path Path.expand("../../priv/github_push_guard.sh", __DIR__)
   @broker_path Path.expand("../../priv/github_budget.py", __DIR__)
-  @external_resource @script_path
+  @external_resource @gh_script_path
+  @external_resource @git_script_path
   @external_resource @broker_path
-  @script File.read!(@script_path)
+  @gh_script File.read!(@gh_script_path)
+  @git_script File.read!(@git_script_path)
   @broker File.read!(@broker_path)
-  @relative_path ".aiur-runtime/bin/gh"
+  @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}]
   @broker_relative_path ".aiur-runtime/bin/aiur-github-budget"
 
   @spec bin_dir(Path.t()) :: Path.t()
@@ -44,7 +48,7 @@ defmodule Aiur.AgentGitHubGuard do
     with :ok <- ensure_directory(Path.join(System.user_home!(), ".aiur")),
          :ok <- ensure_directory(Path.dirname(bin)),
          :ok <- ensure_directory(bin),
-         :ok <- atomic_install(Path.join(bin, "gh"), @script),
+         :ok <- atomic_install(Path.join(bin, "gh"), @gh_script),
          :ok <- atomic_install(Path.join(bin, "aiur-github-budget"), @broker) do
       :ok
     else
@@ -56,12 +60,11 @@ defmodule Aiur.AgentGitHubGuard do
 
   @spec install(Path.t() | nil) :: :ok | {:error, term()}
   def install(workspace) when is_binary(workspace) do
-    target = Path.join(workspace, @relative_path)
+    bin = bin_dir(workspace)
 
     with :ok <- ensure_directory(Path.join(workspace, ".aiur-runtime")),
-         :ok <- ensure_directory(Path.dirname(target)),
-         :ok <- atomic_install(target, @script),
-         :ok <- atomic_install(budget_broker_path(workspace), @broker) do
+         :ok <- ensure_directory(bin),
+         :ok <- install_scripts(bin) do
       :ok
     else
       {:error, reason} = error ->
@@ -74,30 +77,29 @@ defmodule Aiur.AgentGitHubGuard do
 
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do
-    encoded = Base.encode64(@script)
-    broker_encoded = Base.encode64(@broker)
-
     [
       "set -eu",
       Remote.remote_shell_assign("workspace", workspace),
       "runtime=\"$workspace/.aiur-runtime\"",
       "bin=\"$runtime/bin\"",
       "if [ -L \"$runtime\" ] || [ -L \"$bin\" ]; then echo 'unsafe symlink in agent support path' >&2; exit 73; fi",
-      "target=\"$workspace/#{@relative_path}\"",
-      "mkdir -p \"$(dirname \"$target\")\"",
+      "mkdir -p \"$bin\"",
+      Enum.map_join(@scripts, "\n", fn {name, script} -> remote_install_command(name, script) end)
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp remote_install_command(name, script) do
+    encoded = Base.encode64(script)
+
+    [
+      "target=\"$bin/#{name}\"",
       "tmp=\"$target.tmp.$$\"",
       "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM",
       "(set -C; : > \"$tmp\")",
       "printf '%s' '#{encoded}' | base64 -d > \"$tmp\"",
       "chmod 755 \"$tmp\"",
       "mv -f \"$tmp\" \"$target\"",
-      "budget_target=\"$workspace/#{@broker_relative_path}\"",
-      "budget_tmp=\"$budget_target.tmp.$$\"",
-      "trap 'rm -f \"$tmp\" \"$budget_tmp\"' EXIT HUP INT TERM",
-      "(set -C; : > \"$budget_tmp\")",
-      "printf '%s' '#{broker_encoded}' | base64 -d > \"$budget_tmp\"",
-      "chmod 755 \"$budget_tmp\"",
-      "mv -f \"$budget_tmp\" \"$budget_target\"",
       "trap - EXIT HUP INT TERM"
     ]
     |> Enum.join("\n")
@@ -112,11 +114,20 @@ defmodule Aiur.AgentGitHubGuard do
     end
   end
 
-  defp atomic_install(target, contents) do
+  defp install_scripts(bin) do
+    Enum.reduce_while(@scripts, :ok, fn {name, script}, :ok ->
+      case atomic_install(Path.join(bin, name), script) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
+  end
+
+  defp atomic_install(target, script) do
     temporary = target <> ".#{System.unique_integer([:positive])}.tmp"
 
     with {:ok, file} <- File.open(temporary, [:write, :binary, :exclusive]),
-         :ok <- IO.binwrite(file, contents),
+         :ok <- IO.binwrite(file, script),
          :ok <- File.close(file),
          :ok <- File.chmod(temporary, 0o755),
          :ok <- File.rename(temporary, target) do
