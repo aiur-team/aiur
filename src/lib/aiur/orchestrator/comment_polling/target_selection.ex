@@ -24,15 +24,6 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
     map_size(state.running) + human_review_comment_target_limit(opts) + watch_comment_target_limit(opts)
   end
 
-  @doc false
-  @spec max_setup_request_count(keyword()) :: pos_integer()
-  def max_setup_request_count(opts) do
-    # Issue discovery, watched-PR discovery, and the GraphQL batch each consume
-    # one request allowance. Human-review PR freshness can consume one more per
-    # capped target before the fan-out begins.
-    human_review_comment_target_limit(opts) + 3
-  end
-
   @spec github_comment_poll_targets(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()]} | {:error, term()}
   def github_comment_poll_targets(%State{} = state, opts) do

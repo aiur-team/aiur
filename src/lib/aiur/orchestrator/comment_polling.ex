@@ -14,13 +14,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
-  alias Aiur.GitHub.{CommentPollBatch, Transport}
+  alias Aiur.GitHub.CommentPollBatch
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
 
   @recent_merge_persistence_retry_limit 3
 
+  @comment_poll_setup_timeout_ms 300_000
   @comment_poll_abandon_margin_ms 30_000
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
@@ -268,11 +269,17 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   defp comment_poll_abandon_after_ms(state, opts) do
     target_count = TargetSelection.max_comment_poll_target_count(state, opts)
-    setup_request_count = TargetSelection.max_setup_request_count(opts)
 
-    setup_request_count * Transport.request_deadline_ms(%{}) +
+    comment_poll_setup_timeout_ms(opts) +
       GithubCommentsPoller.max_duration_ms(target_count, opts) +
       @comment_poll_abandon_margin_ms
+  end
+
+  defp comment_poll_setup_timeout_ms(opts) do
+    case Keyword.get(opts, :setup_timeout, @comment_poll_setup_timeout_ms) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _other -> @comment_poll_setup_timeout_ms
+    end
   end
 
   defp abandon_poll(%{owner: owner} = poll) when is_pid(owner) do
@@ -305,7 +312,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
         # result. If it died unexpectedly while the poll remains alive, reap
         # the tree here rather than hanging shutdown on a message to a dead pid.
         if Process.alive?(pid) do
-          reap_poll_tree(pid, monitor_ref)
+          reap_process_tree(pid, monitor_ref)
         else
           Process.demonitor(monitor_ref, [:flush])
         end
@@ -358,11 +365,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
         guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
 
       {:stop_owned_poll, caller, stop_ref} ->
-        reap_poll_tree(poll, poll_ref)
+        reap_process_tree(poll, poll_ref)
         send(caller, {:owned_poll_stopped, stop_ref})
 
       {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
-        reap_poll_tree(poll, poll_ref)
+        reap_process_tree(poll, poll_ref)
     end
   end
 
@@ -394,10 +401,10 @@ defmodule Aiur.Orchestrator.CommentPolling do
   defp guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref) do
     receive do
       {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
-        reap_poll_tree(poll, poll_ref)
+        reap_process_tree(poll, poll_ref)
 
       {:stop_owned_poll, caller, stop_ref} ->
-        reap_poll_tree(poll, poll_ref)
+        reap_process_tree(poll, poll_ref)
         send(caller, {:owned_poll_stopped, stop_ref})
 
       {:DOWN, ^poll_ref, :process, ^poll, _reason} ->
@@ -405,11 +412,11 @@ defmodule Aiur.Orchestrator.CommentPolling do
     end
   end
 
-  defp reap_poll_tree(poll, poll_ref) do
-    descendants = linked_descendants(poll, MapSet.new([self()]))
+  defp reap_process_tree(root, root_ref) do
+    descendants = linked_descendants(root, MapSet.new([self()]))
     descendant_refs = Enum.map(descendants, &{&1, Process.monitor(&1)})
-    Process.exit(poll, :kill)
-    await_process_down(poll, poll_ref)
+    Process.exit(root, :kill)
+    await_process_down(root, root_ref)
     Enum.each(descendant_refs, fn {pid, ref} -> await_process_down(pid, ref) end)
   end
 
@@ -445,12 +452,82 @@ defmodule Aiur.Orchestrator.CommentPolling do
   # The I/O half. Runs on whichever process the caller chose — never touches the
   # state it was handed, so its result can be folded into a newer one.
   defp run_comment_poll(%State{} = state, opts) do
-    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets, cache} ->
-        {:ok, cache, human_review_targets, poll_targets(state, targets, human_review_targets, watch_targets, opts)}
+    case run_comment_poll_setup(state, opts) do
+      {:ok, cache, human_review_targets, targets, poll_opts} ->
+        {:ok, cache, human_review_targets, poll_prepared_targets(targets, poll_opts)}
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  # Discovery, PR freshness, authorization timelines, pagination, and the
+  # GraphQL batch can each issue a variable number of sequential requests. A
+  # guessed request count cannot prove an outer lifetime bound, so setup owns
+  # one explicit wall-clock budget instead. The worker is linked into the poll
+  # tree, and timeout reaps its request descendants before returning.
+  defp run_comment_poll_setup(%State{} = state, opts) do
+    parent = self()
+    result_ref = make_ref()
+    timeout_ms = comment_poll_setup_timeout_ms(opts)
+    previous_trap_exit = Process.flag(:trap_exit, true)
+
+    {worker, worker_ref} =
+      :erlang.spawn_opt(
+        fn -> send(parent, {__MODULE__, result_ref, prepare_comment_poll(state, opts)}) end,
+        [:link, :monitor]
+      )
+
+    try do
+      await_comment_poll_setup(worker, worker_ref, result_ref, timeout_ms)
+    after
+      Process.unlink(worker)
+      flush_link_exit(worker)
+      Process.flag(:trap_exit, previous_trap_exit)
+    end
+  end
+
+  defp await_comment_poll_setup(worker, worker_ref, result_ref, timeout_ms) do
+    receive do
+      {__MODULE__, ^result_ref, result} ->
+        await_process_down(worker, worker_ref)
+        result
+
+      {:DOWN, ^worker_ref, :process, ^worker, reason} ->
+        exit({:comment_poll_setup_exit, reason})
+    after
+      timeout_ms ->
+        Logger.warning("GithubCommentsPoller setup exceeded its #{timeout_ms}ms phase deadline and was abandoned")
+        reap_process_tree(worker, worker_ref)
+        flush_setup_result(result_ref)
+        {:error, :setup_deadline_exceeded}
+    end
+  end
+
+  defp flush_setup_result(result_ref) do
+    receive do
+      {__MODULE__, ^result_ref, _result} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp flush_link_exit(worker) do
+    receive do
+      {:EXIT, ^worker, _reason} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp prepare_comment_poll(%State{} = state, opts) do
+    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
+      {:ok, targets, human_review_targets, watch_targets, cache} ->
+        poll_opts = prepare_comment_poll_opts(state, targets, human_review_targets, watch_targets, opts)
+        {:ok, cache, human_review_targets, targets, poll_opts}
+
+      {:error, _reason} = error ->
+        error
     end
   end
 
@@ -467,9 +544,15 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   defp apply_comment_poll(%State{} = state, _unrecognised), do: state
 
-  defp poll_targets(%State{}, [], _human_review_targets, _watch_targets, _opts), do: :no_targets
+  defp poll_prepared_targets([], _poll_opts), do: :no_targets
 
-  defp poll_targets(%State{} = state, targets, human_review_targets, watch_targets, opts) when is_list(targets) do
+  defp poll_prepared_targets(targets, poll_opts) when is_list(targets) do
+    {targets, GithubCommentsPoller.poll(targets, poll_opts)}
+  end
+
+  defp prepare_comment_poll_opts(%State{}, [], _human_review_targets, _watch_targets, opts), do: opts
+
+  defp prepare_comment_poll_opts(%State{} = state, targets, human_review_targets, watch_targets, opts) when is_list(targets) do
     review_submission_targets = MapSet.new(human_review_targets, & &1.target)
 
     poll_opts =
@@ -482,9 +565,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put(:review_submission_targets, review_submission_targets)
       |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
 
-    poll_opts = put_comment_batch(poll_opts, targets)
-
-    {targets, GithubCommentsPoller.poll(targets, poll_opts)}
+    put_comment_batch(poll_opts, targets)
   end
 
   defp apply_poll_outcome(%State{} = state, _human_review_targets, :no_targets), do: state

@@ -233,17 +233,109 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       refute_receive :comment_poll_started, 500
     end
 
-    test "derived abandonment bound covers every target wave" do
+    test "derived abandonment bound covers bounded setup and every target wave" do
       running = Map.new(1..13, fn issue -> {to_string(issue), %{identifier: to_string(issue)}} end)
-      opts = comment_poll_opts(fn _states -> {:ok, []} end) ++ [max_concurrency: 4, timeout: 60_000, human_review_comment_target_limit: 1, watch_comment_target_limit: 1]
+
+      opts =
+        comment_poll_opts(fn _states -> {:ok, []} end) ++
+          [setup_timeout: 300_000, max_concurrency: 4, timeout: 60_000, human_review_comment_target_limit: 1, watch_comment_target_limit: 1]
 
       state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: running}, opts)
 
       # Thirteen running targets plus the two configured review/watch slots
-      # need four complete waves. Setup requests and a scheduling margin are
-      # additive, so a legitimate final wave cannot be mistaken for a hang.
-      assert state.github_comment_poll.abandon_after_ms > 4 * 60_000
+      # need four complete waves. The independently bounded setup phase and a
+      # scheduling margin are additive, so neither legitimate setup work nor
+      # the final target wave can be mistaken for a hung poll.
+      assert state.github_comment_poll.abandon_after_ms > 300_000 + 4 * 60_000
       CommentPolling.terminate_poll(state.github_comment_poll)
+    end
+
+    test "slow setup and the final target wave remain owned until their combined bound", %{orchestrator: pid} do
+      test_pid = self()
+
+      review_issue_fetcher = fn _states ->
+        send(test_pid, {:slow_setup_started, self()})
+
+        receive do
+          :finish_slow_setup -> {:ok, []}
+        end
+      end
+
+      request_fun = fn _request ->
+        send(test_pid, {:slow_target_started, self()})
+
+        receive do
+          :finish_slow_target -> {:ok, %{status: 304, headers: []}}
+        end
+      end
+
+      setup_timeout = 2_000
+      target_timeout = 2_000
+
+      opts =
+        comment_poll_opts(review_issue_fetcher) ++
+          [
+            setup_timeout: setup_timeout,
+            max_concurrency: 1,
+            timeout: target_timeout,
+            human_review_comment_target_limit: 1,
+            watch_comment_target_limit: 1,
+            comment_batch_fetcher: fn _targets, _opts -> {:ok, %{"57" => %{open_pull_request: nil}}} end,
+            request_fun: request_fun
+          ]
+
+      :sys.replace_state(pid, fn state ->
+        state
+        |> Map.put(:running, %{
+          "57" => %{
+            identifier: "57",
+            issue: %Aiur.Issue{id: "57", identifier: "57", state: "in-progress", title: "Slow setup"}
+          }
+        })
+        |> CommentPolling.start_async(opts)
+      end)
+
+      assert_receive {:slow_setup_started, setup_worker}, 5_000
+      poll = :sys.get_state(pid).github_comment_poll
+      assert poll.abandon_after_ms == setup_timeout + 3 * target_timeout + 30_000
+
+      # Re-entering at the end of the setup allowance must retain the same
+      # owned poll; setup's budget cannot be mistaken for target-wave time.
+      assert_same_poll_at_elapsed(pid, opts, poll, setup_timeout - 1)
+      send(setup_worker, :finish_slow_setup)
+
+      assert_receive {:slow_target_started, target_worker}, 5_000
+
+      # One running target plus the configured review/watch maxima is three
+      # complete waves at max_concurrency=1. Even at the end of that combined
+      # setup + wave allowance, the replacement path must not run.
+      assert_same_poll_at_elapsed(pid, opts, poll, setup_timeout + 3 * target_timeout - 1)
+      send(target_worker, :finish_slow_target)
+
+      wait_until(fn -> :sys.get_state(pid).github_comment_poll == nil end)
+    end
+
+    test "bounded setup reaps a hanging request descendant before answering" do
+      test_pid = self()
+
+      review_issue_fetcher = fn _states ->
+        setup_worker = self()
+
+        Transport.off_process_request(%{}, fn ->
+          send(test_pid, {:setup_request_started, setup_worker, self()})
+          Process.sleep(:infinity)
+        end)
+      end
+
+      opts = comment_poll_opts(review_issue_fetcher) ++ [setup_timeout: 250]
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      state = await_async_started(state)
+      assert_receive {:setup_request_started, setup_worker, request_worker}, 5_000
+
+      assert_receive {:github_comments_polled, _ref, {:error, :setup_deadline_exceeded}}, 2_000
+      wait_until(fn -> not Process.alive?(setup_worker) end)
+      wait_until(fn -> not Process.alive?(request_worker) end)
+      wait_until(fn -> not Process.alive?(state.github_comment_poll.pid) end)
     end
 
     test "terminates an expired poll before starting its replacement" do
@@ -259,6 +351,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
       state = await_async_started(state)
       assert_receive {:comment_poll_started, first_pid}, 5_000
+      first_poll = state.github_comment_poll.pid
 
       expired_at = System.monotonic_time(:millisecond) - state.github_comment_poll.abandon_after_ms - 1
       expired_state = put_in(state.github_comment_poll.started_at_ms, expired_at)
@@ -266,9 +359,11 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       next_state = await_async_started(next_state)
 
       wait_until(fn -> not Process.alive?(first_pid) end)
+      refute Process.alive?(first_poll)
       assert_receive {:comment_poll_started, second_pid}, 5_000
       assert second_pid != first_pid
-      assert next_state.github_comment_poll.pid == second_pid
+      assert next_state.github_comment_poll.pid != first_poll
+      assert Process.alive?(second_pid)
     end
 
     test "terminates target descendants before replacing an expired poll" do
@@ -537,6 +632,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     after
       5_000 -> flunk("the orchestrator never evaluated the probe")
     end
+  end
+
+  defp assert_same_poll_at_elapsed(orchestrator, opts, poll, elapsed_ms) do
+    :sys.replace_state(orchestrator, fn state ->
+      state = put_in(state.github_comment_poll.started_at_ms, System.monotonic_time(:millisecond) - elapsed_ms)
+      CommentPolling.start_async(state, opts)
+    end)
+
+    current_poll = :sys.get_state(orchestrator).github_comment_poll
+    assert current_poll.ref == poll.ref
+    assert current_poll.owner == poll.owner
+    assert current_poll.pid == poll.pid
   end
 
   # The read model retains the projection its rows are built from, so a test
