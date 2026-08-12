@@ -177,7 +177,13 @@ defmodule Aiur.OpenAICompat.ToolsTest do
     env_entries = Enum.chunk_every(args, 3, 1, :discard)
 
     assert ["--setenv", "PATH", path] = Enum.find(env_entries, &match?(["--setenv", "PATH", _value], &1))
-    assert String.starts_with?(path, Path.join(System.tmp_dir!(), ".aiur-runtime/bin") <> ":")
+
+    assert String.starts_with?(
+             path,
+             Path.join(System.tmp_dir!(), ".aiur-runtime/build-bin") <>
+               ":" <>
+               Path.join(System.tmp_dir!(), ".aiur-runtime/bin") <> ":"
+           )
 
     assert ["--setenv", "AIUR_REAL_GIT", real_git] = Enum.find(env_entries, &match?(["--setenv", "AIUR_REAL_GIT", _value], &1))
     assert is_binary(real_git) and real_git != ""
