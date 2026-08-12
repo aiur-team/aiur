@@ -133,5 +133,6 @@ raises a critical needs-attention alert. This repository permits only
 `its-everdred`.
 
 The declaration is the required steady state. The solo-operator release-merge
-deadlock and any auditable, time-bounded maintenance procedure are tracked in
-#1437 rather than encoded as a CI exception here.
+deadlock is resolved by the bot-authored promotion procedure in
+[develop-to-main-promotion.md](develop-to-main-promotion.md); that procedure
+changes no rule and encodes no CI exception here.
