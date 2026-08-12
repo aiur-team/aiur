@@ -42,6 +42,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
     state = %{state | poll_check_in_progress: false}
 
+    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
