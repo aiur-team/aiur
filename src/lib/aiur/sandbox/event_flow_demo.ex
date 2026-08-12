@@ -7,6 +7,7 @@ defmodule Aiur.Sandbox.EventFlowDemo do
   @doc """
   Returns the integer 42 for the single-agent event-flow end-to-end test.
   """
+  @spec function_a() :: integer()
   def function_a do
     42
   end
