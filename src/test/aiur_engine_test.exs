@@ -752,6 +752,30 @@ defmodule AiurEngineTest do
     end
   end
 
+  test "set max-agents never returns nonzero with empty output" do
+    script = """
+    resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
+    prepare_distribution() { :; }
+    resolve_control_identity_from_records() { :; }
+    probe_node_liveness() { printf up; }
+    run_release_rpc_with_timeout() {
+      AIUR_CONTROL_RPC_OUTPUT='__AIUR_CONTROL_EXIT__:7'
+      AIUR_CONTROL_RPC_TIMED_OUT=0
+      return 0
+    }
+    AIUR_CONTROL_COMMAND=set
+    code=0
+    cmd_set max-agents 3 || code=$?
+    echo "CODE=$code"
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    assert out =~ "CODE=7"
+    assert out =~ "aiur: set failed with exit 7 and returned no diagnostic output"
+    assert String.trim(out) != ""
+  end
+
   test "control rpc reports timeouts and missing exit markers instead of silently succeeding" do
     base = """
     resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
