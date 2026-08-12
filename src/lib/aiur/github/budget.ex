@@ -242,6 +242,7 @@ defmodule Aiur.GitHub.Budget do
       case port_command(python, command_args, command_deadline(opts)) do
         {:ok, output, 0} -> {:ok, output}
         {:ok, output, status} -> broker_unavailable(status, output)
+        {:error, reason} -> broker_unavailable(:exception, inspect(reason))
         :timeout -> broker_unavailable(:timeout, "deadline exceeded")
       end
     else
@@ -257,24 +258,59 @@ defmodule Aiur.GitHub.Budget do
     if remaining_ms == 0 do
       :timeout
     else
-      port =
-        Port.open(
-          {:spawn_executable, String.to_charlist(executable)},
-          [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: Enum.map(args, &String.to_charlist/1)]
-        )
+      caller = self()
+      result_ref = make_ref()
 
-      await_port(port, deadline_at, [])
+      {guardian, guardian_ref} =
+        spawn_monitor(fn ->
+          result = owned_port_command(caller, executable, args, deadline_at)
+          send(caller, {result_ref, self(), result})
+        end)
+
+      receive do
+        {^result_ref, ^guardian, result} ->
+          Process.demonitor(guardian_ref, [:flush])
+          result
+
+        {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
+          {:error, reason}
+      after
+        remaining_ms ->
+          Process.exit(guardian, :kill)
+          :timeout
+      end
     end
   end
 
-  defp await_port(port, deadline_at, output) do
+  defp owned_port_command(caller, executable, args, deadline_at) do
+    caller_ref = Process.monitor(caller)
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(executable)},
+        [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: Enum.map(args, &String.to_charlist/1)]
+      )
+
+    await_port(port, caller, caller_ref, deadline_at, [])
+  end
+
+  defp await_port(port, caller, caller_ref, deadline_at, output) do
     remaining_ms = max(deadline_at - System.monotonic_time(:millisecond) - @command_cleanup_ms, 0)
 
     receive do
-      {^port, {:data, data}} -> await_port(port, deadline_at, [data | output])
-      {^port, {:exit_status, status}} -> {:ok, output |> Enum.reverse() |> IO.iodata_to_binary(), status}
+      {^port, {:data, data}} ->
+        await_port(port, caller, caller_ref, deadline_at, [data | output])
+
+      {^port, {:exit_status, status}} ->
+        Process.demonitor(caller_ref, [:flush])
+        {:ok, output |> Enum.reverse() |> IO.iodata_to_binary(), status}
+
+      {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
+        terminate_port(port, min(deadline_at, System.monotonic_time(:millisecond) + @command_cleanup_ms))
+        :timeout
     after
       remaining_ms ->
+        Process.demonitor(caller_ref, [:flush])
         terminate_port(port, deadline_at)
         :timeout
     end

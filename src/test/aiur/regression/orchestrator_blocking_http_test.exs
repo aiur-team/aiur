@@ -626,6 +626,54 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     close_port(lock)
   end
 
+  test "locked lease release stays inside the orchestrator request deadline", %{orchestrator: pid} do
+    budget_dir = Path.join(System.tmp_dir!(), "aiur-orchestrator-release-#{System.unique_integer([:positive])}")
+    previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
+    previous_dir = Application.get_env(:aiur, :github_budget_dir)
+
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+    Application.put_env(:aiur, :github_request_deadline_ms, 300)
+
+    on_exit(fn ->
+      restore_application_env(:github_budget_enabled?, previous_enabled)
+      restore_application_env(:github_budget_dir, previous_dir)
+      File.rm_rf(budget_dir)
+    end)
+
+    test_pid = self()
+    {url, server} = controlled_json_endpoint(test_pid)
+
+    started_at = System.monotonic_time(:millisecond)
+
+    probe =
+      spawn(fn ->
+        result =
+          eval_on_orchestrator(pid, fn ->
+            Transport.default_request_fun(%{
+              method: :get,
+              url: url,
+              token: "locked-release-token"
+            })
+          end)
+
+        send(test_pid, {:locked_release_result, result})
+      end)
+
+    on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
+
+    assert_receive :release_request_started, 2_000
+    lock = lock_budget_database(Budget.database_path())
+    send(server, :finish_release_request)
+
+    assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 2_000
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    assert elapsed_ms >= 250
+    assert elapsed_ms < 1_000
+    assert answers?(pid)
+    close_port(lock)
+  end
+
   test "a fleet view behind its producer is rendered with its age, not as current", %{orchestrator: pid} do
     previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
     Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 50)
@@ -799,6 +847,31 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     end)
 
     "http://127.0.0.1:#{port}/hanging"
+  end
+
+  defp controlled_json_endpoint(test_pid) do
+    {:ok, listener} = :gen_tcp.listen(0, [:binary, active: false, reuseaddr: true, ip: {127, 0, 0, 1}])
+    {:ok, port} = :inet.port(listener)
+
+    server =
+      spawn(fn ->
+        {:ok, socket} = :gen_tcp.accept(listener)
+        {:ok, _request} = :gen_tcp.recv(socket, 0, 2_000)
+        send(test_pid, :release_request_started)
+
+        receive do
+          :finish_release_request ->
+            :ok = :gen_tcp.send(socket, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 11\r\n\r\n{\"ok\":true}")
+            :gen_tcp.close(socket)
+        end
+      end)
+
+    on_exit(fn ->
+      if Process.alive?(server), do: Process.exit(server, :kill)
+      :gen_tcp.close(listener)
+    end)
+
+    {"http://127.0.0.1:#{port}/repos/owner/repo/issues/1477", server}
   end
 
   defp lock_budget_database(path) do

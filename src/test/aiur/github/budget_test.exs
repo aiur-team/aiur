@@ -126,6 +126,54 @@ defmodule Aiur.GitHub.BudgetTest do
     close_port(lock)
   end
 
+  test "database lock cannot hold release beyond its absolute deadline", %{root: root} do
+    broker_pid_path = Path.join(root, "release-broker.pid")
+    python = broker_wrapper(root, broker_pid_path)
+    opts = [state_dir: root, enabled?: true, timeout_ms: 300]
+    request = request("locked-release-token", "/repos/owner/repo/issues/1477")
+
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    lock = lock_database(Budget.database_path(opts))
+    deadline_at = System.monotonic_time(:millisecond) + 300
+    started_at = System.monotonic_time(:millisecond)
+
+    assert :ok = Budget.release(lease, opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at))
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    assert elapsed_ms >= 250
+    assert elapsed_ms < 1_000
+    broker_pid = broker_pid_path |> File.read!() |> String.trim()
+    wait_until(fn -> not os_process_alive?(broker_pid) end)
+
+    close_port(lock)
+  end
+
+  test "caller death reaps a blocked broker process", %{root: root} do
+    broker_pid_path = Path.join(root, "abandoned-broker.pid")
+    python = broker_wrapper(root, broker_pid_path)
+    opts = [state_dir: root, enabled?: true, python: python, timeout_ms: 30_000]
+    token = "abandoned-budget-token"
+
+    assert %{inflight: %{}} = Budget.snapshot(token, state_dir: root, enabled?: true)
+    lock = lock_database(Budget.database_path(opts))
+
+    caller =
+      spawn(fn ->
+        Budget.acquire(request(token, "/repos/owner/repo/issues/1477"), opts)
+      end)
+
+    caller_ref = Process.monitor(caller)
+    on_exit(fn -> if Process.alive?(caller), do: Process.exit(caller, :kill) end)
+    wait_until(fn -> File.exists?(broker_pid_path) end)
+    broker_pid = broker_pid_path |> File.read!() |> String.trim()
+
+    Process.exit(caller, :kill)
+
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}, 2_000
+    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    close_port(lock)
+  end
+
   test "refuses an unsafe shared state path", %{root: root} do
     path = Path.join(root, "not-a-directory")
     File.write!(path, "not a directory")

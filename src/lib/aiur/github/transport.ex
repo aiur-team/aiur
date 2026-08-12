@@ -135,11 +135,17 @@ defmodule Aiur.GitHub.Transport do
       {:ok, lease} ->
         try do
           result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
-          :ok = Budget.observe(request, result, timeout_ms: max(remaining_deadline_ms(deadline_at_ms), 1))
+
+          :ok =
+            Budget.observe(request, result,
+              timeout_ms: max(remaining_deadline_ms(deadline_at_ms), 1),
+              deadline_at: deadline_at_ms
+            )
+
           quota_observe(quota, request, result)
           result
         after
-          Budget.release(lease)
+          Budget.release(lease, deadline_at: deadline_at_ms)
         end
 
       {:hold, hold} ->
