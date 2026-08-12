@@ -54,7 +54,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec list_active_identifiers_api(GenServer.server(), timeout()) :: [String.t()]
   def list_active_identifiers_api(server, timeout) do
-    if Process.whereis(server) do
+    if State.alive?(server) do
       try do
         GenServer.call(server, :list_active_identifiers, timeout)
       catch
@@ -573,7 +573,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp status_api_call(server, request, timeout, distinguish_timeout?) do
-    if Process.whereis(server) do
+    if State.alive?(server) do
       try do
         GenServer.call(server, request, timeout)
       catch

@@ -83,8 +83,9 @@ defmodule Aiur.DecisionStore do
   @doc """
   Starts the store.
 
-  An unnamed store must receive its own `:state_dir`; otherwise it would
-  contend with the application's durable decision audit stream.
+  Only the application singleton may use the configured default state
+  directory. Every other instance must receive its own `:state_dir` so it
+  cannot contend with the application's durable decision audit stream.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -362,12 +363,16 @@ defmodule Aiur.DecisionStore do
   end
 
   defp validate_start_options(opts) do
-    case {Keyword.get(opts, :name), Keyword.get(opts, :state_dir)} do
-      {nil, dir} when is_binary(dir) and dir != "" -> :ok
-      {nil, _dir} -> {:error, :unnamed_store_requires_state_dir}
-      {_name, nil} -> :ok
-      {_name, dir} when is_binary(dir) and dir != "" -> :ok
-      {_name, _dir} -> {:error, :invalid_state_dir}
+    case {Keyword.get(opts, :name), Keyword.fetch(opts, :state_dir)} do
+      {__MODULE__, :error} -> :ok
+      {__MODULE__, {:ok, dir}} when is_binary(dir) and dir != "" -> :ok
+      {__MODULE__, {:ok, _dir}} -> {:error, :invalid_state_dir}
+      {nil, :error} -> {:error, :unnamed_store_requires_state_dir}
+      {nil, {:ok, dir}} when is_binary(dir) and dir != "" -> :ok
+      {nil, {:ok, _dir}} -> {:error, :invalid_state_dir}
+      {_name, :error} -> {:error, :non_singleton_store_requires_state_dir}
+      {_name, {:ok, dir}} when is_binary(dir) and dir != "" -> :ok
+      {_name, {:ok, _dir}} -> {:error, :invalid_state_dir}
     end
   end
 

@@ -49,8 +49,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec request_refresh_api(GenServer.server()) :: map() | :unavailable
   def request_refresh_api(server) do
-    if Process.whereis(server) do
-      GenServer.call(server, :request_refresh)
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, :request_refresh)
+      catch
+        :exit, _ -> :unavailable
+      end
     else
       :unavailable
     end
