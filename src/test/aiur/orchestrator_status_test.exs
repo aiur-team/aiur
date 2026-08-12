@@ -1280,7 +1280,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
     orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     parent = self()
 
     on_exit(fn ->
