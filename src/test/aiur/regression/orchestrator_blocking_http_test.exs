@@ -229,6 +229,29 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       refute_receive :comment_poll_started, 500
     end
 
+    test "terminates an expired poll before starting its replacement" do
+      test_pid = self()
+
+      hanging_fetcher = fn _states ->
+        send(test_pid, {:comment_poll_started, self()})
+        Process.sleep(:infinity)
+      end
+
+      opts = comment_poll_opts(hanging_fetcher)
+
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      assert_receive {:comment_poll_started, first_pid}, 5_000
+
+      expired_at = System.monotonic_time(:millisecond) - 180_001
+      expired_state = put_in(state.github_comment_poll.started_at_ms, expired_at)
+      next_state = CommentPolling.start_async(expired_state, opts)
+
+      wait_until(fn -> not Process.alive?(first_pid) end)
+      assert_receive {:comment_poll_started, second_pid}, 5_000
+      assert second_pid != first_pid
+      assert next_state.github_comment_poll.pid == second_pid
+    end
+
     test "drops a straggler from a poll the state is no longer waiting for" do
       state = %Aiur.Orchestrator.State{running: %{}, github_comments_since: %{"57" => "2026-06-24T11:00:00Z"}}
 

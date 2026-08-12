@@ -69,7 +69,10 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    RetryEngine.handle_agent_down(state, ref, reason)
+    case CommentPolling.apply_async_down(state, ref) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+    end
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)

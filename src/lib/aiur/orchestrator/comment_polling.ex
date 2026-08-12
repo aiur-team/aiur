@@ -197,14 +197,22 @@ defmodule Aiur.Orchestrator.CommentPolling do
   cursors would move the fleet backwards.
   """
   @spec apply_async(State.t(), reference(), term()) :: State.t()
-  def apply_async(%State{github_comment_poll: %{ref: ref}} = state, ref, payload) do
+  def apply_async(%State{github_comment_poll: %{ref: ref} = poll} = state, ref, payload) do
+    demonitor_comment_poll(poll)
     state = %{state | github_comment_poll: nil}
     apply_comment_poll(state, payload)
   end
 
   def apply_async(%State{} = state, _stale_ref, _payload), do: state
 
-  defp comment_poll_in_flight?(%State{github_comment_poll: %{started_at_ms: started_at_ms}}, now_ms)
+  @doc false
+  @spec apply_async_down(State.t(), reference()) :: {:handled, State.t()} | :unhandled
+  def apply_async_down(%State{github_comment_poll: %{monitor_ref: monitor_ref}} = state, monitor_ref),
+    do: {:handled, %{state | github_comment_poll: nil}}
+
+  def apply_async_down(%State{}, _stale_monitor_ref), do: :unhandled
+
+  defp comment_poll_in_flight?(%State{github_comment_poll: %{started_at_ms: started_at_ms}} = state, now_ms)
        when is_integer(started_at_ms) do
     if now_ms - started_at_ms < @comment_poll_abandon_after_ms do
       true
@@ -214,6 +222,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
           "abandoning it and starting a fresh one"
       )
 
+      terminate_comment_poll(state.github_comment_poll)
       false
     end
   end
@@ -224,10 +233,27 @@ defmodule Aiur.Orchestrator.CommentPolling do
     orchestrator = self()
     ref = make_ref()
 
-    spawn(fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end)
+    {pid, monitor_ref} =
+      spawn_monitor(fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end)
 
-    %{state | github_comment_poll: %{ref: ref, started_at_ms: now_ms}}
+    %{state | github_comment_poll: %{ref: ref, pid: pid, monitor_ref: monitor_ref, started_at_ms: now_ms}}
   end
+
+  defp terminate_comment_poll(%{pid: pid, monitor_ref: monitor_ref}) when is_pid(pid) and is_reference(monitor_ref) do
+    Process.exit(pid, :kill)
+
+    receive do
+      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+    end
+  end
+
+  defp terminate_comment_poll(_poll), do: :ok
+
+  defp demonitor_comment_poll(%{monitor_ref: monitor_ref}) when is_reference(monitor_ref) do
+    Process.demonitor(monitor_ref, [:flush])
+  end
+
+  defp demonitor_comment_poll(_poll), do: :ok
 
   # The I/O half. Runs on whichever process the caller chose — never touches the
   # state it was handed, so its result can be folded into a newer one.
