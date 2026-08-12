@@ -4,6 +4,13 @@ defmodule Aiur.Workspace.ProvisionerTest do
   alias Aiur.{Workflow, Workspace}
   alias Aiur.Workspace.Provisioner
 
+  @linux_build_gate match?({:unix, :linux}, :os.type()) and
+                      not is_nil(System.find_executable("flock"))
+  @linux_only if(@linux_build_gate,
+                do: [linux_lock: true],
+                else: [skip: "requires Linux flock leases"]
+              )
+
   test "remote workers receive the bundled agent skill install script" do
     parent = self()
 
@@ -48,11 +55,78 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert File.stat!(mix_wrapper).inode == mix_inode
   end
 
+  @tag @linux_only
+  test "bulk workspace creation caps concurrent after_create builds" do
+    test_root = Path.join(System.tmp_dir!(), "workspace-build-gate-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(test_root, "workspaces")
+    bin_dir = Path.join(test_root, "bin")
+    active_path = Path.join(test_root, "active")
+    max_path = Path.join(test_root, "max")
+    on_exit(fn -> File.rm_rf!(test_root) end)
+
+    File.mkdir_p!(bin_dir)
+    File.write!(active_path, "0\n")
+    File.write!(max_path, "0\n")
+    write_concurrency_probe!(Path.join(bin_dir, "mise"), active_path, max_path)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      max_concurrent_builds: 2,
+      build_start_stagger_seconds: 0,
+      min_free_memory_mb: nil,
+      hook_after_create: """
+      git init --quiet -b main
+      git config user.email test@example.com
+      git config user.name "Test User"
+      printf initialized > README.md
+      git add README.md
+      git commit --quiet -m init
+      PATH=#{Aiur.Shell.escape(bin_dir)}:$PATH mise exec -- mix compile
+      """
+    )
+
+    1..4
+    |> Task.async_stream(
+      fn identifier -> Workspace.create_for_issue("BUILD-#{identifier}") end,
+      max_concurrency: 4,
+      ordered: false,
+      timeout: 15_000
+    )
+    |> Enum.each(fn result -> assert match?({:ok, {:ok, _workspace}}, result) end)
+
+    assert File.read!(max_path) == "2\n"
+  end
+
   test "remote support installation failures stop workspace preparation" do
     runner = fn _host, _script, _timeout -> {:ok, {"unsafe support path", 73}} end
 
     assert {:error, {:remote_agent_support_install_failed, {:ok, {"unsafe support path", 73}}}} =
              Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
+  end
+
+  defp write_concurrency_probe!(path, active_path, max_path) do
+    active_path = Aiur.Shell.escape(active_path)
+    max_path = Aiur.Shell.escape(max_path)
+
+    File.write!(path, """
+    #!/usr/bin/env bash
+    exec 9>>#{active_path}.lock
+    flock 9
+    active=$(<#{active_path})
+    active=$((active + 1))
+    printf '%s\n' "$active" > #{active_path}
+    max=$(<#{max_path})
+    if ((active > max)); then printf '%s\n' "$active" > #{max_path}; fi
+    flock -u 9
+    sleep 0.3
+    flock 9
+    active=$(<#{active_path})
+    printf '%s\n' "$((active - 1))" > #{active_path}
+    flock -u 9
+    """)
+
+    File.chmod!(path, 0o755)
   end
 
   test "parse_remote_workspace_output/1 with valid marker line returns ok tuple" do

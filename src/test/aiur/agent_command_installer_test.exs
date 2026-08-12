@@ -23,6 +23,28 @@ defmodule Aiur.AgentCommandInstallerTest do
     assert File.ls!(target) == []
   end
 
+  test "remote installation writes executable command guards idempotently", context do
+    assert {"", 0} =
+             System.cmd("sh", ["-lc", AgentGitHubGuard.remote_install_script(context.workspace)], stderr_to_stdout: true)
+
+    bin_dir = AgentGitHubGuard.bin_dir(context.workspace)
+    gh_wrapper = Path.join(bin_dir, "gh")
+    git_wrapper = Path.join(bin_dir, "git")
+
+    assert File.stat!(gh_wrapper).access == :read_write
+    assert File.stat!(gh_wrapper).mode |> Bitwise.band(0o111) != 0
+    assert File.stat!(git_wrapper).mode |> Bitwise.band(0o111) != 0
+    assert File.read!(gh_wrapper) != ""
+    assert File.read!(git_wrapper) != ""
+
+    inodes = {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode}
+
+    assert {"", 0} =
+             System.cmd("sh", ["-lc", AgentGitHubGuard.remote_install_script(context.workspace)], stderr_to_stdout: true)
+
+    assert {File.stat!(gh_wrapper).inode, File.stat!(git_wrapper).inode} == inodes
+  end
+
   test "local installation replaces a command-target symlink", context do
     assert :ok = AgentBuildGuard.install(context.workspace)
     target = Path.join(AgentBuildGuard.bin_dir(context.workspace), "mix")

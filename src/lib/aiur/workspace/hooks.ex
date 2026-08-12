@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Hooks do
   @moduledoc "Workspace lifecycle hooks: run_hook/5 with env-scrub and Task-timeout envelope, after-create / after-run / before-remove dispatch, and GitHub connectivity preflight."
 
   require Logger
-  alias Aiur.{Alerts, Config, RepoBase}
+  alias Aiur.{Alerts, BuildGate, Config, RepoBase}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -55,6 +55,8 @@ defmodule Aiur.Workspace.Hooks do
   def run_hook(command, workspace, issue_context, hook_name, nil) do
     timeout_ms = Config.settings!().hooks.timeout_ms
     started_at = System.monotonic_time(:millisecond)
+    build_gate_env = BuildGate.shell_env()
+    shell = if build_gate_env == [], do: "sh", else: "bash"
 
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
@@ -74,10 +76,10 @@ defmodule Aiur.Workspace.Hooks do
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", scrubbed_command],
+        System.cmd(shell, ["-lc", scrubbed_command],
           cd: workspace,
           stderr_to_stdout: true,
-          env: hook_env(issue_context)
+          env: build_gate_env ++ hook_env(issue_context)
         )
       end)
 
