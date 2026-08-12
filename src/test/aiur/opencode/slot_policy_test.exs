@@ -1,7 +1,7 @@
 defmodule Aiur.Opencode.SlotPolicyTest do
   use Aiur.TestSupport
 
-  alias Aiur.Opencode.{Slot, SlotPolicy, SlotRegistry, SlotSupervisor}
+  alias Aiur.Opencode.{Slot, SlotPolicy, SlotRegistry}
 
   @policy_startup_timeout 5_000
   @registry_cleanup_timeout 2_000
@@ -211,9 +211,12 @@ defmodule Aiur.Opencode.SlotPolicyTest do
   end
 
   describe "grow_slot/1 ceiling" do
-    test "a consumed warm pool grows cold slots on demand up to max_slots", %{pubsub: pubsub} do
+    test "a consumed warm pool grows cold slots on demand up to max_slots", %{
+      policy_name: name,
+      pubsub: pubsub
+    } do
       pid =
-        start_policy!(SlotPolicy, pubsub,
+        start_policy!(name, pubsub,
           target_count: 1,
           max_slots: 8,
           slot_starter: FakeSlotStarter
@@ -227,13 +230,13 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       assert SlotPolicy.highest_started(pid) == 1
 
       for expected_slot <- 2..8 do
-        assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
+        assert {:ok, ^expected_slot, _slot_pid} = SlotPolicy.grow_slot(pid)
         assert SlotPolicy.highest_started(pid) == expected_slot
       end
 
       assert registered_slots() == Enum.to_list(1..8)
 
-      assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
+      assert SlotPolicy.grow_slot(pid) == {:error, :at_capacity}
       assert SlotPolicy.highest_started(pid) == 8
     end
 
