@@ -31,6 +31,12 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
   # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
   @allowlist %{
+    # The wrapper is embedded into the release at compile time and installed
+    # from that embedded content; the source path is never read at runtime.
+    "aiur/agent_build_guard.ex" => [
+      "@script_path Path.expand(\"../../priv/build_gate_command_wrapper.bash\", __DIR__)",
+      "@external_resource @script_path"
+    ],
     "aiur/agent_github_guard.ex" => [
       "@gh_script_path Path.expand(\"../../priv/github_quota_guard.sh\", __DIR__)",
       "@git_script_path Path.expand(\"../../priv/github_push_guard.sh\", __DIR__)",
