@@ -231,9 +231,15 @@ defmodule Aiur.Opencode.Slot do
   end
 
   @impl true
+  def handle_call({:select, identifier}, {owner, _tag} = from, %{status: :claimed, claim_owner: owner} = state),
+    do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
+
   def handle_call({:select, identifier}, from, %{status: status} = state)
-      when status in [:ready, :claimed, :active],
+      when status in [:ready, :active],
       do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
+
+  def handle_call({:select, _identifier}, _from, %{status: :claimed} = state),
+    do: {:reply, {:error, {:slot_claimed, state.claim_owner}}, state}
 
   def handle_call({:select, _identifier}, _from, state),
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
@@ -248,40 +254,37 @@ defmodule Aiur.Opencode.Slot do
     {:reply, :ok, %{state | status: :claimed, claim_owner: owner, claim_ref: claim_ref}}
   end
 
-  def handle_call({:attach, identifier}, _from, %{status: status} = state)
-      when status in [:ready, :claimed, :active] do
-    case do_attach(identifier, state) do
-      {:ok, session_id, new_state} ->
-        Events.attach_added(new_state.slot_index, identifier)
-        {:reply, {:ok, session_id}, new_state}
-
-      {:error, :identifier_unknown} ->
-        # Agent became active post-boot and isn't in this serve's
-        # models map. Reply now (callers — background fill — won't
-        # block) and schedule a serve rebuild to incorporate the
-        # identifier. The rebuild's :ready continuation drains
-        # `pending_attaches` and re-fires the attach so the next
-        # consume can warm-open this identifier from this slot.
-        new_state = State.queue_pending_attach(state, identifier)
-        Aiur.Perf.event(:slot_attach_rebuild_scheduled, slot: state.slot_index, identifier: identifier)
-        {:reply, {:error, :identifier_unknown}, schedule_serve_rebuild(new_state, state.pending_select)}
-
-      {:error, _} = err ->
-        {:reply, err, unclaim(state)}
-    end
+  def handle_call({:attach, identifier}, {owner, _tag} = from, %{status: :claimed, claim_owner: owner} = state) do
+    do_attach_call(identifier, clear_claim_for(from, state))
   end
+
+  def handle_call({:attach, identifier}, _from, %{status: status} = state)
+      when status in [:ready, :active] do
+    do_attach_call(identifier, state)
+  end
+
+  def handle_call({:attach, _identifier}, _from, %{status: :claimed} = state),
+    do: {:reply, {:error, {:slot_claimed, state.claim_owner}}, state}
 
   def handle_call({:attach, _identifier}, _from, state),
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
 
+  def handle_call({:set_visible, identifier}, {owner, _tag} = from, %{status: :claimed, claim_owner: owner} = state),
+    do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
+
   def handle_call({:set_visible, identifier}, from, %{status: status} = state)
-      when status in [:ready, :claimed, :active] do
+      when status in [:ready, :active] do
+    state = clear_claim_for(from, state)
+
     if state.visible_identifier == identifier and is_binary(state.pane_id) do
       {:reply, {:ok, state.pane_id}, state}
     else
-      do_set_visible_call(identifier, from, clear_claim_for(from, state))
+      do_set_visible_call(identifier, from, state)
     end
   end
+
+  def handle_call({:set_visible, _identifier}, _from, %{status: :claimed} = state),
+    do: {:reply, {:error, {:slot_claimed, state.claim_owner}}, state}
 
   def handle_call({:set_visible, _identifier}, _from, state),
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
@@ -331,6 +334,22 @@ defmodule Aiur.Opencode.Slot do
 
   def handle_call(:snapshot, _from, state),
     do: {:reply, State.snapshot(state), state}
+
+  defp do_attach_call(identifier, state) do
+    case do_attach(identifier, state) do
+      {:ok, session_id, new_state} ->
+        Events.attach_added(new_state.slot_index, identifier)
+        {:reply, {:ok, session_id}, new_state}
+
+      {:error, :identifier_unknown} ->
+        new_state = State.queue_pending_attach(state, identifier)
+        Aiur.Perf.event(:slot_attach_rebuild_scheduled, slot: state.slot_index, identifier: identifier)
+        {:reply, {:error, :identifier_unknown}, schedule_serve_rebuild(new_state, state.pending_select)}
+
+      {:error, _} = err ->
+        {:reply, err, unclaim(state)}
+    end
+  end
 
   @impl true
   def handle_info({:DOWN, ref, :process, owner, _reason}, %{claim_ref: ref, claim_owner: owner} = state) do
