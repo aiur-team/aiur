@@ -12,7 +12,7 @@ defmodule Aiur.Opencode.Slot do
       :serve_starting   → wait for Aiur.Opencode.Server :ready
                         → handle_continue(:spawn_attach)
       :attach_spawning  → tmux split_pane into hidden window (silent)
-                        → broadcast {:slot_ready, slot_index} on "opencode:slots"
+                        → broadcast {:slot_ready, slot_index, pid} on "opencode:slots"
                         → status = :ready
       :ready            → idle, accepting Slot.attach/2 + Slot.set_visible/2
       :active           → visible_identifier set, poll loop running
@@ -204,7 +204,7 @@ defmodule Aiur.Opencode.Slot do
 
   defp mark_ready_pending_select(state) do
     Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=nil (pending_select fast-path)")
-    Events.slot_ready(state.slot_index)
+    Events.slot_ready(state.slot_index, self())
     ServeLifecycle.maybe_run_session_gc(state)
     ready_state = State.attach_pane_ready(state, nil)
     {:noreply, ready_state |> drain_pending_select() |> drain_pending_attaches()}
@@ -215,7 +215,7 @@ defmodule Aiur.Opencode.Slot do
          :ok <- AttachPane.reflow_hidden_window(keep_alive_pane),
          {:ok, pane_id} <- AttachPane.spawn(state.slot_index, state.base_url, keep_alive_pane) do
       Logger.info("opencode_slot phase=ready elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} pane_id=#{pane_id}")
-      Events.slot_ready(state.slot_index)
+      Events.slot_ready(state.slot_index, self())
       AttachPane.maybe_start_pipe_pane(state.slot_index, pane_id)
       # First slot to reach :ready runs boot-time GC. Recovers from any
       # prior aiur run that crashed before its shutdown could reap
@@ -322,7 +322,7 @@ defmodule Aiur.Opencode.Slot do
     new_state = State.deselect(state)
     Events.session_changed(state.slot_index, nil)
     Events.visible_changed(state.slot_index, nil, state.pane_id)
-    Events.slot_ready(state.slot_index)
+    Events.slot_ready(state.slot_index, self())
     Logger.info("opencode_slot phase=deselect elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index}")
     {:reply, :ok, new_state}
   end

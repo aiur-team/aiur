@@ -14,9 +14,9 @@ defmodule Aiur.Opencode.Slot.Events do
   @spec slots_topic() :: String.t()
   def slots_topic, do: @slots_topic
 
-  @spec slot_ready(integer()) :: :ok
-  def slot_ready(slot_index) do
-    Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, slot_index})
+  @spec slot_ready(integer(), pid()) :: :ok
+  def slot_ready(slot_index, pid) do
+    Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_ready, slot_index, pid})
     Aiur.Perf.event(:slot_ready, slot: slot_index)
   end
 

@@ -121,7 +121,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       topic = Slot.slots_topic()
       :ok = Phoenix.PubSub.subscribe(pubsub, topic)
 
-      Phoenix.PubSub.broadcast(pubsub, topic, {:slot_ready, 99})
+      Phoenix.PubSub.broadcast(pubsub, topic, {:slot_ready, 99, self()})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_session_changed, 1, "issue-42"})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_attach_added, 1, "issue-1"})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_attach_removed, 1, "issue-1"})

@@ -233,7 +233,7 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:noreply, %{state | highest_started: highest, live_slots: live_slots}}
   end
 
-  def handle_info({:slot_ready, n}, %{target_count: target} = state)
+  def handle_info({:slot_ready, n, _pid}, %{target_count: target} = state)
       when n >= target do
     if n == target do
       Logger.info("opencode_slot_policy phase=chain_complete elapsed_ms=#{Boot.elapsed_ms()} slots=#{target}")
@@ -244,7 +244,7 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:noreply, state}
   end
 
-  def handle_info({:slot_ready, _n}, state) do
+  def handle_info({:slot_ready, _n, _pid}, state) do
     {:noreply, state}
   end
 

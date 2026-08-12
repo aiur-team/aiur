@@ -250,13 +250,17 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @impl true
-  def handle_info({:slot_ready, slot_index}, state) do
+  def handle_info({:slot_ready, slot_index, pid}, state) do
     # First time we've seen this slot ready — kick its initial attach
     # fan-out (leadoff + remaining active agents). On subsequent re-
     # readys (rebuild path), only re-attach non-leadoff identifiers so
     # the slot's existing leadoff isn't displaced.
-    state = reset_replaced_slot(state, slot_index)
-    {:noreply, kickoff_fan_out(state, slot_index)}
+    if current_slot_pid(slot_index) == pid do
+      state = reset_replaced_slot(state, slot_index, pid)
+      {:noreply, kickoff_fan_out(state, slot_index)}
+    else
+      {:noreply, state}
+    end
   end
 
   def handle_info({:slot_terminated, slot_index, pid}, state) do
@@ -501,9 +505,7 @@ defmodule Aiur.Opencode.AttachPool do
     end
   end
 
-  defp reset_replaced_slot(state, slot_index) do
-    current_pid = current_slot_pid(slot_index)
-
+  defp reset_replaced_slot(state, slot_index, current_pid) do
     case Map.get(state.slot_pids, slot_index) do
       nil ->
         %{state | slot_pids: Map.put(state.slot_pids, slot_index, current_pid)}

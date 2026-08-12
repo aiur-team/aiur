@@ -314,7 +314,7 @@ defmodule Aiur.PaneManager do
     {:noreply, Reconcile.handle_pane_closed(state, pane_id)}
   end
 
-  def handle_info({:slot_ready, _slot_index}, state) do
+  def handle_info({:slot_ready, _slot_index, _pid}, state) do
     {:noreply, drain_open_queue(state)}
   end
 

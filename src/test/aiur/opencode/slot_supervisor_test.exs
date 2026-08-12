@@ -1,7 +1,7 @@
 defmodule Aiur.Opencode.SlotSupervisorTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Opencode.{SlotRegistry, SlotSupervisor}
+  alias Aiur.Opencode.{Slot, SlotRegistry, SlotSupervisor}
 
   defmodule ClaimableSlot do
     use GenServer
@@ -34,7 +34,7 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       Process.unlink(pid)
 
       assert {1, ^pid} = SlotSupervisor.acquire_slot()
-      assert :busy = Aiur.Opencode.Slot.reserve_stop(pid)
+      assert :busy = Slot.reserve_stop(pid)
       assert Process.alive?(pid)
 
       GenServer.stop(pid)
