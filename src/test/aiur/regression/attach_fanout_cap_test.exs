@@ -138,7 +138,8 @@ defmodule Aiur.Regression.AttachFanoutCapTest do
 
   defp announce_ready(m) do
     for index <- 1..m do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_ready, index})
+      {:ok, pid} = SlotRegistry.lookup(index)
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_ready, index, pid})
     end
   end
 
