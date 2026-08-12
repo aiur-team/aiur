@@ -137,9 +137,7 @@ defmodule Aiur.Opencode.HiddenWindow do
   end
 
   defp safe_slot_count do
-    pre_warmed = Aiur.Config.pre_warmed_sessions()
-    max_agents = Aiur.Config.max_concurrent_agents()
-    max(min(pre_warmed, max_agents), 1)
+    max(Aiur.Opencode.SlotPolicy.warm_pool_size(), 1)
   rescue
     _ -> 3
   end

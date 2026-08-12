@@ -40,13 +40,16 @@ defmodule Aiur.Opencode.SlotPolicy do
   require Logger
 
   alias Aiur.Boot
+  alias Aiur.AgentEvents
   alias Aiur.Opencode.{Slot, SlotSupervisor}
 
   defstruct target_count: 0,
             highest_started: 0,
             max_slots: 0,
+            max_concurrent_agents: nil,
             pubsub: Aiur.PubSub,
-            slot_starter: SlotSupervisor
+            slot_starter: SlotSupervisor,
+            slot_stopper: SlotSupervisor
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -109,6 +112,33 @@ defmodule Aiur.Opencode.SlotPolicy do
     :exit, _ -> 0
   end
 
+  @doc "Return the cached live agent cap, falling back to config before boot."
+  @spec live_max_concurrent_agents() :: pos_integer()
+  def live_max_concurrent_agents do
+    case Process.whereis(__MODULE__) do
+      nil -> configured_max_concurrent_agents()
+      pid -> GenServer.call(pid, :max_concurrent_agents, 1_000)
+    end
+  catch
+    :exit, _ -> configured_max_concurrent_agents()
+  end
+
+  @spec max_concurrent_agents(GenServer.server()) :: pos_integer()
+  def max_concurrent_agents(server), do: GenServer.call(server, :max_concurrent_agents, 1_000)
+
+  @doc "Return the current warm-pool size without querying the orchestrator."
+  @spec warm_pool_size() :: non_neg_integer()
+  def warm_pool_size do
+    case Process.whereis(__MODULE__) do
+      nil -> min(Aiur.Config.pre_warmed_sessions(), configured_max_concurrent_agents())
+      pid -> target_count(pid)
+    end
+  rescue
+    _ -> 3
+  catch
+    :exit, _ -> 3
+  end
+
   @doc """
   Start the next slot on demand, cold, up to `max_slots`.
 
@@ -144,10 +174,13 @@ defmodule Aiur.Opencode.SlotPolicy do
 
     pubsub = Keyword.get(opts, :pubsub, Aiur.PubSub)
     slot_starter = Keyword.get(opts, :slot_starter, SlotSupervisor)
+    slot_stopper = Keyword.get(opts, :slot_stopper, SlotSupervisor)
+    max_concurrent_agents = Keyword.get(opts, :max_concurrent_agents, configured_max_concurrent_agents())
 
     Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} max_slots=#{max_slots} mode=parallel")
 
     :ok = Phoenix.PubSub.subscribe(pubsub, Slot.slots_topic())
+    :ok = Phoenix.PubSub.subscribe(pubsub, AgentEvents.poll_state_topic())
 
     send(self(), :start_all_slots)
 
@@ -156,8 +189,10 @@ defmodule Aiur.Opencode.SlotPolicy do
        target_count: target_count,
        highest_started: 0,
        max_slots: max_slots,
+       max_concurrent_agents: max_concurrent_agents,
        pubsub: pubsub,
-       slot_starter: slot_starter
+       slot_starter: slot_starter,
+       slot_stopper: slot_stopper
      }}
   end
 
@@ -226,6 +261,11 @@ defmodule Aiur.Opencode.SlotPolicy do
   def handle_info({:slot_visible_changed, _slot_index, _identifier}, state),
     do: {:noreply, state}
 
+  def handle_info({:poll_state_changed, %{max_concurrent_agents: cap}}, state)
+      when is_integer(cap) and cap > 0 do
+    {:noreply, resize_for_cap(state, cap)}
+  end
+
   def handle_info(_msg, state), do: {:noreply, state}
 
   # All slots are dispatched at boot now, so bump has no work to do.
@@ -253,6 +293,10 @@ defmodule Aiur.Opencode.SlotPolicy do
 
   def handle_call(:max_slots, _from, state) do
     {:reply, state.max_slots, state}
+  end
+
+  def handle_call(:max_concurrent_agents, _from, state) do
+    {:reply, state.max_concurrent_agents, state}
   end
 
   def handle_call(:grow_slot, _from, %{highest_started: highest, max_slots: max} = state)
@@ -289,7 +333,7 @@ defmodule Aiur.Opencode.SlotPolicy do
   # goes through the cold placeholder path.
   defp default_target_count do
     pre_warmed = Aiur.Config.pre_warmed_sessions()
-    max_agents = Aiur.Config.max_concurrent_agents()
+    max_agents = configured_max_concurrent_agents()
     min(pre_warmed, max_agents)
   rescue
     _ -> 3
@@ -298,14 +342,58 @@ defmodule Aiur.Opencode.SlotPolicy do
   # Hard cap on total slots. Mirrors `PaneManager`'s `slot_count` —
   # `max(grid, max_concurrent_agents)` — so every slot the pool can grow
   # to still has a layout cell (PaneManager seeds `slot_panes` and lays
-  # out `1..slot_count`). Growing past it would leave a slot with no
-  # visual home. The warm pool (`target_count`) is independent and
-  # usually smaller.
+  # out `1..slot_count`). The cap is recalculated when poll state changes;
+  # the warm pool (`target_count`) remains independently configurable.
   defp default_max_slots do
     grid = Aiur.Config.max_vertical_panes() * 2 - 1
-    max_agents = Aiur.Config.max_concurrent_agents()
+    max_agents = configured_max_concurrent_agents()
     max(grid, max_agents)
   rescue
     _ -> 3
+  end
+
+  defp configured_max_concurrent_agents do
+    Aiur.Config.max_concurrent_agents()
+  rescue
+    _ -> 3
+  end
+
+  defp resize_for_cap(state, cap) do
+    target = min(Aiur.Config.pre_warmed_sessions(), cap)
+    max_slots = max(Aiur.Config.max_vertical_panes() * 2 - 1, cap)
+    state = %{state | target_count: target, max_slots: max_slots, max_concurrent_agents: cap}
+    state = drain_excess_warm_slots(state)
+
+    if state.highest_started < target do
+      start_slots(state, state.highest_started + 1, target)
+    else
+      state
+    end
+  rescue
+    _ -> %{state | max_concurrent_agents: cap}
+  end
+
+  defp start_slots(state, next, target) when next > target, do: state
+
+  defp start_slots(state, next, target) do
+    case state.slot_starter.start_slot(next) do
+      {:ok, _pid} ->
+        Phoenix.PubSub.broadcast(state.pubsub, Slot.slots_topic(), {:slot_starting, next})
+        start_slots(%{state | highest_started: next}, next + 1, target)
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp drain_excess_warm_slots(%{highest_started: highest, target_count: target} = state)
+       when highest <= target,
+       do: state
+
+  defp drain_excess_warm_slots(%{highest_started: highest} = state) do
+    case state.slot_stopper.stop_slot(highest) do
+      :ok -> drain_excess_warm_slots(%{state | highest_started: highest - 1})
+      _ -> state
+    end
   end
 end

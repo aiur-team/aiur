@@ -848,9 +848,7 @@ defmodule Aiur.Opencode.AttachPool do
          [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
          {term_w, ""} <- Integer.parse(w_str),
          {term_h, ""} <- Integer.parse(h_str) do
-      pre_warmed = Aiur.Config.pre_warmed_sessions()
-      max_agents = Aiur.Config.max_concurrent_agents()
-      slot_count = max(min(pre_warmed, max_agents), 1)
+      slot_count = max(Aiur.Opencode.SlotPolicy.warm_pool_size(), 1)
       chat_pane_width = max(div(term_w, 2), 40)
       hidden_window_w = chat_pane_width * slot_count
 

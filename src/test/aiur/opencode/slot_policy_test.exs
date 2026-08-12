@@ -38,6 +38,10 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     def start_slot(slot_index), do: FakeSlot.start_link(slot_index)
   end
 
+  defmodule RecordingSlotStopper do
+    def stop_slot(_slot_index), do: :ok
+  end
+
   defmodule BlockingSlotStarter do
     use GenServer
 
@@ -210,6 +214,47 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     end
   end
 
+  describe "live cap changes" do
+    test "raises the warm target and starts the additional slots", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 1,
+          max_slots: 5,
+          max_concurrent_agents: 1,
+          slot_starter: FakeSlotStarter
+        )
+
+      assert %{highest_started: 1} = await_policy_startup!(pid, 1)
+      write_workflow_file!(Workflow.workflow_file_path(), pre_warmed_sessions: 3, max_vertical_panes: 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 3}})
+
+      assert eventually(fn -> SlotPolicy.target_count(pid) == 3 end)
+      assert SlotPolicy.max_concurrent_agents(pid) == 3
+      assert SlotPolicy.highest_started(pid) == 3
+    end
+
+    test "lowers the warm target and drains excess slots", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 3,
+          max_slots: 5,
+          max_concurrent_agents: 3,
+          slot_starter: FakeSlotStarter,
+          slot_stopper: RecordingSlotStopper
+        )
+
+      assert %{highest_started: 3} = await_policy_startup!(pid, 3)
+      write_workflow_file!(Workflow.workflow_file_path(), pre_warmed_sessions: 3, max_vertical_panes: 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 1}})
+
+      assert eventually(fn -> SlotPolicy.target_count(pid) == 1 end)
+      assert SlotPolicy.max_concurrent_agents(pid) == 1
+      assert SlotPolicy.highest_started(pid) == 1
+    end
+  end
+
   describe "grow_slot/1 ceiling" do
     test "a consumed warm pool grows cold slots on demand up to max_slots", %{pubsub: pubsub} do
       pid =
@@ -331,6 +376,22 @@ defmodule Aiur.Opencode.SlotPolicyTest do
         )
     after
       Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  defp eventually(fun, timeout \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    eventually(fun, deadline, fun.())
+  end
+
+  defp eventually(_fun, _deadline, true), do: true
+
+  defp eventually(fun, deadline, false) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      false
+    else
+      Process.sleep(10)
+      eventually(fun, deadline, fun.())
     end
   end
 
