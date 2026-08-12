@@ -1,12 +1,10 @@
 defmodule Aiur.Opencode.SlotSupervisorTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.Opencode.SlotSupervisor
+  alias Aiur.Opencode.{SlotRegistry, SlotSupervisor}
 
   defmodule ClaimableSlot do
     use GenServer
-
-    alias Aiur.Opencode.SlotRegistry
 
     def start_link(index), do: GenServer.start_link(__MODULE__, index)
 
