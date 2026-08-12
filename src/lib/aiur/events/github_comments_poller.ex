@@ -17,6 +17,15 @@ defmodule Aiur.Events.GithubCommentsPoller do
   @default_max_concurrency 4
   @default_target_timeout 60_000
 
+  @doc false
+  @spec max_duration_ms(non_neg_integer(), keyword()) :: non_neg_integer()
+  def max_duration_ms(target_count, opts) when is_integer(target_count) and target_count >= 0 do
+    max_concurrency = positive_integer_option(opts, :max_concurrency, @default_max_concurrency)
+    target_timeout = positive_integer_option(opts, :timeout, @default_target_timeout)
+    waves = ceil_div(target_count, max_concurrency)
+    waves * target_timeout
+  end
+
   @spec poll([target()], keyword()) :: {:ok, map()}
   def poll(targets, opts \\ []) when is_list(targets) do
     targets = normalize_targets(targets)
@@ -94,8 +103,8 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
 
     task_opts = [
-      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
-      timeout: Keyword.get(opts, :timeout, @default_target_timeout),
+      max_concurrency: positive_integer_option(opts, :max_concurrency, @default_max_concurrency),
+      timeout: positive_integer_option(opts, :timeout, @default_target_timeout),
       on_timeout: :kill_task
     ]
 
@@ -109,6 +118,16 @@ defmodule Aiur.Events.GithubCommentsPoller do
       Process.flag(:trap_exit, previous_trap_exit)
     end
   end
+
+  defp positive_integer_option(opts, key, default) do
+    case Keyword.get(opts, key, default) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> default
+    end
+  end
+
+  defp ceil_div(0, _denominator), do: 0
+  defp ceil_div(numerator, denominator), do: div(numerator + denominator - 1, denominator)
 
   defp normalize_targets(targets) do
     targets

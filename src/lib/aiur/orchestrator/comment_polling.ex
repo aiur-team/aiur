@@ -14,17 +14,14 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   alias Aiur.{Alerts, Config}
   alias Aiur.Events.{GithubCommentsPoller, GithubFirehose}
-  alias Aiur.GitHub.CommentPollBatch
+  alias Aiur.GitHub.{CommentPollBatch, Transport}
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.CommentPolling.TargetSelection
   alias Aiur.Orchestrator.State
 
   @recent_merge_persistence_retry_limit 3
 
-  # Long enough that a slow but working poll is never restarted underneath
-  # itself (`GithubCommentsPoller` allows 60s per target), short enough that a
-  # worker lost without a reply costs one skipped cycle, not every future one.
-  @comment_poll_abandon_after_ms 180_000
+  @comment_poll_abandon_margin_ms 30_000
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
@@ -237,13 +234,16 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   def apply_async_down(%State{}, _stale_monitor_ref), do: :unhandled
 
-  defp comment_poll_in_flight?(%State{github_comment_poll: %{started_at_ms: started_at_ms}} = state, now_ms)
-       when is_integer(started_at_ms) do
-    if now_ms - started_at_ms < @comment_poll_abandon_after_ms do
+  defp comment_poll_in_flight?(
+         %State{github_comment_poll: %{started_at_ms: started_at_ms, abandon_after_ms: abandon_after_ms}} = state,
+         now_ms
+       )
+       when is_integer(started_at_ms) and is_integer(abandon_after_ms) do
+    if now_ms - started_at_ms < abandon_after_ms do
       true
     else
       Logger.warning(
-        "GithubCommentsPoller poll has not answered in #{@comment_poll_abandon_after_ms}ms; " <>
+        "GithubCommentsPoller poll has not answered in #{abandon_after_ms}ms; " <>
           "abandoning it and starting a fresh one"
       )
 
@@ -260,9 +260,19 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
     task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end
     {owner, owner_monitor_ref} = spawn_owned_poll(orchestrator, state.snapshot_key, ref, task_fun)
+    abandon_after_ms = comment_poll_abandon_after_ms(state, opts)
 
-    poll = %{ref: ref, owner: owner, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms}
+    poll = %{ref: ref, owner: owner, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms, abandon_after_ms: abandon_after_ms}
     %{state | github_comment_poll: poll}
+  end
+
+  defp comment_poll_abandon_after_ms(state, opts) do
+    target_count = TargetSelection.max_comment_poll_target_count(state, opts)
+    setup_request_count = TargetSelection.max_setup_request_count(opts)
+
+    setup_request_count * Transport.request_deadline_ms(%{}) +
+      GithubCommentsPoller.max_duration_ms(target_count, opts) +
+      @comment_poll_abandon_margin_ms
   end
 
   defp abandon_poll(%{owner: owner} = poll) when is_pid(owner) do

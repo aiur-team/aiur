@@ -233,6 +233,19 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       refute_receive :comment_poll_started, 500
     end
 
+    test "derived abandonment bound covers every target wave" do
+      running = Map.new(1..13, fn issue -> {to_string(issue), %{identifier: to_string(issue)}} end)
+      opts = comment_poll_opts(fn _states -> {:ok, []} end) ++ [max_concurrency: 4, timeout: 60_000, human_review_comment_target_limit: 1, watch_comment_target_limit: 1]
+
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: running}, opts)
+
+      # Thirteen running targets plus the two configured review/watch slots
+      # need four complete waves. Setup requests and a scheduling margin are
+      # additive, so a legitimate final wave cannot be mistaken for a hang.
+      assert state.github_comment_poll.abandon_after_ms > 4 * 60_000
+      CommentPolling.terminate_poll(state.github_comment_poll)
+    end
+
     test "terminates an expired poll before starting its replacement" do
       test_pid = self()
 
@@ -247,7 +260,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       state = await_async_started(state)
       assert_receive {:comment_poll_started, first_pid}, 5_000
 
-      expired_at = System.monotonic_time(:millisecond) - 180_001
+      expired_at = System.monotonic_time(:millisecond) - state.github_comment_poll.abandon_after_ms - 1
       expired_state = put_in(state.github_comment_poll.started_at_ms, expired_at)
       next_state = CommentPolling.start_async(expired_state, opts)
       next_state = await_async_started(next_state)
@@ -277,7 +290,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       first_state = await_async_started(first_state)
       assert_receive {:comment_request_started, first_target, first_request}, 5_000
 
-      expired_at = System.monotonic_time(:millisecond) - 180_001
+      expired_at = System.monotonic_time(:millisecond) - first_state.github_comment_poll.abandon_after_ms - 1
       expired_state = put_in(first_state.github_comment_poll.started_at_ms, expired_at)
       second_state = CommentPolling.start_async(expired_state, opts)
       second_state = await_async_started(second_state)
