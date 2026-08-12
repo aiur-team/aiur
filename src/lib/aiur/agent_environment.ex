@@ -3,7 +3,7 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
   alias Aiur.GitHub.Budget
   alias Aiur.Workspace.Remote
 
@@ -102,6 +102,10 @@ defmodule Aiur.AgentEnvironment do
       PATH="$AIUR_AGENT_BIN:$PATH"
       export PATH
     fi
+    if [ -n "${AIUR_BUILD_GATE_BIN:-}" ]; then
+      PATH="$AIUR_BUILD_GATE_BIN:$PATH"
+      export PATH
+    fi
     """)
   end
 
@@ -136,6 +140,7 @@ defmodule Aiur.AgentEnvironment do
     base_branch = configured_base_branch(opts)
     real_gh = AgentGitHubGuard.real_gh()
     github_budget = Budget.guard_settings()
+    build_gate_env = BuildGate.shell_env()
     real_git = System.find_executable("git")
 
     unset_inherited_env =
@@ -187,7 +192,8 @@ defmodule Aiur.AgentEnvironment do
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
-        Enum.map(BuildGate.shell_env(), fn {name, value} ->
+        build_gate_bin_env(workspace, build_gate_env) ++
+        Enum.map(build_gate_env, fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end)
 
@@ -233,6 +239,7 @@ defmodule Aiur.AgentEnvironment do
     base_branch = configured_base_branch(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
     github_budget = Budget.guard_settings()
+    build_gate_exports = build_gate_export_prefix(workspace, opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -257,7 +264,7 @@ defmodule Aiur.AgentEnvironment do
     # covers workspaces provisioned before this existed; only redirect TMPDIR
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
-    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\n" <>
+    "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\n" <>
       "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
@@ -282,6 +289,23 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
+
+  defp build_gate_export_prefix(workspace, opts) do
+    if Keyword.get(opts, :build_gate, false) do
+      format_build_gate_exports(workspace, BuildGate.shell_env())
+    else
+      ""
+    end
+  end
+
+  defp format_build_gate_exports(_workspace, []), do: ""
+
+  defp format_build_gate_exports(workspace, build_gate_env) do
+    [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
+    |> Enum.map_join("", fn {name, value} ->
+      "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
+    end)
+  end
 
   @doc """
   `System.cmd`-compatible env tuples (binary key/value) that trust the prewarm
@@ -327,6 +351,12 @@ defmodule Aiur.AgentEnvironment do
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
       {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
     ]
+  end
+
+  defp build_gate_bin_env(_workspace, []), do: []
+
+  defp build_gate_bin_env(workspace, _build_gate_env) do
+    [{~c"AIUR_BUILD_GATE_BIN", workspace |> AgentBuildGuard.bin_dir() |> String.to_charlist()}]
   end
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)

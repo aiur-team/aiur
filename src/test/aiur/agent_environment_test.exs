@@ -474,6 +474,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
       assert prefix =~ "unset AIUR_GITHUB_BUDGET_KEY"
+      refute prefix =~ "AIUR_BUILD_GATE_BIN='"
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)

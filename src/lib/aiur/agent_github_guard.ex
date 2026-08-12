@@ -9,7 +9,7 @@ defmodule Aiur.AgentGitHubGuard do
 
   require Logger
 
-  alias Aiur.Workspace.Remote
+  alias Aiur.AgentCommandInstaller
 
   @gh_script_path Path.expand("../../priv/github_quota_guard.sh", __DIR__)
   @git_script_path Path.expand("../../priv/github_push_guard.sh", __DIR__)
@@ -21,11 +21,12 @@ defmodule Aiur.AgentGitHubGuard do
   @git_script File.read!(@git_script_path)
   @broker File.read!(@broker_path)
   @scripts [{"gh", @gh_script}, {"git", @git_script}, {"aiur-github-budget", @broker}]
+  @relative_bin_dir ".aiur-runtime/bin"
   @broker_relative_path ".aiur-runtime/bin/aiur-github-budget"
   @legacy_host_guard_path Path.join(System.user_home!(), ".aiur/github-budget/bin/gh")
 
   @spec bin_dir(Path.t()) :: Path.t()
-  def bin_dir(workspace), do: Path.join(workspace, ".aiur-runtime/bin")
+  def bin_dir(workspace), do: AgentCommandInstaller.bin_dir(workspace, @relative_bin_dir)
 
   @spec budget_broker_path(Path.t()) :: Path.t()
   def budget_broker_path(workspace), do: Path.join(workspace, @broker_relative_path)
@@ -62,13 +63,18 @@ defmodule Aiur.AgentGitHubGuard do
 
   @spec install(Path.t() | nil) :: :ok | {:error, term()}
   def install(workspace) when is_binary(workspace) do
-    bin = bin_dir(workspace)
+    result =
+      Enum.reduce_while(@scripts, :ok, fn {name, script}, :ok ->
+        case AgentCommandInstaller.install(workspace, @relative_bin_dir, [name], script, :agent_guard_install_failed) do
+          :ok -> {:cont, :ok}
+          {:error, _reason} = error -> {:halt, error}
+        end
+      end)
 
-    with :ok <- ensure_directory(Path.join(workspace, ".aiur-runtime")),
-         :ok <- ensure_directory(bin),
-         :ok <- install_scripts(bin) do
-      :ok
-    else
+    case result do
+      :ok ->
+        :ok
+
       {:error, reason} = error ->
         Logger.warning("agent GitHub guard install failed workspace=#{workspace} reason=#{inspect(reason)}")
         error
@@ -79,32 +85,9 @@ defmodule Aiur.AgentGitHubGuard do
 
   @spec remote_install_script(Path.t()) :: String.t()
   def remote_install_script(workspace) when is_binary(workspace) do
-    [
-      "set -eu",
-      Remote.remote_shell_assign("workspace", workspace),
-      "runtime=\"$workspace/.aiur-runtime\"",
-      "bin=\"$runtime/bin\"",
-      "if [ -L \"$runtime\" ] || [ -L \"$bin\" ]; then echo 'unsafe symlink in agent support path' >&2; exit 73; fi",
-      "mkdir -p \"$bin\"",
-      Enum.map_join(@scripts, "\n", fn {name, script} -> remote_install_command(name, script) end)
-    ]
-    |> Enum.join("\n")
-  end
-
-  defp remote_install_command(name, script) do
-    encoded = Base.encode64(script)
-
-    [
-      "target=\"$bin/#{name}\"",
-      "tmp=\"$target.tmp.$$\"",
-      "trap 'rm -f \"$tmp\"' EXIT HUP INT TERM",
-      "(set -C; : > \"$tmp\")",
-      "printf '%s' '#{encoded}' | base64 -d > \"$tmp\"",
-      "chmod 755 \"$tmp\"",
-      "mv -f \"$tmp\" \"$target\"",
-      "trap - EXIT HUP INT TERM"
-    ]
-    |> Enum.join("\n")
+    Enum.map_join(@scripts, "\n", fn {name, script} ->
+      AgentCommandInstaller.remote_install_script(workspace, @relative_bin_dir, [name], script)
+    end)
   end
 
   defp ensure_directory(path) do
@@ -114,15 +97,6 @@ defmodule Aiur.AgentGitHubGuard do
       {:error, :enoent} -> File.mkdir(path)
       {:error, reason} -> {:error, {:agent_support_path_unavailable, path, reason}}
     end
-  end
-
-  defp install_scripts(bin) do
-    Enum.reduce_while(@scripts, :ok, fn {name, script}, :ok ->
-      case atomic_install(Path.join(bin, name), script) do
-        :ok -> {:cont, :ok}
-        {:error, _reason} = error -> {:halt, error}
-      end
-    end)
   end
 
   defp atomic_install(target, script) do

@@ -25,7 +25,8 @@ defmodule Aiur.Regression.CompileTimePathsTest do
 
   # file (relative to src/lib) => trimmed matching lines: the currently
   # legitimate sites, captured 2026-08-09 at these locations:
-  # aiur/agent_github_guard.ex:14-22; aiur/github/budget.ex:17-18;
+  # aiur/agent_build_guard.ex:14,15; aiur/agent_github_guard.ex:14-23;
+  # aiur/github/budget.ex:17-18;
   # aiur/agent_skills.ex:13,16,45,58;
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
   # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.

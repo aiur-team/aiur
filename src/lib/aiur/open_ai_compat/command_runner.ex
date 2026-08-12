@@ -1,7 +1,7 @@
 defmodule Aiur.OpenAICompat.CommandRunner do
   @moduledoc false
 
-  alias Aiur.{AgentEnvironment, AgentGitHubGuard, BuildGate}
+  alias Aiur.{AgentBuildGuard, AgentEnvironment, AgentGitHubGuard, BuildGate}
   alias Aiur.GitHub.Budget
 
   @timeout_ms 300_000
@@ -83,7 +83,7 @@ defmodule Aiur.OpenAICompat.CommandRunner do
         {"HOME", workspace},
         {"TMPDIR", "/tmp"},
         {"MISE_DATA_DIR", "/opt/aiur-mise"},
-        {"PATH", AgentGitHubGuard.bin_dir(workspace) <> ":" <> sandbox_path()}
+        {"PATH", guarded_path(workspace)}
       ] ++ git_identity_env() ++ agent_environment(workspace, real_gh)
 
     inherited =
@@ -233,6 +233,11 @@ defmodule Aiur.OpenAICompat.CommandRunner do
     end)
     |> Kernel.++(["/usr/local/bin", "/usr/bin", "/bin"])
     |> Enum.uniq()
+    |> Enum.join(":")
+  end
+
+  defp guarded_path(workspace) do
+    [AgentBuildGuard.bin_dir(workspace), AgentGitHubGuard.bin_dir(workspace), sandbox_path()]
     |> Enum.join(":")
   end
 
