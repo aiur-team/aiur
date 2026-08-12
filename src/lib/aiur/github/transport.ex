@@ -191,8 +191,9 @@ defmodule Aiur.GitHub.Transport do
             [:link, :monitor]
           )
 
+        run_guardian_phase_hook(request, :before_ready, worker)
         send(caller, {guardian_ready_ref, self(), worker})
-        await_request_start(caller, caller_ref, guardian_ready_ref, worker, worker_ref)
+        await_request_start(caller, caller_ref, guardian_ready_ref, worker, worker_ref, request)
       end)
 
     with {:ok, worker} <- await_guardian_ready(guardian, guardian_ref, guardian_ready_ref, deadline_at_ms) do
@@ -209,9 +210,10 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  defp await_request_start(caller, caller_ref, ready_ref, worker, worker_ref) do
+  defp await_request_start(caller, caller_ref, ready_ref, worker, worker_ref, request) do
     receive do
       {:start_guarded_request, ^ready_ref} ->
+        run_guardian_phase_hook(request, :before_ack, worker)
         send(caller, {:guarded_request_started, ready_ref})
         send(worker, :start)
         guard_worker_lifetime(caller, caller_ref, worker, worker_ref)
@@ -219,6 +221,13 @@ defmodule Aiur.GitHub.Transport do
       {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
         Process.exit(worker, :kill)
         await_worker_down(worker, worker_ref)
+    end
+  end
+
+  defp run_guardian_phase_hook(request, phase, worker) do
+    case Map.get(request, :guardian_phase_hook) do
+      hook when is_function(hook, 3) -> hook.(phase, self(), worker)
+      _other -> :ok
     end
   end
 
