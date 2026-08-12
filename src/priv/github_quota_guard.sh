@@ -91,6 +91,41 @@ resource=unknown
 endpoint_family=rest
 api_paginated=0
 
+api_command_endpoint() {
+  shift
+  api_options=1
+  api_value_expected=0
+
+  for api_argument in "$@"; do
+    if [ "$api_options" -eq 0 ]; then
+      printf '%s\n' "$api_argument"
+      unset api_options api_value_expected api_argument
+      return 0
+    fi
+
+    if [ "$api_value_expected" -eq 1 ]; then
+      api_value_expected=0
+      continue
+    fi
+
+    case "$api_argument" in
+      --) api_options=0 ;;
+      --cache|-F|--field|-f|--raw-field|-H|--header|--hostname|--input|-q|--jq|-X|--method|-p|--preview|-t|--template) api_value_expected=1 ;;
+      --cache=*|--field=*|--raw-field=*|--header=*|--hostname=*|--input=*|--jq=*|--method=*|--preview=*|--template=*|-F*|-f*|-H*|-q*|-X*|-p*|-t*) : ;;
+      --*) : ;;
+      -*) : ;;
+      *)
+        printf '%s\n' "$api_argument"
+        unset api_options api_value_expected api_argument
+        return 0
+        ;;
+    esac
+  done
+
+  unset api_options api_value_expected api_argument
+  return 1
+}
+
 case "${1:-} ${2:-}" in
   "api rate_limit") resource=none ;;
   "api graphql"|"api /graphql")
@@ -150,6 +185,83 @@ case "${1:-} ${2:-}" in
   "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none ;;
   "auth "*|"extension "*) track=0 ;;
 esac
+
+# `gh api` accepts options before its endpoint. Derive the resource family from
+# that actual endpoint so a paginated `gh api -X GET repos/.../issues` uses the
+# same per-endpoint ceiling as its unflagged form.
+if [ "${1:-}" = api ]; then
+  resolved_api_endpoint=$(api_command_endpoint "$@") || resolved_api_endpoint=
+
+  case "$resolved_api_endpoint" in
+    rate_limit)
+      resource=none
+      ;;
+    graphql|/graphql)
+      resource=graphql
+      endpoint_family=graphql
+      ;;
+    *)
+      resource=core
+      resolved_endpoint=${resolved_api_endpoint#/}
+      resolved_endpoint=${resolved_endpoint#repos/}
+      resolved_endpoint=${resolved_endpoint%%\?*}
+      resolved_endpoint=${resolved_endpoint%%\#*}
+      case "$resolved_endpoint" in
+        */*/*) endpoint_family=$(printf '%s' "$resolved_endpoint" | cut -d/ -f3) ;;
+        *) endpoint_family=rest ;;
+      esac
+      unset resolved_endpoint
+      ;;
+  esac
+
+  unset resolved_api_endpoint
+fi
+
+# Fields imply POST only when the caller did not explicitly select a method.
+# Recompute this after locating the endpoint so `gh api -X GET ... -f q=...`
+# remains a budgeted read instead of being rejected as a paginated write.
+if [ "${1:-}" = api ]; then
+  api_options=1
+  api_method=
+  api_payload=0
+  api_mutation=0
+  api_method_expected=0
+
+  for api_argument in "$@"; do
+    [ "$api_options" -eq 1 ] || continue
+
+    if [ "$api_method_expected" -eq 1 ]; then
+      api_method=$api_argument
+      api_method_expected=0
+      continue
+    fi
+
+    case "$api_argument" in
+      --) api_options=0 ;;
+      -X|--method) api_method_expected=1 ;;
+      -X*) api_method=${api_argument#-X} ;;
+      --method=*) api_method=${api_argument#--method=} ;;
+      -F|-f|--field|--raw-field|--input|--input=*) api_payload=1 ;;
+      -F*|-f*|--field=*|--raw-field=*) api_payload=1 ;;
+      *mutation*|*Mutation*) api_mutation=1 ;;
+    esac
+  done
+
+  case "$resource" in
+    graphql)
+      [ "$api_mutation" -eq 1 ] && direction=write || direction=read
+      ;;
+    *)
+      case "$api_method" in
+        GET|get) direction=read ;;
+        '') [ "$api_payload" -eq 1 ] && direction=write || direction=read ;;
+        *) direction=write ;;
+      esac
+      ;;
+  esac
+
+  unset api_options api_method api_payload api_mutation api_method_expected api_argument
+fi
 
 consumer=unattributed
 if [ -n "${AIUR_AGENT_WORKSPACE:-}" ]; then
@@ -258,7 +370,7 @@ import os
 import re
 import subprocess
 import sys
-from urllib.parse import parse_qsl, urlsplit
+from urllib.parse import urlsplit
 
 
 def split_response(output):
@@ -344,7 +456,7 @@ def active_flag(args, *values):
     for arg in args:
         if options and arg == "--":
             options = False
-        elif options and arg in values:
+        elif options and (arg in values or any(value.startswith("--") and arg == f"{value}=true" for value in values)):
             return True
 
     return False
@@ -357,7 +469,7 @@ def without_pagination_flags(args):
     for arg in args:
         if options and arg == "--":
             options = False
-        if options and arg in {"--paginate", "--paginate=true", "--slurp"}:
+        if options and arg in {"--paginate", "--paginate=true", "--slurp", "--slurp=true"}:
             continue
         page_args.append(arg)
 
@@ -374,7 +486,7 @@ def without_output_formatters(args):
         if arg == "--":
             page_args.extend(args[index:])
             break
-        if arg in {"--silent", "--verbose"}:
+        if arg in {"--silent", "--silent=true", "--verbose", "--verbose=true"}:
             index += 1
             continue
         if arg in value_flags:
@@ -395,43 +507,23 @@ def has_output_formatter(args):
     for arg in args:
         if options and arg == "--":
             options = False
-        elif options and (arg in {"-q", "--jq", "-t", "--template", "--verbose"} or arg.startswith(("--jq=", "--template=")) or (arg.startswith(("-q", "-t")) and len(arg) > 2)):
+        elif options and (arg in {"-q", "--jq", "-t", "--template", "--verbose", "--verbose=true"} or arg.startswith(("--jq=", "--template=")) or (arg.startswith(("-q", "-t")) and len(arg) > 2)):
             return True
 
     return False
 
 
-def rest_page_size_is_supplied(args, endpoint):
-    if "per_page" in dict(parse_qsl(urlsplit(endpoint).query, keep_blank_values=True)):
-        return True
-
+def paginated_request_uses_input(args):
     value_flags = {"-F", "--field", "-f", "--raw-field"}
 
     for index, arg in enumerate(args):
-        if arg in value_flags and index + 1 < len(args) and args[index + 1].startswith("per_page="):
+        if arg == "--input" or arg.startswith("--input="):
             return True
-        if arg.startswith(("-Fper_page=", "-fper_page=", "--field=per_page=", "--raw-field=per_page=")):
-            return True
-
-    return False
-
-
-def add_default_rest_page_size(args, index):
-    endpoint = args[index]
-    if rest_page_size_is_supplied(args, endpoint):
-        return
-    args[index] = f"{endpoint}{'&' if '?' in endpoint else '?'}per_page=100"
-
-
-def paginated_request_consumes_stdin(args):
-    value_flags = {"--input", "-F", "--field", "-f", "--raw-field"}
-
-    for index, arg in enumerate(args):
         if arg in value_flags and index + 1 < len(args):
             value = args[index + 1]
-            if (arg == "--input" and value == "-") or value.endswith("=@-"):
+            if value.endswith("=@-"):
                 return True
-        if arg == "--input=-" or arg.endswith("=@-") and (
+        if arg.endswith("=@-") and (
             arg.startswith(("-F", "-f")) or arg.startswith(("--field=", "--raw-field="))
         ):
             return True
@@ -457,16 +549,16 @@ if raw_endpoint_index is None or display_endpoint_index is None or raw_args[0] !
     print("aiur: cannot budget malformed gh api pagination command", file=sys.stderr)
     raise SystemExit(64)
 
-if paginated_request_consumes_stdin(raw_args):
-    print("aiur: cannot budget gh api --paginate commands that read request data from standard input", file=sys.stderr)
+if paginated_request_uses_input(raw_args):
+    print("aiur: cannot budget gh api --paginate commands that use an input body or standard input", file=sys.stderr)
     raise SystemExit(64)
 
 if output_formatter and slurp:
     print("aiur: cannot budget gh api --paginate with both --slurp and formatted output", file=sys.stderr)
     raise SystemExit(64)
 
-if output_formatter and os.environ.get("AIUR_GITHUB_PAGINATION_DIRECTION") == "write":
-    print("aiur: cannot budget a paginated write with formatted output", file=sys.stderr)
+if os.environ.get("AIUR_GITHUB_PAGINATION_DIRECTION") == "write":
+    print("aiur: cannot budget a paginated write", file=sys.stderr)
     raise SystemExit(64)
 
 if not include_headers:
@@ -480,9 +572,6 @@ raw_endpoint_index = endpoint_index(raw_args)
 wrapper = os.environ["AIUR_GITHUB_PAGINATION_WRAPPER"]
 pages = []
 graphql = raw_args[raw_endpoint_index] in {"graphql", "/graphql"}
-if not graphql:
-    add_default_rest_page_size(raw_args, raw_endpoint_index)
-    add_default_rest_page_size(display_args, display_endpoint_index)
 
 raw_cursor_arg_index = next(
     (

@@ -39,14 +39,14 @@ defmodule Aiur.AgentGitHubGuardTest do
       elif [ "${FAKE_GH_PAGINATION:-0}" = 1 ]; then
         fake_endpoint=
         for fake_arg in "$@"; do
-          if [ "$fake_arg" = "repos/owner/repo/issues?per_page=100" ] || [ "$fake_arg" = "/repos/owner/repo/issues?per_page=100&page=2" ]; then
+          if [ "$fake_arg" = "repos/owner/repo/issues" ] || [ "$fake_arg" = "/repos/owner/repo/issues?page=2" ]; then
             fake_endpoint=$fake_arg
             break
           fi
         done
-        if [ "$fake_endpoint" = "repos/owner/repo/issues?per_page=100" ]; then
-          printf '%s\n' 'HTTP/2 200' 'Link: <https://api.github.com/repos/owner/repo/issues?per_page=100&page=2>; rel="next"' ''
-        elif [ "$fake_endpoint" = "/repos/owner/repo/issues?per_page=100&page=2" ]; then
+        if [ "$fake_endpoint" = "repos/owner/repo/issues" ]; then
+          printf '%s\n' 'HTTP/2 200' 'Link: <https://api.github.com/repos/owner/repo/issues?page=2>; rel="next"' ''
+        elif [ "$fake_endpoint" = "/repos/owner/repo/issues?page=2" ]; then
           printf '%s\n' 'HTTP/2 200' ''
           fake_page_failure=${FAKE_GH_FAIL_ON_SECOND_PAGE:-0}
         fi
@@ -66,6 +66,7 @@ defmodule Aiur.AgentGitHubGuardTest do
       fi
       if [ -n "${FAKE_GH_ARGS:-}" ]; then printf '%s\n' "$*" >> "$FAKE_GH_ARGS"; fi
       if [ "${FAKE_GH_GRAPHQL_PAGINATION:-0}" = 1 ] || [ "${fake_formatted:-0}" = 1 ]; then exit 0; fi
+      if [ "${FAKE_GH_PAGINATION_JSON:-0}" = 1 ]; then printf '%s\n' '[]'; exit 0; fi
       sleep "${FAKE_GH_SLEEP:-0}"
       if [ "${FAKE_GH_FAIL:-0}" = 1 ] || [ "${fake_page_failure:-0}" = 1 ]; then printf '%s\n' "${FAKE_GH_ERROR:-failed}" >&2; exit 1; fi
       printf 'ok\n'
@@ -381,7 +382,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                FAKE_GH_PAGINATION: "1"
              )
 
-    assert File.read!(context.calls) == "api repos/owner/repo/issues?per_page=100\napi /repos/owner/repo/issues?per_page=100&page=2\n"
+    assert File.read!(context.calls) == "api repos/owner/repo/issues\napi /repos/owner/repo/issues?page=2\n"
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
@@ -434,7 +435,7 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert output =~ "secondary rate limit"
 
-    assert File.read!(context.calls) == "api repos/owner/repo/issues?per_page=100\napi /repos/owner/repo/issues?per_page=100&page=2\n"
+    assert File.read!(context.calls) == "api repos/owner/repo/issues\napi /repos/owner/repo/issues?page=2\n"
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
@@ -446,16 +447,42 @@ defmodule Aiur.AgentGitHubGuardTest do
 
   test "a paginated API call preserves flags before its endpoint", context do
     budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
 
     assert {"ok\nok\n", 0} =
              run_guard(context, ["api", "-X", "GET", "repos/owner/repo/issues", "--paginate"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
-               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
-               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
                FAKE_GH_PAGINATION: "1"
              )
 
-    assert File.read!(context.calls) == "api repos/owner/repo/issues?per_page=100\napi /repos/owner/repo/issues?per_page=100&page=2\n"
+    assert File.read!(context.calls) == "api repos/owner/repo/issues\napi /repos/owner/repo/issues?page=2\n"
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "issues"}, %{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
+  end
+
+  test "a paginated GET with fields remains a budgeted read", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\nok\n", 0} =
+             run_guard(context, ["api", "-X", "GET", "repos/owner/repo/issues", "-f", "state=open", "--paginate"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "issues"}, %{"endpoint_family" => "issues"}]} = Jason.decode!(snapshot)
   end
 
   test "a paginated API call accepts the short include flag", context do
@@ -503,8 +530,77 @@ defmodule Aiur.AgentGitHubGuardTest do
                AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
              )
 
-    assert output =~ "read request data from standard input"
+    assert output =~ "input body or standard input"
     refute File.exists?(context.calls)
+  end
+
+  test "a paginated API call fails closed when its request body comes from a file", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    input = Path.join(context.workspace, "input.json")
+    File.write!(input, ~s({"name":"aiur"}))
+
+    assert {output, 64} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--input", input],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "input body or standard input"
+    refute File.exists?(context.calls)
+  end
+
+  test "a paginated write fails closed before it reaches gh", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+
+    assert {output, 64} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "-X", "POST"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "cannot budget a paginated write"
+    refute File.exists?(context.calls)
+  end
+
+  test "a boolean silent flag still admits every REST page", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--silent=true"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
+  end
+
+  test "a boolean slurp flag keeps every REST page under budget", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"[[], []]\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--slurp=true"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1",
+               FAKE_GH_PAGINATION_JSON: "1"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
   end
 
   test "a paginated GraphQL call admits every cursor page through the shared budget", context do
