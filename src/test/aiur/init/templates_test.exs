@@ -5,6 +5,8 @@ defmodule Aiur.Init.TemplatesTest do
 
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
+    assert Templates.config_example() =~ "host omitted = authenticated Tailscale IP"
+    assert Templates.config_example() =~ "add host: 127.0.0.1 to pin loopback"
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
@@ -152,13 +154,12 @@ defmodule Aiur.Init.TemplatesTest do
     end
   end
 
-  test "build_fills writes the ordered rate-limit fallback when selected" do
+  test "build_fills writes the ordered priority list" do
     fills =
       Templates.build_fills(%{
         tracker: %{kind: "github", repo: "owner/repo", base_branch: "develop"},
-        agents: ["claude", "codex"],
+        agents: ["codex", "claude"],
         routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
-        rate_limit_fallback: ["codex", "claude"],
         permission_mode: "bypassPermissions",
         workspace_root: "~/.aiur/workspaces/owner/repo",
         max_agents: 1,
@@ -171,7 +172,6 @@ defmodule Aiur.Init.TemplatesTest do
         alerts: %{enabled: false, use_os_default_sounds: false}
       })
 
-    assert Templates.fill_template("{{RATE_LIMIT_FALLBACK}}", fills) ==
-             "  switch_model_on_ratelimit: [codex, claude]\n"
+    assert Templates.fill_template("{{PRIORITY}}", fills) == "[codex, claude]"
   end
 end

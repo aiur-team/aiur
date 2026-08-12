@@ -39,7 +39,7 @@ export default defineConfig({
   ],
   themeConfig: {
     logo: '/assets/aiur-logo.png',
-    siteTitle: 'aiur · cli',
+    siteTitle: 'aiur',
     nav: [
       { text: 'Home', link: 'https://aiur.team/', target: '_self' },
       { text: 'Docs', link: '/guide/quick-start', activeMatch: '^/' }
@@ -49,9 +49,12 @@ export default defineConfig({
         text: 'Introduction',
         items: [
           { text: 'Overview', link: '/' },
-          { text: 'Skills', link: '/skills' },
           { text: 'Quick start', link: '/guide/quick-start' },
-          { text: 'Executor Control Center', link: '/guide/executor-control-center' }
+          { text: 'TUI', link: '/guide/tui' },
+          { text: 'CLI', link: '/reference/cli' },
+          { text: 'Dashboard', link: '/guide/executor-control-center' },
+          { text: 'Skills', link: '/skills' },
+          { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
       {
@@ -67,7 +70,6 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Configuration', link: '/reference/configuration' },
-          { text: 'CLI commands', link: '/reference/cli' },
           { text: 'State nodes and Build Orders', link: '/concepts/state-and-build-orders' }
         ]
       }

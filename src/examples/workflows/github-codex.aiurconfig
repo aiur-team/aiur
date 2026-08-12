@@ -32,6 +32,11 @@ tracker:
     planning_root_limit: 100
     planning_page_budget: 4
     planning_call_budget: 4
+    # Host-local coordination for daemons and agent `gh` calls sharing one token.
+    max_inflight: 4
+    max_inflight_per_endpoint: 2
+    requests_per_minute: 120
+    stagger_ms: 75
 build_order:
   # Supervised configured-repository detail and sanitized typed-history providers.
   # Restart clears retained snapshots; selected tickets reload on demand.
@@ -70,20 +75,23 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  kind: codex
+  # Ordered dispatch preference: presence enables a backend, the first
+  # available entry is the default, and aiur falls back to the next one when a
+  # token/usage limit hits.
+  priority: [codex]
   max_concurrent_agents: 2
   max_turns: 12
   # Cold backend switches continue from workspace context; provider transcripts
   # are never transferred across backends.
   prior_work_continuation: true
   # Direct OpenAI-compatible instances use keys from the environment (prefer
-  # ~/.aiur/.env) and can be enabled/selected without adding provider unions:
+  # ~/.aiur/.env) and are enabled by listing them in `priority`:
+  # priority: [deepseek, codex]
   # backend_configs:
-  #   deepseek: {enabled: false}
   #   openrouter: {model: moonshotai/kimi-k2.7-code}
   # max_turns_by_complexity: {1: 4, 2: 8, 3: 12}
   # Optional: route per issue by its `complexity:N` label. Unlisted levels and
-  # unlabeled issues fall back to `kind`; a `model:<backend>` issue label
+  # unlabeled issues fall back to `priority`; a `model:<backend>` issue label
   # overrides both. (Requires a `claude:` block for the routed backend.)
   # routing:
   #   1: codex:gpt-5.6-luna:low

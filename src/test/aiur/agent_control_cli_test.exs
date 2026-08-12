@@ -498,6 +498,34 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
+    dependency = %Issue{
+      id: "issue-99",
+      identifier: "repo#99",
+      state: "todo",
+      title: "Dependency",
+      blocked_by: [%{id: "issue-12", identifier: "repo#12", state: "in-progress"}]
+    }
+
+    paused =
+      running_entry("issue-44", "repo#44", :paused)
+      |> Map.put(:paused_reason, :agent_pause_request)
+      |> Map.put(:issue, %Issue{id: "issue-44", identifier: "repo#44", state: "in-progress", title: "Needs input"})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => paused}, last_polled_issues: %{"issue-99" => dependency}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#44    paused"
+    assert output =~ "waiting=waiting_for_human"
+    assert output =~ "pause_reason=agent_pause_request"
+    assert output =~ "#99    idle"
+    assert output =~ "waiting=waiting_for_dependency"
+    assert output =~ "blocked_by=repo#12"
+  end
+
   test "status makes degraded supervision explicit" do
     Application.put_env(:aiur, :supervision_health_status_fun, fn ->
       {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
