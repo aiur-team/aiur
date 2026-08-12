@@ -9,6 +9,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     workspace = Path.join(root, "1670")
     state_path = Path.join(root, "state")
     fake_gh = Path.join(root, "real-bin/gh")
+    fake_jq = Path.join(root, "real-bin/jq")
     failing_broker = Path.join(root, "failing-broker.py")
     wait_broker = Path.join(root, "wait-broker.py")
     calls = Path.join(root, "calls")
@@ -29,13 +30,33 @@ defmodule Aiur.AgentGitHubGuardTest do
           if [ "$fake_arg" = --include ]; then printf '%s\n' 'unexpected include' >&2; exit 99; fi
         done
       fi
-      if [ "${FAKE_GH_GRAPHQL_FORMAT:-0}" = 1 ]; then
-        for fake_arg in "$@"; do
-          case "$fake_arg" in -q|--jq|-t|--template|--jq=*|--template=*) fake_formatted=1; break ;; esac
-        done
+      if [ "${FAKE_GH_PASSTHROUGH_LOCAL:-0}" = 1 ]; then
+        case " $* " in
+          *" api http://127.0.0.1:"*)
+            if [ -n "${FAKE_GH_FORMAT_ARGS:-}" ]; then printf '%s\n' "$*" >> "$FAKE_GH_FORMAT_ARGS"; fi
+            if [ -n "${FAKE_GH_RENDER_ENV:-}" ]; then
+              printf 'GH_TOKEN=%s\nGITHUB_TOKEN=%s\nNO_PROXY=%s\nno_proxy=%s\n' "${GH_TOKEN:-}" "${GITHUB_TOKEN:-}" "${NO_PROXY:-}" "${no_proxy:-}" > "$FAKE_GH_RENDER_ENV"
+            fi
+            if [ -n "${FAKE_GH_REPLAY_PROBE:-}" ]; then
+              for fake_arg in "$@"; do
+                case "$fake_arg" in
+                  http://127.0.0.1:*) fake_probe_url=$(printf '%s' "$fake_arg" | sed 's#/[A-Za-z0-9_-]*/0$#/not-the-capability/0#') ;;
+                esac
+              done
+              "$FAKE_GH_NATIVE" api "$fake_probe_url" --silent >/dev/null 2>&1
+              printf '%s\n' "$?" > "$FAKE_GH_REPLAY_PROBE"
+            fi
+            exec "$FAKE_GH_NATIVE" "$@"
+            ;;
+        esac
       fi
+      for fake_arg in "$@"; do
+        case "$fake_arg" in -q|--jq|-t|--template|--jq=*|--template=*) fake_formatted=1; break ;; esac
+      done
       if [ "${fake_formatted:-0}" = 1 ]; then
-        printf '%s\n' 'formatted'
+        if [ -n "${FAKE_GH_FORMAT_ARGS:-}" ]; then printf '%s\n' "$*" >> "$FAKE_GH_FORMAT_ARGS"; fi
+        printf '%b' "${FAKE_GH_FORMAT_OUTPUT:-formatted\n}"
+        exit 0
       elif [ "${FAKE_GH_PAGINATION:-0}" = 1 ]; then
         fake_endpoint=
         for fake_arg in "$@"; do
@@ -45,9 +66,17 @@ defmodule Aiur.AgentGitHubGuardTest do
           fi
         done
         if [ "$fake_endpoint" = "repos/owner/repo/issues" ]; then
-          printf '%s\n' 'HTTP/2 200' 'Link: <https://api.github.com/repos/owner/repo/issues?page=2>; rel="next"' ''
+          if [ -n "${FAKE_GH_PAGINATION_HEADERS:-}" ]; then
+            printf '%b' "$FAKE_GH_PAGINATION_HEADERS"
+          else
+            printf '%s\n' 'HTTP/2 200' 'Link: <https://api.github.com/repos/owner/repo/issues?page=2>; rel="next"' ''
+          fi
         elif [ "$fake_endpoint" = "/repos/owner/repo/issues?page=2" ]; then
-          printf '%s\n' 'HTTP/2 200' ''
+          if [ -n "${FAKE_GH_PAGINATION_SECOND_HEADERS:-}" ]; then
+            printf '%b' "$FAKE_GH_PAGINATION_SECOND_HEADERS"
+          else
+            printf '%s\n' 'HTTP/2 200' ''
+          fi
           fake_page_failure=${FAKE_GH_FAIL_ON_SECOND_PAGE:-0}
         fi
       elif [ "${FAKE_GH_GRAPHQL_PAGINATION:-0}" = 1 ]; then
@@ -65,7 +94,8 @@ defmodule Aiur.AgentGitHubGuardTest do
         printf '%s %s\n' "${1:-}" "${2:-}" >> "$FAKE_GH_CALLS"
       fi
       if [ -n "${FAKE_GH_ARGS:-}" ]; then printf '%s\n' "$*" >> "$FAKE_GH_ARGS"; fi
-      if [ "${FAKE_GH_GRAPHQL_PAGINATION:-0}" = 1 ] || [ "${fake_formatted:-0}" = 1 ]; then exit 0; fi
+      if [ "${FAKE_GH_GRAPHQL_PAGINATION:-0}" = 1 ]; then exit 0; fi
+      if [ -n "${FAKE_GH_PAGINATION_BODY+x}" ]; then printf '%s\n' "$FAKE_GH_PAGINATION_BODY"; exit 0; fi
       if [ "${FAKE_GH_PAGINATION_JSON:-0}" = 1 ]; then printf '%s\n' '[]'; exit 0; fi
       sleep "${FAKE_GH_SLEEP:-0}"
       if [ "${FAKE_GH_FAIL:-0}" = 1 ] || [ "${fake_page_failure:-0}" = 1 ]; then printf '%s\n' "${FAKE_GH_ERROR:-failed}" >&2; exit 1; fi
@@ -74,6 +104,8 @@ defmodule Aiur.AgentGitHubGuardTest do
     )
 
     File.chmod!(fake_gh, 0o755)
+    File.write!(fake_jq, "#!/bin/sh\nprintf '%s\\n' 'unexpected system jq invocation' >&2\nexit 89\n")
+    File.chmod!(fake_jq, 0o755)
     File.write!(failing_broker, "import sys\nsys.exit(1)\n")
     File.chmod!(failing_broker, 0o755)
     File.write!(wait_broker, "import os\nprint(os.environ['FAKE_BROKER_RESPONSE'])\n")
@@ -86,6 +118,7 @@ defmodule Aiur.AgentGitHubGuardTest do
      workspace: workspace,
      state_path: state_path,
      fake_gh: fake_gh,
+     fake_jq: fake_jq,
      failing_broker: failing_broker,
      wait_broker: wait_broker,
      calls: calls}
@@ -683,10 +716,14 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
   end
 
-  test "a paginated API call applies jq to one admitted slurped response set", context do
+  test "a paginated API call uses gh's embedded jq for one admitted slurped response set", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
+    renderer_args = Path.join(context.state_path, "renderer-args")
+    renderer_env = Path.join(context.state_path, "renderer-env")
+    replay_probe = Path.join(context.state_path, "replay-probe")
+    native_gh = AgentGitHubGuard.real_gh() || flunk("gh is required to verify its embedded jq")
 
     assert {"2\n", 0} =
              run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--slurp", "--jq", "length"],
@@ -694,13 +731,92 @@ defmodule Aiur.AgentGitHubGuardTest do
                AIUR_GITHUB_BUDGET_KEY: key,
                AIUR_GITHUB_BUDGET_BROKER: broker,
                FAKE_GH_PAGINATION: "1",
-               FAKE_GH_PAGINATION_JSON: "1"
+               FAKE_GH_PAGINATION_JSON: "1",
+               FAKE_GH_FORMAT_ARGS: renderer_args,
+               FAKE_GH_PASSTHROUGH_LOCAL: "1",
+               FAKE_GH_NATIVE: native_gh,
+               FAKE_GH_RENDER_ENV: renderer_env,
+               FAKE_GH_REPLAY_PROBE: replay_probe,
+               GH_TOKEN: "guard-token",
+               GITHUB_TOKEN: "github-token",
+               HTTP_PROXY: "http://127.0.0.1:1",
+               NO_PROXY: "not-localhost",
+               no_proxy: "not-localhost",
+               PATH: "#{Path.dirname(context.fake_jq)}:#{System.get_env("PATH")}"
              )
+
+    rendered_command = File.read!(renderer_args)
+    assert rendered_command =~ "api http://127.0.0.1:"
+    assert rendered_command =~ "--jq length"
+    assert File.read!(replay_probe) == "1\n"
+    assert File.read!(renderer_env) == "GH_TOKEN=\nGITHUB_TOKEN=\nNO_PROXY=127.0.0.1,localhost\nno_proxy=127.0.0.1,localhost\n"
+
+    [replay_url] =
+      Regex.run(~r/api (http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/0)/, rendered_command, capture: :all_but_first)
+
+    assert {_output, exit_code} =
+             System.cmd(native_gh, ["api", replay_url, "--silent"],
+               env: [{"GH_TOKEN", ""}, {"GITHUB_TOKEN", ""}, {"NO_PROXY", "127.0.0.1,localhost"}],
+               stderr_to_stdout: true
+             )
+
+    assert exit_code != 0
+    assert File.read!(context.calls) == "api repos/owner/repo/issues\napi /repos/owner/repo/issues?page=2\n"
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
     assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
+  end
+
+  test "a paginated formatter rejects native-incompatible silent output before admission", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {output, exit_code} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--jq", ".", "--silent"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1"
+             )
+
+    assert exit_code != 0
+    assert output =~ "only one of `--template`, `--jq`, `--silent`, or `--verbose` may be used"
+    refute File.exists?(context.calls)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => []} = Jason.decode!(snapshot)
+  end
+
+  test "a formatted include replay keeps captured headers without replay-server defaults", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+    native_gh = AgentGitHubGuard.real_gh() || flunk("gh is required to verify formatted include output")
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--include", "--jq", "."],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1",
+               FAKE_GH_PAGINATION_JSON: "1",
+               FAKE_GH_PAGINATION_HEADERS: "HTTP/2 200\\nX-Aiur-Origin: first\\nLink: <https://api.github.com/repos/owner/repo/issues?page=2>; rel=\"next\"\\n\\n",
+               FAKE_GH_PAGINATION_SECOND_HEADERS: "HTTP/2 200\\nX-Aiur-Origin: second\\n\\n",
+               FAKE_GH_PASSTHROUGH_LOCAL: "1",
+               FAKE_GH_NATIVE: native_gh
+             )
+
+    assert output =~ "X-Aiur-Origin: first"
+    assert output =~ "X-Aiur-Origin: second"
+    assert output =~ "https://api.github.com/repos/owner/repo/issues?page=2"
+    refute output =~ "http://127.0.0.1:"
+    refute output =~ "Server:"
+    refute output =~ "Date:"
   end
 
   test "a paginated API call preserves verbose output without a second request per page", context do
@@ -724,19 +840,36 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
   end
 
-  test "a paginated API call applies a template to one admitted slurped response set", context do
+  test "a paginated API call delegates documented templates to native gh across replayed pages", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
+    renderer_args = Path.join(context.state_path, "renderer-args")
+    native_gh = AgentGitHubGuard.real_gh() || flunk("gh is required to verify its documented template helpers")
+    template = ~s|{{range .}}{{tablerow (hyperlink .url .title) (timeago .updatedAt)}}{{end}}{{tablerender}}|
+    page = ~s|[{"url":"https://example.test/shared","title":"shared","updatedAt":"2024-01-01T00:00:00Z"}]|
 
-    assert {"2", 0} =
-             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--slurp", "--template", "{{len .}}"],
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--template", template],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: key,
                AIUR_GITHUB_BUDGET_BROKER: broker,
                FAKE_GH_PAGINATION: "1",
-               FAKE_GH_PAGINATION_JSON: "1"
+               FAKE_GH_PAGINATION_BODY: page,
+               FAKE_GH_FORMAT_ARGS: renderer_args,
+               FAKE_GH_PASSTHROUGH_LOCAL: "1",
+               FAKE_GH_NATIVE: native_gh
              )
+
+    assert output =~ "shared"
+    assert output =~ "https://example.test/shared"
+    assert output =~ ~r/years? ago/
+    assert length(Regex.scan(~r/shared/, output)) == 4
+    rendered_command = File.read!(renderer_args)
+    assert rendered_command =~ "api http://127.0.0.1:"
+    assert rendered_command =~ "--paginate"
+    assert rendered_command =~ template
+    assert File.read!(context.calls) == "api repos/owner/repo/issues\napi /repos/owner/repo/issues?page=2\n"
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
@@ -773,12 +906,12 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{}, %{}, %{}]} = Jason.decode!(snapshot)
   end
 
-  test "a paginated GraphQL call keeps cursor parsing independent from locally rendered jq output", context do
+  test "a paginated GraphQL call keeps cursor parsing independent from gh-rendered jq output", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
-    assert {"after-one\nafter-two\nnull\n", 0} =
+    assert {"formatted\n", 0} =
              run_guard(
                context,
                [
@@ -809,7 +942,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
-    assert {"next\nnext\ndone\n", 0} =
+    assert {"formatted\n", 0} =
              run_guard(
                context,
                [

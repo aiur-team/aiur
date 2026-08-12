@@ -364,14 +364,15 @@ budget_hold() {
 # responsible for response observation and quota tracking; it has no
 # `--paginate` flag, so it follows the ordinary single-request path.
 run_budgeted_paginated_api() {
-  AIUR_GITHUB_PAGINATION_WRAPPER="$0" AIUR_GITHUB_PAGINATION_DIRECTION="$direction" python3 - "$@" <<'PY'
-import ast
+  AIUR_GITHUB_PAGINATION_WRAPPER="$0" AIUR_GITHUB_PAGINATION_REAL_GH="$real_gh" AIUR_GITHUB_PAGINATION_DIRECTION="$direction" python3 - "$@" <<'PY'
+import http.server
 import json
 import os
 import re
-import shlex
+import secrets
 import subprocess
 import sys
+import threading
 from urllib.parse import urlsplit
 
 
@@ -479,13 +480,7 @@ def without_pagination_flags(args):
 
 
 def extract_output_formatter(args):
-    """Remove one local formatter and return the original request arguments.
-
-    `gh` formats the response before it returns control to this driver.  For
-    GraphQL that would hide pageInfo, and using a second display request would
-    spend an unaccounted request.  Keep one unformatted response per page and
-    apply the requested display transformation locally instead.
-    """
+    """Keep one unformatted request per page and retain gh's formatter args."""
 
     page_args = []
     formatter = None
@@ -563,227 +558,133 @@ def add_include(args):
     return page_args
 
 
-def render_jq(expression, payload):
-    try:
-        result = subprocess.run(["jq", "-r", expression], input=payload, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    except FileNotFoundError:
-        print("aiur: jq is required to preserve gh api --jq output during guarded pagination", file=sys.stderr)
-        raise SystemExit(75)
-
-    if result.returncode:
-        sys.stderr.buffer.write(result.stderr)
-        raise SystemExit(result.returncode)
-    return result.stdout
-
-
-def value_at(value, path, root):
-    if path == ".":
-        return value
-    if path == "$":
-        return root
-    if path.startswith("$."):
-        value, path = root, path[2:]
-    elif path.startswith("."):
-        path = path[1:]
-    else:
-        return None
-
-    for segment in path.split("."):
-        if not segment:
-            continue
-        if isinstance(value, dict):
-            value = value.get(segment)
-        else:
-            return None
-    return value
-
-
-def template_string(value):
-    if value is None:
-        return "<no value>"
-    if value is True:
-        return "true"
-    if value is False:
-        return "false"
-    if isinstance(value, (dict, list)):
-        return json.dumps(value, separators=(",", ":"))
-    return str(value)
-
-
-def template_token(token, value, root):
-    if token.startswith((".", "$")):
-        return value_at(value, token, root)
-    if token in {"true", "false"}:
-        return token == "true"
-    if token == "nil":
-        return None
-    try:
-        return ast.literal_eval(token)
-    except (SyntaxError, ValueError):
-        return token
-
-
-def template_printf(format_string, values):
-    index = 0
-
-    def replace(match):
-        nonlocal index
-        specifier = match.group(0)
-        if specifier == "%%":
-            return "%"
-        if index >= len(values):
-            return "%!" + specifier[1:] + "(MISSING)"
-        value = values[index]
-        index += 1
-        if specifier.endswith("q"):
-            return json.dumps(template_string(value))
-        if specifier.endswith("v"):
-            return template_string(value)
-        if specifier.endswith("d"):
-            return str(int(value))
-        return template_string(value)
-
-    return re.sub(r"%(?:[-+0-9.#]*[vdsq]|%)", replace, format_string)
-
-
-def template_expression(expression, value, root):
-    pipeline = [part.strip() for part in expression.split("|")]
-    if not pipeline:
-        return ""
-
-    first = shlex.split(pipeline[0], posix=False)
-    if not first:
-        return ""
-    if first[0] == "printf":
-        if len(first) < 2:
-            raise ValueError("printf requires a format string")
-        current = template_printf(str(template_token(first[1], value, root)), [template_token(token, value, root) for token in first[2:]])
-    elif first[0] == "len":
-        current = len(template_token(first[1], value, root)) if len(first) > 1 else len(value)
-    else:
-        current = template_token(first[0], value, root)
-
-    for part in pipeline[1:]:
-        terms = shlex.split(part, posix=False)
-        if not terms:
-            continue
-        function = terms[0]
-        arguments = [template_token(token, value, root) for token in terms[1:]]
-        if function == "pluck" and arguments:
-            current = [item.get(arguments[0]) for item in current if isinstance(item, dict)]
-        elif function == "join" and arguments:
-            current = str(arguments[0]).join(template_string(item) for item in current)
-        elif function == "printf" and arguments:
-            current = template_printf(str(arguments[0]), [*arguments[1:], current])
-        elif function == "len":
-            current = len(current)
-        elif function in {"color", "autocolor"}:
-            current = current
-        elif function == "truncate" and arguments:
-            current = template_string(current)[: int(arguments[0])]
-        else:
-            raise ValueError(f"unsupported gh template function: {function}")
-    return current
-
-
-def template_block(template, position):
-    """Return a control action's body, optional else body, and next offset."""
-
-    token_pattern = re.compile(r"{{-?\s*(.*?)\s*-?}}", re.DOTALL)
-    depth = 1
-    body_start = position
-    else_marker = None
-    else_start = None
-
-    for match in token_pattern.finditer(template, position):
-        action = match.group(1).strip()
-        if action.startswith(("range ", "if ", "with ")):
-            depth += 1
-        elif action == "end":
-            depth -= 1
-            if depth == 0:
-                body_end = else_marker if else_marker is not None else match.start()
-                else_body = template[else_start:match.start()] if else_start is not None else ""
-                return template[body_start:body_end], else_body, match.end()
-        elif action == "else" and depth == 1 and else_start is None:
-            else_marker = match.start()
-            else_start = match.end()
-
-    raise ValueError("unterminated gh template control action")
-
-
-def render_template_section(template, position, value, root):
-    output = []
-    token_pattern = re.compile(r"{{-?\s*(.*?)\s*-?}}", re.DOTALL)
-
-    while True:
-        match = token_pattern.search(template, position)
-        if match is None:
-            output.append(template[position:])
-            return "".join(output)
-        output.append(template[position : match.start()])
-        action = match.group(1).strip()
-        position = match.end()
-
-        if action.startswith("range "):
-            body_template, else_template, position = template_block(template, position)
-            sequence = template_expression(action[6:].strip(), value, root)
-            if isinstance(sequence, dict):
-                sequence = sequence.values()
-            sequence = list(sequence or [])
-            if sequence:
-                for item in sequence:
-                    output.append(render_template_section(body_template, 0, item, root))
-            elif else_template:
-                output.append(render_template_section(else_template, 0, value, root))
-            continue
-        if action.startswith("if "):
-            body_template, else_template, position = template_block(template, position)
-            selected = body_template if template_expression(action[3:].strip(), value, root) else else_template
-            output.append(render_template_section(selected, 0, value, root))
-            continue
-        if action.startswith("with "):
-            body_template, else_template, position = template_block(template, position)
-            selected_value = template_expression(action[5:].strip(), value, root)
-            if selected_value:
-                output.append(render_template_section(body_template, 0, selected_value, root))
-            elif else_template:
-                output.append(render_template_section(else_template, 0, value, root))
-            continue
-        if action in {"else", "end"}:
-            raise ValueError(f"unexpected template action: {action}")
-        output.append(template_string(template_expression(action, value, root)))
-
-
-def render_template(expression, payload):
-    try:
-        document = json.loads(payload)
-    except json.JSONDecodeError:
-        print("aiur: gh api --template received a non-JSON page", file=sys.stderr)
-        raise SystemExit(1)
-    try:
-        rendered = render_template_section(expression, 0, document, document)
-        return rendered.encode("utf-8")
-    except (TypeError, ValueError, IndexError) as error:
-        print(f"aiur: cannot preserve gh api --template output during guarded pagination: {error}", file=sys.stderr)
-        raise SystemExit(64)
-
-
-def render_output(formatter, payload):
-    if formatter is None:
-        return payload
+def formatter_arguments(formatter):
     kind, expression = formatter
-    if kind == "jq":
-        return render_jq(expression, payload)
-    return render_template(expression, payload)
+    return ["--jq" if kind == "jq" else "--template", expression]
+
+
+def response_status(headers):
+    match = re.search(br"^HTTP/[^\s]+\s+(\d{3})", headers)
+    return int(match.group(1)) if match else 200
+
+
+def response_headers(headers):
+    for line in headers.splitlines()[1:]:
+        if b":" not in line:
+            continue
+        name, value = line.split(b":", 1)
+        name = name.decode("latin-1")
+        if name.lower() in {"connection", "content-length", "link", "transfer-encoding"}:
+            continue
+        yield name, value.decode("latin-1").strip()
+
+
+def response_header_values(headers, name):
+    prefix = name.lower().encode("ascii") + b":"
+    return [line for line in headers.splitlines()[1:] if line.lower().startswith(prefix)]
+
+
+def render_with_native_gh(formatter, captured_pages, slurp, include_headers):
+    """Replay admitted responses locally and let gh render them unchanged.
+
+    Calling gh once more against GitHub would bypass the captured page's lease.
+    A loopback replay keeps the formatter in gh itself (including its embedded
+    jq, Go-template helpers, and table state) without another GitHub request.
+    """
+
+    if slurp:
+        try:
+            payload = json.dumps([json.loads(body) for _headers, body in captured_pages]).encode("utf-8")
+        except json.JSONDecodeError:
+            print("aiur: gh api --paginate --slurp returned a non-JSON page", file=sys.stderr)
+            raise SystemExit(1)
+        replay_pages = [(b"", payload)]
+        paginate = False
+    else:
+        replay_pages = captured_pages
+        paginate = True
+
+    capability = secrets.token_urlsafe(32)
+
+    class ReplayHandler(http.server.BaseHTTPRequestHandler):
+        protocol_version = "HTTP/1.1"
+
+        def do_GET(self):
+            match = re.fullmatch(rf"/{re.escape(capability)}/(\d+)", self.path.split("?", 1)[0])
+            page = int(match.group(1)) if match else -1
+            if not 0 <= page < len(replay_pages):
+                self.send_error(404)
+                return
+
+            headers, body = replay_pages[page]
+            self.send_response(response_status(headers))
+            content_type = False
+            for name, value in response_headers(headers):
+                content_type = content_type or name.lower() == "content-type"
+                self.send_header(name, value)
+            if not content_type:
+                self.send_header("Content-Type", "application/json")
+            if page + 1 < len(replay_pages):
+                self.send_header("Link", f"<http://127.0.0.1:{self.server.server_port}/{capability}/{page + 1}>; rel=\"next\"")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def send_response(self, code, message=None):
+            # Preserve captured response headers instead of adding the replay
+            # server's own Server and Date headers to --include output.
+            self.send_response_only(code, message)
+
+        def log_message(self, _format, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ReplayHandler)
+    server.daemon_threads = True
+    server.block_on_close = False
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        command = [os.environ["AIUR_GITHUB_PAGINATION_REAL_GH"], "api", f"http://127.0.0.1:{server.server_port}/{capability}/0"]
+        if paginate:
+            command.append("--paginate")
+        if include_headers:
+            command.append("--include")
+        command.extend(formatter_arguments(formatter))
+        environment = os.environ.copy()
+        for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
+            environment.pop(name, None)
+        environment["NO_PROXY"] = "127.0.0.1,localhost"
+        environment["no_proxy"] = "127.0.0.1,localhost"
+        capture_headers = include_headers and paginate
+        result = subprocess.run(command, env=environment, stdout=subprocess.PIPE if capture_headers else None)
+
+        if capture_headers:
+            rendered = result.stdout
+            for page, (headers, _body) in enumerate(replay_pages[:-1]):
+                local = f'Link: <http://127.0.0.1:{server.server_port}/{capability}/{page + 1}>; rel="next"'.encode("ascii")
+                original = b"\n".join(response_header_values(headers, "Link"))
+                rendered = rendered.replace(local, original)
+            sys.stdout.buffer.write(rendered)
+
+        return result.returncode
+    finally:
+        server.shutdown()
+        thread.join()
+        server.server_close()
 
 
 args = sys.argv[1:]
 include_headers = active_flag(args, "--include", "-i")
 slurp = active_flag(args, "--slurp")
 silent = active_flag(args, "--silent")
+verbose = active_flag(args, "--verbose")
 display_args = without_pagination_flags(args)
 raw_args, formatter = extract_output_formatter(display_args)
+
+if formatter and (silent or verbose):
+    print("only one of `--template`, `--jq`, `--silent`, or `--verbose` may be used", file=sys.stderr)
+    raise SystemExit(1)
+
 raw_args = add_include(raw_args)
 raw_endpoint_index = endpoint_index(raw_args)
 
@@ -801,6 +702,7 @@ if os.environ.get("AIUR_GITHUB_PAGINATION_DIRECTION") == "write":
 
 wrapper = os.environ["AIUR_GITHUB_PAGINATION_WRAPPER"]
 pages = []
+captured_pages = []
 graphql = raw_args[raw_endpoint_index] in {"graphql", "/graphql"}
 
 raw_cursor_arg_index = next(
@@ -829,18 +731,14 @@ while True:
 
     if silent:
         pass
+    elif formatter:
+        captured_pages.append((headers, body))
     elif slurp:
         try:
             pages.append(json.loads(body))
         except json.JSONDecodeError:
             print("aiur: gh api --paginate --slurp returned a non-JSON page", file=sys.stderr)
             raise SystemExit(1)
-    elif formatter:
-        if include_headers:
-            sys.stdout.buffer.write(headers)
-            if headers:
-                sys.stdout.buffer.write(b"\n\n")
-        sys.stdout.buffer.write(render_output(formatter, body))
     else:
         if include_headers:
             sys.stdout.buffer.write(headers)
@@ -863,12 +761,14 @@ while True:
             break
         raw_args[raw_endpoint_index] = endpoint
 
+if formatter:
+    raise SystemExit(render_with_native_gh(formatter, captured_pages, slurp, include_headers))
+
 if slurp:
     payload = json.dumps(pages).encode("utf-8")
     if not silent:
-        sys.stdout.buffer.write(render_output(formatter, payload))
-        if formatter is None:
-            sys.stdout.buffer.write(b"\n")
+        sys.stdout.buffer.write(payload)
+        sys.stdout.buffer.write(b"\n")
 PY
 }
 
