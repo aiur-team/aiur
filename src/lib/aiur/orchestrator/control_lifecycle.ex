@@ -24,6 +24,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     :worker_unavailable,
     :already_in_state,
     :control_failed,
+    :pause_release_failed,
     :superseded
   ]
   @expiry_reasons [:timeout, :daemon_restart, :generation_loss, :worker_unavailable]
@@ -170,7 +171,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   @spec reject(t(), String.t() | pos_integer(), atom(), keyword()) :: {:ok, request(), t()} | {:ignored, t()}
   def reject(lifecycle, request_id, class, opts \\ [])
 
-  def reject(%__MODULE__{} = lifecycle, request_id, class, opts) when is_atom(class) do
+  def reject(%__MODULE__{} = lifecycle, request_id, class, opts) when class in @rejection_classes do
     now = now!(opts)
 
     case Map.get(lifecycle.records, request_id) do
@@ -180,7 +181,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
             request
             | status: :rejected,
               rejected_at: now,
-              rejection: rejection(class, rejection_message(class))
+              rejection: rejection(class, rejection_message(class), opts)
           }
 
           lifecycle =
@@ -279,6 +280,47 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     lifecycle.history_ids
     |> Map.get(issue_id, [])
     |> Enum.map(&Map.fetch!(lifecycle.records, &1))
+  end
+
+  @doc "Returns the newest retained request for one local unit identifier."
+  @spec latest(t(), term()) :: request() | nil
+  def latest(%__MODULE__{} = lifecycle, issue_id) do
+    with request_id when not is_nil(request_id) <- lifecycle.history_ids |> Map.get(issue_id, []) |> List.last() do
+      Map.get(lifecycle.records, request_id)
+    end
+  end
+
+  @doc "Returns the newest retained request for one unit and action."
+  @spec latest_for_action(t(), term(), :pause | :resume) :: request() | nil
+  def latest_for_action(%__MODULE__{} = lifecycle, issue_id, action) when action in @actions do
+    lifecycle.history_ids
+    |> Map.get(issue_id, [])
+    |> Enum.reverse()
+    |> Enum.find_value(fn request_id ->
+      case Map.get(lifecycle.records, request_id) do
+        %{action: ^action} = request -> request
+        _request -> nil
+      end
+    end)
+  end
+
+  @doc "Builds a row-scoped projection retaining bounded control history."
+  @spec snapshot_for(t(), [term()]) :: t()
+  def snapshot_for(%__MODULE__{} = lifecycle, issue_ids) when is_list(issue_ids) do
+    snapshot = %__MODULE__{
+      protocol_version: lifecycle.protocol_version,
+      created_at: lifecycle.created_at,
+      history_limit: lifecycle.history_limit
+    }
+
+    Enum.reduce(issue_ids, snapshot, fn issue_id, acc ->
+      acc = Enum.reduce(history(lifecycle, issue_id), acc, &put_snapshot_request(&2, &1))
+
+      case current_pending(lifecycle, issue_id) do
+        %{request_id: request_id} -> %{acc | pending: Map.put(acc.pending, issue_id, request_id)}
+        nil -> acc
+      end
+    end)
   end
 
   @doc "Returns the one unresolved request for a unit, if one exists."
@@ -621,12 +663,27 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
     with {:ok, class} <- persisted_atom(persisted_value(raw, :class), @rejection_classes),
          message when is_binary(message) <- persisted_value(raw, :message) do
       %{class: class, message: message}
+      |> maybe_put_rejection_condition(restore_rejection_condition(persisted_value(raw, :condition)))
     else
       _ -> nil
     end
   end
 
   defp restore_rejection(_raw), do: nil
+
+  defp restore_rejection_condition(raw) when is_map(raw) do
+    with {:ok, control_status} <- persisted_atom(persisted_value(raw, :control_status), @expected_statuses),
+         {:ok, pause_reason} <- persisted_optional_atom(persisted_value(raw, :pause_reason), pause_reasons()) do
+      %{control_status: control_status, pause_reason: pause_reason}
+    else
+      _ -> nil
+    end
+  end
+
+  defp restore_rejection_condition(_raw), do: nil
+
+  defp maybe_put_rejection_condition(rejection, nil), do: rejection
+  defp maybe_put_rejection_condition(rejection, condition), do: Map.put(rejection, :condition, condition)
 
   defp restore_expiry(nil), do: nil
 
@@ -656,6 +713,20 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp persisted_optional_atom(nil, _allowed), do: {:ok, nil}
   defp persisted_optional_atom(value, allowed), do: persisted_atom(value, allowed)
 
+  defp pause_reasons do
+    [
+      :before_run_failure,
+      :blocker_dependency,
+      :ci_wait,
+      :global_pause,
+      :label_override,
+      :max_agent_duration,
+      :operator_pause,
+      :rate_limit_fallback_recovery,
+      :usage_limit_exhausted
+    ]
+  end
+
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: @default_history_limit
 
@@ -671,7 +742,26 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp valid_generation?(value), do: (is_binary(value) and value != "") or (is_integer(value) and value >= 0)
   defp valid_expected_version?(value), do: is_integer(value) and value >= 0
 
+  defp put_snapshot_request(lifecycle, request) do
+    %{
+      lifecycle
+      | history_ids: Map.update(lifecycle.history_ids, request.issue_id, [request.request_id], &(&1 ++ [request.request_id])),
+        records: Map.put(lifecycle.records, request.request_id, request)
+    }
+  end
+
   defp rejection(class, message), do: %{class: class, message: message}
+
+  defp rejection(class, message, opts) do
+    case Keyword.get(opts, :condition) do
+      %{control_status: control_status, pause_reason: pause_reason}
+      when is_atom(control_status) and (is_atom(pause_reason) or is_nil(pause_reason)) ->
+        %{class: class, message: message, condition: %{control_status: control_status, pause_reason: pause_reason}}
+
+      _condition ->
+        rejection(class, message)
+    end
+  end
 
   defp rejection_message(:not_found), do: "target unit was not found"
   defp rejection_message(:not_eligible), do: "target unit is not eligible for control"
@@ -680,6 +770,7 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp rejection_message(:worker_unavailable), do: "target worker is unavailable"
   defp rejection_message(:already_in_state), do: "target is already in the requested state"
   defp rejection_message(:control_failed), do: "control routing failed"
+  defp rejection_message(:pause_release_failed), do: "worker could not release the active pause containment"
   defp rejection_message(:superseded), do: "a newer control intent superseded this request"
   defp rejection_message(_class), do: "control request was rejected"
 end

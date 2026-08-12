@@ -56,6 +56,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   def age_label(_age_seconds), do: "unknown age"
 
   @spec latest_text(map()) :: String.t()
+  def latest_text(%{reasons: %{resume: %{outcome: :declined} = outcome}}),
+    do: "Resume declined — #{resume_condition(outcome)}; #{resume_detail(outcome)}"
+
+  def latest_text(%{reasons: %{resume: %{outcome: :dropped} = outcome}}),
+    do: "Resume dropped — #{resume_condition(outcome)}; #{resume_detail(outcome)}"
+
   def latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
   def latest_text(_row), do: "No recent activity"
 
@@ -152,6 +158,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
     do: "#{percent}%"
 
   defp progress_label(_row), do: "—"
+
+  defp resume_condition(%{pause_reason: :max_agent_duration}), do: "maximum agent duration reached"
+
+  defp resume_condition(%{pause_reason: reason}) when is_atom(reason),
+    do: humanize_atom(reason)
+
+  defp resume_condition(_outcome), do: "pause condition unknown"
+
+  defp resume_detail(%{detail: %{message: message}}) when is_binary(message), do: message
+  defp resume_detail(%{detail: %{class: class}}) when is_atom(class), do: humanize_atom(class)
+  defp resume_detail(%{detail: %{reason: reason}}) when is_atom(reason), do: humanize_atom(reason)
+  defp resume_detail(_outcome), do: "no diagnostic reported"
+
+  defp humanize_atom(value), do: value |> Atom.to_string() |> String.replace("_", " ")
 
   defp format_duration(seconds) do
     hours = div(seconds, 3_600)

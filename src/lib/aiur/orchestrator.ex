@@ -151,6 +151,12 @@ defmodule Aiur.Orchestrator do
     PauseResume.handle_worker_control_state(state, issue_id, status, control_payload)
   end
 
+  def handle_info({:worker_control_rejected, issue_id, request_id, generation, class}, state)
+      when is_binary(issue_id) and is_integer(request_id) and request_id > 0 and is_integer(generation) and
+             generation >= 0 and is_atom(class) do
+    PauseResume.handle_worker_control_rejected(state, issue_id, request_id, generation, class)
+  end
+
   def handle_info({:retry_issue, issue_id, retry_token}, state),
     do: RetryEngine.handle_retry_message(state, issue_id, retry_token)
 
@@ -412,6 +418,14 @@ defmodule Aiur.Orchestrator do
           {:ok, :resumed | :started} | {:error, term()}
   def resume_agent(server, identifier), do: PauseResume.resume_agent(server, identifier)
 
+  @spec resume_agent_with_receipt(String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(identifier), do: PauseResume.resume_agent_with_receipt(identifier)
+
+  @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(server, identifier), do: PauseResume.resume_agent_with_receipt(server, identifier)
+
   @spec prioritize_agent(String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
   def prioritize_agent(identifier), do: PriorityControl.prioritize_agent(identifier)
   @spec prioritize_agent(GenServer.server(), String.t()) :: {:ok, :prioritized | :already_prioritized} | {:error, term()}
@@ -658,6 +672,14 @@ defmodule Aiur.Orchestrator do
       do: PauseResume.resume_issue_call(state, issue_identifier)
 
   def handle_call({:resume_agent, _issue_identifier}, _from, state) do
+    {:reply, {:error, :invalid_identifier}, state}
+  end
+
+  def handle_call({:resume_agent_with_receipt, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: PauseResume.resume_issue_with_receipt_call(state, issue_identifier)
+
+  def handle_call({:resume_agent_with_receipt, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
 

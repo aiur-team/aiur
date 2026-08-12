@@ -11,6 +11,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
+    ControlLifecycle,
     HumanReview,
     OperatorMessages,
     PauseResume,
@@ -537,6 +538,102 @@ defmodule Aiur.OrchestratorStatusTest do
     snapshot = state |> StatusReport.snapshot_input() |> StatusReport.snapshot_payload()
 
     assert [%{queue_depth: 1, pending_operator_messages: [%{text: "show this message"}]}] = snapshot.running
+  end
+
+  test "dashboard projection retains the latest declined resume and held pause condition" do
+    issue_id = "issue-declined-resume"
+
+    entry =
+      issue_id
+      |> running_entry("MT-DECLINED-RESUME", :paused)
+      |> Map.put(:paused_reason, :max_agent_duration)
+
+    attrs = %{
+      request_id: 91,
+      issue_id: issue_id,
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 91, 1, now: ~U[2026-08-11 12:00:01Z])
+
+    {:ok, _request, lifecycle} =
+      ControlLifecycle.reject(lifecycle, 91, :not_eligible,
+        now: ~U[2026-08-11 12:00:02Z],
+        condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+      )
+
+    {:ok, _request, lifecycle} =
+      ControlLifecycle.request(
+        lifecycle,
+        %{attrs | request_id: 92, action: :pause, expected_status: :working},
+        now: ~U[2026-08-11 12:00:03Z]
+      )
+
+    snapshot =
+      %State{running: %{issue_id => entry}, control_lifecycle: lifecycle}
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert [row] = snapshot.running
+    assert row.pause_reason == :max_agent_duration
+
+    assert %{action: :pause, request_id: 92, status: :requested} = row.control.latest_control
+
+    assert %{
+             action: :resume,
+             request_id: 91,
+             status: :rejected,
+             rejection: %{
+               class: :not_eligible,
+               condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+             }
+           } = row.control.latest_resume_control
+
+    assert Enum.map(row.control.recent_controls, & &1.request_id) == [91, 92]
+  end
+
+  test "dashboard projection retains a dropped resume and its expiry reason" do
+    issue_id = "issue-dropped-resume"
+
+    entry =
+      issue_id
+      |> running_entry("MT-DROPPED-RESUME", :paused)
+      |> Map.put(:paused_reason, :operator_pause)
+
+    attrs = %{
+      request_id: 93,
+      issue_id: issue_id,
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 93, 1, now: ~U[2026-08-11 12:00:01Z])
+    {[expired], lifecycle} = ControlLifecycle.expire_due(lifecycle, 1_000, now: ~U[2026-08-11 12:00:02.001Z])
+    assert expired.expiry.reason == :timeout
+
+    snapshot =
+      %State{running: %{issue_id => entry}, control_lifecycle: lifecycle}
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert [row] = snapshot.running
+    assert row.pause_reason == :operator_pause
+
+    assert %{action: :resume, request_id: 93, status: :expired, expiry: %{reason: :timeout}} =
+             row.control.latest_resume_control
   end
 
   test "dashboard projection retains CI facts for retries absent from the latest poll" do

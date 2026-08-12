@@ -287,9 +287,12 @@ orchestrator answers as soon as the resume control request is queued for the
 agent, so the CLI then waits for that agent to actually leave the paused state
 before printing `aiur: resumed #44`. Every resume in one invocation shares a
 single 4s confirmation budget, so `resume --all` stays inside the control-RPC
-timeout. If the agent is still paused when the budget expires, the CLI says the
-request was accepted but the resume is unconfirmed, and exits 1 — a queued
-request is never reported as a completed resume.
+timeout. A worker refusal is reported as `declined` with the held pause
+condition; a lifecycle expiry is reported as `dropped` with its reason. If the
+request is still pending at the confirmation deadline, or the correlated
+outcome cannot be determined, the CLI says the outcome is unknown. Every
+unapplied path exits 1, and the same declined/dropped reason remains visible on
+the dashboard's paused row.
 
 Read-only fleet queries never use an empty buffer to mean success: `status`,
 `agents`, and `watch` print an affirmative empty-fleet row when no agents are
