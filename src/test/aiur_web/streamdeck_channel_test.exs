@@ -10,6 +10,8 @@ defmodule AiurWeb.StreamdeckChannelTest do
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias Aiur.ProviderMeterSnapshot
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
+  alias Phoenix.Socket.Message
+  alias Phoenix.Socket.V2.JSONSerializer
 
   @endpoint Endpoint
 
@@ -238,7 +240,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert Enum.any?(payload["transcript"], &(&1["body"] == "serialized transcript"))
 
     assert {:socket_push, :text, frame} =
-             Phoenix.Socket.V2.JSONSerializer.encode!(%Phoenix.Socket.Message{
+             JSONSerializer.encode!(%Message{
                topic: "streamdeck:fleet",
                event: "logs",
                payload: payload,
