@@ -8,11 +8,12 @@ defmodule Aiur.DecisionMetricsCanonicalTest do
   @requested_at ~U[2026-07-12 12:00:00.000Z]
 
   setup %{tmp_dir: tmp_dir} do
+    state_dir = Path.join(tmp_dir, "canonical-state")
     previous = Application.get_env(:aiur, :decision_state_dir)
-    Application.put_env(:aiur, :decision_state_dir, Path.join(tmp_dir, "canonical-state"))
+    Application.put_env(:aiur, :decision_state_dir, state_dir)
     on_exit(fn -> restore_env(:decision_state_dir, previous) end)
 
-    {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> stop_if_alive(store) end)
 
     ticket = %{identifier: "42", title: "Canonical metrics", url: nil}
