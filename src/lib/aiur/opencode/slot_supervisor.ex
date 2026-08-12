@@ -67,24 +67,26 @@ defmodule Aiur.Opencode.SlotSupervisor do
   end
 
   @doc "Stop an idle slot so a lowered warm-pool target can release its process."
-  @spec stop_slot(pos_integer()) :: :ok | :busy | :not_found | {:error, term()}
+  @spec stop_slot(pos_integer()) :: :ok | :busy | :not_found
   def stop_slot(slot_index) when is_integer(slot_index) and slot_index > 0 do
     case SlotRegistry.lookup(slot_index) do
       {:ok, pid} ->
-        case Slot.snapshot(pid) do
-          %{status: :ready} ->
-            case DynamicSupervisor.terminate_child(__MODULE__, pid) do
-              :ok -> :ok
-              {:error, :not_found} -> :not_found
-              {:error, reason} -> {:error, reason}
-            end
-
-          _ ->
-            :busy
-        end
+        stop_ready_slot(pid)
 
       :not_found ->
         :not_found
+    end
+  end
+
+  defp stop_ready_slot(pid) do
+    with %{status: :ready} <- Slot.snapshot(pid),
+         result <- DynamicSupervisor.terminate_child(__MODULE__, pid) do
+      case result do
+        :ok -> :ok
+        {:error, :not_found} -> :not_found
+      end
+    else
+      _ -> :busy
     end
   end
 

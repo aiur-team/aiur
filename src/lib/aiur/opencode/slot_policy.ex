@@ -39,8 +39,8 @@ defmodule Aiur.Opencode.SlotPolicy do
   use GenServer
   require Logger
 
-  alias Aiur.Boot
   alias Aiur.AgentEvents
+  alias Aiur.Boot
   alias Aiur.Opencode.{Slot, SlotSupervisor}
 
   defstruct target_count: 0,

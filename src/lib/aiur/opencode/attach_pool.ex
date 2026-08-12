@@ -38,6 +38,7 @@ defmodule Aiur.Opencode.AttachPool do
   require Logger
 
   alias Aiur.Opencode.{Protocol, Slot, SlotRegistry}
+  alias Aiur.Opencode.SlotPolicy
   alias Aiur.Tmux
 
   @topic "attach_pool"
@@ -848,7 +849,7 @@ defmodule Aiur.Opencode.AttachPool do
          [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
          {term_w, ""} <- Integer.parse(w_str),
          {term_h, ""} <- Integer.parse(h_str) do
-      slot_count = max(Aiur.Opencode.SlotPolicy.warm_pool_size(), 1)
+      slot_count = max(SlotPolicy.warm_pool_size(), 1)
       chat_pane_width = max(div(term_w, 2), 40)
       hidden_window_w = chat_pane_width * slot_count
 
