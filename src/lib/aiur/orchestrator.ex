@@ -40,6 +40,62 @@ defmodule Aiur.Orchestrator do
   def refresh_tracked_set(state), do: TrackedSet.refresh(state)
 
   @impl true
+  def handle_info({:poll_context_request, requester, token, {:monitor, pid}}, state)
+      when is_pid(requester) and is_reference(token) and is_pid(pid) do
+    send(requester, {:poll_context_reply, token, Process.monitor(pid)})
+    {:noreply, state}
+  end
+
+  def handle_info({:poll_context_request, requester, token, {:demonitor, ref, opts}}, state)
+      when is_pid(requester) and is_reference(token) and is_reference(ref) and is_list(opts) do
+    send(requester, {:poll_context_reply, token, Process.demonitor(ref, opts)})
+    {:noreply, state}
+  end
+
+  def handle_info(
+        {:poll_cycle_result, token, %State{} = result},
+        %State{poll_task_token: token, poll_replaying?: false} = state
+      )
+      when is_reference(token) do
+    cancel_poll_task_watch(state)
+    {:noreply, begin_deferred_poll_replay(result, state, result.poll_publish_snapshot?)}
+  end
+
+  def handle_info({:poll_cycle_result, _token, _result}, state), do: {:noreply, state}
+
+  def handle_info(
+        {:poll_cycle_timeout, token},
+        %State{poll_task_token: token, poll_replaying?: false} = state
+      )
+      when is_reference(token) do
+    Logger.error("Orchestrator poll task timed out; restarting to clean up partial side effects")
+    stop_poll_task(state)
+    {:stop, {:poll_cycle_timeout, token}, state}
+  end
+
+  def handle_info({:poll_cycle_timeout, _token}, state), do: {:noreply, state}
+
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %State{poll_task_ref: ref} = state)
+      when is_reference(ref) do
+    Logger.error("Orchestrator poll task exited; restarting to clean up partial side effects reason=#{inspect(reason)}")
+    cancel_poll_timeout(state)
+    {:stop, {:poll_cycle_failed, reason}, state}
+  end
+
+  def handle_info(:drain_poll_deferred, %State{poll_task_token: token, poll_replaying?: true} = state)
+      when is_reference(token) do
+    drain_deferred_poll_callbacks(state, 100)
+  end
+
+  def handle_info(:run_poll_cycle, %State{poll_task_token: token} = state)
+      when is_reference(token),
+      do: {:noreply, state}
+
+  def handle_info(message, %State{poll_task_token: token} = state) when is_reference(token) do
+    {:noreply, defer_poll_callback(state, {:info, message})}
+  end
+
+  @impl true
   def handle_info({:tick, tick_token}, %{tick_token: tick_token} = state)
       when is_reference(tick_token),
       do: Lifecycle.handle_tick(state)
@@ -577,13 +633,6 @@ defmodule Aiur.Orchestrator do
   def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout)
 
   @impl true
-  def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
-    do: OM.enqueue_event_digest_call(state, identifier, event)
-
-  def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
-      when is_binary(identifier) and is_list(events),
-      do: OM.enqueue_event_digest_batch_call(state, identifier, events)
-
   def handle_call(:poll_status, _from, state), do: StatusReport.poll_status(state)
 
   def handle_call(:list_active_identifiers, _from, state),
@@ -596,19 +645,42 @@ defmodule Aiur.Orchestrator do
 
   def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
 
-  def handle_call(:request_refresh, _from, state) do
-    Lifecycle.request_refresh(state)
+  def handle_call(:request_refresh, _from, state), do: Lifecycle.request_refresh(state)
+
+  def handle_call({:control_capabilities, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: OM.control_capabilities_call(state, issue_identifier)
+
+  def handle_call({:control_lifecycle, issue_identifier}, _from, state)
+      when is_binary(issue_identifier),
+      do: PauseResume.control_lifecycle_call(state, issue_identifier)
+
+  def handle_call(:max_concurrent_agents, _from, state),
+    do: Slots.max_concurrent_agents_call(state)
+
+  def handle_call(:globally_paused?, _from, state),
+    do: GlobalPause.globally_paused_call(state)
+
+  def handle_call(:global_pause_status, _from, state),
+    do: {:reply, GlobalPause.global_pause_status(state), state}
+
+  def handle_call(request, from, %State{poll_task_token: token} = state)
+      when is_reference(token) do
+    {:noreply, defer_poll_callback(state, {:call, request, from})}
   end
+
+  def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
+    do: OM.enqueue_event_digest_call(state, identifier, event)
+
+  def handle_call({:enqueue_event_digest_batch, identifier, events}, _from, state)
+      when is_binary(identifier) and is_list(events),
+      do: OM.enqueue_event_digest_batch_call(state, identifier, events)
 
   def handle_call({:send_operator_message, issue_identifier, payload}, _from, state),
     do: OM.send_operator_message_call(state, issue_identifier, payload)
 
   def handle_call({:send_correlated_operator_message, issue_identifier, payload}, _from, state),
     do: OM.send_correlated_operator_message_call(state, issue_identifier, payload)
-
-  def handle_call({:control_capabilities, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: OM.control_capabilities_call(state, issue_identifier)
 
   def handle_call({:pause_agent, issue_identifier}, _from, state)
       when is_binary(issue_identifier),
@@ -677,10 +749,6 @@ defmodule Aiur.Orchestrator do
     {:reply, {:error, :invalid_identifier}, state}
   end
 
-  def handle_call({:control_lifecycle, issue_identifier}, _from, state)
-      when is_binary(issue_identifier),
-      do: PauseResume.control_lifecycle_call(state, issue_identifier)
-
   def handle_call({:control_lifecycle, _issue_identifier}, _from, state) do
     {:reply, {:error, :invalid_identifier}, state}
   end
@@ -697,9 +765,6 @@ defmodule Aiur.Orchestrator do
       when is_binary(workspace),
       do: RC.ensure_remote_control_trust_call(state, workspace)
 
-  def handle_call(:max_concurrent_agents, _from, state),
-    do: Slots.max_concurrent_agents_call(state)
-
   def handle_call({:adjust_max_concurrent_agents, delta}, _from, state)
       when is_integer(delta),
       do: Slots.adjust_max_concurrent_agents_call(state, delta)
@@ -707,12 +772,6 @@ defmodule Aiur.Orchestrator do
   def handle_call({:set_max_concurrent_agents, n}, _from, state)
       when is_integer(n) and n > 0,
       do: Slots.set_max_concurrent_agents_call(state, n)
-
-  def handle_call(:globally_paused?, _from, state),
-    do: GlobalPause.globally_paused_call(state)
-
-  def handle_call(:global_pause_status, _from, state),
-    do: {:reply, GlobalPause.global_pause_status(state), state}
 
   def handle_call({:set_global_pause, on?}, _from, state)
       when is_boolean(on?),
@@ -816,6 +875,10 @@ defmodule Aiur.Orchestrator do
     do: State.note_agent_activity(state, identifier)
 
   @impl true
+  def handle_cast(request, %State{poll_task_token: token} = state) when is_reference(token) do
+    {:noreply, defer_poll_callback(state, {:cast, request})}
+  end
+
   def handle_cast({:reset_dispatch_budget, issue_identifier}, state)
       when is_binary(issue_identifier),
       do: {:noreply, PauseResume.reset_dispatch_budget_cast(state, issue_identifier)}
@@ -853,4 +916,138 @@ defmodule Aiur.Orchestrator do
   @spec unsubscribe_for_declared_blocker(String.t() | integer(), String.t() | integer()) :: :ok
   def unsubscribe_for_declared_blocker(blockee_identifier, blocker_identifier),
     do: AutoSubscriptions.unsubscribe_for_declared_blocker(blockee_identifier, blocker_identifier)
+
+  defp defer_poll_callback(%State{} = state, callback) do
+    %{state | poll_deferred: :queue.in(callback, state.poll_deferred)}
+  end
+
+  defp stop_poll_task(%State{poll_task_pid: pid} = state) do
+    if is_pid(pid) and Process.alive?(pid), do: Process.exit(pid, :kill)
+    cancel_poll_task_watch(state)
+  end
+
+  defp cancel_poll_task_watch(state) do
+    cancel_poll_timeout(state)
+
+    if is_reference(state.poll_task_ref) do
+      Process.demonitor(state.poll_task_ref, [:flush])
+    end
+
+    :ok
+  end
+
+  defp cancel_poll_timeout(state) do
+    if is_reference(state.poll_task_timeout_ref) do
+      Process.cancel_timer(state.poll_task_timeout_ref)
+    end
+
+    :ok
+  end
+
+  defp clear_poll_task(%State{} = state) do
+    %{
+      state
+      | poll_task_pid: nil,
+        poll_task_ref: nil,
+        poll_task_token: nil,
+        poll_task_timeout_ref: nil,
+        poll_replaying?: false,
+        poll_publish_snapshot?: false,
+        poll_deferred: :queue.new()
+    }
+  end
+
+  defp begin_deferred_poll_replay(%State{} = base_state, %State{} = owner_state, publish_snapshot?)
+       when is_boolean(publish_snapshot?) do
+    replay_state = %{
+      base_state
+      | poll_task_pid: nil,
+        poll_task_ref: nil,
+        poll_task_token: owner_state.poll_task_token,
+        poll_task_timeout_ref: nil,
+        poll_replaying?: true,
+        poll_publish_snapshot?: publish_snapshot?,
+        poll_deferred: owner_state.poll_deferred
+    }
+
+    if :queue.is_empty(replay_state.poll_deferred) do
+      finish_poll_cycle(replay_state)
+    else
+      send(self(), :drain_poll_deferred)
+      replay_state
+    end
+  end
+
+  defp drain_deferred_poll_callbacks(%State{} = state, remaining) when remaining <= 0 do
+    send(self(), :drain_poll_deferred)
+    {:noreply, state}
+  end
+
+  defp drain_deferred_poll_callbacks(%State{} = state, remaining) do
+    case :queue.out(state.poll_deferred) do
+      {:empty, _queue} ->
+        {:noreply, finish_poll_cycle(state)}
+
+      {{:value, callback}, rest} ->
+        inactive = %{state | poll_task_token: nil, poll_replaying?: false, poll_deferred: :queue.new()}
+
+        case apply_deferred_poll_callback(callback, inactive) do
+          {:ok, next} ->
+            replaying = %{
+              next
+              | poll_task_token: state.poll_task_token,
+                poll_replaying?: true,
+                poll_deferred: rest
+            }
+
+            drain_deferred_poll_callbacks(replaying, remaining - 1)
+
+          {:stop, reason, next} ->
+            {:stop, reason, clear_poll_task(next)}
+        end
+    end
+  end
+
+  defp apply_deferred_poll_callback({:info, message}, state) do
+    case handle_info(message, state) do
+      {:noreply, next} -> {:ok, next}
+      {:stop, reason, next} -> {:stop, reason, next}
+    end
+  end
+
+  defp apply_deferred_poll_callback({:cast, request}, state) do
+    {:noreply, next} = handle_cast(request, state)
+    {:ok, next}
+  end
+
+  defp apply_deferred_poll_callback({:call, request, from}, state) do
+    case handle_call(request, from, state) do
+      {:reply, reply, next} ->
+        GenServer.reply(from, reply)
+        {:ok, next}
+
+      {:noreply, next} ->
+        {:ok, next}
+
+      {:stop, reason, reply, next} ->
+        GenServer.reply(from, reply)
+        {:stop, reason, next}
+
+      {:stop, reason, next} ->
+        {:stop, reason, next}
+    end
+  end
+
+  defp finish_poll_cycle(%State{} = state) do
+    publish_snapshot? = state.poll_publish_snapshot?
+
+    next =
+      state
+      |> clear_poll_task()
+      |> Lifecycle.schedule_tick(TrackerHealth.next_poll_delay_ms(state))
+      |> Map.put(:poll_check_in_progress, false)
+
+    StatusReport.notify_dashboard(next, publish_snapshot?: publish_snapshot?)
+    next
+  end
 end

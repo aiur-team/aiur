@@ -1,7 +1,9 @@
 defmodule Aiur.Orchestrator.RetryEngine do
   @moduledoc """
   Retry scheduling and budget semantics for agent dispatch failures.
-  All functions execute inside the orchestrator GenServer process.
+
+  Poll-cycle callers may run in `Aiur.Orchestrator.PollContext`, which keeps
+  retry timers and ownership notifications targeted at the orchestrator.
   """
 
   require Logger
@@ -213,7 +215,9 @@ defmodule Aiur.Orchestrator.RetryEngine do
     %{running: Map.get(state.running, issue_id), retry: Map.get(state.retry_attempts, issue_id, %{})}
   end
 
-  defp demonitor_workspace_runner(%{ref: ref}) when is_reference(ref), do: Process.demonitor(ref, [:flush])
+  defp demonitor_workspace_runner(%{ref: ref}) when is_reference(ref),
+    do: Aiur.Orchestrator.PollContext.demonitor(ref, [:flush])
+
   defp demonitor_workspace_runner(_running), do: :ok
 
   defp install_workspace_wait(state, issue_id, identifier, owner, context) do
@@ -253,7 +257,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
   defp synchronize_workspace_wait(state, identifier, :available), do: release_workspace_wait(state, identifier)
 
   defp synchronize_workspace_wait(state, identifier, _wait) do
-    case Ownership.wait_for_release(identifier, self()) do
+    case Ownership.wait_for_release(identifier, Aiur.Orchestrator.PollContext.owner()) do
       :available -> release_workspace_wait(state, identifier)
       {:waiting, guardian, generation} -> bind_workspace_wait(state, identifier, guardian, generation)
     end
@@ -431,7 +435,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
       if is_reference(old_timer), do: Process.cancel_timer(old_timer)
 
-      timer_ref = Process.send_after(self(), {:retry_issue, issue_id, retry_token}, delay_ms)
+      timer_ref = Aiur.Orchestrator.PollContext.send_after({:retry_issue, issue_id, retry_token}, delay_ms)
 
       error_suffix = if is_binary(error), do: " error=#{error}", else: ""
 

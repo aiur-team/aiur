@@ -1,7 +1,10 @@
 defmodule Aiur.Orchestrator.Dispatcher do
   @moduledoc """
   Dispatch execution: choose loop, revalidation, thrash breaker, worker spawn.
-  All functions execute inside the orchestrator GenServer process.
+
+  The poll pipeline executes in a bounded task. The orchestrator remains the
+  owner of timers and worker monitors, accepts the coherent result, then
+  replays state-changing callbacks that arrived while the poll was in flight.
   """
 
   require Logger
@@ -20,6 +23,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     IssueSync,
     Lifecycle,
     PrAnchored,
+    PollContext,
     Reconciler,
     RetryEngine,
     Slots,
@@ -34,16 +38,73 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   @ci_readiness_timeout_ms 5_000
   @ci_readiness_retry_ms 60_000
+  @poll_cycle_timeout_ms 60_000
 
   @spec run_poll_cycle(State.t()) :: {:noreply, State.t()}
   def run_poll_cycle(%State{} = state) do
-    state = Lifecycle.refresh_runtime_config(state)
-    state = maybe_dispatch(state)
+    start_poll_cycle(state, &maybe_dispatch/1, @poll_cycle_timeout_ms)
+  end
+
+  @doc false
+  @spec start_poll_cycle(State.t(), (State.t() -> State.t()), pos_integer()) ::
+          {:noreply, State.t()}
+  def start_poll_cycle(%State{poll_task_token: token} = state, _poll_fun, _timeout_ms)
+      when is_reference(token),
+      do: {:noreply, state}
+
+  def start_poll_cycle(%State{} = state, poll_fun, timeout_ms)
+      when is_function(poll_fun, 1) and is_integer(timeout_ms) and timeout_ms > 0 do
+    owner = self()
+    token = make_ref()
+
+    work_state =
+      state
+      |> Lifecycle.refresh_runtime_config()
+      |> Map.put(:poll_check_in_progress, true)
+      |> Map.put(:poll_publish_snapshot?, false)
+      |> Map.put(:next_poll_due_at_ms, nil)
+
+    task_fun = fn ->
+      result = PollContext.run(owner, fn -> poll_fun.(work_state) end)
+      send(owner, {:poll_cycle_result, token, result})
+    end
+
+    case start_poll_task(task_fun) do
+      {:ok, pid} ->
+        task_ref = Process.monitor(pid)
+        timeout_ref = Process.send_after(owner, {:poll_cycle_timeout, token}, timeout_ms)
+
+        next = %{
+          work_state
+          | poll_task_pid: pid,
+            poll_task_ref: task_ref,
+            poll_task_token: token,
+            poll_task_timeout_ref: timeout_ref
+        }
+
+        StatusReport.notify_dashboard(next, publish_snapshot?: false)
+        {:noreply, next}
+
+      {:error, reason} ->
+        Logger.warning("Orchestrator poll task could not start; retaining last-known state reason=#{inspect(reason)}")
+        next = finish_without_poll(work_state)
+        {:noreply, next}
+    end
+  end
+
+  defp start_poll_task(fun) do
+    if Process.whereis(Aiur.TaskSupervisor) do
+      Task.Supervisor.start_child(Aiur.TaskSupervisor, fun)
+    else
+      Task.start(fun)
+    end
+  end
+
+  defp finish_without_poll(state) do
     state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
     state = %{state | poll_check_in_progress: false}
-
-    StatusReport.notify_dashboard(state)
-    {:noreply, state}
+    StatusReport.notify_dashboard(state, publish_snapshot?: false)
+    state
   end
 
   @spec maybe_dispatch(State.t()) :: State.t()
@@ -104,11 +165,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
         # The poll just refreshed `last_polled_issues`, so this generation can
         # replace a retained snapshot from a prior same-name orchestrator.
-        state = %{state | snapshot_ready?: true}
-
-        # The poll just refreshed `last_polled_issues`, so push a fresh
-        # summary out to any open agent-list pane immediately.
-        StatusReport.notify_dashboard(state)
+        state = %{state | snapshot_ready?: true, poll_publish_snapshot?: true}
 
         # Re-dispatch tickets parked on a transient pause/error whose backoff
         # has elapsed (#1453). Runs before normal dispatch so a restored ticket
@@ -207,7 +264,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     do: state
 
   def start_initial_ci_readiness_check(state, "github", base_branch, check_fun) do
-    parent = self()
+    parent = PollContext.owner()
     token = make_ref()
 
     case Task.Supervisor.start_child(Aiur.TaskSupervisor, fn ->
@@ -710,8 +767,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # `dispatch_issue/2`. This runs the same gates so an automatic resume can
   # never spawn during an operator halt or an over-capacity / gated fleet.
   # Returns `:dispatch` or `{:hold, reason}` (an atom naming the binding
-  # signal). Runs inside the orchestrator GenServer process, so no concurrent
-  # dispatch can interleave between this check and the subsequent spawn.
+  # signal). Runs inside the serialized poll task while the orchestrator defers
+  # state-changing callbacks, so no concurrent dispatch can interleave between
+  # this check and the subsequent spawn.
   @spec auto_resume_admission(State.t()) :: :dispatch | {:hold, atom()}
   def auto_resume_admission(%State{globally_paused: true}),
     do: {:hold, :global_pause}
@@ -1772,7 +1830,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       delay_ms = index * 1_000
       worker_host = Orchestrator.running_worker_host(next_state, issue.id)
       topic = "ticket.#{issue.identifier}.issue.label.added.agent.todo"
-      Process.send_after(self(), {:emit_system_alert, topic, issue, worker_host}, delay_ms)
+      PollContext.send_after({:emit_system_alert, topic, issue, worker_host}, delay_ms)
       index + 1
     else
       index
@@ -1789,7 +1847,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
        do: index
 
   defp dispatch_to_worker(%State{} = state, issue, attempt, preferred_worker_host, opts) do
-    recipient = self()
+    recipient = PollContext.owner()
 
     case select_worker_host(state, issue, preferred_worker_host) do
       :no_worker_capacity ->
@@ -1927,7 +1985,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
            )
          end) do
       {:ok, pid} ->
-        ref = Process.monitor(pid)
+        ref = PollContext.monitor(pid)
 
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
         record_rework_resume(issue, lifecycle_attempt_id)

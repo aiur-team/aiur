@@ -7,6 +7,7 @@ defmodule Aiur.GitHub.Transport do
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Quota
+  alias Aiur.GitHub.RequestContext
 
   require Logger
 
@@ -78,17 +79,17 @@ defmodule Aiur.GitHub.Transport do
   end
 
   def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
-    quota_request(req, fn ->
-      Req.patch(url,
-        headers: github_headers(token, req),
-        json: body,
-        connect_options: [timeout: 30_000]
-      )
-    end)
+    options =
+      token
+      |> github_headers(req)
+      |> request_options(req)
+      |> Keyword.put(:json, body)
+
+    quota_request(req, fn -> Req.patch(url, options) end)
   end
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
-    quota_request(req, fn -> Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000]) end)
+    quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
   end
 
   defp quota_request(request, request_fun) do
@@ -126,11 +127,28 @@ defmodule Aiur.GitHub.Transport do
   defp request_options(headers, req) do
     options = Application.get_env(:aiur, :github_transport_test_options, [])
     options = if is_list(options) and Keyword.keyword?(options), do: options, else: []
-    timeout_ms = Map.get(req, :timeout_ms, 30_000)
+    timeout_ms = request_timeout_ms(req)
 
     options
     |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms)
+    |> maybe_disable_retries()
     |> maybe_bound_response(req)
+  end
+
+  @doc false
+  @spec request_timeout_ms(map()) :: pos_integer()
+  def request_timeout_ms(req) when is_map(req) do
+    requested_ms =
+      case Map.get(req, :timeout_ms) do
+        timeout_ms when is_integer(timeout_ms) and timeout_ms > 0 -> timeout_ms
+        _invalid_or_missing -> 30_000
+      end
+
+    RequestContext.timeout_ms(requested_ms)
+  end
+
+  defp maybe_disable_retries(options) do
+    if RequestContext.active?(), do: Keyword.put(options, :retry, false), else: options
   end
 
   defp maybe_bound_response(options, %{max_response_bytes: limit})

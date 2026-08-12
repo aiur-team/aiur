@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.TransportTest do
 
   import ExUnit.CaptureLog
 
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{RequestContext, Transport}
 
   @token_cache_key {Aiur.GitHub.Config, :resolved_token}
 
@@ -33,6 +33,21 @@ defmodule Aiur.GitHub.TransportTest do
   test "exposes GitHub base URLs" do
     assert Transport.base_url() == "https://api.github.com"
     assert Transport.graphql_url() == "https://api.github.com/graphql"
+  end
+
+  test "poll request context caps defaults and explicit request timeouts to one deadline" do
+    assert Transport.request_timeout_ms(%{}) == 30_000
+
+    RequestContext.run(3_000, fn ->
+      assert Transport.request_timeout_ms(%{}) <= 3_000
+      assert Transport.request_timeout_ms(%{timeout_ms: 750}) == 750
+      assert Transport.request_timeout_ms(%{timeout_ms: 10_000}) <= 3_000
+
+      inherited = RequestContext.wrap(fn _value -> Transport.request_timeout_ms(%{}) end)
+      assert Task.async(fn -> inherited.(:child) end) |> Task.await() <= 3_000
+    end)
+
+    assert Transport.request_timeout_ms(%{}) == 30_000
   end
 
   test "parses configured owner and repo" do

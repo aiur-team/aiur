@@ -4,7 +4,8 @@ defmodule Aiur.GitHubAuthPreflightTest do
   alias Aiur.{AlertFeed, Config.Paths, Issue}
   alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.Client
-  alias Aiur.Orchestrator.{Dispatcher, State, StatusReport}
+  alias Aiur.GitHub.RequestContext
+  alias Aiur.Orchestrator.{Dispatcher, PollContext, SnapshotPublisher, State, StatusReport}
 
   defmodule FailingPreflightClient do
     def preflight_auth do
@@ -27,6 +28,19 @@ defmodule Aiur.GitHubAuthPreflightTest do
       end
 
       {:ok, []}
+    end
+  end
+
+  defmodule HangingPreflightClient do
+    def fetch_candidate_issues, do: {:ok, []}
+
+    def preflight_auth do
+      test_pid = Application.fetch_env!(:aiur, :github_auth_preflight_test_pid)
+      send(test_pid, {:github_read_started, self(), RequestContext.timeout_ms(30_000)})
+
+      receive do
+        :release_github_read -> {:error, :deliberately_unavailable}
+      end
     end
   end
 
@@ -62,7 +76,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
     end)
 
     orchestrator_name = Module.concat(__MODULE__, :PreflightOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
       if Process.alive?(pid) do
@@ -73,10 +87,7 @@ defmodule Aiur.GitHubAuthPreflightTest do
     log =
       capture_log(fn ->
         send(pid, :run_poll_cycle)
-        # Barrier: a synchronous system message queues behind :run_poll_cycle,
-        # so this returns only after the cycle (and its preflight Logger.error)
-        # has been fully handled — deterministic vs. a fixed sleep.
-        _ = :sys.get_state(pid)
+        wait_for_poll_completion(pid)
       end)
 
     assert log =~ "GitHub auth preflight failed for GITHUB_TOKEN"
@@ -88,6 +99,220 @@ defmodule Aiur.GitHubAuthPreflightTest do
     assert event["reason"] =~ "GitHub tracker authentication preflight failed"
     assert event["reason"] =~ "classification=invalid_or_expired_token"
     assert event["needs_attention"] == true
+  end
+
+  test "orchestrator serves control reads while a GitHub read is hung off-process" do
+    Application.put_env(:aiur, :github_client_module, HangingPreflightClient)
+    write_workflow_file_synced!(Workflow.workflow_file_path(), tracker_kind: "memory")
+
+    orchestrator_name = Module.concat(__MODULE__, :HungReadOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    Process.unlink(pid)
+
+    write_workflow_file_synced!(Workflow.workflow_file_path(),
+      tracker_kind: "github",
+      tracker_repo: "owner/repo",
+      tracker_label_prefix: "sym"
+    )
+
+    send(pid, :run_poll_cycle)
+    assert_receive {:github_read_started, github_reader, 3_000}, 500
+
+    on_exit(fn ->
+      send(github_reader, :release_github_read)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+
+    for number <- 1..100 do
+      send(pid, {:worker_runtime_info, "missing-#{number}", %{worker_host: "test"}})
+    end
+
+    started_at = System.monotonic_time(:millisecond)
+    assert [] == Orchestrator.status(orchestrator_name, 250)
+    assert %{running: []} = Orchestrator.snapshot(orchestrator_name, 250)
+    assert System.monotonic_time(:millisecond) - started_at < 250
+    assert github_reader != pid
+    assert {:message_queue_len, queued} = Process.info(pid, :message_queue_len)
+    assert queued < 10
+
+    send(github_reader, :release_github_read)
+
+    assert Enum.any?(1..50, fn _attempt ->
+             if Orchestrator.poll_status(orchestrator_name, 250).checking? do
+               Process.sleep(10)
+               false
+             else
+               true
+             end
+           end)
+
+    completed_state = :sys.get_state(pid)
+    assert completed_state.poll_task_token == nil
+    assert :queue.is_empty(completed_state.poll_deferred)
+  end
+
+  test "catastrophic poll timeout stops the orchestrator and its poll task" do
+    write_workflow_file_synced!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    orchestrator_name = Module.concat(__MODULE__, :TimedOutPollOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    Process.unlink(pid)
+    test_pid = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+
+    :sys.replace_state(pid, &%{&1 | snapshot_ready?: true})
+    initial_state = :sys.get_state(pid)
+    :ok = StatusReport.notify_dashboard(initial_state)
+
+    assert [{^orchestrator_name, _generation, initial_version, _snapshot_input}] =
+             :ets.lookup(SnapshotPublisher, orchestrator_name)
+
+    :sys.replace_state(pid, fn state ->
+      {:noreply, next} =
+        Dispatcher.start_poll_cycle(
+          state,
+          fn stale ->
+            send(test_pid, {:timed_poll_started, self()})
+            StatusReport.notify_dashboard(%{stale | snapshot_ready?: true})
+            receive do: (:never -> stale)
+          end,
+          25
+        )
+
+      next
+    end)
+
+    assert_receive {:timed_poll_started, poll_pid}, 500
+    monitor_ref = Process.monitor(pid)
+    assert_receive {:DOWN, ^monitor_ref, :process, ^pid, {:poll_cycle_timeout, _token}}, 500
+    refute Process.alive?(poll_pid)
+
+    assert [{^orchestrator_name, _generation, ^initial_version, _snapshot_input}] =
+             :ets.lookup(SnapshotPublisher, orchestrator_name)
+  end
+
+  test "a delivered watchdog cannot replace an accepted poll result during replay" do
+    write_workflow_file_synced!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    orchestrator_name = Module.concat(__MODULE__, :ResultWatchdogRaceOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    Process.unlink(pid)
+    test_pid = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      {:noreply, next} =
+        Dispatcher.start_poll_cycle(
+          state,
+          fn current ->
+            send(test_pid, {:race_poll_started, self()})
+            receive do: (:release_race_poll -> current)
+          end,
+          1_000
+        )
+
+      next
+    end)
+
+    assert_receive {:race_poll_started, poll_pid}, 500
+
+    for number <- 1..101 do
+      send(pid, {:worker_runtime_info, "missing-#{number}", %{worker_host: "test"}})
+    end
+
+    assert [] == Orchestrator.status(orchestrator_name, 250)
+    owner_state = :sys.get_state(pid)
+    token = owner_state.poll_task_token
+    accepted = %{owner_state | session_max_concurrent_agents: 9}
+
+    send(pid, {:poll_cycle_result, token, accepted})
+    send(pid, {:poll_cycle_timeout, token})
+
+    wait_for_poll_completion(pid)
+    assert Process.alive?(pid)
+    assert :sys.get_state(pid).session_max_concurrent_agents == 9
+
+    send(poll_pid, :release_race_poll)
+  end
+
+  test "state-changing calls replay in order after the poll result" do
+    write_workflow_file_synced!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    orchestrator_name = Module.concat(__MODULE__, :DeferredCallOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    Process.unlink(pid)
+    test_pid = self()
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      {:noreply, next} =
+        Dispatcher.start_poll_cycle(
+          state,
+          fn stale ->
+            send(test_pid, {:deferred_poll_started, self()})
+
+            receive do
+              :finish_poll -> stale
+            end
+          end,
+          1_000
+        )
+
+      next
+    end)
+
+    assert_receive {:deferred_poll_started, poll_pid}, 500
+    mutation = Task.async(fn -> Orchestrator.set_max_concurrent_agents(orchestrator_name, 7) end)
+    assert Task.yield(mutation, 25) == nil
+    assert [] == Orchestrator.status(orchestrator_name, 250)
+
+    send(poll_pid, :finish_poll)
+    assert {:ok, %{max: 7}} = Task.await(mutation, 500)
+    assert :sys.get_state(pid).session_max_concurrent_agents == 7
+  end
+
+  test "poll-dispatched worker monitors remain owned by the orchestrator" do
+    write_workflow_file_synced!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    orchestrator_name = Module.concat(__MODULE__, :PollMonitorOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+    Process.unlink(pid)
+    test_pid = self()
+    worker = spawn(fn -> receive do: (:stop -> :ok) end)
+
+    on_exit(fn ->
+      send(worker, :stop)
+      if Process.alive?(pid), do: Process.exit(pid, :kill)
+    end)
+
+    :sys.replace_state(pid, fn state ->
+      {:noreply, next} =
+        Dispatcher.start_poll_cycle(
+          state,
+          fn current ->
+            ref = PollContext.monitor(worker)
+            send(test_pid, {:worker_monitor_created, self(), ref})
+            current
+          end,
+          1_000
+        )
+
+      next
+    end)
+
+    assert_receive {:worker_monitor_created, poll_pid, monitor_ref}, 500
+    assert poll_pid != pid
+    wait_for_poll_completion(pid)
+
+    assert {:monitors, monitors} = Process.info(pid, :monitors)
+    assert {:process, worker} in monitors
+    refute {:process, worker} in elem(Process.info(poll_pid, :monitors) || {:monitors, []}, 1)
+    assert is_reference(monitor_ref)
   end
 
   test "tracker auth fleet alert is deduplicated by stable cause and rearms after recovery" do
@@ -223,4 +448,19 @@ defmodule Aiur.GitHubAuthPreflightTest do
 
   defp pop_preflight_result([{:error, reason} | rest], state),
     do: {{:error, reason, state}, rest}
+
+  defp wait_for_poll_completion(pid, attempts \\ 100)
+
+  defp wait_for_poll_completion(_pid, 0), do: flunk("poll cycle did not complete")
+
+  defp wait_for_poll_completion(pid, attempts) do
+    state = :sys.get_state(pid)
+
+    if is_nil(state.poll_task_token) and is_integer(state.next_poll_due_at_ms) do
+      :ok
+    else
+      Process.sleep(10)
+      wait_for_poll_completion(pid, attempts - 1)
+    end
+  end
 end

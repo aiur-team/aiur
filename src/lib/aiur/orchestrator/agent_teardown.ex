@@ -1,7 +1,9 @@
 defmodule Aiur.Orchestrator.AgentTeardown do
   @moduledoc """
   Owns orchestrator AgentTeardown behavior.
-  All functions execute inside the orchestrator GenServer process.
+
+  Poll-cycle callers may run in `Aiur.Orchestrator.PollContext`, which keeps
+  monitor ownership on the orchestrator process.
   """
 
   require Logger
@@ -71,7 +73,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         end
 
         if is_reference(ref) do
-          Process.demonitor(ref, [:flush])
+          Aiur.Orchestrator.PollContext.demonitor(ref, [:flush])
         end
 
         %{
@@ -134,7 +136,7 @@ defmodule Aiur.Orchestrator.AgentTeardown do
         end
 
         if is_reference(ref) do
-          Process.demonitor(ref, [:flush])
+          Aiur.Orchestrator.PollContext.demonitor(ref, [:flush])
         end
 
         existing_control = Map.get(running_entry, :control, %{})

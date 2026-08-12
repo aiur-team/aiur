@@ -1,7 +1,10 @@
 defmodule Aiur.Orchestrator.StatusReport do
   @moduledoc """
   Owns orchestrator StatusReport behavior.
-  All functions execute inside the orchestrator GenServer process.
+
+  Read-only control queries project the orchestrator's last-known state while
+  a poll task is in flight; only successful poll completion refreshes the
+  fleet snapshot timestamp.
   """
 
   alias Aiur.AgentEvents
@@ -17,6 +20,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.DispatchPolicy
   alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
+  alias Aiur.Orchestrator.PollContext
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
@@ -75,9 +79,14 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  @spec notify_dashboard(State.t()) :: :ok
-  def notify_dashboard(state) do
-    if state.snapshot_ready? == true, do: :ok = publish_snapshot(state)
+  @spec notify_dashboard(State.t(), keyword()) :: :ok
+  def notify_dashboard(state, opts \\ []) do
+    if PollContext.active?(), do: :ok, else: do_notify_dashboard(state, opts)
+  end
+
+  defp do_notify_dashboard(state, opts) do
+    if state.snapshot_ready? == true and Keyword.get(opts, :publish_snapshot?, true),
+      do: :ok = publish_snapshot(state)
 
     state
     |> running_summaries()

@@ -3,6 +3,7 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
   alias Aiur.{CIApprovalStore, Workflow}
   alias Aiur.Events.GithubCIPoller
+  alias Aiur.GitHub.RequestContext
 
   setup do
     previous_token = System.get_env("GITHUB_TOKEN")
@@ -67,6 +68,24 @@ defmodule Aiur.Events.GithubCIPollerTest do
 
     assert {:ok, %{errors: [], results: [%{decision: :passed, head_sha: "current-sha", pr_number: 71}]}} =
              GithubCIPoller.poll(["42"], request_fun: request_fun)
+  end
+
+  test "fan-out tasks inherit the caller's GitHub request deadline" do
+    test_pid = self()
+
+    request_fun = fn %{url: url} ->
+      send(test_pid, {:ci_child_timeout, RequestContext.timeout_ms(30_000)})
+      assert String.contains?(url, "/pulls?")
+      {:ok, %{status: 200, body: []}}
+    end
+
+    RequestContext.run(3_000, fn ->
+      assert {:ok, %{errors: [], results: [%{decision: :pending}]}} =
+               GithubCIPoller.poll(["42"], request_fun: request_fun)
+    end)
+
+    assert_receive {:ci_child_timeout, timeout_ms}
+    assert timeout_ms <= 3_000
   end
 
   test "returns pending for no observed checks or in-progress work" do

@@ -195,7 +195,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     else
       delay_ms = Config.ci_wait_rewake_minutes() * 60_000
       token = make_ref()
-      timer_ref = Process.send_after(self(), {:ci_wait_rewake, issue_id, token}, delay_ms)
+      timer_ref = Aiur.Orchestrator.PollContext.send_after({:ci_wait_rewake, issue_id, token}, delay_ms)
 
       rewake = %{
         timer_ref: timer_ref,

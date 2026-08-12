@@ -486,7 +486,7 @@ defmodule Aiur.Orchestrator.CommentWake do
 
         timer_ref =
           Process.send_after(
-            self(),
+            Aiur.Orchestrator.PollContext.owner(),
             {:retry_comment_rework, issue_number, source, event, next_attempt},
             delay_ms
           )

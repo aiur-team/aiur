@@ -7,7 +7,7 @@ defmodule Aiur.GitHub.Config do
 
   require Logger
 
-  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, Transport}
+  alias Aiur.GitHub.{AppCredentials, AppToken, AppTokenRefresher, CodeOwners, RequestContext, Transport}
 
   @default_label_prefix "agent"
 
@@ -360,13 +360,23 @@ defmodule Aiur.GitHub.Config do
   # `.env` token to `gh` keyring auth when available.
   defp valid_github_token?(token, request_fun)
        when is_binary(token) and is_function(request_fun, 2) do
-    case request_fun.("https://api.github.com/rate_limit",
-           headers: [
-             {"Authorization", "Bearer #{token}"},
-             {"Accept", "application/vnd.github+json"},
-             {"User-Agent", "aiur"}
-           ],
-           connect_options: [timeout: 10_000]
+    timeout_ms = RequestContext.timeout_ms(10_000)
+
+    request_options = [
+      headers: [
+        {"Authorization", "Bearer #{token}"},
+        {"Accept", "application/vnd.github+json"},
+        {"User-Agent", "aiur"}
+      ],
+      connect_options: [timeout: timeout_ms],
+      receive_timeout: timeout_ms
+    ]
+
+    request_options = if RequestContext.active?(), do: Keyword.put(request_options, :retry, false), else: request_options
+
+    case request_fun.(
+           "https://api.github.com/rate_limit",
+           request_options
          ) do
       {:ok, %{status: status} = response} when status in 200..299 ->
         rate_limit_usable?(response)

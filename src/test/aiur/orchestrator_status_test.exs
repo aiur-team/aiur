@@ -2878,6 +2878,9 @@ defmodule Aiur.OrchestratorStatusTest do
       if Process.alive?(worker_pid), do: Process.exit(worker_pid, :normal)
     end)
 
+    assert eventually?(fn -> is_nil(:sys.get_state(pid).poll_task_token) end)
+    freeze_poll_cycle(pid)
+
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-occ" => running_entry("issue-occ", "MT-OCC", :working, worker_pid)}}
     end)
@@ -4127,6 +4130,9 @@ defmodule Aiur.OrchestratorStatusTest do
   end
 
   test "orchestrator emits blocker coordination events from poll transitions" do
+    github_token = System.get_env("GITHUB_TOKEN")
+    System.delete_env("GITHUB_TOKEN")
+
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
       tracker_active_states: ["Todo", "In Progress"],
@@ -4153,16 +4159,17 @@ defmodule Aiur.OrchestratorStatusTest do
     ])
 
     orchestrator_name = Module.concat(__MODULE__, :DependencyEventOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
 
     on_exit(fn ->
+      restore_env("GITHUB_TOKEN", github_token)
       Application.delete_env(:aiur, :memory_tracker_issues)
 
       if Process.alive?(pid), do: Process.exit(pid, :normal)
     end)
 
     send(pid, :run_poll_cycle)
-    Process.sleep(25)
+    assert eventually?(fn -> Map.has_key?(:sys.get_state(pid).last_polled_issues, "blocked-1") end)
 
     assert :empty == Orchestrator.claim_next_queue_item(orchestrator_name, "MT-2")
 
@@ -4172,7 +4179,13 @@ defmodule Aiur.OrchestratorStatusTest do
     ])
 
     send(pid, :run_poll_cycle)
-    Process.sleep(25)
+
+    assert eventually?(fn ->
+             case :sys.get_state(pid).last_polled_issues do
+               %{"blocker-1" => %Issue{state: "Done"}} -> true
+               _other -> false
+             end
+           end)
 
     assert {:ok,
             %{

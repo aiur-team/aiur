@@ -43,6 +43,13 @@ defmodule Aiur.Orchestrator.State do
             | nil,
           next_poll_due_at_ms: integer() | nil,
           poll_check_in_progress: boolean() | nil,
+          poll_task_pid: pid() | nil,
+          poll_task_ref: reference() | nil,
+          poll_task_token: reference() | nil,
+          poll_task_timeout_ref: reference() | nil,
+          poll_replaying?: boolean(),
+          poll_publish_snapshot?: boolean(),
+          poll_deferred: :queue.queue(),
           poll_frozen: boolean() | nil,
           tick_timer_ref: reference() | nil,
           tick_token: reference() | nil,
@@ -134,6 +141,10 @@ defmodule Aiur.Orchestrator.State do
     :effective_concurrent_agents,
     :next_poll_due_at_ms,
     :poll_check_in_progress,
+    :poll_task_pid,
+    :poll_task_ref,
+    :poll_task_token,
+    :poll_task_timeout_ref,
     :poll_frozen,
     :tick_timer_ref,
     :tick_token,
@@ -201,7 +212,10 @@ defmodule Aiur.Orchestrator.State do
     global_pause: %{paused_at: nil, source: nil},
     snapshot_ready?: false,
     control_lifecycle: %ControlLifecycle{},
-    prewarm_hold_ticks: 0
+    prewarm_hold_ticks: 0,
+    poll_replaying?: false,
+    poll_publish_snapshot?: false,
+    poll_deferred: :queue.new()
   ]
 
   @spec handle_worker_runtime_info(t(), String.t(), map()) :: {:noreply, t()}

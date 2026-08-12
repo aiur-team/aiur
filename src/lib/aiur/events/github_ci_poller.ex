@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCIPoller do
   require Logger
 
   alias Aiur.{CIApprovalStore, Config}
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, RequestContext}
 
   @type target :: String.t() | integer()
   @type decision :: :pending | :passed | :failed
@@ -47,7 +47,7 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp target_task_results(targets, opts) do
-    run_target = &poll_target(&1, opts)
+    run_target = RequestContext.wrap(&poll_target(&1, opts))
 
     task_opts = [
       max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),

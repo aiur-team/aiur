@@ -11,7 +11,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
   require Logger
 
   alias Aiur.Events.{CommentFilter, GithubKeys, Publisher, Sanitizer}
-  alias Aiur.GitHub.Client
+  alias Aiur.GitHub.{Client, RequestContext}
 
   @type target :: String.t() | integer()
   @default_max_concurrency 4
@@ -89,9 +89,10 @@ defmodule Aiur.Events.GithubCommentsPoller do
   end
 
   defp target_task_results(targets, since_by_target, etags_by_target, repo, opts) do
-    run_target = fn target ->
-      poll_target(target, Map.fetch!(since_by_target, target), Map.fetch!(etags_by_target, target), repo, opts)
-    end
+    run_target =
+      RequestContext.wrap(fn target ->
+        poll_target(target, Map.fetch!(since_by_target, target), Map.fetch!(etags_by_target, target), repo, opts)
+      end)
 
     task_opts = [
       max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),

@@ -158,6 +158,10 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
+    if is_pid(state.poll_task_pid) and Process.alive?(state.poll_task_pid) do
+      Process.exit(state.poll_task_pid, :kill)
+    end
+
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves
     # a timer firing — and logging — into whatever runs after it (#1747).
@@ -187,7 +191,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
         tick_token: nil
     }
 
-    StatusReport.notify_dashboard(state)
+    StatusReport.notify_dashboard(state, publish_snapshot?: false)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}
   end

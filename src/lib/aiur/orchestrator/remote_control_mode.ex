@@ -254,7 +254,7 @@ defmodule Aiur.Orchestrator.RemoteControlMode do
 
     Orchestrator.kill_repl_session(running_entry)
     Orchestrator.close_active_chat_streams(identifier, reason)
-    if is_reference(ref), do: Process.demonitor(ref, [:flush])
+    if is_reference(ref), do: Aiur.Orchestrator.PollContext.demonitor(ref, [:flush])
     if is_pid(pid), do: Orchestrator.terminate_task(pid)
 
     cleared =
