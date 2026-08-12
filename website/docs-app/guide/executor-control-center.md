@@ -8,7 +8,13 @@ Every screenshot on this page was captured from the shipped LiveView dashboard a
 
 ## Open the dashboard
 
-Foreground and headless runs request the dashboard unless `--no-dashboard` is present. Its default writable mode requires both `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, including on loopback. Without credentials, set `observability.dashboard_writable: false` for a read-only loopback dashboard, or the listener refuses to start. The launcher binds to loopback by default unless it can safely use configured, authenticated Tailscale exposure. The launch output prints its URL only when the listener is running:
+Foreground and headless runs request the dashboard unless `--no-dashboard` is present. Its default writable mode requires both `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`, including on loopback. Without credentials, set `observability.dashboard_writable: false` for a read-only loopback dashboard, or the listener refuses to start. The launcher binds to loopback by default unless it can safely use authenticated Tailscale exposure. A configured `server.host` wins over that default. The launch output prints its URL and effective bind address only when the listener is running:
+
+```text
+Dashboard: http://127.0.0.1:4000 (bind host=0.0.0.0, port=4000)
+```
+
+Set a stable bind explicitly when local ingress, probes, or tunnels depend on it:
 
 ```yaml
 server:
@@ -16,7 +22,7 @@ server:
   port: 4000
 ```
 
-Keep the default loopback bind unless you deliberately need network access. See [Authentication and network exposure](#authentication-and-network-exposure) before changing `server.host`.
+Set `server.host: 127.0.0.1` explicitly when the dashboard must remain loopback-only. See [Authentication and network exposure](#authentication-and-network-exposure) before choosing a network-visible bind.
 
 ## Overview
 
