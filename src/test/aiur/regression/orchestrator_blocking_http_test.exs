@@ -208,6 +208,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
           CommentPolling.start_async(state, comment_poll_opts(hanging_fetcher))
         end)
 
+      next_state = await_async_started(next_state)
       assert_receive :comment_poll_started, 5_000
       assert div(elapsed_us, 1_000) < 1_000
       assert %{ref: ref} = next_state.github_comment_poll
@@ -225,6 +226,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       opts = comment_poll_opts(hanging_fetcher)
 
       state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, opts)
+      state = await_async_started(state)
       assert_receive :comment_poll_started, 5_000
 
       assert CommentPolling.start_async(state, opts).github_comment_poll == state.github_comment_poll

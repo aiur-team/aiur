@@ -210,6 +210,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
   def apply_async_started(%State{github_comment_poll: %{ref: ref, owner: owner} = pending} = state, ref, owner, pid) do
     monitor_ref = Process.monitor(pid)
     Process.demonitor(pending.owner_monitor_ref, [:flush])
+    send(owner, {:start_owned_poll, self(), ref})
 
     poll =
       pending
@@ -246,7 +247,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
           "abandoning it and starting a fresh one"
       )
 
-      terminate_poll(state.github_comment_poll)
+      abandon_poll(state.github_comment_poll)
       false
     end
   end
@@ -260,9 +261,16 @@ defmodule Aiur.Orchestrator.CommentPolling do
     task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end
     {owner, owner_monitor_ref} = spawn_owned_poll(orchestrator, state.snapshot_key, ref, task_fun)
 
-    poll = %{ref: ref, pid: nil, owner: owner, monitor_ref: nil, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms}
+    poll = %{ref: ref, owner: owner, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms}
     %{state | github_comment_poll: poll}
   end
+
+  defp abandon_poll(%{owner: owner} = poll) when is_pid(owner) do
+    send(owner, {:stop_owned_poll, self(), make_ref()})
+    demonitor_comment_poll(poll)
+  end
+
+  defp abandon_poll(_poll), do: :ok
 
   @doc false
   @spec terminate_poll(map() | nil) :: :ok
@@ -320,11 +328,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
       case claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
         :ok ->
-          poll = spawn(fn -> receive do: (:start -> task_fun.()) end)
-          poll_ref = Process.monitor(poll)
+          {poll, poll_ref} = spawn_monitor(fn -> receive do: (:start -> task_fun.()) end)
           send(orchestrator, {:github_comment_poll_started, ref, self(), poll})
-          send(poll, :start)
-          guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
+          await_poll_start(orchestrator, orchestrator_ref, ref, poll, poll_ref)
 
         :orchestrator_down ->
           :ok
@@ -333,6 +339,21 @@ defmodule Aiur.Orchestrator.CommentPolling do
           send(caller, {:owned_poll_stopped, stop_ref})
       end
     end)
+  end
+
+  defp await_poll_start(orchestrator, orchestrator_ref, ref, poll, poll_ref) do
+    receive do
+      {:start_owned_poll, ^orchestrator, ^ref} ->
+        send(poll, :start)
+        guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
+
+      {:stop_owned_poll, caller, stop_ref} ->
+        reap_poll_tree(poll, poll_ref)
+        send(caller, {:owned_poll_stopped, stop_ref})
+
+      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+        reap_poll_tree(poll, poll_ref)
+    end
   end
 
   defp claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
@@ -403,6 +424,10 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   defp demonitor_comment_poll(%{monitor_ref: monitor_ref}) when is_reference(monitor_ref) do
     Process.demonitor(monitor_ref, [:flush])
+  end
+
+  defp demonitor_comment_poll(%{owner_monitor_ref: owner_monitor_ref}) when is_reference(owner_monitor_ref) do
+    Process.demonitor(owner_monitor_ref, [:flush])
   end
 
   defp demonitor_comment_poll(_poll), do: :ok

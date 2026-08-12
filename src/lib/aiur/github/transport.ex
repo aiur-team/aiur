@@ -152,22 +152,24 @@ defmodule Aiur.GitHub.Transport do
   @spec off_process_request(map(), (-> term())) :: term()
   def off_process_request(request, request_fun) when is_function(request_fun, 0) do
     deadline_ms = request_deadline_ms(request)
+    deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
     caller = self()
     callers = [caller | Process.get(:"$callers", [])]
     logger_metadata = Logger.metadata()
 
     guardian_ready_ref = make_ref()
 
-    _guardian =
-      spawn(fn ->
-        # Trap before linking so cancellation cannot land in the small window
-        # between process creation and enabling the inverse lifetime edge.
+    {guardian, guardian_ref} =
+      spawn_monitor(fn ->
         Process.flag(:trap_exit, true)
-        Process.link(caller)
         caller_ref = Process.monitor(caller)
 
-        worker =
-          spawn(fn ->
+        {worker, worker_ref} =
+          spawn_monitor(fn ->
+            receive do
+              :start -> :ok
+            end
+
             # `Req.Test` and friends resolve stubs through `$callers`, and log
             # lines keep the caller's metadata, so both are carried over.
             Process.put(:"$callers", callers)
@@ -183,21 +185,74 @@ defmodule Aiur.GitHub.Transport do
             send(caller, {__MODULE__, self(), result})
           end)
 
-        worker_ref = Process.monitor(worker)
         send(caller, {guardian_ready_ref, self(), worker})
-        guard_worker_lifetime(caller, caller_ref, worker, worker_ref)
+        await_request_start(caller, caller_ref, guardian_ready_ref, worker, worker_ref)
       end)
 
-    # Do not let the request proceed until the guardian is both linked and
-    # monitoring. Poll-tree reaping can then discover it and wait until the
-    # socket-owning worker is gone before a successor poll starts.
-    worker =
-      receive do
-        {^guardian_ready_ref, _guardian, worker} -> worker
-      end
+    with {:ok, worker} <- await_guardian_ready(guardian, guardian_ref, guardian_ready_ref, deadline_at_ms) do
+      monitor_ref = Process.monitor(worker)
 
-    monitor_ref = Process.monitor(worker)
-    await_off_process_request(request, worker, monitor_ref, deadline_ms)
+      case start_guarded_request(guardian, guardian_ref, guardian_ready_ref, deadline_at_ms) do
+        :ok ->
+          await_off_process_request(request, worker, monitor_ref, deadline_at_ms, deadline_ms)
+
+        error ->
+          Process.demonitor(monitor_ref, [:flush])
+          error
+      end
+    end
+  end
+
+  defp await_request_start(caller, caller_ref, ready_ref, worker, worker_ref) do
+    receive do
+      {:start_guarded_request, ^ready_ref} ->
+        send(caller, {:guarded_request_started, ready_ref})
+        send(worker, :start)
+        guard_worker_lifetime(caller, caller_ref, worker, worker_ref)
+
+      {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
+        Process.exit(worker, :kill)
+        await_worker_down(worker, worker_ref)
+    end
+  end
+
+  defp await_guardian_ready(guardian, guardian_ref, ready_ref, deadline_at_ms) do
+    receive do
+      {^ready_ref, ^guardian, worker} -> {:ok, worker}
+      {:DOWN, ^guardian_ref, :process, ^guardian, reason} -> {:error, {:github_request_guardian_exit, reason}}
+    after
+      remaining_deadline_ms(deadline_at_ms) ->
+        stop_request_guardian(guardian, guardian_ref)
+        {:error, :fetch_deadline_exceeded}
+    end
+  end
+
+  defp start_guarded_request(guardian, guardian_ref, ready_ref, deadline_at_ms) do
+    with :ok <- link_request_guardian(guardian) do
+      send(guardian, {:start_guarded_request, ready_ref})
+
+      receive do
+        {:guarded_request_started, ^ready_ref} ->
+          Process.demonitor(guardian_ref, [:flush])
+          :ok
+
+        {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
+          {:error, {:github_request_guardian_exit, reason}}
+      after
+        remaining_deadline_ms(deadline_at_ms) ->
+          Process.unlink(guardian)
+          stop_request_guardian(guardian, guardian_ref)
+          {:error, :fetch_deadline_exceeded}
+      end
+    end
+  end
+
+  defp link_request_guardian(guardian) do
+    Process.link(guardian)
+    :ok
+  catch
+    :exit, :noproc -> {:error, {:github_request_guardian_exit, :noproc}}
+    :error, :badarg -> {:error, {:github_request_guardian_exit, :noproc}}
   end
 
   # The request worker is deliberately unlinked from its caller so an
@@ -219,7 +274,7 @@ defmodule Aiur.GitHub.Transport do
     end
   end
 
-  defp await_off_process_request(request, worker, monitor_ref, deadline_ms) do
+  defp await_off_process_request(request, worker, monitor_ref, deadline_at_ms, deadline_ms) do
     receive do
       {__MODULE__, ^worker, {:ok, result}} ->
         Process.demonitor(monitor_ref, [:flush])
@@ -234,8 +289,25 @@ defmodule Aiur.GitHub.Transport do
         # mailbox, so surface it as an error rather than taking the caller down.
         {:error, {:github_request_task_exit, reason}}
     after
-      deadline_ms ->
+      remaining_deadline_ms(deadline_at_ms) ->
         abandon_off_process_request(request, worker, monitor_ref, deadline_ms)
+    end
+  end
+
+  defp remaining_deadline_ms(deadline_at_ms),
+    do: max(deadline_at_ms - System.monotonic_time(:millisecond), 0)
+
+  defp stop_request_guardian(guardian, guardian_ref) do
+    Process.exit(guardian, :kill)
+
+    receive do
+      {:DOWN, ^guardian_ref, :process, ^guardian, _reason} -> :ok
+    end
+  end
+
+  defp await_worker_down(worker, worker_ref) do
+    receive do
+      {:DOWN, ^worker_ref, :process, ^worker, _reason} -> :ok
     end
   end
 
