@@ -77,14 +77,14 @@ aiurdev pause | resume        # pause / resume the workflow
 aiurdev --todo <ids...> [--only] # queue tickets; optionally dequeue all other pending tickets
 aiurdev init                  # scaffold .aiur/ (or migrate a legacy .aiurconfig)
 aiurdev build                 # force-rebuild the local release (shim-only)
-aiurdev --host …              # opt out of the local-only --host injection
+aiurdev --host …              # explicitly override configured/default dashboard host
 ```
 
 Every subcommand except `build` is handled by the shared engine, so the
-npm-installed `aiur` accepts the exact same set. The engine injects
-`--host 127.0.0.1` on the run path unless you pass `--host` somewhere in the
-args. Pass `--host` when you want to expose the dashboard over the network
-(e.g. Tailscale, LAN).
+npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
+the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
+when safely available, otherwise `127.0.0.1`. A configured value wins over that
+default; explicit `--host` wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled

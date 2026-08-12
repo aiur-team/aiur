@@ -130,6 +130,6 @@ alerts:
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
-# server: { host: 127.0.0.1, port: 4000 }
+# server: { port: 4000 }                # host omitted = authenticated Tailscale IP when available, else loopback; add host: 127.0.0.1 to pin loopback
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }
