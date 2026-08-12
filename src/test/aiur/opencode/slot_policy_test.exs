@@ -308,6 +308,26 @@ defmodule Aiur.Opencode.SlotPolicyTest do
 
       assert eventually(fn -> :sys.get_state(pid).live_slots == MapSet.new([1, 2, 3]) end)
     end
+
+    test "zero warm target never starts a slot on cap changes", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 0,
+          max_slots: 5,
+          max_concurrent_agents: 1,
+          slot_starter: FakeSlotStarter
+        )
+
+      assert %{highest_started: 0, live_slots: live_slots} = await_policy_startup!(pid, 0)
+      assert live_slots == MapSet.new()
+      write_workflow_file!(Workflow.workflow_file_path(), pre_warmed_sessions: 0, max_vertical_panes: 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 3}})
+
+      Process.sleep(100)
+      assert %{target_count: 0, highest_started: 0, live_slots: live_slots} = :sys.get_state(pid)
+      assert live_slots == MapSet.new()
+    end
   end
 
   describe "grow_slot/1 ceiling" do
