@@ -606,6 +606,11 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
+  Local Codex and Claude launches prepend shell-independent `elixir`, `mix`, and
+  `mise` entrypoints, and local workspace lifecycle hooks run with the same admission
+  environment before agent support is installed. This keeps `after_create` and
+  `before_run` warm-up builds under the fleet cap as well as builds started during
+  agent turns.
   Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
   directory to `writableRoots` without replacing configured, workspace, or writable Git
   roots. Persistent lock inodes live in the host-prepared sibling
