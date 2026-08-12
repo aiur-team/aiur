@@ -10,19 +10,23 @@ defmodule Aiur.Workspace.Provisioner do
   alias Aiur.Workspace.{Checkout, Context, Materialize, Reconstruction, Remote}
 
   @remote_workspace_marker "__AIUR_WORKSPACE__"
+  @remote_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentScratch]
+  @local_agent_support_modules [Aiur.AgentSkills, Aiur.AgentGitHubGuard, Aiur.AgentBuildGuard, Aiur.AgentScratch]
   @remote_workspace_ready_marker "__AIUR_WORKSPACE_READY__"
   @workspace_ready_marker ".claude/.aiur-workspace-ready"
 
   @doc false
   # Install aiur's bundled agent-operating skills and command guards into a
-  # freshly populated workspace. Remote workers receive the same embedded
-  # support files through one idempotent SSH script.
+  # freshly populated workspace. Remote workers receive the portable subset
+  # through one idempotent SSH script; build admission is currently local-only.
   @spec maybe_install_agent_support(Path.t(), String.t() | nil) :: :ok | {:error, term()}
   def maybe_install_agent_support(workspace, nil) do
-    with :ok <- Aiur.AgentSkills.install(workspace),
-         :ok <- Aiur.AgentGitHubGuard.install(workspace) do
-      Aiur.AgentScratch.install(workspace)
-    end
+    Enum.reduce_while(@local_agent_support_modules, :ok, fn module, :ok ->
+      case module.install(workspace) do
+        :ok -> {:cont, :ok}
+        {:error, _reason} = error -> {:halt, error}
+      end
+    end)
   end
 
   def maybe_install_agent_support(workspace, worker_host) when is_binary(worker_host) do
@@ -47,10 +51,7 @@ defmodule Aiur.Workspace.Provisioner do
   end
 
   defp remote_agent_support_script(workspace) do
-    Aiur.AgentSkills.remote_install_script(workspace) <>
-      "\n" <>
-      Aiur.AgentGitHubGuard.remote_install_script(workspace) <>
-      "\n" <> Aiur.AgentScratch.remote_install_script(workspace)
+    Enum.map_join(@remote_agent_support_modules, "\n", & &1.remote_install_script(workspace))
   end
 
   @type worker_host :: String.t() | nil

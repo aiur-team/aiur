@@ -1,6 +1,7 @@
 defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
+  alias Aiur.AppServer.Adapter
   alias Aiur.Workflow
   alias Aiur.Workspace.{Ownership, Refresh}
 
@@ -39,7 +40,8 @@ defmodule Aiur.Workspace.RefreshTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_before_run: "git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
+      hook_before_run:
+        "test -z \"$(find . -mindepth 1 -maxdepth 1 -print -quit)\" && git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
     )
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
@@ -47,6 +49,7 @@ defmodule Aiur.Workspace.RefreshTest do
 
     assert File.exists?(Path.join(workspace, "rebuilt"))
     assert File.read!(log_path) == "prior transcript\n"
+    assert File.regular?(Path.join(workspace, ".aiur-runtime/build-bin/mix"))
   end
 
   test "run/3 refuses incomplete Git WIP before executing before_run", %{
@@ -72,22 +75,67 @@ defmodule Aiur.Workspace.RefreshTest do
     refute File.exists?(before_run_marker)
   end
 
-  test "run/3 exit-65 on todo dispatch recreates workspace and re-runs before_run", %{workspace: workspace, test_root: test_root} do
+  test "run/3 exit-65 recreation restores permanent build wrappers before dispatch", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
     init_repo!(workspace)
     sentinel = Path.join(workspace, "leftover-sentinel")
     File.write!(sentinel, "leftover")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_before_run: "exit 65"
+      max_concurrent_builds: 1,
+      build_start_stagger_seconds: 0,
+      min_free_memory_mb: nil,
+      hook_before_run: """
+      if [ -f leftover-sentinel ]; then exit 65; fi
+      test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
+      git init --quiet -b main
+      git config user.email t@example.com
+      git config user.name T
+      touch rebuilt
+      git add rebuilt
+      git commit --quiet -m rebuilt
+      """
     )
 
     # Use the raw issue map form so Context.build picks up state: "todo" as todo_dispatch?
     issue = %{id: 1, identifier: "test", state: "todo", labels: [], pr_head_ref: nil}
 
-    # Recreation happens: sentinel gone, before_run fails again → error propagates
-    assert {:error, _} = Refresh.run(workspace, issue, nil)
+    assert :ok = Refresh.run(workspace, issue, nil)
     refute File.exists?(sentinel)
+    assert File.exists?(Path.join(workspace, "rebuilt"))
+
+    for command <- ~w(elixir mix mise) do
+      assert File.regular?(Path.join([workspace, ".aiur-runtime", "build-bin", command]))
+    end
+
+    refute File.exists?(Path.join([workspace, ".aiur-runtime", "bin"]))
+    refute File.exists?(Path.join([workspace, ".aiur-runtime", "tmp"]))
+    refute File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur"]))
+
+    probe_bin = Path.join(test_root, "probe-bin")
+    File.mkdir_p!(probe_bin)
+    File.write!(Path.join(probe_bin, "mise"), "#!/bin/sh\nprintf 'real-mise-ran\\n'\n")
+    File.chmod!(Path.join(probe_bin, "mise"), 0o755)
+
+    child = Path.join(workspace, "first-agent-build")
+    File.write!(child, "#!/bin/sh\nexec mise exec -- mix compile\n")
+    File.chmod!(child, 0o755)
+
+    assert {:ok, port} =
+             Adapter.start_port(
+               workspace,
+               Aiur.Shell.escape(child),
+               fn _port -> :ok end,
+               env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")}]
+             )
+
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 1_000
+    assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 1_000
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 1_000
+    assert_receive {^port, {:exit_status, 0}}, 1_000
   end
 
   test "active ownership refuses stale-todo recreation without touching the workspace", %{workspace: workspace} do
