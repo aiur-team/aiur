@@ -38,6 +38,24 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     def start_slot(slot_index), do: FakeSlot.start_link(slot_index)
   end
 
+  defmodule ReplacingSlotStarter do
+    def start_slot(slot_index) do
+      case SlotRegistry.lookup(slot_index) do
+        {:ok, pid} -> {:ok, pid}
+        :not_found -> FakeSlot.start_link(slot_index)
+      end
+    end
+  end
+
+  defmodule RecordingSlotStopper do
+    def stop_slot(_slot_index), do: :ok
+  end
+
+  defmodule BusyHighestSlotStopper do
+    def stop_slot(3), do: :busy
+    def stop_slot(_slot_index), do: :ok
+  end
+
   defmodule BlockingSlotStarter do
     use GenServer
 
@@ -103,7 +121,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       topic = Slot.slots_topic()
       :ok = Phoenix.PubSub.subscribe(pubsub, topic)
 
-      Phoenix.PubSub.broadcast(pubsub, topic, {:slot_ready, 99})
+      Phoenix.PubSub.broadcast(pubsub, topic, {:slot_ready, 99, self()})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_session_changed, 1, "issue-42"})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_attach_added, 1, "issue-1"})
       Phoenix.PubSub.broadcast(pubsub, topic, {:slot_attach_removed, 1, "issue-1"})
@@ -204,9 +222,111 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       pid = start_policy!(name, pubsub, slot_starter: FakeSlotStarter)
 
       assert SlotPolicy.target_count(pid) == 1
-      assert SlotPolicy.max_slots(pid) == 8
+      assert SlotPolicy.max_slots(pid) == 5
       assert SlotPolicy.highest_started(pid) == 1
       assert registered_slots() == [1]
+    end
+  end
+
+  describe "live cap changes" do
+    test "raises the warm target and starts the additional slots", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 1,
+          max_slots: 5,
+          max_concurrent_agents: 1,
+          slot_starter: FakeSlotStarter
+        )
+
+      assert %{highest_started: 1} = await_policy_startup!(pid, 1)
+      write_workflow_file!(Workflow.workflow_file_path(), pre_warmed_sessions: 3, max_vertical_panes: 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 3}})
+
+      assert eventually(fn -> SlotPolicy.target_count(pid) == 3 end)
+      assert SlotPolicy.max_concurrent_agents(pid) == 3
+      assert SlotPolicy.highest_started(pid) == 3
+    end
+
+    test "lowers the warm target and drains excess slots", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 3,
+          max_slots: 5,
+          max_concurrent_agents: 3,
+          slot_starter: ReplacingSlotStarter,
+          slot_stopper: RecordingSlotStopper
+        )
+
+      assert %{highest_started: 3} = await_policy_startup!(pid, 3)
+      write_workflow_file!(Workflow.workflow_file_path(), pre_warmed_sessions: 3, max_vertical_panes: 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 1}})
+
+      assert eventually(fn -> SlotPolicy.target_count(pid) == 1 end)
+      assert SlotPolicy.max_concurrent_agents(pid) == 1
+      assert SlotPolicy.highest_started(pid) == 1
+    end
+
+    test "continues below a busy high slot and retains it", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 3,
+          max_slots: 5,
+          max_concurrent_agents: 3,
+          slot_starter: FakeSlotStarter,
+          slot_stopper: BusyHighestSlotStopper
+        )
+
+      assert %{highest_started: 3} = await_policy_startup!(pid, 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 1}})
+
+      assert eventually(fn ->
+               state = :sys.get_state(pid)
+               state.live_slots == MapSet.new([1, 3]) and state.highest_started == 3
+             end)
+    end
+
+    test "regrows a missing lower slot when the warm target rises", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 3,
+          max_slots: 5,
+          max_concurrent_agents: 3,
+          slot_starter: ReplacingSlotStarter,
+          slot_stopper: BusyHighestSlotStopper
+        )
+
+      assert %{highest_started: 3} = await_policy_startup!(pid, 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 1}})
+
+      assert eventually(fn -> :sys.get_state(pid).live_slots == MapSet.new([1, 3]) end)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 3}})
+
+      assert eventually(fn -> :sys.get_state(pid).live_slots == MapSet.new([1, 2, 3]) end)
+    end
+
+    test "zero warm target never starts a slot on cap changes", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 0,
+          max_slots: 5,
+          max_concurrent_agents: 1,
+          slot_starter: FakeSlotStarter
+        )
+
+      assert %{highest_started: 0, live_slots: live_slots} = await_policy_startup!(pid, 0)
+      assert live_slots == MapSet.new()
+      write_workflow_file!(Workflow.workflow_file_path(), pre_warmed_sessions: 0, max_vertical_panes: 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 3}})
+
+      Process.sleep(100)
+      assert %{target_count: 0, highest_started: 0, live_slots: live_slots} = :sys.get_state(pid)
+      assert live_slots == MapSet.new()
     end
   end
 
@@ -334,6 +454,22 @@ defmodule Aiur.Opencode.SlotPolicyTest do
         )
     after
       Process.demonitor(monitor, [:flush])
+    end
+  end
+
+  defp eventually(fun, timeout \\ 2_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    eventually(fun, deadline, fun.())
+  end
+
+  defp eventually(_fun, _deadline, true), do: true
+
+  defp eventually(fun, deadline, false) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      false
+    else
+      Process.sleep(10)
+      eventually(fun, deadline, fun.())
     end
   end
 

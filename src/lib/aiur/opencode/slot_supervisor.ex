@@ -66,15 +66,39 @@ defmodule Aiur.Opencode.SlotSupervisor do
     end
   end
 
+  @doc "Stop an idle slot so a lowered warm-pool target can release its process."
+  @spec stop_slot(pos_integer()) :: :ok | :busy | :not_found
+  def stop_slot(slot_index) when is_integer(slot_index) and slot_index > 0 do
+    case SlotRegistry.lookup(slot_index) do
+      {:ok, pid} ->
+        stop_ready_slot(pid)
+
+      :not_found ->
+        :not_found
+    end
+  end
+
+  defp stop_ready_slot(pid) do
+    with :ok <- Slot.reserve_stop(pid),
+         result <- DynamicSupervisor.terminate_child(__MODULE__, pid) do
+      case result do
+        :ok -> :ok
+        {:error, :not_found} -> :not_found
+      end
+    else
+      _ -> :busy
+    end
+  end
+
   @doc """
   Find a slot currently in `:ready` state. Returns `{slot_index, pid}` or
   `{:error, :no_ready_slot}` when no slot is available — the caller (PaneManager)
   falls back to cold attach in that case.
 
   Selection strategy: scan every registered slot via `SlotRegistry.all/0`,
-  filter to `:ready` status, pick the one whose Slot worker has been idle
-  longest (lowest last-active stamp). Acquire is just a status read — the
-  slot transitions to `:active` when `Slot.select/2` is called by the caller.
+  filter to `:ready` status, and atomically claim the lowest-index candidate.
+  The claim prevents cap-driven draining from reserving the same slot before
+  the caller invokes `Slot.select/2`.
   """
   @spec acquire_slot() :: {pos_integer(), pid()} | {:error, :no_ready_slot}
   def acquire_slot do
@@ -83,17 +107,7 @@ defmodule Aiur.Opencode.SlotSupervisor do
       |> Enum.map(fn {index, pid} -> {index, pid, Slot.snapshot(pid)} end)
       |> Enum.filter(fn {_index, _pid, snap} -> Map.get(snap, :status) == :ready end)
 
-    case ready do
-      [] ->
-        {:error, :no_ready_slot}
-
-      candidates ->
-        # Lowest index = oldest slot, naturally the LRU candidate.
-        {index, pid, _snap} =
-          Enum.min_by(candidates, fn {index, _pid, _snap} -> index end)
-
-        {index, pid}
-    end
+    claim_ready_slot(ready, self())
   end
 
   @doc """
@@ -126,14 +140,22 @@ defmodule Aiur.Opencode.SlotSupervisor do
 
     case ready do
       [_ | _] = candidates ->
-        {index, pid, _snap} =
-          Enum.min_by(candidates, fn {index, _pid, _snap} -> index end)
-
-        {index, pid}
+        claim_ready_slot(candidates, self())
 
       [] ->
         unless any_warming?(snapshots), do: try_grow()
         {:error, :no_ready_slot}
+    end
+  end
+
+  defp claim_ready_slot([], _owner), do: {:error, :no_ready_slot}
+
+  defp claim_ready_slot(candidates, owner) do
+    {index, pid, snap} = Enum.min_by(candidates, fn {index, _pid, _snap} -> index end)
+
+    case Slot.claim_ready(pid, owner) do
+      :ok -> {index, pid}
+      :busy -> claim_ready_slot(List.delete(candidates, {index, pid, snap}), owner)
     end
   end
 
