@@ -273,7 +273,7 @@ defmodule Aiur.DecisionDeliveryIntegrationTest do
   defp start_store!(dir, opts) do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
-    defaults = [name: nil, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000]
+    defaults = [name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end, reconcile_delay_ms: 5_000]
     {:ok, pid} = DecisionStore.start_link(Keyword.merge(defaults, opts))
 
     on_exit(fn ->

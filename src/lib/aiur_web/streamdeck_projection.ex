@@ -2,7 +2,7 @@ defmodule AiurWeb.StreamdeckProjection do
   @moduledoc false
 
   alias Aiur.{CodingAgent, DecisionMetrics, Orchestrator, ProviderMeterProjection, ProviderMeterSnapshot}
-  alias AiurWeb.Endpoint
+  alias AiurWeb.{Endpoint, StreamDeckGrid}
 
   @version 1
   @default_usage_interval_seconds 300
@@ -26,6 +26,21 @@ defmodule AiurWeb.StreamdeckProjection do
 
   @spec fleet() :: map()
   def fleet, do: %{agents: fleet_agents()} |> external_value()
+
+  @doc "The render-ready grid projection carried alongside the channel fleet event."
+  @spec grid() :: map()
+  def grid do
+    case safe_call(snapshot_fun(), %{}) do
+      {status, snapshot, freshness} when status in [:current, :stale] and is_map(snapshot) ->
+        snapshot |> StreamDeckGrid.project() |> Map.put(:snapshot_freshness, freshness)
+
+      snapshot when is_map(snapshot) ->
+        StreamDeckGrid.project(snapshot)
+
+      _ ->
+        StreamDeckGrid.project(%{})
+    end
+  end
 
   defp fleet_agents do
     case safe_call(snapshot_fun(), %{agents: []}) do
