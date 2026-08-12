@@ -24,6 +24,7 @@ defmodule Aiur.CurrentRunProjections.UnitsBuilder do
       decisions: %{entries: [], health: :available, freshness: :fresh},
       issue_facts: %{
         entries: weights.entries,
+        entry_freshness: weights.freshness,
         generation: Map.get(sources.status, :generation),
         health: issue_health(weights.health),
         freshness: issue_freshness(weights.health)

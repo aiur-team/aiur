@@ -57,6 +57,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   def present(source, retained?, status_source) when is_map(source) do
     run = Map.get(source, :run, %{})
     status = status_source || source
+    progress = present_progress(Map.get(source, :progress, %{}), Map.get(source, :weights, %{}))
 
     %{
       state: state(source, retained?),
@@ -64,9 +65,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
       generation: Map.get(source, :generation, 0),
       run_id: Map.get(run, :id),
       counts: present_counts(Map.get(source, :counts, %{})),
-      progress: present_progress(Map.get(source, :progress, %{}), Map.get(source, :weights, %{})),
+      progress: progress,
       elapsed: present_elapsed(run),
-      eta: present_eta(Map.get(source, :eta, %{})),
+      eta: present_eta(Map.get(source, :eta, %{}), progress),
       health: present_health(Map.get(status, :health, %{})),
       freshness: present_freshness(Map.get(status, :freshness, %{}))
     }
@@ -119,6 +120,19 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   end
 
   defp progress_sentence(%{kind: :exact, percent: percent}), do: "Progress #{percent} percent exact."
+
+  defp progress_sentence(%{kind: :partial, percent: percent} = progress) do
+    qualifier = if progress.partial_lower_bound?, do: "at least ", else: ""
+
+    "Progress #{qualifier}#{percent} percent from #{progress.current_member_count} of " <>
+      "#{progress.total_member_count} members with current inputs, #{fact_status_text(progress.fact_status)}."
+  end
+
+  defp progress_sentence(%{kind: :pending} = progress) do
+    "#{progress.progress_status_label}, #{progress.current_member_count} of " <>
+      "#{progress.total_member_count} members with current inputs, #{fact_status_text(progress.fact_status)}."
+  end
+
   defp progress_sentence(%{kind: :lower_bound, lower_bound_percent: nil}), do: "Progress coverage unknown."
 
   defp progress_sentence(%{kind: :lower_bound, lower_bound_percent: percent, coverage_percent: coverage}) do
@@ -132,6 +146,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
 
   defp eta_sentence(%{status: :available, label: label}), do: "ETA #{label}."
   defp eta_sentence(%{label: label}), do: "ETA #{label}."
+
+  defp reason_phrase(:unhealthy_weight_facts), do: "progress inputs incomplete"
 
   defp reason_phrase(reason) when is_atom(reason) do
     reason |> Atom.to_string() |> String.replace("_", " ")
@@ -179,13 +195,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
     exact = Map.get(progress, :exact)
     lower = Map.get(progress, :lower_bound)
     coverage = Map.get(progress, :coverage)
+    current_facts = Map.get(progress, :current_facts, %{})
     eligible = Map.get(weights, :eligible, Map.get(progress, :denominator_weight, 0))
+    kind = progress_kind(exact, current_facts, eligible)
 
     %{
-      kind: progress_kind(exact, eligible),
-      percent: percent(exact),
+      kind: kind,
+      percent: progress_percent(kind, exact, current_facts),
       lower_bound_percent: percent(lower),
       coverage_percent: percent(coverage),
+      partial_lower_bound?: Map.get(current_facts, :lower_bound?, false),
+      fact_status: Map.get(current_facts, :status, :complete),
+      current_member_count: Map.get(current_facts, :current_member_count, 0),
+      total_member_count: Map.get(current_facts, :total_member_count, 0),
+      missing_member_count: Map.get(current_facts, :missing_member_count, 0),
       denominator_weight: Map.get(progress, :denominator_weight, eligible),
       known_weight: Map.get(progress, :known_weight, 0),
       unknown_weight: Map.get(progress, :unknown_weight, 0),
@@ -194,11 +217,47 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
       defaulted_weight: Map.get(weights, :defaulted, 0),
       defaulted_count: Map.get(weights, :defaulted_count, 0)
     }
+    |> present_progress_labels()
   end
 
-  defp progress_kind(_exact, eligible) when eligible <= 0, do: :none
-  defp progress_kind(exact, _eligible) when is_map(exact), do: :exact
-  defp progress_kind(_exact, _eligible), do: :lower_bound
+  defp progress_kind(_exact, _current_facts, eligible) when eligible <= 0, do: :none
+  defp progress_kind(exact, _current_facts, _eligible) when is_map(exact), do: :exact
+
+  defp progress_kind(_exact, %{status: status, value: nil}, _eligible)
+       when status in [:settling, :degraded],
+       do: :pending
+
+  defp progress_kind(_exact, %{status: status, value: value}, _eligible)
+       when status in [:settling, :degraded] and is_map(value),
+       do: :partial
+
+  defp progress_kind(_exact, _current_facts, _eligible), do: :lower_bound
+
+  defp progress_percent(:exact, exact, _current_facts), do: percent(exact)
+  defp progress_percent(:partial, _exact, current_facts), do: percent(Map.get(current_facts, :value))
+  defp progress_percent(_kind, _exact, _current_facts), do: nil
+
+  defp present_progress_labels(%{kind: :partial} = progress) do
+    prefix = if progress.partial_lower_bound?, do: "At least ", else: ""
+
+    Map.merge(progress, %{
+      display_percent_label: "#{prefix}#{progress.percent}%",
+      current_members_label: "#{progress.current_member_count} of #{progress.total_member_count} members current",
+      fact_status_label: fact_status_label(progress.fact_status),
+      fact_status_detail: fact_status_detail(progress.fact_status)
+    })
+  end
+
+  defp present_progress_labels(%{kind: :pending} = progress) do
+    Map.merge(progress, %{
+      progress_status_label: pending_progress_label(progress.fact_status),
+      current_members_label: "#{progress.current_member_count} of #{progress.total_member_count} members current",
+      fact_status_label: fact_status_label(progress.fact_status),
+      fact_status_detail: fact_status_detail(progress.fact_status)
+    })
+  end
+
+  defp present_progress_labels(progress), do: progress
 
   # --- elapsed -------------------------------------------------------------
 
@@ -209,13 +268,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
 
   # --- eta -----------------------------------------------------------------
 
-  defp present_eta(eta) do
+  defp present_eta(eta, progress) do
     status = Map.get(eta, :status, :unavailable)
 
     %{
       status: status,
       duration_seconds: duration_seconds(Map.get(eta, :duration_seconds)),
-      label: eta_label(status, eta),
+      label: eta_label(status, eta, progress),
       formula_version: Map.get(eta, :formula_version),
       confidence: Map.get(eta, :confidence, :unavailable),
       sample_count: Map.get(eta, :sample_count, 0),
@@ -223,20 +282,27 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
     }
   end
 
-  defp eta_label(:available, eta) do
+  defp eta_label(:available, eta, _progress) do
     case duration_seconds(Map.get(eta, :duration_seconds)) do
       nil -> "Estimating"
       seconds -> "About #{format_duration(seconds)} remaining"
     end
   end
 
-  defp eta_label(_status, eta), do: eta_reason_label(Map.get(eta, :reason))
+  defp eta_label(_status, %{reason: :unhealthy_weight_facts}, progress) do
+    case Map.get(progress, :fact_status) do
+      :settling -> "ETA pending — progress inputs are still settling"
+      :degraded -> "ETA unavailable — progress refresh degraded"
+      _status -> "ETA unavailable — progress inputs incomplete"
+    end
+  end
+
+  defp eta_label(_status, eta, _progress), do: eta_reason_label(Map.get(eta, :reason))
 
   defp eta_reason_label(:invalid_run_window), do: "Unavailable — no valid run window"
   defp eta_reason_label(:unhealthy_membership), do: "Unavailable — membership facts unhealthy"
   defp eta_reason_label(:membership_not_fresh), do: "Unavailable — membership not fresh"
   defp eta_reason_label(:truncated_membership), do: "Unavailable — membership truncated"
-  defp eta_reason_label(:unhealthy_weight_facts), do: "Unavailable — weight facts unhealthy"
   defp eta_reason_label(:zero_eligible_weight), do: "Unavailable — no eligible weight"
   defp eta_reason_label(:insufficient_successful_completions), do: "Unavailable — fewer than two completions"
   defp eta_reason_label(:insufficient_elapsed_time), do: "Unavailable — under ten minutes elapsed"
@@ -265,6 +331,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenter do
   defp freshness_label(:stale), do: "Stale"
   defp freshness_label(:unavailable), do: "Unavailable"
   defp freshness_label(_status), do: "Unknown"
+
+  defp fact_status_text(status), do: status |> fact_status_label() |> String.downcase()
+  defp fact_status_label(:settling), do: "Still settling"
+  defp fact_status_label(:degraded), do: "Refresh degraded"
+  defp fact_status_label(_status), do: "Current"
+  defp fact_status_detail(:settling), do: "progress inputs are still settling"
+  defp fact_status_detail(:degraded), do: "progress refresh is degraded"
+  defp fact_status_detail(_status), do: "progress inputs are current"
+  defp pending_progress_label(:settling), do: "Progress not computed yet"
+  defp pending_progress_label(:degraded), do: "Progress unavailable"
 
   # --- shared helpers ------------------------------------------------------
 

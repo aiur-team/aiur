@@ -411,6 +411,11 @@ membership source is unavailable. A periodic reconciliation also recovers
 agents that existed without a dispatch notification, so an unknown catalog is
 never presented as an exact zero.
 
+The Units summary keeps progress useful while member weight facts catch up. If
+some members have current facts, it shows the percentage derived from those
+members and labels how many inputs are current. Expected post-restart catch-up
+is marked as still settling; an unhealthy refresh is marked as degraded.
+
 ### Shared GitHub quota
 
 GitHub-backed runs meter the shared agent credential's core and GraphQL budgets

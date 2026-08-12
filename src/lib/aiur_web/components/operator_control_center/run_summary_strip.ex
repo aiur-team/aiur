@@ -133,6 +133,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-progress">
         <div class="rs-limit-top">
           <span class="rs-limit-label">Progress</span>
+          <span class="rs-limit-meta">{progress_label(@run)}</span>
           <span class="rs-limit-meta">{progress_meta(@run_state, @run)}</span>
           <span :if={eta = eta_label(@run_ready?, @run)} class="rs-limit-meta">{eta}</span>
         </div>
@@ -528,11 +529,41 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp progress_meta(:empty, _run), do: "0% · no active run"
   defp progress_meta(_state, _run), do: "N/A"
 
+  defp progress_label(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent),
+    do: "#{percent}% complete"
+
+  defp progress_label(%{
+         progress: %{
+           kind: :partial,
+           display_percent_label: percent,
+           current_members_label: members,
+           fact_status_label: status
+         }
+       }),
+       do: "#{percent} · #{members} · #{status}"
+
+  defp progress_label(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent),
+    do: "At least #{percent}% complete"
+
+  defp progress_label(%{
+         progress: %{
+           kind: :pending,
+           progress_status_label: progress,
+           current_members_label: members,
+           fact_status_label: status
+         }
+       }),
+       do: "#{progress} · #{members} · #{status}"
+
+  defp progress_label(_run), do: "Progress not computed yet"
+
   defp run_percent(%{progress: %{kind: :exact, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(%{progress: %{kind: :lower_bound, lower_bound_percent: percent}}) when is_integer(percent), do: percent
+  defp run_percent(%{progress: %{kind: :partial, percent: percent}}) when is_integer(percent), do: percent
   defp run_percent(_run), do: 0
 
   defp eta_label(true, %{eta: %{reason: :zero_eligible_weight}}), do: nil
+  defp eta_label(true, %{eta: %{reason: :unhealthy_weight_facts}}), do: nil
   defp eta_label(true, %{eta: %{label: label}}) when is_binary(label) and label != "", do: label
   defp eta_label(_ready?, _run), do: nil
 
