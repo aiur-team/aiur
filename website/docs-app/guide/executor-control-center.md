@@ -34,7 +34,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 | **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
 | **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
-| **Streamdeck+** | `/streamdeck` — browser Stream Deck emulator and the only live Stream Deck control surface; physical fleet controls are not implemented, and [#1358](https://github.com/aiur-team/aiur/issues/1358) defines their terminal proof. | — |
+| **Streamdeck+** | `/streamdeck` — browser emulator for the same live projection used by the authenticated physical Stream Deck + sidecar; [#1358](https://github.com/aiur-team/aiur/issues/1358) defines the remaining terminal hardware proof. | — |
 
 ## Overview
 

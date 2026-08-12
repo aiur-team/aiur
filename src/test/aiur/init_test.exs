@@ -1301,7 +1301,7 @@ defmodule Aiur.InitTest do
       assert config["tracker"]["github"]["repo"] == "octo/repo"
       # label_prefix is fixed (`agent`) and omitted from the written config.
       refute Map.has_key?(config["tracker"]["github"], "label_prefix")
-      assert config["agent"]["kind"] == "claude"
+      assert config["agent"]["priority"] == ["claude"]
       assert config["agent"]["max_agent_duration_minutes"] == 60
 
       routing = config["agent"]["routing"]

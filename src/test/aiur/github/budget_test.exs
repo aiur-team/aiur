@@ -1,0 +1,319 @@
+defmodule Aiur.GitHub.BudgetTest do
+  use ExUnit.Case, async: false
+
+  alias Aiur.GitHub.Budget
+
+  setup do
+    root = Path.join(System.tmp_dir!(), "aiur-github-budget-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(root)
+
+    previous = Application.get_env(:aiur, :github_budget_enabled?)
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+
+    on_exit(fn ->
+      File.rm_rf(root)
+      restore_env(:github_budget_enabled?, previous)
+    end)
+
+    {:ok, root: root}
+  end
+
+  test "two independent callers sharing a token cannot exceed the global in-flight ceiling", %{root: root} do
+    opts = [state_dir: root, max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0]
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+
+    assert {:ok, first} = Budget.acquire(request, opts)
+
+    waiter = Task.async(fn -> Budget.acquire(request, opts) end)
+
+    assert Task.yield(waiter, 80) == nil
+    assert :ok = Budget.release(first, opts)
+    assert {:ok, second} = Task.await(waiter, 1_000)
+    assert :ok = Budget.release(second, opts)
+  end
+
+  test "active consumers reconcile conflicting ceilings to the strictest policy", %{root: root} do
+    strict = [state_dir: root, consumer_key: "strict", max_inflight: 1, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0]
+    loose = [state_dir: root, consumer_key: "loose", max_inflight: 2, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    request = request("shared-token", "/repos/owner/repo/issues/1477")
+
+    assert {:ok, first} = Budget.acquire(request, strict)
+    waiter = Task.async(fn -> Budget.acquire(request, loose) end)
+
+    assert Task.yield(waiter, 80) == nil
+    assert :ok = Budget.release(first, strict)
+    assert {:ok, second} = Task.await(waiter, 1_000)
+    assert :ok = Budget.release(second, loose)
+  end
+
+  test "the endpoint-family ceiling does not consume capacity in other families", %{root: root} do
+    opts = [state_dir: root, max_inflight: 2, max_inflight_per_endpoint: 1, requests_per_minute: 20, stagger_ms: 0]
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+
+    assert {:ok, first} = Budget.acquire(issues, opts)
+    waiter = Task.async(fn -> Budget.acquire(issues, opts) end)
+
+    assert Task.yield(waiter, 80) == nil
+    assert {:ok, pulls_lease} = Budget.acquire(pulls, opts)
+    assert :ok = Budget.release(pulls_lease, opts)
+    assert :ok = Budget.release(first, opts)
+    assert {:ok, second} = Task.await(waiter, 1_000)
+    assert :ok = Budget.release(second, opts)
+  end
+
+  test "a secondary limit cools down every endpoint family for the token", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+
+    assert :ok = Budget.observe(issues, secondary_response(1), opts)
+
+    waiter = Task.async(fn -> Budget.acquire(pulls, opts) end)
+
+    assert Task.yield(waiter, 80) == nil
+    assert {:ok, lease} = Task.await(waiter, 1_500)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "an exhausted response without a reset still creates a global fallback cooldown", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    issues = request("shared-token", "/repos/owner/repo/issues/1477")
+    pulls = request("shared-token", "/repos/owner/repo/pulls/1477")
+
+    assert :ok =
+             Budget.observe(
+               issues,
+               {:ok, %{status: 403, headers: [{"x-ratelimit-remaining", "0"}, {"retry-after", "1"}], body: %{"message" => "rate limit exceeded"}}},
+               opts
+             )
+
+    assert {:hold, %{reason: :shared_budget}} = Budget.acquire(pulls, Keyword.put(opts, :timeout_ms, 10))
+  end
+
+  test "a configured broker failure fails closed", %{root: root} do
+    opts = [state_dir: root, enabled?: true, python: Path.join(root, "missing-python"), timeout_ms: 10]
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
+  end
+
+  test "database lock cannot hold admission beyond its wall-clock budget", %{root: root} do
+    broker_pid_path = Path.join(root, "broker.pid")
+    python = broker_wrapper(root, broker_pid_path)
+    opts = [state_dir: root, enabled?: true]
+    token = "locked-budget-token"
+
+    # Create the schema before taking an exclusive lock so the broker blocks
+    # specifically on SQLite admission rather than setup.
+    assert %{inflight: %{}} = Budget.snapshot(token, opts)
+    lock = lock_database(Budget.database_path(opts))
+
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               request(token, "/repos/owner/repo/issues/1477"),
+               opts |> Keyword.put(:python, python) |> Keyword.put(:timeout_ms, 300)
+             )
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    assert elapsed_ms >= 250
+    assert elapsed_ms < 1_000
+    broker_pid = broker_pid_path |> File.read!() |> String.trim()
+    wait_until(fn -> not os_process_alive?(broker_pid) end)
+
+    close_port(lock)
+  end
+
+  test "database lock cannot hold release beyond its absolute deadline", %{root: root} do
+    broker_pid_path = Path.join(root, "release-broker.pid")
+    python = broker_wrapper(root, broker_pid_path)
+    opts = [state_dir: root, enabled?: true, timeout_ms: 300]
+    request = request("locked-release-token", "/repos/owner/repo/issues/1477")
+
+    assert {:ok, lease} = Budget.acquire(request, opts)
+    lock = lock_database(Budget.database_path(opts))
+    deadline_at = System.monotonic_time(:millisecond) + 300
+    started_at = System.monotonic_time(:millisecond)
+
+    assert :ok = Budget.release(lease, opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at))
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    assert elapsed_ms >= 250
+    assert elapsed_ms < 1_000
+    broker_pid = broker_pid_path |> File.read!() |> String.trim()
+    wait_until(fn -> not os_process_alive?(broker_pid) end)
+
+    close_port(lock)
+  end
+
+  test "caller death reaps a blocked broker process", %{root: root} do
+    broker_pid_path = Path.join(root, "abandoned-broker.pid")
+    python = broker_wrapper(root, broker_pid_path)
+    opts = [state_dir: root, enabled?: true, python: python, timeout_ms: 30_000]
+    token = "abandoned-budget-token"
+
+    assert %{inflight: %{}} = Budget.snapshot(token, state_dir: root, enabled?: true)
+    lock = lock_database(Budget.database_path(opts))
+
+    caller =
+      spawn(fn ->
+        Budget.acquire(request(token, "/repos/owner/repo/issues/1477"), opts)
+      end)
+
+    caller_ref = Process.monitor(caller)
+    on_exit(fn -> if Process.alive?(caller), do: Process.exit(caller, :kill) end)
+    wait_until(fn -> File.exists?(broker_pid_path) end)
+    broker_pid = broker_pid_path |> File.read!() |> String.trim()
+
+    Process.exit(caller, :kill)
+
+    assert_receive {:DOWN, ^caller_ref, :process, ^caller, :killed}, 2_000
+    wait_until(fn -> not os_process_alive?(broker_pid) end)
+    close_port(lock)
+  end
+
+  test "refuses an unsafe shared state path", %{root: root} do
+    path = Path.join(root, "not-a-directory")
+    File.write!(path, "not a directory")
+
+    assert {:error, {:unsafe_budget_state_dir, ^path, :regular}} = Budget.ensure_state_dir(state_dir: path)
+  end
+
+  test "a malformed broker wait response fails closed", %{root: root} do
+    fake_python = Path.join(root, "malformed-broker")
+    File.write!(fake_python, "#!/bin/sh\nprintf '%s\\n' 'wait malformed'\n")
+    File.chmod!(fake_python, 0o755)
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               request("shared-token", "/repos/owner/repo/issues/1477"),
+               state_dir: root,
+               enabled?: true,
+               python: fake_python,
+               timeout_ms: 10
+             )
+  end
+
+  test "an exhausted successful response shares the resource named by GitHub", %{root: root} do
+    opts = [state_dir: root, max_inflight: 4, max_inflight_per_endpoint: 2, requests_per_minute: 20, stagger_ms: 0]
+    core = request("shared-token", "/repos/owner/repo/issues/1477")
+    graphql = request("shared-token", "/graphql")
+    reset_at = System.system_time(:second) + 60
+
+    response =
+      {:ok,
+       %{
+         status: 200,
+         headers: [
+           {"x-ratelimit-resource", "graphql"},
+           {"x-ratelimit-remaining", "0"},
+           {"x-ratelimit-reset", Integer.to_string(reset_at)}
+         ]
+       }}
+
+    assert :ok = Budget.observe(core, response, opts)
+
+    assert {:hold, %{reason: :shared_budget, resource: "graphql"}} =
+             Budget.acquire(graphql, Keyword.put(opts, :timeout_ms, 10))
+
+    assert {:ok, lease} = Budget.acquire(core, opts)
+    assert :ok = Budget.release(lease, opts)
+  end
+
+  test "simultaneous fan-out is staggered and reports the measured burst width", %{root: root} do
+    opts = [state_dir: root, max_inflight: 6, max_inflight_per_endpoint: 6, requests_per_minute: 20, stagger_ms: 10]
+    request = request("shared-token", "/repos/owner/repo/pulls/1477/reviews")
+
+    leases =
+      1..4
+      |> Task.async_stream(fn _ -> Budget.acquire(request, opts) end, max_concurrency: 4, timeout: 2_000)
+      |> Enum.map(fn {:ok, {:ok, lease}} -> lease end)
+
+    snapshot = Budget.snapshot("shared-token", opts)
+    admitted_at = Enum.map(snapshot.admissions, & &1.admitted_at_ms)
+
+    assert length(admitted_at) == 4
+    assert Enum.max(admitted_at) - Enum.min(admitted_at) >= 3
+
+    Enum.each(leases, &Budget.release(&1, opts))
+  end
+
+  test "keeps token material out of the broker key and endpoint names remain bounded" do
+    key = Budget.token_key("secret-token-value")
+
+    assert key =~ ~r/\A[a-f0-9]{64}\z/
+    refute key =~ "secret"
+    assert Budget.endpoint_family(request("token", "/repos/owner/repo/issues/1477/comments")) == "issues"
+    assert Budget.endpoint_family(request("token", "/graphql")) == "graphql"
+  end
+
+  test "resolves the broker from the installed application private directory" do
+    assert Budget.broker_path() ==
+             :aiur
+             |> :code.priv_dir()
+             |> to_string()
+             |> Path.join("github_budget.py")
+  end
+
+  defp request(token, path), do: %{method: :get, url: "https://api.github.com#{path}", token: token}
+
+  defp secondary_response(seconds) do
+    {:ok,
+     %{
+       status: 403,
+       headers: [
+         {"x-ratelimit-resource", "core"},
+         {"x-ratelimit-limit", "5000"},
+         {"x-ratelimit-remaining", "4077"},
+         {"retry-after", Integer.to_string(seconds)}
+       ],
+       body: %{"message" => "You have exceeded a secondary rate limit."}
+     }}
+  end
+
+  defp lock_database(path) do
+    python = System.find_executable("python3") || flunk("python3 is required")
+
+    script = "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); time.sleep(30)"
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(python)},
+        [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", String.to_charlist(script), String.to_charlist(path)]]
+      )
+
+    on_exit(fn -> close_port(port) end)
+    assert_receive {^port, {:data, "locked\n"}}, 2_000
+    port
+  end
+
+  defp close_port(port) do
+    if Port.info(port), do: Port.close(port)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp broker_wrapper(root, pid_path) do
+    path = Path.join(root, "python-wrapper")
+    File.write!(path, "#!/bin/sh\nprintf '%s' \"$$\" > \"#{pid_path}\"\nexec python3 \"$@\"\n")
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  defp os_process_alive?(pid) do
+    match?({_output, 0}, System.cmd("kill", ["-0", pid], stderr_to_stdout: true))
+  end
+
+  defp wait_until(predicate, attempts \\ 100) do
+    cond do
+      predicate.() -> :ok
+      attempts <= 0 -> flunk("condition never held")
+      true -> Process.sleep(10) && wait_until(predicate, attempts - 1)
+    end
+  end
+
+  defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
+  defp restore_env(key, value), do: Application.put_env(:aiur, key, value)
+end
