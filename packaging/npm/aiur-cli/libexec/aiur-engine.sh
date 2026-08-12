@@ -473,10 +473,11 @@ scrub_run_only_env() {
 
 run_argv=()
 # Default dashboard bind host. Prefer this machine's Tailscale IPv4 so the
-# dashboard is reachable across the tailnet by default (no per-project config);
+# dashboard is reachable across the tailnet by default (when config omits it);
 # fall back to loopback when Tailscale is absent, or when dashboard credentials
 # are unset (a non-loopback bind requires them, so we stay on loopback rather
-# than refuse to start). An explicit `--host` always overrides this.
+# than refuse to start). The BEAM applies this below an explicit `server.host`,
+# while an explicit `--host` remains the highest-precedence value.
 default_dashboard_host() {
   local ip=""
   if command -v tailscale >/dev/null 2>&1; then
@@ -493,10 +494,9 @@ build_run_argv() {
   local mode="$1"
   shift
 
-  local has_host=0 has_interactive=0 has_headless=0 has_ack=0 arg
+  local has_interactive=0 has_headless=0 has_ack=0 arg
   for arg in "$@"; do
     case "$arg" in
-      --host | --host=*) has_host=1 ;;
       --interactive) has_interactive=1 ;;
       --headless) has_headless=1 ;;
       --i-understand-that-this-will-be-running-without-the-usual-guardrails) has_ack=1 ;;
@@ -504,7 +504,6 @@ build_run_argv() {
   done
 
   local injected=()
-  [ "$has_host" -eq 1 ] || injected+=(--host "$(default_dashboard_host)")
   if [ "$mode" = "background" ] && [ "$has_interactive" -eq 0 ]; then
     [ "$has_headless" -eq 1 ] || injected+=(--headless)
   else
@@ -542,11 +541,13 @@ run_session() {
   # running tracker can authenticate. Shell exports still take precedence.
   load_dotenv
   scrub_run_only_env
+  export AIUR_DEFAULT_DASHBOARD_HOST="$(default_dashboard_host)"
 
   init_argv_file
 
-  # Inject the flags a bare `aiur` needs: loopback bind, UI mode, and the
-  # no-guardrails ack. Skip any the user already passed. Foreground runs are
+  # Supply the flags a bare `aiur` needs: UI mode and the no-guardrails ack.
+  # The exported dashboard host fills only a missing config value; an explicit
+  # server.host or --host remains authoritative. Foreground runs are
   # interactive; `--bg` runs headless (no panes/chat backfill) and is driven
   # over the control RPC (status/agents/message/pause/set). Dashboard binding is
   # independent: it remains enabled in either mode unless `--no-dashboard` is
@@ -645,7 +646,7 @@ run_session() {
       RELEASE_COOKIE ERL_AFLAGS ERL_EPMD_ADDRESS AIUR_NODE AIUR_ERLANG_COOKIE \
       AIUR_TMUX_SESSION AIUR_TMUX_SOCKET AIUR_TMUX_CONF AIUR_BIN \
       AIUR_SESSION_TMPFILE AIUR_AGENT_TMPFILE AIUR_WORKSPACE_ROOT_FILE \
-      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEBUG \
+      ELIXIR_ERL_OPTIONS AIUR_LOGS_ROOT AIUR_OPENCODE_BRIDGE_PORT AIUR_DEFAULT_DASHBOARD_HOST AIUR_DEBUG \
       AIUR_OPERATOR_PID AIUR_NOFILE_SOFT_LIMIT ERL_CRASH_DUMP ERL_CRASH_DUMP_SECONDS; do
       if [ -n "${!v:-}" ]; then printf 'export %s=%q\n' "$v" "${!v}"; fi
     done
@@ -744,6 +745,7 @@ run_session() {
   fi
 
   write_aiur_instance_record "$session" "$socket"
+  print_dashboard_status "$no_dashboard" "$startup_capture"
 
   if [ "$mode" = "foreground" ]; then
     echo "aiur foreground tmux socket ${socket}, session ${session}" >&2
@@ -760,7 +762,6 @@ run_session() {
       "$AIUR_RELEASE_NODE" "${AIUR_LOGS_ROOT:-}" \
       "$(aiur_stop_sentinel_path)" "$(aiur_crash_marker_path)" "$AIUR_WORKSPACE_ROOT_FILE")"
     disown "$background_watchdog_pid" 2>/dev/null || true
-    print_background_dashboard_status "$no_dashboard" "$startup_capture"
     echo "aiur started in the background (tmux socket ${socket}, session ${session}). Attach with: aiur" >&2
     # Keep $startup_capture (boot.out.log) for the run's lifetime; only the
     # transient argv file is no longer needed.
@@ -1360,7 +1361,10 @@ start_beam_death_watchdog() {
 
 probe_control_liveness() {
   local expression output status
-  expression='case Process.whereis(Aiur.Orchestrator) do pid when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
+  # The Orchestrator starts before the dashboard child, so an answering status
+  # call alone does not prove startup (or the bind attempt) finished. Wait until
+  # OTP marks :aiur started before printing the effective dashboard status.
+  expression='aiur_started = Enum.any?(Application.started_applications(), fn {app, _description, _version} -> app == :aiur end); case {Process.whereis(Aiur.Orchestrator), aiur_started} do {pid, true} when is_pid(pid) -> case Aiur.Orchestrator.status(Aiur.Orchestrator, 100) do statuses when is_list(statuses) -> IO.puts("__AIUR_CONTROL_READY__"); _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end; _ -> IO.puts("__AIUR_CONTROL_NOT_READY__") end'
 
   set +e
   output="$("$release_bin" rpc "$expression" 2>&1)"
@@ -1374,17 +1378,19 @@ probe_control_liveness() {
   fi
 }
 
-# Return the externally useful dashboard URL only when the running node confirms
-# that Bandit actually bound a listener. An empty result means the listener was
-# suppressed or refused; configured server.port alone is never proof of service.
-probe_dashboard_url() {
-  local expression output status marker="__AIUR_DASHBOARD_URL__:"
-  expression='case Aiur.HttpServer.base_url() do url when is_binary(url) -> IO.puts("__AIUR_DASHBOARD_URL__:" <> url); _ -> :ok end'
+# Return the useful URL and effective bind host/port only when the running node
+# confirms that Bandit actually bound a listener. An empty result means the
+# listener was suppressed or refused; configured server.port alone is never
+# proof of service.
+probe_dashboard_status() {
+  local expression output status marker="__AIUR_DASHBOARD_STATUS__:"
+  expression='case {Aiur.HttpServer.base_url(), Aiur.Config.server_host(), Aiur.HttpServer.bound_port()} do {url, host, port} when is_binary(url) and is_binary(host) and is_integer(port) -> IO.puts("__AIUR_DASHBOARD_STATUS__:Dashboard: " <> url <> " (bind host=" <> host <> ", port=" <> Integer.to_string(port) <> ")"); _ -> :ok end'
 
   set +e
-  output="$("$release_bin" rpc "$expression" 2>&1)"
+  run_release_rpc_with_timeout "$expression"
   status=$?
   set -e
+  output="$AIUR_CONTROL_RPC_OUTPUT"
 
   if [ "$status" -eq 0 ] && [[ "$output" == *"$marker"* ]]; then
     output="${output#*"$marker"}"
@@ -1392,14 +1398,17 @@ probe_dashboard_url() {
   fi
 }
 
-print_background_dashboard_status() {
-  local no_dashboard="$1" startup_capture="$2" url
-  url="$(probe_dashboard_url)"
+print_dashboard_status() {
+  local no_dashboard="$1" startup_capture="$2" dashboard_status
 
-  if [ -n "$url" ]; then
-    echo "Dashboard: ${url}" >&2
-  elif [ "$no_dashboard" -eq 1 ]; then
+  if [ "$no_dashboard" -eq 1 ]; then
     echo "Dashboard disabled by --no-dashboard." >&2
+    return
+  fi
+
+  dashboard_status="$(probe_dashboard_status)"
+  if [ -n "$dashboard_status" ]; then
+    echo "${dashboard_status}" >&2
   else
     echo "⚠️ dashboard listener unavailable; inspect ${startup_capture} for bind or authentication refusal." >&2
   fi
