@@ -599,11 +599,10 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   # A released claim is the one idle signal that must win over every other
   # reason: ownership evaporated and the operator (or the automatic re-claim)
-  # has to act. Prefer the claim-release reason; otherwise fall back to the
-  # #1457 idle evidence computed by `idle_evidence/5`.
-  defp idle_evidence_waiting_reason(%{auto_resume_retry_in_ms: retry_in_ms}, %{cause: cause})
-       when not is_nil(cause),
-       do: StatusReason.for_claim_release(cause, retry_in_ms)
+  # has to act. Prefer the claim-release classifier so the row never reads as a
+  # plain awaiting-dispatch; the detailed cause and retry window stay in
+  # `reason` (`StatusReason.render`) and `claim_release_cause`.
+  defp idle_evidence_waiting_reason(_evidence, %{cause: cause}) when not is_nil(cause), do: :claim_released
 
   defp idle_evidence_waiting_reason(%{waiting_reason: fallback}, _release), do: fallback
 

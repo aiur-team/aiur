@@ -23,6 +23,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
           | :tracker_unavailable
           | :backing_off
           | :unresponsive
+          | :claim_released
           | :active
 
   @doc """
@@ -72,6 +73,7 @@ defmodule Aiur.Orchestrator.WaitingReason do
   def render(:tracker_unavailable), do: "tracker_unavailable"
   def render(:backing_off), do: "backing_off"
   def render(:unresponsive), do: "unresponsive"
+  def render(:claim_released), do: "claim_released"
   def render(:active), do: "active"
   def render(other), do: to_string(other)
 
