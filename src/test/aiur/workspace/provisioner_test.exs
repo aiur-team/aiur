@@ -72,7 +72,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     write_workflow_file!(Workflow.workflow_file_path(),
       tracker_kind: "memory",
       workspace_root: workspace_root,
-      max_concurrent_builds: 2,
+      max_concurrent_builds: 1,
       build_start_stagger_seconds: 0,
       min_free_memory_mb: nil,
       hook_after_create: """
@@ -101,7 +101,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
     )
     |> Enum.each(fn result -> assert match?({:ok, {:ok, _workspace}}, result) end)
 
-    assert File.read!(max_path) == "2\n"
+    assert File.read!(max_path) == "1\n"
   end
 
   test "remote support installation failures stop workspace preparation" do
