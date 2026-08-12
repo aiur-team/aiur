@@ -47,6 +47,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     assert html =~ "70% of eligible weight measured."
   end
 
+  test "partial current-fact progress renders the presenter's shared qualification" do
+    progress = %{
+      kind: :partial,
+      percent: 40,
+      display_percent_label: "40%",
+      current_members_label: "1 of 2 members current",
+      fact_status_detail: "progress inputs are still settling"
+    }
+
+    html = render(put_progress(ready_view(), progress))
+
+    assert html =~ "40% complete from current inputs"
+    assert html =~ "1 of 2 members current"
+    assert html =~ "progress inputs are still settling"
+    refute html =~ "weight facts"
+  end
+
+  test "pending progress distinguishes settling from degraded without a percentage" do
+    pending = %{
+      kind: :pending,
+      percent: nil,
+      progress_status_label: "Progress not computed yet",
+      current_members_label: "0 of 2 members current",
+      fact_status_detail: "progress inputs are still settling"
+    }
+
+    html = render(put_progress(ready_view(), pending))
+
+    assert html =~ "Progress not computed yet"
+    assert html =~ "0 of 2 members current"
+    assert html =~ "progress inputs are still settling"
+    refute html =~ "% complete"
+  end
+
   test "zero eligible weight names the absence of weighted progress" do
     view = put_progress(ready_view(), %{ready_view().progress | kind: :none})
     html = render(view)

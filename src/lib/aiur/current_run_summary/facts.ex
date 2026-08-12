@@ -94,8 +94,28 @@ defmodule Aiur.CurrentRunSummary.Facts do
   defp member(row) do
     {weight, defaulted?} = complexity_weight(Map.get(row, :complexity))
     class = state_class(row)
-    %{row: row, class: class, weight: weight, defaulted?: defaulted?, progress: member_progress(row, class)}
+
+    %{
+      row: row,
+      class: class,
+      weight: weight,
+      defaulted?: defaulted?,
+      progress: member_progress(row, class),
+      weight_fact: weight_fact(row)
+    }
   end
+
+  # Direct projection callers predate per-row source provenance and provide
+  # already-resolved rows, so their weights remain current by default. Rows
+  # built by CurrentRunProjections carry an issue descriptor that distinguishes
+  # a current fact, a retained last-known-good fact, and no fact at all.
+  defp weight_fact(%{sources: %{issue: %{available?: true, freshness: freshness}}})
+       when freshness in [:fresh, :current],
+       do: :current
+
+  defp weight_fact(%{sources: %{issue: %{available?: true}}}), do: :retained
+  defp weight_fact(%{sources: %{issue: %{available?: false}}}), do: :missing
+  defp weight_fact(_row), do: :current
 
   defp complexity_weight(value) when is_integer(value) and value in 1..5, do: {value, false}
   defp complexity_weight(_value), do: {1, true}
