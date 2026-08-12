@@ -25,7 +25,6 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.Transport
   alias Aiur.Orchestrator.CommentPolling
-  alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.StatusReport
 
@@ -300,13 +299,14 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       :sys.replace_state(pid, fn state ->
         state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-before"})
         state = %{state | github_comment_issue_list_cache: %{etag: "comments-only"}}
-        Dispatcher.start_github_comment_poll(state, opts)
+        CommentPolling.start_async(state, opts)
       end)
 
       assert_receive {:comment_target_refresh_started, worker}, 5_000
 
       :sys.replace_state(pid, fn state ->
-        put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-after"})
+        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-after"})
+        %{state | github_comment_issue_list_cache: %{etag: "in-flight-sentinel"}}
       end)
 
       send(worker, :finish_comment_target_refresh)
@@ -326,7 +326,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       end
 
       :sys.replace_state(pid, fn state ->
-        Dispatcher.start_github_comment_poll(state, comment_poll_opts(review_issue_fetcher))
+        CommentPolling.start_async(state, comment_poll_opts(review_issue_fetcher))
       end)
 
       assert_receive :comment_target_refresh_crashing, 5_000
