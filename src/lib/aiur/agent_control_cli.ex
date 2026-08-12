@@ -629,8 +629,8 @@ defmodule Aiur.AgentControlCLI do
   # {:error, :empty_message | :message_too_long}; we surface those via format_reason.
   defp deliver_message(status, text) do
     case send_message(canonical_identifier(status), text) do
-      {:ok, _request_id} ->
-        IO.puts("aiur: messaged #{display_identifier(status)}")
+      {:ok, request_id} ->
+        IO.puts("aiur: queued message for #{display_identifier(status)} (request #{request_id}); delivery is unconfirmed")
         0
 
       {:error, reason} ->

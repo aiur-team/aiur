@@ -1446,11 +1446,11 @@ defmodule Aiur.AgentControlCLITest do
     assert resume_stderr =~ "aiur: failed to resume #46 (max concurrent agents reached)"
   end
 
-  test "message delivers operator text to a running agent and reports success", %{orchestrator: pid} do
+  test "message reports accepted queueing without claiming delivery", %{orchestrator: pid} do
     parent = self()
 
     Application.put_env(:aiur, :agent_control_cli_message_fun, fn identifier, text ->
-      send(parent, {:messaged, identifier, text})
+      send(parent, {:send_requested, identifier, text})
       {:ok, 7}
     end)
 
@@ -1462,10 +1462,12 @@ defmodule Aiur.AgentControlCLITest do
 
     output = capture_io(fn -> AgentControlCLI.message("44", "ship it") end)
 
-    assert output =~ "aiur: messaged #44"
+    assert output =~ "aiur: queued message for #44 (request 7); delivery is unconfirmed"
+    refute output =~ "aiur: messaged"
+    refute output =~ "delivered"
     assert output =~ "__AIUR_CONTROL_EXIT__:0"
-    # Delivered through the canonical identifier, not the bare issue number.
-    assert_receive {:messaged, "repo#44", "ship it"}, 500
+    # Enqueued through the canonical identifier, not the bare issue number.
+    assert_receive {:send_requested, "repo#44", "ship it"}, 500
   end
 
   test "message to a non-running issue fails with a clear error" do
