@@ -116,8 +116,12 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       if (index === 0) {
         const bucket = agent.bucket === "running" ? "pause" : agent.bucket === "paused" ? "resume" : null;
         if (bucket !== null) options.channel()?.control(identifier, bucket);
+      } else if (index === 1) {
+        options.channel()?.control(identifier, agent.priority === true ? "deprioritize" : "prioritize");
       } else if (index === 2) {
-        publish({ ...state, mode: "logs", transcriptLines: transcriptHistory.slice(-2), chatOffset: Math.max(0, transcriptHistory.length - 2) });
+        publish({ ...state, mode: "logs" });
+      } else if (index === 3) {
+        options.channel()?.control(identifier, "mic");
       }
     }
   };
@@ -145,6 +149,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const next = cycleEventPage(state.eventOffset, eventMaxOffset + 8);
       dial3Value = next.dial3Value;
       return setLogsOffsets(next.eventOffset, state.chatOffset);
+    }
+    if (state.mode === "cmd") {
+      return publish({ ...state, mode: "logs" });
     }
     const next = cycleWindow(state.columnOffset, options.grid().total);
     dial3Value = next.dial3Value;

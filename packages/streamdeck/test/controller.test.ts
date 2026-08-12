@@ -73,14 +73,7 @@ describe("physical controller composition", () => {
     controller.handleReport(keyReport(0, false));
     controller.handleReport(dialButton(3));
     controller.handleReport(dialButton(3, false));
-    controller.handleReport(dialButton(3));
-    expect(controller.state().columnOffset).toBeGreaterThan(0);
-    controller.handleReport(dialButton(3, false));
-    controller.handleReport(dialButton(3));
-    controller.handleReport(dialButton(3, false));
-    controller.handleReport(keyReport(2, true));
     expect(controller.state().mode).toBe("logs");
-    controller.handleReport(keyReport(2, false));
     controller.handleReport(dialTurn(0, -1));
     expect(controller.state().chatOffset).toBe(0);
     controller.handleReport(dialTurn(0, 1));

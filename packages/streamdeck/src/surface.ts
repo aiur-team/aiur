@@ -57,6 +57,17 @@ const descriptorEvents = (lines: readonly string[], offset: number): AgentInput[
   dependency_ready: true,
 }));
 
+const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | undefined): (AgentInput | undefined)[] => {
+  const identifier = String(agent?.identifier ?? "focused");
+  const running = agent?.bucket === "running";
+  return [
+    { identifier: `${identifier}:pause`, title: running ? "Pause" : "Resume", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+    { identifier: `${identifier}:priority`, title: agent?.priority === true ? "Deprioritize" : "Prioritize", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+    { identifier: `${identifier}:logs`, title: "Logs", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+    { identifier: `${identifier}:mic`, title: "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+  ];
+};
+
 /**
  * Minimal production compositor for the direct-HID path. Empty keys use the
  * existing feature-report fast path; populated keys use the same status colour
@@ -98,6 +109,8 @@ export const createPhysicalSurface = () => {
       const focused = state.focusedIdentifier === null ? null : grid.agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
       const visibleGrid = state.mode === "logs"
         ? layoutKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0), 0)
+        : state.mode === "cmd"
+          ? layoutKeys(descriptorCommands(focused), 0)
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {

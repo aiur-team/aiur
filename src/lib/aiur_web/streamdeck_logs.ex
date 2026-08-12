@@ -48,6 +48,21 @@ defmodule AiurWeb.StreamdeckLogs do
     |> visible()
   end
 
+  @doc "Converts the internal projection into the JSON-safe channel DTO."
+  @spec wire(map()) :: map()
+  def wire(logs) when is_map(logs), do: wire_value(logs)
+
+  defp wire_value(%DateTime{} = value), do: DateTime.to_iso8601(value)
+
+  defp wire_value(value) when is_map(value) do
+    Map.new(value, fn {key, item} -> {to_string(key), wire_value(item)} end)
+  end
+
+  defp wire_value(value) when is_list(value), do: Enum.map(value, &wire_value/1)
+  defp wire_value(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&wire_value/1) |> Enum.join(":")
+  defp wire_value(value) when is_atom(value), do: Atom.to_string(value)
+  defp wire_value(value), do: value
+
   @spec visible(map()) :: map()
   def visible(logs) do
     logs

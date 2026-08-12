@@ -147,8 +147,8 @@ defmodule AiurWeb.StreamdeckChannel do
 
   defp logs_projection(identifier) do
     case AgentEventFeed.list(identifier, %{"limit" => 50}) do
-      {:ok, %{events: events}} -> StreamdeckLogs.project(events)
-      _ -> StreamdeckLogs.project([])
+      {:ok, %{events: events}} -> StreamdeckLogs.project(events) |> StreamdeckLogs.wire()
+      _ -> StreamdeckLogs.project([]) |> StreamdeckLogs.wire()
     end
   end
 end

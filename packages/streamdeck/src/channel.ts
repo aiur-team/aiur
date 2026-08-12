@@ -80,7 +80,7 @@ export interface StreamDeckChannelOptions {
 
 export interface StreamDeckChannel {
   focus(identifier: string): void;
-  control(identifier: string, action: "pause" | "resume"): void;
+  control(identifier: string, action: "pause" | "resume" | "prioritize" | "deprioritize" | "mic"): void;
   close(): void;
 }
 
@@ -174,6 +174,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     heartbeat = null;
     if (!stopped && !closedNotified) {
       closedNotified = true;
+      socket.close();
       options.events.closed(error);
     }
   };

@@ -142,7 +142,7 @@ const EMPTY_KEY: EmptyKey = Object.freeze({ kind: "empty" });
  * The input order is preserved verbatim — do not re-sort client-side.
  */
 export function layoutKeys(
-  agents: readonly AgentInput[],
+  agents: readonly (AgentInput | undefined)[],
   columnOffset: number,
 ): KeyDescriptor[] {
   return Array.from({ length: KEYS_PER_PAGE }, (_, i) => {
