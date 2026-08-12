@@ -1,5 +1,5 @@
 defmodule Aiur.PaneManager.OpencodeOpenTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.Opencode.SlotRegistry
   alias Aiur.PaneManager.{OpencodeOpen, State}
