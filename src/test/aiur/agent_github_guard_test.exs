@@ -1067,6 +1067,73 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  test "a configured budget refuses api rate_limit when python3 is unavailable", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    path = isolated_command_path(context, ~w(shasum))
+
+    assert {output, 75} =
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               PATH: path
+             )
+
+    assert output =~ "shared budget unavailable"
+    assert output =~ "python3"
+    assert output =~ "refusing uncoordinated request"
+    refute File.exists?(context.calls)
+  end
+
+  test "api rate_limit is admitted through the shared core budget", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"5000 0 5000 0", 0} =
+             run_guard(context, ["api", "rate_limit"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "rate_limit"}]} = Jason.decode!(snapshot)
+  end
+
+  test "auth token remains local when a configured budget cannot start", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    path = isolated_command_path(context, ~w(shasum))
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["auth", "token"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               PATH: path
+             )
+
+    assert File.read!(context.calls) == "auth token\n"
+  end
+
+  test "an explicitly disabled budget permits network calls without python3", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    path = isolated_command_path(context, ~w(shasum))
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ENABLED: "0",
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               PATH: path
+             )
+
+    assert File.read!(context.calls) == "api repos/owner/repo/issues/1670\n"
+  end
+
   test "a malformed broker wait response refuses the real gh command", context do
     budget_root = Path.join(context.state_path, "host-budget")
 

@@ -115,6 +115,8 @@ unset budget_consumer
 direction=read
 track=1
 resource=unknown
+admission_required=1
+admission_resource=unknown
 endpoint_family=rest
 api_paginated=0
 
@@ -154,7 +156,7 @@ api_command_endpoint() {
 }
 
 case "${1:-} ${2:-}" in
-  "api rate_limit") resource=none ;;
+  "api rate_limit") resource=none; endpoint_family=rate_limit ;;
   "api graphql"|"api /graphql")
     resource=graphql
     endpoint_family=graphql
@@ -209,7 +211,8 @@ case "${1:-} ${2:-}" in
   "issue "*) endpoint_family=issues; direction=write ;;
   "run rerun"|"run cancel"|"run delete") endpoint_family=actions; direction=write ;;
   "label create"|"label delete"|"label edit") endpoint_family=labels; direction=write ;;
-  "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none ;;
+  "config "*|"alias "*|"completion "*|"help "*|"version "*) track=0; resource=none; admission_required=0 ;;
+  "auth token") track=0; resource=none; admission_required=0 ;;
   "auth "*|"extension "*) track=0 ;;
 esac
 
@@ -222,6 +225,7 @@ if [ "${1:-}" = api ]; then
   case "$resolved_api_endpoint" in
     rate_limit)
       resource=none
+      endpoint_family=rate_limit
       ;;
     graphql|/graphql)
       resource=graphql
@@ -290,7 +294,10 @@ if [ "${1:-}" = api ]; then
   unset api_options api_method api_payload api_mutation api_method_expected api_argument
 fi
 
-if [ "$resource" != none ] && [ "$budget_required" -eq 1 ] && [ "$budget_enabled" -ne 1 ]; then
+admission_resource=$resource
+[ "$admission_resource" != none ] || admission_resource=core
+
+if [ "$admission_required" -eq 1 ] && [ "$budget_required" -eq 1 ] && [ "$budget_enabled" -ne 1 ]; then
   printf 'aiur: GitHub shared budget unavailable (%s); refusing uncoordinated request\n' "$budget_unavailable_reason" >&2
   exit 75
 fi
@@ -326,7 +333,7 @@ budget_acquire() {
   while :; do
     budget_ignore_flag=
     [ "$budget_ignore_token_cooldown" -eq 1 ] && budget_ignore_flag=--ignore-token-cooldown
-    if ! budget_result=$(budget_command acquire --resource "$resource" --consumer-key "$budget_consumer_key" --endpoint-family "$endpoint_family" \
+    if ! budget_result=$(budget_command acquire --resource "$admission_resource" --consumer-key "$budget_consumer_key" --endpoint-family "$endpoint_family" \
       $budget_ignore_flag \
       --max-inflight "${AIUR_GITHUB_MAX_INFLIGHT:-4}" \
       --max-inflight-per-endpoint "${AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT:-2}" \
@@ -993,7 +1000,7 @@ if [ "$hold_until" -gt "$now" ]; then
   now=$(date -u +%s)
 fi
 
-if [ "$resource" != none ]; then
+if [ "$admission_required" -eq 1 ]; then
   if [ "$api_paginated" -eq 1 ] && [ "$budget_enabled" -eq 1 ]; then
     run_budgeted_paginated_api "$@"
     exit $?
@@ -1080,11 +1087,13 @@ fi
 
 probe_rate_limit() {
   original_resource=$resource
+  original_admission_resource=$admission_resource
   original_family=$endpoint_family
   immediate_cooldown=$(secondary_delay_ms "$error_file" "$output_file")
   budget_hold token "$immediate_cooldown"
   budget_release
   resource=core
+  admission_resource=core
   endpoint_family=rate_limit
   budget_ignore_token_cooldown=1
   if budget_acquire; then
@@ -1096,8 +1105,9 @@ probe_rate_limit() {
   budget_ignore_token_cooldown=0
   budget_release
   resource=$original_resource
+  admission_resource=$original_admission_resource
   endpoint_family=$original_family
-  unset original_resource original_family immediate_cooldown
+  unset original_resource original_admission_resource original_family immediate_cooldown
 }
 
 rate_limited_response() {
