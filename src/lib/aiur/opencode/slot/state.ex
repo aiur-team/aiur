@@ -47,7 +47,7 @@ defmodule Aiur.Opencode.Slot.State do
             # background side-effect for fill purposes.
             pending_attaches: MapSet.new()
 
-  @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :failed
+  @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :stopping | :failed
   @type t :: %__MODULE__{}
 
   @doc "Initial state for a newly-started slot."

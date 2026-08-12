@@ -16,7 +16,7 @@ defmodule Aiur.Opencode.HiddenWindow do
   require Logger
 
   alias Aiur.Opencode.Config
-  alias Aiur.Opencode.SlotPolicy
+  alias Aiur.Opencode.SlotSupervisor
   alias Aiur.Tmux
 
   @window_name "aiur-hidden"
@@ -138,7 +138,7 @@ defmodule Aiur.Opencode.HiddenWindow do
   end
 
   defp safe_slot_count do
-    max(SlotPolicy.warm_pool_size(), 1)
+    max(SlotSupervisor.slot_count(), 1)
   rescue
     _ -> 3
   end

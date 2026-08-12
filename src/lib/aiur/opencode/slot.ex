@@ -93,6 +93,14 @@ defmodule Aiur.Opencode.Slot do
     :exit, _ -> %{status: :unavailable}
   end
 
+  @doc "Atomically reserve an idle slot for termination."
+  @spec reserve_stop(GenServer.server()) :: :ok | :busy
+  def reserve_stop(server) do
+    GenServer.call(server, :reserve_stop, 2_000)
+  catch
+    :exit, _ -> :busy
+  end
+
   @doc "Pre-warm `identifier`'s session. Idempotent. Does not change visibility."
   @spec attach(GenServer.server(), String.t(), timeout()) ::
           {:ok, String.t()} | {:error, term()}
@@ -221,6 +229,11 @@ defmodule Aiur.Opencode.Slot do
 
   def handle_call({:select, _identifier}, _from, state),
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
+
+  def handle_call(:reserve_stop, _from, %{status: :ready} = state),
+    do: {:reply, :ok, %{state | status: :stopping}}
+
+  def handle_call(:reserve_stop, _from, state), do: {:reply, :busy, state}
 
   def handle_call({:attach, identifier}, _from, %{status: status} = state)
       when status in [:ready, :active] do

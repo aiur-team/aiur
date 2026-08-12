@@ -42,6 +42,11 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     def stop_slot(_slot_index), do: :ok
   end
 
+  defmodule BusyHighestSlotStopper do
+    def stop_slot(3), do: :busy
+    def stop_slot(_slot_index), do: :ok
+  end
+
   defmodule BlockingSlotStarter do
     use GenServer
 
@@ -208,7 +213,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       pid = start_policy!(name, pubsub, slot_starter: FakeSlotStarter)
 
       assert SlotPolicy.target_count(pid) == 1
-      assert SlotPolicy.max_slots(pid) == 8
+      assert SlotPolicy.max_slots(pid) == 5
       assert SlotPolicy.highest_started(pid) == 1
       assert registered_slots() == [1]
     end
@@ -252,6 +257,26 @@ defmodule Aiur.Opencode.SlotPolicyTest do
       assert eventually(fn -> SlotPolicy.target_count(pid) == 1 end)
       assert SlotPolicy.max_concurrent_agents(pid) == 1
       assert SlotPolicy.highest_started(pid) == 1
+    end
+
+    test "continues below a busy high slot and retains it", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 3,
+          max_slots: 5,
+          max_concurrent_agents: 3,
+          slot_starter: FakeSlotStarter,
+          slot_stopper: BusyHighestSlotStopper
+        )
+
+      assert %{highest_started: 3} = await_policy_startup!(pid, 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 1}})
+
+      assert eventually(fn ->
+               state = :sys.get_state(pid)
+               state.live_slots == MapSet.new([1, 3]) and state.highest_started == 3
+             end)
     end
   end
 

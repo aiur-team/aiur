@@ -79,7 +79,7 @@ defmodule Aiur.Opencode.SlotSupervisor do
   end
 
   defp stop_ready_slot(pid) do
-    with %{status: :ready} <- Slot.snapshot(pid),
+    with :ok <- Slot.reserve_stop(pid),
          result <- DynamicSupervisor.terminate_child(__MODULE__, pid) do
       case result do
         :ok -> :ok
