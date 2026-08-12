@@ -5072,6 +5072,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     defaults = [
       name: name,
+      state_dir: dir,
       dispatcher: dispatcher,
       dispatch_delay_ms: 0,
       retry_delays_ms: [],
