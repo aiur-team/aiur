@@ -254,7 +254,6 @@ defmodule Aiur.Opencode.AttachPool do
     # fan-out (leadoff + remaining active agents). On subsequent re-
     # readys (rebuild path), only re-attach non-leadoff identifiers so
     # the slot's existing leadoff isn't displaced.
-    state = %{state | fanned_out_slots: Map.delete(state.fanned_out_slots, slot_index)}
     {:noreply, kickoff_fan_out(state, slot_index)}
   end
 
