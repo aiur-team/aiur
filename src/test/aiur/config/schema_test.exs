@@ -64,12 +64,34 @@ defmodule Aiur.Config.SchemaTest do
       assert {:ok, settings} =
                Schema.parse(%{
                  "agent" => %{
-                   "backend_configs" => %{"deepseek" => %{"enabled" => true}},
+                   "priority" => ["deepseek"],
                    "routing" => %{"5" => "deepseek"}
                  }
                })
 
       assert settings.agent.routing[5] == "deepseek"
+    end
+  end
+
+  describe "agent priority" do
+    test "defaults empty and accepts an ordered list" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.priority == []
+
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"priority" => ["deepseek", "codex", "claude"]}})
+      assert settings.agent.priority == ["deepseek", "codex", "claude"]
+    end
+
+    test "rejects duplicate or unknown backends" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"priority" => ["codex", "codex"]}})
+
+      assert message =~ "duplicate"
+
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"priority" => ["nonesuch"]}})
+
+      assert message =~ "unknown backend"
     end
   end
 
@@ -133,6 +155,41 @@ defmodule Aiur.Config.SchemaTest do
 
         assert message =~ "tracker.github.#{field}"
       end
+    end
+  end
+
+  describe "GitHub shared request budget" do
+    test "defaults to a conservative shared ceiling and accepts explicit tuning" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.max_inflight == 4
+      assert defaults.tracker.github.max_inflight_per_endpoint == 2
+      assert defaults.tracker.github.requests_per_minute == 120
+      assert defaults.tracker.github.stagger_ms == 75
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{
+                     "max_inflight" => 8,
+                     "max_inflight_per_endpoint" => 3,
+                     "requests_per_minute" => 240,
+                     "stagger_ms" => 125
+                   }
+                 }
+               })
+
+      assert settings.tracker.github.max_inflight == 8
+      assert settings.tracker.github.max_inflight_per_endpoint == 3
+      assert settings.tracker.github.requests_per_minute == 240
+      assert settings.tracker.github.stagger_ms == 125
+    end
+
+    test "rejects an endpoint ceiling above the shared ceiling" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"max_inflight" => 2, "max_inflight_per_endpoint" => 3}}})
+
+      assert message =~ "tracker.github.max_inflight_per_endpoint"
+      assert message =~ "must not exceed max_inflight"
     end
   end
 

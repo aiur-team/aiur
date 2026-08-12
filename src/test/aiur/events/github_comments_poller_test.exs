@@ -34,6 +34,10 @@ defmodule Aiur.Events.GithubCommentsPollerTest do
              GithubCommentsPoller.poll(["", "  "], boot_time: 1_782_302_400)
   end
 
+  test "max duration covers the final concurrency wave" do
+    assert GithubCommentsPoller.max_duration_ms(13, max_concurrency: 4, timeout: 60_000) == 240_000
+  end
+
   test "normalizes and deduplicates watched targets before polling" do
     parent = self()
 

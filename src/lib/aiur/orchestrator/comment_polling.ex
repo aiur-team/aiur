@@ -1,7 +1,13 @@
 defmodule Aiur.Orchestrator.CommentPolling do
   @moduledoc """
   GitHub firehose and comments poll drivers.
-  All functions execute inside the orchestrator GenServer process.
+
+  The firehose poll runs inside the orchestrator GenServer process. The comments
+  poll does not: it fans out over every watched target, and the Orchestrator
+  awaiting that fan-out inline is what left it unreadable on an idle host
+  (#1837). `start_async/2` issues it and `apply_async/3` folds the answer in.
+  `poll_github_comments/2` still does both in one step for callers that want the
+  synchronous shape.
   """
 
   require Logger
@@ -14,6 +20,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
   alias Aiur.Orchestrator.State
 
   @recent_merge_persistence_retry_limit 3
+
+  @comment_poll_setup_timeout_ms 300_000
+  @comment_poll_abandon_margin_ms 30_000
 
   @spec poll_github_firehose(State.t(), keyword()) :: State.t()
   def poll_github_firehose(%State{} = state, opts \\ []) do
@@ -144,21 +153,478 @@ defmodule Aiur.Orchestrator.CommentPolling do
   end
 
   defp do_poll_github_comments(%State{} = state, opts) do
-    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
-      {:ok, targets, human_review_targets, watch_targets, cache} ->
-        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], cache)
-        poll_github_comment_targets(state, targets, human_review_targets, watch_targets, opts)
+    apply_comment_poll(state, run_comment_poll(state, opts))
+  end
 
-      {:error, reason} ->
-        Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
-        state
+  @doc """
+  Starts the comment poll on another process and returns immediately.
+
+  The poll fans out over every watched target with `Task.async_stream` and the
+  Orchestrator used to consume that stream inline from its dispatch callback:
+  captured on an *idle* host (load 1.68, quota healthy) parked in
+  `Task.Supervised.stream_reduce/7` under `do_maybe_dispatch/1` with 5,729
+  messages queued behind it, while `aiur status` and `aiur agents` both timed
+  out. A per-request deadline cannot bound that — awaiting N targets costs N
+  deadlines — so the fetch leaves the callback entirely and comes back as
+  `{:github_comments_polled, ref, payload}`, which `apply_async/3` folds in.
+
+  One poll at a time: a second is not started while one is outstanding, or two
+  fan-outs would race the same cursors. That skip is time-boxed rather than
+  latched — a worker that dies without answering would otherwise silence comment
+  polling for the life of the daemon, and silence is exactly what this poller
+  exists to prevent.
+  """
+  @spec start_async(State.t(), keyword()) :: State.t()
+  def start_async(%State{} = state, opts \\ []) do
+    now_ms = System.monotonic_time(:millisecond)
+
+    cond do
+      tracker_kind(opts) != "github" -> state
+      comment_poll_in_flight?(state, now_ms) -> state
+      true -> spawn_comment_poll(state, opts, now_ms)
     end
   end
 
-  defp poll_github_comment_targets(%State{} = state, [], _human_review_targets, _watch_targets, _opts), do: state
+  defp tracker_kind(opts), do: Keyword.get_lazy(opts, :tracker_kind, &Config.tracker_kind/0)
 
-  defp poll_github_comment_targets(%State{} = state, targets, human_review_targets, watch_targets, opts)
-       when is_list(targets) do
+  @doc """
+  Folds a completed asynchronous comment poll into the current state.
+
+  Results from an abandoned or superseded poll are dropped: the reference names
+  the poll this state is waiting for, and anything else is a straggler whose
+  cursors would move the fleet backwards.
+  """
+  @spec apply_async(State.t(), reference(), term()) :: State.t()
+  def apply_async(%State{github_comment_poll: %{ref: ref} = poll} = state, ref, payload) do
+    release_poll_owner(poll)
+    demonitor_comment_poll(poll)
+    state = %{state | github_comment_poll: nil}
+    apply_comment_poll(state, payload)
+  end
+
+  def apply_async(%State{} = state, _stale_ref, _payload), do: state
+
+  @doc false
+  @spec apply_async_started(State.t(), reference(), pid(), pid()) :: State.t()
+  def apply_async_started(%State{github_comment_poll: %{ref: ref, owner: owner} = pending} = state, ref, owner, pid) do
+    monitor_ref = Process.monitor(pid)
+    send(owner, {:start_owned_poll, self(), ref})
+
+    poll =
+      pending
+      |> Map.put(:pid, pid)
+      |> Map.put(:monitor_ref, monitor_ref)
+      |> Map.put(:guarding?, false)
+
+    %{state | github_comment_poll: poll}
+  end
+
+  def apply_async_started(%State{} = state, _stale_ref, owner, _pid) do
+    stop_ref = make_ref()
+    send(owner, {:stop_owned_poll, self(), stop_ref})
+    state
+  end
+
+  @doc false
+  @spec apply_async_guarding(State.t(), reference(), pid(), pid()) :: State.t()
+  def apply_async_guarding(
+        %State{github_comment_poll: %{ref: ref, owner: owner, pid: pid} = poll} = state,
+        ref,
+        owner,
+        pid
+      ) do
+    %{state | github_comment_poll: Map.put(poll, :guarding?, true)}
+  end
+
+  def apply_async_guarding(%State{} = state, _stale_ref, owner, _pid) do
+    send(owner, {:stop_owned_poll, self(), make_ref()})
+    state
+  end
+
+  @doc false
+  @spec apply_async_down(State.t(), reference()) :: {:handled, State.t()} | :unhandled
+  def apply_async_down(
+        %State{github_comment_poll: %{owner_monitor_ref: owner_monitor_ref} = poll} = state,
+        owner_monitor_ref
+      ) do
+    reap_poll_after_owner_down(poll)
+    {:handled, %{state | github_comment_poll: nil}}
+  end
+
+  def apply_async_down(%State{github_comment_poll: %{monitor_ref: monitor_ref} = poll} = state, monitor_ref) do
+    release_poll_owner(poll)
+    demonitor_owner(poll)
+    {:handled, %{state | github_comment_poll: nil}}
+  end
+
+  def apply_async_down(%State{}, _stale_monitor_ref), do: :unhandled
+
+  defp comment_poll_in_flight?(
+         %State{github_comment_poll: %{started_at_ms: started_at_ms, abandon_after_ms: abandon_after_ms}} = state,
+         now_ms
+       )
+       when is_integer(started_at_ms) and is_integer(abandon_after_ms) do
+    if now_ms - started_at_ms < abandon_after_ms do
+      true
+    else
+      Logger.warning(
+        "GithubCommentsPoller poll has not answered in #{abandon_after_ms}ms; " <>
+          "abandoning it and starting a fresh one"
+      )
+
+      abandon_poll(state.github_comment_poll)
+      false
+    end
+  end
+
+  defp comment_poll_in_flight?(_state, _now_ms), do: false
+
+  defp spawn_comment_poll(%State{} = state, opts, now_ms) do
+    orchestrator = self()
+    ref = make_ref()
+
+    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end
+    phase_hook = Keyword.get(opts, :owner_phase_hook)
+    {owner, owner_monitor_ref} = spawn_owned_poll(orchestrator, state.snapshot_key, ref, task_fun, phase_hook)
+    abandon_after_ms = comment_poll_abandon_after_ms(state, opts)
+
+    poll = %{ref: ref, owner: owner, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms, abandon_after_ms: abandon_after_ms}
+    %{state | github_comment_poll: poll}
+  end
+
+  defp comment_poll_abandon_after_ms(state, opts) do
+    target_count = TargetSelection.max_comment_poll_target_count(state, opts)
+
+    comment_poll_setup_timeout_ms(opts) +
+      GithubCommentsPoller.max_duration_ms(target_count, opts) +
+      @comment_poll_abandon_margin_ms
+  end
+
+  defp comment_poll_setup_timeout_ms(opts) do
+    case Keyword.get(opts, :setup_timeout, @comment_poll_setup_timeout_ms) do
+      timeout when is_integer(timeout) and timeout > 0 -> timeout
+      _other -> @comment_poll_setup_timeout_ms
+    end
+  end
+
+  defp abandon_poll(%{owner: owner} = poll) when is_pid(owner) do
+    # Stop is synchronous: if the owner's DOWN is queued behind the dispatch
+    # callback that noticed expiry, merely sending to it and flushing monitors
+    # would discard the only evidence needed to reap its poll before replacement.
+    terminate_poll(poll)
+    demonitor_comment_poll(poll)
+  end
+
+  defp abandon_poll(_poll), do: :ok
+
+  @doc false
+  @spec terminate_poll(map() | nil) :: :ok
+  def terminate_poll(%{pid: pid, owner: owner, monitor_ref: monitor_ref})
+      when is_pid(pid) and is_pid(owner) and is_reference(monitor_ref) do
+    stop_ref = make_ref()
+    owner_ref = Process.monitor(owner)
+    send(owner, {:stop_owned_poll, self(), stop_ref})
+
+    receive do
+      {:owned_poll_stopped, ^stop_ref} ->
+        Process.demonitor(owner_ref, [:flush])
+
+        receive do
+          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+        after
+          0 -> Process.demonitor(monitor_ref, [:flush])
+        end
+
+      {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
+        # A completed poll owner can exit before the Orchestrator consumes its
+        # result. If it died unexpectedly while the poll remains alive, reap
+        # the tree here rather than hanging shutdown on a message to a dead pid.
+        if Process.alive?(pid) do
+          reap_process_tree(pid, monitor_ref)
+        else
+          Process.demonitor(monitor_ref, [:flush])
+        end
+    end
+
+    :ok
+  end
+
+  def terminate_poll(%{owner: owner}) when is_pid(owner) do
+    stop_ref = make_ref()
+    owner_ref = Process.monitor(owner)
+    send(owner, {:stop_owned_poll, self(), stop_ref})
+
+    receive do
+      {:owned_poll_stopped, ^stop_ref} -> Process.demonitor(owner_ref, [:flush])
+      {:DOWN, ^owner_ref, :process, ^owner, _reason} -> :ok
+    end
+
+    :ok
+  end
+
+  def terminate_poll(_poll), do: :ok
+
+  # The poll temporarily traps exits while Task.async_stream owns its target
+  # tasks, so a link is not an inverse lifetime edge. The owner monitors the
+  # Orchestrator, and the Orchestrator retains its owner monitor through the
+  # acknowledged guarding handoff; either side's death therefore reaps the poll.
+  defp spawn_owned_poll(orchestrator, ownership_key, ref, task_fun, phase_hook) do
+    spawn_monitor(fn ->
+      orchestrator_ref = Process.monitor(orchestrator)
+
+      case claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
+        :ok ->
+          {poll, poll_ref} = spawn_monitor(fn -> receive do: (:start -> task_fun.()) end)
+          send(orchestrator, {:github_comment_poll_started, ref, self(), poll})
+          await_poll_start(orchestrator, orchestrator_ref, ref, poll, poll_ref, phase_hook)
+
+        :orchestrator_down ->
+          :ok
+
+        {:stop, caller, stop_ref} ->
+          send(caller, {:owned_poll_stopped, stop_ref})
+      end
+    end)
+  end
+
+  defp await_poll_start(orchestrator, orchestrator_ref, ref, poll, poll_ref, phase_hook) do
+    receive do
+      {:start_owned_poll, ^orchestrator, ^ref} ->
+        run_owner_phase_hook(phase_hook, :before_start, poll)
+        send(poll, :start)
+        run_owner_phase_hook(phase_hook, :after_start_before_guard, poll)
+        send(orchestrator, {:github_comment_poll_guarding, ref, self(), poll})
+        guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
+
+      {:stop_owned_poll, caller, stop_ref} ->
+        reap_process_tree(poll, poll_ref)
+        send(caller, {:owned_poll_stopped, stop_ref})
+
+      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+        reap_process_tree(poll, poll_ref)
+    end
+  end
+
+  defp claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
+    key = {:github_comment_poll, ownership_key}
+
+    case Registry.register(Aiur.Events.SubscriptionStoreRegistry, key, nil) do
+      {:ok, _value} ->
+        :ok
+
+      {:error, {:already_registered, owner}} ->
+        owner_ref = Process.monitor(owner)
+
+        receive do
+          {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
+            claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref)
+
+          {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+            Process.demonitor(owner_ref, [:flush])
+            :orchestrator_down
+
+          {:stop_owned_poll, caller, stop_ref} ->
+            Process.demonitor(owner_ref, [:flush])
+            {:stop, caller, stop_ref}
+        end
+    end
+  end
+
+  defp guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref) do
+    receive do
+      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+        reap_process_tree(poll, poll_ref)
+
+      {:stop_owned_poll, caller, stop_ref} ->
+        reap_process_tree(poll, poll_ref)
+        send(caller, {:owned_poll_stopped, stop_ref})
+
+      {:DOWN, ^poll_ref, :process, ^poll, _reason} ->
+        await_poll_release(orchestrator, orchestrator_ref)
+    end
+  end
+
+  defp await_poll_release(orchestrator, orchestrator_ref) do
+    receive do
+      {:release_owned_poll, ^orchestrator, _ref} ->
+        Process.demonitor(orchestrator_ref, [:flush])
+
+      {:stop_owned_poll, caller, stop_ref} ->
+        send(caller, {:owned_poll_stopped, stop_ref})
+
+      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+        :ok
+    end
+  end
+
+  defp run_owner_phase_hook(hook, phase, poll) when is_function(hook, 3), do: hook.(phase, self(), poll)
+  defp run_owner_phase_hook(_hook, _phase, _poll), do: :ok
+
+  defp release_poll_owner(%{owner: owner, ref: ref}) when is_pid(owner) and is_reference(ref) do
+    send(owner, {:release_owned_poll, self(), ref})
+  end
+
+  defp release_poll_owner(_poll), do: :ok
+
+  defp reap_poll_after_owner_down(%{pid: pid, monitor_ref: monitor_ref} = poll)
+       when is_pid(pid) and is_reference(monitor_ref) do
+    if Process.alive?(pid) do
+      reap_process_tree(pid, monitor_ref)
+    else
+      Process.demonitor(monitor_ref, [:flush])
+    end
+
+    demonitor_owner(poll)
+  end
+
+  defp reap_poll_after_owner_down(poll), do: demonitor_owner(poll)
+
+  defp demonitor_owner(%{owner_monitor_ref: owner_monitor_ref}) when is_reference(owner_monitor_ref) do
+    Process.demonitor(owner_monitor_ref, [:flush])
+  end
+
+  defp demonitor_owner(_poll), do: :ok
+
+  defp reap_process_tree(root, root_ref) do
+    descendants = linked_descendants(root, MapSet.new([self()]))
+    descendant_refs = Enum.map(descendants, &{&1, Process.monitor(&1)})
+    Process.exit(root, :kill)
+    await_process_down(root, root_ref)
+    Enum.each(descendant_refs, fn {pid, ref} -> await_process_down(pid, ref) end)
+  end
+
+  defp linked_descendants(pid, seen) do
+    links =
+      case Process.info(pid, :links) do
+        {:links, linked} -> Enum.filter(linked, &(is_pid(&1) and not MapSet.member?(seen, &1)))
+        nil -> []
+      end
+
+    Enum.reduce(links, links, fn linked, descendants ->
+      nested = linked_descendants(linked, Enum.reduce(descendants, MapSet.put(seen, pid), &MapSet.put(&2, &1)))
+      Enum.uniq(descendants ++ nested)
+    end)
+  end
+
+  defp await_process_down(pid, ref) do
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    end
+  end
+
+  defp demonitor_comment_poll(poll) when is_map(poll) do
+    case Map.get(poll, :monitor_ref) do
+      monitor_ref when is_reference(monitor_ref) -> Process.demonitor(monitor_ref, [:flush])
+      _missing -> :ok
+    end
+
+    demonitor_owner(poll)
+  end
+
+  # The I/O half. Runs on whichever process the caller chose — never touches the
+  # state it was handed, so its result can be folded into a newer one.
+  defp run_comment_poll(%State{} = state, opts) do
+    case run_comment_poll_setup(state, opts) do
+      {:ok, cache, human_review_targets, targets, poll_opts} ->
+        {:ok, cache, human_review_targets, poll_prepared_targets(targets, poll_opts)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # Discovery, PR freshness, authorization timelines, pagination, and the
+  # GraphQL batch can each issue a variable number of sequential requests. A
+  # guessed request count cannot prove an outer lifetime bound, so setup owns
+  # one explicit wall-clock budget instead. The worker is linked into the poll
+  # tree, and timeout reaps its request descendants before returning.
+  defp run_comment_poll_setup(%State{} = state, opts) do
+    parent = self()
+    result_ref = make_ref()
+    timeout_ms = comment_poll_setup_timeout_ms(opts)
+    previous_trap_exit = Process.flag(:trap_exit, true)
+
+    {worker, worker_ref} =
+      :erlang.spawn_opt(
+        fn -> send(parent, {__MODULE__, result_ref, prepare_comment_poll(state, opts)}) end,
+        [:link, :monitor]
+      )
+
+    try do
+      await_comment_poll_setup(worker, worker_ref, result_ref, timeout_ms)
+    after
+      Process.unlink(worker)
+      flush_link_exit(worker)
+      Process.flag(:trap_exit, previous_trap_exit)
+    end
+  end
+
+  defp await_comment_poll_setup(worker, worker_ref, result_ref, timeout_ms) do
+    receive do
+      {__MODULE__, ^result_ref, result} ->
+        await_process_down(worker, worker_ref)
+        result
+
+      {:DOWN, ^worker_ref, :process, ^worker, reason} ->
+        exit({:comment_poll_setup_exit, reason})
+    after
+      timeout_ms ->
+        Logger.warning("GithubCommentsPoller setup exceeded its #{timeout_ms}ms phase deadline and was abandoned")
+        reap_process_tree(worker, worker_ref)
+        flush_setup_result(result_ref)
+        {:error, :setup_deadline_exceeded}
+    end
+  end
+
+  defp flush_setup_result(result_ref) do
+    receive do
+      {__MODULE__, ^result_ref, _result} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp flush_link_exit(worker) do
+    receive do
+      {:EXIT, ^worker, _reason} -> :ok
+    after
+      0 -> :ok
+    end
+  end
+
+  defp prepare_comment_poll(%State{} = state, opts) do
+    case TargetSelection.github_comment_poll_targets_with_cache(state, opts) do
+      {:ok, targets, human_review_targets, watch_targets, cache} ->
+        poll_opts = prepare_comment_poll_opts(state, targets, human_review_targets, watch_targets, opts)
+        {:ok, cache, human_review_targets, targets, poll_opts}
+
+      {:error, _reason} = error ->
+        error
+    end
+  end
+
+  # The fold half. Runs on the Orchestrator, against whatever state it holds now.
+  defp apply_comment_poll(%State{} = state, {:ok, cache, human_review_targets, poll_outcome}) do
+    state = %{state | github_comment_issue_list_cache: cache}
+    apply_poll_outcome(state, human_review_targets, poll_outcome)
+  end
+
+  defp apply_comment_poll(%State{} = state, {:error, reason}) do
+    Logger.warning("GithubCommentsPoller target refresh skipped; reason=#{inspect(reason)}")
+    state
+  end
+
+  defp apply_comment_poll(%State{} = state, _unrecognised), do: state
+
+  defp poll_prepared_targets([], _poll_opts), do: :no_targets
+
+  defp poll_prepared_targets(targets, poll_opts) when is_list(targets) do
+    {targets, GithubCommentsPoller.poll(targets, poll_opts)}
+  end
+
+  defp prepare_comment_poll_opts(%State{}, [], _human_review_targets, _watch_targets, opts), do: opts
+
+  defp prepare_comment_poll_opts(%State{} = state, targets, human_review_targets, watch_targets, opts) when is_list(targets) do
     review_submission_targets = MapSet.new(human_review_targets, & &1.target)
 
     poll_opts =
@@ -171,9 +637,13 @@ defmodule Aiur.Orchestrator.CommentPolling do
       |> Keyword.put(:review_submission_targets, review_submission_targets)
       |> Keyword.put(:pr_review_seen_at, state.pr_review_seen_at)
 
-    poll_opts = put_comment_batch(poll_opts, targets)
+    put_comment_batch(poll_opts, targets)
+  end
 
-    case GithubCommentsPoller.poll(targets, poll_opts) do
+  defp apply_poll_outcome(%State{} = state, _human_review_targets, :no_targets), do: state
+
+  defp apply_poll_outcome(%State{} = state, human_review_targets, {targets, poll_result}) do
+    case poll_result do
       {:ok, %{since: since, etags: etags, count: count, errors: errors, pr_review_seen_at: new_review_seen_at}} ->
         if count > 0,
           do: Logger.debug("aiur_perf github_comments_poller published count=#{count}")

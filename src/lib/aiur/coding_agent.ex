@@ -709,7 +709,8 @@ defmodule Aiur.CodingAgent do
 
   defp configured_backends(opts) do
     Keyword.get_lazy(opts, :configured_backends, fn ->
-      [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)]
+      (Config.agent_priority() ++
+         [Config.agent_kind() | Enum.map(Config.agent_routing(), fn {_level, value} -> RoutingValue.routing_backend(value) end)])
       |> Enum.filter(&(&1 in known_backends()))
       |> Enum.uniq()
     end)

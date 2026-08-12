@@ -246,7 +246,7 @@ defmodule AiurEngineTest do
            ]
   end
 
-  test "run argv keeps dashboard suppression independent from headless mode" do
+  test "run argv leaves dashboard host resolution to config unless explicitly overridden" do
     script = """
     print_run_argv() {
       local mode="$1"
@@ -265,28 +265,58 @@ defmodule AiurEngineTest do
     [background, lean_background, foreground] = String.split(out, "\n", trim: true)
 
     assert background =~ "--headless|"
+    assert background =~ "--host|127.0.0.1|"
     refute background =~ "--no-dashboard|"
     assert lean_background =~ "--headless|"
     assert lean_background =~ "--no-dashboard|"
+    refute lean_background =~ "--host|"
     assert foreground =~ "--interactive|"
     assert foreground =~ "--no-dashboard|"
     refute foreground =~ "--headless|"
+    refute foreground =~ "--host|"
   end
 
-  test "background dashboard status reports a bound URL, explicit suppression, or listener refusal" do
+  test "dashboard startup status reports a bound URL, explicit suppression, or listener refusal" do
     script = """
-    probe_dashboard_url() { printf '%s' "$PROBE_URL"; }
-    print_background_dashboard_status 0 /tmp/boot.log
-    PROBE_URL=""
-    print_background_dashboard_status 1 /tmp/boot.log
-    print_background_dashboard_status 0 /tmp/boot.log
+    probe_dashboard_status() { printf '%s' "$PROBE_STATUS"; }
+    print_dashboard_status 0 /tmp/boot.log
+    PROBE_STATUS=""
+    print_dashboard_status 1 /tmp/boot.log
+    print_dashboard_status 0 /tmp/boot.log
     """
 
-    {out, 0} = run_sourced_engine(script, [{"PROBE_URL", "http://127.0.0.1:4567"}])
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"PROBE_STATUS", "Dashboard: http://127.0.0.1:4567 (bind host=0.0.0.0, port=4567)"}
+      ])
 
     assert out =~ "Dashboard: http://127.0.0.1:4567"
+    assert out =~ "bind host=0.0.0.0, port=4567"
     assert out =~ "Dashboard disabled by --no-dashboard."
     assert out =~ "dashboard listener unavailable; inspect /tmp/boot.log"
+  end
+
+  test "dashboard status probe is bounded by the control RPC timeout" do
+    script = """
+    run_release_rpc_with_timeout() {
+      AIUR_CONTROL_RPC_OUTPUT=""
+      AIUR_CONTROL_RPC_TIMED_OUT=1
+      return 124
+    }
+    test -z "$(probe_dashboard_status)" && echo BOUNDED
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    assert out =~ "BOUNDED"
+  end
+
+  test "control readiness waits for full application startup before dashboard reporting" do
+    engine = File.read!(@engine)
+
+    assert engine =~ "Application.started_applications()"
+    assert engine =~ "app == :aiur"
+    assert engine =~ ~r/write_aiur_instance_record.*print_dashboard_status/s
   end
 
   test "--version is distribution-free so it never collides with a running node" do
@@ -1371,7 +1401,7 @@ defmodule AiurEngineTest do
       echo PROBE >> "$EVENTS"
       printf up
     }
-    probe_dashboard_url() { printf 'http://127.0.0.1:4567'; }
+    probe_dashboard_status() { printf 'Dashboard: http://127.0.0.1:4567 (bind host=127.0.0.1, port=4567)'; }
     start_beam_death_watchdog() {
       echo "WATCHDOG:$*" >> "$EVENTS"
       printf '424242\\n'
@@ -1422,7 +1452,7 @@ defmodule AiurEngineTest do
     script = """
     sleep() { :; }
     probe_control_liveness() { printf up; }
-    probe_dashboard_url() { :; }
+    probe_dashboard_status() { :; }
     start_beam_death_watchdog() { printf '424242\n'; }
     disown() { :; }
     aiur_engine_main --no-dashboard --bg
@@ -1485,6 +1515,7 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "CODE=7"
+    assert out =~ "Dashboard disabled by --no-dashboard."
     assert out =~ "real attach error"
     refute out =~ "[server exited]"
   end

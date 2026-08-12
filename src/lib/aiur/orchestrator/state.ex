@@ -65,6 +65,7 @@ defmodule Aiur.Orchestrator.State do
           fleet_capacity_starvation_resolution_emitted: boolean(),
           observed_error_alerts: MapSet.t(),
           active_attention_topics: MapSet.t(),
+          waiting_for_human_episodes: %{optional(String.t()) => %{since: DateTime.t(), alerted?: boolean()}},
           observed_error_alert_causes: %{optional(String.t()) => atom()},
           dispatch_capacity_constraints: [map()],
           dispatch_declines: %{optional(String.t()) => term()},
@@ -106,6 +107,8 @@ defmodule Aiur.Orchestrator.State do
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
+          github_comment_issue_list_cache: map(),
+          github_comment_poll: map() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -171,6 +174,7 @@ defmodule Aiur.Orchestrator.State do
     fleet_capacity_starvation_resolution_emitted: false,
     observed_error_alerts: MapSet.new(),
     active_attention_topics: MapSet.new(),
+    waiting_for_human_episodes: %{},
     observed_error_alert_causes: %{},
     dispatch_capacity_constraints: [],
     dispatch_declines: %{},
@@ -198,6 +202,13 @@ defmodule Aiur.Orchestrator.State do
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
+    # Conditional issue-list cache owned by the asynchronous comment poll.
+    # Keeping it separate prevents a late completion from replacing the newer
+    # cache written by synchronous CI/candidate fetching in the same cycle.
+    github_comment_issue_list_cache: %{},
+    # In-flight marker for the asynchronous comment poll. The pid and monitor
+    # let lifecycle shutdown reap the poll and its owned descendants.
+    github_comment_poll: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
@@ -343,9 +354,20 @@ defmodule Aiur.Orchestrator.State do
   @spec alive?(term()) :: boolean()
   def alive?(pid) when is_pid(pid), do: Process.alive?(pid)
   def alive?(name) when is_atom(name), do: Process.whereis(name) != nil
-  def alive?({:via, _, _}), do: true
-  def alive?({:global, _}), do: true
+  def alive?({:via, _, _} = name), do: registered_process_alive?(name)
+  def alive?({:global, _} = name), do: registered_process_alive?(name)
   def alive?(_), do: false
+
+  defp registered_process_alive?(name) do
+    case GenServer.whereis(name) do
+      pid when is_pid(pid) -> Process.alive?(pid)
+      _ -> false
+    end
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
+  end
 
   @spec maybe_put_runtime_value(term(), term(), term()) :: term()
   def maybe_put_runtime_value(running_entry, _key, nil), do: running_entry

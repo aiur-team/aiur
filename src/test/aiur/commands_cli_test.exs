@@ -17,6 +17,7 @@ defmodule Aiur.CommandsCLITest do
     {:ok, store} =
       DecisionStore.start_link(
         name: nil,
+        state_dir: dir,
         filesystem_sync_fun: fn -> :ok end,
         dispatcher: fn _decision, _opts -> {:ok, %{id: "queued"}} end,
         dispatch_delay_ms: 60_000
