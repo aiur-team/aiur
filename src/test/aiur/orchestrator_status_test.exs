@@ -468,6 +468,42 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [] = :ets.lookup(SnapshotPublisher, orchestrator_name)
   end
 
+  test "discarding an unnamed snapshot removes the publisher delivery marker" do
+    orchestrator = self()
+    generation = SnapshotStore.begin_generation(orchestrator)
+
+    :ok = SnapshotPublisher.write(orchestrator, generation, %State{agent_totals: %{}})
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = SnapshotStore.discard(orchestrator)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+  end
+
+  test "stopping an unnamed orchestrator discards its snapshot state" do
+    {:ok, orchestrator} = Orchestrator.start_link(initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator), do: Process.exit(orchestrator, :normal)
+    end)
+
+    :sys.replace_state(orchestrator, &%{&1 | snapshot_ready?: true})
+    state = :sys.get_state(orchestrator)
+    :ok = StatusReport.notify_dashboard(state)
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = GenServer.stop(orchestrator, :normal)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+    assert :orchestrator_unavailable = SnapshotStore.read(orchestrator, 50)
+  end
+
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
     orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)

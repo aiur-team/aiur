@@ -92,6 +92,9 @@ defmodule Aiur.UsageLedger.StoreTest do
 
   test "prevents runtime configuration from redirecting the supervised backend" do
     previous = Application.get_env(:aiur, :usage_ledger_backend)
+    generation = UsageLedger.generation()
+    health = UsageLedger.health()
+    coverage = UsageLedger.coverage()
     Application.put_env(:aiur, :usage_ledger_backend, BackendStub)
 
     on_exit(fn ->
@@ -100,9 +103,9 @@ defmodule Aiur.UsageLedger.StoreTest do
         else: Application.delete_env(:aiur, :usage_ledger_backend)
     end)
 
-    assert 0 = UsageLedger.generation()
-    assert :healthy = UsageLedger.health()
-    assert %{status: :empty} = UsageLedger.coverage()
+    assert generation == UsageLedger.generation()
+    assert health == UsageLedger.health()
+    assert coverage == UsageLedger.coverage()
   end
 
   test "path resolution failure stays unavailable without preparing the current directory", %{
