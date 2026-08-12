@@ -47,6 +47,7 @@ defmodule Aiur.ConfigurationReferenceTest do
     agent.max_concurrent_agents
     agent.rate_limit_primary
     alerts.alerts_file
+    server.host
   )
 
   @documented_defaults for {prefix, module} <- @schema_sections,
