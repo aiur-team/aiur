@@ -369,7 +369,7 @@ import http.server
 import json
 import os
 import re
-import secrets
+import shutil
 import subprocess
 import sys
 import threading
@@ -584,6 +584,71 @@ def response_header_values(headers, name):
     return [line for line in headers.splitlines()[1:] if line.lower().startswith(prefix)]
 
 
+def linux_process_owns_connection(pid, client_port, server_port):
+    """Verify the renderer owns the client side of this loopback connection."""
+
+    inode = None
+    try:
+        with open("/proc/net/tcp", encoding="ascii") as connections:
+            for line in connections.readlines()[1:]:
+                fields = line.split()
+                local_port = int(fields[1].rsplit(":", 1)[1], 16)
+                remote_port = int(fields[2].rsplit(":", 1)[1], 16)
+                if fields[3] == "01" and local_port == client_port and remote_port == server_port:
+                    inode = fields[9]
+                    break
+    except (FileNotFoundError, OSError, ValueError, IndexError):
+        return False
+
+    if inode is None:
+        return False
+
+    expected = f"socket:[{inode}]"
+    try:
+        file_descriptors = os.listdir(f"/proc/{pid}/fd")
+    except (FileNotFoundError, OSError):
+        return False
+
+    for fd in file_descriptors:
+        try:
+            if os.readlink(f"/proc/{pid}/fd/{fd}") == expected:
+                return True
+        except (FileNotFoundError, OSError):
+            continue
+    return False
+
+
+def darwin_process_owns_connection(pid, client_port, server_port):
+    """Use macOS's system lsof to bind the replay to the renderer process."""
+
+    lsof = shutil.which("lsof")
+    if lsof is None and os.path.isfile("/usr/sbin/lsof"):
+        lsof = "/usr/sbin/lsof"
+    if lsof is None:
+        return False
+
+    try:
+        result = subprocess.run(
+            [lsof, "-nP", "-a", "-p", str(pid), "-iTCP"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    connection = f"127.0.0.1:{client_port}->127.0.0.1:{server_port}"
+    return result.returncode == 0 and connection in result.stdout
+
+
+def process_owns_connection(pid, client_port, server_port):
+    if sys.platform.startswith("linux"):
+        return linux_process_owns_connection(pid, client_port, server_port)
+    if sys.platform == "darwin":
+        return darwin_process_owns_connection(pid, client_port, server_port)
+    return False
+
+
 def render_with_native_gh(formatter, captured_pages, slurp, include_headers):
     """Replay admitted responses locally and let gh render them unchanged.
 
@@ -604,13 +669,19 @@ def render_with_native_gh(formatter, captured_pages, slurp, include_headers):
         replay_pages = captured_pages
         paginate = True
 
-    capability = secrets.token_urlsafe(32)
-
     class ReplayHandler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
         def do_GET(self):
-            match = re.fullmatch(rf"/{re.escape(capability)}/(\d+)", self.path.split("?", 1)[0])
+            self.server.renderer_ready.wait(timeout=5)
+            renderer_pid = self.server.renderer_pid
+            if renderer_pid is None or not process_owns_connection(
+                renderer_pid, self.client_address[1], self.server.server_port
+            ):
+                self.send_error(403)
+                return
+
+            match = re.fullmatch(r"/(\d+)", self.path.split("?", 1)[0])
             page = int(match.group(1)) if match else -1
             if not 0 <= page < len(replay_pages):
                 self.send_error(404)
@@ -625,7 +696,7 @@ def render_with_native_gh(formatter, captured_pages, slurp, include_headers):
             if not content_type:
                 self.send_header("Content-Type", "application/json")
             if page + 1 < len(replay_pages):
-                self.send_header("Link", f"<http://127.0.0.1:{self.server.server_port}/{capability}/{page + 1}>; rel=\"next\"")
+                self.send_header("Link", f"<http://127.0.0.1:{self.server.server_port}/{page + 1}>; rel=\"next\"")
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
@@ -641,10 +712,12 @@ def render_with_native_gh(formatter, captured_pages, slurp, include_headers):
     server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), ReplayHandler)
     server.daemon_threads = True
     server.block_on_close = False
+    server.renderer_pid = None
+    server.renderer_ready = threading.Event()
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
-        command = [os.environ["AIUR_GITHUB_PAGINATION_REAL_GH"], "api", f"http://127.0.0.1:{server.server_port}/{capability}/0"]
+        command = [os.environ["AIUR_GITHUB_PAGINATION_REAL_GH"], "api", f"http://127.0.0.1:{server.server_port}/0"]
         if paginate:
             command.append("--paginate")
         if include_headers:
@@ -653,20 +726,26 @@ def render_with_native_gh(formatter, captured_pages, slurp, include_headers):
         environment = os.environ.copy()
         for name in ("GH_TOKEN", "GITHUB_TOKEN", "GH_ENTERPRISE_TOKEN", "GITHUB_ENTERPRISE_TOKEN"):
             environment.pop(name, None)
+        # gh requires an authentication source before it will issue even an
+        # absolute loopback request. Replace inherited credentials with a
+        # fixed non-secret accepted only by this renderer-bound local server.
+        environment["GH_TOKEN"] = "aiur-local-replay"
         environment["NO_PROXY"] = "127.0.0.1,localhost"
         environment["no_proxy"] = "127.0.0.1,localhost"
         capture_headers = include_headers and paginate
-        result = subprocess.run(command, env=environment, stdout=subprocess.PIPE if capture_headers else None)
+        process = subprocess.Popen(command, env=environment, stdout=subprocess.PIPE if capture_headers else None)
+        server.renderer_pid = process.pid
+        server.renderer_ready.set()
+        rendered, _stderr = process.communicate()
 
         if capture_headers:
-            rendered = result.stdout
             for page, (headers, _body) in enumerate(replay_pages[:-1]):
-                local = f'Link: <http://127.0.0.1:{server.server_port}/{capability}/{page + 1}>; rel="next"'.encode("ascii")
+                local = f'Link: <http://127.0.0.1:{server.server_port}/{page + 1}>; rel="next"'.encode("ascii")
                 original = b"\n".join(response_header_values(headers, "Link"))
                 rendered = rendered.replace(local, original)
             sys.stdout.buffer.write(rendered)
 
-        return result.returncode
+        return process.returncode
     finally:
         server.shutdown()
         thread.join()

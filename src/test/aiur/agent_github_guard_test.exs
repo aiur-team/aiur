@@ -40,11 +40,40 @@ defmodule Aiur.AgentGitHubGuardTest do
             if [ -n "${FAKE_GH_REPLAY_PROBE:-}" ]; then
               for fake_arg in "$@"; do
                 case "$fake_arg" in
-                  http://127.0.0.1:*) fake_probe_url=$(printf '%s' "$fake_arg" | sed 's#/[A-Za-z0-9_-]*/0$#/not-the-capability/0#') ;;
+                  http://127.0.0.1:*) fake_probe_url=$fake_arg ;;
                 esac
               done
               "$FAKE_GH_NATIVE" api "$fake_probe_url" --silent >/dev/null 2>&1
               printf '%s\n' "$?" > "$FAKE_GH_REPLAY_PROBE"
+            fi
+            if [ -n "${FAKE_GH_PROC_REPLAY_PROBE:-}" ]; then
+              python3 - "$$" "$FAKE_GH_PROC_REPLAY_PROBE" <<'PY'
+      import re
+      import sys
+      import urllib.error
+      import urllib.request
+
+      renderer_pid, result_path = sys.argv[1:]
+      try:
+          with open(f"/proc/{renderer_pid}/cmdline", "rb") as cmdline:
+              match = re.search(rb"http://127[.]0[.]0[.]1:[0-9]+/[^\\0 ]+", cmdline.read())
+      except FileNotFoundError:
+          match = None
+
+      if not sys.platform.startswith("linux"):
+          result = "proc-unavailable"
+      elif match is None:
+          result = "url-hidden"
+      else:
+          try:
+              urllib.request.urlopen(match.group().decode("ascii"), timeout=5).read()
+              result = "replay-read"
+          except (OSError, urllib.error.HTTPError):
+              result = "access-denied"
+
+      with open(result_path, "w", encoding="utf-8") as output:
+          output.write(result + "\\n")
+      PY
             fi
             exec "$FAKE_GH_NATIVE" "$@"
             ;;
@@ -723,6 +752,7 @@ defmodule Aiur.AgentGitHubGuardTest do
     renderer_args = Path.join(context.state_path, "renderer-args")
     renderer_env = Path.join(context.state_path, "renderer-env")
     replay_probe = Path.join(context.state_path, "replay-probe")
+    proc_replay_probe = Path.join(context.state_path, "proc-replay-probe")
     native_gh = AgentGitHubGuard.real_gh() || flunk("gh is required to verify its embedded jq")
 
     assert {"2\n", 0} =
@@ -737,6 +767,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                FAKE_GH_NATIVE: native_gh,
                FAKE_GH_RENDER_ENV: renderer_env,
                FAKE_GH_REPLAY_PROBE: replay_probe,
+               FAKE_GH_PROC_REPLAY_PROBE: proc_replay_probe,
                GH_TOKEN: "guard-token",
                GITHUB_TOKEN: "github-token",
                HTTP_PROXY: "http://127.0.0.1:1",
@@ -746,13 +777,19 @@ defmodule Aiur.AgentGitHubGuardTest do
              )
 
     rendered_command = File.read!(renderer_args)
-    assert rendered_command =~ "api http://127.0.0.1:"
+    assert rendered_command =~ ~r/api http:\/\/127\.0\.0\.1:\d+\/0(?: |$)/
     assert rendered_command =~ "--jq length"
+    refute rendered_command =~ "guard-token"
     assert File.read!(replay_probe) == "1\n"
-    assert File.read!(renderer_env) == "GH_TOKEN=\nGITHUB_TOKEN=\nNO_PROXY=127.0.0.1,localhost\nno_proxy=127.0.0.1,localhost\n"
+
+    assert File.read!(proc_replay_probe) ==
+             if(match?({:unix, :linux}, :os.type()), do: "access-denied\n", else: "proc-unavailable\n")
+
+    assert File.read!(renderer_env) ==
+             "GH_TOKEN=aiur-local-replay\nGITHUB_TOKEN=\nNO_PROXY=127.0.0.1,localhost\nno_proxy=127.0.0.1,localhost\n"
 
     [replay_url] =
-      Regex.run(~r/api (http:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]+\/0)/, rendered_command, capture: :all_but_first)
+      Regex.run(~r/api (http:\/\/127\.0\.0\.1:\d+\/0)/, rendered_command, capture: :all_but_first)
 
     assert {_output, exit_code} =
              System.cmd(native_gh, ["api", replay_url, "--silent"],
