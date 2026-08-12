@@ -348,16 +348,14 @@ defmodule Aiur.Orchestrator.State do
   def alive?(_), do: false
 
   defp registered_process_alive?(name) do
-    try do
-      case GenServer.whereis(name) do
-        pid when is_pid(pid) -> Process.alive?(pid)
-        _ -> false
-      end
-    rescue
+    case GenServer.whereis(name) do
+      pid when is_pid(pid) -> Process.alive?(pid)
       _ -> false
-    catch
-      :exit, _ -> false
     end
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
   end
 
   @spec maybe_put_runtime_value(term(), term(), term()) :: term()

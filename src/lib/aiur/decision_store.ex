@@ -363,18 +363,18 @@ defmodule Aiur.DecisionStore do
   end
 
   defp validate_start_options(opts) do
-    case {Keyword.get(opts, :name), Keyword.fetch(opts, :state_dir)} do
-      {__MODULE__, :error} -> :ok
-      {__MODULE__, {:ok, dir}} when is_binary(dir) and dir != "" -> :ok
-      {__MODULE__, {:ok, _dir}} -> {:error, :invalid_state_dir}
-      {nil, :error} -> {:error, :unnamed_store_requires_state_dir}
-      {nil, {:ok, dir}} when is_binary(dir) and dir != "" -> :ok
-      {nil, {:ok, _dir}} -> {:error, :invalid_state_dir}
-      {_name, :error} -> {:error, :non_singleton_store_requires_state_dir}
-      {_name, {:ok, dir}} when is_binary(dir) and dir != "" -> :ok
-      {_name, {:ok, _dir}} -> {:error, :invalid_state_dir}
+    case Keyword.fetch(opts, :state_dir) do
+      :error -> validate_missing_state_dir(Keyword.get(opts, :name))
+      {:ok, state_dir} -> validate_state_dir(state_dir)
     end
   end
+
+  defp validate_missing_state_dir(__MODULE__), do: :ok
+  defp validate_missing_state_dir(nil), do: {:error, :unnamed_store_requires_state_dir}
+  defp validate_missing_state_dir(_name), do: {:error, :non_singleton_store_requires_state_dir}
+
+  defp validate_state_dir(state_dir) when is_binary(state_dir) and state_dir != "", do: :ok
+  defp validate_state_dir(_state_dir), do: {:error, :invalid_state_dir}
 
   defp state_dir(opts) do
     case Keyword.fetch(opts, :state_dir) do
