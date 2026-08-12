@@ -398,7 +398,11 @@ defmodule Aiur.Opencode.SlotPolicy do
   defp missing_warm_slot?(state, target), do: next_missing_slot(state, target) != nil
 
   defp next_missing_slot(state, target) do
-    Enum.find(1..target, &(!MapSet.member?(state.live_slots, &1)))
+    if target <= 0 do
+      nil
+    else
+      Enum.find(1..target, &(!MapSet.member?(state.live_slots, &1)))
+    end
   end
 
   defp drain_excess_warm_slots(%{live_slots: live_slots, target_count: target} = state) do
