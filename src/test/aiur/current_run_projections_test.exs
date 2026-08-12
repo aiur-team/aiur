@@ -11,6 +11,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
   alias Aiur.CurrentRunProjections.{Checkpoint, Projector}
+  alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
     {source, owner, pubsub} = start_owner()
@@ -114,7 +115,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert summary.progress.current_facts.total_member_count == 2
     assert summary.progress.current_facts.missing_member_count == 1
 
-    view = AiurWeb.OperatorControlCenter.RunSummaryPresenter.present(summary)
+    view = RunSummaryPresenter.present(summary)
     assert view.progress.kind == :partial
     assert view.progress.percent == 40
     assert view.eta.label == "ETA pending — progress inputs are still settling"
@@ -128,7 +129,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert degraded.progress.current_facts.status == :degraded
     assert degraded.progress.current_facts.value == %{numerator: 2, denominator: 5}
 
-    degraded_view = AiurWeb.OperatorControlCenter.RunSummaryPresenter.present(degraded)
+    degraded_view = RunSummaryPresenter.present(degraded)
     assert degraded_view.progress.fact_status_label == "Refresh degraded"
     assert degraded_view.eta.label == "ETA unavailable — progress refresh degraded"
     refute degraded_view.eta.label =~ "weight facts"
@@ -152,7 +153,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert summary.progress.current_facts.total_member_count == 1
     assert summary.progress.current_facts.missing_member_count == 1
 
-    settling_view = AiurWeb.OperatorControlCenter.RunSummaryPresenter.present(summary)
+    settling_view = RunSummaryPresenter.present(summary)
     assert settling_view.progress.kind == :pending
     assert settling_view.progress.progress_status_label == "Progress not computed yet"
     assert settling_view.progress.fact_status_label == "Still settling"
@@ -163,7 +164,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     degraded_view =
       owner
       |> then(&CurrentRunSummary.snapshot(server: &1))
-      |> AiurWeb.OperatorControlCenter.RunSummaryPresenter.present()
+      |> RunSummaryPresenter.present()
 
     assert degraded_view.progress.kind == :pending
     assert degraded_view.progress.progress_status_label == "Progress unavailable"
@@ -248,7 +249,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert issue_stale.progress.current_facts.value == nil
     assert issue_stale.progress.current_facts.current_member_count == 0
 
-    issue_view = AiurWeb.OperatorControlCenter.RunSummaryPresenter.present(issue_stale)
+    issue_view = RunSummaryPresenter.present(issue_stale)
     assert issue_view.progress.kind == :pending
     assert issue_view.progress.progress_status_label == "Progress unavailable"
     assert issue_view.progress.fact_status_label == "Refresh degraded"
