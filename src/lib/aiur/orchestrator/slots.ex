@@ -201,6 +201,7 @@ defmodule Aiur.Orchestrator.Slots do
     active = State.active_running_count(state.running)
     reserved_paused = State.reserved_paused_running_count(state.running)
     max = max_concurrent_agent_limit(state)
+    sample = state.dispatch_capacity_sample
 
     %{
       active: active,
@@ -211,6 +212,10 @@ defmodule Aiur.Orchestrator.Slots do
       max: max,
       effective: effective_concurrent_agent_limit(state),
       available: available_slots(state),
+      capacity_hold: state.capacity_hold,
+      load: Map.get(sample, :load, :unavailable),
+      load_threshold: Map.get(sample, :load_threshold),
+      schedulers: Map.get(sample, :schedulers),
       queued_demand?: DispatchPolicy.queued_dispatch_demand?(Map.values(state.last_polled_issues), state),
       session_override?: is_integer(state.session_max_concurrent_agents),
       draining?: active > max

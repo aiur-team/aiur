@@ -533,7 +533,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
   describe "fallback replacement failures" do
     test "bare claude fallback does not inherit a codex routing model" do
       workflow_file = Application.fetch_env!(:aiur, :workflow_file_path)
-      write_workflow_file_synced!(workflow_file, agent_routing: %{3 => "codex:terra:high"})
+      write_workflow_file!(workflow_file, agent_routing: %{3 => "codex:terra:high"})
 
       fallback_issue = %Issue{id: "fallback-model", identifier: "repo#fallback-model", labels: ["complexity:3", "model:claude"]}
 
@@ -556,7 +556,7 @@ defmodule Aiur.Orchestrator.RetryEngineTest do
 
     test "fallback redispatch dispatches bare claude with its current fence" do
       workflow_file = Application.fetch_env!(:aiur, :workflow_file_path)
-      write_workflow_file_synced!(workflow_file, agent_routing: %{3 => "codex:terra:high"})
+      write_workflow_file!(workflow_file, agent_routing: %{3 => "codex:terra:high"})
 
       parent = self()
 

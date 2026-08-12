@@ -23,7 +23,7 @@ defmodule Aiur.Workspace.RefreshTest do
   end
 
   test "run/3 with no before_run configured returns :ok", %{workspace: workspace, test_root: test_root} do
-    write_workflow_file_synced!(Workflow.workflow_file_path(), workspace_root: test_root)
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: test_root)
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
     assert :ok = Refresh.run(workspace, issue_context, nil)
@@ -37,7 +37,7 @@ defmodule Aiur.Workspace.RefreshTest do
     File.mkdir_p!(Path.dirname(log_path))
     File.write!(log_path, "prior transcript\n")
 
-    write_workflow_file_synced!(Workflow.workflow_file_path(),
+    write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
       hook_before_run: "git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
     )
@@ -58,7 +58,7 @@ defmodule Aiur.Workspace.RefreshTest do
     before_run_marker = Path.join(test_root, "before-run-ran")
     File.write!(notes, "preserve this interrupted bootstrap\n")
 
-    write_workflow_file_synced!(Workflow.workflow_file_path(),
+    write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
       hook_before_run: "touch #{before_run_marker}"
     )
@@ -77,7 +77,7 @@ defmodule Aiur.Workspace.RefreshTest do
     sentinel = Path.join(workspace, "leftover-sentinel")
     File.write!(sentinel, "leftover")
 
-    write_workflow_file_synced!(Workflow.workflow_file_path(),
+    write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
       hook_before_run: "exit 65"
     )
@@ -117,7 +117,7 @@ defmodule Aiur.Workspace.RefreshTest do
     git!(["-C", workspace, "checkout", "--quiet", "-b", "aiur/123-fix-login"])
     trace = Path.join(test_root, "branch-trace")
 
-    write_workflow_file_synced!(Workflow.workflow_file_path(),
+    write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
       hook_before_run: "printf '%s\\n' \"$AIUR_TICKET_BRANCH\" >> #{trace}; exit 65"
     )
@@ -136,7 +136,7 @@ defmodule Aiur.Workspace.RefreshTest do
   end
 
   test "run/3 exit-65 on non-todo dispatch returns :ok (WIP skip)", %{workspace: workspace, test_root: test_root} do
-    write_workflow_file_synced!(Workflow.workflow_file_path(),
+    write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
       before_run: "exit 65"
     )
