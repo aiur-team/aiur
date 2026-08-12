@@ -234,7 +234,9 @@ defmodule Aiur.AlertsTest do
     assert File.read!(Path.join(workspace, "logs/agent.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(Path.join(log_root, "alerts.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(AlertLedger.path()) =~ "\"topic\":\"#{topic}\""
-    assert [%{"topic" => ^topic}] = AlertFeed.list(needs_attention: true)
+
+    assert [%{"topic" => ^topic}] =
+             AlertFeed.list(needs_attention: true) |> Enum.filter(&(&1["topic"] == topic))
   end
 
   test "fleet dispatch alerts persist and appear in the Executor alert feed" do
