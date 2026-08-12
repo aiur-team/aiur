@@ -130,6 +130,7 @@ defmodule Aiur.Application do
     headless? = Keyword.fetch!(opts, :headless?)
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
+    ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
 
     cli_children =
       if interactive_cli? do
@@ -229,7 +230,7 @@ defmodule Aiur.Application do
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
-      Aiur.Events.LsRemoteTicker,
+      if(ls_remote_ticker?, do: Aiur.Events.LsRemoteTicker),
       Aiur.ProgressCheckin.Worker,
       Aiur.Logs.Retention,
       # Dashboard supervision is independent of terminal attachment/headless
