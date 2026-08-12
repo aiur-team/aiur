@@ -63,7 +63,9 @@ describe("Stream Deck Phoenix channel", () => {
     socket.open();
     expect(socket.sent).toHaveLength(1);
     socket.message(["4", "1", "streamdeck:fleet", "phx_reply", { status: "ok", response: {} }]);
-    expect(JSON.parse(socket.sent[1])).toEqual(["4", "1", "streamdeck:fleet", "focus", { identifier: "1358" }]);
+    const queuedFocus = JSON.parse(socket.sent[1]);
+    expect(queuedFocus).toEqual(["4", "2", "streamdeck:fleet", "focus", { identifier: "1358" }]);
+    expect(Number(queuedFocus[1])).toBeGreaterThan(Number(JSON.parse(socket.sent[0])[1]));
     socket.message(["", "", "", "phx_close", {}]);
     expect(events.closed).toHaveBeenCalledWith(expect.any(Error));
     channel.close();

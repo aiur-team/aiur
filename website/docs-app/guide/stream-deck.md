@@ -28,7 +28,7 @@ The commit-addressed Linux x64 archive installs the bundled Node runtime, the di
 
 The service opens the USB device, sends a key-stream reset, applies `STREAMDECK_BRIGHTNESS`, watches hotplug and suspend, and connects to the authenticated Phoenix channel. It receives live fleet/provider projections, paints the key/touch-strip surface, and routes physical key controls through AgentChat. A short-lived token is renewed after channel disconnects.
 
-Set `AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and `AIUR_DASHBOARD_PASSWORD` in the private sidecar environment file. The password is used only to mint the short-lived channel token and is not placed in the WebSocket URL. A Stream Deck +, an Arch Linux graphical session with systemd/logind, and the `users` fallback ACL are required for the physical surface.
+Set `AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and `AIUR_DASHBOARD_PASSWORD` in the private sidecar environment file at `~/.config/aiur/streamdeck.env`. The password is used only to mint the short-lived channel token and is not placed in the WebSocket URL. A Stream Deck +, an Arch Linux graphical session with systemd/logind, and the `users` fallback ACL are required for the physical surface.
 
 The [direct-HID transport runbook](https://github.com/aiur-team/aiur/blob/develop/packages/streamdeck/README.md) covers the archive, device access, pairing, and recovery workflow. [#1358](https://github.com/aiur-team/aiur/issues/1358) remains the terminal end-to-end evidence ticket for the physical surface.
 
