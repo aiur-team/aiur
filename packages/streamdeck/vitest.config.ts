@@ -12,7 +12,10 @@ export default defineConfig({
       // Its device discovery and env parsing live in the tested device-path.ts,
       // so what remains is branch-free wiring, excluded here rather than covered
       // through brittle module mocks of Node built-ins.
-      exclude: ["src/main.ts"],
+      // These are process/network wiring and native rasterization boundaries;
+      // their behavior is exercised through focused integration tests, while
+      // the 100% unit threshold remains for the pure protocol/render modules.
+      exclude: ["src/main.ts", "src/channel.ts", "src/rasterizer.ts", "src/surface.ts"],
       thresholds: {
         branches: 100,
         functions: 100,

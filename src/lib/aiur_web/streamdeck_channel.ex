@@ -3,7 +3,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   use Phoenix.Channel
 
-  alias Aiur.{AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckProjection, StreamdeckTranscriptRelay}
 
@@ -48,9 +48,26 @@ defmodule AiurWeb.StreamdeckChannel do
     {:reply, {:ok, %{"focused" => nil}}, unsubscribe_focused(socket)}
   end
 
+  @doc "Routes a physical key toggle through the same AgentChat facade as the emulator."
+  def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
+      when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
+    result =
+      case action do
+        "pause" -> AgentChat.pause(identifier)
+        "resume" -> AgentChat.resume(identifier)
+      end
+
+    case result do
+      {:ok, value} -> {:reply, {:ok, %{"identifier" => identifier, "action" => action, "result" => value}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: inspect(reason)}}, socket}
+    end
+  end
+
+  def handle_in("control", _payload, socket), do: {:reply, {:error, %{reason: "invalid_control"}}, socket}
+
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot())
+    push(socket, "snapshot", StreamdeckProjection.snapshot() |> Map.put(:grid, StreamdeckProjection.grid()))
     {:noreply, socket}
   end
 
@@ -62,7 +79,7 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
   def handle_info({:running_changed, summaries}, socket) when is_list(summaries) do
-    push(socket, "fleet", %{"agents" => StreamdeckProjection.fleet_agents(summaries)})
+    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put(:agents, StreamdeckProjection.fleet_agents(summaries)) |> Map.put(:grid, StreamdeckProjection.grid()))
     {:noreply, socket}
   end
 
@@ -71,7 +88,7 @@ defmodule AiurWeb.StreamdeckChannel do
   # contract. Translate it to a fresh fleet projection instead of leaking the
   # implementation detail to devices.
   def handle_info({:status_changed, %{identifier: _identifier, status: _status}}, socket) do
-    push(socket, "fleet", StreamdeckProjection.fleet())
+    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put(:grid, StreamdeckProjection.grid()))
     {:noreply, socket}
   end
 
