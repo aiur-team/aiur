@@ -364,8 +364,8 @@ defmodule Aiur.Opencode.SlotPolicy do
     state = %{state | target_count: target, max_slots: max_slots, max_concurrent_agents: cap}
     state = drain_excess_warm_slots(state)
 
-    if state.highest_started < target do
-      start_slots(state, state.highest_started + 1, target)
+    if missing_warm_slot?(state, target) do
+      start_slots(state, target)
     else
       state
     end
@@ -373,17 +373,32 @@ defmodule Aiur.Opencode.SlotPolicy do
     _ -> %{state | max_concurrent_agents: cap}
   end
 
-  defp start_slots(state, next, target) when next > target, do: state
+  defp start_slots(state, target) do
+    next = next_missing_slot(state, target)
 
-  defp start_slots(state, next, target) do
+    if next == nil do
+      state
+    else
+      start_slot_and_continue(state, next, target)
+    end
+  end
+
+  defp start_slot_and_continue(state, next, target) do
     case state.slot_starter.start_slot(next) do
       {:ok, _pid} ->
         Phoenix.PubSub.broadcast(state.pubsub, Slot.slots_topic(), {:slot_starting, next})
-        start_slots(%{state | highest_started: next, live_slots: MapSet.put(state.live_slots, next)}, next + 1, target)
+        updated = %{state | highest_started: max(state.highest_started, next), live_slots: MapSet.put(state.live_slots, next)}
+        start_slots(updated, target)
 
       {:error, _reason} ->
         state
     end
+  end
+
+  defp missing_warm_slot?(state, target), do: next_missing_slot(state, target) != nil
+
+  defp next_missing_slot(state, target) do
+    Enum.find(1..target, &(!MapSet.member?(state.live_slots, &1)))
   end
 
   defp drain_excess_warm_slots(%{live_slots: live_slots, target_count: target} = state) do

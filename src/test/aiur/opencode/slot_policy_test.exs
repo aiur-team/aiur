@@ -38,6 +38,15 @@ defmodule Aiur.Opencode.SlotPolicyTest do
     def start_slot(slot_index), do: FakeSlot.start_link(slot_index)
   end
 
+  defmodule ReplacingSlotStarter do
+    def start_slot(slot_index) do
+      case SlotRegistry.lookup(slot_index) do
+        {:ok, pid} -> {:ok, pid}
+        :not_found -> FakeSlot.start_link(slot_index)
+      end
+    end
+  end
+
   defmodule RecordingSlotStopper do
     def stop_slot(_slot_index), do: :ok
   end
@@ -245,7 +254,7 @@ defmodule Aiur.Opencode.SlotPolicyTest do
           target_count: 3,
           max_slots: 5,
           max_concurrent_agents: 3,
-          slot_starter: FakeSlotStarter,
+          slot_starter: ReplacingSlotStarter,
           slot_stopper: RecordingSlotStopper
         )
 
@@ -277,6 +286,27 @@ defmodule Aiur.Opencode.SlotPolicyTest do
                state = :sys.get_state(pid)
                state.live_slots == MapSet.new([1, 3]) and state.highest_started == 3
              end)
+    end
+
+    test "regrows a missing lower slot when the warm target rises", %{policy_name: name, pubsub: pubsub} do
+      pid =
+        start_policy!(name, pubsub,
+          target_count: 3,
+          max_slots: 5,
+          max_concurrent_agents: 3,
+          slot_starter: ReplacingSlotStarter,
+          slot_stopper: BusyHighestSlotStopper
+        )
+
+      assert %{highest_started: 3} = await_policy_startup!(pid, 3)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 1}})
+
+      assert eventually(fn -> :sys.get_state(pid).live_slots == MapSet.new([1, 3]) end)
+
+      Phoenix.PubSub.broadcast(pubsub, Aiur.AgentEvents.poll_state_topic(), {:poll_state_changed, %{max_concurrent_agents: 3}})
+
+      assert eventually(fn -> :sys.get_state(pid).live_slots == MapSet.new([1, 2, 3]) end)
     end
   end
 

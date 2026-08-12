@@ -56,7 +56,7 @@ defmodule Aiur.Opencode.AttachPool do
             # leadoff must only fire ONCE — otherwise a re-ready races
             # against in-flight `set_visible` calls from `do_seed` and
             # displaces the assignment the user just triggered.
-            fanned_out_slots: MapSet.new()
+            fanned_out_slots: %{}
 
   @type attachment :: %{
           attached_slots: MapSet.t(pos_integer()),
@@ -254,6 +254,7 @@ defmodule Aiur.Opencode.AttachPool do
     # fan-out (leadoff + remaining active agents). On subsequent re-
     # readys (rebuild path), only re-attach non-leadoff identifiers so
     # the slot's existing leadoff isn't displaced.
+    state = %{state | fanned_out_slots: Map.delete(state.fanned_out_slots, slot_index)}
     {:noreply, kickoff_fan_out(state, slot_index)}
   end
 
@@ -437,7 +438,7 @@ defmodule Aiur.Opencode.AttachPool do
         start = rem(slot_index - 1, n)
         leadoff = Enum.at(state.active_identifiers, start)
         _ = start_leadoff_task(state, slot_index, leadoff)
-        %{state | fanned_out_slots: MapSet.put(state.fanned_out_slots, slot_index)}
+        %{state | fanned_out_slots: Map.put(state.fanned_out_slots, slot_index, current_slot_pid(slot_index))}
     end
   end
 
@@ -482,7 +483,17 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   defp slot_already_fanned_out?(state, slot_index) do
-    MapSet.member?(state.fanned_out_slots, slot_index)
+    case {Map.get(state.fanned_out_slots, slot_index), current_slot_pid(slot_index)} do
+      {pid, pid} when is_pid(pid) -> true
+      _ -> false
+    end
+  end
+
+  defp current_slot_pid(slot_index) do
+    case SlotRegistry.lookup(slot_index) do
+      {:ok, pid} -> pid
+      :not_found -> nil
+    end
   end
 
   defp do_attach_added(state, slot_index, identifier) do
