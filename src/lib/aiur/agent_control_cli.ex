@@ -28,6 +28,9 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
+  # One age shape wherever a stale surface appears — reuse #1814's renderer
+  # rather than adding a second one for the CLI.
+  alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
@@ -74,23 +77,91 @@ defmodule Aiur.AgentControlCLI do
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
       load_sample = local_load_sample()
 
-      # Read and show host pressure before touching the daemon. The control RPC
-      # is expected to be slow precisely when the machine is overloaded, so a
-      # timeout must not hide the load signal that explains it.
+      # Read and show host pressure before touching the daemon. The fleet view
+      # stays off the Orchestrator mailbox, while this local signal remains
+      # available even if the daemon itself is overloaded or unreachable.
       print_load_status(load_sample)
 
-      with {statuses, capacity} when is_list(statuses) and is_map(capacity) <-
-             Orchestrator.status_with_capacity(Orchestrator, timeout_ms),
-           :ok <- print_global_pause_banner(opts, timeout_ms) do
-        print_status_report(statuses, capacity, opts)
-      else
-        {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
-        error -> report_control_query_failure(error, "status", timeout_ms)
-      end
+      with_fleet_view("status", opts, timeout_ms, fn snapshot, statuses ->
+        print_status_report(statuses, snapshot, opts)
+      end)
     end)
   end
 
-  defp print_status_report(statuses, capacity, opts) do
+  # The shared shape of every fleet-reading control query: read the view, say so
+  # if it is stale, print the global-pause banner, then render.
+  defp with_fleet_view(query, opts, timeout_ms, render) do
+    case fleet_view(opts, timeout_ms, fleet_rows?: true) do
+      {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
+      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+    end
+  end
+
+  defp render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render) do
+    case fleet_statuses(snapshot) do
+      {:ok, statuses} -> render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render)
+      :error -> report_control_query_failure(:unavailable, query, timeout_ms)
+    end
+  end
+
+  defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
+    print_snapshot_freshness(freshness)
+
+    case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
+      :ok -> render.(snapshot, statuses)
+      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+    end
+  end
+
+  # `status`, `agents` and `watch` read state the daemon already knows. Serving
+  # them from the Orchestrator mailbox meant they queued behind whatever the
+  # dispatch loop was doing — including a blocking GitHub read on a held socket,
+  # which is what made both commands time out while `alerts` answered in ~300ms
+  # (#1837). They read the snapshot read model instead, so a fetch in flight
+  # cannot delay them.
+  defp fleet_view(opts, timeout_ms, view_opts \\ []) do
+    Keyword.get_lazy(opts, :fleet_view, fn -> Orchestrator.fleet_view(Orchestrator, timeout_ms, view_opts) end)
+  end
+
+  # A view with no rows in it is reported as unavailable, never rendered as an
+  # empty fleet. "No agents" and "we could not read the agents" are different
+  # facts, and this repo has already shipped the confusion once: `Active 0` and
+  # every counter zero while nine agents were working.
+  defp fleet_statuses(snapshot) do
+    case Map.get(snapshot, :statuses) do
+      statuses when is_list(statuses) -> {:ok, statuses}
+      _missing -> :error
+    end
+  end
+
+  defp global_pause_opts(opts, snapshot) do
+    case Map.get(snapshot, :global_pause) do
+      %{globally_paused: paused} = global_pause when is_boolean(paused) ->
+        Keyword.put_new(opts, :global_pause_status, {:ok, global_pause})
+
+      _other ->
+        opts
+    end
+  end
+
+  # A stale fleet view that looks current is worse than the timeout it replaces.
+  # When the read model is serving last-known-good data, say so and say how old,
+  # in the shape #1814 established.
+  defp print_snapshot_freshness(%{status: :stale} = freshness) do
+    IO.puts(
+      "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
+        stale_snapshot_reason(Map.get(freshness, :reason))
+    )
+  end
+
+  defp print_snapshot_freshness(_freshness), do: :ok
+
+  defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
+  defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
+  defp stale_snapshot_reason(:orchestrator_unavailable), do: " (the orchestrator is unavailable)"
+  defp stale_snapshot_reason(_reason), do: ""
+
+  defp print_status_report(statuses, snapshot, opts) do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -99,7 +170,7 @@ defmodule Aiur.AgentControlCLI do
     |> Enum.filter(&visible_status_row?(&1, tracker_states))
     |> print_status_table()
 
-    print_capacity_status(capacity)
+    print_capacity_status(Map.get(snapshot, :capacity))
 
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
@@ -118,16 +189,17 @@ defmodule Aiur.AgentControlCLI do
     guarded("agents", fn ->
       timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
-      case Orchestrator.snapshot(Orchestrator, timeout_ms) do
-        %{running: running} when is_list(running) ->
+      case fleet_view(opts, timeout_ms) do
+        {:ok, %{running: running}, freshness} when is_list(running) ->
+          print_snapshot_freshness(freshness)
           print_agents_table(running)
           exit_marker(0)
 
-        error when error in [:timeout, :unavailable] ->
-          report_control_query_failure(error, "agents", timeout_ms)
-
-        _other ->
+        {:ok, _snapshot, _freshness} ->
           report_control_query_failure(:unavailable, "agents", timeout_ms)
+
+        {:error, error} ->
+          report_control_query_failure(error, "agents", timeout_ms)
       end
     end)
   end
@@ -144,13 +216,9 @@ defmodule Aiur.AgentControlCLI do
     guarded("watch", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
-           :ok <- print_global_pause_banner(opts, timeout_ms) do
+      with_fleet_view("watch", opts, timeout_ms, fn _snapshot, statuses ->
         print_watch_board(statuses, opts)
-      else
-        {:error, error} -> report_control_query_failure(error, "watch", timeout_ms)
-        error -> report_control_query_failure(error, "watch", timeout_ms)
-      end
+      end)
     end)
   end
 

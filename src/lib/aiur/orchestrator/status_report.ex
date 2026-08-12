@@ -17,11 +17,11 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
-  alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
@@ -32,6 +32,64 @@ defmodule Aiur.Orchestrator.StatusReport do
   @activity_snapshot_timeout_ms 100
   @repo_base_status_timeout_ms 100
   @waiting_for_human_alert_after_seconds 600
+
+  @doc """
+  Reads the fleet view for a control query without sending a message to the
+  Orchestrator.
+
+  `status`, `agents` and `watch` read already-known state, so they must not
+  queue behind a data fetch: the Orchestrator was captured holding a GitHub
+  socket with thousands of messages behind it while these commands timed out
+  (#1837). They are served from the `SnapshotStore` read model instead.
+
+  Returns `{:ok, snapshot, freshness}` for both a current and a retained-but-
+  aged snapshot — the caller renders the age. The freshness map is the one
+  established by #1814 (`:status`, `:reason`, `:observed_at`, `:age_ms`,
+  `:age_seconds`, ...), not a second vocabulary. `{:error, reason}` is reserved
+  for the cases with genuinely nothing to show.
+
+  `fleet_rows?: true` asks for the `status`/`watch` row shape under `:statuses`.
+  Those rows are built on this process from the retained projection, so a query
+  that does not render them (`agents`) does not pay for them.
+  """
+  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
+  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []) do
+    case SnapshotStore.read(server, timeout, opts) do
+      {:current, snapshot, freshness} -> {:ok, snapshot, freshness}
+      {:stale, snapshot, freshness} -> {:ok, snapshot, freshness}
+      :snapshot_unpublished -> fleet_view_from_process(server, timeout, opts)
+      :orchestrator_unavailable -> {:error, :unavailable}
+    end
+  end
+
+  # Only reachable before the first publish of a generation — the short window
+  # after a restart, where the read model genuinely has nothing and a bounded
+  # call is the honest way to get an answer rather than telling the operator to
+  # retry. It is never the steady-state path, so it cannot reintroduce the
+  # head-of-line block: an Orchestrator that has been running long enough to be
+  # busy has already published.
+  #
+  # One call, never two: a query that needs the rows asks for the payload and
+  # the rows together, so this window costs the mailbox exactly one message.
+  defp fleet_view_from_process(server, timeout, opts) do
+    request = if Keyword.get(opts, :fleet_rows?, false), do: :fleet_view, else: :snapshot
+
+    case status_api_call(server, request, timeout, true) do
+      snapshot when is_map(snapshot) -> {:ok, snapshot, just_observed_freshness()}
+      :timeout -> {:error, :timeout}
+      _unavailable -> {:error, :unavailable}
+    end
+  end
+
+  defp just_observed_freshness do
+    %{
+      status: :current,
+      reason: nil,
+      observed_at: DateTime.to_iso8601(DateTime.utc_now()),
+      age_ms: 0,
+      age_seconds: 0
+    }
+  end
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
   def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
@@ -122,6 +180,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       :agent_totals,
       :capacity_hold,
       :dispatch_hold,
+      # `agent_statuses/1` reads the codex thrash budget to explain why an idle
+      # ticket is not dispatching. Projecting without it would fall back to the
+      # struct default and render a confident wrong *reason* on every idle row.
+      :dispatch_recovery,
       :effective_concurrent_agents,
       :global_pause,
       :globally_paused,
@@ -259,11 +321,24 @@ defmodule Aiur.Orchestrator.StatusReport do
       end)
 
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
-  def snapshot(%State{} = state) do
-    state = Lifecycle.refresh_runtime_config(state)
+  # No runtime-config refresh here. The read model projects this same payload
+  # from a state copy on another process and cannot refresh anything, so a
+  # refresh on this path would make the two sources report different capacity
+  # for the same fleet — one of them confidently wrong. The poll cycle already
+  # refreshes runtime config every cycle; a read-only control query has no
+  # business mutating state to do it again (#1837).
+  def snapshot(%State{} = state), do: {:reply, snapshot_payload(state), state}
 
-    {:reply, snapshot_payload(state), state}
-  end
+  @doc """
+  The snapshot payload plus the `status`/`watch` rows, in one reply.
+
+  Serves the one window the read model cannot: a generation that has not
+  published yet. Answering both from a single call keeps that window at one
+  mailbox message rather than two.
+  """
+  @spec fleet_view_call(State.t()) :: {:reply, map(), State.t()}
+  def fleet_view_call(%State{} = state),
+    do: {:reply, Map.put(snapshot_payload(state), :statuses, agent_statuses(state)), state}
 
   @doc false
   @spec snapshot_payload(State.t()) :: map()
@@ -288,6 +363,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       running: running,
       retrying: retrying,
       idle: idle,
+      # The `status`/`watch` rows are deliberately *not* built here. This runs on
+      # every state change, and `agent_statuses/1` reads `dispatch-budgets.json`
+      # and calls `RepoBase`; paying that continuously to save it on a command an
+      # operator types occasionally is a bad trade on a box that also runs the
+      # fleet. `SnapshotStore.read/3` builds them from the retained projection,
+      # on the reader's process, when someone asks (#1837).
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
       capacity_hold: capacity_hold_payload(state, now_ms),

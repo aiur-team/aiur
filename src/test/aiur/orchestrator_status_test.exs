@@ -640,7 +640,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:noreply, _store} =
              SnapshotStore.handle_info(
-               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}}},
+               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}, nil}},
                %{pending: %{}, task_ref: callback_ref, monitor_ref: nil, timer_ref: nil}
              )
 
