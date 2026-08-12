@@ -676,7 +676,7 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp running_summary(identifier, entry, now) do
-    issue = Map.get(entry, :issue)
+    issue = Map.get(entry, :issue) || %{}
 
     running_summary(
       identifier,
@@ -778,7 +778,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp running_status(%State{} = state, issue_id, entry, now) do
     identifier = Map.get(entry, :identifier) || issue_id
-    issue = Map.get(entry, :issue)
+    issue = Map.get(entry, :issue) || %{}
     work_state = get_in(entry, [:control, :status]) || :working
     pause_reason = Map.get(entry, :paused_reason)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
