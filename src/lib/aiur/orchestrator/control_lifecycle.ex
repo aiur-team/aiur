@@ -772,5 +772,4 @@ defmodule Aiur.Orchestrator.ControlLifecycle do
   defp rejection_message(:control_failed), do: "control routing failed"
   defp rejection_message(:pause_release_failed), do: "worker could not release the active pause containment"
   defp rejection_message(:superseded), do: "a newer control intent superseded this request"
-  defp rejection_message(_class), do: "control request was rejected"
 end

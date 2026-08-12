@@ -848,16 +848,20 @@ defmodule Aiur.AgentControlCLI do
             outcomes
 
           remaining_ms(deadline) <= @resume_confirm_poll_ms ->
-            Enum.into(waiting, outcomes, fn pending_resume ->
-              outcome = observed |> Map.fetch!(pending_resume.canonical) |> timeout_resume_outcome()
-              {pending_resume.canonical, outcome}
-            end)
+            settle_timed_out(waiting, observed, outcomes)
 
           true ->
             Process.sleep(@resume_confirm_poll_ms)
             await_resumes_applied(waiting, deadline, outcomes)
         end
     end
+  end
+
+  defp settle_timed_out(waiting, observed, outcomes) do
+    Enum.into(waiting, outcomes, fn pending_resume ->
+      outcome = observed |> Map.fetch!(pending_resume.canonical) |> timeout_resume_outcome()
+      {pending_resume.canonical, outcome}
+    end)
   end
 
   defp settle_all(pending, outcome, outcomes), do: Enum.into(pending, outcomes, &{&1.canonical, outcome})
@@ -910,32 +914,58 @@ defmodule Aiur.AgentControlCLI do
   defp paused_resume_outcome(status, request_id, latest \\ nil) do
     latest = latest || resume_control_outcome(status, request_id)
     detail = held_resume_detail(status, latest)
+    classify_paused_resume(latest, request_id, detail)
+  end
 
+  defp classify_paused_resume(latest, request_id, detail) do
     cond do
-      not is_map(latest) -> {:unknown, Map.put(detail, :reason, :missing_control_outcome)}
-      not is_nil(request_id) and Map.get(latest, :request_id) != request_id -> {:unknown, Map.put(detail, :reason, :mismatched_control_outcome)}
-      Map.get(latest, :action) != :resume -> {:unknown, Map.put(detail, :reason, :mismatched_control_outcome)}
-      Map.get(latest, :status) == :rejected -> {:declined, detail}
-      Map.get(latest, :status) == :expired -> {:dropped, detail}
-      Map.get(latest, :status) in [:requested, :accepted] -> {:pending, detail}
-      true -> {:unknown, Map.put(detail, :reason, :inconsistent_control_outcome)}
+      not is_map(latest) -> unknown_outcome(detail, :missing_control_outcome)
+      mismatched_request?(request_id, latest) -> unknown_outcome(detail, :mismatched_control_outcome)
+      Map.get(latest, :action) != :resume -> unknown_outcome(detail, :mismatched_control_outcome)
+      true -> resume_status_outcome(latest, detail)
     end
   end
+
+  defp mismatched_request?(nil, _latest), do: false
+  defp mismatched_request?(request_id, latest), do: Map.get(latest, :request_id) != request_id
+
+  defp resume_status_outcome(latest, detail) do
+    case Map.get(latest, :status) do
+      :rejected -> {:declined, detail}
+      :expired -> {:dropped, detail}
+      status when status in [:requested, :accepted] -> {:pending, detail}
+      _other -> unknown_outcome(detail, :inconsistent_control_outcome)
+    end
+  end
+
+  defp unknown_outcome(detail, reason), do: {:unknown, Map.put(detail, :reason, reason)}
 
   defp resume_control_outcome(status, request_id) do
     control = Map.get(status, :control, %{})
     recent = Map.get(control, :recent_controls, [])
-    latest_resume = Map.get(control, :latest_resume_control)
-    latest = Map.get(control, :latest_control)
     correlated = Enum.find(recent, &(Map.get(&1, :request_id) == request_id))
 
-    cond do
-      is_map(correlated) -> correlated
-      is_map(latest_resume) and (is_nil(request_id) or Map.get(latest_resume, :request_id) == request_id) -> latest_resume
-      is_map(latest) and (is_nil(request_id) or Map.get(latest, :request_id) == request_id) -> latest
-      true -> latest_resume || latest
+    if is_map(correlated) do
+      correlated
+    else
+      fallback_resume_control(control, request_id)
     end
   end
+
+  defp fallback_resume_control(control, request_id) do
+    latest_resume = Map.get(control, :latest_resume_control)
+    latest = Map.get(control, :latest_control)
+
+    Enum.find([latest_resume, latest], &matching_control?(&1, request_id)) ||
+      latest_resume ||
+      latest
+  end
+
+  defp matching_control?(control, request_id) when is_map(control) do
+    is_nil(request_id) or Map.get(control, :request_id) == request_id
+  end
+
+  defp matching_control?(_control, _request_id), do: false
 
   defp held_resume_detail(status, latest) do
     condition = get_in(latest || %{}, [:rejection, :condition]) || %{}
