@@ -24,9 +24,9 @@ defmodule Aiur.Opencode.Slot.EventsTest do
     assert_receive {:slot_attach_removed, 33, "issue-33"}
   end
 
-  test "slot_ready broadcasts {:slot_ready, index}" do
-    Events.slot_ready(44)
-    assert_receive {:slot_ready, 44}
+  test "slot_ready broadcasts {:slot_ready, index, pid}" do
+    Events.slot_ready(44, self())
+    assert_receive {:slot_ready, 44, pid} when pid == self()
   end
 
   test "visible_changed broadcasts and mirrors to SlotRegistry" do

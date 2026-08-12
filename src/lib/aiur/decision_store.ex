@@ -80,9 +80,18 @@ defmodule Aiur.DecisionStore do
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
+  @doc """
+  Starts the store.
+
+  Only the application singleton may use the configured default state
+  directory. Every other instance must receive its own `:state_dir` so it
+  cannot contend with the application's durable decision audit stream.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    with :ok <- validate_start_options(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
+    end
   end
 
   @doc """
@@ -343,7 +352,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def init(opts) do
     state =
-      case Config.Paths.decision_state_dir() do
+      case state_dir(opts) do
         {:ok, dir} -> boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))
         {:error, reason} -> unavailable_state(nil, {:path_unresolved, reason})
       end
@@ -351,6 +360,27 @@ defmodule Aiur.DecisionStore do
       |> configure_dispatch(opts)
 
     {:ok, state, {:continue, :schedule_reconciliation}}
+  end
+
+  defp validate_start_options(opts) do
+    case Keyword.fetch(opts, :state_dir) do
+      :error -> validate_missing_state_dir(Keyword.get(opts, :name))
+      {:ok, state_dir} -> validate_state_dir(state_dir)
+    end
+  end
+
+  defp validate_missing_state_dir(__MODULE__), do: :ok
+  defp validate_missing_state_dir(nil), do: {:error, :unnamed_store_requires_state_dir}
+  defp validate_missing_state_dir(_name), do: {:error, :non_singleton_store_requires_state_dir}
+
+  defp validate_state_dir(state_dir) when is_binary(state_dir) and state_dir != "", do: :ok
+  defp validate_state_dir(_state_dir), do: {:error, :invalid_state_dir}
+
+  defp state_dir(opts) do
+    case Keyword.fetch(opts, :state_dir) do
+      {:ok, dir} -> {:ok, dir}
+      :error -> Config.Paths.decision_state_dir()
+    end
   end
 
   defp configure_dispatch(state, opts) do

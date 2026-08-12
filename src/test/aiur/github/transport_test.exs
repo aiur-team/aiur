@@ -214,6 +214,24 @@ defmodule Aiur.GitHub.TransportTest do
              {:error, {:github, :timeout, %{reason: :timeout}}}
   end
 
+  test "kills the request worker when its caller exits" do
+    test_pid = self()
+
+    caller =
+      spawn(fn ->
+        Transport.off_process_request(%{}, fn ->
+          send(test_pid, {:request_worker_started, self()})
+          Process.sleep(:infinity)
+        end)
+      end)
+
+    assert_receive {:request_worker_started, worker}, 2_000
+    monitor_ref = Process.monitor(worker)
+    Process.exit(caller, :kill)
+
+    assert_receive {:DOWN, ^monitor_ref, :process, ^worker, _reason}, 2_000
+  end
+
   test "reads headers case-insensitively and parses pagination and poll interval" do
     headers = [
       {"Link", ~s(<https://api.github.com/page/2>; rel="next")},

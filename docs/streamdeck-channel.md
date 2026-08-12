@@ -45,6 +45,11 @@ Send `focus` with `{identifier}` to watch one agent, or `unfocus` to stop. A
 channel subscribes to only that one `agent:<identifier>` source; it never fans
 out subscriptions for every agent. Re-focusing unsubscribes the prior agent.
 
+Physical key toggles send `control` with `{identifier, action}`, where action
+is `pause` or `resume`. The channel routes that request through `Aiur.AgentChat`
+and returns the orchestrator result; the device does not implement a second
+pause/resume path.
+
 Transcript traffic is latest-value coalesced in 250 ms windows (four pushes per
 second maximum per joined channel). A dedicated relay is the sole subscription
 to the focused agent, so the channel mailbox is not filled by a transcript

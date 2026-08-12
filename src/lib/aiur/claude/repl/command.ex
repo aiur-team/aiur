@@ -35,7 +35,13 @@ defmodule Aiur.Claude.Repl.Command do
       |> append_if(is_binary(settings_path), ["--settings", shell_escape(settings_path || "")])
       |> Enum.join(" ")
 
-    environment = AgentEnvironment.workspace_env_export_prefix(workspace, Keyword.take(opts, [:base_branch]))
+    environment =
+      workspace
+      |> AgentEnvironment.workspace_env_export_prefix(
+        opts
+        |> Keyword.take([:base_branch])
+        |> Keyword.put(:build_gate, true)
+      )
 
     ["cd #{shell_escape(workspace)}", environment, "exec #{flags}"]
     |> Enum.join(" && ")

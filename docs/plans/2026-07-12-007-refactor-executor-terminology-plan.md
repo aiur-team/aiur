@@ -9,7 +9,7 @@ date: 2026-07-12
 
 ## Summary
 
-Rename the aiur-driver role and dashboard product copy to “Executor” and “Executor Control Center” across shipped UI, messages, prompts, and current documentation, while preserving compatibility-sensitive internal protocol names and historical OCC references.
+Rename the aiur-driver role and dashboard product copy to “Executor” and “Dashboard” across shipped UI, messages, prompts, and current documentation, while preserving compatibility-sensitive internal protocol names and historical OCC references.
 
 ---
 
@@ -31,7 +31,7 @@ Aiur currently calls the person or agent driving a run the “operator.” The c
 
 ## Requirements
 
-- R1. The dashboard and all other shipped on-screen copy use “Executor” and “Executor Control Center,” with no aiur-driver role presented as “operator.”
+- R1. The dashboard and all other shipped on-screen copy use “Executor” and “Dashboard,” with no aiur-driver role presented as “operator.”
 - R2. User-facing alerts, diagnostics, help, prompts, examples, and agent tool descriptions use Executor terminology consistently.
 - R3. Current public, contributor, configuration, dashboard, and event-model documentation uses Executor terminology while historical OCC IDs and branch references remain intact.
 - R4. Internal compatibility contracts remain stable where renaming would create unnecessary churn or break persisted data, event routing, APIs, or in-flight work.
@@ -80,7 +80,7 @@ Aiur currently calls the person or agent driving a run the “operator.” The c
 
 ### Resolved During Planning
 
-- Product name: the Executor confirmed “Executor Control Center.”
+- Product name: the Executor confirmed “Dashboard.”
 - Timing: OCC backend and capstone work are merged, so the coordinated sweep can proceed.
 - Docs overlap: #1033 will use Executor terminology in newly authored dashboard docs; this ticket owns the existing-surface sweep.
 
@@ -123,7 +123,7 @@ Aiur currently calls the person or agent driving a run the “operator.” The c
 - Existing exact-copy assertions in dashboard LiveView/component, decision-attention, alert-feed, and runner tests.
 
 **Test scenarios:**
-- Happy path: rendered dashboard title, brand aria label, and wordmark name the Executor Control Center.
+- Happy path: rendered dashboard title, brand aria label, and wordmark name the Dashboard.
 - Happy path: decision and revision states that require human action display “Executor” follow-up/decision language.
 - Integration: generated alert and pause/remediation messages reach their existing sinks unchanged except for Executor terminology.
 - Compatibility: decision actor persistence and existing internal event/message routes still accept their established values.
@@ -223,7 +223,7 @@ Aiur currently calls the person or agent driving a run the “operator.” The c
 
 ## Documentation / Operational Notes
 
-- “Executor Control Center” is the shipped product name; OCC remains a historical/internal wave abbreviation.
+- “Dashboard” is the shipped product name; OCC remains a historical/internal wave abbreviation.
 - The final PR should explain that legacy `operator_*` identifiers are intentionally retained for compatibility and diff containment.
 
 ---
