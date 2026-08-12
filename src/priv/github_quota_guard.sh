@@ -37,14 +37,33 @@ events_file=
 budget_root=${AIUR_GITHUB_BUDGET_ROOT:-"$HOME/.aiur/github-budget"}
 budget_key=${AIUR_GITHUB_BUDGET_KEY:-}
 budget_broker=${AIUR_GITHUB_BUDGET_BROKER:-"$(dirname "$0")/aiur-github-budget"}
+budget_requested=${AIUR_GITHUB_BUDGET_ENABLED:-1}
 budget_db=
 budget_enabled=0
+budget_required=0
+budget_unavailable_reason=
 budget_lease=
 budget_renewal_pid=
 budget_lease_ttl_ms=${AIUR_GITHUB_LEASE_TTL_MS:-35000}
 budget_ignore_token_cooldown=0
 budget_consumer=${AIUR_GITHUB_BUDGET_CONSUMER:-"executor:${PPID:-$$}"}
 budget_consumer_key=
+
+case "$budget_requested" in
+  0|false|FALSE|no|NO|off|OFF) budget_required=0 ;;
+  *) [ -n "$budget_root" ] && budget_required=1 ;;
+esac
+unset budget_requested
+
+fingerprint_value() {
+  if command -v shasum >/dev/null 2>&1; then
+    printf '%s' "$1" | shasum -a 256 2>/dev/null | awk '{print $1}'
+  elif command -v sha256sum >/dev/null 2>&1; then
+    printf '%s' "$1" | sha256sum 2>/dev/null | awk '{print $1}'
+  else
+    return 1
+  fi
+}
 
 if [ -n "$state_root" ]; then
   quota_dir=$state_root/github-quota
@@ -57,30 +76,38 @@ if [ -n "$agent_quota_dir" ]; then
   mkdir -p "$agent_quota_dir" 2>/dev/null || true
 fi
 
-if [ -n "$budget_root" ] && [ -n "$budget_key" ] && [ -n "$budget_broker" ] && [ -x "$budget_broker" ]; then
-  if mkdir -p "$budget_root" 2>/dev/null && command -v python3 >/dev/null 2>&1; then
-    budget_db=$budget_root/budget.sqlite3
-    budget_enabled=1
-  fi
-fi
+if [ "$budget_required" -eq 1 ]; then
+  if [ -z "$budget_broker" ] || [ ! -x "$budget_broker" ]; then
+    budget_unavailable_reason='broker executable is unavailable'
+  elif ! command -v python3 >/dev/null 2>&1; then
+    budget_unavailable_reason='python3 is unavailable'
+  elif ! mkdir -p "$budget_root" 2>/dev/null; then
+    budget_unavailable_reason='state directory is unavailable'
+  else
+    if [ -z "$budget_key" ]; then
+      budget_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
+      if [ -z "$budget_token" ]; then
+        budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
+      fi
 
-if [ "$budget_enabled" -eq 0 ] && [ -x "$budget_broker" ]; then
-  budget_token=${GH_TOKEN:-${GITHUB_TOKEN:-}}
-  if [ -z "$budget_token" ]; then
-    budget_token=$(GITHUB_TOKEN= GH_TOKEN= "$real_gh" auth token --hostname github.com 2>/dev/null || true)
-  fi
+      if [ -z "$budget_token" ]; then
+        budget_unavailable_reason='GitHub credential is unavailable'
+      else
+        budget_key=$(fingerprint_value "$budget_token") || budget_key=
+        [ -n "$budget_key" ] || budget_unavailable_reason='credential fingerprint is unavailable'
+      fi
+      unset budget_token
+    fi
 
-  if [ -n "$budget_token" ] && budget_key=$(printf '%s' "$budget_token" | sha256sum 2>/dev/null | awk '{print $1}') && [ -n "$budget_key" ]; then
-    if mkdir -p "$budget_root" 2>/dev/null && command -v python3 >/dev/null 2>&1; then
+    if [ -z "$budget_unavailable_reason" ]; then
       budget_db=$budget_root/budget.sqlite3
       budget_enabled=1
     fi
   fi
-  unset budget_token
 fi
 
 if [ "$budget_enabled" -eq 1 ]; then
-  budget_consumer_key=$(printf '%s' "$budget_consumer" | sha256sum 2>/dev/null | awk '{print $1}')
+  budget_consumer_key=$(fingerprint_value "$budget_consumer") || budget_consumer_key=
   [ -n "$budget_consumer_key" ] || budget_consumer_key=shared
 fi
 unset budget_consumer
@@ -261,6 +288,11 @@ if [ "${1:-}" = api ]; then
   esac
 
   unset api_options api_method api_payload api_mutation api_method_expected api_argument
+fi
+
+if [ "$resource" != none ] && [ "$budget_required" -eq 1 ] && [ "$budget_enabled" -ne 1 ]; then
+  printf 'aiur: GitHub shared budget unavailable (%s); refusing uncoordinated request\n' "$budget_unavailable_reason" >&2
+  exit 75
 fi
 
 consumer=unattributed

@@ -299,6 +299,7 @@ defmodule Aiur.AgentGitHubGuardTest do
             guard_env(context) ++
               [
                 {"AIUR_AGENT_WORKSPACE", other_workspace},
+                {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
                 {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
                 {"AIUR_GITHUB_BUDGET_KEY", "a" <> String.duplicate("0", 63)},
                 {"AIUR_GITHUB_BUDGET_BROKER", AgentGitHubGuard.budget_broker_path(other_workspace)},
@@ -416,6 +417,7 @@ defmodule Aiur.AgentGitHubGuardTest do
                env:
                  guard_env(context) ++
                    [
+                     {"AIUR_GITHUB_BUDGET_ENABLED", "1"},
                      {"AIUR_GITHUB_BUDGET_ROOT", budget_root},
                      {"AIUR_GITHUB_BUDGET_KEY", key},
                      {"AIUR_GITHUB_BUDGET_BROKER", broker}
@@ -1019,6 +1021,52 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  test "a configured budget fingerprints credentials with shasum when sha256sum is unavailable", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    credential = "shared-macos-credential"
+    path = isolated_command_path(context, ~w(python3 shasum))
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               GITHUB_TOKEN: credential,
+               PATH: path
+             )
+
+    key = :crypto.hash(:sha256, credential) |> Base.encode16(case: :lower)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [
+               AgentGitHubGuard.budget_broker_path(context.workspace),
+               "snapshot",
+               "--db",
+               Path.join(budget_root, "budget.sqlite3"),
+               "--token-key",
+               key
+             ])
+
+    assert %{"admissions" => [%{}]} = Jason.decode!(snapshot)
+  end
+
+  test "a configured budget refuses network calls when python3 is unavailable", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    path = isolated_command_path(context, ~w(shasum))
+
+    assert {output, 75} =
+             run_guard(context, ["api", "repos/owner/repo/issues/1670"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace),
+               PATH: path
+             )
+
+    assert output =~ "shared budget unavailable"
+    assert output =~ "python3"
+    assert output =~ "refusing uncoordinated request"
+    refute File.exists?(context.calls)
+  end
+
   test "a malformed broker wait response refuses the real gh command", context do
     budget_root = Path.join(context.state_path, "host-budget")
 
@@ -1221,8 +1269,18 @@ defmodule Aiur.AgentGitHubGuardTest do
   end
 
   defp run_guard(context, args, extra_env \\ []) do
+    extra_env = Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end)
+
+    budget_env =
+      if Enum.any?(extra_env, fn
+           {"AIUR_GITHUB_BUDGET_ROOT", value} -> value != ""
+           _other -> false
+         end),
+         do: [{"AIUR_GITHUB_BUDGET_ENABLED", "1"}],
+         else: []
+
     System.cmd(context.wrapper, args,
-      env: guard_env(context) ++ Enum.map(extra_env, fn {key, value} -> {Atom.to_string(key), value} end),
+      env: guard_env(context) ++ budget_env ++ extra_env,
       stderr_to_stdout: true
     )
   end
@@ -1246,10 +1304,27 @@ defmodule Aiur.AgentGitHubGuardTest do
       {"AIUR_AGENT_WORKSPACE", context.workspace},
       {"FAKE_GH_CALLS", context.calls},
       {"GITHUB_TOKEN", ""},
+      {"AIUR_GITHUB_BUDGET_ENABLED", "0"},
       {"AIUR_GITHUB_BUDGET_ROOT", ""},
       {"AIUR_GITHUB_BUDGET_KEY", ""},
       {"AIUR_GITHUB_BUDGET_BROKER", "/nonexistent/aiur-github-budget"}
     ]
+  end
+
+  defp isolated_command_path(context, extra_commands) do
+    bin = Path.join(context.workspace, "isolated-command-path-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(bin)
+
+    commands =
+      ~w(awk basename cat cut date dirname grep mkdir mktemp mv rm sed sleep tail wc) ++
+        extra_commands
+
+    Enum.each(commands, fn command ->
+      executable = System.find_executable(command) || flunk("#{command} executable is required for this guard test")
+      File.ln_s!(executable, Path.join(bin, command))
+    end)
+
+    bin
   end
 
   defp wait_for_calls(path, expected, attempts \\ 50)
