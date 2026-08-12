@@ -87,7 +87,7 @@ records and semantics.
 
 ## Existing owner and reuse target
 
-Extend `website/scripts/capture-executor-control-center.mjs`, its synthetic
+Extend `website/scripts/capture-dashboard.mjs`, its synthetic
 Phoenix fixture patterns, the root development/CI scripts, and existing
 deterministic test conventions without turning documentation screenshots into
 the acceptance API. Keep browser tooling isolated from production assets and

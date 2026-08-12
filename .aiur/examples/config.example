@@ -25,7 +25,13 @@ tracker:
 
 # === Coding agents ===
 agent:
-  kind: {{AGENT_KIND}}                   # default registered backend (codex, claude, kimi, deepseek, openrouter)
+  # Ordered dispatch preference (replaces `kind` + `switch_model_on_ratelimit` +
+  # `backend_configs.<b>.enabled`). Presence in the array makes a backend
+  # dispatchable; the first available entry is the default backend; and when a
+  # backend hits a token or usage limit aiur automatically falls back to the
+  # next one in the list, returning to an earlier one once it recovers.
+  priority: {{PRIORITY}}                   # e.g. [deepseek, codex, claude]
+  # kind: {{AGENT_KIND}}                   # deprecated; use `priority` instead
   max_concurrent_agents: {{MAX_AGENTS}}  # global cap on simultaneously-running agents
   # max_concurrent_builds: 2             # fleet cap for agent mix compile/test; 0 disables only this cap
   # Coordination errors fail the requested mix command with status 125.
@@ -39,9 +45,8 @@ agent:
   routing: {{ROUTING}}                   # complexity:<N> label -> backend[:model[:effort]]; prefer a family alias (codex:terra:high, claude:opus) over a pinned version, which expires
   prior_work_continuation: true           # cold redispatch/backend switch continues from shared workspace context, never a cross-provider transcript
   # backend_configs:                      # optional overrides keyed by registry instance
-  #   deepseek: {enabled: false}          # disabled by default; set true only when its balance meter is configured
+  #   deepseek: {balance_baseline: 100}   # prepaid-balance seed; enablement now comes from `priority` presence
   #   openrouter: {model: moonshotai/kimi-k2.7-code} # explicit underlying model required
-{{RATE_LIMIT_FALLBACK}}  # opt-in default-ticket fallback order; explicit labels/routing are never changed
   claude:
     command: aiur-claude
     permission_mode: {{PERMISSION_MODE}} # bypassPermissions (default/acceptEdits need an approval UI — coming soon)
@@ -130,6 +135,6 @@ alerts:
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
-# server: { host: 127.0.0.1, port: 4000 }
+# server: { port: 4000 }                # host omitted = authenticated Tailscale IP when available, else loopback; add host: 127.0.0.1 to pin loopback
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }

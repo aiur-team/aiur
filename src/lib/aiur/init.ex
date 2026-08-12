@@ -102,7 +102,6 @@ defmodule Aiur.Init do
       :ok ->
         agents = Questions.prompt_agents(io)
         routing = Questions.prompt_routing(io, agents)
-        rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
         permission_mode = Questions.prompt_permission_mode(io)
         workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
         max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
@@ -123,7 +122,6 @@ defmodule Aiur.Init do
             tracker: tracker,
             agents: agents,
             routing: routing,
-            rate_limit_fallback: rate_limit_fallback,
             permission_mode: permission_mode,
             workspace_root: workspace_root,
             max_agents: max_agents,
@@ -218,7 +216,15 @@ defmodule Aiur.Init do
 
   defp rate_limit_pair(config) do
     agent = Map.get(config, "agent", %{})
-    {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+
+    case List.wrap(agent["priority"]) do
+      [primary | rest] ->
+        fallback = Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
+        {primary, fallback || Aiur.CodingAgent.default_rate_limit_fallback()}
+
+      [] ->
+        {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+    end
   end
 
   @spec runtime_deps() :: deps()
