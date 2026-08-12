@@ -23,7 +23,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   import ExUnit.CaptureIO
 
   alias Aiur.AgentControlCLI
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{Budget, Transport}
   alias Aiur.Orchestrator.CommentPolling
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.StatusReport
@@ -586,6 +586,46 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     assert orchestrator_deadline_ms <= 3 * @cli_budget_ms
   end
 
+  test "a locked shared budget cannot strand the orchestrator", %{orchestrator: pid} do
+    budget_dir = Path.join(System.tmp_dir!(), "aiur-orchestrator-budget-#{System.unique_integer([:positive])}")
+    previous_enabled = Application.get_env(:aiur, :github_budget_enabled?)
+    previous_dir = Application.get_env(:aiur, :github_budget_dir)
+
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+    Application.put_env(:aiur, :github_request_deadline_ms, 300)
+
+    on_exit(fn ->
+      restore_application_env(:github_budget_enabled?, previous_enabled)
+      restore_application_env(:github_budget_dir, previous_dir)
+      File.rm_rf(budget_dir)
+    end)
+
+    assert %{inflight: %{}} = Budget.snapshot("locked-orchestrator-token")
+    lock = lock_budget_database(Budget.database_path())
+    test_pid = self()
+
+    probe =
+      spawn(fn ->
+        result =
+          eval_on_orchestrator(pid, fn ->
+            Transport.default_request_fun(%{
+              method: :get,
+              url: "https://api.github.com/rate_limit",
+              token: "locked-orchestrator-token"
+            })
+          end)
+
+        send(test_pid, {:locked_budget_result, result})
+      end)
+
+    on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
+
+    assert_receive {:locked_budget_result, {:ok, %{status: 429}}}, 2_000
+    assert answers?(pid)
+    close_port(lock)
+  end
+
   test "a fleet view behind its producer is rendered with its age, not as current", %{orchestrator: pid} do
     previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
     Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 50)
@@ -759,6 +799,28 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     end)
 
     "http://127.0.0.1:#{port}/hanging"
+  end
+
+  defp lock_budget_database(path) do
+    python = System.find_executable("python3") || flunk("python3 is required")
+
+    script = "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); time.sleep(30)"
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(python)},
+        [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", String.to_charlist(script), String.to_charlist(path)]]
+      )
+
+    on_exit(fn -> close_port(port) end)
+    assert_receive {^port, {:data, "locked\n"}}, 2_000
+    port
+  end
+
+  defp close_port(port) do
+    if Port.info(port), do: Port.close(port)
+  rescue
+    ArgumentError -> :ok
   end
 
   defp hanging_request(url) do

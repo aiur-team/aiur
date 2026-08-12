@@ -25,6 +25,7 @@ defmodule Aiur.GitHub.Budget do
   @lease_grace_ms 5_000
   @broker_failure_backoff_ms 5_000
   @retry_floor_ms 5
+  @command_cleanup_ms 25
 
   @type lease :: %{id: String.t(), token_key: String.t()}
   @type hold :: %{resource: String.t(), reset_at: DateTime.t(), reason: atom()}
@@ -160,7 +161,9 @@ defmodule Aiur.GitHub.Budget do
   def request_resource(_request), do: "core"
 
   defp do_acquire(request, key, python, opts, deadline_at) do
-    case command(acquire_args(request, opts), key, Keyword.put(opts, :python, python)) do
+    command_opts = opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at)
+
+    case command(acquire_args(request, opts), key, command_opts) do
       {:ok, "granted " <> id} ->
         grant_or_hold(String.trim(id), request, key)
 
@@ -234,15 +237,73 @@ defmodule Aiur.GitHub.Budget do
   defp command(args, key, opts) when is_binary(key) do
     with true <- enabled?(opts),
          python when is_binary(python) <- Keyword.get(opts, :python, python_executable(opts)) do
-      {output, status} =
-        System.cmd(python, [broker_path() | args] ++ ["--db", database_path(opts), "--token-key", key], stderr_to_stdout: true)
+      command_args = [broker_path() | args] ++ ["--db", database_path(opts), "--token-key", key]
 
-      if status == 0, do: {:ok, output}, else: broker_unavailable(status, output)
+      case port_command(python, command_args, command_deadline(opts)) do
+        {:ok, output, 0} -> {:ok, output}
+        {:ok, output, status} -> broker_unavailable(status, output)
+        :timeout -> broker_unavailable(:timeout, "deadline exceeded")
+      end
     else
       _unavailable -> :bypass
     end
   rescue
     error -> broker_unavailable(:exception, Exception.message(error))
+  end
+
+  defp port_command(executable, args, deadline_at) do
+    remaining_ms = max(deadline_at - System.monotonic_time(:millisecond), 0)
+
+    if remaining_ms == 0 do
+      :timeout
+    else
+      port =
+        Port.open(
+          {:spawn_executable, String.to_charlist(executable)},
+          [:binary, :exit_status, :stderr_to_stdout, :use_stdio, args: Enum.map(args, &String.to_charlist/1)]
+        )
+
+      await_port(port, deadline_at, [])
+    end
+  end
+
+  defp await_port(port, deadline_at, output) do
+    remaining_ms = max(deadline_at - System.monotonic_time(:millisecond) - @command_cleanup_ms, 0)
+
+    receive do
+      {^port, {:data, data}} -> await_port(port, deadline_at, [data | output])
+      {^port, {:exit_status, status}} -> {:ok, output |> Enum.reverse() |> IO.iodata_to_binary(), status}
+    after
+      remaining_ms ->
+        terminate_port(port, deadline_at)
+        :timeout
+    end
+  end
+
+  defp terminate_port(port, deadline_at) do
+    case Port.info(port, :os_pid) do
+      {:os_pid, os_pid} -> System.cmd("kill", ["-KILL", Integer.to_string(os_pid)], stderr_to_stdout: true)
+      nil -> :ok
+    end
+
+    receive do
+      {^port, {:exit_status, _status}} -> :ok
+    after
+      max(deadline_at - System.monotonic_time(:millisecond), 0) -> :ok
+    end
+
+    if Port.info(port), do: Port.close(port)
+    flush_port(port)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp flush_port(port) do
+    receive do
+      {^port, _message} -> flush_port(port)
+    after
+      0 -> :ok
+    end
   end
 
   defp broker_unavailable(status, output) do
@@ -289,6 +350,10 @@ defmodule Aiur.GitHub.Budget do
   end
 
   defp deadline(opts), do: System.monotonic_time(:millisecond) + positive(Keyword.get(opts, :timeout_ms, @default_timeout_ms), @default_timeout_ms)
+
+  defp command_deadline(opts) do
+    Keyword.get_lazy(opts, :deadline_at, fn -> deadline(opts) end)
+  end
 
   defp consumer_key(opts) do
     identity =

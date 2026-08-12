@@ -98,6 +98,34 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
+  test "database lock cannot hold admission beyond its wall-clock budget", %{root: root} do
+    broker_pid_path = Path.join(root, "broker.pid")
+    python = broker_wrapper(root, broker_pid_path)
+    opts = [state_dir: root, enabled?: true]
+    token = "locked-budget-token"
+
+    # Create the schema before taking an exclusive lock so the broker blocks
+    # specifically on SQLite admission rather than setup.
+    assert %{inflight: %{}} = Budget.snapshot(token, opts)
+    lock = lock_database(Budget.database_path(opts))
+
+    started_at = System.monotonic_time(:millisecond)
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               request(token, "/repos/owner/repo/issues/1477"),
+               opts |> Keyword.put(:python, python) |> Keyword.put(:timeout_ms, 300)
+             )
+
+    elapsed_ms = System.monotonic_time(:millisecond) - started_at
+    assert elapsed_ms >= 250
+    assert elapsed_ms < 1_000
+    broker_pid = broker_pid_path |> File.read!() |> String.trim()
+    wait_until(fn -> not os_process_alive?(broker_pid) end)
+
+    close_port(lock)
+  end
+
   test "refuses an unsafe shared state path", %{root: root} do
     path = Path.join(root, "not-a-directory")
     File.write!(path, "not a directory")
@@ -195,6 +223,47 @@ defmodule Aiur.GitHub.BudgetTest do
        ],
        body: %{"message" => "You have exceeded a secondary rate limit."}
      }}
+  end
+
+  defp lock_database(path) do
+    python = System.find_executable("python3") || flunk("python3 is required")
+
+    script = "import sqlite3,sys,time; c=sqlite3.connect(sys.argv[1]); c.execute('BEGIN EXCLUSIVE'); print('locked', flush=True); time.sleep(30)"
+
+    port =
+      Port.open(
+        {:spawn_executable, String.to_charlist(python)},
+        [:binary, :exit_status, :stderr_to_stdout, args: [~c"-c", String.to_charlist(script), String.to_charlist(path)]]
+      )
+
+    on_exit(fn -> close_port(port) end)
+    assert_receive {^port, {:data, "locked\n"}}, 2_000
+    port
+  end
+
+  defp close_port(port) do
+    if Port.info(port), do: Port.close(port)
+  rescue
+    ArgumentError -> :ok
+  end
+
+  defp broker_wrapper(root, pid_path) do
+    path = Path.join(root, "python-wrapper")
+    File.write!(path, "#!/bin/sh\nprintf '%s' \"$$\" > \"#{pid_path}\"\nexec python3 \"$@\"\n")
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  defp os_process_alive?(pid) do
+    match?({_output, 0}, System.cmd("kill", ["-0", pid], stderr_to_stdout: true))
+  end
+
+  defp wait_until(predicate, attempts \\ 100) do
+    cond do
+      predicate.() -> :ok
+      attempts <= 0 -> flunk("condition never held")
+      true -> Process.sleep(10) && wait_until(predicate, attempts - 1)
+    end
   end
 
   defp restore_env(key, nil), do: Application.delete_env(:aiur, key)
