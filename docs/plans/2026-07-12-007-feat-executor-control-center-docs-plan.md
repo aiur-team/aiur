@@ -1,16 +1,16 @@
 ---
-title: "feat: Document the Executor Control Center"
+title: "feat: Document the Dashboard"
 type: feat
 status: active
 date: 2026-07-12
 issue: 1033
 ---
 
-# feat: Document the Executor Control Center
+# feat: Document the Dashboard
 
 ## Summary
 
-Publish a reader-facing guide to the shipped Executor Control Center, illustrated with deterministic synthetic data captured from the real Phoenix LiveView surface. Use the same pass to close the concrete navigation and content gaps in setup, configuration, cross-ticket coordination, and CLI control commands, while inheriting the rebranded VitePress styling from #1022 and the terminology decision from #1034.
+Publish a reader-facing guide to the shipped Dashboard, illustrated with deterministic synthetic data captured from the real Phoenix LiveView surface. Use the same pass to close the concrete navigation and content gaps in setup, configuration, cross-ticket coordination, and CLI control commands, while inheriting the rebranded VitePress styling from #1022 and the terminology decision from #1034.
 
 ---
 
@@ -28,7 +28,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 - **R4.** Explain read-only versus writable mode, dashboard Basic Auth, loopback/private binding posture, same-origin/custom-header defenses, and the separate supervisor bearer credential.
 - **R5.** Include light, dark, and responsive screenshots for the overview, decision inbox, and decision detail routes; each capture must contain only clearly synthetic example tickets, agents, decisions, merges, URLs, and identifiers.
 - **R6.** Fill the identified docs gaps: first-run dashboard access and auth, complete CLI/control command reference, current configuration sections, and the event/blocker/attention/decision coordination model.
-- **R7.** Use “Executor Control Center” and Executor role terminology in all new reader-facing content while preserving historical OCC issue/branch references.
+- **R7.** Use “Dashboard” and Executor role terminology in all new reader-facing content while preserving historical OCC issue/branch references.
 - **R8.** Match the #1022 VitePress rebrand and keep all docs routes, image links, and production builds valid under the `/docs/` base path.
 - **R9.** Reconcile the durable operational guidance from PR #971's `EXECUTOR-HANDOFF.md` into current main, rewritten for the shipped #1026 system, without merging the old branch or deleting/replacing any existing OCC contract document.
 
@@ -97,7 +97,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 
 ### Resolved During Planning
 
-- **Product name:** use “Executor Control Center” per the owner decision on #1034.
+- **Product name:** use “Dashboard” per the owner decision on #1034.
 - **Rebrand dependency:** stack/reconcile with #1022 so new navigation and pages inherit the shipped VitePress theme.
 - **Screenshot coverage:** capture focused light, dark, and mobile images for each of the seven named surfaces, sourced from the three real dashboard routes.
 
@@ -112,7 +112,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 
 ### U1. Build the synthetic capture path and assets
 
-**Goal:** Produce deterministic, privacy-safe light, dark, and mobile screenshots from the real Executor Control Center LiveView.
+**Goal:** Produce deterministic, privacy-safe dark desktop screenshots from the real Dashboard LiveView.
 
 **Requirements:** R5, R7, R8
 
@@ -120,15 +120,15 @@ The dashboard implementation is complete, but the public docs do not explain its
 
 **Files:**
 - Create: `src/test/manual/executor_control_center_docs_fixture.exs`
-- Create: `website/scripts/capture-executor-control-center.mjs`
-- Create: `website/docs-app/public/images/executor-control-center/`
+- Create: `website/scripts/capture-dashboard.mjs`
+- Create: `website/public/images/dashboard/`
 - Modify: `website/package.json`
 - Test: `website/tests/executor-control-center-docs.spec.ts`
 
 **Approach:**
 - Start a local-only real Phoenix endpoint with deterministic injected fleet, decision, history, recent-merge, and analytics providers modeled on existing LiveView tests. Use isolated temporary stores; never start ticket dispatch or connect to an external tracker.
 - Populate multiple example decisions that visibly exercise blocking, delivery-failed, acknowledged/resolved, and superseded lifecycle rendering, plus synthetic agents across running, queued/retrying, CI wait, and review states.
-- Capture focused overview, inbox, card/detail, fleet, history, recent-outcomes, and analytics-link regions at desktop light, desktop dark, and narrow mobile widths. Keep the same example vocabulary across captures so readers can follow one fictional run.
+- Capture focused overview, inbox, card/detail, fleet, history, recent-outcomes, and analytics-link regions once each at the canonical dark desktop width. Keep the same example vocabulary across captures so readers can follow one fictional run.
 - Run read surfaces in the default read-only posture. Where a decision-action capture must show writable controls, use a separate isolated fixture invocation with throwaway example Basic Auth credentials, no supervisor bearer credential, and a dispatcher that cannot reach a real agent queue.
 - Add a focused audit that checks the fixture and page source for the allowlisted synthetic repository/domain/identifier vocabulary and verifies all expected image files exist with useful dimensions.
 
@@ -146,7 +146,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 **Verification:**
 - Every named surface has a legible focused light, dark, and mobile capture, and all visible data is unmistakably synthetic.
 
-### U2. Publish the Executor Control Center guide
+### U2. Publish the Dashboard guide
 
 **Goal:** Explain the complete dashboard workflow, lifecycle, actions, writable gate, and auth posture with the synthetic screenshots.
 
@@ -174,7 +174,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 **Test scenarios:**
 - Happy path: the production docs build resolves the new route, sidebar entry, anchors, and all 21 image paths under `/docs/`.
 - Content contract: headings/copy name every required surface, lifecycle state, action family, writable setting, dashboard credentials, supervisor token, and analytics behavior.
-- Terminology gate: new user-facing copy consistently says Executor Control Center/Executor and contains no newly introduced “Operator Control Center” branding outside historical references.
+- Terminology gate: new user-facing copy consistently says Dashboard/Executor and contains no newly introduced “Operator Control Center” branding outside historical references.
 - Accessibility: every image has meaningful alt text and adjacent prose conveys the same essential information without requiring the image.
 
 **Verification:**
@@ -236,7 +236,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 - Use PR #971's handoff as reference-only input; do not merge, cherry-pick, or restore its conflict-heavy branch contents.
 - Retain the durable material: Executor role boundaries, canonical main-branch/verification posture, real-backend/no-mock invariant, operational controls, fallback discipline, security/auth reminders, and links into the implementation contracts.
 - Replace its point-in-time fleet status, stale blockers, commit SHAs, old PR merge instructions, and “next ticket” checklist with the shipped #1026 architecture, current docs entry points, and maintenance-oriented verification guidance.
-- Link every existing contract from the operator-control-center index and explicitly state that historical OCC filenames/IDs remain canonical references even though the user-facing product is Executor Control Center.
+- Link every existing contract from the operator-control-center index and explicitly state that historical OCC filenames/IDs remain canonical references even though the user-facing product is Dashboard.
 
 **Patterns to follow:**
 - `docs/operator-control-center/README.md`
@@ -249,7 +249,7 @@ The dashboard implementation is complete, but the public docs do not explain its
 - `docs/operator-control-center/06-occ-7-supervisor-decision-api-contract.md`
 
 **Test scenarios:**
-- Content contract: the handoff names Executor Control Center, identifies #1026 as shipped, and links the public guide plus every preserved PRD/decomposition/implementation-contract document.
+- Content contract: the handoff names Dashboard, identifies #1026 as shipped, and links the public guide plus every preserved PRD/decomposition/implementation-contract document.
 - Preservation gate: the diff contains no deletion or replacement of the existing contract files under `docs/operator-control-center/`.
 - Staleness gate: the reconciled handoff contains no obsolete “UI blocked,” “OCC-10 not started,” old main HEAD, transient fleet utilization, or old merge queue instructions from PR #971.
 - Terminology gate: historical OCC identifiers are described as stable references while current reader-facing role/product names use Executor.
