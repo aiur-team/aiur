@@ -96,29 +96,48 @@ case "${1:-} ${2:-}" in
   "api graphql"|"api /graphql")
     resource=graphql
     endpoint_family=graphql
+    api_options=1
     for arg in "$@"; do
-      case "$arg" in *mutation*|*Mutation*) direction=write ;; esac
+      if [ "$api_options" -eq 1 ] && [ "$arg" = -- ]; then
+        api_options=0
+        continue
+      fi
+      [ "$api_options" -eq 1 ] || continue
+      case "$arg" in
+        *mutation*|*Mutation*) direction=write ;;
+        --paginate|--paginate=true) api_paginated=1 ;;
+      esac
     done
+    unset api_options
     ;;
   "api "*)
     resource=core
     endpoint=${2#/}
     endpoint=${endpoint#repos/}
+    endpoint=${endpoint%%\?*}
+    endpoint=${endpoint%%\#*}
     case "$endpoint" in
       */*/*) endpoint_family=$(printf '%s' "$endpoint" | cut -d/ -f3) ;;
       *) endpoint_family=rest ;;
     esac
     prior=
+    api_options=1
     for arg in "$@"; do
+      if [ "$api_options" -eq 1 ] && [ "$arg" = -- ]; then
+        api_options=0
+        continue
+      fi
+      [ "$api_options" -eq 1 ] || continue
       if [ "$prior" = -X ] || [ "$prior" = --method ]; then
         case "$arg" in GET|get) ;; *) direction=write ;; esac
       fi
       case "$arg" in
         -XPOST|-XPATCH|-XPUT|-XDELETE|--method=POST|--method=PATCH|--method=PUT|--method=DELETE|-f|-F|--field|--raw-field|--field=*|--raw-field=*) direction=write ;;
-        --paginate) api_paginated=1 ;;
+        --paginate|--paginate=true) api_paginated=1 ;;
       esac
       prior=$arg
     done
+    unset api_options
     ;;
   "pr view"|"pr list"|"pr status"|"pr checks"|"pr diff") endpoint_family=pulls ;;
   "issue view"|"issue list"|"issue status") endpoint_family=issues ;;
@@ -227,6 +246,324 @@ budget_hold() {
   budget_command hold --scope "$budget_scope" --resource "$budget_resource" --delay-ms "$budget_delay" >/dev/null 2>&1 || true
 }
 
+# `gh api --paginate` normally makes its follow-up requests inside one gh
+# process. Re-enter this guard for each REST page instead, so every network
+# request obtains and releases its own shared broker lease. The child is also
+# responsible for response observation and quota tracking; it has no
+# `--paginate` flag, so it follows the ordinary single-request path.
+run_budgeted_paginated_api() {
+  AIUR_GITHUB_PAGINATION_WRAPPER="$0" AIUR_GITHUB_PAGINATION_DIRECTION="$direction" python3 - "$@" <<'PY'
+import json
+import os
+import re
+import subprocess
+import sys
+from urllib.parse import parse_qsl, urlsplit
+
+
+def split_response(output):
+    match = re.search(br"\r?\n\r?\n", output)
+    if match is None:
+        return b"", output
+    return output[: match.start()], output[match.end() :]
+
+
+def next_endpoint(headers):
+    for line in headers.decode("utf-8", "replace").splitlines():
+        if not line.lower().startswith("link:"):
+            continue
+        match = re.search(r'<([^>]+)>;\s*rel="next"', line, re.IGNORECASE)
+        if match is None:
+            continue
+        parsed = urlsplit(match.group(1))
+        endpoint = parsed.path or "/"
+        return f"{endpoint}?{parsed.query}" if parsed.query else endpoint
+    return None
+
+
+def next_cursor(body):
+    try:
+        response = json.loads(body)
+    except json.JSONDecodeError:
+        print("aiur: gh api GraphQL pagination returned a non-JSON page", file=sys.stderr)
+        raise SystemExit(1)
+
+    stack = [response]
+    while stack:
+        value = stack.pop()
+        if isinstance(value, dict):
+            if {"hasNextPage", "endCursor"} <= value.keys():
+                if not value["hasNextPage"]:
+                    return None
+                cursor = value["endCursor"]
+                if isinstance(cursor, str) and cursor:
+                    return cursor
+                print("aiur: gh api GraphQL pagination returned an invalid endCursor", file=sys.stderr)
+                raise SystemExit(1)
+            stack.extend(value.values())
+        elif isinstance(value, list):
+            stack.extend(value)
+
+    print("aiur: gh api GraphQL pagination response is missing pageInfo", file=sys.stderr)
+    raise SystemExit(1)
+
+
+def endpoint_index(args):
+    value_flags = {
+        "--cache", "-F", "--field", "-f", "--raw-field", "-H", "--header",
+        "--hostname", "--input", "-q", "--jq", "-X", "--method", "-p",
+        "--preview", "-t", "--template",
+    }
+    awaiting_value = False
+
+    for index, arg in enumerate(args[1:], start=1):
+        if awaiting_value:
+            awaiting_value = False
+            continue
+        if arg == "--":
+            return index + 1 if index + 1 < len(args) else None
+        if arg in value_flags:
+            awaiting_value = True
+            continue
+        if arg in {"--include", "-i", "--silent", "--verbose"}:
+            continue
+        if arg.startswith("--"):
+            continue
+        if arg.startswith("-"):
+            if arg[:2] in {"-F", "-f", "-H", "-q", "-X", "-p", "-t"} and len(arg) > 2:
+                continue
+            return None
+        return index
+
+    return None
+
+
+def active_flag(args, *values):
+    options = True
+
+    for arg in args:
+        if options and arg == "--":
+            options = False
+        elif options and arg in values:
+            return True
+
+    return False
+
+
+def without_pagination_flags(args):
+    page_args = []
+    options = True
+
+    for arg in args:
+        if options and arg == "--":
+            options = False
+        if options and arg in {"--paginate", "--paginate=true", "--slurp"}:
+            continue
+        page_args.append(arg)
+
+    return page_args
+
+
+def without_output_formatters(args):
+    value_flags = {"-q", "--jq", "-t", "--template"}
+    page_args = []
+    index = 0
+
+    while index < len(args):
+        arg = args[index]
+        if arg == "--":
+            page_args.extend(args[index:])
+            break
+        if arg in {"--silent", "--verbose"}:
+            index += 1
+            continue
+        if arg in value_flags:
+            index += 2
+            continue
+        if arg.startswith(("--jq=", "--template=")) or (arg.startswith(("-q", "-t")) and len(arg) > 2):
+            index += 1
+            continue
+        page_args.append(arg)
+        index += 1
+
+    return page_args
+
+
+def has_output_formatter(args):
+    options = True
+
+    for arg in args:
+        if options and arg == "--":
+            options = False
+        elif options and (arg in {"-q", "--jq", "-t", "--template", "--verbose"} or arg.startswith(("--jq=", "--template=")) or (arg.startswith(("-q", "-t")) and len(arg) > 2)):
+            return True
+
+    return False
+
+
+def rest_page_size_is_supplied(args, endpoint):
+    if "per_page" in dict(parse_qsl(urlsplit(endpoint).query, keep_blank_values=True)):
+        return True
+
+    value_flags = {"-F", "--field", "-f", "--raw-field"}
+
+    for index, arg in enumerate(args):
+        if arg in value_flags and index + 1 < len(args) and args[index + 1].startswith("per_page="):
+            return True
+        if arg.startswith(("-Fper_page=", "-fper_page=", "--field=per_page=", "--raw-field=per_page=")):
+            return True
+
+    return False
+
+
+def add_default_rest_page_size(args, index):
+    endpoint = args[index]
+    if rest_page_size_is_supplied(args, endpoint):
+        return
+    args[index] = f"{endpoint}{'&' if '?' in endpoint else '?'}per_page=100"
+
+
+def paginated_request_consumes_stdin(args):
+    value_flags = {"--input", "-F", "--field", "-f", "--raw-field"}
+
+    for index, arg in enumerate(args):
+        if arg in value_flags and index + 1 < len(args):
+            value = args[index + 1]
+            if (arg == "--input" and value == "-") or value.endswith("=@-"):
+                return True
+        if arg == "--input=-" or arg.endswith("=@-") and (
+            arg.startswith(("-F", "-f")) or arg.startswith(("--field=", "--raw-field="))
+        ):
+            return True
+
+    return False
+
+
+args = sys.argv[1:]
+include_headers = active_flag(args, "--include", "-i")
+slurp = active_flag(args, "--slurp")
+silent = active_flag(args, "--silent")
+display_args = without_pagination_flags(args)
+output_formatter = has_output_formatter(display_args)
+# gh applies jq/templates before this driver can inspect GraphQL pageInfo. Keep
+# an unformatted pass for navigation and a separately admitted display pass for
+# user-visible formatting; writes are rejected below so this cannot duplicate a
+# mutation.
+raw_args = without_output_formatters(display_args) if output_formatter or silent else display_args.copy()
+raw_endpoint_index = endpoint_index(raw_args)
+display_endpoint_index = endpoint_index(display_args)
+
+if raw_endpoint_index is None or display_endpoint_index is None or raw_args[0] != "api":
+    print("aiur: cannot budget malformed gh api pagination command", file=sys.stderr)
+    raise SystemExit(64)
+
+if paginated_request_consumes_stdin(raw_args):
+    print("aiur: cannot budget gh api --paginate commands that read request data from standard input", file=sys.stderr)
+    raise SystemExit(64)
+
+if output_formatter and slurp:
+    print("aiur: cannot budget gh api --paginate with both --slurp and formatted output", file=sys.stderr)
+    raise SystemExit(64)
+
+if output_formatter and os.environ.get("AIUR_GITHUB_PAGINATION_DIRECTION") == "write":
+    print("aiur: cannot budget a paginated write with formatted output", file=sys.stderr)
+    raise SystemExit(64)
+
+if not include_headers:
+    try:
+        raw_args.insert(raw_args.index("--"), "--include")
+    except ValueError:
+        raw_args.append("--include")
+
+raw_endpoint_index = endpoint_index(raw_args)
+
+wrapper = os.environ["AIUR_GITHUB_PAGINATION_WRAPPER"]
+pages = []
+graphql = raw_args[raw_endpoint_index] in {"graphql", "/graphql"}
+if not graphql:
+    add_default_rest_page_size(raw_args, raw_endpoint_index)
+    add_default_rest_page_size(display_args, display_endpoint_index)
+
+raw_cursor_arg_index = next(
+    (
+        index
+        for index, arg in enumerate(raw_args)
+        if index > 0
+        and arg.startswith("endCursor=")
+        and raw_args[index - 1] in {"-F", "--field", "-f", "--raw-field"}
+    ),
+    None,
+)
+display_cursor_arg_index = next(
+    (
+        index
+        for index, arg in enumerate(display_args)
+        if index > 0
+        and arg.startswith("endCursor=")
+        and display_args[index - 1] in {"-F", "--field", "-f", "--raw-field"}
+    ),
+    None,
+)
+
+while True:
+    result = subprocess.run([wrapper, *raw_args], stdout=subprocess.PIPE)
+    headers, body = split_response(result.stdout)
+
+    if result.returncode:
+        if not silent:
+            if include_headers:
+                sys.stdout.buffer.write(headers)
+                if headers:
+                    sys.stdout.buffer.write(b"\n\n")
+            sys.stdout.buffer.write(body)
+        raise SystemExit(result.returncode)
+
+    if silent:
+        pass
+    elif output_formatter:
+        display_result = subprocess.run([wrapper, *display_args])
+        if display_result.returncode:
+            raise SystemExit(display_result.returncode)
+    elif slurp:
+        try:
+            pages.append(json.loads(body))
+        except json.JSONDecodeError:
+            print("aiur: gh api --paginate --slurp returned a non-JSON page", file=sys.stderr)
+            raise SystemExit(1)
+    else:
+        if include_headers:
+            sys.stdout.buffer.write(headers)
+            if headers:
+                sys.stdout.buffer.write(b"\n\n")
+        sys.stdout.buffer.write(body)
+
+    if graphql:
+        cursor = next_cursor(body)
+        if cursor is None:
+            break
+        if raw_cursor_arg_index is None:
+            raw_args.extend(["-F", f"endCursor={cursor}"])
+            raw_cursor_arg_index = len(raw_args) - 1
+        else:
+            raw_args[raw_cursor_arg_index] = f"endCursor={cursor}"
+        if display_cursor_arg_index is None:
+            display_args.extend(["-F", f"endCursor={cursor}"])
+            display_cursor_arg_index = len(display_args) - 1
+        else:
+            display_args[display_cursor_arg_index] = f"endCursor={cursor}"
+    else:
+        endpoint = next_endpoint(headers)
+        if endpoint is None:
+            break
+        raw_args[raw_endpoint_index] = endpoint
+        display_args[display_endpoint_index] = endpoint
+
+if slurp:
+    sys.stdout.buffer.write(json.dumps(pages).encode("utf-8"))
+    sys.stdout.buffer.write(b"\n")
+PY
+}
+
 trap 'budget_release; exit 143' HUP INT TERM
 trap 'budget_release' 0
 
@@ -298,8 +635,8 @@ fi
 
 if [ "$resource" != none ]; then
   if [ "$api_paginated" -eq 1 ] && [ "$budget_enabled" -eq 1 ]; then
-    printf '%s\n' 'aiur: refusing gh api --paginate because its request count cannot be budgeted safely' >&2
-    exit 75
+    run_budgeted_paginated_api "$@"
+    exit $?
   fi
   budget_acquire || exit $?
   budget_start_renewal

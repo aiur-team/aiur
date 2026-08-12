@@ -1,7 +1,7 @@
 defmodule Aiur.GitHub.TransportQuotaTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.GitHub.{Quota, Transport}
+  alias Aiur.GitHub.{Budget, Quota, Transport}
 
   setup do
     {:ok, _started} = Application.ensure_all_started(:req)
@@ -196,6 +196,50 @@ defmodule Aiur.GitHub.TransportQuotaTest do
 
     assert {:ok, %{status: 200}} = Task.await(first, 1_500)
     assert {:ok, %{status: 200}} = Task.await(second, 1_500)
+  end
+
+  test "does not hide a secondary-limit response behind a retry", %{budget_dir: budget_dir} do
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+
+    Application.put_env(:aiur, :github_budget_settings_override, %{
+      max_inflight: 4,
+      max_inflight_per_endpoint: 2,
+      requests_per_minute: 20,
+      stagger_ms: 0
+    })
+
+    attempts = :counters.new(1, [:write_concurrency])
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      :counters.add(attempts, 1, 1)
+
+      case :counters.get(attempts, 1) do
+        1 ->
+          conn
+          |> Plug.Conn.put_status(429)
+          |> Plug.Conn.put_resp_header("retry-after", "1")
+          |> Req.Test.json(%{"message" => "You have exceeded a secondary rate limit"})
+
+        _ ->
+          Req.Test.json(conn, %{"number" => 1477})
+      end
+    end)
+
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/owner/repo/issues/1477",
+      token: "shared-token"
+    }
+
+    assert {:ok, %{status: 429}} = Transport.default_request_fun(request)
+    assert :counters.get(attempts, 1) == 1
+
+    assert {:hold, %{reason: :shared_budget}} =
+             Budget.acquire(
+               %{request | url: "https://api.github.com/repos/owner/repo/pulls/1477"},
+               timeout_ms: 10
+             )
   end
 
   test "does not send a request when configured broker state is unavailable", %{budget_dir: budget_dir} do

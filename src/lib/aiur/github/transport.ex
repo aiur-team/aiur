@@ -149,7 +149,11 @@ defmodule Aiur.GitHub.Transport do
     timeout_ms = Map.get(req, :timeout_ms, 30_000)
 
     options
-    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms)
+    # The shared budget lease covers one network attempt. Req retries safe
+    # transient responses, including 429, by default; allowing that retry here
+    # would make one admission hide several GitHub calls and could swallow the
+    # response that establishes the fleet-wide cooldown.
+    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms, retry: false)
     |> maybe_bound_response(req)
   end
 
