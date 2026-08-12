@@ -69,15 +69,16 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
   end
 
   defp wait_for_empty_slot_registry(deadline) do
-    if Registry.count(SlotRegistry.registry_name()) == 0 do
-      :ok
-    else
-      if System.monotonic_time(:millisecond) >= deadline do
+    cond do
+      Registry.count(SlotRegistry.registry_name()) == 0 ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
         flunk("slot registry did not clear after stopping the test policy")
-      else
+
+      true ->
         Process.sleep(10)
         wait_for_empty_slot_registry(deadline)
-      end
     end
   end
 end
