@@ -96,10 +96,30 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert status.waiting_reason == :waiting_for_dependency
     assert status.blocked_by == [blocker]
 
-    [snapshot_status] = StatusReport.snapshot_payload(%State{last_polled_issues: %{issue.id => issue}}).idle
+    state = %State{last_polled_issues: %{issue.id => issue}}
+    snapshot_input = StatusReport.snapshot_input(state)
+    [snapshot_status] = StatusReport.snapshot_payload(snapshot_input).idle
 
     assert snapshot_status.waiting_reason == status.waiting_reason
     assert snapshot_status.blocked_by == status.blocked_by
+  end
+
+  test "snapshot input preserves auto-resume evidence for parity" do
+    issue = %Issue{id: "transient", identifier: "repo#transient", state: "todo"}
+
+    state = %State{
+      last_polled_issues: %{issue.id => issue},
+      auto_resume: %{issue.id => %{attempt: 1, scheduled_at_ms: 0}}
+    }
+
+    snapshot_input = StatusReport.snapshot_input(state)
+    assert snapshot_input.auto_resume == state.auto_resume
+
+    [status] = StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+    [snapshot_status] = StatusReport.snapshot_payload(snapshot_input).idle
+
+    assert status.waiting_reason == :paused_transient
+    assert snapshot_status.waiting_reason == status.waiting_reason
   end
 
   test "human-wait alert threshold is episode-based and inclusive" do
@@ -107,5 +127,30 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
     refute StatusReport.waiting_for_human_alert_due?(DateTime.add(now, -599, :second), now)
     assert StatusReport.waiting_for_human_alert_due?(DateTime.add(now, -600, :second), now)
+  end
+
+  test "syncs an overdue wait episode without a status read" do
+    issue = %Issue{id: "waiting", identifier: "repo#waiting", state: "in-progress"}
+    now = ~U[2026-08-11 12:00:00Z]
+
+    state = %State{
+      running: %{
+        issue.id => %{
+          identifier: issue.identifier,
+          issue: issue,
+          started_at: DateTime.add(now, -600, :second),
+          paused_reason: :agent_pause_request,
+          control: %{status: :paused}
+        }
+      },
+      waiting_for_human_episodes: %{
+        issue.identifier => %{since: DateTime.add(now, -600, :second), alerted?: false}
+      }
+    }
+
+    identifier = issue.identifier
+
+    assert %{waiting_for_human_episodes: %{^identifier => %{alerted?: true}}} =
+             StatusReport.sync_waiting_for_human_episodes(state, now)
   end
 end

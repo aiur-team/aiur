@@ -132,6 +132,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :poll_check_in_progress,
       :poll_interval_ms,
       :retry_attempts,
+      :auto_resume,
       :running,
       :session_max_concurrent_agents
     ])
@@ -738,7 +739,13 @@ defmodule Aiur.Orchestrator.StatusReport do
         else: fn _timeout -> {:unavailable, nil} end
 
     {statuses, state} = agent_statuses_raw(state, status_fun)
-    {statuses, track_waiting_for_human_episodes(state, statuses, DateTime.utc_now())}
+    {statuses, state}
+  end
+
+  @doc false
+  @spec sync_waiting_for_human_episodes(State.t(), DateTime.t()) :: State.t()
+  def sync_waiting_for_human_episodes(%State{} = state, %DateTime{} = now) do
+    track_waiting_for_human_episodes(state, agent_statuses(state), now)
   end
 
   @doc false

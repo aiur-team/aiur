@@ -187,6 +187,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
         tick_token: nil
     }
 
+    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
     StatusReport.notify_dashboard(state)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}
