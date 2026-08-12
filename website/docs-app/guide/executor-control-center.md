@@ -24,6 +24,18 @@ server:
 
 Set `server.host: 127.0.0.1` explicitly when the dashboard must remain loopback-only. See [Authentication and network exposure](#authentication-and-network-exposure) before choosing a network-visible bind.
 
+## Find a surface
+
+The navigation labels and routes are the same projections the page-parity CLI reads. Use the browser when you need interactive detail; use the paired command when terminal output is more useful.
+
+| Dashboard label | Route and purpose | CLI counterpart |
+| --- | --- | --- |
+| **Units** | `/` — live fleet and its filters; the table below describes this surface. | `aiur units` |
+| **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
+| **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
+| **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
+| **Streamdeck+** | `/streamdeck` — browser Stream Deck emulator; see [Stream Deck](/guide/stream-deck) for its physical sidecar and controls. | — |
+
 ## Overview
 
 The overview gives the Executor a fast triage path: a blocking-decision banner, Fleet and Decision inbox tabs, and counts for active, blocked, paused, stuck, finished, and total tickets.
@@ -65,7 +77,7 @@ The stepper is a compact view over two canonical axes: decision state and delive
 | **Delivery failed** | Delivery failed and may be retryable; the answer remains durable. |
 | **Superseded** | A newer append-only revision replaced an earlier action. |
 
-## Fleet table
+## Units (fleet table)
 
 The fleet combines running, retrying, and idle tracker-active tickets. Each row exposes work and waiting state, latest activity, elapsed time, decision count, CI/review facts, and safe links to the ticket, decision, or agent conversation. The filters are cumulative and the table becomes a card list at narrow widths.
 

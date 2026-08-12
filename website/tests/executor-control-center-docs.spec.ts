@@ -25,15 +25,25 @@ test('Dashboard guide publishes one desktop screenshot for every surface', async
 
 test('parity guides are linked and contain their operational contracts', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
-  const [index, quickStart, streamDeck, cli] = await Promise.all([
+  const [index, quickStart, dashboard, streamDeck, cli, operating, config] = await Promise.all([
     readFile(path.join(websiteRoot, 'docs-app/index.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/quick-start.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/stream-deck.md'), 'utf8'),
-    readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8')
+    readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/concepts/operating-aiur.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/.vitepress/config.ts'), 'utf8')
   ])
 
   expect(index).toContain('[Operate the Stream Deck](/guide/stream-deck)')
   expect(quickStart).toContain('[Dashboard](/guide/executor-control-center)')
+  expect(config).toContain("{ text: 'Dashboard', link: '/guide/executor-control-center' }")
+  expect(config).toContain("{ text: 'Stream Deck', link: '/guide/stream-deck' }")
+  expect(dashboard).toContain('| **Units** | `/`')
+  expect(dashboard).toContain('| **Commands** | `/decisions`')
+  expect(dashboard).toContain('| **Build Order** | `/build-orders`')
+  expect(dashboard).toContain('| **Analytics** | `/analytics`')
+  expect(dashboard).toContain('| **Streamdeck+** | `/streamdeck`')
   expect(streamDeck).toContain('Mic is press-and-hold, not a click')
   expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')
   expect(streamDeck).toContain('The supported deployment is Arch Linux on x64 glibc 2.28+')
@@ -43,8 +53,16 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(cli).toContain('it never becomes `0`, `[]`, or `{}` merely because the command could not measure it')
   expect(cli).toContain('`aiur ask --done ASK-ID`')
   expect(cli).toContain('An open **blocking** ask is also printed by plain `aiur status`')
+  expect(cli).toContain('**Dispatch needs `agent:todo`.**')
   expect(cli).toContain('**Global pause is durable.**')
   expect(cli).toContain('**CI readiness uses an operator-only token.**')
+  expect(cli).toContain('**A base refresh affects approval ownership.**')
+  expect(operating).toContain('## Hourly meta-check')
+  expect(operating).toContain('**before dispatching**')
+  expect(operating).toContain('inspect its durable follow-up with `aiur findings`')
+  expect(operating).toContain('`aiur findings --unfiled`')
+  expect(operating).toContain('`~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`')
+  expect(operating).toContain("`aiur findings --record '<json>' --repo <owner>/<repo>`")
 })
 
 test('capture inputs and checked-in assets stay example-only', async () => {
