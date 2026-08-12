@@ -1,8 +1,8 @@
 # Stream Deck
 
-Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator. It is the operator-facing counterpart to the Stream Deck + sidecar: select an agent in the grid, use its controls, and inspect its recent event feed without leaving the fleet view.
+Open `/streamdeck` in the [Dashboard](/guide/executor-control-center) to use the browser emulator. It is the current live operator control surface: select an agent in the grid, use its controls, and inspect its recent event feed without leaving the fleet view. A physical Stream Deck + is **not yet** a live fleet controller; see [Physical sidecar status](#physical-sidecar-status).
 
-The surface has three modes. A key press changes more than the key grid: it also changes the touch strip and dial actions. Treat the labels on the physical dials as the current-mode controls, not as persistent settings.
+The browser emulator has three modes. A key press changes more than the key grid: it also changes the touch strip and dial actions. Treat the dial labels as current-mode controls, not as persistent settings.
 
 ## Drive the three modes
 
@@ -20,18 +20,20 @@ In Logs mode, click an event key to select it. That does not merely highlight th
 
 Grid has five buckets, in this exact priority: `alert` → `stuck` → `running` → `paused` → `queued`. Within `queued`, dependency-ready (unblocked) agents precede blocked agents. The server supplies that already-ranked list; the surface does not re-sort it.
 
-The eight physical slots are column-major, not the usual row-major order. The first column contains agents 1 and 2, the next contains 3 and 4, and so on. Paging moves by columns, so a column’s pair stays together as you turn or press dial D.
+The eight key slots are column-major, not the usual row-major order. The first column contains agents 1 and 2, the next contains 3 and 4, and so on. Paging moves by columns, so a column’s pair stays together as you turn or press dial D.
 
-## Install the downloadable sidecar
+## Physical sidecar status
 
-The commit-addressed Linux x64 archive installs the bundled Node runtime, the Stream Deck sidecar and its production dependencies, a systemd **user** service, and the udev rule required to access the device. The supported deployment is Arch Linux on x64 glibc 2.28+; it does not support Alpine/musl, ARM, or older glibc.
+The commit-addressed Linux x64 archive installs the bundled Node runtime, the direct-HID sidecar and its production dependencies, a systemd **user** service, and the udev rule required to access the device. The supported transport deployment is Arch Linux on x64 glibc 2.28+; it does not support Alpine/musl, ARM, or older glibc.
 
-You need a Stream Deck + connected over USB, an Arch Linux graphical user session with systemd/logind, the `users` group fallback ACL, and a reachable Aiur Dashboard. Install the archive, its udev rule, and the user unit; then pair the sidecar by creating `~/.config/aiur/streamdeck.env` with the Dashboard URL and its Basic Auth credentials. Keep that file mode `600`, reload the udev rules, physically replug the deck, and enable `aiur-streamdeck.service`.
+That service currently owns only device lifecycle: it opens the USB device, sends a key-stream reset, applies `STREAMDECK_BRIGHTNESS`, and watches hotplug and suspend. Its production entry point does not connect to a daemon or Phoenix endpoint and supplies neither the `onInput` nor `repaint` hook. It therefore cannot receive live fleet state, paint the keys or touch strip, or send an agent control.
 
-The full, copyable install, pairing, checksum, permission, hotplug, and recovery procedure is in the [Stream Deck sidecar runbook](https://github.com/aiur-team/aiur/blob/develop/packages/streamdeck/README.md). The Dashboard’s **Install +** control opens the same pairing checklist.
+Do not treat setting `AIUR_PHOENIX_URL` or Dashboard Basic Auth values in `~/.config/aiur/streamdeck.env` as pairing: the current production entry point does not consume them. A Stream Deck +, an Arch Linux graphical session with systemd/logind, and the `users` fallback ACL are prerequisites only for testing the direct-HID service lifecycle—not for operating Aiur from the device. Use the browser emulator for all fleet controls.
 
-## One visual contract, two renderers
+The [direct-HID transport runbook](https://github.com/aiur-team/aiur/blob/develop/packages/streamdeck/README.md) covers the archive, device access, and lifecycle-only service. The missing live-device composition needs separate implementation; [#1358](https://github.com/aiur-team/aiur/issues/1358) is its terminal end-to-end evidence ticket. Once the composition is implemented and proven, this guide can document the physical pairing and recovery workflow without promising unavailable behavior.
 
-The browser emulator renders HTML/CSS; the sidecar renders device bitmaps. They consume one data-only key-face contract for bucket rank, labels, colours, progress hue, log direction badges, and queued-agent readiness. That shared contract deliberately does not share drawing code: each medium renders it appropriately.
+## Shared key-face contract
 
-There is no silent fallback when the two sides drift. The parity vectors exercise both renderers, and an added state or badge that one renderer has not handled fails the contract checks. A missing or non-true queued readiness flag also fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
+The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, progress hue, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.
+
+That code-level contract is not live-device proof: the production sidecar does not yet compose its renderer with fleet transport or input handling. It must not be read as a claim that the browser emulator and a physical deck currently render or control the same fleet.

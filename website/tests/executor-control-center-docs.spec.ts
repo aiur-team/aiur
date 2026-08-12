@@ -25,11 +25,12 @@ test('Dashboard guide publishes one desktop screenshot for every surface', async
 
 test('parity guides are linked and contain their operational contracts', async () => {
   const websiteRoot = path.resolve(import.meta.dirname, '..')
-  const [index, quickStart, dashboard, streamDeck, cli, operating, config] = await Promise.all([
+  const [index, quickStart, dashboard, streamDeck, sidecarRunbook, cli, operating, config] = await Promise.all([
     readFile(path.join(websiteRoot, 'docs-app/index.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/quick-start.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/guide/stream-deck.md'), 'utf8'),
+    readFile(path.join(websiteRoot, '../packages/streamdeck/README.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/concepts/operating-aiur.md'), 'utf8'),
     readFile(path.join(websiteRoot, 'docs-app/.vitepress/config.ts'), 'utf8')
@@ -44,11 +45,32 @@ test('parity guides are linked and contain their operational contracts', async (
   expect(dashboard).toContain('| **Build Order** | `/build-orders`')
   expect(dashboard).toContain('| **Analytics** | `/analytics`')
   expect(dashboard).toContain('| **Streamdeck+** | `/streamdeck`')
+  expect(dashboard).toContain('the only live Stream Deck control surface')
+  expect(dashboard).toContain('physical fleet controls are not implemented')
   expect(streamDeck).toContain('Mic is press-and-hold, not a click')
   expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')
-  expect(streamDeck).toContain('The supported deployment is Arch Linux on x64 glibc 2.28+')
+  expect(streamDeck).toContain('The supported transport deployment is Arch Linux on x64 glibc 2.28+')
+  expect(streamDeck).toContain('## Physical sidecar status')
+  expect(streamDeck).toContain('`STREAMDECK_BRIGHTNESS`')
   expect(streamDeck).toContain('`~/.config/aiur/streamdeck.env`')
-  expect(streamDeck).toContain('There is no silent fallback when the two sides drift')
+  expect(streamDeck).toContain('**not yet** a live fleet controller')
+  expect(streamDeck).toContain('does not connect to a daemon or Phoenix endpoint')
+  expect(streamDeck).toContain('neither the `onInput` nor `repaint` hook')
+  expect(streamDeck).toContain('cannot receive live fleet state, paint the keys or touch strip, or send an agent control')
+  expect(streamDeck).toContain('does not consume them')
+  expect(streamDeck).toContain('Use the browser emulator for all fleet controls')
+  expect(streamDeck).toContain('https://github.com/aiur-team/aiur/issues/1358')
+  expect(streamDeck).not.toContain('pair the sidecar by creating')
+  expect(streamDeck).not.toContain('the sidecar renders device bitmaps')
+  expect(sidecarRunbook).toMatch(/The current\s+production sidecar owns device lifecycle only/)
+  expect(sidecarRunbook).toMatch(/does\s+not\s+connect to the\s+Aiur Phoenix surface, render fleet state, or send fleet\s+controls/)
+  expect(sidecarRunbook).toContain('The current entry point reads only `STREAMDECK_BRIGHTNESS`')
+  expect(sidecarRunbook).toContain('does not consume them')
+  expect(sidecarRunbook).toContain('separate implementation and terminal evidence in')
+  expect(sidecarRunbook).not.toMatch(/^AIUR_(PHOENIX_URL|DASHBOARD_USERNAME|DASHBOARD_PASSWORD)=/m)
+  expect(sidecarRunbook).toContain('physically replug')
+  expect(sidecarRunbook).toContain('does not recover a failed image transfer or issue a device reset on this path')
+  expect(sidecarRunbook).not.toContain('let the sidecar perform its key-stream reset and device reset')
   expect(cli).toContain('## Dashboard page commands')
   expect(cli).toContain('it never becomes `0`, `[]`, or `{}` merely because the command could not measure it')
   expect(cli).toContain('`aiur ask --done ASK-ID`')
