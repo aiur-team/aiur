@@ -98,6 +98,26 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
       assert_receive {:request_finished, {:error, :fetch_deadline_exceeded}}, 2_000
     end
+
+    test "a pre-ready deadline reaps the request guardian and its waiting worker" do
+      Application.put_env(:aiur, :github_request_deadline_ms, 300)
+
+      {caller, guardian, worker} = suspend_request_guardian(:before_ready)
+
+      assert_receive {:request_finished, ^caller, {:error, :fetch_deadline_exceeded}}, 2_000
+      wait_until(fn -> not Process.alive?(guardian) end)
+      wait_until(fn -> not Process.alive?(worker) end)
+    end
+
+    test "a pre-ack deadline reaps the request guardian and its waiting worker" do
+      Application.put_env(:aiur, :github_request_deadline_ms, 300)
+
+      {caller, guardian, worker} = suspend_request_guardian(:before_ack)
+
+      assert_receive {:request_finished, ^caller, {:error, :fetch_deadline_exceeded}}, 2_000
+      wait_until(fn -> not Process.alive?(guardian) end)
+      wait_until(fn -> not Process.alive?(worker) end)
+    end
   end
 
   describe "control queries while the orchestrator holds a GitHub read" do
@@ -687,6 +707,64 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       token: "test-token",
       timeout_ms: 30_000
     })
+  end
+
+  defp suspend_request_guardian(phase) when phase in [:before_ready, :before_ack] do
+    test_pid = self()
+
+    caller =
+      spawn(fn ->
+        receive do
+          :start ->
+            result = Transport.off_process_request(%{}, fn -> Process.sleep(:infinity) end)
+            send(test_pid, {:request_finished, self(), result})
+        end
+      end)
+
+    on_exit(fn -> if Process.alive?(caller), do: Process.exit(caller, :kill) end)
+    :erlang.trace(caller, true, [:procs, :send, :set_on_spawn, {:tracer, self()}])
+    send(caller, :start)
+
+    guardian =
+      receive do
+        {:trace, ^caller, :spawn, pid, _mfa} -> pid
+      after
+        2_000 -> flunk("request caller did not spawn its guardian")
+      end
+
+    worker =
+      receive do
+        {:trace, ^guardian, :spawn, pid, _mfa} -> pid
+      after
+        2_000 -> flunk("request guardian did not spawn its worker")
+      end
+
+    case phase do
+      :before_ready ->
+        :erlang.suspend_process(guardian)
+
+      :before_ack ->
+        receive do
+          {:trace, ^guardian, :send, {_ready_ref, ^guardian, ^worker}, ^caller} -> :ok
+        after
+          2_000 -> flunk("request guardian did not publish worker readiness")
+        end
+
+        :erlang.suspend_process(guardian)
+
+        receive do
+          {:trace, ^caller, :send, {:start_guarded_request, _ready_ref}, ^guardian} -> :ok
+        after
+          2_000 -> flunk("request caller did not enter the pre-ack phase")
+        end
+    end
+
+    on_exit(fn ->
+      if Process.alive?(guardian), do: Process.exit(guardian, :kill)
+      if Process.alive?(worker), do: Process.exit(worker, :kill)
+    end)
+
+    {caller, guardian, worker}
   end
 
   defp http_client_frames(pid) do

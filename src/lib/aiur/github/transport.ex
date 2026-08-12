@@ -164,26 +164,32 @@ defmodule Aiur.GitHub.Transport do
         Process.flag(:trap_exit, true)
         caller_ref = Process.monitor(caller)
 
+        # The link is the guardian's inverse lifetime edge. In particular, a
+        # deadline may kill the guardian before readiness or start is
+        # acknowledged; the request worker must die with it in either window.
         {worker, worker_ref} =
-          spawn_monitor(fn ->
-            receive do
-              :start -> :ok
-            end
-
-            # `Req.Test` and friends resolve stubs through `$callers`, and log
-            # lines keep the caller's metadata, so both are carried over.
-            Process.put(:"$callers", callers)
-            Logger.metadata(logger_metadata)
-
-            result =
-              try do
-                {:ok, request_fun.()}
-              catch
-                kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+          :erlang.spawn_opt(
+            fn ->
+              receive do
+                :start -> :ok
               end
 
-            send(caller, {__MODULE__, self(), result})
-          end)
+              # `Req.Test` and friends resolve stubs through `$callers`, and log
+              # lines keep the caller's metadata, so both are carried over.
+              Process.put(:"$callers", callers)
+              Logger.metadata(logger_metadata)
+
+              result =
+                try do
+                  {:ok, request_fun.()}
+                catch
+                  kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+                end
+
+              send(caller, {__MODULE__, self(), result})
+            end,
+            [:link, :monitor]
+          )
 
         send(caller, {guardian_ready_ref, self(), worker})
         await_request_start(caller, caller_ref, guardian_ready_ref, worker, worker_ref)
