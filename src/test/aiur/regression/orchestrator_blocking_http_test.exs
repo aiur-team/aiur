@@ -31,6 +31,8 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   # `@status_timeout_ms` in `Aiur.AgentControlCLI`. A control query that reads
   # already-known state must finish well inside it.
   @cli_budget_ms 5_000
+  @crashing_owner_name :orchestrator_blocking_http_crashing_owner
+  @stopping_owner_name :orchestrator_blocking_http_stopping_owner
 
   setup do
     pid = Process.whereis(Orchestrator)
@@ -283,6 +285,68 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       wait_until(fn -> not Process.alive?(second_request) end)
     end
 
+    test "termination does not hang after a completed poll owner exits" do
+      state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, comment_poll_opts(fn _states -> {:ok, []} end))
+      poll = state.github_comment_poll
+
+      wait_until(fn -> not Process.alive?(poll.owner) end)
+
+      terminator = Task.async(fn -> CommentPolling.terminate_poll(poll) end)
+      assert Task.await(terminator, 1_000) == :ok
+      assert_receive {:github_comments_polled, _ref, _payload}
+    end
+
+    test "an orchestrator crash reaps its blocked poll and request descendants" do
+      name = @crashing_owner_name
+      child_id = :crashing_comment_poll_owner
+      orchestrator = start_supervised!({Orchestrator, [name: name, initial_poll?: false]}, id: child_id)
+
+      {poll, target, request} = start_blocked_comment_poll(orchestrator)
+      owner_ref = Process.monitor(orchestrator)
+      Process.exit(orchestrator, :kill)
+
+      assert_receive {:DOWN, ^owner_ref, :process, ^orchestrator, :killed}, 5_000
+
+      wait_until(fn ->
+        case Process.whereis(name) do
+          pid when is_pid(pid) -> pid != orchestrator
+          nil -> false
+        end
+      end)
+
+      successor = Process.whereis(name)
+      {next_poll, _next_target, next_request} = start_blocked_comment_poll(successor)
+      refute Process.alive?(poll)
+      refute Process.alive?(target)
+      refute Process.alive?(request)
+
+      next_state = :sys.get_state(successor)
+      CommentPolling.terminate_poll(next_state.github_comment_poll)
+      refute Process.alive?(next_poll)
+      wait_until(fn -> not Process.alive?(next_request) end)
+    end
+
+    test "orderly orchestrator shutdown reaps its blocked poll and request descendants" do
+      name = @stopping_owner_name
+      child_id = :stopping_comment_poll_owner
+      orchestrator = start_supervised!({Orchestrator, [name: name, initial_poll?: false]}, id: child_id)
+
+      {poll, target, request} = start_blocked_comment_poll(orchestrator)
+      poll_ref = Process.monitor(poll)
+      target_ref = Process.monitor(target)
+      request_ref = Process.monitor(request)
+
+      assert :ok = stop_supervised(child_id)
+
+      refute Process.alive?(poll)
+      refute Process.alive?(target)
+      refute Process.alive?(request)
+      assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}
+      assert_receive {:DOWN, ^target_ref, :process, ^target, _reason}
+      assert_receive {:DOWN, ^request_ref, :process, ^request, _reason}
+      refute Process.whereis(name)
+    end
+
     test "production result routing preserves a newer shared issue cache", %{orchestrator: pid} do
       test_pid = self()
 
@@ -375,6 +439,35 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   # gate in front of it.
   defp comment_poll_opts(review_issue_fetcher) do
     [tracker_kind: "github", repo: "owner/repo", review_issue_fetcher: review_issue_fetcher]
+  end
+
+  defp start_blocked_comment_poll(orchestrator) do
+    test_pid = self()
+
+    request_fun = fn _request ->
+      target = self()
+
+      Transport.off_process_request(%{}, fn ->
+        send(test_pid, {:owned_comment_request_started, target, self()})
+        Process.sleep(:infinity)
+      end)
+    end
+
+    opts =
+      comment_poll_opts(fn _states -> {:ok, []} end)
+      |> Keyword.put(:request_fun, request_fun)
+
+    poll =
+      :sys.replace_state(orchestrator, fn state ->
+        state
+        |> Map.put(:running, %{"57" => %{identifier: "57"}})
+        |> CommentPolling.start_async(opts)
+      end)
+      |> Map.fetch!(:github_comment_poll)
+      |> Map.fetch!(:pid)
+
+    assert_receive {:owned_comment_request_started, target, request}, 5_000
+    {poll, target, request}
   end
 
   # `:sys.replace_state/2` evaluates its function inside the target process, so

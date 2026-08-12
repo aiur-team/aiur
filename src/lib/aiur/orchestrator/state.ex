@@ -206,8 +206,8 @@ defmodule Aiur.Orchestrator.State do
     # Keeping it separate prevents a late completion from replacing the newer
     # cache written by synchronous CI/candidate fetching in the same cycle.
     github_comment_issue_list_cache: %{},
-    # In-flight marker for the asynchronous comment poll: `%{ref: reference(),
-    # started_at_ms: integer()}` while one is outstanding, `nil` otherwise.
+    # In-flight marker for the asynchronous comment poll. The pid and monitor
+    # let lifecycle shutdown reap the poll and its owned descendants.
     github_comment_poll: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,

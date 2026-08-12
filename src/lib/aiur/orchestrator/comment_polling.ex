@@ -222,7 +222,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
           "abandoning it and starting a fresh one"
       )
 
-      terminate_comment_poll(state.github_comment_poll)
+      terminate_poll(state.github_comment_poll)
       false
     end
   end
@@ -233,21 +233,140 @@ defmodule Aiur.Orchestrator.CommentPolling do
     orchestrator = self()
     ref = make_ref()
 
-    {pid, monitor_ref} =
-      spawn_monitor(fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end)
+    task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end
+    {pid, owner} = spawn_owned_poll(orchestrator, state.snapshot_key, task_fun)
+    monitor_ref = Process.monitor(pid)
 
-    %{state | github_comment_poll: %{ref: ref, pid: pid, monitor_ref: monitor_ref, started_at_ms: now_ms}}
+    poll = %{ref: ref, pid: pid, owner: owner, monitor_ref: monitor_ref, started_at_ms: now_ms}
+    %{state | github_comment_poll: poll}
   end
 
-  defp terminate_comment_poll(%{pid: pid, monitor_ref: monitor_ref}) when is_pid(pid) and is_reference(monitor_ref) do
-    Process.exit(pid, :kill)
+  @doc false
+  @spec terminate_poll(map() | nil) :: :ok
+  def terminate_poll(%{pid: pid, owner: owner, monitor_ref: monitor_ref})
+      when is_pid(pid) and is_pid(owner) and is_reference(monitor_ref) do
+    stop_ref = make_ref()
+    owner_ref = Process.monitor(owner)
+    send(owner, {:stop_owned_poll, self(), stop_ref})
 
     receive do
-      {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+      {:owned_poll_stopped, ^stop_ref} ->
+        Process.demonitor(owner_ref, [:flush])
+
+        receive do
+          {:DOWN, ^monitor_ref, :process, ^pid, _reason} -> :ok
+        after
+          0 -> Process.demonitor(monitor_ref, [:flush])
+        end
+
+      {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
+        # A completed poll owner can exit before the Orchestrator consumes its
+        # result. If it died unexpectedly while the poll remains alive, reap
+        # the tree here rather than hanging shutdown on a message to a dead pid.
+        if Process.alive?(pid) do
+          reap_poll_tree(pid, monitor_ref)
+        else
+          Process.demonitor(monitor_ref, [:flush])
+        end
+    end
+
+    :ok
+  end
+
+  def terminate_poll(_poll), do: :ok
+
+  # The poll temporarily traps exits while Task.async_stream owns its target
+  # tasks, so a link is not an inverse lifetime edge. This independent monitor
+  # turns owner death into an untrappable kill and waits for the poll to stop.
+  defp spawn_owned_poll(orchestrator, ownership_key, task_fun) do
+    started_ref = make_ref()
+
+    {guardian, guardian_ref} =
+      spawn_monitor(fn ->
+        orchestrator_ref = Process.monitor(orchestrator)
+
+        case claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
+          :ok ->
+            {poll, poll_ref} = spawn_monitor(task_fun)
+            send(orchestrator, {started_ref, poll})
+            guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
+
+          :orchestrator_down ->
+            :ok
+        end
+      end)
+
+    receive do
+      {^started_ref, poll} ->
+        Process.demonitor(guardian_ref, [:flush])
+        {poll, guardian}
+
+      {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
+        exit({:comment_poll_owner_start_failed, reason})
     end
   end
 
-  defp terminate_comment_poll(_poll), do: :ok
+  defp claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
+    key = {:github_comment_poll, ownership_key}
+
+    case Registry.register(Aiur.Events.SubscriptionStoreRegistry, key, nil) do
+      {:ok, _value} ->
+        :ok
+
+      {:error, {:already_registered, owner}} ->
+        owner_ref = Process.monitor(owner)
+
+        receive do
+          {:DOWN, ^owner_ref, :process, ^owner, _reason} ->
+            claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref)
+
+          {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+            Process.demonitor(owner_ref, [:flush])
+            :orchestrator_down
+        end
+    end
+  end
+
+  defp guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref) do
+    receive do
+      {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
+        reap_poll_tree(poll, poll_ref)
+
+      {:stop_owned_poll, caller, stop_ref} ->
+        reap_poll_tree(poll, poll_ref)
+        send(caller, {:owned_poll_stopped, stop_ref})
+
+      {:DOWN, ^poll_ref, :process, ^poll, _reason} ->
+        Process.demonitor(orchestrator_ref, [:flush])
+    end
+  end
+
+  defp reap_poll_tree(poll, poll_ref) do
+    descendants = linked_descendants(poll, MapSet.new([self()]))
+    descendant_refs = Enum.map(descendants, &{&1, Process.monitor(&1)})
+    Process.exit(poll, :kill)
+    await_process_down(poll, poll_ref)
+    Enum.each(descendant_refs, fn {pid, ref} -> await_process_down(pid, ref) end)
+  end
+
+  defp linked_descendants(pid, seen) do
+    links =
+      case Process.info(pid, :links) do
+        {:links, linked} -> Enum.filter(linked, &(is_pid(&1) and not MapSet.member?(seen, &1)))
+        nil -> []
+      end
+
+    Enum.reduce(links, links, fn linked, descendants ->
+      nested = linked_descendants(linked, Enum.reduce(descendants, MapSet.put(seen, pid), &MapSet.put(&2, &1)))
+      Enum.uniq(descendants ++ nested)
+    end)
+  end
+
+  defp await_process_down(pid, ref) do
+    receive do
+      {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+    end
+  end
 
   defp demonitor_comment_poll(%{monitor_ref: monitor_ref}) when is_reference(monitor_ref) do
     Process.demonitor(monitor_ref, [:flush])
