@@ -28,7 +28,7 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `tracker.github.trusted_accounts` | array | `[]` | Usernames allowed to direct agents. |
 | `tracker.github.allowed_users` | array | `[]` | GitHub logins allowed to use trusted operator paths. |
 | `tracker.github.human_mergers` | array | `[]` | GitHub logins allowed to perform human merge actions. |
-| `tracker.github.planning_root_limit` | integer | 4 | Maximum Build Order planning roots fetched in one cycle. |
+| `tracker.github.planning_root_limit` | integer | 100 | Maximum Build Order planning roots fetched in one cycle. |
 | `tracker.github.planning_page_budget` | integer | 4 | Maximum GitHub planning pages fetched in one cycle. |
 | `tracker.github.planning_call_budget` | integer | 4 | Maximum GitHub planning calls fetched in one cycle. |
 | `tracker.linear.api_key` | string | env fallback | Linear API key; `$VAR` resolves from the environment. |
