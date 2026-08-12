@@ -6,7 +6,13 @@ The terminal agent-list board shows running, paused, and idle ticket rows with r
 
 ## The dashboard
 
-The [Executor Control Center](/guide/executor-control-center) combines the live fleet, durable decision inbox and history, recent outcomes, provider meters, Build Orders, and analytics. Dashboard writes are enabled by default, but writable or non-loopback deployments require Basic Auth.
+The [Dashboard](/guide/executor-control-center) combines the live fleet, durable decision inbox and history, recent outcomes, provider meters, Build Orders, and analytics. Dashboard writes are enabled by default, but writable or non-loopback deployments require Basic Auth.
+
+## Hourly meta-check
+
+`aiur-run` arms a recurring one-hour `aiur-meta` check at the start of a run, **before dispatching**. It is not a status poll: the check captures and looks at Units, Commands, Build Orders, and Analytics; times the interactive CLI and treats empty or timed-out responses as findings; compares host load with the configured gate; audits the PR backlog; then names one bottleneck and records it durably.
+
+The timer matters because an Executor deep in a merge queue should not have to remember an hourly audit. The first manual parity-run check found four defects that `aiur status`, `aiur alerts`, and, for three of them, the HTTP API did not reveal. A surface with a confident wrong number is more dangerous than a visible failure, so the check records what an operator can actually see rather than inferring health from one backend metric.
 
 ## Alerts
 

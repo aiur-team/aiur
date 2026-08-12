@@ -16,6 +16,7 @@ hero:
 ## Browse the docs
 
 - [Install and start Aiur](/guide/quick-start)
+- [Operate the Stream Deck](/guide/stream-deck)
 - [Configure your workflow](/reference/configuration)
 - [Run and control Aiur](/reference/cli)
 - [Understand state nodes and Build Orders](/concepts/state-and-build-orders)

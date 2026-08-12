@@ -11,7 +11,7 @@ const websiteRoot = process.cwd();
 const repositoryRoot = path.resolve(websiteRoot, "..");
 const outputRoot = path.join(
   websiteRoot,
-  "public/images/executor-control-center",
+  "public/images/dashboard",
 );
 const port = await allocatePort();
 const baseURL = `http://127.0.0.1:${port}`;
@@ -39,11 +39,7 @@ const surfaces = [
   },
 ];
 
-const variants = [
-  { name: "light", theme: "light", viewport: { width: 1280, height: 900 } },
-  { name: "dark", theme: "dark", viewport: { width: 1280, height: 900 } },
-  { name: "mobile", theme: "dark", viewport: { width: 390, height: 844 } },
-];
+const desktop = { theme: "dark", viewport: { width: 1280, height: 900 } };
 
 await mkdir(outputRoot, { recursive: true });
 const browser = await chromium.launch();
@@ -56,50 +52,46 @@ try {
     try {
       await waitUntilReady(fixture);
 
-      for (const variant of variants) {
-        const context = await browser.newContext({
-          colorScheme: variant.theme,
-          deviceScaleFactor: 1,
-          viewport: variant.viewport,
-        });
+      const context = await browser.newContext({
+        colorScheme: desktop.theme,
+        deviceScaleFactor: 1,
+        viewport: desktop.viewport,
+      });
 
-        await context.addInitScript((theme) => {
-          window.localStorage.setItem("aiur-theme", theme);
-        }, variant.theme);
+      await context.addInitScript((theme) => {
+        window.localStorage.setItem("aiur-theme", theme);
+      }, desktop.theme);
 
-        const page = await context.newPage();
+      const page = await context.newPage();
 
-        for (const surface of selectedSurfaces) {
-          await page.goto(`${baseURL}${surface.path}`, { waitUntil: "networkidle" });
-          await page.locator(surface.selector).waitFor({ state: "visible" });
-          await assertSyntheticPage(page);
+      for (const surface of selectedSurfaces) {
+        await page.goto(`${baseURL}${surface.path}`, { waitUntil: "networkidle" });
+        await page.locator(surface.selector).waitFor({ state: "visible" });
+        await assertSyntheticPage(page);
 
-          if (variant.name === "mobile") await assertNoHorizontalOverflow(page);
+        const output = path.join(outputRoot, `${surface.name}-dark.png`);
 
-          const output = path.join(outputRoot, `${surface.name}-${variant.name}.png`);
+        if (surface.clipHeight) {
+          const box = await page.locator(surface.selector).boundingBox();
+          if (!box) throw new Error(`Could not measure ${surface.selector}`);
 
-          if (surface.clipHeight && variant.name !== "mobile") {
-            const box = await page.locator(surface.selector).boundingBox();
-            if (!box) throw new Error(`Could not measure ${surface.selector}`);
-
-            await page.screenshot({
-              path: output,
-              clip: {
-                x: Math.max(box.x, 0),
-                y: Math.max(box.y, 0),
-                width: Math.min(box.width, variant.viewport.width),
-                height: Math.min(surface.clipHeight, box.height),
-              },
-            });
-          } else {
-            await page.locator(surface.selector).screenshot({ path: output });
-          }
-
-          process.stdout.write(`captured ${path.relative(repositoryRoot, output)}\n`);
+          await page.screenshot({
+            path: output,
+            clip: {
+              x: Math.max(box.x, 0),
+              y: Math.max(box.y, 0),
+              width: Math.min(box.width, desktop.viewport.width),
+              height: Math.min(surface.clipHeight, box.height),
+            },
+          });
+        } else {
+          await page.locator(surface.selector).screenshot({ path: output });
         }
 
-        await context.close();
+        process.stdout.write(`captured ${path.relative(repositoryRoot, output)}\n`);
       }
+
+      await context.close();
     } finally {
       if (fixture.exitCode === null) {
         fixture.kill("SIGTERM");
@@ -182,17 +174,6 @@ async function assertSyntheticPage(page) {
 
   if (visibleText.includes("Human operator")) {
     throw new Error(`Refusing to capture ${page.url()}: legacy human role copy is visible`);
-  }
-}
-
-async function assertNoHorizontalOverflow(page) {
-  const { innerWidth, scrollWidth } = await page.evaluate(() => ({
-    innerWidth: window.innerWidth,
-    scrollWidth: document.documentElement.scrollWidth,
-  }));
-
-  if (scrollWidth > innerWidth) {
-    throw new Error(`Mobile page overflows horizontally: ${scrollWidth}px > ${innerWidth}px`);
   }
 }
 

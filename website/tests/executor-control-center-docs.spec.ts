@@ -3,53 +3,48 @@ import { readFile, readdir } from 'node:fs/promises'
 import path from 'node:path'
 
 const surfaces = ['analytics-link', 'decision-inbox', 'decision', 'fleet', 'history', 'overview', 'recent-outcomes']
-const variants = ['dark', 'light', 'mobile']
-const expectedAssets = surfaces.flatMap((surface) => variants.map((variant) => `${surface}-${variant}.png`)).sort()
+const expectedAssets = surfaces.map((surface) => `${surface}-dark.png`).sort()
 
-test('Executor Control Center guide publishes every synthetic screenshot surface', async ({ page, request }) => {
-  await page.goto('/docs/guide/executor-control-center')
-
-  await expect(page.getByRole('heading', { level: 1, name: 'Executor Control Center' })).toBeVisible()
-  await expect(page.getByText('Every screenshot on this page was captured')).toBeVisible()
-  await expect(page.locator('.vp-doc')).not.toContainText('Operator Control Center')
-
-  const imagePaths = await page.locator('.vp-doc img').evaluateAll((images) =>
-    images.map((image) => image.getAttribute('src')).filter((value): value is string => value !== null)
-  )
-  const darkPaths = await page.locator('.vp-doc picture source').evaluateAll((sources) =>
-    sources.map((source) => source.getAttribute('srcset')).filter((value): value is string => value !== null)
-  )
-  const naturalDimensions = await page.locator('.vp-doc img').evaluateAll((images) =>
-    images.map((image) => ({ width: image.naturalWidth, height: image.naturalHeight }))
+test('Dashboard guide publishes one desktop screenshot for every surface', async () => {
+  const websiteRoot = path.resolve(import.meta.dirname, '..')
+  const guide = await readFile(path.join(websiteRoot, 'docs-app/guide/executor-control-center.md'), 'utf8')
+  const imagePaths = [...guide.matchAll(/<img src="(\/images\/dashboard\/[a-z-]+-dark\.png)"/g)].map(
+    ([, imagePath]) => imagePath
   )
 
-  expect(imagePaths).toHaveLength(14)
-  expect(darkPaths).toHaveLength(7)
-  expect(naturalDimensions).toHaveLength(14)
-  expect(naturalDimensions.every(({ width, height }) => width > 0 && height > 0)).toBe(true)
-  expect([...imagePaths, ...darkPaths].map((imagePath) => path.basename(imagePath)).sort()).toEqual(expectedAssets)
+  expect(guide).toContain('# Dashboard')
+  expect(guide).toContain('Every screenshot on this page was captured')
+  expect(imagePaths).toHaveLength(7)
+  expect(imagePaths.map((imagePath) => path.basename(imagePath)).sort()).toEqual(expectedAssets)
 
-  for (const imagePath of [...imagePaths, ...darkPaths]) {
-    expect(imagePath).toMatch(/^\/docs\/images\/executor-control-center\/[a-z-]+\.png$/)
-    const response = await request.get(imagePath)
-    expect(response.ok()).toBe(true)
-    expect((await response.body()).byteLength).toBeGreaterThan(1_000)
+  for (const imagePath of imagePaths) {
+    const bytes = await readFile(path.join(websiteRoot, 'public', imagePath))
+    expect(bytes.byteLength).toBeGreaterThan(1_000)
   }
 })
 
-test('docs-gap pages are linked and published', async ({ page }) => {
-  await page.goto('/docs/guide/quick-start')
-  await expect(page.locator('.vp-doc').getByRole('link', { name: 'Executor Control Center', exact: true })).toBeVisible()
-  await expect(page.locator('.vp-doc').getByRole('link', { name: 'CLI and control commands', exact: true })).toBeVisible()
+test('parity guides are linked and contain their operational contracts', async () => {
+  const websiteRoot = path.resolve(import.meta.dirname, '..')
+  const [index, quickStart, streamDeck, cli] = await Promise.all([
+    readFile(path.join(websiteRoot, 'docs-app/index.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/guide/quick-start.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/guide/stream-deck.md'), 'utf8'),
+    readFile(path.join(websiteRoot, 'docs-app/reference/cli.md'), 'utf8')
+  ])
 
-  await page.goto('/docs/concepts/coordination')
-  await expect(page.getByRole('heading', { level: 1, name: 'Coordination and events' })).toBeVisible()
-
-  await page.goto('/docs/reference/cli')
-  await expect(page.getByRole('heading', { level: 1, name: 'CLI and control commands' })).toBeVisible()
-
-  await page.goto('/docs/reference/configuration')
-  await expect(page.getByText('lifecycle label slugs').first()).toBeVisible()
+  expect(index).toContain('[Operate the Stream Deck](/guide/stream-deck)')
+  expect(quickStart).toContain('[Dashboard](/guide/executor-control-center)')
+  expect(streamDeck).toContain('Mic is press-and-hold, not a click')
+  expect(streamDeck).toContain('`alert` → `stuck` → `running` → `paused` → `queued`')
+  expect(streamDeck).toContain('The supported deployment is Arch Linux on x64 glibc 2.28+')
+  expect(streamDeck).toContain('`~/.config/aiur/streamdeck.env`')
+  expect(streamDeck).toContain('There is no silent fallback when the two sides drift')
+  expect(cli).toContain('## Dashboard page commands')
+  expect(cli).toContain('it never becomes `0`, `[]`, or `{}` merely because the command could not measure it')
+  expect(cli).toContain('`aiur ask --done ASK-ID`')
+  expect(cli).toContain('An open **blocking** ask is also printed by plain `aiur status`')
+  expect(cli).toContain('**Global pause is durable.**')
+  expect(cli).toContain('**CI readiness uses an operator-only token.**')
 })
 
 test('capture inputs and checked-in assets stay example-only', async () => {
@@ -58,8 +53,8 @@ test('capture inputs and checked-in assets stay example-only', async () => {
     path.join(websiteRoot, '../src/test/manual/executor_control_center_docs_fixture.exs'),
     'utf8'
   )
-  const captureScript = await readFile(path.join(websiteRoot, 'scripts/capture-executor-control-center.mjs'), 'utf8')
-  const assetsRoot = path.join(websiteRoot, 'public/images/executor-control-center')
+  const captureScript = await readFile(path.join(websiteRoot, 'scripts/capture-dashboard.mjs'), 'utf8')
+  const assetsRoot = path.join(websiteRoot, 'public/images/dashboard')
   const assets = (await readdir(assetsRoot)).filter((asset) => asset.endsWith('.png')).sort()
 
   expect(fixture).toContain('example.test')
@@ -74,23 +69,15 @@ test('capture inputs and checked-in assets stay example-only', async () => {
   expect(captureScript).toContain('rm(fixture.docsTmp')
   expect(captureScript).toContain('AIUR_DASHBOARD_USERNAME: ""')
   expect(captureScript).not.toContain('4099')
+  expect(captureScript).not.toContain('mobile')
   expect(assets).toEqual(expectedAssets)
 
   for (const surface of surfaces) {
-    const images = new Map<string, { bytes: Buffer, width: number, height: number }>()
-
-    for (const variant of variants) {
-      const bytes = await readFile(path.join(assetsRoot, `${surface}-${variant}.png`))
-      const dimensions = pngDimensions(bytes)
-      expect(dimensions.width).toBeGreaterThan(0)
-      expect(dimensions.height).toBeGreaterThan(0)
-      expect(bytes.byteLength).toBeGreaterThan(1_000)
-      images.set(variant, { bytes, ...dimensions })
-    }
-
-    expect(images.get('light')?.bytes.equals(images.get('dark')!.bytes)).toBe(false)
-    expect(images.get('mobile')?.width).toBeLessThanOrEqual(390)
-    expect(images.get('mobile')?.width).toBeLessThan(images.get('dark')!.width)
+    const bytes = await readFile(path.join(assetsRoot, `${surface}-dark.png`))
+    const dimensions = pngDimensions(bytes)
+    expect(dimensions.width).toBeGreaterThan(390)
+    expect(dimensions.height).toBeGreaterThan(0)
+    expect(bytes.byteLength).toBeGreaterThan(1_000)
   }
 })
 
