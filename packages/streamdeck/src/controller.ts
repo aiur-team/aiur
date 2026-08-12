@@ -159,7 +159,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       return setLogsOffsets(next.eventOffset, state.chatOffset);
     }
     if (state.mode === "cmd") {
-      return publish({ ...state, mode: "logs" });
+      return publish({ ...state, mode: "logs", micHeld: false });
     }
     const next = cycleWindow(state.columnOffset, options.grid().total);
     dial3Value = next.dial3Value;
@@ -194,7 +194,16 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       transcriptHistory = (logs.transcript ?? []).map((entry) => typeof entry.line === "string" ? entry.line : typeof entry.body === "string" ? entry.body : "[INFO]");
       eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
       chatMaxOffset = typeof logs.transcript_max_offset === "number" ? logs.transcript_max_offset : Math.max(0, transcriptHistory.length - 2);
-      setLogsOffsets(logs.events_offset ?? 0, logs.transcript_offset ?? Math.max(0, transcriptHistory.length - 2));
+      // A live logs push is a refresh, not a navigation command. Preserve the
+      // operator's two independent positions while the logs surface is open;
+      // the server offsets are only the initial position when entering logs.
+      const eventOffset = state.mode === "logs" ? state.eventOffset : logs.events_offset ?? 0;
+      const transcriptOffset = state.mode === "logs" ? state.chatOffset : logs.transcript_offset ?? Math.max(0, transcriptHistory.length - 2);
+      setLogsOffsets(eventOffset, transcriptOffset);
+    },
+    cancel: (): void => {
+      pressed = new Set();
+      if (state.micHeld) publish({ ...state, micHeld: false });
     },
   };
 };

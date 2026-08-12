@@ -148,6 +148,40 @@ describe("physical controller composition", () => {
     expect(changed).toHaveBeenCalled();
   });
 
+  it("preserves both log offsets across live refreshes and clears mic on cancellation", () => {
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+    controller.setLogs({
+      event_keys: Array.from({ length: 12 }, (_, index) => ({ label: `event-${index}` })),
+      transcript: Array.from({ length: 6 }, (_, index) => ({ body: `line-${index}` })),
+      events_max_offset: 4,
+      transcript_max_offset: 4,
+      events_offset: 2,
+      transcript_offset: 2,
+    });
+    // Enter command mode and then Logs through the production input path.
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(dialButton(3));
+    controller.handleReport(dialButton(3, false));
+    expect(controller.state().mode).toBe("logs");
+    controller.handleReport(dialTurn(3, 1));
+    controller.handleReport(dialTurn(0, 1));
+    const { eventOffset, chatOffset } = controller.state();
+    controller.handleReport(dialButton(0));
+    controller.handleReport(dialButton(0, false));
+    controller.handleReport(keyReport(3, true));
+    expect(controller.state().micHeld).toBe(true);
+    controller.cancel();
+    expect(controller.state().micHeld).toBe(false);
+    controller.handleReport(keyReport(3, false));
+    controller.handleReport(dialButton(3));
+    controller.handleReport(dialButton(3, false));
+    expect(controller.state().mode).toBe("logs");
+    controller.setLogs({ event_keys: Array.from({ length: 12 }, (_, index) => ({ label: `refresh-${index}` })), transcript: Array.from({ length: 6 }, (_, index) => ({ body: `refresh-${index}` })), events_max_offset: 4, transcript_max_offset: 4 });
+    expect(controller.state().eventOffset).toBe(eventOffset);
+    expect(controller.state().chatOffset).toBe(chatOffset);
+  });
+
   it("synchronizes dial D with the server-selected event offset when logs arrive", () => {
     const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
     controller.setLogs({

@@ -95,8 +95,9 @@ in time.
 ## Install and enable the user unit
 
 Install the downloaded sidecar and unit, then create the required private
-environment file. The current entry point reads only `STREAMDECK_BRIGHTNESS`;
-the file is not Dashboard pairing configuration:
+environment file. The entry point reads `STREAMDECK_BRIGHTNESS`,
+`AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and
+`AIUR_DASHBOARD_PASSWORD` from `~/.config/aiur/streamdeck.env`.
 
 ```sh
 install -d -m755 ~/.local/share/aiur

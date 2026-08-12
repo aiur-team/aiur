@@ -245,8 +245,8 @@ export const main = async (): Promise<void> => {
     onInput: controller.handleReport,
     repaint,
     onBackendClosed: (backend) => {
-      if (backend === null) return;
-      if (activeBackend === backend) activeBackend = null;
+      if (backend !== null && activeBackend === backend) activeBackend = null;
+      controller.cancel();
     },
     registerSignals: (handler) => {
       const shutdown = (): void => {
