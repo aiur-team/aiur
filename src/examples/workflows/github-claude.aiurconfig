@@ -63,7 +63,7 @@ hooks:
     git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
     git update-ref refs/aiur/branch-start HEAD
 agent:
-  kind: claude
+  priority: [claude]
   max_concurrent_agents: 5
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}

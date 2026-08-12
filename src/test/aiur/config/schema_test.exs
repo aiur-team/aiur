@@ -64,12 +64,34 @@ defmodule Aiur.Config.SchemaTest do
       assert {:ok, settings} =
                Schema.parse(%{
                  "agent" => %{
-                   "backend_configs" => %{"deepseek" => %{"enabled" => true}},
+                   "priority" => ["deepseek"],
                    "routing" => %{"5" => "deepseek"}
                  }
                })
 
       assert settings.agent.routing[5] == "deepseek"
+    end
+  end
+
+  describe "agent priority" do
+    test "defaults empty and accepts an ordered list" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.priority == []
+
+      assert {:ok, settings} = Schema.parse(%{"agent" => %{"priority" => ["deepseek", "codex", "claude"]}})
+      assert settings.agent.priority == ["deepseek", "codex", "claude"]
+    end
+
+    test "rejects duplicate or unknown backends" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"priority" => ["codex", "codex"]}})
+
+      assert message =~ "duplicate"
+
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"agent" => %{"priority" => ["nonesuch"]}})
+
+      assert message =~ "unknown backend"
     end
   end
 
