@@ -5,6 +5,8 @@ defmodule Aiur.Init.TemplatesTest do
 
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
+    assert Templates.config_example() =~ "host omitted = authenticated Tailscale IP"
+    assert Templates.config_example() =~ "add host: 127.0.0.1 to pin loopback"
     assert Templates.aiurhooks_template() =~ "after_create:"
     assert Templates.aiurhooks_template() =~ "AIUR_TICKET_BRANCH"
     assert Templates.aiurhooks_template() =~ "origin/$AIUR_TICKET_BRANCH"
