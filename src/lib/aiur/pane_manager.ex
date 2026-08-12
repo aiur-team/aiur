@@ -153,23 +153,11 @@ defmodule Aiur.PaneManager do
     tmux = Keyword.get(opts, :tmux, Tmux)
     max_vertical_panes = Keyword.get(opts, :max_vertical_panes, Aiur.Config.max_vertical_panes())
 
-    # slot_count is the LARGER of grid capacity (panes-* 2 - 1) and
-    # max_concurrent_agents — pre-warm needs one slot per active agent
-    # so an agent that's queued past grid capacity still gets a leadoff
-    # when it becomes active. Tests pass `slot_count` explicitly to
-    # exercise round-robin behavior with a known cap.
+    # Slot layout capacity is independent of agent concurrency. Cold growth
+    # handles panes beyond the pre-warmed pool.
     slot_count =
       Keyword.get_lazy(opts, :slot_count, fn ->
-        grid = State.slot_count(max_vertical_panes)
-
-        max_agents =
-          try do
-            Aiur.Config.max_concurrent_agents()
-          rescue
-            _ -> grid
-          end
-
-        max(grid, max_agents)
+        State.slot_count(max_vertical_panes)
       end)
 
     orientation = Keyword.get(opts, :orientation, :horizontal)
@@ -326,7 +314,7 @@ defmodule Aiur.PaneManager do
     {:noreply, Reconcile.handle_pane_closed(state, pane_id)}
   end
 
-  def handle_info({:slot_ready, _slot_index}, state) do
+  def handle_info({:slot_ready, _slot_index, _pid}, state) do
     {:noreply, drain_open_queue(state)}
   end
 
