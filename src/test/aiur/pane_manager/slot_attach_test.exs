@@ -1,5 +1,13 @@
+defmodule Aiur.PaneManager.SlotAttachTest.FakeSlot do
+  use GenServer
+
+  def start_link(reply), do: GenServer.start_link(__MODULE__, reply)
+  def init(reply), do: {:ok, reply}
+  def handle_call({:select, _identifier}, _from, reply), do: {:reply, reply, reply}
+end
+
 defmodule Aiur.PaneManager.SlotAttachTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.PaneManager.{SlotAttach, State}
   alias Aiur.Tmux
@@ -165,12 +173,4 @@ defmodule Aiur.PaneManager.SlotAttachTest do
       assert new_state.last_attached_pane_id == nil
     end
   end
-end
-
-defmodule Aiur.PaneManager.SlotAttachTest.FakeSlot do
-  use GenServer
-
-  def start_link(reply), do: GenServer.start_link(__MODULE__, reply)
-  def init(reply), do: {:ok, reply}
-  def handle_call({:select, _identifier}, _from, reply), do: {:reply, reply, reply}
 end

@@ -57,6 +57,24 @@ defmodule Aiur.Orchestrator.WaitingReason do
   @spec for_retry() :: t()
   def for_retry, do: :backing_off
 
+  @spec render(t()) :: String.t()
+  def render(:waiting_for_human), do: "waiting_for_human"
+  def render(:waiting_for_supervisor), do: "waiting_for_supervisor"
+  def render(:waiting_for_dependency), do: "waiting_for_dependency"
+  def render(:waiting_for_ci), do: "waiting_for_ci"
+  def render(:waiting_for_review), do: "waiting_for_review"
+  def render(:paused), do: "paused"
+  def render(:run_paused), do: "run_paused"
+  def render(:awaiting_dispatch), do: "awaiting_dispatch"
+  def render(:paused_operator), do: "paused_operator"
+  def render(:paused_transient), do: "paused_transient"
+  def render(:latched_lifetime), do: "latched_lifetime"
+  def render(:tracker_unavailable), do: "tracker_unavailable"
+  def render(:backing_off), do: "backing_off"
+  def render(:unresponsive), do: "unresponsive"
+  def render(:active), do: "active"
+  def render(other), do: to_string(other)
+
   @doc """
   Classifies a tracker-active row with no live running process.
   An open decision takes precedence, followed by `blocked_by_open?`, which is
@@ -87,7 +105,10 @@ defmodule Aiur.Orchestrator.WaitingReason do
   """
   @spec for_idle(String.t() | nil, boolean(), non_neg_integer(), keyword()) :: t()
   def for_idle(tracker_state, blocked_by_open?, open_decision_count, opts \\ [])
-  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count, _opts) when open_decision_count > 0, do: :waiting_for_human
+
+  def for_idle(_tracker_state, _blocked_by_open?, open_decision_count, _opts)
+      when open_decision_count > 0, do: :waiting_for_human
+
   def for_idle(_tracker_state, true, 0, _opts), do: :waiting_for_dependency
   def for_idle(tracker_state, false, 0, opts), do: idle_classification(tracker_state, opts)
 
@@ -98,12 +119,23 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # specific #1453 cause.
   defp idle_classification(tracker_state, opts) do
     cond do
-      Keyword.get(opts, :latched_lifetime, false) -> :latched_lifetime
-      Keyword.get(opts, :tracker_paused, false) -> :paused_operator
-      Keyword.get(opts, :auto_resume_retry_in_ms) != nil -> :paused_transient
-      Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight -> dispatch_hold_or_tracker_state(tracker_state)
-      Keyword.get(opts, :capacity_hold_active?, false) -> capacity_or_tracker_state(tracker_state)
-      true -> by_tracker_state(tracker_state)
+      Keyword.get(opts, :latched_lifetime, false) ->
+        :latched_lifetime
+
+      Keyword.get(opts, :tracker_paused, false) ->
+        :paused_operator
+
+      Keyword.get(opts, :auto_resume_retry_in_ms) != nil ->
+        :paused_transient
+
+      Keyword.get(opts, :dispatch_hold_reason) == :tracker_preflight ->
+        dispatch_hold_or_tracker_state(tracker_state)
+
+      Keyword.get(opts, :capacity_hold_active?, false) ->
+        capacity_or_tracker_state(tracker_state)
+
+      true ->
+        by_tracker_state(tracker_state)
     end
   end
 
@@ -129,8 +161,13 @@ defmodule Aiur.Orchestrator.WaitingReason do
   # as eligible for a stall-triggered kill+retry as a `:working` one — this
   # must classify it the same way, or the dashboard would keep calling it
   # merely "paused" right up to the restart.
-  defp unresponsive?(%{work_state: work_state, stale_for_seconds: stale, stall_timeout_seconds: timeout})
-       when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and timeout > 0,
+  defp unresponsive?(%{
+         work_state: work_state,
+         stale_for_seconds: stale,
+         stall_timeout_seconds: timeout
+       })
+       when work_state in [:working, :sleeping] and is_integer(stale) and is_integer(timeout) and
+              timeout > 0,
        do: stale >= timeout
 
   defp unresponsive?(_attrs), do: false
