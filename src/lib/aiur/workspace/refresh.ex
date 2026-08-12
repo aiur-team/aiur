@@ -107,22 +107,10 @@ defmodule Aiur.Workspace.Refresh do
   end
 
   defp finalize_before_run_workspace(workspace, issue_context, worker_host) do
-    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host),
-         :ok <- BootstrapImage.maybe_seed(workspace, issue_context, worker_host) do
-      maybe_restore_local_agent_support(workspace, worker_host)
+    with :ok <- GitMetadata.ensure_git_metadata_writable(workspace, worker_host) do
+      BootstrapImage.maybe_seed(workspace, issue_context, worker_host)
     end
   end
-
-  # A local staged reconstruction runs its hook with transient build wrappers
-  # beside the empty clone stage. Hooks removes that sibling support before
-  # promotion, so reinstall the permanent agent support in the promoted
-  # workspace before the first agent command can run. Remote refreshes run in
-  # place and retain the support installed during initial provisioning.
-  defp maybe_restore_local_agent_support(workspace, nil),
-    do: Provisioner.maybe_install_agent_support(workspace, nil)
-
-  defp maybe_restore_local_agent_support(_workspace, worker_host) when is_binary(worker_host),
-    do: :ok
 
   defp refresh_workspace_readiness(workspace, worker_host) do
     case Provisioner.workspace_readiness(workspace) do
@@ -143,7 +131,10 @@ defmodule Aiur.Workspace.Refresh do
     case Provisioner.workspace_readiness(workspace) do
       :bootstrap ->
         Reconstruction.run(workspace, fn stage ->
-          Hooks.run_reconstruction_hook(command, stage, issue_context, "before_run")
+          with :ok <- Hooks.run_reconstruction_hook(command, stage, issue_context, "before_run"),
+               :ok <- GitMetadata.ensure_agent_logs_excluded(stage, nil) do
+            Provisioner.maybe_install_agent_support(stage, nil)
+          end
         end)
 
       :ready ->

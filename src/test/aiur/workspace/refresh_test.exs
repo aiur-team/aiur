@@ -1,7 +1,8 @@
 defmodule Aiur.Workspace.RefreshTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentEnvironment, Workflow}
+  alias Aiur.AppServer.Adapter
+  alias Aiur.Workflow
   alias Aiur.Workspace.{Ownership, Refresh}
 
   setup do
@@ -119,17 +120,18 @@ defmodule Aiur.Workspace.RefreshTest do
     File.write!(child, "#!/bin/sh\nexec mise exec -- mix compile\n")
     File.chmod!(child, 0o755)
 
-    env =
-      [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")}] ++
-        Enum.flat_map(AgentEnvironment.workspace_env(workspace), fn
-          {name, value} when is_list(value) -> [{to_string(name), to_string(value)}]
-          _unset -> []
-        end)
+    assert {:ok, port} =
+             Adapter.start_port(
+               workspace,
+               Aiur.Shell.escape(child),
+               fn _port -> :ok end,
+               env: [{"PATH", Enum.join([probe_bin, "/usr/bin", "/bin"], ":")}]
+             )
 
-    command = AgentEnvironment.scrub_shell_command(Aiur.Shell.escape(child))
-    assert {output, 0} = System.cmd("bash", ["-lc", command], env: env, stderr_to_stdout: true)
-    assert output =~ "aiur_build_gate acquired"
-    assert output =~ "real-mise-ran"
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate acquired" <> _details}}}, 1_000
+    assert_receive {^port, {:data, {:eol, "real-mise-ran"}}}, 1_000
+    assert_receive {^port, {:data, {:eol, "aiur_build_gate released" <> _details}}}, 1_000
+    assert_receive {^port, {:exit_status, 0}}, 1_000
   end
 
   test "active ownership refuses stale-todo recreation without touching the workspace", %{workspace: workspace} do
