@@ -100,7 +100,7 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       policy =
         start_supervised!({SlotPolicy, target_count: 1, max_slots: 2, pubsub: Aiur.PubSub, slot_starter: FakeSlotStarter})
 
-      assert %{highest_started: 1} = :sys.get_state(policy)
+      assert SlotPolicy.highest_started(policy) == 1
       assert [{1, _slot_pid}] = SlotRegistry.all()
 
       assert SlotSupervisor.acquire_slot_or_grow() == {:error, :no_ready_slot}
