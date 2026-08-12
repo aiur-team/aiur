@@ -7,6 +7,8 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.AgentEvents
   alias Aiur.AgentPubSub
   alias Aiur.AgentQueueStore
+  alias Aiur.AlertFeed
+  alias Aiur.Alerts
   alias Aiur.CodingAgent
   alias Aiur.Config
   alias Aiur.Events.SubscriptionStore
@@ -29,6 +31,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @activity_snapshot_timeout_ms 100
   @repo_base_status_timeout_ms 100
+  @waiting_for_human_alert_after_seconds 600
 
   @doc """
   Reads the fleet view for a control query without sending a message to the
@@ -112,7 +115,7 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec list_active_identifiers_api(GenServer.server(), timeout()) :: [String.t()]
   def list_active_identifiers_api(server, timeout) do
-    if Process.whereis(server) do
+    if State.alive?(server) do
       try do
         GenServer.call(server, :list_active_identifiers, timeout)
       catch
@@ -191,6 +194,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :poll_check_in_progress,
       :poll_interval_ms,
       :retry_attempts,
+      :auto_resume,
       :running,
       :session_max_concurrent_agents
     ])
@@ -302,11 +306,19 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   @spec status(State.t()) :: {:reply, [map()], State.t()}
-  def status(%State{} = state), do: {:reply, agent_statuses(state), state}
+  def status(%State{} = state) do
+    {statuses, state} = agent_statuses_and_state(state)
+    {:reply, statuses, state}
+  end
 
   @spec status_with_capacity(State.t()) :: {:reply, {[map()], map()}, State.t()}
   def status_with_capacity(%State{} = state),
-    do: {:reply, {agent_statuses(state), Slots.max_concurrent_agent_status(state)}, state}
+    do:
+      state
+      |> agent_statuses_and_state()
+      |> then(fn {statuses, state} ->
+        {:reply, {statuses, Slots.max_concurrent_agent_status(state)}, state}
+      end)
 
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
   # No runtime-config refresh here. The read model projects this same payload
@@ -336,8 +348,15 @@ defmodule Aiur.Orchestrator.StatusReport do
     stall_timeout_seconds = stall_timeout_seconds()
     activity_by_identity = activity_by_identity()
 
-    running = Enum.map(state.running, &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity))
-    retrying = Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
+    running =
+      Enum.map(
+        state.running,
+        &running_snapshot(state, &1, now, stall_timeout_seconds, activity_by_identity)
+      )
+
+    retrying =
+      Enum.map(state.retry_attempts, &retry_snapshot(state, &1, now_ms, activity_by_identity))
+
     idle = idle_snapshot(state, now_ms, activity_by_identity)
 
     %{
@@ -404,7 +423,13 @@ defmodule Aiur.Orchestrator.StatusReport do
     end
   end
 
-  defp running_snapshot(%State{} = state, {issue_id, metadata}, now, stall_timeout_seconds, activity_by_identity) do
+  defp running_snapshot(
+         %State{} = state,
+         {issue_id, metadata},
+         now,
+         stall_timeout_seconds,
+         activity_by_identity
+       ) do
     capabilities = OM.issue_control_capabilities(state, metadata.identifier)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
@@ -462,7 +487,12 @@ defmodule Aiur.Orchestrator.StatusReport do
     |> Map.merge(running_execution_facts(metadata))
   end
 
-  defp retry_snapshot(%State{} = state, {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry}, now_ms, activity_by_identity) do
+  defp retry_snapshot(
+         %State{} = state,
+         {issue_id, %{attempt: attempt, due_at_ms: due_at_ms} = retry},
+         now_ms,
+         activity_by_identity
+       ) do
     identifier = Map.get(retry, :identifier)
     issue = Map.get(state.last_polled_issues, issue_id)
     tracker_identity = retry_snapshot_tracker_identity(retry, issue)
@@ -508,44 +538,51 @@ defmodule Aiur.Orchestrator.StatusReport do
       |> Enum.reject(fn {issue_id, _issue} -> MapSet.member?(excluded_issue_ids, issue_id) end)
 
     # One durable-store read for the whole board, not one per idle ticket.
-    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {id, _} -> id end))
+    latch_statuses =
+      Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {id, _} -> id end))
 
     Enum.map(idle_issues, fn {_issue_id, issue} ->
-      idle_issue_snapshot(state, issue, terminal_states, now_ms, latch_statuses, activity_by_identity)
+      idle_issue_snapshot(
+        state,
+        issue,
+        terminal_states,
+        now_ms,
+        latch_statuses,
+        activity_by_identity
+      )
     end)
   end
 
-  defp idle_issue_snapshot(%State{} = state, %Issue{} = issue, terminal_states, now_ms, latch_statuses, activity_by_identity) do
+  defp idle_issue_snapshot(
+         %State{} = state,
+         %Issue{} = issue,
+         _terminal_states,
+         now_ms,
+         latch_statuses,
+         activity_by_identity
+       ) do
     identifier = issue.identifier || issue.id
-    blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     latch = Map.get(latch_statuses, issue.id, :none)
-    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, issue.id, now_ms)
+    idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
 
     %{
       issue_id: issue.id,
       identifier: identifier,
       tracker_identity: Issue.tracker_identity(issue),
       state: issue.state,
+      work_state: idle_issue_work_state(issue),
       tag: State.issue_tag(issue),
       title: issue.title,
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       # #1453 supplies the idle-reason evidence; #1457 renders it.
-      dispatch_latch: latch,
-      auto_resume_retry_in_ms: auto_resume_retry_in_ms,
-      waiting_reason:
-        WaitingReason.for_idle(
-          issue.state,
-          blocked_by_open?,
-          open_decision_count,
-          latched_lifetime: latch != :none,
-          tracker_paused: Issue.paused?(issue),
-          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
-          dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
-          capacity_hold_active?: capacity_hold_active?(state)
-        ),
+      dispatch_latch: idle_evidence.dispatch_latch,
+      auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
+      dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
+      capacity_hold_active?: idle_evidence.capacity_hold_active?,
+      waiting_reason: idle_evidence.waiting_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
@@ -630,7 +667,8 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp activity_by_identity do
     with pid when is_pid(pid) <- Process.whereis(TicketActivity),
-         %{entries: entries} when is_list(entries) <- TicketActivity.snapshots(timeout: @activity_snapshot_timeout_ms) do
+         %{entries: entries} when is_list(entries) <-
+           TicketActivity.snapshots(timeout: @activity_snapshot_timeout_ms) do
       Enum.reduce(entries, %{}, &put_activity_entry/2)
     else
       _ -> %{}
@@ -648,13 +686,16 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp progress_percent(identity, activity_by_identity) do
     case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :progress]) do
-      %{freshness: :fresh, percent: percent} when is_integer(percent) and percent in 0..100 -> percent
-      _ -> 0
+      %{freshness: :fresh, percent: percent} when is_integer(percent) and percent in 0..100 ->
+        percent
+
+      _ ->
+        0
     end
   end
 
   defp status_api_call(server, request, timeout, distinguish_timeout?) do
-    if Process.whereis(server) do
+    if State.alive?(server) do
       try do
         GenServer.call(server, request, timeout)
       catch
@@ -716,8 +757,15 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   defp running_summary(identifier, entry, now) do
-    issue = Map.get(entry, :issue)
-    running_summary(identifier, entry, State.issue_tag(issue), get_in(entry, [:issue, Access.key(:title)]), now)
+    issue = Map.get(entry, :issue) || %{}
+
+    running_summary(
+      identifier,
+      entry,
+      State.issue_tag(issue),
+      get_in(entry, [:issue, Access.key(:title)]),
+      now
+    )
   end
 
   defp running_summary(identifier, entry, tag, title, now) do
@@ -757,21 +805,50 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   @spec agent_statuses(State.t()) :: [map()]
   def agent_statuses(%State{} = state) do
-    status_fun = if Config.prewarm_enabled?(), do: &RepoBase.status/1, else: fn _timeout -> {:unavailable, nil} end
+    status_fun =
+      if Config.prewarm_enabled?(),
+        do: &RepoBase.status/1,
+        else: fn _timeout -> {:unavailable, nil} end
+
     agent_statuses(state, status_fun)
+  end
+
+  defp agent_statuses_and_state(%State{} = state) do
+    status_fun =
+      if Config.prewarm_enabled?(),
+        do: &RepoBase.status/1,
+        else: fn _timeout -> {:unavailable, nil} end
+
+    {statuses, state} = agent_statuses_raw(state, status_fun)
+    {statuses, state}
+  end
+
+  @doc false
+  @spec sync_waiting_for_human_episodes(State.t(), DateTime.t()) :: State.t()
+  def sync_waiting_for_human_episodes(%State{} = state, %DateTime{} = now) do
+    track_waiting_for_human_episodes(state, agent_statuses(state), now)
   end
 
   @doc false
   @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
   def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
+    {statuses, _state} = agent_statuses_raw(state, status_fun)
+    statuses
+  end
+
+  defp agent_statuses_raw(%State{} = state, status_fun) when is_function(status_fun, 1) do
     now = DateTime.utc_now()
     prewarm_phase = prewarm_phase(status_fun)
 
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now) ++ retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
-    |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
+    statuses =
+      (running_statuses(state, now) ++
+         retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
+      |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
+
+    {statuses, state}
   end
 
   defp running_statuses(%State{} = state, %DateTime{} = now) do
@@ -782,8 +859,21 @@ defmodule Aiur.Orchestrator.StatusReport do
 
   defp running_status(%State{} = state, issue_id, entry, now) do
     identifier = Map.get(entry, :identifier) || issue_id
-    issue = Map.get(entry, :issue)
+    issue = Map.get(entry, :issue) || %{}
     work_state = get_in(entry, [:control, :status]) || :working
+    pause_reason = Map.get(entry, :paused_reason)
+    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
+    stale_for_seconds = stale_for_seconds(entry, now)
+
+    waiting_reason =
+      WaitingReason.for_running(%{
+        tracker_state: Map.get(issue, :state),
+        pause_reason: pause_reason,
+        work_state: work_state,
+        open_decision_count: open_decision_count,
+        stale_for_seconds: stale_for_seconds,
+        stall_timeout_seconds: stall_timeout_seconds()
+      })
 
     %{
       issue_id: issue_id,
@@ -806,7 +896,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
       last_codex_event: Map.get(entry, :last_codex_event),
-      reason: if(work_state == :paused, do: StatusReason.for_pause(Map.get(entry, :paused_reason)))
+      reason: if(work_state == :paused, do: StatusReason.for_pause(pause_reason)),
+      waiting_reason: waiting_reason,
+      pause_reason: pause_reason,
+      blocked_by: known_blocked_by(issue),
+      open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health
     }
   end
 
@@ -843,6 +938,9 @@ defmodule Aiur.Orchestrator.StatusReport do
         last_codex_event: nil,
         retry_attempt: Map.get(retry, :attempt),
         retry_reason: retry_reason,
+        waiting_reason: WaitingReason.for_retry(),
+        pause_reason: if(tracker_paused, do: tracker_pause_cause(state)),
+        blocked_by: known_blocked_by(issue),
         reason:
           if tracker_paused do
             StatusReason.for_paused_retry(
@@ -875,20 +973,34 @@ defmodule Aiur.Orchestrator.StatusReport do
         Map.has_key?(state.running, issue_id) or Map.has_key?(state.retry_attempts, issue_id)
       end)
 
-    latch_statuses = Dispatcher.dispatch_latch_statuses(state, Enum.map(idle_issues, fn {issue_id, _issue} -> issue_id end))
+    latch_statuses =
+      Dispatcher.dispatch_latch_statuses(
+        state,
+        Enum.map(idle_issues, fn {issue_id, _issue} -> issue_id end)
+      )
 
     Enum.map(idle_issues, fn {issue_id, issue} ->
-      idle_status(state, issue, prewarm_phase, max_dispatches, Map.get(latch_statuses, issue_id, :none))
+      idle_status(
+        state,
+        issue,
+        prewarm_phase,
+        max_dispatches,
+        Map.get(latch_statuses, issue_id, :none)
+      )
     end)
   end
 
   defp idle_status(%State{} = state, issue, prewarm_phase, max_dispatches, latch_status) do
     identifier = Map.get(issue, :identifier) || Map.get(issue, :id)
+    {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     budget = get_in(state.dispatch_recovery, [:codex_thrash_budget, Map.get(issue, :id)]) || %{}
     prewarm_blocked? = prewarm_blocked?(prewarm_phase)
 
     work_state = idle_issue_work_state(issue)
     pause_reason = idle_issue_pause_reason(issue)
+
+    idle_evidence = idle_evidence(state, issue, latch_status, open_decision_count, System.monotonic_time(:millisecond))
+    waiting_reason = idle_evidence.waiting_reason
 
     %{
       issue_id: Map.get(issue, :id),
@@ -910,17 +1022,147 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
-      reason: idle_status_reason(work_state, pause_reason, prewarm_blocked?, budget, max_dispatches, latch_status)
+      reason:
+        idle_status_reason(
+          work_state,
+          pause_reason,
+          prewarm_blocked?,
+          budget,
+          max_dispatches,
+          latch_status
+        ),
+      waiting_reason: waiting_reason,
+      dispatch_latch: idle_evidence.dispatch_latch,
+      auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
+      dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
+      capacity_hold_active?: idle_evidence.capacity_hold_active?,
+      pause_reason: pause_reason,
+      blocked_by: known_blocked_by(issue),
+      open_decision_count: open_decision_count,
+      open_decision_count_health: open_decision_count_health
     }
   end
 
-  defp idle_status_reason(_work_state, _pause_reason, _prewarm_blocked?, _budget, _max_dispatches, {:lifetime, lifetime, maximum}),
-    do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
+  defp idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
+    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)
+    dispatch_hold_reason = Map.get(state.dispatch_hold || %{}, :reason)
+    capacity_hold_active? = capacity_hold_active?(state)
 
-  defp idle_status_reason(:paused, pause_reason, _prewarm_blocked?, _budget, _max_dispatches, :none),
-    do: StatusReason.for_pause(pause_reason)
+    %{
+      dispatch_latch: latch_status,
+      auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+      dispatch_hold_reason: dispatch_hold_reason,
+      capacity_hold_active?: capacity_hold_active?,
+      waiting_reason:
+        WaitingReason.for_idle(
+          Map.get(issue, :state),
+          DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()),
+          open_decision_count,
+          latched_lifetime: latch_status != :none,
+          tracker_paused: Issue.paused?(issue),
+          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+          dispatch_hold_reason: dispatch_hold_reason,
+          capacity_hold_active?: capacity_hold_active?
+        )
+    }
+  end
 
-  defp idle_status_reason(_work_state, _pause_reason, prewarm_blocked?, budget, max_dispatches, :none) do
+  defp track_waiting_for_human_episodes(%State{} = state, statuses, now) do
+    current =
+      statuses
+      |> Enum.filter(&human_wait_alert_candidate?/1)
+      |> Map.new(fn status -> {status.identifier, status} end)
+
+    Enum.each(state.waiting_for_human_episodes, fn {identifier, episode} ->
+      if not Map.has_key?(current, identifier) and episode.alerted?,
+        do: emit_waiting_for_human_resolution(identifier)
+    end)
+
+    episodes =
+      Enum.reduce(current, %{}, fn {identifier, _status}, acc ->
+        episode = Map.get(state.waiting_for_human_episodes, identifier, %{since: now, alerted?: false})
+        elapsed = DateTime.diff(now, episode.since, :second)
+
+        episode =
+          if waiting_for_human_alert_due?(episode.since, now) and not episode.alerted? do
+            maybe_emit_waiting_for_human_alert(identifier, elapsed)
+            %{episode | alerted?: true}
+          else
+            episode
+          end
+
+        Map.put(acc, identifier, episode)
+      end)
+
+    %{state | waiting_for_human_episodes: episodes}
+  end
+
+  @doc false
+  @spec waiting_for_human_alert_due?(DateTime.t(), DateTime.t()) :: boolean()
+  def waiting_for_human_alert_due?(%DateTime{} = since, %DateTime{} = now) do
+    DateTime.diff(now, since, :second) >= @waiting_for_human_alert_after_seconds
+  end
+
+  defp human_wait_alert_candidate?(%{waiting_reason: :waiting_for_human} = status) do
+    (is_integer(status.open_decision_count) and status.open_decision_count > 0) or
+      status.pause_reason in [:agent_pause_request, :input_required]
+  end
+
+  defp human_wait_alert_candidate?(_status), do: false
+
+  defp emit_waiting_for_human_resolution(identifier) do
+    Alerts.emit_system("ticket.#{identifier}.agent.attention.waiting_for_human.resolved",
+      issue: identifier,
+      reason: "Agent is no longer waiting for Executor input.",
+      needs_attention: false,
+      severity: "info",
+      central: true
+    )
+  end
+
+  defp maybe_emit_waiting_for_human_alert(identifier, runtime_seconds)
+       when is_binary(identifier) and is_integer(runtime_seconds) do
+    topic = "ticket.#{identifier}.agent.attention.waiting_for_human"
+
+    unless AlertFeed.active_ticket_attention?(topic) do
+      Alerts.emit_system(topic,
+        issue: identifier,
+        reason: "Agent has been waiting for Executor input for #{div(runtime_seconds, 60)}m; answer the blocking question or resume the agent.",
+        needs_attention: true,
+        severity: "warning",
+        central: true
+      )
+    end
+  end
+
+  defp idle_status_reason(
+         _work_state,
+         _pause_reason,
+         _prewarm_blocked?,
+         _budget,
+         _max_dispatches,
+         {:lifetime, lifetime, maximum}
+       ),
+       do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
+
+  defp idle_status_reason(
+         :paused,
+         pause_reason,
+         _prewarm_blocked?,
+         _budget,
+         _max_dispatches,
+         :none
+       ),
+       do: StatusReason.for_pause(pause_reason)
+
+  defp idle_status_reason(
+         _work_state,
+         _pause_reason,
+         prewarm_blocked?,
+         budget,
+         max_dispatches,
+         :none
+       ) do
     StatusReason.for_idle(
       prewarm_blocked?,
       Map.get(budget, :tripped),

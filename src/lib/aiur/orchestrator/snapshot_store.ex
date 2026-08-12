@@ -68,6 +68,17 @@ defmodule Aiur.Orchestrator.SnapshotStore do
     generation
   end
 
+  @doc false
+  @spec discard(GenServer.server()) :: :ok
+  def discard(orchestrator) do
+    :persistent_term.erase(generation_key(orchestrator))
+    :persistent_term.erase(global_pause_key(orchestrator))
+    :persistent_term.erase({@cache_key, orchestrator})
+    :persistent_term.erase({@cache_key, :last_timeout_log, orchestrator})
+    SnapshotPublisher.clear(orchestrator)
+    :ok
+  end
+
   @doc """
   Publishes authoritative global-pause metadata independently of fleet
   projection.
@@ -460,7 +471,10 @@ defmodule Aiur.Orchestrator.SnapshotStore do
   end
 
   defp live_pid(orchestrator) do
-    GenServer.whereis(orchestrator)
+    case GenServer.whereis(orchestrator) do
+      pid when is_pid(pid) -> if(Process.alive?(pid), do: pid, else: nil)
+      _ -> nil
+    end
   catch
     :exit, _reason -> nil
   end

@@ -16,7 +16,7 @@ defmodule Aiur.Orchestrator do
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    name = Keyword.get(opts, :name, __MODULE__)
+    name = Keyword.get(opts, :name)
     GenServer.start_link(__MODULE__, opts, name: name)
   end
 
