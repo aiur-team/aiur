@@ -11,12 +11,12 @@ defmodule Aiur.Config do
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
 
-  # Every environment variable `Schema.parse/1` can read that is *not* named by
-  # the config itself. `finalize_settings/1` reads the first two directly, and
-  # the workspace-root default is `System.tmp_dir!/0`, which is TMPDIR/TEMP/TMP
-  # and then non-environment fallbacks. Anything added to that function must be
-  # added here, or its memo will not expire when the variable changes.
-  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE TMPDIR TEMP TMP)
+  # Every environment variable config preparation or `Schema.parse/1` can read
+  # that is *not* named by the config itself. The workspace-root default is
+  # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
+  # fallbacks. Anything added to those paths must be added here, or the settings
+  # memo will not expire when the variable changes.
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -1002,10 +1002,27 @@ defmodule Aiur.Config do
     tracker = map_section(config, "tracker")
     agent = map_section(config, "agent")
     linear = map_section(config, "linear")
+    server = map_section(config, "server")
 
     config
     |> Map.put("tracker", prepare_tracker_config(config, tracker, linear))
     |> Map.put("agent", prepare_agent_config(config, agent))
+    |> Map.put("server", prepare_server_config(server))
+  end
+
+  defp prepare_server_config(server) do
+    if has_section?(server, "host") do
+      server
+    else
+      Map.put(server, "host", default_server_host())
+    end
+  end
+
+  defp default_server_host do
+    case System.get_env("AIUR_DEFAULT_DASHBOARD_HOST") do
+      host when is_binary(host) and host != "" -> host
+      _ -> "127.0.0.1"
+    end
   end
 
   defp prepare_tracker_config(config, tracker, linear) do
