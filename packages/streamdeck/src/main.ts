@@ -28,14 +28,13 @@ import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint, us
 
 import { parseBrightness } from "./device-path.js";
 import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid } from "./channel.js";
-import { decodeInputReport, risingEdges } from "./input.js";
 import type { HidBackend } from "./backend.js";
-import { columnOffsetFromDial, maxColumnOffset, applyStep } from "./dial.js";
 import { POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
 import type { Runtime } from "./runtime.js";
 import { createPhysicalSurface, type PhysicalSurfaceState } from "./surface.js";
 import { openUsbBackend, type UsbDeviceLike } from "./usb-backend.js";
+import { createPhysicalController } from "./controller.js";
 
 /** HID interface number on the Stream Deck +. */
 const HID_INTERFACE = 0;
@@ -129,67 +128,54 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
 
 export const main = async (): Promise<void> => {
   const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
-  const presentAtStart = deviceIsPresent();
+  const presentAtStart = process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1" ? false : deviceIsPresent();
   let latestGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
   let latestUsage: Readonly<Record<string, unknown>> = {};
+  let transcriptFeed: string[] = [];
   let activeBackend: HidBackend | null = null;
   let channel: Awaited<ReturnType<typeof connectStreamDeckChannel>> | null = null;
-  let pressed = new Set<string>();
-  let currentMode: "grid" | "cmd" | "logs" = "grid";
-  let focusedIdentifier: string | null = null;
   let runtime: Runtime | null = null;
-  let columnOffset = 0;
-  let dial3Value = 0;
-  let transcriptLines: string[] = [];
   let repaintChain: Promise<void> = Promise.resolve();
   const surface = createPhysicalSurface();
 
+  const controller = createPhysicalController({
+    grid: () => latestGrid,
+    channel: () => channel,
+    stateChanged: () => {
+      if (activeBackend !== null) void repaint(activeBackend);
+    },
+  });
+
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
-    const state: PhysicalSurfaceState = { mode: currentMode, focusedIdentifier, columnOffset, transcriptLines };
+    const current = controller.state();
+    const state: PhysicalSurfaceState = {
+      mode: current.mode,
+      focusedIdentifier: current.focusedIdentifier,
+      columnOffset: current.columnOffset,
+      transcriptLines: current.transcriptLines,
+    };
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
     await next;
   };
 
-  const handleInput = (data: Uint8Array): void => {
-    const decoded = decodeInputReport(data);
-    for (const input of decoded) {
-      if (input.type !== "encoder-turn") continue;
-      if (input.index === 3 && (currentMode === "grid" || currentMode === "cmd")) {
-        dial3Value = applyStep(dial3Value, input.ticks > 0 ? 1 : -1);
-        columnOffset = columnOffsetFromDial(dial3Value, latestGrid.total);
-      }
-    }
-    const edges = risingEdges(decoded, pressed);
-    pressed = new Set(edges.pressed);
-    for (const input of edges.events) {
-      if (input.type === "key") {
-        const agent = latestGrid.agents[(columnOffset * 2) + (input.index % 8)];
-        const identifier = typeof agent?.identifier === "string" ? agent.identifier : null;
-        const bucket = typeof agent?.bucket === "string" ? agent.bucket : null;
-        if (identifier !== null && currentMode === "grid") {
-          focusedIdentifier = identifier;
-          channel?.focus(identifier);
-          currentMode = "cmd";
-        } else if (identifier !== null && currentMode === "cmd" && input.index === 2) {
-          currentMode = "logs";
-        } else if (identifier !== null && currentMode === "cmd" && input.index === 0 && (bucket === "running" || bucket === "paused")) {
-          channel?.control(identifier, bucket === "running" ? "pause" : "resume");
-        }
-      }
-      if (input.type === "encoder-button" && input.index === 0 && currentMode === "logs") currentMode = "cmd";
-      else if (input.type === "encoder-button" && input.index === 0 && currentMode === "cmd") currentMode = "grid";
-      else if (input.type === "encoder-button" && input.index === 3 && currentMode === "grid") {
-        columnOffset = Math.min(columnOffset + 4, maxColumnOffset(latestGrid.total));
-      }
-    }
-  };
-
   const baseUrl = process.env.AIUR_PHOENIX_URL;
   if (baseUrl && process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD) {
     let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let connecting = false;
+    const scheduleConnect = (): void => {
+      if (connecting || reconnectTimer !== null) return;
+      const delay = Math.min(30_000, 500 * 2 ** reconnectAttempt++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectDaemon();
+      }, delay);
+    };
     const connectDaemon = (): void => {
+      if (connecting) return;
+      connecting = true;
       void connectStreamDeckChannel({
         baseUrl,
         username: process.env.AIUR_DASHBOARD_USERNAME as string,
@@ -201,19 +187,23 @@ export const main = async (): Promise<void> => {
           fleet: () => undefined,
           grid: (grid) => { latestGrid = grid; if (activeBackend !== null) void repaint(activeBackend); },
           usage: (usage) => { latestUsage = usage; if (activeBackend !== null) void repaint(activeBackend); },
-          transcript: (line) => { transcriptLines = [...transcriptLines.slice(-20), line]; if (activeBackend !== null) void repaint(activeBackend); },
+          transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; controller.setTranscript(transcriptFeed); },
           control: () => undefined,
           closed: (error) => {
             console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
             channel = null;
-            const delay = Math.min(30_000, 500 * 2 ** reconnectAttempt++);
-            setTimeout(connectDaemon, delay);
+            scheduleConnect();
           },
         },
-      }).then((connected) => { channel = connected; if (focusedIdentifier !== null) channel.focus(focusedIdentifier); }).catch((error) => {
+      }).then((connected) => {
+        connecting = false;
+        channel = connected;
+        const focused = controller.state().focusedIdentifier;
+        if (focused !== null) connected.focus(focused);
+      }).catch((error) => {
+        connecting = false;
         console.warn("[streamdeck] daemon channel unavailable; retrying", error);
-        const delay = Math.min(30_000, 500 * 2 ** reconnectAttempt++);
-        setTimeout(connectDaemon, delay);
+        scheduleConnect();
       });
     };
     connectDaemon();
@@ -231,6 +221,9 @@ export const main = async (): Promise<void> => {
     brightness,
     devicePresentAtStart: presentAtStart,
     openBackend: async () => {
+      if (process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1") {
+        throw new Error("Stream Deck + not found: forced absent test mode");
+      }
       try {
         return openUsbBackend(await openStreamDeckDevice(), { interfaceNumber: HID_INTERFACE });
       } catch (error) {
@@ -240,8 +233,11 @@ export const main = async (): Promise<void> => {
         throw error;
       }
     },
-    onInput: handleInput,
+    onInput: controller.handleReport,
     repaint,
+    onBackendClosed: (backend) => {
+      if (activeBackend === backend) activeBackend = null;
+    },
     registerSignals: (handler) => {
       const shutdown = (): void => {
         channel?.close();

@@ -67,6 +67,12 @@ export interface StreamDeckChannelOptions {
   readonly events: StreamDeckChannelEvents;
 }
 
+export interface StreamDeckChannel {
+  focus(identifier: string): void;
+  control(identifier: string, action: "pause" | "resume"): void;
+  close(): void;
+}
+
 const tokenPath = "/api/v1/streamdeck/token";
 
 const channelUrl = (baseUrl: string, token: string): string => {
@@ -87,11 +93,7 @@ const parseFrame = (data: string): unknown[] | null => {
 };
 
 /** Connects and joins the authenticated `streamdeck:fleet` channel. */
-export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions): Promise<{
-  focus(identifier: string): void;
-  control(identifier: string, action: "pause" | "resume"): void;
-  close(): void;
-}> => {
+export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions): Promise<StreamDeckChannel> => {
   const response = await options.fetch(new URL(tokenPath, options.baseUrl).toString(), {
     method: "POST",
     headers: {

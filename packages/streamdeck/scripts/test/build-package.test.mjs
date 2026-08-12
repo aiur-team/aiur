@@ -42,7 +42,10 @@ test("builds a self-contained archive with traceable provenance", async () => {
     assert.match(await readFile(join(root, "share", "udev", "70-streamdeck.rules"), "utf8"), /0fd9/);
     assert.match(await readFile(join(root, "share", "systemd", "aiur-streamdeck.service"), "utf8"), /bin\/aiur-streamdeck/);
     await new Promise((resolve, reject) => {
-      const child = spawn(join(root, "bin", "aiur-streamdeck"), [], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(join(root, "bin", "aiur-streamdeck"), [], {
+        env: { ...process.env, AIUR_STREAMDECK_FORCE_ABSENT: "1" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
       let output = "";
       child.stdout.on("data", (chunk) => (output += chunk));
       child.stderr.on("data", (chunk) => (output += chunk));

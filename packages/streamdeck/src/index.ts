@@ -28,6 +28,7 @@ export * from "./runtime.js";
 export * from "./channel.js";
 export * from "./input.js";
 export * from "./surface.js";
+export * from "./controller.js";
 export * from "./rasterizer.js";
 export * from "./imageWriter/headerGenerator.js";
 export * from "./touchStrip/geometry.js";
