@@ -71,9 +71,10 @@ defmodule Aiur.ConfigurationReferenceTest do
   defp documented_default(key) do
     regex = ~r/^\| `#{Regex.escape(key)}` \| [^|]+ \| (?<default>[^|]+) \|/m
 
-    case Regex.named_captures(regex, @configuration_reference) do
-      %{"default" => value} -> parse_default(key, String.trim(value))
-      nil -> flunk("configuration reference no longer states a default for #{key}")
+    case Regex.scan(regex, @configuration_reference, capture: :all_names) do
+      [[value]] -> parse_default(key, String.trim(value))
+      [] -> flunk("configuration reference no longer states a default for #{key}")
+      matches -> flunk("configuration reference states #{length(matches)} defaults for #{key}")
     end
   end
 
