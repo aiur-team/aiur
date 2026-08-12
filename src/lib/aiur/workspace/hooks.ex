@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Hooks do
   @moduledoc "Workspace lifecycle hooks: run_hook/5 with env-scrub and Task-timeout envelope, after-create / after-run / before-remove dispatch, and GitHub connectivity preflight."
 
   require Logger
-  alias Aiur.{Alerts, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, Alerts, BuildGate, Config, RepoBase}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -26,7 +26,7 @@ defmodule Aiur.Workspace.Hooks do
 
   defp run_after_create_hook(command, workspace, issue_context, true, nil) do
     Reconstruction.run(workspace, fn stage ->
-      run_hook(command, stage, issue_context, "after_create", nil)
+      run_reconstruction_hook(command, stage, issue_context, "after_create")
     end)
   end
 
@@ -52,11 +52,46 @@ defmodule Aiur.Workspace.Hooks do
 
   @spec run_hook(String.t(), Path.t(), map(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
-  def run_hook(command, workspace, issue_context, hook_name, nil) do
+  def run_hook(command, workspace, issue_context, hook_name, nil),
+    do: run_local_hook(command, workspace, issue_context, hook_name, workspace)
+
+  def run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+
+    Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
+
+    case Remote.run_remote_command(worker_host, remote_hook_command(command, workspace, issue_context), timeout_ms) do
+      {:ok, cmd_result} ->
+        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+
+      {:error, {:workspace_hook_timeout, ^hook_name, _timeout_ms} = reason} ->
+        {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec run_reconstruction_hook(String.t(), Path.t(), map(), String.t()) ::
+          :ok | {:error, term()}
+  def run_reconstruction_hook(command, stage, issue_context, hook_name) do
+    # Cold-clone hooks require a genuinely empty stage (`git clone ... .`).
+    # Keep the pre-hook wrappers in the reconstruction root beside that
+    # stage; Reconstruction owns the root, and the support tree is removed
+    # before either promotion or failure cleanup.
+    build_guard_root = Path.dirname(stage)
+
+    try do
+      run_local_hook(command, stage, issue_context, hook_name, build_guard_root)
+    after
+      File.rm_rf(Path.join(build_guard_root, ".aiur-runtime"))
+    end
+  end
+
+  defp run_local_hook(command, workspace, issue_context, hook_name, build_guard_root) do
     timeout_ms = Config.settings!().hooks.timeout_ms
     started_at = System.monotonic_time(:millisecond)
-    build_gate_env = BuildGate.shell_env()
-    shell = if build_gate_env == [], do: "sh", else: "bash"
 
     Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
 
@@ -74,46 +109,52 @@ defmodule Aiur.Workspace.Hooks do
     # that AgentEnvironment applies for the agent's own shell.
     scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
 
-    task =
-      Task.async(fn ->
-        System.cmd(shell, ["-lc", scrubbed_command],
-          cd: workspace,
-          stderr_to_stdout: true,
-          env: build_gate_env ++ hook_env(issue_context)
-        )
-      end)
+    with {:ok, build_gate_env} <- local_build_gate_env(build_guard_root) do
+      shell = if build_gate_env == [], do: "sh", else: "bash"
 
-    case Task.yield(task, timeout_ms) do
-      {:ok, cmd_result} ->
-        elapsed_ms = System.monotonic_time(:millisecond) - started_at
+      task =
+        Task.async(fn ->
+          System.cmd(shell, ["-lc", scrubbed_command],
+            cd: workspace,
+            stderr_to_stdout: true,
+            env: build_gate_env ++ hook_env(issue_context)
+          )
+        end)
 
-        Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{Context.log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
+      case Task.yield(task, timeout_ms) do
+        {:ok, cmd_result} ->
+          elapsed_ms = System.monotonic_time(:millisecond) - started_at
 
-        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+          Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{Context.log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
 
-      nil ->
-        Task.shutdown(task, :brutal_kill)
+          handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
-        Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
+        nil ->
+          Task.shutdown(task, :brutal_kill)
 
-        {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+          Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
+
+          {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+      end
     end
   end
 
-  def run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do
-    timeout_ms = Config.settings!().hooks.timeout_ms
+  defp local_build_gate_env(build_guard_root) do
+    case BuildGate.shell_env() do
+      [] ->
+        {:ok, []}
 
-    Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
+      build_gate_env ->
+        with :ok <- AgentBuildGuard.install(build_guard_root) do
+          bin_dir = AgentBuildGuard.bin_dir(build_guard_root)
 
-    case Remote.run_remote_command(worker_host, remote_hook_command(command, workspace, issue_context), timeout_ms) do
-      {:ok, cmd_result} ->
-        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+          path =
+            [bin_dir, System.get_env("PATH")]
+            |> Enum.reject(&(&1 in [nil, ""]))
+            |> Enum.join(":")
 
-      {:error, {:workspace_hook_timeout, ^hook_name, _timeout_ms} = reason} ->
-        {:error, reason}
-
-      {:error, reason} ->
-        {:error, reason}
+          {:ok, [{"AIUR_BUILD_GATE_BIN", bin_dir}, {"PATH", path} | build_gate_env]}
+        end
     end
   end
 

@@ -39,7 +39,8 @@ defmodule Aiur.Workspace.RefreshTest do
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_before_run: "git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
+      hook_before_run:
+        "test -z \"$(find . -mindepth 1 -maxdepth 1 -print -quit)\" && git init --quiet -b main && git config user.email t@example.com && git config user.name T && touch rebuilt && git add rebuilt && git commit --quiet -m rebuilt"
     )
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
@@ -47,6 +48,7 @@ defmodule Aiur.Workspace.RefreshTest do
 
     assert File.exists?(Path.join(workspace, "rebuilt"))
     assert File.read!(log_path) == "prior transcript\n"
+    refute File.exists?(Path.join(workspace, ".aiur-runtime"))
   end
 
   test "run/3 refuses incomplete Git WIP before executing before_run", %{

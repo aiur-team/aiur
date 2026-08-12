@@ -131,7 +131,7 @@ defmodule Aiur.Workspace.Refresh do
     case Provisioner.workspace_readiness(workspace) do
       :bootstrap ->
         Reconstruction.run(workspace, fn stage ->
-          Hooks.run_hook(command, stage, issue_context, "before_run", nil)
+          Hooks.run_reconstruction_hook(command, stage, issue_context, "before_run")
         end)
 
       :ready ->

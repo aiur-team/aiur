@@ -56,7 +56,7 @@ defmodule Aiur.Workspace.ProvisionerTest do
   end
 
   @tag @linux_only
-  test "bulk workspace creation caps concurrent after_create builds" do
+  test "bulk workspace creation caps external POSIX after_create child builds" do
     test_root = Path.join(System.tmp_dir!(), "workspace-build-gate-#{System.unique_integer([:positive])}")
     workspace_root = Path.join(test_root, "workspaces")
     bin_dir = Path.join(test_root, "bin")
@@ -82,7 +82,13 @@ defmodule Aiur.Workspace.ProvisionerTest do
       printf initialized > README.md
       git add README.md
       git commit --quiet -m init
-      PATH=#{Aiur.Shell.escape(bin_dir)}:$PATH mise exec -- mix compile
+      printf '#!/bin/sh\nexec mise exec -- mix compile\n' > hook-build
+      chmod +x hook-build
+      probe_bin=#{Aiur.Shell.escape(bin_dir)}
+      if [ -n "${AIUR_BUILD_GATE_BIN:-}" ]; then
+        case "$PATH" in "$AIUR_BUILD_GATE_BIN":*) ;; *) exit 88 ;; esac
+      fi
+      PATH="${AIUR_BUILD_GATE_BIN:+$AIUR_BUILD_GATE_BIN:}$probe_bin:/usr/bin:/bin" ./hook-build
       """
     )
 
