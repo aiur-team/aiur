@@ -74,7 +74,7 @@ domain entirely.
 
 Extend the Build Order LiveView route component BO-012 establishes, reading
 the same snapshot assigns. Copy the summary table/card markup patterns from
-the Executor Control Center components rather than inventing a new table
+the Dashboard components rather than inventing a new table
 style.
 
 ## Contract and invariants
