@@ -1,5 +1,5 @@
 defmodule Aiur.Claude.Repl.ReaperTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.Claude.Repl.Reaper
   alias Aiur.Tmux

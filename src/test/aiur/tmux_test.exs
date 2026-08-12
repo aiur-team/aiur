@@ -1,5 +1,5 @@
 defmodule Aiur.TmuxTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.Tmux
 
@@ -11,6 +11,16 @@ defmodule Aiur.TmuxTest do
       start_supervised({Tmux, [transport: {:mock, test_pid}, name: name, session: "test"]})
 
     %{server: pid, name: name}
+  end
+
+  test "two unnamed instances start independently" do
+    {:ok, first} =
+      start_supervised({Tmux, [transport: {:mock, self()}, session: "first"]}, id: :first_unnamed_tmux)
+
+    {:ok, second} =
+      start_supervised({Tmux, [transport: {:mock, self()}, session: "second"]}, id: :second_unnamed_tmux)
+
+    assert first != second
   end
 
   test "command/2 forwards a line to tmux and returns the parsed response", %{name: name} do

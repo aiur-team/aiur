@@ -68,7 +68,7 @@ defmodule Aiur.DecisionQueryTest do
     dir = Path.join(System.tmp_dir!(), "aiur-decision-query-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
 
-    {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(store)
@@ -142,7 +142,7 @@ defmodule Aiur.DecisionQueryTest do
     assert MapSet.size(MapSet.new([newest.decision_id, next.decision_id, oldest.decision_id])) == 3
   end
 
-  test "cursor pages preserve first accepted audit order after update and replay", %{store: store} do
+  test "cursor pages preserve first accepted audit order after update and replay", %{store: store, dir: dir} do
     first = request!(store, "stable-first", ~U[2026-07-13 08:00:00Z])
     middle = request!(store, "stable-middle", ~U[2026-07-13 08:01:00Z])
     third = request!(store, "stable-third", ~U[2026-07-13 08:02:00Z])
@@ -161,7 +161,7 @@ defmodule Aiur.DecisionQueryTest do
     assert page_two.decision_id == middle.decision_id
 
     GenServer.stop(store)
-    {:ok, replayed} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, replayed} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(replayed)
@@ -555,7 +555,7 @@ defmodule Aiur.DecisionQueryTest do
     GenServer.stop(store)
 
     File.write!(Path.join(dir, "decisions.ndjson"), "not json at all\n", [:append])
-    {:ok, replayed} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, replayed} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(replayed)

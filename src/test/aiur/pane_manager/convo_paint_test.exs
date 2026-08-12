@@ -1,5 +1,5 @@
 defmodule Aiur.PaneManager.ConvoPaintTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.PaneManager.ConvoPaint
   alias Aiur.Tmux
