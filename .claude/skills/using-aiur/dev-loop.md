@@ -64,7 +64,34 @@ matching branch, and exits non-zero when no branch or more than one branch exist
    `its-everdred` already carry that credit and need no trailer. **Never** mention
    Claude, Codex, AI, models, or "generated with" in commit messages or PR
    descriptions — keep them plain and human.
-6. Push to the exact branch returned by `git branch --show-current`.
+6. Push to the exact branch returned by `git branch --show-current`. On GitHub,
+   `GITHUB_TOKEN` is the push identity: verify that exact token resolves to the
+   configured `tracker.github.bot_account` before the first push, without
+   printing the token:
+
+   ```bash
+   test "$(GH_TOKEN="$GITHUB_TOKEN" gh api user --jq .login)" = "<bot_account>"
+   ```
+
+   Aiur's command sandbox passes that token through a fail-closed Git helper;
+   it never falls through to the Executor's cached `gh` account. If a manual
+   recovery push runs outside that sandbox, reset the helper list explicitly
+   and install a helper that reads only `GITHUB_TOKEN`:
+
+   ```bash
+   agent_helper='!f() { if test "$1" = get; then if test -z "${GITHUB_TOKEN:-}"; then printf "quit=true\n"; else printf "username=x-access-token\npassword=%s\n" "$GITHUB_TOKEN"; fi; fi; }; f'
+   GIT_TERMINAL_PROMPT=0 git -c credential.helper= -c credential.helper="$agent_helper" push origin HEAD
+   ```
+
+   Do not put a token in a remote URL or rely on a lone inline helper override:
+   token URLs leak credentials, and helper lists are additive unless an empty
+   entry resets inherited helpers first. GitHub attributes the push to the
+   account owning the token, regardless of the URL username. If the token is
+   missing, invalid, or rate-limited, stop on the authentication failure; never
+   retry through the Executor keyring. An empty commit or API ref update does
+   not repair a prior attribution error because it contributes no reviewable
+   file change; the next real content push must use the correct identity.
+
    Immediately before pushing, run
    `aiur guard-pr-deletions "$AIUR_BASE_BRANCH"`. The command fetches the exact
    configured base and refuses a PR when its tree deletes more than 50 base

@@ -8,7 +8,7 @@ Use the command from the repository that owns the run. An instance is keyed to t
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
-| `aiur` <!-- cli-command: run --> | Starts a foreground interactive run. The launcher supplies a loopback host, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
+| `aiur` <!-- cli-command: run --> | Starts a foreground interactive run. The launcher supplies a lower-precedence Tailscale-or-loopback host default, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
 | `aiur run` <!-- cli-command: run --> | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
 | `aiur init` <!-- cli-command: init --> | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. | `aiur init` |
 | `aiur init --force` <!-- cli-flag: --force --> | Recreates generated configuration. Re-running without it preserves existing scaffold files. | `aiur init --force` |
@@ -27,7 +27,7 @@ Use the command from the repository that owns the run. An instance is keyed to t
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` <!-- cli-flag: --i-understand-that-this-will-be-running-without-the-usual-guardrails --> | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` <!-- cli-flag: --version --> | Prints the release version without contacting or claiming a running daemon. | `aiur --version` |
 
-Foreground mode has the terminal board and chat panes. `--bg` is headless but still starts the dashboard unless `--no-dashboard` is passed. The default host is loopback, or an authenticated Tailscale address when one is safely available.
+Foreground mode has the terminal board and chat panes. `--bg` is headless but still starts the dashboard unless `--no-dashboard` is passed. A configured `server.host` wins over the launcher's default; `--host` wins over both. The default is loopback, or an authenticated Tailscale address when one is safely available. Startup output reports both the usable dashboard URL and its effective bind host and port.
 
 ## Inspect and operate a running daemon
 

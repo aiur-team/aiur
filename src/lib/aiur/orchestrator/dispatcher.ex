@@ -1672,6 +1672,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
       | dispatch_capacity_sample: %{
           load: probes.load,
+          load_threshold: probes.load_threshold,
           target: probes.target,
           schedulers: probes.schedulers
         }
