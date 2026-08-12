@@ -27,9 +27,14 @@ import process from "node:process";
 import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint, usb } from "usb";
 
 import { parseBrightness } from "./device-path.js";
+import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs } from "./channel.js";
+import type { HidBackend } from "./backend.js";
 import { POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
+import type { Runtime } from "./runtime.js";
+import { createPhysicalSurface, type PhysicalSurfaceState } from "./surface.js";
 import { openUsbBackend, type UsbDeviceLike } from "./usb-backend.js";
+import { createPhysicalController } from "./controller.js";
 
 /** HID interface number on the Stream Deck +. */
 const HID_INTERFACE = 0;
@@ -123,18 +128,111 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
 
 export const main = async (): Promise<void> => {
   const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
-  const presentAtStart = deviceIsPresent();
+  const presentAtStart = process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1" ? false : deviceIsPresent();
+  let latestGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
+  let latestUsage: Readonly<Record<string, unknown>> = {};
+  let transcriptFeed: string[] = [];
+  let logsFeed: StreamDeckLogs = {};
+  let activeBackend: HidBackend | null = null;
+  let channel: Awaited<ReturnType<typeof connectStreamDeckChannel>> | null = null;
+  let runtime: Runtime | null = null;
+  let repaintChain: Promise<void> = Promise.resolve();
+  const surface = createPhysicalSurface();
+
+  const controller = createPhysicalController({
+    grid: () => latestGrid,
+    channel: () => channel,
+    stateChanged: () => {
+      if (activeBackend !== null) void repaint(activeBackend);
+    },
+  });
+
+  const repaint = async (backend: HidBackend): Promise<void> => {
+    activeBackend = backend;
+    const current = controller.state();
+    const state: PhysicalSurfaceState = {
+      mode: current.mode,
+      focusedIdentifier: current.focusedIdentifier,
+      micHeld: current.micHeld,
+      columnOffset: current.columnOffset,
+      transcriptLines: current.transcriptLines,
+      eventLines: current.eventLines,
+      eventOffset: current.eventOffset,
+      eventHasPrevious: current.eventHasPrevious,
+      eventHasNext: current.eventHasNext,
+      chatHasPrevious: current.chatHasPrevious,
+      chatHasNext: current.chatHasNext,
+    };
+    const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
+    repaintChain = next.catch(() => undefined);
+    await next;
+  };
+
+  const baseUrl = process.env.AIUR_PHOENIX_URL;
+  if (baseUrl && process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD) {
+    let reconnectAttempt = 0;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let connecting = false;
+    const scheduleConnect = (): void => {
+      if (connecting || reconnectTimer !== null) return;
+      const delay = Math.min(30_000, 500 * 2 ** reconnectAttempt++);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connectDaemon();
+      }, delay);
+    };
+    const connectDaemon = (): void => {
+      if (connecting) return;
+      connecting = true;
+      void connectStreamDeckChannel({
+        baseUrl,
+        username: process.env.AIUR_DASHBOARD_USERNAME as string,
+        password: process.env.AIUR_DASHBOARD_PASSWORD as string,
+        fetch: defaultFetch,
+        websocket: defaultWebSocket,
+        events: {
+          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) latestGrid = snapshot.grid; latestUsage = snapshot.usage; if (activeBackend !== null) void repaint(activeBackend); },
+          fleet: () => undefined,
+          grid: (grid) => { latestGrid = grid; if (activeBackend !== null) void repaint(activeBackend); },
+          usage: (usage) => { latestUsage = usage; if (activeBackend !== null) void repaint(activeBackend); },
+          transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; controller.setTranscript(transcriptFeed); },
+          logs: (logs) => { logsFeed = logs; controller.setLogs(logsFeed); },
+          control: () => undefined,
+          closed: (error) => {
+            console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
+            channel = null;
+            scheduleConnect();
+          },
+        },
+      }).then((connected) => {
+        connecting = false;
+        channel = connected;
+        const focused = controller.state().focusedIdentifier;
+        if (focused !== null) connected.focus(focused);
+      }).catch((error) => {
+        connecting = false;
+        console.warn("[streamdeck] daemon channel unavailable; retrying", error);
+        scheduleConnect();
+      });
+    };
+    connectDaemon();
+  } else {
+    console.warn("[streamdeck] AIUR_PHOENIX_URL and dashboard credentials are required for fleet controls");
+  }
 
   if (!presentAtStart) {
     console.info("[streamdeck] no Stream Deck + detected; waiting for hotplug");
   }
 
-  await startRuntime({
+  runtime = await startRuntime({
     spawn,
     net,
     brightness,
     devicePresentAtStart: presentAtStart,
     openBackend: async () => {
+      if (process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1") {
+        throw new Error("Stream Deck + not found: forced absent test mode");
+      }
       try {
         return openUsbBackend(await openStreamDeckDevice(), { interfaceNumber: HID_INTERFACE });
       } catch (error) {
@@ -144,9 +242,19 @@ export const main = async (): Promise<void> => {
         throw error;
       }
     },
+    onInput: controller.handleReport,
+    repaint,
+    onBackendClosed: (backend) => {
+      if (backend !== null && activeBackend === backend) activeBackend = null;
+      controller.cancel();
+    },
     registerSignals: (handler) => {
-      process.on("SIGTERM", handler);
-      process.on("SIGINT", handler);
+      const shutdown = (): void => {
+        channel?.close();
+        handler();
+      };
+      process.on("SIGTERM", shutdown);
+      process.on("SIGINT", shutdown);
     },
     exit: () => process.exit(0),
     setTimer: (fn, ms) => setTimeout(fn, ms),

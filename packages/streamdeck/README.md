@@ -1,13 +1,12 @@
 # Aiur Stream Deck sidecar
 
 This package ships the deployment artifacts and operator runbook for the
-direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The current
-production sidecar owns device lifecycle only: it opens the device, sends a
-key-stream reset, applies brightness, and watches hotplug and suspend. It does
-not connect to the Aiur Phoenix surface, render fleet state, or send fleet
-controls. The browser emulator at `/streamdeck` is the live control surface
-until a separate physical-composition implementation lands and receives
-terminal end-to-end proof in
+direct-HID Node sidecar for an Elgato Stream Deck on Arch Linux. The production
+sidecar opens the device, connects to the authenticated Aiur Phoenix channel,
+renders live fleet/provider state, and routes physical key controls through the
+same AgentChat facade as the browser emulator. It renews its short-lived token
+after disconnects and retains hotplug/suspend recovery. Terminal end-to-end
+proof remains tracked in
 [#1358](https://github.com/aiur-team/aiur/issues/1358).
 
 Download the Linux x64 Stream Deck archive from its commit-addressed release
@@ -96,8 +95,9 @@ in time.
 ## Install and enable the user unit
 
 Install the downloaded sidecar and unit, then create the required private
-environment file. The current entry point reads only `STREAMDECK_BRIGHTNESS`;
-the file is not Dashboard pairing configuration:
+environment file. The entry point reads `STREAMDECK_BRIGHTNESS`,
+`AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and
+`AIUR_DASHBOARD_PASSWORD` from `~/.config/aiur/streamdeck.env`.
 
 ```sh
 install -d -m755 ~/.local/share/aiur
@@ -132,22 +132,18 @@ The archive launch command is `~/.local/share/aiur/streamdeck/bin/aiur-streamdec
 With no attached deck it logs `no Stream Deck + detected; waiting for hotplug`
 and stays alive for the next udev add event.
 
-Set the environment file to mode `600` and use the supported setting:
+Set the environment file to mode `600` and use the supported settings:
 
 ```dotenv
 STREAMDECK_BRIGHTNESS=80
+AIUR_PHOENIX_URL=http://127.0.0.1:4000
+AIUR_DASHBOARD_USERNAME=operator
+AIUR_DASHBOARD_PASSWORD=replace-me
 ```
 
-Do not add `AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, or
-`AIUR_DASHBOARD_PASSWORD` as a pairing step: the current production entry point
-does not consume them. Keep the EnvironmentFile private and do not commit a
-populated copy.
-The key pipeline exports `resolveJpegQuality()` for the eventual canvas/JPEG
-encoder. Its default is 90, with an accepted range of 1–100; the encoder must
-pass an explicit value when that composition layer lands. There is not yet an
-`AIUR_STREAMDECK_JPEG_QUALITY` sidecar environment setting, so do not document
-or rely on one. The write queue coalesces pending key content and serializes
-writes; changing JPEG quality does not make concurrent device owners safe.
+Keep the EnvironmentFile private and do not commit a populated copy. The
+rasterizer uses JPEG quality 90; the write queue coalesces pending key content
+and serializes writes.
 
 For a user service to start before an interactive login after reboot, enable
 user lingering once:
@@ -168,7 +164,7 @@ The service is not a system unit. The deck belongs to the seated operator and
 `uaccess` is seat-scoped. #1354 owns `PrepareForSleep`: it closes before
 suspend, reopens after resume, and reapplies brightness. This unit only keeps
 the process alive; it must not add a competing sleep hook or force a restart on
-every resume. No physical fleet frame is currently painted after recovery.
+every resume, then the channel snapshot repaints the physical fleet surface.
 
 ## Optional start-on-plug activation
 
@@ -185,7 +181,7 @@ Treat it as an opt-in experiment, not a replacement for the unit above.
 | Failure mode | Symptoms | Fix |
 | --- | --- | --- |
 | Permissions / udev | `EACCES`, no deck in the sidecar log, or `getfacl` lacks the logged-in user | Confirm both rules are installed, run `udevadm control --reload-rules && udevadm trigger`, physically replug, then check `getfacl`. Confirm the user is in `users`; do not use `plugdev` or `0666`. |
-| Resume or hotplug recovery | The service is active but the journal does not show a reopen after a device add or wake | Inspect `journalctl --user -u aiur-streamdeck`; #1354 should close/reopen the USB device and reapply brightness. Verify no second sleep hook is fighting it. Physical fleet frames are not implemented yet. |
+| Resume or hotplug recovery | The service is active but the journal does not show a reopen or repaint after a device add or wake | Inspect `journalctl --user -u aiur-streamdeck`; #1354 should close/reopen the USB device and reapply brightness, followed by the live-surface repaint. Verify no second sleep hook is fighting it. |
 | Device wedge | The USB device does not reopen after a reset or feature-report failure | Stop other writers, then physically replug. The current lifecycle does not recover a failed image transfer or issue a device reset on this path. Do not run two sidecars against one hidraw node. |
 | Second-process lock conflict | Startup refuses with an advisory-lock/ownership error, or frames are corrupted when another tool is open | Stop OpenDeck, streamdeck-ui, test scripts, and old sidecar processes. Find the owner with `fuser /dev/hidrawN` and start exactly one Aiur sidecar. |
 
@@ -203,8 +199,8 @@ After a fresh install, verify in this order:
    ACL with `getfacl`.
 2. Start with the deck unplugged. Confirm the user service remains `active`
    without a restart loop.
-3. Plug the deck in and confirm #1354 opens it and reapplies brightness in the
-   journal. A fleet view is not painted by the current sidecar.
+3. Plug the deck in and confirm #1354 opens it, reapplies brightness, and the
+   channel snapshot paints the fleet in the journal/device.
 4. Suspend and resume; confirm the same service reopens the device and
    reapplies brightness without a manual restart.
 5. Unplug and replug; confirm hotplug reopens the device and reapplies
