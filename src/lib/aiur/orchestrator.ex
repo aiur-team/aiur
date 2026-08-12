@@ -567,6 +567,8 @@ defmodule Aiur.Orchestrator do
   def status, do: StatusReport.status_api()
   @spec status(GenServer.server(), timeout()) :: [map()] | :timeout | :unavailable
   def status(server, timeout), do: StatusReport.status_api(server, timeout)
+  @spec status_with_capacity(GenServer.server(), timeout()) :: {[map()], map()} | :timeout | :unavailable
+  def status_with_capacity(server, timeout), do: StatusReport.status_with_capacity_api(server, timeout)
   @spec snapshot(GenServer.server(), timeout()) :: map() | :timeout | :unavailable
   def snapshot(server, timeout), do: StatusReport.snapshot_api(server, timeout)
 
@@ -604,6 +606,8 @@ defmodule Aiur.Orchestrator do
     do: StatusReport.list_running_active_identifiers(state)
 
   def handle_call(:status, _from, state), do: StatusReport.status(state)
+
+  def handle_call(:status_with_capacity, _from, state), do: StatusReport.status_with_capacity(state)
 
   def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
 
