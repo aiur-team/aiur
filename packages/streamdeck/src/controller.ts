@@ -1,6 +1,7 @@
-import { applyStep, columnOffsetFromDial, cycleEventPage, cycleWindow, maxColumnOffset } from "./dial.js";
+import { applyStep, columnOffsetFromDial, cycleEventPage, cycleWindow, dial3ValueFromEventOffset, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs } from "./channel.js";
+import { agentIndexForKey } from "./keys.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
 
@@ -16,6 +17,7 @@ export interface ControllerState {
   readonly eventHasNext: boolean;
   readonly chatHasPrevious: boolean;
   readonly chatHasNext: boolean;
+  readonly micHeld: boolean;
 }
 
 export interface PhysicalControllerOptions {
@@ -36,10 +38,11 @@ const initialState: ControllerState = {
   eventHasNext: false,
   chatHasPrevious: false,
   chatHasNext: false,
+  micHeld: false,
 };
 
 const agentAt = (grid: StreamDeckGrid, offset: number, key: number): Readonly<Record<string, unknown>> | undefined =>
-  grid.agents[(offset + (key % 4)) * 2 + (key < 4 ? 0 : 1)];
+  grid.agents[agentIndexForKey(offset, key)];
 
 const identifierOf = (agent: Readonly<Record<string, unknown>> | undefined): string | null =>
   typeof agent?.identifier === "string" ? agent.identifier : null;
@@ -81,6 +84,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     const boundedEvent = Math.max(0, Math.min(eventOffset, eventMaxOffset));
     const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
     chatDialValue = maxChat === 0 ? 0 : (boundedChat / maxChat) * 100;
+    dial3Value = eventMaxOffset === 0 ? 0 : dial3ValueFromEventOffset(boundedEvent, eventMaxOffset + 8);
     publish({
       ...state,
       eventOffset: boundedEvent,
@@ -95,8 +99,8 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   };
 
   const back = (): void => {
-    if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptLines: [] });
-    else if (state.mode === "cmd") publish({ ...state, mode: "grid", focusedIdentifier: null });
+    if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptLines: [], micHeld: false });
+    else if (state.mode === "cmd") publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false });
   };
 
   const pressKey = (index: number): void => {
@@ -121,9 +125,13 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       } else if (index === 2) {
         publish({ ...state, mode: "logs" });
       } else if (index === 3) {
-        options.channel()?.control(identifier, "mic");
+        publish({ ...state, micHeld: true });
       }
     }
+  };
+
+  const releaseMic = (): void => {
+    if (state.micHeld) publish({ ...state, micHeld: false });
   };
 
   const turn = (input: Extract<DeckInput, { type: "encoder-turn" }>): void => {
@@ -161,6 +169,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const handleReport = (report: Uint8Array): void => {
     const decoded = decodeInputReport(report);
     for (const input of decoded) if (input.type === "encoder-turn") turn(input);
+    for (const input of decoded) {
+      if (input.type === "key" && !input.pressed && input.index === 3 && state.mode === "cmd") releaseMic();
+    }
     const edges = risingEdges(decoded, pressed);
     pressed = new Set(edges.pressed);
     for (const input of edges.events) {

@@ -30,6 +30,8 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert wire["event_starts"] == %{"1" => 0}
     assert wire["event_keys"] |> Enum.at(1) |> Map.get("id") == "turn:turn-1"
     assert Enum.all?(wire["transcript"], &is_map/1)
+    assert {:ok, encoded} = Jason.encode(wire)
+    assert is_binary(encoded)
   end
 
   test "projects every Stream Deck direction as its own badge" do

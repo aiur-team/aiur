@@ -68,6 +68,10 @@ const COLUMNS = 4;
 const ROWS = 2;
 const KEYS_PER_PAGE = COLUMNS * ROWS;
 
+/** Shared physical key -> column-major agent index mapping for render and input. */
+export const agentIndexForKey = (columnOffset: number, key: number): number =>
+  (columnOffset + (key % COLUMNS)) * ROWS + (key < COLUMNS ? 0 : 1);
+
 /**
  * Render-ready bucket tokens from the shared data contract. The web emulator
  * reads the same JSON at compile time, while each renderer keeps its own media
@@ -146,9 +150,15 @@ export function layoutKeys(
   columnOffset: number,
 ): KeyDescriptor[] {
   return Array.from({ length: KEYS_PER_PAGE }, (_, i) => {
-    const col = i % COLUMNS;
-    const row = i < COLUMNS ? 0 : 1;
-    const agent = agents[(columnOffset + col) * ROWS + row];
+    const agent = agents[agentIndexForKey(columnOffset, i)];
+    return agent !== undefined ? buildAgentKey(agent) : EMPTY_KEY;
+  });
+}
+
+/** Builds descriptors in direct physical-key order for non-grid surfaces. */
+export function layoutPhysicalKeys(agents: readonly (AgentInput | undefined)[]): KeyDescriptor[] {
+  return Array.from({ length: KEYS_PER_PAGE }, (_, i) => {
+    const agent = agents[i];
     return agent !== undefined ? buildAgentKey(agent) : EMPTY_KEY;
   });
 }

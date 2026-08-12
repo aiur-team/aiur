@@ -52,11 +52,13 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @doc "Routes a physical key toggle through the same AgentChat facade as the emulator."
   def handle_in("control", %{"identifier" => identifier, "action" => action}, socket)
-      when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume"] do
+      when is_binary(identifier) and byte_size(identifier) in 1..200 and action in ["pause", "resume", "prioritize", "deprioritize"] do
     result =
       case action do
         "pause" -> AgentChat.pause(identifier)
         "resume" -> AgentChat.resume(identifier)
+        "prioritize" -> AgentChat.prioritize(identifier)
+        "deprioritize" -> AgentChat.deprioritize(identifier)
       end
 
     case result do

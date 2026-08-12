@@ -1,7 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPhysicalSurface, repaintGrid } from "../src/surface.js";
+import { layoutPhysicalKeys } from "../src/keys.js";
 
 describe("physical surface composition", () => {
+  it("places command faces on the exact keys their controller handles", () => {
+    const descriptors = layoutPhysicalKeys([
+      { identifier: "pause", title: "Pause", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
+      { identifier: "priority", title: "Prioritize", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
+      { identifier: "logs", title: "Logs", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
+      { identifier: "mic", title: "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
+    ]);
+    expect(descriptors.slice(0, 4).map((descriptor) => descriptor.kind === "agent" ? descriptor.title : "empty")).toEqual(["Pause", "Prioritize", "Logs", "Mic"]);
+    expect(descriptors.slice(4).every((descriptor) => descriptor.kind === "empty")).toBe(true);
+  });
   it("repaints eight keys from the daemon grid and blacks out empty slots", async () => {
     const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
     await repaintGrid({ sendFeatureReport }, {

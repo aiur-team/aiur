@@ -153,6 +153,7 @@ export const main = async (): Promise<void> => {
     const state: PhysicalSurfaceState = {
       mode: current.mode,
       focusedIdentifier: current.focusedIdentifier,
+      micHeld: current.micHeld,
       columnOffset: current.columnOffset,
       transcriptLines: current.transcriptLines,
       eventLines: current.eventLines,

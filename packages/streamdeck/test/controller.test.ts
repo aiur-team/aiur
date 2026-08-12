@@ -65,6 +65,36 @@ describe("physical controller composition", () => {
     expect(resume).toHaveBeenCalledWith("agent-6", "resume");
   });
 
+  it("uses the same column-major mapping as the rendered grid at every key and offset", () => {
+    for (const offset of [0, 4]) {
+      for (const key of Array.from({ length: 8 }, (_, index) => index)) {
+        const focus = vi.fn();
+        const controller = createPhysicalController({ grid: () => grid(20), channel: () => ({ focus, control: vi.fn() }), stateChanged: vi.fn() });
+        if (offset !== 0) {
+          controller.handleReport(dialButton(3));
+          controller.handleReport(dialButton(3, false));
+        }
+        controller.handleReport(keyReport(key, true));
+        controller.handleReport(keyReport(key, false));
+        const column = key % 4;
+        const row = key < 4 ? 0 : 1;
+        const expected = `agent-${(offset + column) * 2 + row}`;
+        expect(controller.state().focusedIdentifier).toBe(expected);
+        expect(focus).toHaveBeenCalledWith(expected);
+      }
+    }
+  });
+
+  it("keeps the physical mic hold local and clears it on release", () => {
+    const controller = createPhysicalController({ grid, channel: () => ({ focus: vi.fn(), control: vi.fn() }), stateChanged: vi.fn() });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(keyReport(3, true));
+    expect(controller.state().micHeld).toBe(true);
+    controller.handleReport(keyReport(3, false));
+    expect(controller.state().micHeld).toBe(false);
+  });
+
   it("pages, enters logs, scrolls chat, and backs out through the physical controls", () => {
     const changed = vi.fn();
     const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: changed });
@@ -116,5 +146,23 @@ describe("physical controller composition", () => {
     expect(controller.state().eventOffset).toBe(eventOffset);
     expect(controller.state().chatHasPrevious).toBe(true);
     expect(changed).toHaveBeenCalled();
+  });
+
+  it("synchronizes dial D with the server-selected event offset when logs arrive", () => {
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+    controller.setLogs({
+      event_keys: Array.from({ length: 20 }, (_, index) => ({ label: `event-${index}` })),
+      events_offset: 8,
+      events_max_offset: 12,
+      transcript: [{ body: "chat" }],
+      transcript_offset: 0,
+    });
+    expect(controller.state().eventOffset).toBe(8);
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(dialButton(3));
+    controller.handleReport(dialButton(3, false));
+    controller.handleReport(dialTurn(3, 1));
+    expect(controller.state().eventOffset).toBe(9);
   });
 });

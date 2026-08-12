@@ -1,6 +1,6 @@
 import type { HidBackend } from "./backend.js";
 import { BLACK, buildKeyFillReport, DEFAULT_FILL_INDEX_BASE, type RgbColor } from "./keys/keyFill.js";
-import { layoutKeys, type AgentInput, type KeyDescriptor } from "./keys.js";
+import { layoutKeys, layoutPhysicalKeys, type AgentInput, type KeyDescriptor } from "./keys.js";
 import { KeyRenderer } from "./keys/keyRenderer.js";
 import { KeyWriteQueue } from "./keys/writeQueue.js";
 import { createKeyReportWriter } from "./keys/keyWriter.js";
@@ -17,6 +17,7 @@ export type PhysicalMode = "grid" | "cmd" | "logs";
 export interface PhysicalSurfaceState {
   readonly mode: PhysicalMode;
   readonly focusedIdentifier: string | null;
+  readonly micHeld?: boolean;
   readonly columnOffset: number;
   readonly transcriptLines?: readonly string[];
   readonly eventLines?: readonly string[];
@@ -57,15 +58,16 @@ const descriptorEvents = (lines: readonly string[], offset: number): AgentInput[
   dependency_ready: true,
 }));
 
-const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | undefined): (AgentInput | undefined)[] => {
+const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | undefined, micHeld: boolean): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   const running = agent?.bucket === "running";
-  return [
+  const commands: AgentInput[] = [
     { identifier: `${identifier}:pause`, title: running ? "Pause" : "Resume", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
     { identifier: `${identifier}:priority`, title: agent?.priority === true ? "Deprioritize" : "Prioritize", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
     { identifier: `${identifier}:logs`, title: "Logs", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:mic`, title: "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+    { identifier: `${identifier}:mic`, title: micHeld ? "Mic (LIVE)" : "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
   ];
+  return [...commands, undefined, undefined, undefined, undefined];
 };
 
 /**
@@ -110,7 +112,7 @@ export const createPhysicalSurface = () => {
       const visibleGrid = state.mode === "logs"
         ? layoutKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0), 0)
         : state.mode === "cmd"
-          ? layoutKeys(descriptorCommands(focused), 0)
+        ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true))
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {
