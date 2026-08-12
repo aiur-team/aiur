@@ -1,4 +1,6 @@
 defmodule Aiur.Claude.Repl.LauncherTest do
+  # This file changes `:process_reaper_registrations` in one scenario, so it
+  # remains serial until application-environment isolation is addressed.
   use ExUnit.Case, async: false
 
   alias Aiur.Claude.Repl.Launcher
