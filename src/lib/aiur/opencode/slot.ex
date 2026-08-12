@@ -102,9 +102,9 @@ defmodule Aiur.Opencode.Slot do
   end
 
   @doc "Atomically claim an idle slot for a caller about to select it."
-  @spec claim_ready(GenServer.server()) :: :ok | :busy
-  def claim_ready(server) do
-    GenServer.call(server, :claim_ready, 2_000)
+  @spec claim_ready(GenServer.server(), pid()) :: :ok | :busy
+  def claim_ready(server, owner) when is_pid(owner) do
+    GenServer.call(server, {:claim_ready, owner}, 2_000)
   catch
     :exit, _ -> :busy
   end
@@ -233,7 +233,7 @@ defmodule Aiur.Opencode.Slot do
   @impl true
   def handle_call({:select, identifier}, from, %{status: status} = state)
       when status in [:ready, :claimed, :active],
-      do: do_set_visible_call(identifier, from, state)
+      do: do_set_visible_call(identifier, from, clear_claim_for(from, state))
 
   def handle_call({:select, _identifier}, _from, state),
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
@@ -243,10 +243,10 @@ defmodule Aiur.Opencode.Slot do
 
   def handle_call(:reserve_stop, _from, state), do: {:reply, :busy, state}
 
-  def handle_call(:claim_ready, _from, %{status: :ready} = state),
-    do: {:reply, :ok, %{state | status: :claimed}}
-
-  def handle_call(:claim_ready, _from, state), do: {:reply, :busy, state}
+  def handle_call({:claim_ready, owner}, _from, %{status: :ready} = state) do
+    claim_ref = Process.monitor(owner)
+    {:reply, :ok, %{state | status: :claimed, claim_owner: owner, claim_ref: claim_ref}}
+  end
 
   def handle_call({:attach, identifier}, _from, %{status: status} = state)
       when status in [:ready, :claimed, :active] do
@@ -279,7 +279,7 @@ defmodule Aiur.Opencode.Slot do
     if state.visible_identifier == identifier and is_binary(state.pane_id) do
       {:reply, {:ok, state.pane_id}, state}
     else
-      do_set_visible_call(identifier, from, state)
+      do_set_visible_call(identifier, from, clear_claim_for(from, state))
     end
   end
 
@@ -333,6 +333,12 @@ defmodule Aiur.Opencode.Slot do
     do: {:reply, State.snapshot(state), state}
 
   @impl true
+  def handle_info({:DOWN, ref, :process, owner, _reason}, %{claim_ref: ref, claim_owner: owner} = state) do
+    {:noreply, %{state | status: :ready, claim_owner: nil, claim_ref: nil}}
+  end
+
+  def handle_info({:DOWN, _ref, :process, _owner, _reason}, state), do: {:noreply, state}
+
   def handle_info(:poll_session, %{status: :active, pane_id: pane_id} = state)
       when is_binary(pane_id) do
     case State.record_poll(state, AttachPane.probe(pane_id)) do
@@ -449,8 +455,23 @@ defmodule Aiur.Opencode.Slot do
     end
   end
 
-  defp unclaim(%{status: :claimed} = state), do: %{state | status: :ready}
+  defp clear_claim_for({owner, _tag}, %{claim_owner: owner, claim_ref: ref} = state)
+       when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    %{state | claim_owner: nil, claim_ref: nil}
+  end
+
+  defp clear_claim_for(_from, state), do: state
+
+  defp unclaim(%{status: :claimed} = state), do: clear_claim(state)
   defp unclaim(state), do: state
+
+  defp clear_claim(%{claim_ref: ref} = state) when is_reference(ref) do
+    Process.demonitor(ref, [:flush])
+    %{state | status: :ready, claim_owner: nil, claim_ref: nil}
+  end
+
+  defp clear_claim(state), do: %{state | status: :ready, claim_owner: nil, claim_ref: nil}
 
   defp do_select(identifier, state) do
     do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)

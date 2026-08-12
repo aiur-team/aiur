@@ -107,7 +107,7 @@ defmodule Aiur.Opencode.SlotSupervisor do
       |> Enum.map(fn {index, pid} -> {index, pid, Slot.snapshot(pid)} end)
       |> Enum.filter(fn {_index, _pid, snap} -> Map.get(snap, :status) == :ready end)
 
-    claim_ready_slot(ready)
+    claim_ready_slot(ready, self())
   end
 
   @doc """
@@ -140,7 +140,7 @@ defmodule Aiur.Opencode.SlotSupervisor do
 
     case ready do
       [_ | _] = candidates ->
-        claim_ready_slot(candidates)
+        claim_ready_slot(candidates, self())
 
       [] ->
         unless any_warming?(snapshots), do: try_grow()
@@ -148,14 +148,14 @@ defmodule Aiur.Opencode.SlotSupervisor do
     end
   end
 
-  defp claim_ready_slot([]), do: {:error, :no_ready_slot}
+  defp claim_ready_slot([], _owner), do: {:error, :no_ready_slot}
 
-  defp claim_ready_slot(candidates) do
+  defp claim_ready_slot(candidates, owner) do
     {index, pid, snap} = Enum.min_by(candidates, fn {index, _pid, _snap} -> index end)
 
-    case Slot.claim_ready(pid) do
+    case Slot.claim_ready(pid, owner) do
       :ok -> {index, pid}
-      :busy -> claim_ready_slot(List.delete(candidates, {index, pid, snap}))
+      :busy -> claim_ready_slot(List.delete(candidates, {index, pid, snap}), owner)
     end
   end
 

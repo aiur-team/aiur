@@ -8,6 +8,8 @@ defmodule Aiur.Opencode.Slot.State do
 
   defstruct slot_index: nil,
             status: :booting,
+            claim_owner: nil,
+            claim_ref: nil,
             workspace_path: nil,
             server_pid: nil,
             base_url: nil,
@@ -47,7 +49,7 @@ defmodule Aiur.Opencode.Slot.State do
             # background side-effect for fill purposes.
             pending_attaches: MapSet.new()
 
-  @type status :: :booting | :serve_starting | :attach_spawning | :ready | :active | :stopping | :failed
+  @type status :: :booting | :serve_starting | :attach_spawning | :ready | :claimed | :active | :stopping | :failed
   @type t :: %__MODULE__{}
 
   @doc "Initial state for a newly-started slot."

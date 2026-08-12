@@ -11,15 +11,24 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
     @impl true
     def init(index) do
       :ok = SlotRegistry.register_self(index)
-      {:ok, :ready}
+      {:ok, %{status: :ready, claim_owner: nil, claim_ref: nil}}
     end
 
     @impl true
-    def handle_call(:snapshot, _from, status), do: {:reply, %{status: status}, status}
-    def handle_call(:claim_ready, _from, :ready), do: {:reply, :ok, :claimed}
-    def handle_call(:claim_ready, _from, status), do: {:reply, :busy, status}
-    def handle_call(:reserve_stop, _from, :ready), do: {:reply, :ok, :stopping}
-    def handle_call(:reserve_stop, _from, status), do: {:reply, :busy, status}
+    def handle_call(:snapshot, _from, state), do: {:reply, %{status: state.status}, state}
+
+    def handle_call({:claim_ready, owner}, _from, %{status: :ready} = state) do
+      ref = Process.monitor(owner)
+      {:reply, :ok, %{state | status: :claimed, claim_owner: owner, claim_ref: ref}}
+    end
+
+    def handle_call({:claim_ready, _owner}, _from, state), do: {:reply, :busy, state}
+    def handle_call(:reserve_stop, _from, %{status: :ready} = state), do: {:reply, :ok, %{state | status: :stopping}}
+    def handle_call(:reserve_stop, _from, state), do: {:reply, :busy, state}
+
+    @impl true
+    def handle_info({:DOWN, ref, :process, owner, _}, %{claim_ref: ref, claim_owner: owner} = state),
+      do: {:noreply, %{state | status: :ready, claim_owner: nil, claim_ref: nil}}
   end
 
   describe "acquire_slot/0 with no registered slots" do
@@ -37,6 +46,20 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       assert :busy = Slot.reserve_stop(pid)
       assert Process.alive?(pid)
 
+      GenServer.stop(pid)
+    end
+
+    test "a dead claimant releases a real slot for reacquisition" do
+      {:ok, pid} = ClaimableSlot.start_link(1)
+      Process.unlink(pid)
+
+      owner = self()
+      claimant = spawn(fn -> send(owner, {:claimed, SlotSupervisor.acquire_slot()}) end)
+      assert_receive {:claimed, {1, ^pid}}
+      Process.exit(claimant, :kill)
+      Process.sleep(20)
+
+      assert :ok = Slot.reserve_stop(pid)
       GenServer.stop(pid)
     end
   end
