@@ -111,6 +111,10 @@ defmodule Aiur.Workspace.RefreshTest do
       assert File.regular?(Path.join([workspace, ".aiur-runtime", "build-bin", command]))
     end
 
+    refute File.exists?(Path.join([workspace, ".aiur-runtime", "bin"]))
+    refute File.exists?(Path.join([workspace, ".aiur-runtime", "tmp"]))
+    refute File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur"]))
+
     probe_bin = Path.join(test_root, "probe-bin")
     File.mkdir_p!(probe_bin)
     File.write!(Path.join(probe_bin, "mise"), "#!/bin/sh\nprintf 'real-mise-ran\\n'\n")

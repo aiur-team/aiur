@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Refresh do
   @moduledoc "Before-run hook dispatch: run the hook, then finalize (git metadata + bootstrap seed). Handles the dirty-leftover recreation path (#577) and the in-flight WIP skip (#653)."
 
   require Logger
-  alias Aiur.Config
+  alias Aiur.{AgentBuildGuard, Config}
   alias Aiur.Workspace.{BootstrapImage, Context, GitMetadata, Hooks, Ownership, Provisioner, Reconstruction}
 
   @spec run(Path.t(), map() | String.t() | nil, String.t() | nil) :: :ok | {:error, term()}
@@ -133,7 +133,7 @@ defmodule Aiur.Workspace.Refresh do
         Reconstruction.run(workspace, fn stage ->
           with :ok <- Hooks.run_reconstruction_hook(command, stage, issue_context, "before_run"),
                :ok <- GitMetadata.ensure_agent_logs_excluded(stage, nil) do
-            Provisioner.maybe_install_agent_support(stage, nil)
+            AgentBuildGuard.install(stage)
           end
         end)
 
