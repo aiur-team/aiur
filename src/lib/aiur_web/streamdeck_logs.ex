@@ -59,7 +59,7 @@ defmodule AiurWeb.StreamdeckLogs do
   end
 
   defp wire_value(value) when is_list(value), do: Enum.map(value, &wire_value/1)
-  defp wire_value(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map(&wire_value/1) |> Enum.join(":")
+  defp wire_value(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map_join(":", &wire_value/1)
   defp wire_value(value) when is_atom(value), do: Atom.to_string(value)
   defp wire_value(value), do: value
 

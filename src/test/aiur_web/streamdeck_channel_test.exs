@@ -236,6 +236,18 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert [%{"id" => "live"}, %{"id" => "turn:turn-1"} | _] = payload["event_keys"]
     assert payload["event_starts"] == %{"1" => 0}
     assert Enum.any?(payload["transcript"], &(&1["body"] == "serialized transcript"))
+
+    assert {:socket_push, :text, frame} =
+             Phoenix.Socket.V2.JSONSerializer.encode!(%Phoenix.Socket.Message{
+               topic: "streamdeck:fleet",
+               event: "logs",
+               payload: payload,
+               ref: nil,
+               join_ref: "1"
+             })
+
+    assert ["1", nil, "streamdeck:fleet", "logs", ^payload] =
+             frame |> IO.iodata_to_binary() |> Jason.decode!()
   end
 
   test "focus validates identifiers and unfocus stops the focused subscription" do

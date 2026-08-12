@@ -75,7 +75,6 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const setGridOffset = (value: number): void => {
     const grid = options.grid();
     const offset = Math.max(0, Math.min(value, maxColumnOffset(grid.total)));
-    dial3Value = grid.total === 0 ? 0 : (offset / Math.max(1, maxColumnOffset(grid.total))) * 100;
     publish({ ...state, columnOffset: offset });
   };
 
@@ -83,8 +82,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     const maxChat = chatMaxOffset;
     const boundedEvent = Math.max(0, Math.min(eventOffset, eventMaxOffset));
     const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
-    chatDialValue = maxChat === 0 ? 0 : (boundedChat / maxChat) * 100;
-    dial3Value = eventMaxOffset === 0 ? 0 : dial3ValueFromEventOffset(boundedEvent, eventMaxOffset + 8);
+    if (state.mode !== "logs") {
+      chatDialValue = maxChat === 0 ? 0 : (boundedChat / maxChat) * 100;
+    }
     publish({
       ...state,
       eventOffset: boundedEvent,
@@ -123,7 +123,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       } else if (index === 1) {
         options.channel()?.control(identifier, agent.priority === true ? "deprioritize" : "prioritize");
       } else if (index === 2) {
-        publish({ ...state, mode: "logs" });
+        publish({ ...state, mode: "logs", micHeld: false });
       } else if (index === 3) {
         publish({ ...state, micHeld: true });
       }
@@ -200,6 +200,9 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const eventOffset = state.mode === "logs" ? state.eventOffset : logs.events_offset ?? 0;
       const transcriptOffset = state.mode === "logs" ? state.chatOffset : logs.transcript_offset ?? Math.max(0, transcriptHistory.length - 2);
       setLogsOffsets(eventOffset, transcriptOffset);
+      if (state.mode !== "logs") {
+        dial3Value = eventMaxOffset === 0 ? 0 : dial3ValueFromEventOffset(eventOffset, eventMaxOffset + 8);
+      }
     },
     cancel: (): void => {
       pressed = new Set();

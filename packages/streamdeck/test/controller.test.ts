@@ -22,6 +22,13 @@ const keyReport = (index: number, pressed: boolean): Uint8Array => {
   return report;
 };
 
+const keysReport = (indices: number[], pressed: boolean): Uint8Array => {
+  const report = new Uint8Array(12);
+  report[0] = 1;
+  for (const index of indices) report[4 + index] = pressed ? 1 : 0;
+  return report;
+};
+
 const dialButton = (index: number, pressed = true): Uint8Array => {
   const report = new Uint8Array(10);
   report[0] = 1;
@@ -180,6 +187,26 @@ describe("physical controller composition", () => {
     controller.setLogs({ event_keys: Array.from({ length: 12 }, (_, index) => ({ label: `refresh-${index}` })), transcript: Array.from({ length: 6 }, (_, index) => ({ body: `refresh-${index}` })), events_max_offset: 4, transcript_max_offset: 4 });
     expect(controller.state().eventOffset).toBe(eventOffset);
     expect(controller.state().chatOffset).toBe(chatOffset);
+  });
+
+  it("clears a held mic when Logs rises in the same report", () => {
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(keyReport(3, true));
+    expect(controller.state().micHeld).toBe(true);
+    controller.handleReport(keysReport([2, 3], true));
+    expect(controller.state()).toMatchObject({ mode: "logs", micHeld: false });
+  });
+
+  it("accumulates dial detents before converting short ranges to offsets", () => {
+    const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: vi.fn() });
+    controller.handleReport(dialTurn(3, 1));
+    expect(controller.state().columnOffset).toBe(0);
+    controller.handleReport(dialTurn(3, 1));
+    expect(controller.state().columnOffset).toBe(0);
+    controller.handleReport(dialTurn(3, 1));
+    expect(controller.state().columnOffset).toBe(1);
   });
 
   it("synchronizes dial D with the server-selected event offset when logs arrive", () => {
