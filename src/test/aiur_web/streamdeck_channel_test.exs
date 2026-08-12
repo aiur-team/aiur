@@ -178,7 +178,15 @@ defmodule AiurWeb.StreamdeckChannelTest do
     socket = joined_socket()
     AgentPubSub.broadcast_running_change([AgentEvents.agent_summary("AIUR-2", :running, 1, %{title: "Pushed"})])
 
-    assert_push("fleet", %{"agents" => [%{"identifier" => "AIUR-2", "status" => "running", "title" => "Pushed"}]})
+    assert_receive %Message{
+                     topic: "streamdeck:fleet",
+                     event: "fleet",
+                     payload: %{"agents" => [%{"identifier" => "AIUR-2", "status" => "running", "title" => "Pushed"}]} = payload
+                   },
+                   500
+
+    refute Map.has_key?(payload, :agents)
+    refute Map.has_key?(payload, :grid)
     assert socket.assigns.streamdeck_authenticated
   end
 

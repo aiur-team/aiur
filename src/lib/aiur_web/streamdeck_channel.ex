@@ -71,7 +71,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
-    push(socket, "snapshot", StreamdeckProjection.snapshot() |> Map.put(:grid, StreamdeckProjection.grid()))
+    push(socket, "snapshot", StreamdeckProjection.snapshot() |> Map.put("grid", StreamdeckProjection.grid()))
     {:noreply, socket}
   end
 
@@ -83,7 +83,14 @@ defmodule AiurWeb.StreamdeckChannel do
   def handle_info({FinancialDataAccess, :configuration_changed, _generation}, socket), do: {:stop, :normal, socket}
 
   def handle_info({:running_changed, summaries}, socket) when is_list(summaries) do
-    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put(:agents, StreamdeckProjection.fleet_agents(summaries)) |> Map.put(:grid, StreamdeckProjection.grid()))
+    push(
+      socket,
+      "fleet",
+      StreamdeckProjection.fleet()
+      |> Map.put("agents", StreamdeckProjection.fleet_agents(summaries))
+      |> Map.put("grid", StreamdeckProjection.grid())
+    )
+
     {:noreply, socket}
   end
 
@@ -92,7 +99,7 @@ defmodule AiurWeb.StreamdeckChannel do
   # contract. Translate it to a fresh fleet projection instead of leaking the
   # implementation detail to devices.
   def handle_info({:status_changed, %{identifier: _identifier, status: _status}}, socket) do
-    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put(:grid, StreamdeckProjection.grid()))
+    push(socket, "fleet", StreamdeckProjection.fleet() |> Map.put("grid", StreamdeckProjection.grid()))
     {:noreply, socket}
   end
 
