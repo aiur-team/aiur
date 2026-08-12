@@ -24,6 +24,7 @@ defmodule Aiur.GitHub.Transport do
   """
 
   alias Aiur.GitHub
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Errors
   alias Aiur.GitHub.GraphQLErrors
   alias Aiur.GitHub.Quota
@@ -104,16 +105,13 @@ defmodule Aiur.GitHub.Transport do
 
   def default_request_fun(%{method: :patch, url: url, token: token, body: body} = req) do
     quota_request(req, fn ->
-      Req.patch(url,
-        headers: github_headers(token, req),
-        json: body,
-        connect_options: [timeout: 30_000]
-      )
+      options = github_headers(token, req) |> request_options(req) |> Keyword.put(:json, body)
+      Req.patch(url, options)
     end)
   end
 
   def default_request_fun(%{method: :delete, url: url, token: token} = req) do
-    quota_request(req, fn -> Req.delete(url, headers: github_headers(token, req), connect_options: [timeout: 30_000]) end)
+    quota_request(req, fn -> Req.delete(url, request_options(github_headers(token, req), req)) end)
   end
 
   defp quota_request(request, request_fun) do
@@ -121,14 +119,50 @@ defmodule Aiur.GitHub.Transport do
 
     case quota_preflight(quota, request) do
       :ok ->
-        result = off_process_request(request, request_fun)
-        quota_observe(quota, request, result)
-        result
+        deadline_ms = request_deadline_ms(request)
+        deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
+        budget_request(quota, request, request_fun, deadline_at_ms, deadline_ms)
 
       {:hold, hold} ->
         {:ok, held_response(hold)}
     end
   end
+
+  defp budget_request(quota, request, request_fun, deadline_at_ms, deadline_ms) do
+    remaining_ms = remaining_deadline_ms(deadline_at_ms)
+
+    case acquire_budget(request, remaining_ms) do
+      {:ok, lease} ->
+        try do
+          result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
+
+          :ok =
+            Budget.observe(request, result,
+              timeout_ms: max(remaining_deadline_ms(deadline_at_ms), 1),
+              deadline_at: deadline_at_ms
+            )
+
+          quota_observe(quota, request, result)
+          result
+        after
+          Budget.release(lease, deadline_at: deadline_at_ms)
+        end
+
+      {:hold, hold} ->
+        {:ok, held_response(hold)}
+
+      {:error, :fetch_deadline_exceeded} = error ->
+        error
+
+      :bypass ->
+        result = off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
+        quota_observe(quota, request, result)
+        result
+    end
+  end
+
+  defp acquire_budget(_request, 0), do: {:error, :fetch_deadline_exceeded}
+  defp acquire_budget(request, remaining_ms), do: Budget.acquire(request, timeout_ms: remaining_ms)
 
   @doc """
   Runs `request_fun` on a throwaway process so the caller never owns the socket.
@@ -153,6 +187,11 @@ defmodule Aiur.GitHub.Transport do
   def off_process_request(request, request_fun) when is_function(request_fun, 0) do
     deadline_ms = request_deadline_ms(request)
     deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
+
+    off_process_request(request, request_fun, deadline_at_ms, deadline_ms)
+  end
+
+  defp off_process_request(request, request_fun, deadline_at_ms, deadline_ms) do
     caller = self()
     callers = [caller | Process.get(:"$callers", [])]
     logger_metadata = Logger.metadata()
@@ -391,13 +430,15 @@ defmodule Aiur.GitHub.Transport do
 
   defp held_response(hold) do
     reset_unix = DateTime.to_unix(hold.reset_at)
+    remaining = Map.get(hold, :remaining, 0)
+    limit = Map.get(hold, :limit, 1)
 
     %{
       status: 429,
       headers: [
         {"x-ratelimit-resource", hold.resource},
-        {"x-ratelimit-limit", Integer.to_string(hold.limit)},
-        {"x-ratelimit-remaining", Integer.to_string(hold.remaining)},
+        {"x-ratelimit-limit", Integer.to_string(limit)},
+        {"x-ratelimit-remaining", Integer.to_string(remaining)},
         {"x-ratelimit-reset", Integer.to_string(reset_unix)}
       ],
       body: %{"message" => "GitHub #{hold.resource} quota is exhausted locally; retry after #{DateTime.to_iso8601(hold.reset_at)}"}
@@ -410,7 +451,11 @@ defmodule Aiur.GitHub.Transport do
     timeout_ms = Map.get(req, :timeout_ms, @default_request_timeout_ms)
 
     options
-    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms)
+    # The shared budget lease covers one network attempt. Req retries safe
+    # transient responses, including 429, by default; allowing that retry here
+    # would make one admission hide several GitHub calls and could swallow the
+    # response that establishes the fleet-wide cooldown.
+    |> Keyword.merge(headers: headers, connect_options: [timeout: timeout_ms], receive_timeout: timeout_ms, retry: false)
     |> maybe_bound_response(req)
   end
 

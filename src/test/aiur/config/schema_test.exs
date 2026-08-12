@@ -136,6 +136,41 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "GitHub shared request budget" do
+    test "defaults to a conservative shared ceiling and accepts explicit tuning" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.tracker.github.max_inflight == 4
+      assert defaults.tracker.github.max_inflight_per_endpoint == 2
+      assert defaults.tracker.github.requests_per_minute == 120
+      assert defaults.tracker.github.stagger_ms == 75
+
+      assert {:ok, settings} =
+               Schema.parse(%{
+                 "tracker" => %{
+                   "github" => %{
+                     "max_inflight" => 8,
+                     "max_inflight_per_endpoint" => 3,
+                     "requests_per_minute" => 240,
+                     "stagger_ms" => 125
+                   }
+                 }
+               })
+
+      assert settings.tracker.github.max_inflight == 8
+      assert settings.tracker.github.max_inflight_per_endpoint == 3
+      assert settings.tracker.github.requests_per_minute == 240
+      assert settings.tracker.github.stagger_ms == 125
+    end
+
+    test "rejects an endpoint ceiling above the shared ceiling" do
+      assert {:error, {:invalid_workflow_config, message}} =
+               Schema.parse(%{"tracker" => %{"github" => %{"max_inflight" => 2, "max_inflight_per_endpoint" => 3}}})
+
+      assert message =~ "tracker.github.max_inflight_per_endpoint"
+      assert message =~ "must not exceed max_inflight"
+    end
+  end
+
   describe "GitHub dispatch allowlist" do
     test "accepts explicit GitHub logins and defaults to an empty explicit list" do
       assert {:ok, defaults} = Schema.parse(%{})
