@@ -32,6 +32,7 @@ defmodule Aiur.GitHub.Connectivity do
 
   @base_backoff_ms 1_000
   @max_backoff_ms 60_000
+  @max_reset_backoff_ms 3_600_000
 
   @type source :: atom()
   @type classification :: atom()
@@ -181,7 +182,7 @@ defmodule Aiur.GitHub.Connectivity do
     with reset_at when is_binary(reset_at) <- Map.get(detail, :reset_at),
          {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset_at),
          delay_ms when delay_ms > 0 <- DateTime.diff(reset_at, now, :millisecond) do
-      delay_ms
+      min(delay_ms, @max_reset_backoff_ms)
     else
       _missing_or_expired -> nil
     end

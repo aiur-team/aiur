@@ -430,8 +430,8 @@ defmodule Aiur.GitHub.PullRequests do
           {:ok, [map()]} | {:error, term()}
   def fetch_classified_pr_review_comments(pr_number, opts \\ []) do
     with {:ok, paths} <- fetch_pull_request_changed_paths(pr_number, opts),
+         context when is_map(context) <- Codeowners.ownership_for_paths(paths, opts),
          {:ok, comments} <- fetch_pull_request_review_comments(pr_number, opts) do
-      context = Codeowners.ownership_for_paths(paths, opts)
       {:ok, Enum.map(comments, &Codeowners.classify_comment(&1, context, opts))}
     end
   end

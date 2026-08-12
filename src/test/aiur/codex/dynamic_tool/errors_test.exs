@@ -61,6 +61,17 @@ defmodule Aiur.Codex.DynamicTool.ErrorsTest do
     end
   end
 
+  describe "payload/1 — review thread family" do
+    test "ownership lookup failures remain distinct from authorization denials" do
+      result =
+        Errors.payload({:review_thread_resolution_ownership_unavailable, %{review_thread_id: "PRRT_test", reason: :quota_hold}})
+
+      assert result["error"]["message"] =~ "could not be determined"
+      assert result["error"]["reason"] == "review_thread_resolution_ownership_unavailable"
+      assert result["error"]["detail"]["reason"] == "quota_hold"
+    end
+  end
+
   describe "payload/1 — catch-all" do
     test "unknown atom renders the Aiur catch-all message with inspected reason" do
       result = Errors.payload(:some_unknown_error)
