@@ -1,10 +1,10 @@
-# Feature Scope: Aiur Executor Control Center
+# Feature Scope: Aiur Dashboard
 
-**Status:** Proposed · **Working title:** Executor Control Center
+**Status:** Proposed · **Working title:** Dashboard
 **Primary user:** A human Executor overseeing a supervising AI agent and multiple Aiur ticket agents
 
 ## Summary
-Extend the existing Aiur dashboard into an Executor control center providing: (1) a durable, context-rich inbox for decisions requiring human input; (2) an at-a-glance snapshot of all work in flight; (3) a history of decisions made by both the human Executor and the supervising agent; (4) a lightweight view of recently completed outcomes incl. merged PRs; (5) a reliable path for sending a decision back to the appropriate ticket agent.
+Extend the existing Aiur dashboard into the Dashboard: a durable, context-rich inbox for decisions requiring human input; an at-a-glance snapshot of work in flight; a history of human- and supervising-agent decisions; recent merged outcomes; and a reliable path for sending a decision back to the appropriate ticket agent.
 
 The problem is not the absence of alerts or agent messaging — those largely exist. The missing layer is a **structured, persistent representation of a decision** and a UX that lets an Executor understand and answer it without reconstructing context from logs. The implementation must **extend and compose** the current event, alert, persistence, messaging, dashboard, and control paths — not create a second message bus, a second agent-control path, or a disconnected source of truth.
 

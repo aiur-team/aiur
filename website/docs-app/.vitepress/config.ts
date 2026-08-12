@@ -51,7 +51,8 @@ export default defineConfig({
           { text: 'Overview', link: '/' },
           { text: 'Skills', link: '/skills' },
           { text: 'Quick start', link: '/guide/quick-start' },
-          { text: 'Executor Control Center', link: '/guide/executor-control-center' }
+          { text: 'Dashboard', link: '/guide/executor-control-center' },
+          { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
       {
