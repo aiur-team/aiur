@@ -192,7 +192,10 @@ defmodule Aiur.AgentList.App do
 
   def handle_info({:status_changed, _}, state), do: {:noreply, state}
   def handle_info({:slot_session_changed, slot, _} = event, state) when is_integer(slot), do: apply_warmth(state, event)
-  def handle_info({:slot_ready, slot} = event, state) when is_integer(slot), do: apply_warmth(state, event)
+
+  def handle_info({:slot_ready, slot, _pid}, state) when is_integer(slot),
+    do: apply_warmth(state, {:slot_ready, slot})
+
   def handle_info({:slot_starting, slot} = event, state) when is_integer(slot), do: apply_warmth(state, event)
   def handle_info({:slot_visible_changed, _slot, _identifier} = event, state), do: apply_warmth(state, event)
   def handle_info({:attach_state_changed, _, _, _} = event, state), do: apply_warmth(state, event)

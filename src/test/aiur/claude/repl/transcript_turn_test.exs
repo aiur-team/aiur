@@ -1,5 +1,5 @@
 defmodule Aiur.Claude.Repl.TranscriptTurnTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.Claude.Repl.TranscriptTurn
   alias Aiur.Tmux

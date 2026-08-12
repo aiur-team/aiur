@@ -71,7 +71,7 @@ tmux session `aiur-orangekid-0f62c25cdf-default`.
   MAX_DIMENSION for node sizes), then `direction: "RIGHT"→"DOWN"` in
   `measurement.js` for the design's top-down phase-row layout. 54 nodes, ~107
   edges, is-layout-ready. Regression test added at protocol level.
-- **"Operator Control Center" rename** (was "Executor Control Center").
+- **"Operator Control Center" rename** (was "Dashboard").
 - **Units/Commands/Build Order** card parity: modal deps, header CTAs, Cx badges,
   progress bars, edge legend, filler trims, plain-language state messages.
 - Preview `docs/build-order/plan-preview.html` refreshed (54/54) + served copy

@@ -96,6 +96,17 @@ defmodule AiurWeb.StreamdeckChannelTest do
     assert {:ok, _generation, _expires_at_ms} = StreamdeckAuth.verify_token(token)
   end
 
+  test "a joined channel survives a financial-data read while focused" do
+    socket = joined_socket()
+    focus = push(socket, "focus", %{"identifier" => "AIUR-1"})
+    assert_reply(focus, :ok, %{"focused" => "AIUR-1"})
+
+    assert {:ok, _generation} = FinancialDataAccess.current_configuration_generation()
+
+    AgentPubSub.broadcast_transcript("AIUR-1", AgentEvents.transcript_event(:assistant, "still connected"))
+    assert_push("transcript", %{"identifier" => "AIUR-1", "body" => "still connected"})
+  end
+
   test "a joined channel closes when dashboard credentials change" do
     assert {:ok, token} = StreamdeckAuth.issue_token()
     assert {:ok, socket} = StreamdeckSocket.connect(%{"token" => token}, socket(StreamdeckSocket, "authenticated", %{}), %{})

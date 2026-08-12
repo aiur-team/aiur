@@ -60,12 +60,21 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     {marker, release} = lifecycle_barrier("idle-boundary")
     paths = prepare_case("idle-boundary", idle_boundary_script(marker, release))
     issue = issue("MT-IDLE-BOUNDARY")
+    issue_id = issue.id
+    parent = self()
     opts = two_turn_opts(issue)
 
-    task = Task.async(fn -> AgentRunner.run(issue, nil, opts) end)
+    task = Task.async(fn -> AgentRunner.run(issue, parent, opts) end)
 
     assert wait_for_path(marker)
-    assert Task.yield(task, 100) == nil
+
+    assert_receive {:codex_worker_update, ^issue_id, %{event: :turn_completed, payload: %{"params" => %{"turn" => anonymous_turn}}}},
+                   30_000
+
+    refute Map.has_key?(anonymous_turn, "id")
+
+    assert_receive {:codex_worker_update, ^issue_id, %{event: :notification, payload: %{"method" => "test/idle-boundary"}}},
+                   30_000
 
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
@@ -303,6 +312,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
             else
               printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              printf '%s\n' '{"method":"test/idle-boundary","params":{}}'
               touch "#{marker}"
               while [ ! -f "#{release}" ]; do sleep 0.01; done
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'

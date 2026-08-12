@@ -61,7 +61,7 @@ The repository's existing Playwright runner is a documentation-capture tool in `
 
 ### Relevant Code and Patterns
 
-- `website/scripts/capture-executor-control-center.mjs` allocates a loopback port, starts a `mix run --no-start` fixture, scrubs inherited dashboard secrets, waits on a synthetic marker, and tears down child processes and temporary state.
+- `website/scripts/capture-dashboard.mjs` allocates a loopback port, starts a `mix run --no-start` fixture, scrubs inherited dashboard secrets, waits on a synthetic marker, and tears down child processes and temporary state.
 - `src/test/manual/executor_control_center_docs_fixture.exs` starts an isolated Phoenix endpoint with synthetic-only data and dependency injection, proving the test-server shape can avoid application supervision and live credentials.
 - `website/playwright.config.ts` and `website/tests/*.spec.ts` establish the repository's Playwright style, responsive checks, and existing CI browser install command.
 - `src/lib/aiur_web/components/layouts.ex`, `src/lib/aiur_web/static_assets.ex`, and `src/lib/aiur_web/controllers/static_asset_controller.ex` show the current real LiveView client and asset delivery model that the fixture should exercise rather than emulate with static HTML.
@@ -166,7 +166,7 @@ flowchart TB
 
 **Approach:** Pin Playwright and axe exactly, pass the allocated port into Playwright and the fixture process, use Playwright's web-server lifecycle only for the owned fixture, and make retries unable to convert a failed budget into a pass. Start the fixture from an allowlisted environment containing only its synthetic settings, redact textual diagnostics before writing them to the generated ignored artifact root, and retain trace/screenshot/video only on a failure or when the documented local capture switch is explicitly enabled.
 
-**Patterns to follow:** `website/scripts/capture-executor-control-center.mjs`, `website/playwright.config.ts`, and existing ignored build/test outputs in `src/.gitignore`.
+**Patterns to follow:** `website/scripts/capture-dashboard.mjs`, `website/playwright.config.ts`, and existing ignored build/test outputs in `src/.gitignore`.
 
 **Test scenarios:**
 - Happy path: a direct local browser command allocates a usable loopback port and reports the synthetic fixture URL without requiring a preinstalled browser path.
@@ -338,7 +338,7 @@ flowchart TB
 - **Origin document:** `docs/brainstorms/2026-07-12-build-order-requirements.md`
 - **Approved ticket contract:** `docs/build-order/tickets/BO-008-build-browser-test-harness.md`
 - **Technical decisions:** `docs/build-order/05-technical-decisions.md` (DEC-007, DEC-013)
-- **Existing isolation precedent:** `website/scripts/capture-executor-control-center.mjs`
+- **Existing isolation precedent:** `website/scripts/capture-dashboard.mjs`
 - **Synthetic Phoenix precedent:** `src/test/manual/executor_control_center_docs_fixture.exs`
 - **Approved planning authority:** https://github.com/aiur-team/aiur/tree/4d8de9508206e08e314f2730cd916501a3b4cafd/docs/build-order
 - **Playwright browser management:** https://playwright.dev/docs/browsers
