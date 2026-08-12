@@ -96,6 +96,13 @@ control_command_reserved?() {
 register_control_command() {
   local name="$1" usage_line="$2" handler="$3" index
 
+  # Only lowercase alphanumerics and hyphens are reachable: the static
+  # dispatcher routes every `-*` token to a run before the registry is
+  # consulted, an empty name can never be typed, and any other character is
+  # outside the command grammar. Rejecting these up front means a fragment can
+  # never register (and advertise) a command the dispatcher cannot reach.
+  [[ "$name" =~ ^[a-z][a-z0-9-]*$ ]] || die "invalid control command name: $name"
+
   control_command_reserved? "$name" && die "control command is reserved: $name"
 
   for ((index = 0; index < ${#registered_command_names[@]}; index++)); do

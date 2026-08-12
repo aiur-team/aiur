@@ -281,6 +281,51 @@ test("packed install includes and dispatches command fragments", () => {
   expect(dispatch.stdout).toContain('Aiur.AgentControlCLI.run_command("units", Aiur.UnitsCLI');
 });
 
+test("register_control_command rejects names the dispatcher cannot reach", () => {
+  const engine = fileURLToPath(new URL("../libexec/aiur-engine.sh", import.meta.url));
+  const probe = [
+    'set -euo pipefail',
+    `source "${engine}"`,
+    // A leading-flag token is intercepted by the run dispatch before the
+    // registry is consulted, so a fragment registering one would advertise an
+    // unreachable command.
+    'if ( register_control_command "-bogus" "usage" "handler" ) 2>/dev/null; then',
+    '  echo "flag:registered"',
+    'else',
+    '  echo "flag:rejected"',
+    'fi',
+    // An empty name can never be typed at the CLI.
+    'if ( register_control_command "" "usage" "handler" ) 2>/dev/null; then',
+    '  echo "empty:registered"',
+    'else',
+    '  echo "empty:rejected"',
+    'fi',
+    // Characters outside the command grammar are unreachable too.
+    'if ( register_control_command "bad name" "usage" "handler" ) 2>/dev/null; then',
+    '  echo "space:registered"',
+    'else',
+    '  echo "space:rejected"',
+    'fi',
+    'if ( register_control_command "BadName" "usage" "handler" ) 2>/dev/null; then',
+    '  echo "upper:registered"',
+    'else',
+    '  echo "upper:rejected"',
+    'fi',
+    // A valid lowercase-alphanumeric/hyphen name still registers.
+    'register_control_command "probe-cmd" "usage" "handler"',
+    'echo "valid:ok"',
+  ].join("\n");
+
+  const result = spawnSync("bash", ["-c", probe], { encoding: "utf8" });
+
+  expect(result.status).toBe(0);
+  expect(result.stdout).toContain("flag:rejected");
+  expect(result.stdout).toContain("empty:rejected");
+  expect(result.stdout).toContain("space:rejected");
+  expect(result.stdout).toContain("upper:rejected");
+  expect(result.stdout).toContain("valid:ok");
+});
+
 // Builds a minimal fake OTP release whose `elixir` records its argv, so the
 // REAL launcher's init routing can be exercised end to end.
 function setupRealLauncher() {
