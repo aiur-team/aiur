@@ -4751,7 +4751,7 @@
    "discovered_from": null,
    "title": "Ship responsive route-aware shell",
    "document": "companion-tickets/DASH-001-responsive-route-shell.md",
-   "outcome": "The Executor Control Center has URL-backed desktop and mobile navigation with a truthful per-route header for Units, Commands, the registered Build Order route, and the existing Analytics document, without clipping or client-only tab state.",
+   "outcome": "The Dashboard has URL-backed desktop and mobile navigation with a truthful per-route header for Units, Commands, the registered Build Order route, and the existing Analytics document, without clipping or client-only tab state.",
    "scope": [
     "Define one declarative route registry containing route identity, label, icon, route type, availability, and active-match policy. It must support LiveView navigation and ordinary document links without pretending `/analytics` is a LiveView patch.",
     "Extract shared shell, navigation, and per-view header components from the current dashboard while preserving the existing route URLs, direct Decision links, back/forward behavior, theme control, live/offline truth, tracker and agent-kind metadata, and read-only/writable status.",
@@ -5267,7 +5267,7 @@
    "discovered_from": null,
    "title": "Align Commands presentation",
    "document": "companion-tickets/DASH-007-commands-interface.md",
-   "outcome": "The Executor Control Center presents Commands with the refreshed vocabulary, primary filters, provenance, option previews, and confidence while preserving every retained Decision state, stable deep link, and authenticated lifecycle action.",
+   "outcome": "The Dashboard presents Commands with the refreshed vocabulary, primary filters, provenance, option previews, and confidence while preserving every retained Decision state, stable deep link, and authenticated lifecycle action.",
    "scope": [
     "Use Commands and Executor-facing vocabulary in navigation, page title, banner, filters, cards, detail, confirmation, empty/error states, and singular/plural copy. Preserve internal `Decision*` module, persistence, API, event, and historical ticket names.",
     "Render primary filters `Open`, `Blocking`, `Resolved`, and `All`. `Open` includes human-required recorded Decisions; `Blocking` includes unresolved blocking Decisions; `Resolved` includes resolved Decisions; `All` uses DASH-006's paginated retained query and exposes search. Keep answered-not-delivered, delivery-failed, supervising-decided, acknowledged, superseded, revisions, and follow-up states visible through cards, secondary status controls, detail, or history.",
@@ -7622,7 +7622,7 @@
    "discovered_from": null,
    "title": "Prove existing-dashboard parity",
    "document": "companion-tickets/DASH-033-dashboard-parity-capstone.md",
-   "outcome": "The shipped Executor Control Center is proven end to end to preserve current operational behavior while meeting the accepted prototype delta for shell, Units, conversations, controls, Commands, run/provider/accounting summaries, Recent outcomes, authentication, accessibility, live convergence, and responsive layouts.",
+   "outcome": "The shipped Dashboard is proven end to end to preserve current operational behavior while meeting the accepted prototype delta for shell, Units, conversations, controls, Commands, run/provider/accounting summaries, Recent outcomes, authentication, accessibility, live convergence, and responsive layouts.",
    "scope": [
     "Establish the exact configured integration branch/SHA containing every prerequisite and the resolved predecessor baseline. Reproduce on current main-equivalent code rather than an obsolete prototype or planning branch.",
     "Run the real dashboard through the repository's canonical CLI/manual-testing path in read-only and authenticated writable modes. Exercise reconnect and daemon-driven updates rather than browser-only fixture mutation.",
