@@ -206,8 +206,32 @@ defmodule Aiur.Orchestrator.CommentPolling do
   def apply_async(%State{} = state, _stale_ref, _payload), do: state
 
   @doc false
+  @spec apply_async_started(State.t(), reference(), pid(), pid()) :: State.t()
+  def apply_async_started(%State{github_comment_poll: %{ref: ref, owner: owner} = pending} = state, ref, owner, pid) do
+    monitor_ref = Process.monitor(pid)
+    Process.demonitor(pending.owner_monitor_ref, [:flush])
+
+    poll =
+      pending
+      |> Map.put(:pid, pid)
+      |> Map.put(:monitor_ref, monitor_ref)
+      |> Map.delete(:owner_monitor_ref)
+
+    %{state | github_comment_poll: poll}
+  end
+
+  def apply_async_started(%State{} = state, _stale_ref, owner, _pid) do
+    stop_ref = make_ref()
+    send(owner, {:stop_owned_poll, self(), stop_ref})
+    state
+  end
+
+  @doc false
   @spec apply_async_down(State.t(), reference()) :: {:handled, State.t()} | :unhandled
   def apply_async_down(%State{github_comment_poll: %{monitor_ref: monitor_ref}} = state, monitor_ref),
+    do: {:handled, %{state | github_comment_poll: nil}}
+
+  def apply_async_down(%State{github_comment_poll: %{owner_monitor_ref: owner_monitor_ref}} = state, owner_monitor_ref),
     do: {:handled, %{state | github_comment_poll: nil}}
 
   def apply_async_down(%State{}, _stale_monitor_ref), do: :unhandled
@@ -234,10 +258,9 @@ defmodule Aiur.Orchestrator.CommentPolling do
     ref = make_ref()
 
     task_fun = fn -> send(orchestrator, {:github_comments_polled, ref, run_comment_poll(state, opts)}) end
-    {pid, owner} = spawn_owned_poll(orchestrator, state.snapshot_key, task_fun)
-    monitor_ref = Process.monitor(pid)
+    {owner, owner_monitor_ref} = spawn_owned_poll(orchestrator, state.snapshot_key, ref, task_fun)
 
-    poll = %{ref: ref, pid: pid, owner: owner, monitor_ref: monitor_ref, started_at_ms: now_ms}
+    poll = %{ref: ref, pid: nil, owner: owner, monitor_ref: nil, owner_monitor_ref: owner_monitor_ref, started_at_ms: now_ms}
     %{state | github_comment_poll: poll}
   end
 
@@ -273,37 +296,43 @@ defmodule Aiur.Orchestrator.CommentPolling do
     :ok
   end
 
+  def terminate_poll(%{owner: owner}) when is_pid(owner) do
+    stop_ref = make_ref()
+    owner_ref = Process.monitor(owner)
+    send(owner, {:stop_owned_poll, self(), stop_ref})
+
+    receive do
+      {:owned_poll_stopped, ^stop_ref} -> Process.demonitor(owner_ref, [:flush])
+      {:DOWN, ^owner_ref, :process, ^owner, _reason} -> :ok
+    end
+
+    :ok
+  end
+
   def terminate_poll(_poll), do: :ok
 
   # The poll temporarily traps exits while Task.async_stream owns its target
   # tasks, so a link is not an inverse lifetime edge. This independent monitor
   # turns owner death into an untrappable kill and waits for the poll to stop.
-  defp spawn_owned_poll(orchestrator, ownership_key, task_fun) do
-    started_ref = make_ref()
+  defp spawn_owned_poll(orchestrator, ownership_key, ref, task_fun) do
+    spawn_monitor(fn ->
+      orchestrator_ref = Process.monitor(orchestrator)
 
-    {guardian, guardian_ref} =
-      spawn_monitor(fn ->
-        orchestrator_ref = Process.monitor(orchestrator)
+      case claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
+        :ok ->
+          poll = spawn(fn -> receive do: (:start -> task_fun.()) end)
+          poll_ref = Process.monitor(poll)
+          send(orchestrator, {:github_comment_poll_started, ref, self(), poll})
+          send(poll, :start)
+          guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
 
-        case claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
-          :ok ->
-            {poll, poll_ref} = spawn_monitor(task_fun)
-            send(orchestrator, {started_ref, poll})
-            guard_poll_lifetime(orchestrator, orchestrator_ref, poll, poll_ref)
+        :orchestrator_down ->
+          :ok
 
-          :orchestrator_down ->
-            :ok
-        end
-      end)
-
-    receive do
-      {^started_ref, poll} ->
-        Process.demonitor(guardian_ref, [:flush])
-        {poll, guardian}
-
-      {:DOWN, ^guardian_ref, :process, ^guardian, reason} ->
-        exit({:comment_poll_owner_start_failed, reason})
-    end
+        {:stop, caller, stop_ref} ->
+          send(caller, {:owned_poll_stopped, stop_ref})
+      end
+    end)
   end
 
   defp claim_poll_ownership(ownership_key, orchestrator, orchestrator_ref) do
@@ -323,6 +352,10 @@ defmodule Aiur.Orchestrator.CommentPolling do
           {:DOWN, ^orchestrator_ref, :process, ^orchestrator, _reason} ->
             Process.demonitor(owner_ref, [:flush])
             :orchestrator_down
+
+          {:stop_owned_poll, caller, stop_ref} ->
+            Process.demonitor(owner_ref, [:flush])
+            {:stop, caller, stop_ref}
         end
     end
   end

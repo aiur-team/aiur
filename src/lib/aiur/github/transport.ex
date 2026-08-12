@@ -156,23 +156,6 @@ defmodule Aiur.GitHub.Transport do
     callers = [caller | Process.get(:"$callers", [])]
     logger_metadata = Logger.metadata()
 
-    {worker, monitor_ref} =
-      spawn_monitor(fn ->
-        # `Req.Test` and friends resolve stubs through `$callers`, and log lines
-        # from a request keep the caller's metadata, so both are carried over.
-        Process.put(:"$callers", callers)
-        Logger.metadata(logger_metadata)
-
-        result =
-          try do
-            {:ok, request_fun.()}
-          catch
-            kind, reason -> {:raised, kind, reason, __STACKTRACE__}
-          end
-
-        send(caller, {__MODULE__, self(), result})
-      end)
-
     guardian_ready_ref = make_ref()
 
     _guardian =
@@ -182,18 +165,38 @@ defmodule Aiur.GitHub.Transport do
         Process.flag(:trap_exit, true)
         Process.link(caller)
         caller_ref = Process.monitor(caller)
+
+        worker =
+          spawn(fn ->
+            # `Req.Test` and friends resolve stubs through `$callers`, and log
+            # lines keep the caller's metadata, so both are carried over.
+            Process.put(:"$callers", callers)
+            Logger.metadata(logger_metadata)
+
+            result =
+              try do
+                {:ok, request_fun.()}
+              catch
+                kind, reason -> {:raised, kind, reason, __STACKTRACE__}
+              end
+
+            send(caller, {__MODULE__, self(), result})
+          end)
+
         worker_ref = Process.monitor(worker)
-        send(caller, {guardian_ready_ref, self()})
+        send(caller, {guardian_ready_ref, self(), worker})
         guard_worker_lifetime(caller, caller_ref, worker, worker_ref)
       end)
 
     # Do not let the request proceed until the guardian is both linked and
     # monitoring. Poll-tree reaping can then discover it and wait until the
     # socket-owning worker is gone before a successor poll starts.
-    receive do
-      {^guardian_ready_ref, _guardian} -> :ok
-    end
+    worker =
+      receive do
+        {^guardian_ready_ref, _guardian, worker} -> worker
+      end
 
+    monitor_ref = Process.monitor(worker)
     await_off_process_request(request, worker, monitor_ref, deadline_ms)
   end
 
