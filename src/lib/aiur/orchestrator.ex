@@ -5,7 +5,7 @@ defmodule Aiur.Orchestrator do
   require Logger
 
   alias Aiur.{Alerts, Issue}
-  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentWake}
+  alias Aiur.Orchestrator.{AgentTeardown, AutoSubscriptions, CiLifecycle, CommentPolling, CommentWake}
   alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, EventTopics, HumanReview, Interrupts}
   alias Aiur.Orchestrator.{GlobalPause, Lifecycle, PauseResume, PriorityControl, PushRouting, RetryEngine}
   alias Aiur.Orchestrator.{RuntimeWatchdog, Slots, State, StatusReport}
@@ -69,7 +69,10 @@ defmodule Aiur.Orchestrator do
   end
 
   def handle_info({:DOWN, ref, :process, _pid, reason}, state) do
-    RetryEngine.handle_agent_down(state, ref, reason)
+    case CommentPolling.apply_async_down(state, ref) do
+      {:handled, next_state} -> {:noreply, next_state}
+      :unhandled -> RetryEngine.handle_agent_down(state, ref, reason)
+    end
   end
 
   def handle_info({:worker_runtime_info, issue_id, runtime_info}, state)
@@ -173,6 +176,17 @@ defmodule Aiur.Orchestrator do
   def handle_info({:event, %{topic: topic} = event}, state) when is_binary(topic) do
     {:noreply, EventTopics.route(state, event)}
   end
+
+  def handle_info({:github_comments_polled, ref, payload}, state) when is_reference(ref),
+    do: {:noreply, CommentPolling.apply_async(state, ref, payload)}
+
+  def handle_info({:github_comment_poll_started, ref, owner, pid}, state)
+      when is_reference(ref) and is_pid(owner) and is_pid(pid),
+      do: {:noreply, CommentPolling.apply_async_started(state, ref, owner, pid)}
+
+  def handle_info({:github_comment_poll_guarding, ref, owner, pid}, state)
+      when is_reference(ref) and is_pid(owner) and is_pid(pid),
+      do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
 
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
@@ -578,6 +592,14 @@ defmodule Aiur.Orchestrator do
   @spec dashboard_snapshot(GenServer.server(), timeout()) :: SnapshotStore.result()
   def dashboard_snapshot(server \\ __MODULE__, timeout \\ 15_000), do: SnapshotStore.read(server, timeout)
 
+  @doc """
+  Reads the fleet view for a control query (`status`, `agents`, `watch`) from
+  the read model, never from this process's mailbox. See
+  `Aiur.Orchestrator.StatusReport.fleet_view/2`.
+  """
+  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
+  def fleet_view(server \\ __MODULE__, timeout, opts \\ []), do: StatusReport.fleet_view(server, timeout, opts)
+
   @impl true
   def handle_call({:enqueue_event_digest, identifier, event}, _from, state),
     do: OM.enqueue_event_digest_call(state, identifier, event)
@@ -599,6 +621,8 @@ defmodule Aiur.Orchestrator do
   def handle_call(:status_with_capacity, _from, state), do: StatusReport.status_with_capacity(state)
 
   def handle_call(:snapshot, _from, state), do: StatusReport.snapshot(state)
+
+  def handle_call(:fleet_view, _from, state), do: StatusReport.fleet_view_call(state)
 
   def handle_call(:request_refresh, _from, state) do
     Lifecycle.request_refresh(state)

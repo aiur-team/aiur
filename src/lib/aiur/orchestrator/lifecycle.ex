@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    CommentPolling,
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -162,6 +163,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
+    # The comment poll owns linked target tasks whose guarded request workers
+    # may still hold GitHub sockets. Reap that tree before this owner exits so
+    # an orderly stop never overlaps it with a successor's first poll.
+    _ = CommentPolling.terminate_poll(state.github_comment_poll)
+
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves
     # a timer firing — and logging — into whatever runs after it (#1747).
