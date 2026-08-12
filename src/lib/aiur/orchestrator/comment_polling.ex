@@ -521,8 +521,6 @@ defmodule Aiur.Orchestrator.CommentPolling do
     demonitor_owner(poll)
   end
 
-  defp demonitor_comment_poll(_poll), do: :ok
-
   # The I/O half. Runs on whichever process the caller chose — never touches the
   # state it was handed, so its result can be folded into a newer one.
   defp run_comment_poll(%State{} = state, opts) do
