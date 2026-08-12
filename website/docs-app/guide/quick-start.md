@@ -24,7 +24,7 @@ Add `agent:todo` to the issues you want worked.
 
 The bare `aiur` command discovers `.aiur/config` and starts a foreground run. `aiur run` is the explicit-verb equivalent.
 
-Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before the default writable dashboard can start, including on loopback. Alternatively set `observability.dashboard_writable: false` for an unauthenticated loopback dashboard. The launch output prints the dashboard URL only when the listener starts. Continue with the [Executor Control Center](/guide/executor-control-center) guide.
+Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before the default writable dashboard can start, including on loopback. Alternatively set `observability.dashboard_writable: false` for an unauthenticated loopback dashboard. The launch output prints the dashboard URL only when the listener starts. Continue with the [Dashboard](/guide/executor-control-center) guide.
 
 ## Core subcommands
 

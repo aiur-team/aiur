@@ -1,6 +1,6 @@
 # DASH-033 — Existing-dashboard parity checklist
 
-Traceable parity proof for the shipped Executor Control Center (OCC), keyed to
+Traceable parity proof for the shipped Dashboard (OCC), keyed to
 the existing-page subset of DREQ-001..034 and the resolved predecessor baseline
 `origin/main@9849f32963c2a65367bce565b3f5ede3777c218f`. This capstone owns
 convergence proof only — not new feature behavior.
