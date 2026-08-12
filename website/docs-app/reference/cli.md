@@ -4,11 +4,22 @@
 
 Use the command from the repository that owns the run. An instance is keyed to that project, so control commands address that repository's daemon.
 
+## What the CLI does
+
+The CLI is the operator's primary surface. It starts and stops runs, drives the fleet, and reads back live state — the dashboard renders the same facts in a browser. In practice the CLI covers four jobs:
+
+- **Start a run.** `aiur` launches a foreground run with the interactive terminal board; `aiur --bg` runs headless with no agent-list or chat panes. Foreground is for watching and chatting with agents directly; background is for unattended operation.
+- **Inspect live state.** `status`, `agents`, `watch`, `alerts`, and `usage` report the fleet, capacity, alerts, and provider meters from the running daemon without changing anything.
+- **Operate the fleet.** `set max-agents`, `pause`, `resume`, `message`, and `stop` steer the run while it is live — raise or lower the concurrency ceiling, hold the fleet, resume a paused ticket, send Executor text into an agent's queue, or shut the daemon down.
+- **Read and act on durable records.** `commands` exposes the decision inbox, `executor-*` commands subscribe to and emit Executor events, and `findings` reads the findings ledger.
+
+The two launch shapes matter for who is driving. `aiur` runs the [TUI](/guide/tui) — the agent-list board and chat panes — for a human watching a terminal. **Background mode (`aiur --bg`) exists so an agent Executor can drive Aiur** with no board or panes: the dashboard stays up and every command below reads and writes the exact same live state through the detached daemon, so an agent can operate the run end to end over the CLI alone.
+
 ## Start, initialize, and queue
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
-| `aiur` <!-- cli-command: run --> | Starts a foreground interactive run. The launcher supplies a loopback host, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
+| `aiur` <!-- cli-command: run --> | Starts a foreground interactive run. The launcher supplies a lower-precedence Tailscale-or-loopback host default, interactive UI, and required guardrail acknowledgement when absent. | `aiur` |
 | `aiur run` <!-- cli-command: run --> | Explicit foreground launch form. `--bg` makes it headless; `--interactive` restores terminal panes in a background session. | `aiur run --bg` |
 | `aiur init` <!-- cli-command: init --> | Interactive setup detects the tracker and toolchain, writes `.aiur/config`, `.aiur/hooks`, `.aiur/prompt.md`, `.aiur/alerts`, and prewarm support when selected, then creates the repository state-node tree and warms the base build. | `aiur init` |
 | `aiur init --force` <!-- cli-flag: --force --> | Recreates generated configuration. Re-running without it preserves existing scaffold files. | `aiur init --force` |
@@ -27,7 +38,7 @@ Use the command from the repository that owns the run. An instance is keyed to t
 | `aiur --i-understand-that-this-will-be-running-without-the-usual-guardrails` <!-- cli-flag: --i-understand-that-this-will-be-running-without-the-usual-guardrails --> | Required by the release parser; the launcher inserts it for normal run commands. | `aiur run --i-understand-that-this-will-be-running-without-the-usual-guardrails` |
 | `aiur --version` <!-- cli-flag: --version --> | Prints the release version without contacting or claiming a running daemon. | `aiur --version` |
 
-Foreground mode has the terminal board and chat panes. `--bg` is headless but still starts the dashboard unless `--no-dashboard` is passed. The default host is loopback, or an authenticated Tailscale address when one is safely available.
+Foreground mode has the terminal board and chat panes. `--bg` is headless but still starts the dashboard unless `--no-dashboard` is passed. A configured `server.host` wins over the launcher's default; `--host` wins over both. The default is loopback, or an authenticated Tailscale address when one is safely available. Startup output reports both the usable dashboard URL and its effective bind host and port.
 
 ## Inspect and operate a running daemon
 
@@ -37,6 +48,9 @@ Foreground mode has the terminal board and chat panes. `--bg` is headless but st
 | `aiur status` <!-- cli-command: status --> | Shows daemon and capacity status, including `AGENTS occupied/max (binding: ...)`. The binding is `config max_concurrent_agents`, `AIMD envelope`, `paused reservations`, `ticket supply`, `session max_concurrent_agents`, or `none`. `ticket supply` means no queued ticket is available, not that the configured cap is zero. | `aiur status` |
 | `aiur usage` <!-- cli-command: usage --> | Prints the current provider-meter observations and their known headroom. | `aiur usage` |
 | `aiur agents` <!-- cli-command: agents --> | Prints each active agent's state and current activity. | `aiur agents` |
+| `aiur units` <!-- cli-command: units --> | Reads the Dashboard Units projection. Choose `--scope live\|unfinished\|all\|none`, repeat `--condition active\|alert\|paused\|queued\|finished`, choose `--format auto\|table\|records`, or add `--json`. | `aiur units --scope unfinished --condition active` |
+| `aiur units --condition alert` <!-- cli-flag: --condition --> | Repeats to require any of the selected Unit conditions. | `aiur units --condition alert --condition paused` |
+| `aiur units --format records` <!-- cli-flag: --format --> | Chooses `auto`, `table`, or line-oriented `records` output. | `aiur units --format records` |
 | `aiur watch` <!-- cli-command: watch --> | Shows changed fleet rows by default. | `aiur watch` |
 | `aiur watch --full` <!-- cli-flag: --full --> | Prints all fleet rows. | `aiur watch --full` |
 | `aiur watch --changes` <!-- cli-flag: --changes --> | Makes the changed-rows default explicit. | `aiur watch --changes` |
@@ -57,10 +71,40 @@ Foreground mode has the terminal board and chat panes. `--bg` is headless but st
 | `aiur cleanup-stale` <!-- cli-command: cleanup-stale --> | Lists and reaps stale manual-smoke processes and sockets. | `aiur cleanup-stale` |
 | `aiur cleanup-stale --dry-run` <!-- cli-flag: --dry-run --> | Reports stale leftovers without reaping them. | `aiur cleanup-stale --dry-run` |
 
+## Dashboard page commands
+
+`aiur units`, `aiur commands`, `aiur build-orders`, and `aiur analytics` are read-only terminal forms of the corresponding Dashboard pages. They read the page’s projection/provider rather than independently polling GitHub or treating `/api/v1/state` as the source of truth.
+
+| Command | Page view and important inputs | Example |
+| --- | --- | --- |
+| `aiur units` | Filtered Units catalog; use `--scope`, repeated `--condition`, `--format`, or `--json`. | `aiur units --scope unfinished --condition alert --json` |
+| `aiur commands [decision-id]` | Durable decision inbox, or one selected decision. Use `--filter all\|open\|blocking\|resolved`, `--blocking`, `--ticket`, `--search`, `--cursor`, `--limit`, and `--json`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter blocking --json` |
+| `aiur build-orders [root]` <!-- cli-command: build-orders --> | Build Order catalog without a root; one root adds graph, execution, and activity detail. | `aiur build-orders 1567 --json` |
+| `aiur analytics` <!-- cli-command: analytics --> | Analytics snapshot. Choose `--range run\|full`, an ISO-8601 `--since`/`--until` window, an optional numeric `--build-order`, or `--json`. | `aiur analytics --range full --build-order 1567 --json` |
+| `aiur analytics --range full` <!-- cli-flag: --range --> | Selects the current run or all retained analytics observations. | `aiur analytics --range full` |
+| `aiur analytics --since 2026-08-01T00:00:00Z` <!-- cli-flag: --since --> | Sets the inclusive ISO-8601 start of an analytics window. | `aiur analytics --since 2026-08-01T00:00:00Z` |
+| `aiur analytics --until 2026-08-02T00:00:00Z` <!-- cli-flag: --until --> | Sets the exclusive ISO-8601 end of an analytics window. | `aiur analytics --until 2026-08-02T00:00:00Z` |
+| `aiur analytics --build-order 1567` <!-- cli-flag: --build-order --> | Limits analytics to one numeric Build Order root. | `aiur analytics --build-order 1567` |
+
+### Output contract
+
+Every `--json` result is one versioned envelope with `schema_version`, `page`, `snapshot.captured_at`, `request`, `sources`, `data`, and `auxiliary`. `snapshot.captured_at` is when the command ran; it is not a claim that every source was observed then.
+
+Each independently-read source reports its `state`, `observed_at`, `age_ms`, `freshness`, `partial`, and machine-readable `reasons`. Human output starts with that capture time and prints the same labelled source state and age before its values. This is intentional: a number without an observation age is not actionable.
+
+Known absence stays explicit. A source that is unavailable, stale, partial, invalid, or has an unknown observation time remains a `null` or a field-level status in JSON and a labelled warning in human output; it never becomes `0`, `[]`, or `{}` merely because the command could not measure it. An empty collection means an observed empty source or a documented, valid zero-result filter — not an outage. `auxiliary` holds separately-derived values such as provider spend and preserves their own source metadata instead of merging an estimate into the page’s primary data.
+
 ## Decisions, Executor events, and findings
 
 | Syntax | Default or important interaction | Runnable example |
 | --- | --- | --- |
+| `aiur ask "Title"` <!-- cli-command: ask --> | Creates a durable operator request for the current repository. Add `--body` or `--body-file`, `--urgency low\|normal\|high`, and `--blocking` as needed. | `aiur ask "Approve production cutover" --blocking --urgency high` |
+| `aiur ask "Title" --body "Context"` <!-- cli-flag: --body --> | Stores short supporting Markdown in the ask. | `aiur ask "Approve production cutover" --body "Production freeze ends today."` |
+| `aiur ask "Title" --body-file request.md` <!-- cli-flag: --body-file --> | Reads the supporting body from a UTF-8 file. | `aiur ask "Approve production cutover" --body-file request.md` |
+| `aiur ask "Title" --urgency high` <!-- cli-flag: --urgency --> | Classifies the request as `low`, `normal`, or `high`. | `aiur ask "Approve production cutover" --urgency high` |
+| `aiur ask --done ASK-ID` <!-- cli-flag: --done --> | Resolves one open ask; `--note` records the resolution context. | `aiur ask --done ask_123 --note "Approved by release manager"` |
+| `aiur ask --done ASK-ID --note "Approved"` <!-- cli-flag: --note --> | Saves the optional resolution context with a completed ask. | `aiur ask --done ask_123 --note "Approved by release manager"` |
+| `aiur asks` <!-- cli-command: asks --> | Lists open asks by default. Use `--all` to include resolved records and `--json` for the durable rows. | `aiur asks --all --json` |
 | `aiur commands` <!-- cli-command: commands --> | Lists durable Executor decisions. An optional decision ID selects one record. | `aiur commands` |
 | `aiur commands --filter open` <!-- cli-flag: --filter --> | Accepts `all`, `open`, `blocking`, or `resolved`. `--ticket` and `--search` require `--filter all`. | `aiur commands --filter open` |
 | `aiur commands --blocking` <!-- cli-flag: --blocking --> | Limits the decision list to blocking records. | `aiur commands --blocking` |
@@ -83,6 +127,15 @@ Foreground mode has the terminal board and chat panes. `--bg` is headless but st
 | `aiur findings --digest` <!-- cli-flag: --digest --> | Generates the Markdown projection, optionally scoped. | `aiur findings --digest --scope repo` |
 
 Normal control commands use a bounded RPC. After ten seconds the launcher terminates its helper and descendants, exits 124, and reports the timeout. A crash marker distinguishes a known crashed daemon from a stopped one; run `aiur stop` to reap possible orphaned agents before restarting.
+
+An open **blocking** ask is also printed by plain `aiur status`; no extra flag is required. That keeps a durable request in the normal operating view instead of hiding it in a ledger that nobody reads.
+
+## Operational facts that change an incident response
+
+- **Dispatch needs `agent:todo`.** An issue can be open, labelled, eligible, and unblocked yet still not dispatch until it carries `agent:todo`. If `aiur status` says `AGENTS 0/32 (binding: ticket supply)`, it means no queued ticket is available — not that no work exists. Queue it with `aiur --todo <id>` or add the label.
+- **Global pause is durable.** Bare `aiur pause` is a fleet-wide provisioning switch and survives restart. A restarted fleet can therefore be correctly silent; use `aiur status` and `aiur resume` rather than assuming the daemon lost work.
+- **CI readiness uses an operator-only token.** Set `AIUR_CI_READINESS_TOKEN` in the daemon’s environment with GitHub `workflow` scope, then restart the daemon. The daemon reads it for workflow inspection and removes it from every agent shell; do not put it in an agent workspace or prompt.
+- **A base refresh affects approval ownership.** With `require_last_push_approval`, an Executor who refreshes a stale PR branch becomes its last pusher and cannot satisfy the required approval. Route the fetch/merge/push through that ticket’s agent identity instead; then obtain or retain review under the repository’s normal rules.
 
 ## Development-only `aiurdev` commands
 

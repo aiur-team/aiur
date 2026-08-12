@@ -1,6 +1,6 @@
-# Executor Control Center handoff
+# Dashboard handoff
 
-This is the durable orientation for maintaining the shipped Executor Control Center. The directory name and `OCC-*` ticket identifiers are historical implementation references; **Executor Control Center** is the user-facing product name.
+This is the durable orientation for maintaining the shipped Dashboard. The directory name and `OCC-*` ticket identifiers are historical implementation references; **Dashboard** is the user-facing product name.
 
 ## Shipped state
 
@@ -51,7 +51,7 @@ The public guide is `website/docs-app/guide/executor-control-center.md`. Its scr
 ```bash
 cd website
 npm ci
-npm run shot:control-center
+npm run shot:dashboard
 ```
 
 The command starts the shipped Phoenix endpoint with the isolated fixture at `src/test/manual/executor_control_center_docs_fixture.exs`. All visible values use synthetic `EX-*` tickets and `example.test` URLs. Keep the capture script and guide aligned with component and terminology changes.

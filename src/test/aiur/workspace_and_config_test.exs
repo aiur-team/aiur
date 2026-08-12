@@ -2111,6 +2111,25 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Config.settings!().agent.codex.command == "codex app-server"
   end
 
+  test "launcher dashboard default fills only a missing server host" do
+    env_var = "AIUR_DEFAULT_DASHBOARD_HOST"
+    previous_default = System.get_env(env_var)
+
+    on_exit(fn -> restore_env(env_var, previous_default) end)
+    System.delete_env(env_var)
+
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.settings!().server.host == "127.0.0.1"
+
+    System.put_env(env_var, "100.64.0.10")
+
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.settings!().server.host == "100.64.0.10"
+
+    write_workflow_file!(Workflow.workflow_file_path(), server_host: "0.0.0.0")
+    assert Config.settings!().server.host == "0.0.0.0"
+  end
+
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"

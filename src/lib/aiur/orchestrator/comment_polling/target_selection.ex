@@ -18,6 +18,12 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   @merging_state "merging"
   @comment_poll_review_states [@human_review_state, @merging_state]
 
+  @doc false
+  @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()
+  def max_comment_poll_target_count(%State{} = state, opts) do
+    map_size(state.running) + human_review_comment_target_limit(opts) + watch_comment_target_limit(opts)
+  end
+
   @spec github_comment_poll_targets(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()]} | {:error, term()}
   def github_comment_poll_targets(%State{} = state, opts) do
@@ -198,9 +204,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
     end
   end
 
-  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
-    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
-  end
+  defp issue_list_cache(%State{github_comment_issue_list_cache: cache}), do: cache
 
   defp human_review_targets_from_issues(state, issues, opts) do
     issues

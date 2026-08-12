@@ -103,11 +103,12 @@ defmodule Aiur.DecisionMetricsRestartTest do
   end
 
   test "backfills canonical requests when their live notification was missed", %{tmp_dir: tmp_dir} do
+    state_dir = Path.join(tmp_dir, "canonical-state")
     previous_state_dir = Application.get_env(:aiur, :decision_state_dir)
-    Application.put_env(:aiur, :decision_state_dir, Path.join(tmp_dir, "canonical-state"))
+    Application.put_env(:aiur, :decision_state_dir, state_dir)
     on_exit(fn -> restore_env(:decision_state_dir, previous_state_dir) end)
 
-    {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> stop_if_alive(store) end)
     ticket = %{identifier: "42", title: "Metrics backfill", url: nil}
     source = %{agent_id: "agent-42", session_id: "session-42", event_id: nil}
