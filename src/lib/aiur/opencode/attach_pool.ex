@@ -56,7 +56,8 @@ defmodule Aiur.Opencode.AttachPool do
             # leadoff must only fire ONCE — otherwise a re-ready races
             # against in-flight `set_visible` calls from `do_seed` and
             # displaces the assignment the user just triggered.
-            fanned_out_slots: %{}
+            fanned_out_slots: %{},
+            slot_pids: %{}
 
   @type attachment :: %{
           attached_slots: MapSet.t(pos_integer()),
@@ -254,7 +255,12 @@ defmodule Aiur.Opencode.AttachPool do
     # fan-out (leadoff + remaining active agents). On subsequent re-
     # readys (rebuild path), only re-attach non-leadoff identifiers so
     # the slot's existing leadoff isn't displaced.
+    state = reset_replaced_slot(state, slot_index)
     {:noreply, kickoff_fan_out(state, slot_index)}
+  end
+
+  def handle_info({:slot_terminated, slot_index, pid}, state) do
+    {:noreply, purge_slot_lifetime(state, slot_index, pid)}
   end
 
   def handle_info({:slot_attach_added, slot_index, identifier}, state) do
@@ -493,6 +499,46 @@ defmodule Aiur.Opencode.AttachPool do
       {:ok, pid} -> pid
       :not_found -> nil
     end
+  end
+
+  defp reset_replaced_slot(state, slot_index) do
+    current_pid = current_slot_pid(slot_index)
+
+    case Map.get(state.slot_pids, slot_index) do
+      nil ->
+        %{state | slot_pids: Map.put(state.slot_pids, slot_index, current_pid)}
+
+      ^current_pid ->
+        state
+
+      old_pid ->
+        state
+        |> purge_slot_lifetime(slot_index, old_pid)
+        |> Map.update!(:slot_pids, &Map.put(&1, slot_index, current_pid))
+    end
+  end
+
+  defp purge_slot_lifetime(state, slot_index, pid) do
+    if Map.get(state.slot_pids, slot_index) == pid do
+      state
+      |> purge_slot_attachments(slot_index)
+      |> Map.update!(:fully_warmed_slots, &MapSet.delete(&1, slot_index))
+      |> Map.update!(:in_flight, &MapSet.filter(&1, fn {index, _} -> index != slot_index end))
+      |> Map.update!(:fanned_out_slots, &Map.delete(&1, slot_index))
+      |> Map.update!(:slot_pids, &Map.delete(&1, slot_index))
+    else
+      state
+    end
+  end
+
+  defp purge_slot_attachments(state, slot_index) do
+    Enum.reduce(state.attachments, state, fn {identifier, attachment}, acc ->
+      if MapSet.member?(attachment.attached_slots, slot_index) do
+        do_attach_removed(acc, slot_index, identifier)
+      else
+        acc
+      end
+    end)
   end
 
   defp do_attach_added(state, slot_index, identifier) do

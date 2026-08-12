@@ -101,6 +101,14 @@ defmodule Aiur.Opencode.Slot do
     :exit, _ -> :busy
   end
 
+  @doc "Atomically claim an idle slot for a caller about to select it."
+  @spec claim_ready(GenServer.server()) :: :ok | :busy
+  def claim_ready(server) do
+    GenServer.call(server, :claim_ready, 2_000)
+  catch
+    :exit, _ -> :busy
+  end
+
   @doc "Pre-warm `identifier`'s session. Idempotent. Does not change visibility."
   @spec attach(GenServer.server(), String.t(), timeout()) ::
           {:ok, String.t()} | {:error, term()}
@@ -224,7 +232,7 @@ defmodule Aiur.Opencode.Slot do
 
   @impl true
   def handle_call({:select, identifier}, from, %{status: status} = state)
-      when status in [:ready, :active],
+      when status in [:ready, :claimed, :active],
       do: do_set_visible_call(identifier, from, state)
 
   def handle_call({:select, _identifier}, _from, state),
@@ -235,8 +243,13 @@ defmodule Aiur.Opencode.Slot do
 
   def handle_call(:reserve_stop, _from, state), do: {:reply, :busy, state}
 
+  def handle_call(:claim_ready, _from, %{status: :ready} = state),
+    do: {:reply, :ok, %{state | status: :claimed}}
+
+  def handle_call(:claim_ready, _from, state), do: {:reply, :busy, state}
+
   def handle_call({:attach, identifier}, _from, %{status: status} = state)
-      when status in [:ready, :active] do
+      when status in [:ready, :claimed, :active] do
     case do_attach(identifier, state) do
       {:ok, session_id, new_state} ->
         Events.attach_added(new_state.slot_index, identifier)
@@ -254,7 +267,7 @@ defmodule Aiur.Opencode.Slot do
         {:reply, {:error, :identifier_unknown}, schedule_serve_rebuild(new_state, state.pending_select)}
 
       {:error, _} = err ->
-        {:reply, err, state}
+        {:reply, err, unclaim(state)}
     end
   end
 
@@ -262,7 +275,7 @@ defmodule Aiur.Opencode.Slot do
     do: {:reply, {:error, {:slot_not_ready, state.status}}, state}
 
   def handle_call({:set_visible, identifier}, from, %{status: status} = state)
-      when status in [:ready, :active] do
+      when status in [:ready, :claimed, :active] do
     if state.visible_identifier == identifier and is_binary(state.pane_id) do
       {:reply, {:ok, state.pane_id}, state}
     else
@@ -371,7 +384,10 @@ defmodule Aiur.Opencode.Slot do
   def handle_info(_other, state), do: {:noreply, state}
 
   @impl true
-  def terminate(_reason, state), do: ServeLifecycle.terminate_cleanup(state)
+  def terminate(_reason, state) do
+    Events.slot_terminated(state.slot_index, self())
+    ServeLifecycle.terminate_cleanup(state)
+  end
 
   defp do_attach(identifier, state) do
     cond do
@@ -424,7 +440,7 @@ defmodule Aiur.Opencode.Slot do
           {:reply, {:ok, new_state.pane_id}, schedule_poll(new_state)}
 
         {:error, _} = err ->
-          {:reply, err, state}
+          {:reply, err, unclaim(state)}
       end
     else
       Logger.info("opencode_slot phase=identifier_miss elapsed_ms=#{Boot.elapsed_ms()} slot=#{state.slot_index} identifier=#{identifier}")
@@ -432,6 +448,9 @@ defmodule Aiur.Opencode.Slot do
       {:noreply, schedule_serve_rebuild(state, {from, identifier})}
     end
   end
+
+  defp unclaim(%{status: :claimed} = state), do: %{state | status: :ready}
+  defp unclaim(state), do: state
 
   defp do_select(identifier, state) do
     do_select_span = Aiur.Perf.span_begin(:slot_do_select, slot: state.slot_index, identifier: identifier)

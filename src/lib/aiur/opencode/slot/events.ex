@@ -20,6 +20,11 @@ defmodule Aiur.Opencode.Slot.Events do
     Aiur.Perf.event(:slot_ready, slot: slot_index)
   end
 
+  @spec slot_terminated(integer(), pid()) :: :ok
+  def slot_terminated(slot_index, pid) do
+    Phoenix.PubSub.broadcast(Aiur.PubSub, @slots_topic, {:slot_terminated, slot_index, pid})
+  end
+
   @spec session_changed(integer(), String.t() | nil) :: :ok
   def session_changed(slot_index, identifier_or_nil) do
     Phoenix.PubSub.broadcast(
