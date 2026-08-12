@@ -173,7 +173,30 @@ defmodule Aiur.GitHub.Transport do
         send(caller, {__MODULE__, self(), result})
       end)
 
+    _guardian = spawn(fn -> guard_worker_lifetime(caller, worker) end)
+
     await_off_process_request(request, worker, monitor_ref, deadline_ms)
+  end
+
+  # The request worker is deliberately unlinked from its caller so an
+  # unexpected worker exit cannot take a GenServer down. This responsive
+  # guardian supplies the inverse lifetime edge: when a poll target/caller is
+  # cancelled, it kills the possibly-blocked socket worker before exiting.
+  defp guard_worker_lifetime(caller, worker) do
+    caller_ref = Process.monitor(caller)
+    worker_ref = Process.monitor(worker)
+
+    receive do
+      {:DOWN, ^caller_ref, :process, ^caller, _reason} ->
+        Process.exit(worker, :kill)
+
+        receive do
+          {:DOWN, ^worker_ref, :process, ^worker, _reason} -> :ok
+        end
+
+      {:DOWN, ^worker_ref, :process, ^worker, _reason} ->
+        Process.demonitor(caller_ref, [:flush])
+    end
   end
 
   defp await_off_process_request(request, worker, monitor_ref, deadline_ms) do

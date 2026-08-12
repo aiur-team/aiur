@@ -106,6 +106,7 @@ defmodule Aiur.Orchestrator.State do
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
+          github_comment_issue_list_cache: map(),
           github_comment_poll: map() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
@@ -199,6 +200,10 @@ defmodule Aiur.Orchestrator.State do
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
+    # Conditional issue-list cache owned by the asynchronous comment poll.
+    # Keeping it separate prevents a late completion from replacing the newer
+    # cache written by synchronous CI/candidate fetching in the same cycle.
+    github_comment_issue_list_cache: %{},
     # In-flight marker for the asynchronous comment poll: `%{ref: reference(),
     # started_at_ms: integer()}` while one is outstanding, `nil` otherwise.
     github_comment_poll: nil,

@@ -269,7 +269,7 @@ defmodule Aiur.Orchestrator.CommentPolling do
 
   # The fold half. Runs on the Orchestrator, against whatever state it holds now.
   defp apply_comment_poll(%State{} = state, {:ok, cache, human_review_targets, poll_outcome}) do
-    state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], cache)
+    state = %{state | github_comment_issue_list_cache: cache}
     apply_poll_outcome(state, human_review_targets, poll_outcome)
   end
 

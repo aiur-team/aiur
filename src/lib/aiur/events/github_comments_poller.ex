@@ -99,22 +99,14 @@ defmodule Aiur.Events.GithubCommentsPoller do
       on_timeout: :kill_task
     ]
 
-    case Process.whereis(Aiur.TaskSupervisor) do
-      pid when is_pid(pid) ->
-        pid
-        |> Task.Supervisor.async_stream_nolink(targets, run_target, task_opts)
-        |> Enum.to_list()
+    previous_trap_exit = Process.flag(:trap_exit, true)
 
-      nil ->
-        previous_trap_exit = Process.flag(:trap_exit, true)
-
-        try do
-          targets
-          |> Task.async_stream(run_target, task_opts)
-          |> Enum.to_list()
-        after
-          Process.flag(:trap_exit, previous_trap_exit)
-        end
+    try do
+      targets
+      |> Task.async_stream(run_target, task_opts)
+      |> Enum.to_list()
+    after
+      Process.flag(:trap_exit, previous_trap_exit)
     end
   end
 

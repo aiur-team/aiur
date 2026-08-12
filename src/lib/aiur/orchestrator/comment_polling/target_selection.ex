@@ -198,9 +198,7 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
     end
   end
 
-  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
-    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
-  end
+  defp issue_list_cache(%State{github_comment_issue_list_cache: cache}), do: cache
 
   defp human_review_targets_from_issues(state, issues, opts) do
     issues

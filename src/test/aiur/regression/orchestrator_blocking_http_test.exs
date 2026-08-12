@@ -25,6 +25,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   alias Aiur.AgentControlCLI
   alias Aiur.GitHub.Transport
   alias Aiur.Orchestrator.CommentPolling
+  alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.StatusReport
 
@@ -250,6 +251,87 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       assert_receive {:comment_poll_started, second_pid}, 5_000
       assert second_pid != first_pid
       assert next_state.github_comment_poll.pid == second_pid
+    end
+
+    test "terminates target descendants before replacing an expired poll" do
+      test_pid = self()
+
+      request_fun = fn _request ->
+        target = self()
+
+        Transport.off_process_request(%{}, fn ->
+          send(test_pid, {:comment_request_started, target, self()})
+          Process.sleep(:infinity)
+        end)
+      end
+
+      opts = Keyword.put(comment_poll_opts(fn _states -> {:ok, []} end), :request_fun, request_fun)
+      state = %Aiur.Orchestrator.State{running: %{"57" => %{identifier: "57"}}}
+
+      first_state = CommentPolling.start_async(state, opts)
+      assert_receive {:comment_request_started, first_target, first_request}, 5_000
+
+      expired_at = System.monotonic_time(:millisecond) - 180_001
+      expired_state = put_in(first_state.github_comment_poll.started_at_ms, expired_at)
+      second_state = CommentPolling.start_async(expired_state, opts)
+
+      wait_until(fn -> not Process.alive?(first_target) end)
+      wait_until(fn -> not Process.alive?(first_request) end)
+      assert_receive {:comment_request_started, second_target, second_request}, 5_000
+      assert second_target != first_target
+
+      Process.exit(second_state.github_comment_poll.pid, :kill)
+      wait_until(fn -> not Process.alive?(second_request) end)
+    end
+
+    test "production result routing preserves a newer shared issue cache", %{orchestrator: pid} do
+      test_pid = self()
+
+      review_issue_fetcher = fn _states ->
+        send(test_pid, {:comment_target_refresh_started, self()})
+
+        receive do
+          :finish_comment_target_refresh -> {:ok, []}
+        end
+      end
+
+      opts = comment_poll_opts(review_issue_fetcher)
+
+      :sys.replace_state(pid, fn state ->
+        state = put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-before"})
+        state = %{state | github_comment_issue_list_cache: %{etag: "comments-only"}}
+        Dispatcher.start_github_comment_poll(state, opts)
+      end)
+
+      assert_receive {:comment_target_refresh_started, worker}, 5_000
+
+      :sys.replace_state(pid, fn state ->
+        put_in(state.ci_lifecycle.poll_cache[:issue_list_cache], %{etag: "shared-after"})
+      end)
+
+      send(worker, :finish_comment_target_refresh)
+      wait_until(fn -> :sys.get_state(pid).github_comment_poll == nil end)
+
+      final_state = :sys.get_state(pid)
+      assert final_state.ci_lifecycle.poll_cache[:issue_list_cache] == %{etag: "shared-after"}
+      assert final_state.github_comment_issue_list_cache == %{etag: "comments-only"}
+    end
+
+    test "production DOWN routing clears a failed comment poll", %{orchestrator: pid} do
+      test_pid = self()
+
+      review_issue_fetcher = fn _states ->
+        send(test_pid, :comment_target_refresh_crashing)
+        exit(:comment_target_refresh_failed)
+      end
+
+      :sys.replace_state(pid, fn state ->
+        Dispatcher.start_github_comment_poll(state, comment_poll_opts(review_issue_fetcher))
+      end)
+
+      assert_receive :comment_target_refresh_crashing, 5_000
+      wait_until(fn -> :sys.get_state(pid).github_comment_poll == nil end)
+      assert Process.alive?(pid)
     end
 
     test "drops a straggler from a poll the state is no longer waiting for" do

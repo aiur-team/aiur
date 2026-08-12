@@ -92,7 +92,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     # Issued, not awaited: the Orchestrator was captured parked in this poll's
     # `Task.async_stream` fan-out with 5,729 messages behind it on an idle host
     # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
-    state = CommentPolling.start_async(state)
+    state = start_github_comment_poll(state)
     state = CiLifecycle.poll_github_ci(state)
     state = Reconciler.refresh_running_issue_states(state)
     state = CommandScan.scan_pr_commands(state)
@@ -131,6 +131,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state
     end
   end
+
+  @doc false
+  @spec start_github_comment_poll(State.t(), keyword()) :: State.t()
+  def start_github_comment_poll(%State{} = state, opts \\ []), do: CommentPolling.start_async(state, opts)
 
   # Readiness is advisory at dispatch: the operator may be deliberately
   # setting up a repository mid-run, so this must never hold otherwise-valid
