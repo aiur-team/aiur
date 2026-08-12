@@ -76,7 +76,8 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
       claimant = spawn(fn -> send(owner, {:claimed, SlotSupervisor.acquire_slot()}) end)
       assert_receive {:claimed, {1, ^pid}}
       Process.exit(claimant, :kill)
-      Process.sleep(20)
+
+      assert_slot_status(pid, :ready)
 
       assert :ok = Slot.reserve_stop(pid)
       GenServer.stop(pid)
@@ -116,6 +117,24 @@ defmodule Aiur.Opencode.SlotSupervisorTest do
     SlotRegistry.all()
     |> Enum.map(&elem(&1, 0))
     |> Enum.sort()
+  end
+
+  defp assert_slot_status(pid, expected_status, timeout \\ 1_000) do
+    deadline = System.monotonic_time(:millisecond) + timeout
+    wait_for_slot_status(pid, expected_status, deadline)
+  end
+
+  defp wait_for_slot_status(pid, expected_status, deadline) do
+    if Slot.snapshot(pid).status == expected_status do
+      :ok
+    else
+      if System.monotonic_time(:millisecond) >= deadline do
+        flunk("slot did not reach #{inspect(expected_status)} status")
+      end
+
+      Process.sleep(10)
+      wait_for_slot_status(pid, expected_status, deadline)
+    end
   end
 
   defp assert_empty_slot_registry(timeout \\ 1_000) do
