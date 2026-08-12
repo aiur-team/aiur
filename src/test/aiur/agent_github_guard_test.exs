@@ -364,6 +364,48 @@ defmodule Aiur.AgentGitHubGuardTest do
     refute File.exists?(context.calls)
   end
 
+  test "a guarded high-level command fails closed before native pagination can bypass admissions", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    for limit_args <- [["--limit", "1000"], ["--limit=1000"], ["-L1000"]] do
+      assert {output, 64} =
+               run_guard(context, ["pr", "list" | limit_args],
+                 AIUR_GITHUB_BUDGET_ROOT: budget_root,
+                 AIUR_GITHUB_BUDGET_KEY: key,
+                 AIUR_GITHUB_BUDGET_BROKER: broker
+               )
+
+      assert output =~ "cannot fetch more than one page"
+    end
+
+    refute File.exists?(context.calls)
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => []} = Jason.decode!(snapshot)
+  end
+
+  test "a one-page high-level command retains its single guarded admission", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\n", 0} =
+             run_guard(context, ["pr", "list", "--limit", "100"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{"endpoint_family" => "pulls"}]} = Jason.decode!(snapshot)
+  end
+
   test "a paginated api call preserves its original command shape", context do
     assert {"ok\n", 0} =
              run_guard(context, ["api", "repos/owner/repo/issues", "--paginate"], FAKE_GH_REJECT_INCLUDE: "1")
@@ -500,6 +542,28 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert output =~ "\n\nok\nHTTP/2 200\n\nok\n"
   end
 
+  test "a paginated API call preserves the boolean include flag and its response headers", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {output, 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--include=true"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1"
+             )
+
+    assert output =~ "HTTP/2 200"
+    assert output =~ "\n\nok\nHTTP/2 200\n\nok\n"
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
+  end
+
   test "does not treat option-like endpoint text as a pagination flag", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -541,6 +605,22 @@ defmodule Aiur.AgentGitHubGuardTest do
 
     assert {output, 64} =
              run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--input", input],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
+               AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
+             )
+
+    assert output =~ "input body or standard input"
+    refute File.exists?(context.calls)
+  end
+
+  test "a paginated GraphQL query loaded from a file fails closed before a mutation can repeat", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    query = Path.join(context.workspace, "mutation.graphql")
+    File.write!(query, "mutation { addStar(input: {starrableId: \"id\"}) { starrable { id } } }")
+
+    assert {output, 64} =
+             run_guard(context, ["api", "graphql", "--paginate", "-f", "query=@#{query}"],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: "a" <> String.duplicate("0", 63),
                AIUR_GITHUB_BUDGET_BROKER: AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -603,6 +683,67 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
   end
 
+  test "a paginated API call applies jq to one admitted slurped response set", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"2\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--slurp", "--jq", "length"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1",
+               FAKE_GH_PAGINATION_JSON: "1"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
+  end
+
+  test "a paginated API call preserves verbose output without a second request per page", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"ok\nok\n", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--verbose"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1"
+             )
+
+    assert File.read!(context.calls) == "api repos/owner/repo/issues\napi /repos/owner/repo/issues?page=2\n"
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
+  end
+
+  test "a paginated API call applies a template to one admitted slurped response set", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"2", 0} =
+             run_guard(context, ["api", "repos/owner/repo/issues", "--paginate", "--slurp", "--template", "{{len .}}"],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_PAGINATION: "1",
+               FAKE_GH_PAGINATION_JSON: "1"
+             )
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}]} = Jason.decode!(snapshot)
+  end
+
   test "a paginated GraphQL call admits every cursor page through the shared budget", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
@@ -632,12 +773,12 @@ defmodule Aiur.AgentGitHubGuardTest do
     assert %{"admissions" => [%{}, %{}, %{}]} = Jason.decode!(snapshot)
   end
 
-  test "a paginated GraphQL call keeps cursor parsing independent from jq output", context do
+  test "a paginated GraphQL call keeps cursor parsing independent from locally rendered jq output", context do
     budget_root = Path.join(context.state_path, "host-budget")
     broker = AgentGitHubGuard.budget_broker_path(context.workspace)
     key = "a" <> String.duplicate("0", 63)
 
-    assert {"formatted\nformatted\nformatted\n", 0} =
+    assert {"after-one\nafter-two\nnull\n", 0} =
              run_guard(
                context,
                [
@@ -645,23 +786,53 @@ defmodule Aiur.AgentGitHubGuardTest do
                  "graphql",
                  "--paginate",
                  "-q",
-                 ".data.viewer.repositories.nodes",
+                 ".data.viewer.repositories.pageInfo.endCursor",
                  "-f",
                  "query=query($endCursor: String) { viewer { repositories(first: 1, after: $endCursor) { pageInfo { hasNextPage endCursor } } } }"
                ],
                AIUR_GITHUB_BUDGET_ROOT: budget_root,
                AIUR_GITHUB_BUDGET_KEY: key,
                AIUR_GITHUB_BUDGET_BROKER: broker,
-               FAKE_GH_GRAPHQL_PAGINATION: "1",
-               FAKE_GH_GRAPHQL_FORMAT: "1"
+               FAKE_GH_GRAPHQL_PAGINATION: "1"
              )
 
-    assert File.read!(context.calls) == "api graphql\napi graphql\napi graphql\napi graphql\napi graphql\napi graphql\n"
+    assert File.read!(context.calls) == "api graphql\napi graphql\napi graphql\n"
 
     assert {snapshot, 0} =
              System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
 
-    assert %{"admissions" => [%{}, %{}, %{}, %{}, %{}, %{}]} = Jason.decode!(snapshot)
+    assert %{"admissions" => [%{}, %{}, %{}]} = Jason.decode!(snapshot)
+  end
+
+  test "a paginated GraphQL call renders a template without a second page request", context do
+    budget_root = Path.join(context.state_path, "host-budget")
+    broker = AgentGitHubGuard.budget_broker_path(context.workspace)
+    key = "a" <> String.duplicate("0", 63)
+
+    assert {"next\nnext\ndone\n", 0} =
+             run_guard(
+               context,
+               [
+                 "api",
+                 "graphql",
+                 "--paginate",
+                 "--template",
+                 ~s({{if .data.viewer.repositories.pageInfo.hasNextPage}}next{{else}}done{{end}}{{"\\n"}}),
+                 "-f",
+                 "query=query($endCursor: String) { viewer { repositories(first: 1, after: $endCursor) { pageInfo { hasNextPage endCursor } } } }"
+               ],
+               AIUR_GITHUB_BUDGET_ROOT: budget_root,
+               AIUR_GITHUB_BUDGET_KEY: key,
+               AIUR_GITHUB_BUDGET_BROKER: broker,
+               FAKE_GH_GRAPHQL_PAGINATION: "1"
+             )
+
+    assert File.read!(context.calls) == "api graphql\napi graphql\napi graphql\n"
+
+    assert {snapshot, 0} =
+             System.cmd("python3", [broker, "snapshot", "--db", Path.join(budget_root, "budget.sqlite3"), "--token-key", key])
+
+    assert %{"admissions" => [%{}, %{}, %{}]} = Jason.decode!(snapshot)
   end
 
   test "a broker failure refuses the real gh command", context do
