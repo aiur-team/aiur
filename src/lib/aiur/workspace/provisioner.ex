@@ -14,32 +14,43 @@ defmodule Aiur.Workspace.Provisioner do
   @workspace_ready_marker ".claude/.aiur-workspace-ready"
 
   @doc false
-  # Install aiur's bundled agent-operating skills (`using-aiur`, `/aiur-agent`)
-  # into the freshly populated workspace so the agent can load the skills the
-  # per-turn prompt routes it to instead of full-disk-searching (#689). Local
-  # Remote workers receive the same embedded files through one idempotent SSH
-  # script, so prompt-referenced skills resolve on either execution host.
-  @spec maybe_install_agent_skills(Path.t(), String.t() | nil) :: :ok
-  def maybe_install_agent_skills(workspace, nil), do: Aiur.AgentSkills.install(workspace)
+  # Install aiur's bundled agent-operating skills and command guards into a
+  # freshly populated workspace. Remote workers receive the same embedded
+  # support files through one idempotent SSH script.
+  @spec maybe_install_agent_support(Path.t(), String.t() | nil) :: :ok | {:error, term()}
+  def maybe_install_agent_support(workspace, nil) do
+    with :ok <- Aiur.AgentSkills.install(workspace),
+         :ok <- Aiur.AgentGitHubGuard.install(workspace) do
+      Aiur.AgentScratch.install(workspace)
+    end
+  end
 
-  def maybe_install_agent_skills(workspace, worker_host) when is_binary(worker_host) do
-    maybe_install_agent_skills(workspace, worker_host, &Remote.run_remote_command/3)
+  def maybe_install_agent_support(workspace, worker_host) when is_binary(worker_host) do
+    maybe_install_agent_support(workspace, worker_host, &Remote.run_remote_script/3)
   end
 
   @doc false
-  @spec maybe_install_agent_skills(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) :: :ok
-  def maybe_install_agent_skills(workspace, worker_host, runner)
+  @spec maybe_install_agent_support(Path.t(), String.t(), (String.t(), String.t(), pos_integer() -> term())) ::
+          :ok | {:error, term()}
+  def maybe_install_agent_support(workspace, worker_host, runner)
       when is_binary(workspace) and is_binary(worker_host) and is_function(runner, 3) do
-    script = Aiur.AgentSkills.remote_install_script(workspace)
+    script = remote_agent_support_script(workspace)
 
     case runner.(worker_host, script, Config.settings!().hooks.timeout_ms) do
       {:ok, {_output, 0}} ->
         :ok
 
       result ->
-        Logger.warning("remote agent skill install failed worker_host=#{worker_host} result=#{inspect(result)}")
-        :ok
+        Logger.warning("remote agent support install failed worker_host=#{worker_host} result=#{inspect(result)}")
+        {:error, {:remote_agent_support_install_failed, result}}
     end
+  end
+
+  defp remote_agent_support_script(workspace) do
+    Aiur.AgentSkills.remote_install_script(workspace) <>
+      "\n" <>
+      Aiur.AgentGitHubGuard.remote_install_script(workspace) <>
+      "\n" <> Aiur.AgentScratch.remote_install_script(workspace)
   end
 
   @type worker_host :: String.t() | nil

@@ -4,10 +4,32 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   """
 
   alias Aiur.{BuildGate, CodingAgent, Config, Issue, ModelAvailability, SystemCpu, SystemFileDescriptors, SystemLoad, SystemMemory}
+  alias Aiur.GitHub.Quota
   alias Aiur.Orchestrator.{Slots, State}
 
   @cpu_headroom_ramp_max 3
   @fd_headroom_percent 10
+
+  # States in which, by definition, there is no agent work: the PR is sitting in
+  # GitHub's merge queue (`merging`) or CI is in flight (`ci-wait`). Dispatching
+  # into them cannot produce progress, only cost — and every committed dispatch
+  # bills a lifetime unit, so a ticket can burn the terminal (self-declared
+  # unrecoverable) latch while waiting for the merge queue, *after* its work was
+  # finished and approved (#1759: 48 dispatches in ~50 minutes on a ticket in
+  # `merging` with an approved, queued PR).
+  #
+  # This is a code-level refusal rather than an `active_states` edit because
+  # `merging` must stay an active state for comment polling
+  # (`CommentPolling.TargetSelection`), the paused-agent sweep, and terminal-fence
+  # bookkeeping. `ci-wait` is already excluded from the Executor's paused-agent
+  # sweep as legitimate waiting; refusing it here makes the two beliefs
+  # consistent regardless of how an operator configures `active_states`.
+  #
+  # Neither state strands a ticket: leaving `ci-wait` (the CI result delivery and
+  # the `ci_wait_rewake` fallback) and leaving `merging` (a trusted comment
+  # promoting the ticket to `rework`) both transition the tracker label *first*,
+  # so dispatch is re-evaluated against the new state.
+  @no_agent_work_states ["merging", "ci-wait"]
 
   @doc false
   # Reads the host 1-min load only when the hard gate or adaptive target is
@@ -74,6 +96,17 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     Config.agent_backend_configs() |> CodingAgent.dispatchable_backends()
   end
 
+  @doc false
+  @spec read_github_quota() :: :available | {:hold, map()}
+  def read_github_quota do
+    case Application.get_env(:aiur, :github_quota_status_override) do
+      :available -> :available
+      {:hold, %{} = hold} -> {:hold, hold}
+      fun when is_function(fun, 0) -> fun.()
+      _other -> Quota.dispatch_status()
+    end
+  end
+
   @spec initial_load_envelope_limit(map()) :: pos_integer() | nil
   def initial_load_envelope_limit(%{target_load_average: nil}), do: nil
   def initial_load_envelope_limit(_agent), do: 1
@@ -98,6 +131,16 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   def load_gate(:unavailable, _threshold, _schedulers), do: :dispatch
   def load_gate(load, threshold, schedulers) when load > threshold * schedulers, do: :hold
   def load_gate(_load, _threshold, _schedulers), do: :dispatch
+
+  @doc false
+  @spec load_admission_reason(number() | :unavailable, number() | nil, pos_integer()) :: :dispatch | {:hold, admission_reason()}
+  def load_admission_reason(load, threshold, schedulers) do
+    if load_gate(load, threshold, schedulers) == :hold do
+      {:hold, %{signal: :load, measured: load, threshold: threshold * schedulers}}
+    else
+      :dispatch
+    end
+  end
 
   @doc false
   # A configured floor holds normal new-work dispatch only when the host sample
@@ -178,8 +221,13 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   def provider_gate(_backends), do: :dispatch
 
+  @doc false
+  @spec github_quota_gate(:available | {:hold, map()} | term()) :: :dispatch | :hold
+  def github_quota_gate({:hold, %{resource: resource}}) when resource in ["core", "graphql"], do: :hold
+  def github_quota_gate(_status), do: :dispatch
+
   @type admission_reason :: %{
-          signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider,
+          signal: :memory | :file_descriptors | :github_quota | :run_queue | :load | :build | :provider,
           measured: term(),
           threshold: term()
         }
@@ -189,24 +237,25 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   Returns `:dispatch` when no gate holds, or `{:hold, reason}` naming the first
   (highest-priority) binding signal with its measured value and threshold. The
-  priority order is memory, file descriptors, run queue, load, build, provider.
+  priority order is memory, file descriptors, GitHub quota, run queue, load,
+  build, provider.
   Every signal fails open when disabled or unavailable, so an explicit-disable
   config never touches a Linux-specific probe.
   """
   @spec admission_gate(map()) :: :dispatch | {:hold, admission_reason()}
-  def admission_gate(%{
-        memory_mb: memory_mb,
-        memory_threshold_mb: memory_threshold_mb,
-        fd_sample: fd_sample,
-        runnable: runnable,
-        run_queue_threshold: run_queue_threshold,
-        schedulers: schedulers,
-        load: load,
-        load_threshold: load_threshold,
-        build_status: build_status,
-        provider_backends: provider_backends,
-        queued_demand?: queued_demand?
-      }) do
+  def admission_gate(%{} = probes) do
+    github_quota = Map.get(probes, :github_quota, :available)
+
+    case resource_admission_gate(probes, github_quota) do
+      :dispatch -> workload_admission_gate(probes)
+      hold -> hold
+    end
+  end
+
+  defp resource_admission_gate(
+         %{memory_mb: memory_mb, memory_threshold_mb: memory_threshold_mb, fd_sample: fd_sample},
+         github_quota
+       ) do
     cond do
       memory_gate(memory_mb, memory_threshold_mb) == :hold ->
         {:hold, %{signal: :memory, measured: memory_mb, threshold: memory_threshold_mb}}
@@ -214,11 +263,32 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       fd_gate(fd_sample) == :hold ->
         {:hold, %{signal: :file_descriptors, measured: fd_sample, threshold: fd_headroom_threshold(fd_sample)}}
 
+      github_quota_gate(github_quota) == :hold ->
+        {:hold, %{signal: :github_quota, measured: elem(github_quota, 1), threshold: :ten_percent_remaining}}
+
+      true ->
+        :dispatch
+    end
+  end
+
+  defp workload_admission_gate(%{
+         runnable: runnable,
+         run_queue_threshold: run_queue_threshold,
+         schedulers: schedulers,
+         load: load,
+         load_threshold: load_threshold,
+         build_status: build_status,
+         provider_backends: provider_backends,
+         queued_demand?: queued_demand?
+       }) do
+    load_hold = load_admission_reason(load, load_threshold, schedulers)
+
+    cond do
       run_queue_gate(runnable, schedulers, run_queue_threshold) == :hold ->
         {:hold, %{signal: :run_queue, measured: runnable, threshold: run_queue_threshold * schedulers}}
 
-      load_gate(load, load_threshold, schedulers) == :hold ->
-        {:hold, %{signal: :load, measured: load, threshold: load_threshold * schedulers}}
+      load_hold != :dispatch ->
+        load_hold
 
       build_gate(build_status) == :hold ->
         {:hold,
@@ -237,6 +307,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   @type envelope_options :: %{
+          optional(:bootstrap_complete?) => boolean(),
           target: number() | nil,
           schedulers: pos_integer(),
           static_limit: pos_integer(),
@@ -244,7 +315,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           cooldown_ms: non_neg_integer(),
           now_ms: integer(),
           cpu_headroom: SystemCpu.headroom() | :unavailable,
-          queued_work?: boolean()
+          queued_work?: boolean(),
+          used_slots: non_neg_integer()
         }
 
   @spec load_envelope(
@@ -254,18 +326,32 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           envelope_options()
         ) ::
           {pos_integer(), integer() | nil}
-  def load_envelope(_effective, _last_decrease_ms, _load, %{
-        target: nil,
-        static_limit: static_limit
-      }),
-      do: {static_limit, nil}
+  def load_envelope(effective, last_decrease_ms, load, options) do
+    {next, next_decrease_ms, _bootstrap_complete?} =
+      load_envelope_state(
+        effective,
+        last_decrease_ms,
+        load,
+        Map.put_new(options, :bootstrap_complete?, true)
+      )
 
-  def load_envelope(effective, last_decrease_ms, :unavailable, %{static_limit: static_limit}) do
-    {normalize_load_envelope_limit(effective, static_limit), last_decrease_ms}
+    {next, next_decrease_ms}
   end
 
-  def load_envelope(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
-      when is_number(load) do
+  defp load_envelope_state(_effective, _last_decrease_ms, _load, %{
+         target: nil,
+         static_limit: static_limit,
+         bootstrap_complete?: bootstrap_complete?
+       }),
+       do: {static_limit, nil, bootstrap_complete?}
+
+  defp load_envelope_state(effective, last_decrease_ms, :unavailable, options) do
+    next = normalize_load_envelope_limit(effective, options.static_limit)
+    {next, last_decrease_ms, options.bootstrap_complete?}
+  end
+
+  defp load_envelope_state(effective, last_decrease_ms, load, %{static_limit: static_limit} = options)
+       when is_number(load) do
     effective = normalize_load_envelope_limit(effective, static_limit)
     adjust_load_envelope(effective, last_decrease_ms, load, options)
   end
@@ -291,8 +377,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     envelope_state = state.load_envelope_state
     cpu_headroom = SystemCpu.headroom(envelope_state.cpu_snapshot, cpu_snapshot)
 
-    {effective, last_decrease_ms} =
-      load_envelope(
+    {effective, last_decrease_ms, bootstrap_complete?} =
+      load_envelope_state(
         state.effective_concurrent_agents,
         envelope_state.last_decrease_ms,
         load,
@@ -304,7 +390,9 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           cooldown_ms: Config.load_cooldown_seconds() * 1_000,
           now_ms: now_ms,
           cpu_headroom: cpu_headroom,
-          queued_work?: queued_work?
+          queued_work?: queued_work?,
+          used_slots: Slots.used_slots(state),
+          bootstrap_complete?: Map.get(envelope_state, :bootstrap_complete?, false)
         }
       )
 
@@ -313,7 +401,8 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
       | effective_concurrent_agents: effective,
         load_envelope_state: %{
           last_decrease_ms: last_decrease_ms,
-          cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot)
+          cpu_snapshot: next_cpu_snapshot(envelope_state.cpu_snapshot, cpu_snapshot),
+          bootstrap_complete?: bootstrap_complete?
         }
     }
   end
@@ -324,14 +413,40 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
          load,
          %{schedulers: schedulers} = options
        ) do
-    recovering? = is_integer(last_decrease_ms)
+    cond do
+      cold_start_seed?(last_decrease_ms, load, schedulers, options) ->
+        next =
+          seed_cold_start(
+            effective,
+            options.cpu_headroom,
+            schedulers,
+            options.used_slots,
+            options.static_limit
+          )
 
-    if recovering? and options.queued_work? and
-         clear_cpu_headroom?(options.cpu_headroom, schedulers) do
-      fast_ramp(effective, last_decrease_ms, options.static_limit)
-    else
-      adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
+        {next, last_decrease_ms, true}
+
+      fast_recovery?(last_decrease_ms, schedulers, options) ->
+        {next, next_decrease_ms} = fast_ramp(effective, last_decrease_ms, options.static_limit)
+        {next, next_decrease_ms, options.bootstrap_complete?}
+
+      true ->
+        {next, next_decrease_ms} =
+          adjust_load_envelope_without_headroom(effective, last_decrease_ms, load, options)
+
+        {next, next_decrease_ms, options.bootstrap_complete?}
     end
+  end
+
+  defp cold_start_seed?(last_decrease_ms, load, schedulers, options) do
+    not options.bootstrap_complete? and is_nil(last_decrease_ms) and
+      load <= options.target * schedulers and options.queued_work? and
+      clear_cpu_headroom?(options.cpu_headroom, schedulers)
+  end
+
+  defp fast_recovery?(last_decrease_ms, schedulers, options) do
+    is_integer(last_decrease_ms) and options.queued_work? and
+      clear_cpu_headroom?(options.cpu_headroom, schedulers)
   end
 
   defp adjust_load_envelope_without_headroom(
@@ -370,6 +485,11 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
        do: true
 
   defp clear_cpu_headroom?(_headroom, _schedulers), do: false
+
+  defp seed_cold_start(effective, %{idle_percent: idle_percent}, schedulers, used_slots, static_limit) do
+    idle_slots = max(floor(idle_percent * schedulers / 100), 1)
+    max(effective, min(used_slots + idle_slots, static_limit))
+  end
 
   defp fast_ramp(effective, last_decrease_ms, static_limit) do
     next = min(static_limit, min(effective * 2, effective + @cpu_headroom_ramp_max))
@@ -418,16 +538,48 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
 
   @spec should_dispatch_issue?(Issue.t(), State.t()) :: boolean()
   def should_dispatch_issue?(%Issue{} = issue, %State{} = state) do
-    should_dispatch_issue?(issue, state, active_state_set(), terminal_state_set())
+    dispatch_decision(issue, state) == :dispatch
   end
 
   @spec should_dispatch_issue?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
   def should_dispatch_issue?(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
-    dispatch_candidate?(issue, state, active_states, terminal_states) and
-      Slots.available_slots(state) > 0
+    dispatch_decision(issue, state, active_states, terminal_states) == :dispatch
   end
 
   def should_dispatch_issue?(_issue, _state, _active_states, _terminal_states), do: false
+
+  @type dispatch_decline_reason ::
+          :invalid_issue
+          | :contradictory_state_labels
+          | :not_routable
+          | :unauthorized
+          | :paused
+          | :inactive_state
+          | :no_agent_work_state
+          | :terminal_state
+          | :dependency
+          | :already_running
+          | :retry_backoff
+          | :model_fallback_waiting
+          | :workspace_ownership_waiting
+          | :claimed_without_runtime
+          | :state_capacity
+          | :worker_capacity
+          | :fleet_capacity
+
+  @spec dispatch_decision(term(), State.t()) :: :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_decision(issue, %State{} = state) do
+    dispatch_decision(issue, state, active_state_set(), terminal_state_set())
+  end
+
+  @spec dispatch_decision(term(), State.t(), MapSet.t(), MapSet.t()) ::
+          :dispatch | {:skip, dispatch_decline_reason()}
+  def dispatch_decision(issue, %State{} = state, active_states, terminal_states) do
+    case dispatch_candidate_decision(issue, state, active_states, terminal_states) do
+      :dispatch -> if(Slots.available_slots(state) > 0, do: :dispatch, else: {:skip, :fleet_capacity})
+      {:skip, _reason} = declined -> declined
+    end
+  end
 
   # All dispatch preconditions except the global active+paused slot reservation.
   # Polling layers `available_slots > 0` on top of this to honor paused-agent
@@ -436,22 +588,86 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   # parallel paused agent is parked in the running map.
   @spec dispatch_candidate?(Issue.t(), State.t()) :: boolean()
   def dispatch_candidate?(%Issue{} = issue, %State{} = state) do
-    dispatch_candidate?(issue, state, active_state_set(), terminal_state_set())
+    dispatch_candidate_decision(issue, state, active_state_set(), terminal_state_set()) == :dispatch
   end
 
   @spec dispatch_candidate?(Issue.t(), State.t(), MapSet.t(), MapSet.t()) :: boolean()
   def dispatch_candidate?(
         %Issue{} = issue,
-        %State{running: running, claimed: claimed} = state,
+        %State{} = state,
         active_states,
         terminal_states
       ) do
-    candidate_issue?(issue, active_states, terminal_states) and
-      !todo_issue_blocked_by_non_terminal?(issue, terminal_states) and
-      !MapSet.member?(claimed, issue.id) and
-      !Map.has_key?(running, issue.id) and
-      state_slots_available?(issue, state) and
-      Slots.worker_slots_available?(state)
+    dispatch_candidate_decision(issue, state, active_states, terminal_states) == :dispatch
+  end
+
+  defp dispatch_candidate_decision(%Issue{} = issue, %State{} = state, active_states, terminal_states) do
+    case issue_eligibility_decision(issue, active_states, terminal_states) do
+      :dispatch -> dispatch_state_decision(issue, state, terminal_states)
+      {:skip, _reason} = declined -> declined
+    end
+  end
+
+  defp dispatch_candidate_decision(_issue, _state, _active_states, _terminal_states), do: {:skip, :invalid_issue}
+
+  defp valid_issue_shape?(%Issue{id: id, identifier: identifier, title: title, state: state}) do
+    is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state)
+  end
+
+  defp issue_eligibility_decision(%Issue{} = issue, active_states, terminal_states) do
+    case issue_identity_decision(issue) do
+      :dispatch -> issue_state_decision(issue, active_states, terminal_states)
+      {:skip, _reason} = declined -> declined
+    end
+  end
+
+  defp issue_identity_decision(%Issue{} = issue) do
+    cond do
+      match?([_, _ | _], issue.state_labels) -> {:skip, :contradictory_state_labels}
+      not valid_issue_shape?(issue) -> {:skip, :invalid_issue}
+      not issue_routable_to_worker?(issue) -> {:skip, :not_routable}
+      not issue_dispatch_authorized?(issue) -> {:skip, :unauthorized}
+      not issue_not_paused?(issue) -> {:skip, :paused}
+      true -> :dispatch
+    end
+  end
+
+  defp issue_state_decision(%Issue{} = issue, active_states, terminal_states) do
+    cond do
+      terminal_issue_state?(issue.state, terminal_states) -> {:skip, :terminal_state}
+      no_agent_work_state?(issue.state) -> {:skip, :no_agent_work_state}
+      not active_issue_state?(issue.state, active_states) -> {:skip, :inactive_state}
+      true -> :dispatch
+    end
+  end
+
+  defp dispatch_state_decision(%Issue{} = issue, %State{} = state, terminal_states) do
+    cond do
+      todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
+      Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
+      MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
+      not state_slots_available?(issue, state) -> {:skip, :state_capacity}
+      not Slots.worker_slots_available?(state) -> {:skip, :worker_capacity}
+      true -> :dispatch
+    end
+  end
+
+  defp claimed_decline_reason(%State{} = state, issue_id) do
+    cond do
+      Map.has_key?(state.retry_attempts, issue_id) -> :retry_backoff
+      MapSet.member?(state.model_fallback_waiting, issue_id) -> :model_fallback_waiting
+      workspace_ownership_waiting?(state, issue_id) -> :workspace_ownership_waiting
+      true -> :claimed_without_runtime
+    end
+  end
+
+  defp workspace_ownership_waiting?(%State{} = state, issue_id) do
+    state.dispatch_recovery.workspace_ownership.waits
+    |> Map.values()
+    |> Enum.any?(fn
+      envelope when is_map(envelope) -> Map.get(envelope, :issue_id) == issue_id
+      _other -> false
+    end)
   end
 
   @spec queued_dispatch_demand?([Issue.t()], State.t()) :: boolean()
@@ -514,11 +730,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
         terminal_states
       )
       when is_binary(id) and is_binary(identifier) and is_binary(title) and is_binary(state_name) do
-    issue_routable_to_worker?(issue) and
-      issue_dispatch_authorized?(issue) and
-      issue_not_paused?(issue) and
-      active_issue_state?(state_name, active_states) and
-      !terminal_issue_state?(state_name, terminal_states)
+    issue_eligibility_decision(issue, active_states, terminal_states) == :dispatch
   end
 
   def candidate_issue?(_issue, _active_states, _terminal_states), do: false
@@ -569,6 +781,20 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
   end
 
   def terminal_issue_state?(_state_name, _terminal_states), do: false
+
+  @doc """
+  True for a state where no agent work exists, so dispatch must be refused.
+
+  See `@no_agent_work_states`. Independent of `active_states`: an operator can
+  list `merging` as active (it is, for polling and fence purposes) without making
+  it dispatchable.
+  """
+  @spec no_agent_work_state?(term()) :: boolean()
+  def no_agent_work_state?(state_name) when is_binary(state_name) do
+    normalize_issue_state(state_name) in @no_agent_work_states
+  end
+
+  def no_agent_work_state?(_state_name), do: false
 
   @spec active_issue_state?(term(), MapSet.t()) :: boolean()
   def active_issue_state?(state_name, active_states) when is_binary(state_name) do

@@ -60,10 +60,23 @@ to the issues you want worked and run `aiur`.
 | `aiur --bg --no-dashboard` | Start a lean detached headless BEAM without the dashboard |
 | `aiur --no-dashboard` | Keep the foreground terminal UI without the dashboard |
 | `aiur status` | Show active agents and their state |
+| `aiur analytics [--range run\|full] [--since <ISO-8601>] [--until <ISO-8601>] [--build-order <id>] [--json]` | Render the Analytics dashboard snapshot for an explicit chart window |
 | `aiur alerts [--needs-attention]` | Show structured alert feed JSON lines |
 | `aiur pause <id…>` / `resume <id…>` | Pause or resume agents by issue ID |
 | `aiur --todo <id…> [--only]` | Queue GitHub tickets; optionally dequeue all other pending tickets |
 | `aiur stop` | Stop the running session |
+
+`aiur analytics` reads the same durable telemetry projection as `/analytics`.
+It prints the resolved chart window plus the freshness, observation time, and
+age of each data source; `--json` returns the same information in a stable
+envelope. The explicit window applies to the time charts, as the dashboard
+brush does; its page KPIs and complexity tiers remain scoped to the selected
+run or Build Order. `--range run` is the default (the current session), while
+`--range full` includes prior materialized sessions. `--build-order` scopes the snapshot
+to a selected Build Order's typed members.
+Provider spend remains explicitly unavailable unless the command is given the
+same financial-data capability that the dashboard connection uses; it is never
+silently reported as zero.
 
 `aiur --todo` works without a running daemon and derives its repository and
 labels from the current config. `--only` leaves tickets already in progress
@@ -72,7 +85,7 @@ processes; running two overlapping `aiur --todo ... --only` commands can drop
 each other's tickets, so avoid running them at the same time.
 
 If a control command times out while the daemon is still live, the host may be
-scheduler-saturated. Run `aiur stop` to interrupt that session and its workers,
+unresponsive. Run `aiur stop` to interrupt that session and its workers,
 then start it again; this is a session-level recovery action, not a cooperative
 single-agent pause.
 

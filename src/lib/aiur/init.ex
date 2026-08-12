@@ -74,7 +74,7 @@ defmodule Aiur.Init do
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
         effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = Resume.tracker_from_config(deps, config)
+        tracker = Resume.tracker_from_config(deps, config, config_path: effective_target)
 
         case deps.setup_repo_state.(tracker) do
           :ok ->
@@ -109,7 +109,10 @@ defmodule Aiur.Init do
         max_turns = Questions.prompt_max_turns(io)
         max_duration = Questions.prompt_max_duration(io)
         pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
+        # Matches Schema.Polling's default. The scaffold writes this value into
+        # .aiurconfig explicitly, so it — not the schema default — is what new
+        # installs actually poll at.
+        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 120, 1)
         prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
         prewarm = Prewarm.prompt_prewarm(io, deps, location)
         Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
@@ -150,7 +153,7 @@ defmodule Aiur.Init do
               io,
               deps,
               tracker
-              |> Map.put(:base_branch, configured_base_branch(config_yaml))
+              |> Map.put(:base_branch, Aiur.Config.base_branch(tracker))
               |> Map.put(:config_path, path),
               agents
             )
@@ -279,15 +282,6 @@ defmodule Aiur.Init do
     io.puts.("\n✅ aiur is set up. You can now:")
     io.puts.("  1. Add `agent:todo` labels to the issues you want worked.")
     io.puts.("  2. Run `aiur` (foreground) or `aiur --bg` (background) to start agents.")
-  end
-
-  defp configured_base_branch(config_yaml) do
-    with {:ok, config} <- YamlElixir.read_from_string(config_yaml),
-         branch when is_binary(branch) and branch != "" <- get_in(config, ["tracker", "base_branch"]) do
-      branch
-    else
-      _ -> "main"
-    end
   end
 
   defp linear_walkthrough(io, %{kind: "linear"}) do

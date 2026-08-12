@@ -81,6 +81,13 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp poll_target(target, opts) do
+    case ci_batch_value(opts, target) do
+      {:ok, batch} -> poll_batched_target(target, batch, opts)
+      :missing -> poll_target_from_rest(target, opts)
+    end
+  end
+
+  defp poll_target_from_rest(target, opts) do
     case Client.fetch_open_pull_request_for_branch(target, opts) do
       {:ok, nil} ->
         # A newly finalized PR can take a short time to appear in GitHub's
@@ -93,6 +100,51 @@ defmodule Aiur.Events.GithubCIPoller do
 
       {:error, reason} ->
         poll_error(target, {:pr_lookup, reason})
+    end
+  end
+
+  defp poll_batched_target(target, %{pull_request: nil}, _opts) do
+    %{target: target, decision: :pending, pending_reason: :open_pr_not_yet_visible}
+  end
+
+  defp poll_batched_target(target, %{pull_request: pr, check_runs: check_runs, commit_status: commit_status}, opts)
+       when is_map(pr) and is_list(check_runs) and is_map(commit_status) do
+    with {:ok, pr_number} <- positive_integer(Map.get(pr, "number")),
+         {:ok, head_sha} <- head_sha(pr) do
+      expected_base = expected_base_branch(opts)
+
+      case ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
+        {:ok, :unchanged} ->
+          evaluate(check_runs, commit_status)
+          |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha})
+          |> log_classification()
+
+        {:ok, {:unchanged, recovered_invalidation}} ->
+          evaluate(check_runs, commit_status)
+          |> enforce_base_repair_invalidation(target, head_sha, check_runs, commit_status, opts)
+          |> Map.merge(%{target: target, pr_number: pr_number, head_sha: head_sha, base_repair_invalidation: recovered_invalidation})
+          |> log_classification()
+
+        {:ok, {:repaired, invalidation}} ->
+          base_branch_repaired(target, pr_number, invalidation, expected_base)
+
+        {:error, reason, invalidation} ->
+          base_branch_failure(target, pr_number, head_sha, expected_base, reason, invalidation)
+      end
+    else
+      {:error, reason} -> poll_error(target, reason)
+    end
+  end
+
+  defp poll_batched_target(target, _batch, _opts), do: poll_error(target, :invalid_ci_poll_batch)
+
+  defp ci_batch_value(opts, target) do
+    with %{} = batch <- Keyword.get(opts, :ci_batch),
+         {:ok, value} <- Map.fetch(batch, target) do
+      {:ok, value}
+    else
+      _ -> :missing
     end
   end
 
@@ -227,7 +279,7 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp evaluate(check_runs, commit_status) do
-    check_runs = Enum.filter(check_runs, &is_map/1)
+    check_runs = blocking_check_runs(check_runs)
     statuses = commit_status |> Map.get("statuses", []) |> Enum.filter(&is_map/1)
     failed_checks = failed_check_runs(check_runs) ++ failed_commit_statuses(statuses)
 
@@ -249,6 +301,22 @@ defmodule Aiur.Events.GithubCIPoller do
       end
 
     evaluation(classification, failed_checks)
+  end
+
+  defp non_blocking_check?(check_run) do
+    case Map.get(check_run, "name") do
+      name when is_binary(name) ->
+        name |> String.trim() |> String.downcase() |> String.ends_with?("(non-blocking)")
+
+      _ ->
+        false
+    end
+  end
+
+  defp blocking_check_runs(check_runs) do
+    check_runs
+    |> Enum.filter(&is_map/1)
+    |> Enum.reject(&non_blocking_check?/1)
   end
 
   defp evaluation({:pending, pending_reason}, failed_checks) do
@@ -304,7 +372,7 @@ defmodule Aiur.Events.GithubCIPoller do
   end
 
   defp post_repair_ci?(check_runs, commit_status, repaired_at) do
-    check_evidence = Enum.map(check_runs, &ci_evidence_timestamp/1)
+    check_evidence = check_runs |> blocking_check_runs() |> Enum.map(&ci_evidence_timestamp/1)
 
     status_evidence =
       commit_status
@@ -426,12 +494,7 @@ defmodule Aiur.Events.GithubCIPoller do
     |> Enum.uniq()
   end
 
-  defp expected_base_branch(opts) do
-    case Keyword.fetch(opts, :base_branch) do
-      {:ok, branch} when is_binary(branch) and branch != "" -> branch
-      _ -> Config.base_branch()
-    end
-  end
+  defp expected_base_branch(opts), do: Config.base_branch(opts)
 
   defp ensure_pull_request_base(target, pr, head_sha, expected_base, opts) do
     repair_started_at = system_time_seconds(opts)

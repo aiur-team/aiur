@@ -11,11 +11,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   core complexity-weighted wave completion (it is tracked separately).
   """
 
-  alias Aiur.BuildOrder.Metadata
+  alias Aiur.BuildOrder.{Metadata, RootSummary}
   alias AiurWeb.BuildOrderViewModel.{Edge, Node}
   alias AiurWeb.OperatorControlCenter.BuildOrderEpicIcon
 
   @adhoc_lane "adhoc"
+
+  @type completion :: %{
+          progress: 0..100 | nil,
+          progress_resolution: RootSummary.progress_resolution(),
+          progress_resolved_count: non_neg_integer() | nil,
+          member_count: non_neg_integer() | nil
+        }
 
   @type card :: %{
           id: String.t(),
@@ -25,9 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           phase: pos_integer() | :unphased,
           complexity: pos_integer() | nil,
           title: String.t(),
-          progress: 0..100,
-          has_progress: boolean(),
-          completion_known: boolean(),
+          completion: completion(),
           merged: boolean(),
           state: :merged | :working | :ready | :blocked | :plain | :planned,
           status_word: String.t(),
@@ -40,7 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           lane: String.t(),
           label: String.t(),
           count: non_neg_integer(),
-          pct: 0..100 | nil,
+          completion: completion(),
           core?: boolean()
         }
 
@@ -53,7 +58,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
           waves: [map()],
           cards: [card()],
           edges: [map()],
-          overall_pct: 0..100 | nil,
+          overall_completion: completion(),
           planning?: boolean()
         }
   def build(model, adhoc) do
@@ -68,7 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       waves: waves(core_cards, cards),
       cards: cards,
       edges: edges,
-      overall_pct: completion_percent(core_cards),
+      overall_completion: aggregate_completion(core_cards),
       planning?: planning?
     }
   end
@@ -100,9 +105,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     node
     |> core_card(false)
     |> Map.merge(%{
-      progress: 0,
-      has_progress: false,
-      completion_known: true,
+      completion: completion(0, :resolved, 1, 1),
       merged: false,
       state: :planned,
       status_word: "planned"
@@ -113,7 +116,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     status_key = status_key(node)
     merged = status_key == :status_completed
     complexity = complexity(node)
-    progress = progress(merged, Map.get(card, :progress))
+    completion = core_completion(merged, Map.get(card, :progress), Map.get(card, :lifecycle))
 
     %{
       id: identifier(card),
@@ -123,9 +126,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       phase: phase(Map.get(card, :phase)),
       complexity: complexity,
       title: title(node),
-      progress: progress,
-      has_progress: merged or is_integer(Map.get(card, :progress)),
-      completion_known: completion_known?(merged, Map.get(card, :progress), Map.get(card, :lifecycle)),
+      completion: completion,
       merged: merged,
       state: core_state(status_key),
       status_word: core_status_word(status_key, node.execution, Map.get(card, :status_text)),
@@ -141,7 +142,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
     merged = Map.get(row, :lifecycle) == :closed
     running = Map.get(row, :running?) == true
     raw_progress = Map.get(row, :progress)
-    progress = progress(merged, raw_progress)
+    completion = adhoc_completion(merged, raw_progress)
 
     state =
       cond do
@@ -158,9 +159,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
       phase: phase(Map.get(row, :phase)),
       complexity: positive_complexity(Map.get(row, :complexity)),
       title: safe_title(Map.get(row, :title), to_string(Map.get(row, :identifier))),
-      progress: progress,
-      has_progress: merged or is_integer(raw_progress),
-      completion_known: merged or is_integer(raw_progress),
+      completion: completion,
       merged: merged,
       state: state,
       status_word: adhoc_status_word(state),
@@ -173,7 +172,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   defp columns(cards, core_cards) do
     counts = Enum.frequencies_by(cards, & &1.lane)
-    completion = completion_by(core_cards, :lane)
+    completion = aggregate_by(core_cards, :lane)
     order = cards |> Enum.map(& &1.lane) |> Enum.uniq()
     appearance = order |> Enum.with_index() |> Map.new()
 
@@ -184,7 +183,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
         lane: lane,
         label: BuildOrderEpicIcon.label(lane),
         count: Map.get(counts, lane, 0),
-        pct: Map.get(completion, lane),
+        completion: Map.get(completion, lane, completion(nil, :unknown, nil, nil)),
         core?: lane != @adhoc_lane
       }
     end)
@@ -204,7 +203,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   # --- waves (rows) -----------------------------------------------------------
 
   defp waves(core_cards, all_cards) do
-    core_pct = wave_completion(core_cards)
+    core_completion = wave_completion(core_cards)
     counts = Enum.frequencies_by(all_cards, & &1.phase)
 
     all_cards
@@ -216,52 +215,53 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
         phase: phase,
         label: wave_label(phase),
         count: Map.get(counts, phase, 0),
-        pct: Map.get(core_pct, phase),
-        core?: Map.has_key?(core_pct, phase)
+        completion: Map.get(core_completion, phase, completion(nil, :unknown, nil, nil)),
+        core?: Map.has_key?(core_completion, phase)
       }
     end)
   end
 
   # Complexity-weighted completion per wave, over CORE cards only. A merged card
   # contributes its full weight; an in-flight card contributes its progress
-  # fraction. If any card's completion is unknown, the aggregate stays unknown.
+  # fraction. Unknown cards reduce coverage, so the aggregate becomes partial
+  # instead of discarding the progress that did resolve.
   # Weight is the card's complexity (points), defaulting to 1 when complexity is
   # unknown.
   defp wave_completion(core_cards) do
-    completion_by(core_cards, :phase)
+    aggregate_by(core_cards, :phase)
   end
 
-  defp completion_by(cards, field) do
+  defp aggregate_by(cards, field) do
     cards
     |> Enum.group_by(&Map.fetch!(&1, field))
-    |> Map.new(fn {value, grouped} -> {value, completion_percent(grouped)} end)
+    |> Map.new(fn {value, grouped} -> {value, aggregate_completion(grouped)} end)
   end
 
-  defp completion_percent(cards) do
-    cards
-    |> Enum.reduce_while({0, 0.0}, fn
-      %{completion_known: false}, _acc ->
-        {:halt, :unknown}
+  defp aggregate_completion(cards) do
+    {member_count, resolved_count, weight, done} =
+      Enum.reduce(cards, {0, 0, 0, 0.0}, fn card, {member_count, resolved_count, weight, done} ->
+        if get_in(card, [:completion, :progress_resolution]) == :resolved do
+          card_weight = card.complexity || 1
+          {member_count + 1, resolved_count + 1, weight + card_weight, done + card_weight * completion_fraction(card)}
+        else
+          {member_count + 1, resolved_count, weight, done}
+        end
+      end)
 
-      card, {weight_acc, done_acc} ->
-        weight = card.complexity || 1
-        {:cont, {weight_acc + weight, done_acc + weight * completion_fraction(card)}}
-    end)
-    |> case do
-      :unknown -> nil
-      {0, _done} -> 0
-      {weight, done} -> round(done / weight * 100)
+    cond do
+      member_count == 0 ->
+        completion(0, :resolved, 0, 0)
+
+      resolved_count == 0 ->
+        completion(nil, :unresolved, 0, member_count)
+
+      true ->
+        resolution = if resolved_count == member_count, do: :resolved, else: :partial
+        completion(round(done / weight * 100), resolution, resolved_count, member_count)
     end
   end
 
-  defp completion_fraction(%{merged: true}), do: 1.0
-  defp completion_fraction(%{has_progress: true, progress: progress}), do: progress / 100
-  defp completion_fraction(_card), do: 0.0
-
-  defp completion_known?(true, _progress, _lifecycle), do: true
-  defp completion_known?(false, progress, _lifecycle) when is_integer(progress), do: true
-  defp completion_known?(false, _progress, %{state: state}) when state in [:open, :closed], do: true
-  defp completion_known?(_merged, _progress, _lifecycle), do: false
+  defp completion_fraction(%{completion: %{progress: progress}}) when is_integer(progress), do: progress / 100
 
   defp wave_order(:unphased), do: {1, 0}
   defp wave_order(phase) when is_integer(phase), do: {0, phase}
@@ -322,9 +322,23 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
   defp adhoc_status_word(:working), do: "agent live"
   defp adhoc_status_word(_state), do: "ad hoc"
 
-  defp progress(true, _raw), do: 100
-  defp progress(false, raw) when is_integer(raw) and raw in 0..100, do: raw
-  defp progress(false, _raw), do: 0
+  defp core_completion(true, _raw, _lifecycle), do: completion(100, :resolved, 1, 1)
+  defp core_completion(false, raw, _lifecycle) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
+  defp core_completion(false, _raw, %{state: state}) when state in [:open, :closed], do: completion(0, :resolved, 1, 1)
+  defp core_completion(_merged, _raw, _lifecycle), do: completion(nil, :unresolved, 0, 1)
+
+  defp adhoc_completion(true, _raw), do: completion(100, :resolved, 1, 1)
+  defp adhoc_completion(false, raw) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
+  defp adhoc_completion(_merged, _raw), do: completion(nil, :unknown, nil, 1)
+
+  defp completion(progress, resolution, resolved_count, member_count) do
+    %{
+      progress: progress,
+      progress_resolution: resolution,
+      progress_resolved_count: resolved_count,
+      member_count: member_count
+    }
+  end
 
   defp complexity(%Node{plan: %{complexity: complexity}}) when complexity in 1..5, do: complexity
   defp complexity(_node), do: nil

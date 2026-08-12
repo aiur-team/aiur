@@ -35,4 +35,12 @@ Revisions append a new action rather than rewriting the original. If a target ca
 
 Progress events are estimates for the Executor’s fleet view; they do not advance tracker state. Attention events identify a concrete condition that needs review or action and should be resolved when that condition clears.
 
-Use events for cross-ticket coordination that another agent may consume. Use alerts for immediate Executor-facing notification. See [Executor Control Center](/guide/executor-control-center) for the browser projections of these facts.
+Use events for cross-ticket coordination that another agent may consume. Use alerts for immediate Executor-facing notification. See [Dashboard](/guide/executor-control-center) for the browser projections of these facts.
+
+## GitHub listener automation
+
+Aiur observes GitHub through a narrow repository-events firehose and targeted polling. The firehose publishes default-branch pushes, opened pull requests, and merged pull requests. It drops issue events. Ticket-branch pushes are polled separately with `git ls-remote`; comments and review threads are polled for trusted review-driven wakeups; and CI is polled while a ticket is in `agent:ci-wait`.
+
+Comment commands and review-driven rework are accepted only from the configured trusted accounts or the resolved CODEOWNERS set. Aiur refreshes CODEOWNERS on the configured cadence and surfaces a safe degraded-trust alert if it cannot resolve the file. The bot identity is excluded to prevent self-triggered loops.
+
+The most useful live topics are `ticket.<id>.agent.*` for agent progress, decisions, alerts, and explicit blockers; `ticket.<id>.branch.push` for validated branch refs; and Executor subscriptions under `executor.#`. Treat a branch push as evidence to inspect, not as an unblock signal. CI and review facts are ultimately tracker-derived polling results, even when their projections appear live in the dashboard.

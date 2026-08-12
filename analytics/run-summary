@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Print one daemon boot's run summary. Reads materialized summaries when present.
+set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$script_dir/lib${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m analytics.run_summary "$@"

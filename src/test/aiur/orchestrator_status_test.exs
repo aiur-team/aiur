@@ -1,9 +1,9 @@
 defmodule Aiur.OrchestratorStatusTest do
   use Aiur.TestSupport
 
-  import ExUnit.CaptureLog
+  import ExUnit.CaptureIO
 
-  alias Aiur.{AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
+  alias Aiur.{AgentControlCLI, AgentPubSub, AgentQueueStore, Issue, TrackerIdentity}
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Codex.CodingAgent, as: CodexCodingAgent
   alias Aiur.Events.SubscriptionStore
@@ -274,6 +274,51 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.dashboard_snapshot(stalled_name, 50)
   end
 
+  test "an orchestrator wedged after draining its mailbox still reports a stale fleet snapshot" do
+    orchestrator_name = Module.concat(__MODULE__, :DrainedWedgeSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+    Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 60)
+
+    on_exit(fn ->
+      if is_nil(previous_ceiling) do
+        Application.delete_env(:aiur, :snapshot_stale_age_ceiling_ms)
+      else
+        Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, previous_ceiling)
+      end
+
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
+
+    # The symmetric failure to a backlogged orchestrator: this one wedges with
+    # an empty mailbox, so there is no backlog to corroborate the stall. A
+    # depth-gated rule would keep serving this snapshot as `:current` forever,
+    # which is the "stale renders as current" defect the Units page exists to
+    # prevent. Age alone must be enough.
+    :sys.suspend(pid)
+    Process.sleep(90)
+
+    assert 0 = pid |> Process.info(:message_queue_len) |> elem(1)
+
+    assert {:stale, %{running: [], retrying: [], idle: []}, %{status: :stale, reason: :snapshot_stalled, age_seconds: age_seconds}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 5_000)
+
+    assert is_integer(age_seconds)
+
+    # A long read timeout must not buy back currency: the ceiling is absolute.
+    assert {:stale, _snapshot, %{reason: :snapshot_stalled}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 600_000)
+  end
+
   test "decoupled publisher keeps the fleet snapshot current while the orchestrator is starved" do
     orchestrator_name = Module.concat(__MODULE__, :PublisherDecoupledSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -421,6 +466,42 @@ defmodule Aiur.OrchestratorStatusTest do
     SnapshotStore.begin_generation(orchestrator_name)
 
     assert [] = :ets.lookup(SnapshotPublisher, orchestrator_name)
+  end
+
+  test "discarding an unnamed snapshot removes the publisher delivery marker" do
+    orchestrator = self()
+    generation = SnapshotStore.begin_generation(orchestrator)
+
+    :ok = SnapshotPublisher.write(orchestrator, generation, %State{agent_totals: %{}})
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = SnapshotStore.discard(orchestrator)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+  end
+
+  test "stopping an unnamed orchestrator discards its snapshot state" do
+    {:ok, orchestrator} = Orchestrator.start_link(initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator), do: Process.exit(orchestrator, :normal)
+    end)
+
+    :sys.replace_state(orchestrator, &%{&1 | snapshot_ready?: true})
+    state = :sys.get_state(orchestrator)
+    :ok = StatusReport.notify_dashboard(state)
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = GenServer.stop(orchestrator, :normal)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+    assert :orchestrator_unavailable = SnapshotStore.read(orchestrator, 50)
   end
 
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
@@ -2100,6 +2181,12 @@ defmodule Aiur.OrchestratorStatusTest do
            ] = snapshot.retrying
 
     assert due_in_ms > 0
+
+    # No issue was ever polled for "mt-500", so its upstream list is unknown
+    # rather than empty. `nil` is what makes the Stream Deck render the key
+    # `Blocked`; an `[]` here would read as "no dependencies" and render it
+    # `Unblocked` off data we never resolved.
+    assert [%{blocked_by: nil}] = snapshot.retrying
   end
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do
@@ -3673,7 +3760,7 @@ defmodule Aiur.OrchestratorStatusTest do
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
   end
 
-  test "tracker unpause after completion replaces instead of resuming a dead runner" do
+  test "tracker poll unpause replaces a dead runner and reports running through the CLI" do
     active_issue = completed_rework_issue("paused-provenance")
     paused_issue = %{active_issue | paused: true}
     configure_completed_revalidation!([active_issue], max_concurrent_agents: 3)
@@ -3693,13 +3780,25 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert PauseResume.pause_issue_for_label_override(paused, paused_issue) == paused
 
-    next = Reconciler.maybe_reactivate_or_refresh(paused, active_issue)
+    orchestrator_pid = Process.whereis(Aiur.Orchestrator)
+    original_state = :sys.get_state(orchestrator_pid)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator_pid), do: :sys.replace_state(orchestrator_pid, fn _state -> original_state end)
+    end)
+
+    next = Reconciler.refresh_running_issue_states(paused)
     replacement = Map.fetch!(next.running, active_issue.id)
 
     assert replacement.control.status == :working
     assert is_pid(replacement.pid) and Process.alive?(replacement.pid)
     assert is_reference(replacement.ref)
     assert next.queue_store.pending_ids_by_target[active_issue.identifier] == item_ids
+
+    :sys.replace_state(orchestrator_pid, fn _state -> next end)
+
+    assert capture_io(fn -> AgentControlCLI.status() end) =~
+             "#{active_issue.identifier} running #{active_issue.title}"
   end
 
   test "Executor messages rearm multiple completed runners without returned workers holding slots" do

@@ -17,6 +17,7 @@ defmodule Aiur.DecisionHistory do
     "human" => :human_operator,
     "human_operator" => :human_operator,
     "operator" => :human_operator,
+    "executor" => :executor,
     "supervisor" => :supervising_agent,
     "supervising_agent" => :supervising_agent,
     "ticket_agent" => :ticket_agent,
@@ -28,6 +29,7 @@ defmodule Aiur.DecisionHistory do
     "enriched" => :enriched,
     "decision_expired" => :expired,
     "expired" => :expired,
+    "executor_escalated" => :executor_escalated,
     "answered" => :answered,
     "revised" => :revised,
     "superseded" => :superseded,
@@ -220,6 +222,10 @@ defmodule Aiur.DecisionHistory do
     })
   end
 
+  defp event_record(%DecisionEvent{type: :executor_escalated, data: data}, base, _revisions) do
+    Map.merge(base, %{actor: data.actor, escalated_to_operator: true, escalation_reason: data.detail})
+  end
+
   defp event_record(%DecisionEvent{type: type, data: data}, base, actions)
        when type in [:dispatch_queued, :delivered, :restored, :consumed, :failed] do
     base
@@ -294,7 +300,7 @@ defmodule Aiur.DecisionHistory do
   defp explicit_actor(actor) do
     type = normalize_actor_type(first_value([value(actor, :type), value(actor, :kind)]))
     id = present(value(actor, :id))
-    label = present(value(actor, :label)) || id || actor_type_label(type)
+    label = present(value(actor, :label)) || default_actor_label(type, id)
     %{type: type, id: id, label: label}
   end
 
@@ -317,11 +323,16 @@ defmodule Aiur.DecisionHistory do
 
   defp normalize_actor_type(_type), do: :unknown
 
-  defp actor_type_label(:human_operator), do: "Executor"
+  defp actor_type_label(:human_operator), do: "Operator"
+  defp actor_type_label(:executor), do: "Executor"
   defp actor_type_label(:supervising_agent), do: "Supervising agent"
   defp actor_type_label(:ticket_agent), do: "Ticket agent"
   defp actor_type_label(:system), do: "System"
   defp actor_type_label(:unknown), do: "Unknown source"
+
+  defp default_actor_label(:human_operator, _id), do: actor_type_label(:human_operator)
+  defp default_actor_label(:executor, _id), do: actor_type_label(:executor)
+  defp default_actor_label(type, id), do: id || actor_type_label(type)
 
   defp change_kind(record, version, answer, revision, follow_up) do
     case first_value([value(record, :change_kind), value(record, :event_kind)]) do

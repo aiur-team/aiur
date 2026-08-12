@@ -19,7 +19,12 @@ defmodule Aiur.DecisionStore.RetainedIndex do
             searches: %{String.t() => :gb_sets.set()},
             keys: %{String.t() => {integer(), String.t()}}
           },
-          counts: %{open: non_neg_integer(), blocking: non_neg_integer()}
+          counts: %{
+            open: non_neg_integer(),
+            blocking: non_neg_integer(),
+            deferred: non_neg_integer(),
+            deferred_blocking: non_neg_integer()
+          }
         }
 
   @spec build(%{String.t() => Decision.t()}, %{optional(String.t()) => [Decision.t()]}) :: t()
@@ -65,8 +70,28 @@ defmodule Aiur.DecisionStore.RetainedIndex do
   @spec search(t(), String.t(), :audit | :current) :: :gb_sets.set()
   def search(index, value, order \\ :audit), do: bucket_entries(entries(index, order).searches, value)
 
-  @spec canonical_counts(t()) :: %{open: non_neg_integer(), blocking: non_neg_integer(), total: non_neg_integer()}
-  def canonical_counts(index), do: Map.put(index.counts, :total, :gb_sets.size(index.all))
+  @spec canonical_counts(t()) :: %{
+          open: non_neg_integer(),
+          blocking: non_neg_integer(),
+          deferred: non_neg_integer(),
+          awaiting: non_neg_integer(),
+          awaiting_blocking: non_neg_integer(),
+          total: non_neg_integer()
+        }
+  # `open` stays the count of Commands no agent has an answer for — deferrals
+  # included, because the unit is still blocked. `awaiting` is the subset the
+  # operator personally still owns, and it is what the inbox lists. Both are
+  # derived from the same index, so a surface can never show one and list the
+  # other.
+  def canonical_counts(index) do
+    index.counts
+    |> Map.take([:open, :blocking, :deferred])
+    |> Map.merge(%{
+      total: :gb_sets.size(index.all),
+      awaiting: index.counts.open - index.counts.deferred,
+      awaiting_blocking: index.counts.blocking - index.counts.deferred_blocking
+    })
+  end
 
   defp empty do
     lifecycle = Map.new(@lifecycle_statuses, &{&1, :gb_sets.empty()})
@@ -78,7 +103,7 @@ defmodule Aiur.DecisionStore.RetainedIndex do
       searches: %{},
       audit_keys: %{},
       current: empty_entries(),
-      counts: %{open: 0, blocking: 0}
+      counts: %{open: 0, blocking: 0, deferred: 0, deferred_blocking: 0}
     }
   end
 
@@ -201,17 +226,25 @@ defmodule Aiur.DecisionStore.RetainedIndex do
 
   defp operator_command?(%Decision{}), do: true
 
-  defp increment_counts(counts, %Decision{decision_status: status, blocking: blocking}) when status in [:open, :deferred] do
-    %{counts | open: counts.open + 1, blocking: counts.blocking + if(blocking, do: 1, else: 0)}
+  defp increment_counts(counts, decision), do: adjust_counts(counts, decision, 1)
+  defp decrement_counts(counts, decision), do: adjust_counts(counts, decision, -1)
+
+  defp adjust_counts(counts, %Decision{decision_status: status, blocking: blocking}, delta)
+       when status in [:open, :deferred] do
+    blocking_delta = if blocking, do: delta, else: 0
+    deferred_delta = if status == :deferred, do: delta, else: 0
+    deferred_blocking_delta = if status == :deferred and blocking, do: delta, else: 0
+
+    %{
+      counts
+      | open: counts.open + delta,
+        blocking: counts.blocking + blocking_delta,
+        deferred: counts.deferred + deferred_delta,
+        deferred_blocking: counts.deferred_blocking + deferred_blocking_delta
+    }
   end
 
-  defp increment_counts(counts, %Decision{}), do: counts
-
-  defp decrement_counts(counts, %Decision{decision_status: status, blocking: blocking}) when status in [:open, :deferred] do
-    %{counts | open: counts.open - 1, blocking: counts.blocking - if(blocking, do: 1, else: 0)}
-  end
-
-  defp decrement_counts(counts, %Decision{}), do: counts
+  defp adjust_counts(counts, %Decision{}, _delta), do: counts
   defp first_accepted_key(_decision, [%Decision{} = first | _history]), do: audit_key(first)
   defp first_accepted_key(decision, _history), do: audit_key(decision)
   defp entries(index, :audit), do: index

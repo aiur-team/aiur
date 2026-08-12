@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.BuildOrder.Bounded
   alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -24,6 +24,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     ~H"""
     <div class="units-results" aria-describedby="units-filter-note">
       <div :if={@status == :loading} class="units-state empty-state">Loading Units…</div>
+
+      <div :if={@status == :unavailable} class="units-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span><b>Units catalog unavailable.</b> {@message || "No last-known-good Units catalog is retained."}</span>
+      </div>
 
       <div :if={@status == :unavailable} class="units-table-wrap">
         <table class="units-table">
@@ -49,9 +54,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         {@message || "No units have been observed in this run."}
       </div>
 
-      <div :if={@status == :stale} class="units-state readonly-banner" role="status">
+      <div :if={@status == :stale} class="units-state readonly-banner stale-banner" role="status">
         <span aria-hidden="true">◉</span>
-        <span><b>Units may be stale.</b> {@message || "Showing the last-known catalog."}</span>
+        <span>
+          <b>Stale Units catalog.</b>
+          {@message || "Showing the last-known-good Units catalog while refresh is degraded."}
+        </span>
+      </div>
+
+      <div :if={catalog_empty?(@status, @rows, @view)} class="units-state empty-state">
+        No units have been observed in this run.
       </div>
 
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
@@ -131,16 +143,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
               <td data-label="Command" class="ut-cmd-cell">
                 <nav class="units-actions" aria-label={"Actions for #{identity_label(row.identity)}"}>
                   <.unit_control token={token} row={row} control={Map.get(@controls, token)} writable={@writable} />
-                  <button
-                    :if={running?(row)}
-                    id={"units-agent-log-#{token}"}
-                    type="button"
-                    class="units-icon-action"
-                    phx-click="show-agent-log"
-                    phx-value-unit={token}
-                    aria-label={"Read agent log for #{identity_label(row.identity)}"}
-                    title="Read agent log"
-                  >{icon(:log)}</button>
                   <button
                     id={"units-conversation-#{token}"}
                     type="button"
@@ -245,13 +247,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp icon(:warning),
     do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M12 3 2.8 20h18.4L12 3Z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg>))
 
-  defp icon(:log),
-    do: Phoenix.HTML.raw(~s(<svg #{@icon_svg}><path d="M8 6h11M8 12h11M8 18h11"/><path d="M4 6h.01M4 12h.01M4 18h.01"/></svg>))
-
-  # A unit is running when its correlated fleet entry is in the running bucket;
-  # only then is there a live agent log to read.
-  defp running?(row), do: get_in(row, [:runtime, :bucket]) == :running
-
   # Remote control deep-link, present only when the agent exposes one.
   defp remote_control_url(%{live_conversation: %{remote_control_url: url}}) when is_binary(url) and url != "", do: url
   defp remote_control_url(%{remote_control_url: url}) when is_binary(url) and url != "", do: url
@@ -300,27 +295,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle), do: handle
   defp conversation_handle(_row), do: nil
 
-  defp runtime(%{runtime: %{runtime_seconds: seconds}}, _now) when is_integer(seconds) and seconds >= 0,
-    do: format_duration(seconds)
-
-  defp runtime(%{timestamps: %{started_at: started_at}}, %DateTime{} = now) when is_binary(started_at) do
-    case DateTime.from_iso8601(started_at) do
-      {:ok, datetime, _offset} -> format_duration(max(DateTime.diff(now, datetime, :second), 0))
-      _error -> "Unavailable"
-    end
-  end
-
-  defp runtime(_row, _now), do: "Unavailable"
-
-  defp format_duration(seconds) do
-    hours = div(seconds, 3_600)
-    minutes = div(rem(seconds, 3_600), 60)
-    if hours > 0, do: "#{hours}h #{minutes}m", else: "#{minutes}m"
-  end
+  defp runtime(row, now), do: UnitsPresentation.runtime_label(row, now)
 
   defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
   defp row_tone(_row), do: nil
+
+  # A stale catalog with nothing retained must still say so. Without this the
+  # staleness banner claims to be "showing the last-known-good Units catalog"
+  # over an empty area, which is a worse report than the unavailable panel this
+  # surface replaced. `zero_result?` owns the "rows exist but the filter hides
+  # them" case, so it is excluded here.
+  defp catalog_empty?(:stale, [], view), do: view[:zero_result?] != true
+  defp catalog_empty?(_status, _rows, _view), do: false
 
   defp display_rows(view) do
     view
@@ -341,42 +328,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp id_number(_identity), do: "—"
 
-  defp agent_label(family) do
-    case CodingAgent.provider_descriptor(family) do
-      %{label: label} -> label
-      _ -> "Agent"
-    end
-  end
+  defp agent_label(family), do: UnitsPresentation.agent_label(family)
 
   # A row names its provider family via `:agent_family` (metering) or `:backend`
   # (control), preferring the former. Both are matched against the registry's
   # provider families rather than a hardcoded `[:claude, :codex]`, so a new
   # backend's rows classify with no edit here.
-  defp agent_family(row) when is_map(row) do
-    cond do
-      family = provider_or_nil(Map.get(row, :agent_family)) -> family
-      backend = provider_or_nil(Map.get(row, :backend)) -> backend
-      true -> nil
-    end
-  end
-
-  defp agent_family(_row), do: nil
-
-  defp provider_or_nil(value) when is_atom(value) do
-    case CodingAgent.provider_descriptor(value) do
-      %{provider: provider} -> provider
-      _ -> nil
-    end
-  end
-
-  defp provider_or_nil(value) when is_binary(value) do
-    case CodingAgent.provider_descriptor(value) do
-      %{provider: provider} -> provider
-      _ -> value |> CodingAgent.family_for() |> provider_or_nil()
-    end
-  end
-
-  defp provider_or_nil(_value), do: nil
+  defp agent_family(row), do: UnitsPresentation.agent_family(row)
 
   defp agent_class(family) do
     case CodingAgent.provider_descriptor(family) do
@@ -395,18 +353,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
-  defp model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
-  defp model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
-  defp model_label(_row), do: nil
-
-  defp priority_label(row), do: elem(priority(row), 0)
-  defp priority_class(row), do: elem(priority(row), 1)
-
-  defp priority(%{effort: :deep}), do: {"HIGH", "is-high"}
-  defp priority(%{complexity: complexity}) when is_integer(complexity) and complexity >= 4, do: {"HIGH", "is-high"}
-  defp priority(%{complexity: 3}), do: {"MED", "is-med"}
-  defp priority(%{effort: :standard}), do: {"MED", "is-med"}
-  defp priority(_row), do: {"LOW", "is-low"}
+  defp model_label(row), do: UnitsPresentation.model_label(row)
+  defp priority_label(row), do: row |> UnitsPresentation.priority() |> elem(0)
+  defp priority_class(row), do: row |> UnitsPresentation.priority() |> elem(1)
 
   defp lane_class(lane) when is_binary(lane) and lane != "", do: "is-lane-#{lane}"
   defp lane_class(_lane), do: nil
@@ -421,8 +370,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp evidence_kind_emoji(:queue), do: "⏳"
   defp evidence_kind_emoji(_kind), do: "•"
 
-  defp latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
-  defp latest_text(_row), do: "No recent activity"
+  defp latest_text(row), do: UnitsPresentation.latest_text(row)
 
   defp progress_width(progress), do: known_percent(progress) || 0
 

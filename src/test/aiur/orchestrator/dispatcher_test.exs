@@ -3,9 +3,11 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   import ExUnit.CaptureLog
 
+  alias Aiur.AgentPubSub
   alias Aiur.AgentRunner.{SessionLifecycle, ToolExecutor}
+  alias Aiur.Events.{Exchange, Publisher}
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, State}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, IssueSync, State}
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
   setup do
@@ -36,6 +38,108 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     end)
 
     :ok
+  end
+
+  test "candidate selection emits one reason when a ticket is declined despite free fleet slots" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
+      max_concurrent_agents: 4,
+      max_concurrent_agents_by_state: %{"todo" => 1}
+    )
+
+    candidate = issue("declined")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    state = %State{
+      max_concurrent_agents: 4,
+      effective_concurrent_agents: 4,
+      running: %{
+        "active" => %{issue: issue("active"), identifier: "repo#active", control: %{status: :working}}
+      }
+    }
+
+    first = Dispatcher.choose_issues(state, [candidate])
+
+    assert first.dispatch_declines[candidate.id] == :state_capacity
+
+    assert_receive {:alert,
+                    %{
+                      name: "dispatch.candidate_declined",
+                      reason: reason,
+                      needs_attention: false
+                    }},
+                   2_000
+
+    assert reason =~ "state_capacity"
+
+    _same = Dispatcher.choose_issues(first, [candidate])
+    refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
+  end
+
+  test "a selected ticket emits the revalidation reason when dispatch aborts before provisioning" do
+    candidate = issue("refresh-failed")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    declined =
+      Dispatcher.dispatch_issue(%State{}, candidate, nil, nil,
+        issue_fetcher: fn [candidate_id] ->
+          assert candidate_id == candidate.id
+          {:error, :tracker_unavailable}
+        end
+      )
+
+    assert declined.dispatch_declines[candidate.id] == :tracker_revalidation_failed
+
+    assert_receive {:alert,
+                    %{
+                      name: name,
+                      reason: reason,
+                      needs_attention: true
+                    }},
+                   2_000
+
+    assert name == "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+    assert reason =~ "tracker_revalidation_failed"
+  end
+
+  test "a repeated post-selection decline is emitted once across polling cycles" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "memory", max_concurrent_agents: 4)
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+    on_exit(fn -> Application.delete_env(:aiur, :memory_tracker_issues) end)
+
+    candidate = issue("missing-after-selection")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    first = Dispatcher.choose_issues(%State{effective_concurrent_agents: 4}, [candidate])
+    assert first.dispatch_declines[candidate.id] == :missing_after_revalidation
+    assert_receive {:alert, %{name: "dispatch.candidate_declined"}}, 2_000
+
+    _second = Dispatcher.choose_issues(first, [candidate])
+    refute_receive {:alert, %{name: "dispatch.candidate_declined"}}, 100
+  end
+
+  test "clearing an attention decline emits its matching resolution" do
+    candidate = issue("orphaned-claim")
+    :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+    claimed = %State{effective_concurrent_agents: 4, claimed: MapSet.new([candidate.id])}
+    declined = Dispatcher.choose_issues(claimed, [candidate])
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.orphaned-claim.agent.attention.dispatch-declined",
+                      needs_attention: true
+                    }},
+                   2_000
+
+    recovered = %{declined | claimed: MapSet.new()}
+    _cleared = Dispatcher.choose_issues(recovered, [%{candidate | state: "done"}])
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.orphaned-claim.agent.attention.dispatch-declined.resolved",
+                      needs_attention: false
+                    }},
+                   2_000
   end
 
   defp dispatch_recovery(codex_thrash_budget) do
@@ -198,6 +302,36 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp thrash_budget(state), do: state.dispatch_recovery.codex_thrash_budget
 
+  describe "prewarm dispatch halt" do
+    test "emits once while prewarm keeps the fleet on hold and rearms after recovery" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked")
+      :ok = Exchange.subscribe("system.dispatch.prewarm_blocked.resolved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      held = Dispatcher.emit_prewarm_blocked_alert(%State{}, :building)
+      assert held.prewarm_blocked_alert_active
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"} = event}, 500
+      assert event["reason"] =~ "Prewarm is building"
+
+      assert Dispatcher.emit_prewarm_blocked_alert(held, :building) == held
+      refute_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 100
+
+      recovered = Dispatcher.clear_prewarm_blocked_alert(held)
+      refute recovered.prewarm_blocked_alert_active
+      assert recovered.prewarm_blocked_alert_resolution_emitted
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked.resolved"}}, 500
+
+      rearmed = Dispatcher.emit_prewarm_blocked_alert(recovered, :building)
+      assert_receive {:event, %{topic: "system.dispatch.prewarm_blocked"}}, 500
+      refute rearmed.prewarm_blocked_alert_resolution_emitted
+    end
+  end
+
   describe "CPU headroom recovery integration" do
     test "a second CPU sample re-ramps and consumes restored slots in the same poll" do
       write_workflow_file!(Workflow.workflow_file_path(),
@@ -304,6 +438,206 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
       assert log =~
                "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown available=0 threshold=unknown threshold_pct=10"
+    end
+  end
+
+  describe "capacity constraint sampling" do
+    test "preserves a load gate age while memory and FD holds mask admission" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      {:ok, admission_samples} =
+        Agent.start_link(fn ->
+          [
+            %{memory_mb: 4_000, fd_sample: :unavailable},
+            %{memory_mb: 1_024, fd_sample: :unavailable},
+            %{memory_mb: 4_000, fd_sample: :exhausted},
+            %{memory_mb: 4_000, fd_sample: :unavailable}
+          ]
+        end)
+
+      admission_probes = fn ->
+        Agent.get_and_update(admission_samples, fn [sample | rest] -> {sample, rest} end)
+        |> Map.merge(%{
+          memory_threshold_mb: 2_048,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 4,
+          load: 10_000.0,
+          load_threshold: 1.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: nil
+        })
+      end
+
+      ready = issue("persistent-load")
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load(
+          [ready],
+          fn sampled, _issues -> sampled end,
+          admission_probes_fun: admission_probes
+        )
+      end
+
+      waiting =
+        %State{max_concurrent_agents: 1, effective_concurrent_agents: 1}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
+
+      assert Enum.any?(waiting.dispatch_capacity_constraints, &(&1.kind == :load))
+
+      memory_masked =
+        waiting
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 30_000)
+
+      assert Enum.any?(memory_masked.dispatch_capacity_constraints, &(&1.kind == :load))
+      assert Enum.any?(memory_masked.dispatch_capacity_constraints, &(&1.kind == :memory))
+
+      fd_masked =
+        memory_masked
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 45_000)
+
+      assert Enum.any?(fd_masked.dispatch_capacity_constraints, &(&1.kind == :load))
+      assert Enum.any?(fd_masked.dispatch_capacity_constraints, &(&1.kind == :fd))
+
+      alerted =
+        fd_masked
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
+
+      assert alerted.capacity_starvation.alerted == ["load"]
+      assert alerted.capacity_starvation.since_ms == %{"load" => 1_000}
+      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+      assert event["reason"] =~ "load gate"
+    end
+
+    # `admission_gate/1` can bind on gates that have no standalone probe. Without
+    # recording the binding signal, a fleet held by one of them reports zero
+    # constraints and `sync_capacity_starvation_alert/3` clears starvation
+    # instead of alerting — the fleet is stuck and nothing says so.
+    test "a build-queue hold still records a constraint and starves" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_builds: 2)
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      Application.put_env(:aiur, :build_gate_status_override, fn ->
+        %{enabled?: true, capacity: 2, active: 2, queued: 1}
+      end)
+
+      ready = issue("build-queued")
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
+      end
+
+      held =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
+
+      assert Enum.any?(held.dispatch_capacity_constraints, &(&1.kind == :build_queue))
+
+      alerted =
+        held
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
+
+      assert alerted.capacity_starvation.alerted == ["build-queue"]
+      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+      assert event["reason"] =~ "build-queue gate"
+    end
+
+    test "keeps a persistent build-queue age while a higher-priority memory gate oscillates" do
+      Publisher.set_tracked_fn(fn _ -> true end)
+      :ok = Exchange.subscribe("system.dispatch.capacity_starved")
+
+      on_exit(fn ->
+        Publisher.set_tracked_fn(fn _ -> true end)
+        for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+      end)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        max_concurrent_builds: 2,
+        min_free_memory_mb: 2_048
+      )
+
+      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
+      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
+
+      # The build queue stays saturated for the whole window; memory drops out
+      # and recovers around it. Memory outranks build in `admission_gate/1`, so
+      # before every failing gate was sampled independently the build-queue
+      # identity vanished from the constraint set on the memory ticks and its
+      # age restarted — suppressing the alert for as long as memory oscillated.
+      Application.put_env(:aiur, :build_gate_status_override, fn ->
+        %{enabled?: true, capacity: 2, active: 2, queued: 1}
+      end)
+
+      {:ok, memory_samples} =
+        Agent.start_link(fn ->
+          ["MemAvailable: 4096000 kB\n", "MemAvailable: 1048576 kB\n", "MemAvailable: 4096000 kB\n"]
+        end)
+
+      Application.put_env(:aiur, :meminfo_source_override, fn ->
+        Agent.get_and_update(memory_samples, fn [sample | rest] -> {{:ok, sample}, rest} end)
+      end)
+
+      ready = issue("build-starved")
+
+      sample = fn state ->
+        state
+        |> Map.put(:dispatch_capacity_constraints, [])
+        |> Dispatcher.maybe_choose_under_load([ready], fn sampled, _issues -> sampled end)
+      end
+
+      held =
+        %State{max_concurrent_agents: 4, effective_concurrent_agents: 4}
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 1_000)
+
+      assert Enum.any?(held.dispatch_capacity_constraints, &(&1.kind == :build_queue))
+
+      masked =
+        held
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 30_000)
+
+      # Memory is binding on this tick, but the build queue must still be
+      # recorded so its age survives.
+      assert Enum.any?(masked.dispatch_capacity_constraints, &(&1.kind == :memory))
+      assert Enum.any?(masked.dispatch_capacity_constraints, &(&1.kind == :build_queue))
+      assert masked.capacity_starvation.since_ms["build-queue"] == 1_000
+
+      alerted =
+        masked
+        |> sample.()
+        |> IssueSync.sync_capacity_starvation_alert([ready], 61_000)
+
+      assert "build-queue" in alerted.capacity_starvation.alerted
+      assert_receive {:event, %{topic: "system.dispatch.capacity_starved"} = event}, 500
+      assert event["reason"] =~ "build-queue gate"
     end
   end
 
@@ -440,37 +774,108 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
     test "logs the hold reason at most once per hold-log interval" do
       with_prewarm_enabled_config()
-      Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1\n"} end)
-      Application.put_env(:aiur, :file_descriptor_sample_override, fn -> :unavailable end)
 
-      hold = fn acc -> Dispatcher.dispatch_or_hold(acc, [], fn -> :building end) end
+      {:ok, log_messages} = Agent.start_link(fn -> [] end)
+      log_fun = fn message -> Agent.update(log_messages, &[message | &1]) end
+      ready = issue("prewarm-probe")
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 1_024,
+          memory_threshold_mb: 2_048,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 4,
+          load: :unavailable,
+          load_threshold: nil,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: nil
+        }
+      end
+
+      hold = fn acc ->
+        Dispatcher.dispatch_or_hold(acc, [ready], fn -> :building end,
+          log_fun: log_fun,
+          admission_probes_fun: admission_probes
+        )
+      end
 
       # 30 consecutive holds (ticks 1..30) log only on the first tick.
-      first_window =
-        capture_log(fn ->
-          state =
-            Enum.reduce(1..@hold_log_interval, %State{}, fn _i, acc ->
-              hold.(acc)
-            end)
-
-          assert state.prewarm_hold_ticks == @hold_log_interval
+      state =
+        Enum.reduce(1..@hold_log_interval, %State{}, fn _i, acc ->
+          hold.(acc)
         end)
 
-      assert count_substring(first_window, "aiur_perf prewarm_hold") == 1
-      assert first_window =~ "aiur_perf prewarm_hold surface=dispatch phase=:building"
+      assert state.prewarm_hold_ticks == @hold_log_interval
+      assert Enum.any?(state.dispatch_capacity_constraints, &(&1.kind == :memory))
+
+      assert Agent.get(log_messages, fn messages ->
+               Enum.count(messages, &String.contains?(&1, "aiur_perf prewarm_hold"))
+             end) == 1
+
+      assert Agent.get(log_messages, &hd/1) == "aiur_perf prewarm_hold surface=dispatch phase=:building"
+
+      Agent.update(log_messages, fn _messages -> [] end)
 
       # A second window (ticks 31..60) adds exactly one more line.
-      second_window =
-        capture_log(fn ->
-          state =
-            Enum.reduce(1..(@hold_log_interval * 2), %State{}, fn _i, acc ->
-              hold.(acc)
-            end)
-
-          assert state.prewarm_hold_ticks == @hold_log_interval * 2
+      state =
+        Enum.reduce(1..(@hold_log_interval * 2), %State{}, fn _i, acc ->
+          hold.(acc)
         end)
 
-      assert count_substring(second_window, "aiur_perf prewarm_hold") == 2
+      assert state.prewarm_hold_ticks == @hold_log_interval * 2
+
+      assert Agent.get(log_messages, fn messages ->
+               Enum.count(messages, &String.contains?(&1, "aiur_perf prewarm_hold"))
+             end) == 2
+    end
+
+    test "uses Logger by default for the hold observation" do
+      phase = {:default_logger, System.unique_integer([:positive])}
+
+      log = capture_log(fn -> Dispatcher.log_prewarm_hold(%State{}, phase) end)
+
+      assert log =~ "aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}"
+    end
+
+    test "records ready-work prewarm samples for fleet starvation detection" do
+      with_prewarm_enabled_config()
+
+      ready = Enum.map(1..8, &issue("prewarm-fleet-#{&1}"))
+
+      admission_probes = fn ->
+        %{
+          memory_mb: 4_000,
+          memory_threshold_mb: 2_048,
+          fd_sample: :unavailable,
+          runnable: :unavailable,
+          run_queue_threshold: nil,
+          schedulers: 16,
+          load: 0.7,
+          load_threshold: 1.0,
+          build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+          provider_backends: [],
+          cpu_snapshot: :unavailable,
+          target: 1.0
+        }
+      end
+
+      state = %State{
+        max_concurrent_agents: 20,
+        effective_concurrent_agents: 20,
+        running: Map.new(1..3, fn id -> {"live-#{id}", running_entry("live-#{id}")} end)
+      }
+
+      held =
+        Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
+
+      assert held.dispatch_capacity_sample == %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
+
+      waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
+      assert waiting.fleet_capacity_starvation.since_ms == 1_000
     end
 
     test "fails open to a cold clone on a base-build error and resets the hold counter" do
@@ -589,6 +994,37 @@ defmodule Aiur.Orchestrator.DispatcherTest do
   end
 
   describe "dispatch attempt provenance" do
+    test "carries the current fallback fence rather than a stale redispatch snapshot" do
+      issue = %Issue{id: "fallback-retry", identifier: "repo#fallback-retry", state: "todo", selected_backend: "claude"}
+
+      current_fence = %{
+        generation: 9,
+        authoritative_state: "rework",
+        pending_item_ids: MapSet.new([872, 874, 887, 891, 999]),
+        opened_at: DateTime.utc_now()
+      }
+
+      state = %State{
+        max_concurrent_agents: 1,
+        effective_concurrent_agents: 1,
+        running: %{
+          issue.id => %{
+            issue: issue,
+            identifier: issue.identifier,
+            control: %{status: :completed},
+            lifecycle_fence: current_fence,
+            redispatch_safety: %{workspace_path: "/workspaces/fallback"},
+            rate_limit_fallback_replacement: true
+          }
+        }
+      }
+
+      next_state = Dispatcher.do_dispatch_issue(state, issue, 1, nil, runner: fn _, _, _ -> :ok end)
+
+      assert next_state.running[issue.id].lifecycle_fence == current_fence
+      assert next_state.running[issue.id].workspace_path == "/workspaces/fallback"
+    end
+
     test "keeps local-only provider transports off configured SSH workers" do
       test_pid = self()
       write_workflow_file!(Workflow.workflow_file_path(), worker_ssh_hosts: ["worker-a"])
@@ -867,10 +1303,6 @@ defmodule Aiur.Orchestrator.DispatcherTest do
 
   defp restore_app_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_app_env(key, value), do: Application.put_env(:aiur, key, value)
-
-  defp count_substring(haystack, needle) when is_binary(haystack) and is_binary(needle) do
-    haystack |> String.split(needle) |> length() |> Kernel.-(1)
-  end
 
   # Points the workflow config at a prewarm-enabled file for the duration of a
   # test. No `base_build` and a memory tracker keep RepoBase's own resolve/poll

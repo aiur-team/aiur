@@ -16,6 +16,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.CurrentRunOutcomeSnapshot
   alias Aiur.CurrentRunSummary
   alias Aiur.DecisionPubSub
+  alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.LiveConversation
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
@@ -61,6 +62,7 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @runtime_tick_ms 1_000
+  @github_quota_tick_ms 15_000
   @run_summary_flush_ms 250
   @usage_summary_flush_ms 250
   @usage_summary_max_age_ms 30_000
@@ -69,6 +71,10 @@ defmodule AiurWeb.DashboardLive do
   @provider_meters_flush_ms 250
   @current_run_outcomes_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
+  # What "the operator is finished with it" means, mirrored from the retained
+  # store's `history` lifecycle. A deferral belongs here: the Executor owns the
+  # answer from that point, so the card leaves the operator's queue.
+  @history_statuses [:decided, :acknowledged, :resolved, :dismissed, :expired, :deferred]
   @decision_events DecisionEvents.events()
 
   @impl true
@@ -92,6 +98,7 @@ defmodule AiurWeb.DashboardLive do
       socket
       |> assign(:payload, payload)
       |> assign(:now, DateTime.utc_now())
+      |> assign(:github_quota, github_quota_snapshot())
       |> assign(:agent_log_modal, nil)
       |> assign(:drafts, %{})
       |> assign(:chat_errors, %{})
@@ -103,6 +110,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
+      |> init_history_stream()
       |> assign(:units_selection, UnitsURL.default_selection())
       |> assign(:unit_controls, %{})
       |> assign(:unit_control_subscriptions, MapSet.new())
@@ -134,7 +142,10 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
       |> PayloadLoader.mark_loaded()
 
-    if connected, do: schedule_runtime_tick()
+    if connected do
+      schedule_runtime_tick()
+      schedule_github_quota_tick()
+    end
 
     {:ok, socket}
   end
@@ -149,6 +160,7 @@ defmodule AiurWeb.DashboardLive do
      |> assign(:current_route, RouteRegistry.current_route(Map.get(socket.assigns, :live_action)))
      |> assign_units_selection(params)
      |> assign_decision_page(filter, params)
+     |> load_history(:first_page)
      |> assign_selected_decision(params["decision_id"])
      |> maybe_canonicalize_units_url(params)}
   end
@@ -157,6 +169,11 @@ defmodule AiurWeb.DashboardLive do
   def handle_info(:runtime_tick, socket) do
     schedule_runtime_tick()
     {:noreply, assign(socket, :now, DateTime.utc_now())}
+  end
+
+  def handle_info(:github_quota_tick, socket) do
+    schedule_github_quota_tick()
+    {:noreply, assign(socket, :github_quota, github_quota_snapshot())}
   end
 
   @impl true
@@ -383,9 +400,16 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event(event, params, socket) when event in @decision_events do
+    decision_id = params["decision_id"] || params["decision-id"]
+    reload = &(&1 |> reload_after_action() |> promote_history_row(decision_id))
+
     handle_writable_event(socket, fn ->
-      {:noreply, DecisionEvents.handle(event, params, socket, &reload_after_action/1)}
+      {:noreply, DecisionEvents.handle(event, params, socket, reload)}
     end)
+  end
+
+  def handle_event("load-more-history", _params, socket) do
+    {:noreply, load_history(socket, :next_page)}
   end
 
   def handle_event("show-agent-log", %{"unit" => token}, socket) when is_binary(token) do
@@ -638,6 +662,11 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
+      |> Map.put_new(:streams, %{command_history: []})
+      |> Map.put_new(:history_ids, MapSet.new())
+      |> Map.put_new(:history_total, nil)
+      |> Map.put_new(:history_has_more, false)
+      |> Map.put_new(:history_health, :ok)
       |> Map.put_new(:ticket_context, nil)
       |> Map.put_new(:unit_controls, %{})
       |> Map.put_new(:conversation_drawer, nil)
@@ -659,6 +688,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:usage_summary_drill_trigger, nil)
       |> then(&Map.put_new(&1, :provider_meters_view, ProviderMetersPresenter.present(financial_data_capability(&1))))
       |> Map.put_new(:provider_meters_announcement, nil)
+      |> Map.put_new(:github_quota, %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
       |> Map.put_new(:current_run_outcomes, CurrentRunOutcomesPresenter.present(nil))
       |> Map.put_new(:current_run_outcomes_announcement, nil)
       |> Map.put_new(:current_route, RouteRegistry.current_route(Map.get(assigns, :live_action)))
@@ -711,11 +741,14 @@ defmodule AiurWeb.DashboardLive do
           retained_counts={@retained_counts}
           page={@decision_page}
           query={@decision_query}
+          history_total={@history_total}
         />
         <History.history
-          entries={Enum.reject(@payload.history, &(&1.decision_id == @selected_decision_id))}
-          decisions={@decision_page.decisions}
-          provider_health={@payload.provider_health.history}
+          rows={@streams.command_history}
+          loaded={MapSet.size(@history_ids)}
+          total={@history_total}
+          has_more={@history_has_more}
+          provider_health={@history_health}
         />
       </div>
 
@@ -729,6 +762,7 @@ defmodule AiurWeb.DashboardLive do
           run={@run_summary}
           usage={@usage_summary}
           meters={@provider_meters_view}
+          github_quota={@github_quota}
           now={@now}
         />
 
@@ -753,6 +787,7 @@ defmodule AiurWeb.DashboardLive do
       </div>
 
       <AgentLogModal.agent_log_modal
+        :if={is_nil(@conversation_drawer)}
         modal={@agent_log_modal}
         writable={@writable}
         drafts={@drafts}
@@ -769,6 +804,10 @@ defmodule AiurWeb.DashboardLive do
         :if={@conversation_drawer}
         id="units-conversation-drawer"
         view={@conversation_drawer}
+        composer={@agent_log_modal}
+        writable={@writable}
+        drafts={@drafts}
+        errors={@chat_errors}
         close_event="close-conversation"
         fallback_focus_id="route-title"
         origin_id={@conversation_origin_id}
@@ -790,6 +829,7 @@ defmodule AiurWeb.DashboardLive do
     |> refresh_ticket_context_row()
     |> refresh_conversation_row()
     |> reload_decision_page()
+    |> load_history(:head)
     |> assign_selected_decision(socket.assigns.selected_decision_id)
   end
 
@@ -860,6 +900,9 @@ defmodule AiurWeb.DashboardLive do
       open: nil,
       blocking: nil,
       total: nil,
+      awaiting: nil,
+      awaiting_blocking: nil,
+      deferred: nil,
       health: %{status: :unavailable, label: "Retained Command counts unavailable"}
     }
   end
@@ -884,7 +927,7 @@ defmodule AiurWeb.DashboardLive do
   defp nav_counts(units_view, retained_counts) do
     %{}
     |> put_nav_count(:units, get_in(units_view, [:counts, :active]))
-    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :open))
+    |> put_nav_count(:commands, Map.get(retained_counts || %{}, :awaiting))
   end
 
   defp put_nav_count(counts, key, value) when is_integer(value) and value > 0,
@@ -1686,6 +1729,8 @@ defmodule AiurWeb.DashboardLive do
   end
 
   defp open_conversation(socket, row, token, handle, snapshot) do
+    composer = agent_log_composer(socket.assigns.payload, row)
+
     socket
     |> replace_conversation_subscription(handle)
     |> assign(:conversation_handle, handle)
@@ -1694,6 +1739,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, "units-conversation-#{token}")
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, snapshot)
+    |> assign(:conversation_log, log_for_drawer(composer))
+    |> assign(:agent_log_modal, composer)
     |> present_conversation()
   end
 
@@ -1707,6 +1754,8 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:conversation_origin_id, nil)
     |> assign(:conversation_lifecycle, :active)
     |> assign(:conversation_snapshot, nil)
+    |> assign(:conversation_log, nil)
+    |> assign(:agent_log_modal, nil)
   end
 
   defp present_conversation(socket) do
@@ -1714,11 +1763,27 @@ defmodule AiurWeb.DashboardLive do
       ConversationPresenter.present(
         socket.assigns.conversation_row,
         socket.assigns.conversation_snapshot,
-        socket.assigns.conversation_lifecycle
+        socket.assigns.conversation_lifecycle,
+        socket.assigns.conversation_log
       )
 
     assign(socket, :conversation_drawer, view)
   end
+
+  # The chat modal carries the running agent's workspace log and the writable
+  # composer beneath the conversation. `agent_log_composer/2` builds the same
+  # AgentLogModal payload (target key, writable target, parsed transcript) so the
+  # existing composer handlers apply to the drawer; the drawer surfaces only the
+  # parsed transcript, never the local path.
+  defp agent_log_composer(payload, row) do
+    case AgentLogModal.find_running_entry(payload, Map.get(row, :identity)) do
+      %{} = entry -> AgentLogModal.build(entry, payload)
+      _none -> nil
+    end
+  end
+
+  defp log_for_drawer(%{messages: messages}) when is_list(messages), do: %{messages: messages}
+  defp log_for_drawer(_composer), do: nil
 
   # Replace only the pinned generation's snapshot. A change for any other handle
   # is ignored so a replacement worker never appears under the old heading.
@@ -1823,6 +1888,141 @@ defmodule AiurWeb.DashboardLive do
 
   defp same_identity?(_left, _right), do: false
 
+  # --- Command history -------------------------------------------------------
+  #
+  # History is a stream so "Load more" appends one page and re-renders nothing
+  # that is already on screen. Rows are always read back from the retained
+  # store: a Command reaches history because the store says it left the queue,
+  # never because a click hid a card.
+
+  defp init_history_stream(socket) do
+    socket
+    |> stream_configure(:command_history, dom_id: &"history-#{&1.decision_id}")
+    |> stream(:command_history, [])
+    |> assign(:history_ids, MapSet.new())
+    |> assign(:history_cursor, nil)
+    |> assign(:history_total, nil)
+    |> assign(:history_has_more, false)
+    |> assign(:history_health, :ok)
+    |> assign(:history_mounted?, false)
+  end
+
+  # The table only exists on the Commands routes. Leaving them unmounts the
+  # stream container, so coming back has to re-read the first page: a stream
+  # whose container was removed has nothing left on the server to re-render.
+  # Patching inside the route keeps the container, and therefore the pages the
+  # operator already loaded.
+  defp load_history(socket, mode) do
+    cond do
+      Map.get(socket.assigns, :live_action) not in [:decisions, :decision] ->
+        assign(socket, :history_mounted?, false)
+
+      Map.get(socket.assigns, :history_mounted?) != true ->
+        socket |> reset_history() |> assign(:history_mounted?, true)
+
+      true ->
+        do_load_history(socket, mode)
+    end
+  end
+
+  defp do_load_history(socket, :first_page), do: do_load_history(socket, :head)
+
+  defp do_load_history(socket, :next_page) do
+    case history_page(socket.assigns.history_cursor) do
+      {:ok, page} -> append_history(socket, page)
+      :error -> assign(socket, :history_health, :unavailable)
+    end
+  end
+
+  # A payload reload only reconciles the head of the list: newly resolved
+  # Commands are inserted, already-streamed rows are left untouched, and the
+  # operator's loaded pages are never collapsed back to ten.
+  defp do_load_history(socket, :head) do
+    case history_page(nil) do
+      {:ok, page} -> merge_history_head(socket, page)
+      :error -> assign(socket, :history_health, :unavailable)
+    end
+  end
+
+  defp reset_history(socket) do
+    case history_page(nil) do
+      {:ok, page} -> reset_history_with(page, socket)
+      :error -> assign(socket, :history_health, :unavailable)
+    end
+  end
+
+  defp reset_history_with(page, socket) do
+    socket
+    |> stream(:command_history, page.decisions, reset: true)
+    |> assign(:history_ids, MapSet.new(page.decisions, & &1.decision_id))
+    |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
+    |> assign(:history_total, get_in(page, [:pagination, :total]))
+    |> assign(:history_has_more, not is_nil(get_in(page, [:pagination, :next_cursor])))
+    |> assign(:history_health, history_health(page))
+  end
+
+  defp append_history(socket, page) do
+    new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
+
+    socket
+    |> stream_rows(new_rows, [])
+    |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
+    |> assign(:history_total, get_in(page, [:pagination, :total]))
+    |> assign(:history_has_more, not is_nil(get_in(page, [:pagination, :next_cursor])))
+    |> assign(:history_health, history_health(page))
+  end
+
+  defp merge_history_head(socket, page) do
+    if MapSet.size(socket.assigns.history_ids) == 0 do
+      reset_history_with(page, socket)
+    else
+      new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
+
+      socket
+      |> stream_rows(Enum.reverse(new_rows), at: 0)
+      |> assign(:history_total, get_in(page, [:pagination, :total]))
+      |> assign(:history_health, history_health(page))
+    end
+  end
+
+  # Called after an operator action: the decision is re-read from the store and
+  # only joins history if the store itself now reports a history status. A
+  # failed write leaves the card exactly where it was.
+  defp promote_history_row(socket, decision_id) do
+    with true <- Map.get(socket.assigns, :live_action) in [:decisions, :decision],
+         {:ok, %{decision: decision}} <- PayloadLoader.detail(decision_id),
+         true <- decision.decision_status in @history_statuses do
+      # The total stays whatever the store reported for the whole history set;
+      # it is never incremented locally, so it cannot drift from the rows.
+      stream_rows(socket, [decision], at: 0)
+    else
+      _other -> socket
+    end
+  end
+
+  defp stream_rows(socket, rows, opts) do
+    Enum.reduce(rows, socket, fn row, socket ->
+      socket
+      |> stream_insert(:command_history, row, opts)
+      |> assign(:history_ids, MapSet.put(socket.assigns.history_ids, row.decision_id))
+    end)
+  end
+
+  defp history_page(cursor) do
+    query =
+      %{"lifecycle" => "history", "limit" => History.page_size()}
+      |> then(&if(is_binary(cursor), do: Map.put(&1, "cursor", cursor), else: &1))
+
+    case PayloadLoader.decisions(query) do
+      {:ok, page} -> {:ok, page}
+      {:error, _reason} -> :error
+    end
+  end
+
+  defp history_health(%{health: %{status: :unavailable}}), do: :unavailable
+  defp history_health(%{health: %{status: :partial}}), do: :degraded
+  defp history_health(_page), do: :ok
+
   defp assign_decision_page(socket, filter, params) do
     case Map.get(socket.assigns, :live_action) do
       :decisions ->
@@ -1889,11 +2089,14 @@ defmodule AiurWeb.DashboardLive do
     |> put_filter_query(filter)
   end
 
-  defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "open")
+  # The inbox lists what the operator still owns. Answered, acknowledged,
+  # expired and deferred Commands have all left it, and are read back from the
+  # history table instead.
+  defp put_filter_query(query, :open), do: Map.put(query, "lifecycle", "awaiting")
 
-  defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "open") |> Map.put("blocking", true)
-  defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "historic")
-  defp put_filter_query(query, :all), do: Map.put(query, "lifecycle", "open")
+  defp put_filter_query(query, :blocking), do: query |> Map.put("lifecycle", "awaiting") |> Map.put("blocking", true)
+  defp put_filter_query(query, :resolved), do: Map.put(query, "lifecycle", "history")
+  defp put_filter_query(query, :all), do: Map.put(query, "lifecycle", "awaiting")
   defp put_filter_query(query, _filter), do: query
 
   defp maybe_put_query(query, key, value) when is_binary(value) do
@@ -1950,6 +2153,9 @@ defmodule AiurWeb.DashboardLive do
   defp agent_kind, do: to_string(Aiur.Config.agent_kind())
 
   defp schedule_runtime_tick, do: Process.send_after(self(), :runtime_tick, @runtime_tick_ms)
+  defp schedule_github_quota_tick, do: Process.send_after(self(), :github_quota_tick, @github_quota_tick_ms)
+
+  defp github_quota_snapshot, do: GitHubQuota.snapshot()
 
   defp clear_chat_state(socket, identifier) do
     socket

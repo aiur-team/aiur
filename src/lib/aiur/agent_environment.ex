@@ -3,7 +3,7 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{BuildGate, Config, RepoBase}
+  alias Aiur.{AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
   alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -34,13 +34,74 @@ defmodule Aiur.AgentEnvironment do
 
   @spec scrub_shell_prefix() :: String.t()
   def scrub_shell_prefix do
-    "unset ERL_AFLAGS RELEASE_NODE RELEASE_COOKIE AIUR_RELEASE_NODE AIUR_INSTANCE_KEY AIUR_REPO_ROOT " <>
-      "AIUR_LOGS_ROOT AIUR_AGENT_IR_LOGS_PARENT AIUR_CI_READINESS_TOKEN OPENROUTER_MANAGEMENT_KEY; " <>
+    ("unset " <>
+       Enum.join(
+         @erlang_distribution_env_names ++
+           @parent_log_env_names ++ @operator_only_env_names ++ @provider_credential_env_names,
+         " "
+       ) <>
+       "; ") <>
       "for aiur_env_name in $(env | sed 's/=.*//'); do " <>
       "case \"$aiur_env_name\" in " <>
       "AIUR_NODE_NAME|AIUR_*_NODE_NAME|AIUR_COOKIE|AIUR_*_COOKIE|*_API_KEY) unset \"$aiur_env_name\" ;; " <>
       "esac; " <>
-      "done"
+      "done; " <>
+      release_launcher_scrub_prefix() <> "\n" <> agent_bin_scrub_prefix()
+  end
+
+  defp release_launcher_scrub_prefix do
+    String.trim(~S"""
+    aiur_release_root=${AIUR_RELEASE_DIR%/}
+    if [ -n "$aiur_release_root" ]; then
+      # ROOTDIR/BINDIR/EMU/PROGNAME are scrubbed independently, and only when
+      # their value is canonical for the release. EMU/PROGNAME carry the generic
+      # values `beam`/`erl` that any toolchain could set, so they are
+      # release-owned only when the launcher boundary (ROOTDIR or BINDIR) is
+      # actually in force; otherwise a user's unrelated EMU/PROGNAME would be
+      # dropped too.
+      aiur_launcher_owned=
+      if [ "${ROOTDIR:-}" = "$aiur_release_root" ]; then unset ROOTDIR; aiur_launcher_owned=1; fi
+      aiur_bindir=${BINDIR:-}
+      aiur_bindir=${aiur_bindir%/}
+      case "$aiur_bindir" in "$aiur_release_root"/erts-*/bin) unset BINDIR; aiur_launcher_owned=1 ;; esac
+      unset aiur_bindir
+      if [ -n "$aiur_launcher_owned" ]; then
+        [ "${EMU:-}" = beam ] && unset EMU
+        [ "${PROGNAME:-}" = erl ] && unset PROGNAME
+      fi
+
+      # Filter release bin/erts-*-bin PATH entries regardless of launcher-var
+      # ownership. Each entry is compared with a trailing slash stripped so a
+      # `.../bin/` entry cannot leak a release ERTS onto the child PATH.
+      aiur_remaining_path=${PATH-}
+      aiur_clean_path=
+      aiur_path_separator=
+      while :; do
+        case "$aiur_remaining_path" in
+          *:*) aiur_path_entry=${aiur_remaining_path%%:*}; aiur_remaining_path=${aiur_remaining_path#*:}; aiur_path_more=1 ;;
+          *) aiur_path_entry=$aiur_remaining_path; aiur_path_more= ;;
+        esac
+        aiur_path_norm=${aiur_path_entry%/}
+        case "$aiur_path_norm" in
+          "$aiur_release_root/bin"|"$aiur_release_root"/erts-*/bin) ;;
+          *) aiur_clean_path="${aiur_clean_path}${aiur_path_separator}${aiur_path_entry}"; aiur_path_separator=: ;;
+        esac
+        [ -n "$aiur_path_more" ] || break
+      done
+      PATH=$aiur_clean_path
+      export PATH
+    fi
+    unset aiur_release_root aiur_remaining_path aiur_clean_path aiur_path_separator aiur_path_entry aiur_path_more aiur_path_norm aiur_launcher_owned
+    """)
+  end
+
+  defp agent_bin_scrub_prefix do
+    String.trim(~S"""
+    if [ -n "${AIUR_AGENT_BIN:-}" ]; then
+      PATH="$AIUR_AGENT_BIN:$PATH"
+      export PATH
+    fi
+    """)
   end
 
   @spec parent_log_env_name?(String.t()) :: boolean()
@@ -72,6 +133,8 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = sidecar_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
+    real_gh = System.find_executable("gh")
+    real_git = System.find_executable("git")
 
     unset_inherited_env =
       Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names(), fn name ->
@@ -84,6 +147,10 @@ defmodule Aiur.AgentEnvironment do
         {~c"MIX_HOME", String.to_charlist(mix)},
         {~c"npm_config_cache", String.to_charlist(npm_cache)},
         {~c"AIUR_REPO_STATE_PATH", String.to_charlist(state_path)},
+        {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> Path.join(".aiur-runtime/github-quota") |> String.to_charlist()},
+        {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
+        {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
+        {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
         # `elixir/`). Mirrors `base_env/1` (#432); a hardcoded sub-path pointed at
@@ -107,6 +174,7 @@ defmodule Aiur.AgentEnvironment do
         # between observations, instead of the two picking separate rhythms.
         {~c"AIUR_CLAUDE_USAGE_TTL_MS", String.to_charlist(usage_ttl_ms())}
       ] ++
+        scratch_env(workspace) ++
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
@@ -118,6 +186,29 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env(_, _opts), do: []
+
+  # Concurrent agents share the host's /tmp. Two agents staging a comment body at
+  # the same obvious path (`/tmp/wp_new.md`) silently clobber each other, and the
+  # loser publishes the other ticket's workpad under its own comment id (#1763).
+  # A workspace-private TMPDIR fixes that for every tool the agent launches, not
+  # just the paths someone remembered to make unique; TMP/TEMP follow it so tools
+  # reading those land in the same place.
+  #
+  # Created here as well as at provisioning time so workspaces provisioned before
+  # this existed get a usable scratch dir on their next launch. If it cannot be
+  # created, leave TMPDIR alone rather than pointing every tool at a directory
+  # that is not there.
+  defp scratch_env(workspace) do
+    scratch_dir = AgentScratch.dir(workspace)
+
+    with :ok <- AgentScratch.install(workspace),
+         true <- File.dir?(scratch_dir) do
+      value = String.to_charlist(scratch_dir)
+      [{~c"TMPDIR", value}, {~c"TMP", value}, {~c"TEMP", value}]
+    else
+      _unavailable -> []
+    end
+  end
 
   @doc """
   Shell-export prefix for the same vars `workspace_env/1` injects into
@@ -131,6 +222,7 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
     state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
+    agent_bin = AgentGitHubGuard.bin_dir(workspace)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -150,7 +242,22 @@ defmodule Aiur.AgentEnvironment do
         |> Enum.join("\n")
       end)
 
-    "{\n#{sidecar_exports}\n{ #{scrub_shell_prefix()}; } && " <>
+    # Workspace-private scratch, so concurrent agents cannot clobber each
+    # other's staged files through the shared host /tmp (#1763). The `mkdir`
+    # covers workspaces provisioned before this existed; only redirect TMPDIR
+    # when it succeeds, so an unwritable path leaves the launch working rather
+    # than pointing every tool at a directory that is not there.
+    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\n" <>
+      "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
+      "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
+      "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
+      "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
+      "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
+      "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
+      "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
+      ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
+      "  export TMPDIR TMP TEMP\nfi\nunset aiur_scratch_dir\n" <>
+      "{ #{scrub_shell_prefix()}; } && " <>
       "export MISE_TRUSTED_CONFIG_PATHS=#{Aiur.Shell.escape(workspace)} " <>
       "AIUR_BASE_BRANCH=#{Aiur.Shell.escape(base_branch)} #{scheduler_exports}\n}"
   end
@@ -203,12 +310,7 @@ defmodule Aiur.AgentEnvironment do
     ]
   end
 
-  defp configured_base_branch(opts) do
-    case Keyword.fetch(opts, :base_branch) do
-      {:ok, branch} when is_binary(branch) and branch != "" -> branch
-      _ -> Config.base_branch()
-    end
-  end
+  defp configured_base_branch(opts), do: Config.base_branch(opts)
 
   defp sidecar_paths(opts) do
     root = repo_url(opts) |> RepoBase.repo_path()

@@ -22,7 +22,8 @@ defmodule Aiur.Orchestrator.State do
           effective_concurrent_agents: integer() | nil,
           load_envelope_state: %{
             last_decrease_ms: integer() | nil,
-            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil
+            cpu_snapshot: Aiur.SystemCpu.snapshot() | nil,
+            bootstrap_complete?: boolean()
           },
           capacity_hold:
             %{
@@ -31,6 +32,13 @@ defmodule Aiur.Orchestrator.State do
               threshold: term(),
               held_since_ms: integer(),
               alerted?: boolean()
+            }
+            | nil,
+          dispatch_hold:
+            %{
+              reason: :tracker_preflight,
+              detail: atom(),
+              held_since_ms: integer()
             }
             | nil,
           next_poll_due_at_ms: integer() | nil,
@@ -49,6 +57,31 @@ defmodule Aiur.Orchestrator.State do
             rewakes: map()
           },
           todo_over_capacity_alert_active: boolean(),
+          prewarm_blocked_alert_active: boolean(),
+          prewarm_blocked_alert_resolution_emitted: boolean(),
+          tracker_preflight_alert_signature: String.t() | nil,
+          tracker_preflight_alert_resolution_emitted: boolean(),
+          capacity_starvation_resolution_emitted: boolean(),
+          fleet_capacity_starvation_resolution_emitted: boolean(),
+          observed_error_alerts: MapSet.t(),
+          active_attention_topics: MapSet.t(),
+          waiting_for_human_episodes: %{optional(String.t()) => %{since: DateTime.t(), alerted?: boolean()}},
+          observed_error_alert_causes: %{optional(String.t()) => atom()},
+          dispatch_capacity_constraints: [map()],
+          dispatch_declines: %{optional(String.t()) => term()},
+          dispatch_capacity_sample: %{
+            load: number() | :unavailable,
+            load_threshold: number() | nil,
+            target: number() | nil,
+            schedulers: pos_integer() | nil
+          },
+          capacity_starvation: %{
+            since_ms: %{optional(String.t()) => integer()},
+            alert_active: boolean(),
+            signature: [String.t()],
+            alerted: [String.t()]
+          },
+          fleet_capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), effective_cap: pos_integer() | nil},
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -57,6 +90,9 @@ defmodule Aiur.Orchestrator.State do
             codex_thrash_budget: map()
           },
           retry_attempts: map(),
+          comment_rework_retries: %{
+            {String.t(), String.t()} => {reference(), String.t() | integer(), String.t() | atom()}
+          },
           # Transient-caused pause/error tickets waiting a bounded backoff before
           # automatic re-dispatch (#1453). Keyed by issue_id; see
           # `Aiur.Orchestrator.AutoResume`.
@@ -69,7 +105,9 @@ defmodule Aiur.Orchestrator.State do
           events_etag: String.t() | nil,
           events_last_id: String.t() | nil,
           github_comments_since: String.t() | map() | nil,
+          github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
+          pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
           github_poll_delays: map(),
@@ -113,8 +151,9 @@ defmodule Aiur.Orchestrator.State do
     :ci_readiness_retry_at_ms,
     :ci_readiness_scope,
     :ci_readiness_result,
-    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil},
+    load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: nil, bootstrap_complete?: false},
     capacity_hold: nil,
+    dispatch_hold: nil,
     queue_store: AgentQueueStore.new(),
     last_polled_issues: %{},
     ci_lifecycle: %{
@@ -125,11 +164,31 @@ defmodule Aiur.Orchestrator.State do
       rewakes: %{}
     },
     todo_over_capacity_alert_active: false,
+    prewarm_blocked_alert_active: false,
+    prewarm_blocked_alert_resolution_emitted: false,
+    tracker_preflight_alert_signature: nil,
+    tracker_preflight_alert_resolution_emitted: false,
+    capacity_starvation_resolution_emitted: false,
+    fleet_capacity_starvation_resolution_emitted: false,
+    observed_error_alerts: MapSet.new(),
+    active_attention_topics: MapSet.new(),
+    waiting_for_human_episodes: %{},
+    observed_error_alert_causes: %{},
+    dispatch_capacity_constraints: [],
+    dispatch_declines: %{},
+    dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
+    capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
+    fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
     dispatch_recovery: @default_dispatch_recovery,
     retry_attempts: %{},
+    # Timer refs for in-flight comment-rework retries, keyed by
+    # `{issue_key, source_key}`. Tracked so a superseded retry can be cancelled
+    # and so `terminate/2` never leaves a timer firing into a dead orchestrator's
+    # successor — see `Aiur.Orchestrator.CommentWake`.
+    comment_rework_retries: %{},
     auto_resume: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
@@ -139,7 +198,9 @@ defmodule Aiur.Orchestrator.State do
     events_etag: nil,
     events_last_id: nil,
     github_comments_since: nil,
+    github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
+    pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},
     github_poll_delays: %{},
@@ -284,9 +345,20 @@ defmodule Aiur.Orchestrator.State do
   @spec alive?(term()) :: boolean()
   def alive?(pid) when is_pid(pid), do: Process.alive?(pid)
   def alive?(name) when is_atom(name), do: Process.whereis(name) != nil
-  def alive?({:via, _, _}), do: true
-  def alive?({:global, _}), do: true
+  def alive?({:via, _, _} = name), do: registered_process_alive?(name)
+  def alive?({:global, _} = name), do: registered_process_alive?(name)
   def alive?(_), do: false
+
+  defp registered_process_alive?(name) do
+    case GenServer.whereis(name) do
+      pid when is_pid(pid) -> Process.alive?(pid)
+      _ -> false
+    end
+  rescue
+    _ -> false
+  catch
+    :exit, _ -> false
+  end
 
   @spec maybe_put_runtime_value(term(), term(), term()) :: term()
   def maybe_put_runtime_value(running_entry, _key, nil), do: running_entry

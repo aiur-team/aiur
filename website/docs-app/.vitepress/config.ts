@@ -51,7 +51,8 @@ export default defineConfig({
           { text: 'Overview', link: '/' },
           { text: 'Skills', link: '/skills' },
           { text: 'Quick start', link: '/guide/quick-start' },
-          { text: 'Executor Control Center', link: '/guide/executor-control-center' }
+          { text: 'Dashboard', link: '/guide/executor-control-center' },
+          { text: 'Stream Deck', link: '/guide/stream-deck' }
         ]
       },
       {
@@ -67,7 +68,8 @@ export default defineConfig({
         text: 'Reference',
         items: [
           { text: 'Configuration', link: '/reference/configuration' },
-          { text: 'CLI and controls', link: '/reference/cli' }
+          { text: 'CLI commands', link: '/reference/cli' },
+          { text: 'State nodes and Build Orders', link: '/concepts/state-and-build-orders' }
         ]
       }
     ],

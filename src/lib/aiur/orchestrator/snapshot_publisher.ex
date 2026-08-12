@@ -69,6 +69,8 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
       _table -> :ets.delete(@table, orchestrator)
     end
 
+    clear_published_marker(orchestrator)
+
     :ok
   end
 
@@ -80,6 +82,11 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   end
 
   @impl true
+  def handle_call({:clear, orchestrator}, _from, published) do
+    {:reply, :ok, Map.delete(published, orchestrator)}
+  end
+
+  @impl true
   def handle_info(:publish, published) do
     published = publish_pending(published)
     schedule_publish()
@@ -87,6 +94,20 @@ defmodule Aiur.Orchestrator.SnapshotPublisher do
   end
 
   def handle_info(_message, published), do: {:noreply, published}
+
+  defp clear_published_marker(orchestrator) do
+    case Process.whereis(__MODULE__) do
+      nil ->
+        :ok
+
+      publisher ->
+        try do
+          GenServer.call(publisher, {:clear, orchestrator})
+        catch
+          :exit, _reason -> :ok
+        end
+    end
+  end
 
   defp publish_pending(published) do
     :ets.tab2list(@table)

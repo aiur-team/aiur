@@ -1,6 +1,8 @@
 defmodule Aiur.ApplicationTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Application, as: AiurApp
 
   defmodule SuccessStubDistribution do
@@ -20,6 +22,12 @@ defmodule Aiur.ApplicationTest do
     # shutdown. There's no cleanup to perform — releases unmount on
     # node halt — so the callback just returns :ok.
     assert :ok = AiurApp.stop(:any_state)
+  end
+
+  test "logs the resolved base branch exactly once at info level" do
+    log = capture_log(fn -> assert :ok = AiurApp.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
+
+    assert length(Regex.scan(~r/aiur_boot phase=config base_branch="develop"/, log)) == 1
   end
 
   describe "start_distribution/1" do
@@ -255,10 +263,32 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "GitHub quota authority starts before the orchestrator in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        quota = Enum.find_index(mods, &(&1 == Aiur.GitHub.Quota))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        assert quota < orchestrator
+      end
+    end
+
     test "the shared test orchestrator starts without a poll cycle" do
       specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
 
-      assert {Aiur.Orchestrator, initial_poll?: false} in specs
+      assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
+    end
+
+    test "singleton runtime services are explicitly named by their child specs" do
+      specs = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: false)
+
+      assert {Aiur.Tmux, name: Aiur.Tmux} in specs
+      assert {Aiur.PaneManager, name: Aiur.PaneManager} in specs
+      assert {Aiur.Events.Exchange, name: Aiur.Events.Exchange} in specs
+      assert {Aiur.DecisionStore, name: Aiur.DecisionStore} in specs
+      assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 
     test "current-run membership starts before the orchestrator and reconciles after it" do

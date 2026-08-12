@@ -39,11 +39,13 @@ defmodule Aiur.CodingAgentTest do
       codex = CodingAgent.provider_descriptor(:codex)
       assert codex.label == "Codex"
       assert codex.logo == "/provider-assets/codex-color.svg"
-      assert codex.token_icon == "/provider-assets/codex-token.svg"
+      assert codex.token_icon == "/provider-assets/claude-token.svg"
       assert codex.css_class == "is-codex"
 
       claude = CodingAgent.provider_descriptor(:claude)
       assert claude.label == "Claude"
+      assert claude.logo == "/provider-assets/claude-symbol.svg"
+      assert claude.token_icon == "/provider-assets/codex-token.svg"
       assert claude.css_class == "is-claude"
 
       assert CodingAgent.provider_descriptor(:kimi).label == "Kimi"
@@ -514,6 +516,50 @@ defmodule Aiur.CodingAgentTest do
   end
 
   describe "send_operator_message/2" do
+    test "raises when the session has no backend instead of using the global default" do
+      session = %{thread_id: "thread-missing-backend"}
+
+      error =
+        assert_raise ArgumentError, fn ->
+          CodingAgent.send_operator_message(session, %{kind: :text, body: "hello agent"})
+        end
+
+      assert error.message =~ inspect(session)
+      assert error.message =~ "expected a binary :backend"
+    end
+
+    test "raises when the session backend is not a binary" do
+      session = %{backend: :claude, thread_id: "thread-invalid-backend"}
+
+      error =
+        assert_raise ArgumentError, fn ->
+          CodingAgent.send_operator_message(session, %{kind: :text, body: "hello agent"})
+        end
+
+      assert error.message =~ inspect(session)
+      assert error.message =~ "expected a binary :backend"
+    end
+
+    test "every session-routed entry point raises, not just send_operator_message/2" do
+      # `adapter_for_session/1` is private, so each public caller is pinned
+      # here. A new entry point that reintroduces the global-default fallback
+      # on its own path would not be caught by the two tests above.
+      malformed = [%{thread_id: "thread-no-backend"}, %{backend: :claude, thread_id: "thread-atom-backend"}]
+
+      entry_points = [
+        {"run_turn/4", fn session -> CodingAgent.run_turn(session, "prompt", %{}, []) end},
+        {"stop_session/1", fn session -> CodingAgent.stop_session(session) end},
+        {"send_operator_message/2", fn session -> CodingAgent.send_operator_message(session, %{kind: :text, body: "x"}) end}
+      ]
+
+      for {name, call} <- entry_points, session <- malformed do
+        error = assert_raise ArgumentError, fn -> call.(session) end
+
+        assert error.message =~ inspect(session), "#{name} did not name the malformed session"
+        assert error.message =~ "expected a binary :backend", "#{name} did not fail loudly"
+      end
+    end
+
     test "Codex adapter writes a turn/start frame with a fresh request id" do
       port = open_cat_port()
 

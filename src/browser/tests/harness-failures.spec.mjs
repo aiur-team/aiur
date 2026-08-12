@@ -11,10 +11,16 @@ test('diagnostic sanitization preserves only synthetic fixture settings', () => 
   const environment = {
     AIUR_BROWSER_PORT: '43123',
     AIUR_DASHBOARD_PASSWORD: 'must-not-leak',
+    DEEPSEEK_API_KEY: 'real-provider-key-that-must-not-leak',
     GITHUB_TOKEN: 'must-not-leak-either'
   }
 
-  expect(syntheticFixtureEnvironment(environment)).toEqual({ AIUR_BROWSER_PORT: '43123', AIUR_BROWSER_FIXTURE_MODE: 'synthetic' })
+  expect(syntheticFixtureEnvironment(environment)).toEqual({
+    AIUR_BROWSER_PORT: '43123',
+    AIUR_BROWSER_FIXTURE_MODE: 'synthetic',
+    DEEPSEEK_API_KEY: 'fixture-deepseek-key',
+    MOONSHOT_API_KEY: 'fixture-moonshot-key'
+  })
   expect(sanitizeDiagnostic('authorization: Bearer must-not-leak', environment)).toContain('[REDACTED]')
   expect(sanitizeDiagnostic('authorization: Bearer must-not-leak', environment)).not.toContain('must-not-leak')
 })

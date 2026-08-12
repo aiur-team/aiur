@@ -36,6 +36,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "Inspect ticket"
     refute html =~ ~s(href="/decisions?ticket=1110")
     refute html =~ ">Agent log</button>"
+    # The standalone read-agent-log row action is gone: the chat modal now
+    # carries the agent log beneath the conversation.
+    refute html =~ "Read agent log"
+    refute html =~ ~s(phx-click="show-agent-log")
     assert html =~ ~s(phx-value-unit="#{token}")
     refute html =~ ~s(phx-value-issue="1110")
     refute html =~ ~r/<tr[^>]+phx-click=/
@@ -103,13 +107,31 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # (column headings + a single "No active agents" row) rather than an error.
     assert unavailable =~ "No active agents"
     assert unavailable =~ "units-table"
+    assert unavailable =~ "Units catalog unavailable"
+    assert unavailable =~ "membership failed"
     assert empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
     assert filtered =~ ~s(class="btn ghost units-reset")
-    assert stale =~ "Units may be stale"
+    assert stale =~ "Stale Units catalog"
     assert stale =~ "last known membership"
+    # Stale rows still render: the operator keeps the last known fleet view.
+    assert stale =~ "units-table"
     assert stale =~ "Responsive Units interface"
+
+    # A stale catalog with nothing retained must still account for the empty
+    # table. A staleness banner floating over a blank area reports less than the
+    # unavailable panel this surface replaced.
+    stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
+    assert stale_empty =~ "Stale Units catalog"
+    assert stale_empty =~ "No units have been observed in this run."
+    refute stale_empty =~ "units-table"
+
+    # The filter-hides-everything case still belongs to zero_result?, not to the
+    # catalog-empty message.
+    stale_filtered = render(%{status: :stale, message: "last known membership", rows: [], zero_result?: true})
+    assert stale_filtered =~ "No units match this valid scope"
+    refute stale_filtered =~ "No units have been observed in this run."
 
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
     assert partial =~ "Units catalog is partial"

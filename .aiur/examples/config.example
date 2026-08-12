@@ -3,14 +3,22 @@
 # === Issue tracker ===
 tracker:
   kind: {{TRACKER_KIND}}                 # github | linear | memory
+  base_branch: {{BASE_BRANCH}}           # required integration branch; `aiur init` offers the repository default read from GitHub
   active_states: [todo, in-progress, rework, merging]
   terminal_states: [done, closed, cancelled, canceled]
   # terminal_fence_grace_seconds: 30   # how long a terminal tracker observation stays fenced for undelivered authoritative input before teardown; raise for longer provider turn-delivery latency
 {{TRACKER_PROVIDER}}
   # provider block (filled above): github {repo, label_prefix, bot_account, trusted_accounts, human_mergers} | linear {api_key, project_slug, assignee}
-  # bot_account is an IDENTITY, not a credential: GITHUB_TOKEN (in .env) is the credential Aiur
-  # authenticates with; bot_account is the login Aiur recognizes as its own to suppress self-triggered
-  # comment/event loops. Prefer a dedicated bot account (e.g. its-applekid) when operators also comment
+  # bot_account is an IDENTITY, not a credential: the daemon authenticates with a
+  # GitHub App installation token when GITHUB_APP_ID/GITHUB_APP_INSTALLATION_ID and
+  # the App private key are set (preferred; see docs/security/daemon-token-posture.md),
+  # else the GITHUB_TOKEN PAT in .env. bot_account is the login Aiur recognizes as its
+  # own to suppress self-triggered comment/event loops. It must name the identity the
+  # daemon actually writes as: under GitHub App auth that is the App's bot user,
+  # `<app-slug>[bot]` — NOT the PAT account. A stale PAT login here silently disables
+  # self-loop suppression; the daemon alerts on the mismatch at startup
+  # (system.github_app_token.identity_mismatch). On the PAT path, prefer a dedicated bot
+  # account (e.g. its-applekid) when operators also comment
   # from a trusted CODEOWNER account — reusing one login makes agent-vs-human provenance ambiguous.
   # human_mergers is an explicit human-only list used for post-merge attribution alerts. It never
   # inherits CODEOWNERS, bot_account, trusted_accounts, or dispatch allowed_users.
@@ -49,6 +57,7 @@ agent:
     # thrash_window_seconds: 60
   # --- advanced agent tuning (defaults shown) ---
   # mix_scheduler_cap: 4                 # cap each agent Mix VM (and ExUnit's default max_cases)
+  # saturation_log_enabled: true         # saturation sentinel (#1429): record VM+host diagnostics once load crosses the escalation threshold
   # max_retry_attempts: 3
   # max_retry_backoff_ms: 300000
   # turn_timeout_ms: 3600000             # backstop per turn (any backend)
@@ -121,6 +130,6 @@ alerts:
 # opencode: { command: opencode, bridge_port: 4097, bridge_host: 127.0.0.1, model_prefix: aiur }
 # observability: { dashboard_enabled: true, refresh_ms: 1000, render_interval_ms: 16, telemetry_enabled: true, telemetry_retention_max_bytes: 67108864, telemetry_retention_max_age_days: 30, telemetry_retention_prune_interval_bytes: 8388608 }
 # decisions: { supervisor_allowed_kinds: [], supervisor_allow_non_reversible: false }
-# server: { host: 127.0.0.1, port: 4000 }
+# server: { port: 4000 }                # host omitted = authenticated Tailscale IP when available, else loopback; add host: 127.0.0.1 to pin loopback
 # worker: { ssh_hosts: [], max_concurrent_agents_per_host: 4 }
 # events: { block_state_debounce_seconds: 10, custom_events_per_turn_max: 5, codeowners_refresh_seconds: 3600 }

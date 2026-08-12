@@ -80,6 +80,32 @@ alerts:
     message: Todo queue exceeds capacity
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.dispatch.prewarm_blocked":
+    message: Shared prewarm is blocking dispatch
+    sound:
+      - "~/alerts/advisor/advisor-not-enough-minerals.wav"
+  "system.dispatch.prewarm_blocked.resolved":
+    message: Shared prewarm recovered
+  "system.dispatch.capacity_starved":
+    message: Fleet dispatch capacity is constrained
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.dispatch.capacity_starved.resolved":
+    message: Fleet dispatch capacity recovered
+  "system.fleet.capacity.starved":
+    message: Fleet capacity is under-utilised
+    sound:
+      - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "system.fleet.capacity.starved.resolved":
+    message: Fleet capacity starvation recovered
+  "system.tracker.auth_preflight_failed":
+    message: Tracker authentication is blocking fleet dispatch
+    sound:
+      - "~/alerts/advisor/advisor-under-attack.wav"
+  "system.tracker.auth_preflight_failed.resolved":
+    message: Tracker authentication recovered
+    sound:
+      - "~/alerts/advisor/advisor-your-will.wav"
 
   # ---------- Agent state -------------------------------------------------
   "ticket.*.agent.error.tokens_exhausted":
@@ -102,10 +128,14 @@ alerts:
     sound:
       - "~/alerts/advisor/advisor-yes-executor.wav"
       - "~/alerts/templar/templar-yes-executor.wav"
+  "ticket.*.agent.paused.resolved":
+    message: Agent pause resolved
   "ticket.*.agent.attention.*":
     message: Executor decision required
     sound:
       - "~/alerts/advisor/advisor-additional-pylons.wav"
+  "ticket.*.agent.attention.*.resolved":
+    message: Executor attention resolved
   "ticket.*.agent.unpaused":
     message: Agent unpaused
     sound:

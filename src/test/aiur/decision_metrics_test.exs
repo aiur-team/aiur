@@ -125,6 +125,19 @@ defmodule Aiur.DecisionMetricsTest do
     refute persisted =~ "private rationale"
   end
 
+  test "retains executor as a distinct decision actor", %{pid: pid} do
+    assert :ok = DecisionMetrics.observe(request_event(30, true), pid)
+
+    assert :ok =
+             DecisionMetrics.observe(
+               lifecycle_event(31, "answered", 1_000, %{actor: %{kind: :executor}}),
+               pid
+             )
+
+    assert {:ok, snapshot} = DecisionMetrics.snapshot("dec-42", pid)
+    assert snapshot.actor == "executor"
+  end
+
   test "subscribes to the existing Exchange and ignores unrelated decision coordination", %{tmp_dir: tmp_dir} do
     path = Path.join(tmp_dir, "exchange-decision-latency.ndjson")
     pid = start_metrics!(path, subscribe?: true)
@@ -187,7 +200,7 @@ defmodule Aiur.DecisionMetricsTest do
         else: Application.delete_env(:aiur, :decision_state_dir)
     end)
 
-    {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> stop_if_alive(store) end)
 
     ticket = %{identifier: "42", title: "Decision metrics", url: nil}

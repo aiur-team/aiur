@@ -163,6 +163,12 @@ defmodule Aiur.Config.Schema.Agent do
     # ELIXIR_ERL_OPTIONS="+S N:N". ExUnit defaults max_cases to this value, so
     # four bounds every agent test shape without relying on prompt compliance.
     field(:mix_scheduler_cap, :integer, default: 4)
+    # Saturation sentinel (#1429): a daemon-side recorder that appends
+    # VM-internal + host diagnostics to saturation.log once 1-min load crosses
+    # the escalation threshold, so a crash under saturation (the sparse
+    # `erl_child_setup` dump has no stack) is interpretable. Default on; set
+    # false to disable the recorder.
+    field(:saturation_log_enabled, :boolean, default: true)
 
     embeds_one(:claude, Claude, on_replace: :update, defaults_to_struct: true)
     embeds_one(:codex, Codex, on_replace: :update, defaults_to_struct: true)
@@ -203,7 +209,8 @@ defmodule Aiur.Config.Schema.Agent do
         :load_ramp_step,
         :load_cooldown_seconds,
         :synthetic_load_process_cap,
-        :mix_scheduler_cap
+        :mix_scheduler_cap,
+        :saturation_log_enabled
       ],
       empty_values: []
     )

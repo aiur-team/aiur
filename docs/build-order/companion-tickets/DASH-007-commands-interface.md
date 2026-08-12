@@ -26,7 +26,7 @@
 
 ## Outcome
 
-The Executor Control Center presents Commands with the refreshed vocabulary, primary filters, provenance, option previews, and confidence while preserving every retained Decision state, stable deep link, and authenticated lifecycle action.
+The Dashboard presents Commands with the refreshed vocabulary, primary filters, provenance, option previews, and confidence while preserving every retained Decision state, stable deep link, and authenticated lifecycle action.
 
 ## Context and evidence
 

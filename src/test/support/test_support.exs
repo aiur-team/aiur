@@ -1,10 +1,23 @@
 defmodule Aiur.TestSupport do
-  import ExUnit.Assertions
+  require Logger
 
   alias Aiur.Events.Publisher, as: EventsPublisher
   alias Aiur.Events.SubscriptionStore, as: EventsSubscriptionStore
 
   @workflow_prompt "You are an agent for this repository."
+  @github_repository {"its-everdred", "aiur"}
+
+  @doc "The synthetic GitHub repository used by fixture tests."
+  @spec github_repository() :: String.t()
+  def github_repository, do: Enum.join(Tuple.to_list(@github_repository), "/")
+
+  @doc "The owner component of the synthetic fixture repository."
+  @spec github_owner() :: String.t()
+  def github_owner, do: elem(@github_repository, 0)
+
+  @doc "The repository-name component of the synthetic fixture repository."
+  @spec github_repository_name() :: String.t()
+  def github_repository_name, do: elem(@github_repository, 1)
 
   defmacro __using__(_opts) do
     quote do
@@ -36,8 +49,8 @@ defmodule Aiur.TestSupport do
         only: [
           write_workflow_file!: 1,
           write_workflow_file!: 2,
-          write_workflow_file_synced!: 1,
-          write_workflow_file_synced!: 2,
+          write_workflow_file_async!: 1,
+          write_workflow_file_async!: 2,
           restore_env: 2,
           stop_default_http_server: 0,
           ensure_workflow_store_running: 0
@@ -79,6 +92,7 @@ defmodule Aiur.TestSupport do
 
         File.mkdir_p!(workflow_root)
         Application.put_env(:aiur, :build_gate_dir_override, Path.join(workflow_root, "build-gate"))
+        Application.put_env(:aiur, :global_pause_store_path, Path.join(workflow_root, "global-pause.json"))
         workflow_file = Path.join(workflow_root, ".aiurconfig")
         write_workflow_file!(workflow_file)
         Workflow.set_workflow_file_path(workflow_file)
@@ -165,7 +179,53 @@ defmodule Aiur.TestSupport do
     end
   end
 
+  @workflow_reload_timeout_ms 15_000
+
+  @doc """
+  Writes a workflow fixture and waits for the active `WorkflowStore` cache to
+  reload before returning.
+
+  Files other than the active workflow path are staging fixtures and do not
+  trigger a reload.
+  """
   def write_workflow_file!(path, overrides \\ []) do
+    write_workflow_content!(path, overrides)
+
+    if active_workflow_file?(path) do
+      ensure_workflow_store_running()
+      :ok = Aiur.WorkflowStore.force_reload(@workflow_reload_timeout_ms)
+    end
+
+    :ok
+  end
+
+  @doc """
+  Writes a workflow fixture and makes a best-effort attempt to reload the
+  active `WorkflowStore` cache.
+
+  The reload call can block until the store responds or its configured timeout
+  elapses. Use this only when the test deliberately exercises asynchronous
+  reload behavior: reload failures are logged and swallowed, so callers have
+  no cache-visibility guarantee.
+  """
+  def write_workflow_file_async!(path, overrides \\ []) do
+    write_workflow_content!(path, overrides)
+
+    if active_workflow_file?(path) and is_pid(Process.whereis(Aiur.WorkflowStore)) do
+      try do
+        case Aiur.WorkflowStore.force_reload(async_workflow_reload_timeout_ms()) do
+          :ok -> :ok
+          {:error, reason} -> log_async_reload_failure(path, reason)
+        end
+      catch
+        :exit, reason -> log_async_reload_failure(path, reason)
+      end
+    end
+
+    :ok
+  end
+
+  defp write_workflow_content!(path, overrides) do
     {config_yaml, prompt} = workflow_content(overrides)
 
     config_yaml =
@@ -179,40 +239,18 @@ defmodule Aiur.TestSupport do
 
     File.write!(path, config_yaml)
     write_default_alerts_file!(path)
-
-    if Process.whereis(Aiur.WorkflowStore) do
-      try do
-        Aiur.WorkflowStore.force_reload()
-      catch
-        :exit, _reason -> :ok
-      end
-    end
-
-    :ok
   end
 
-  @doc """
-  Like `write_workflow_file!/2`, but waits for `WorkflowStore`'s pubsub
-  confirmation instead of trusting its best-effort `force_reload`.
+  defp active_workflow_file?(path) do
+    Path.expand(path) == Path.expand(Aiur.Workflow.workflow_file_path())
+  end
 
-  `write_workflow_file!/2` fires a `force_reload` wrapped in `catch :exit, _
-  -> :ok`, so under host CPU contention a `GenServer.call` that outlasts its
-  default timeout is swallowed silently — the write looks like it landed, but
-  `WorkflowStore` only actually catches up whenever it next gets scheduled.
-  A caller that immediately reads `Config` afterward can race that catch-up
-  and observe the config as it stood before this write. Waiting for the
-  `{:workflow_config_updated, _}` broadcast removes the guess: it fires only
-  once the reload has genuinely completed, however long that took.
-  """
-  def write_workflow_file_synced!(path, overrides \\ []) do
-    ensure_workflow_store_running()
-    :ok = Aiur.WorkflowStore.subscribe()
-    {:ok, _workflow, generation_before} = Aiur.WorkflowStore.current_with_generation()
+  defp async_workflow_reload_timeout_ms do
+    Application.get_env(:aiur, :workflow_store_call_timeout_ms, 5_000)
+  end
 
-    write_workflow_file!(path, overrides)
-
-    assert_receive {:workflow_config_updated, generation}, 15_000
-    assert generation > generation_before
+  defp log_async_reload_failure(path, reason) do
+    Logger.warning("Best-effort workflow reload failed path=#{path} reason=#{inspect(reason)}; WorkflowStore may serve stale test config")
   end
 
   # Mirror the real `.aiur/` layout in tests: drop the canonical alert
@@ -525,6 +563,7 @@ defmodule Aiur.TestSupport do
           tracker_planning_root_limit: 100,
           tracker_planning_page_budget: 4,
           tracker_planning_call_budget: 4,
+          tracker_base_branch: "main",
           max_vertical_panes: 3,
           pre_warmed_sessions: 3,
           agent_kind: "codex",
@@ -540,6 +579,7 @@ defmodule Aiur.TestSupport do
           build_start_stagger_seconds: 0,
           min_free_memory_mb: nil,
           max_turns: 20,
+          max_dispatches_per_ticket: nil,
           max_retry_backoff_ms: 300_000,
           max_concurrent_agents_by_state: %{},
           command: "codex app-server",
@@ -592,6 +632,7 @@ defmodule Aiur.TestSupport do
     build_start_stagger_seconds = Keyword.get(config, :build_start_stagger_seconds)
     min_free_memory_mb = Keyword.get(config, :min_free_memory_mb)
     max_turns = Keyword.get(config, :max_turns)
+    max_dispatches_per_ticket = Keyword.get(config, :max_dispatches_per_ticket)
     max_retry_backoff_ms = Keyword.get(config, :max_retry_backoff_ms)
     max_concurrent_agents_by_state = Keyword.get(config, :max_concurrent_agents_by_state)
     agent_turn_timeout_ms = Keyword.get(config, :agent_turn_timeout_ms)
@@ -657,6 +698,8 @@ defmodule Aiur.TestSupport do
         "  build_start_stagger_seconds: #{yaml_value(build_start_stagger_seconds)}",
         "  min_free_memory_mb: #{yaml_value(min_free_memory_mb)}",
         "  max_turns: #{yaml_value(max_turns)}",
+        max_dispatches_per_ticket &&
+          "  max_dispatches_per_ticket: #{yaml_value(max_dispatches_per_ticket)}",
         "  max_retry_backoff_ms: #{yaml_value(max_retry_backoff_ms)}",
         "  max_concurrent_agents_by_state: #{yaml_value(max_concurrent_agents_by_state)}",
         "  routing: #{yaml_value(agent_routing)}",

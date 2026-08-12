@@ -23,8 +23,9 @@ expect_rejected() {
   local expected_error="$3"
   local fixture="$test_dir/$name.json"
   local output
+  shift 3
 
-  jq "$jq_filter" "$declaration" >"$fixture"
+  jq "$@" "$jq_filter" "$declaration" >"$fixture"
 
   if output="$(run_verifier "$fixture" 2>&1)"; then
     echo "expected verifier to reject $name" >&2
@@ -38,6 +39,36 @@ expect_rejected() {
 }
 
 run_verifier "$declaration"
+
+while IFS= read -r field; do
+  expect_rejected \
+    "drifted-$field" \
+    '(.rules[] | select(.type == "merge_queue") | .parameters[$field]) |=
+      if type == "number" then . + 1
+      elif type == "string" then . + "_DRIFT"
+      elif type == "boolean" then not
+      else "DRIFT"
+      end' \
+    "ruleset merge_queue parameter mismatch: $field" \
+    --arg field "$field"
+done < <(jq -r '
+  .rules[] | select(.type == "merge_queue") | .parameters | keys[]
+' "$declaration")
+
+expect_rejected \
+  "unexpected-merge-queue-parameter" \
+  '(.rules[] | select(.type == "merge_queue") | .parameters.unexpected_parameter) = 1' \
+  "ruleset merge_queue parameter mismatch: unexpected_parameter"
+
+expect_rejected \
+  "missing-max-entries-to-build" \
+  'del(.rules[] | select(.type == "merge_queue") | .parameters.max_entries_to_build)' \
+  "ruleset merge_queue parameter mismatch: max_entries_to_build"
+
+expect_rejected \
+  "missing-merge-queue-rule" \
+  '.rules |= map(select(.type != "merge_queue"))' \
+  "live ruleset must contain exactly one merge_queue rule"
 
 expect_rejected \
   "tag-target" \
@@ -78,9 +109,14 @@ expect_rejected \
   '(.rules[] | select(.type == "required_status_checks") | .parameters.required_status_checks) = []' \
   "ruleset must require every blocking GitHub Actions status check"
 
+# Inverted when the merge queue was adopted (#1381): the queue builds each
+# candidate merged with the base and runs the required checks against that
+# result, which is a stronger guarantee than strict's "up to date at merge
+# time". A strict-true live ruleset is now the drift. See the reasoning block
+# in test-human-only-merge-ruleset-live.sh.
 expect_rejected \
-  "non-strict-required-checks" \
-  '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = false' \
+  "strict-required-checks" \
+  '(.rules[] | select(.type == "required_status_checks") | .parameters.strict_required_status_checks_policy) = true' \
   "ruleset must require every blocking GitHub Actions status check"
 expect_rejected \
   "missing-workflow-security-check" \

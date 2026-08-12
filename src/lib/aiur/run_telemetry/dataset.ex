@@ -109,6 +109,53 @@ defmodule Aiur.RunTelemetry.Dataset do
     })
   end
 
+  @doc """
+  Reduces an already-normalized record list into the `{actors, tickets,
+  findings}` shape `build/2` derives from a stream. Used by `merge/1` to union
+  datasets across boots so a ticket or actor active in several boots keeps
+  every boot's samples/events, with intervals and profiles re-derived over the
+  union.
+  """
+  @spec reduce([map()], keyword()) :: {map(), map(), [map()]}
+  def reduce(records, opts \\ []) when is_list(records) do
+    {actors, _warnings} = reduce_actors(records, opts)
+    {tickets, findings} = reduce_tickets(records, opts)
+    {actors, tickets, findings}
+  end
+
+  @doc """
+  Unions already-reduced datasets into one dataset, keeping every boot's data
+  for tickets and actors that appear in several boots.
+
+  Records deduplicate by `record_id` — GitHub anchors are boot-agnostic and
+  appear in every per-boot summary, so a naive concatenation would duplicate
+  them — then resource samples and lifecycle events concatenate across boots
+  and intervals/profiles re-derive over the union. This is the same semantics
+  as the canonical Python `_rollup_build`: a multi-boot ticket keeps every
+  boot's intervals and an actor keeps every boot's samples, never collapsing to
+  a last-wins map merge.
+  """
+  @spec merge([dataset()]) :: dataset()
+  def merge(datasets) when is_list(datasets) do
+    records =
+      datasets
+      |> Enum.flat_map(& &1.records)
+      |> Enum.uniq_by(& &1.record_id)
+      |> Enum.sort_by(&record_sort_key/1)
+
+    {actors, tickets, findings} = reduce(records)
+
+    %{
+      records: records,
+      restarts: Enum.filter(records, &daemon_restart?/1),
+      actors: actors,
+      tickets: tickets,
+      findings: findings,
+      warnings: Enum.flat_map(datasets, & &1.warnings),
+      provenance: merge_provenance(datasets)
+    }
+  end
+
   @doc "Distinct daemon boots represented in a dataset, oldest first."
   @spec boot_ids(dataset()) :: [String.t()]
   def boot_ids(dataset) when is_map(dataset) do
@@ -779,11 +826,13 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp reduce_tickets(records, opts) do
+    # Caller timestamps describe when an event occurred, but lifecycle pairing
+    # must follow append order when a segment boundary is interleaved.
     events =
       records
       |> Enum.filter(&(&1.kind == "lifecycle"))
       |> Enum.flat_map(&lifecycle_event/1)
-      |> Enum.sort_by(&{&1.timestamp_ms, &1.boot_id, &1.sequence})
+      |> Enum.sort_by(&lifecycle_sort_key/1)
 
     events_by_ticket = Enum.group_by(events, & &1.ticket)
     findings = review_findings(events_by_ticket, opts)
@@ -827,14 +876,37 @@ defmodule Aiur.RunTelemetry.Dataset do
           timestamp: record.timestamp_iso,
           timestamp_dt: record.timestamp,
           timestamp_ms: record.timestamp_ms,
+          recorded_at_ms: recorded_at_ms(record),
           boot_id: record.boot_id,
           sequence: record.sequence,
-          record_id: record.record_id
+          record_id: record.record_id,
+          source_path: record.source_path,
+          source_line: record.source_line
         }
       ]
     else
       _other -> []
     end
+  end
+
+  defp recorded_at_ms(%{recorded_at: recorded_at}) do
+    case parse_timestamp(recorded_at) do
+      {:ok, parsed} -> DateTime.to_unix(parsed, :millisecond)
+      :error -> nil
+    end
+  end
+
+  defp lifecycle_sort_key(event) do
+    chronological_sort_key(event)
+  end
+
+  defp chronological_sort_key(event) do
+    {
+      event.timestamp_ms,
+      event.source_path || "",
+      event.source_line || 0,
+      event.record_id
+    }
   end
 
   defp normalize_complexity(value) when is_integer(value) and value in 1..5, do: value
@@ -856,8 +928,17 @@ defmodule Aiur.RunTelemetry.Dataset do
   end
 
   defp lifecycle_intervals(events) do
+    events
+    |> Enum.group_by(&lifecycle_pair_key/1)
+    |> Enum.flat_map(fn {_key, pair_events} -> lifecycle_pair_intervals(pair_events) end)
+    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  end
+
+  defp lifecycle_pair_intervals(events) do
     {intervals, open} =
-      Enum.reduce(events, {[], %{}}, fn event, {intervals, open} ->
+      events
+      |> causal_pair_order()
+      |> Enum.reduce({[], %{}}, fn event, {intervals, open} ->
         key = lifecycle_pair_key(event)
 
         case event.boundary do
@@ -872,10 +953,34 @@ defmodule Aiur.RunTelemetry.Dataset do
         end
       end)
 
-    open_intervals = Enum.map(open, fn {_key, event} -> open_interval(event) end)
+    intervals ++ Enum.map(open, fn {_key, event} -> open_interval(event) end)
+  end
 
-    (intervals ++ open_intervals)
-    |> Enum.sort_by(&{&1.start_ms, &1.phase, &1.operation_id || ""})
+  # Lifecycle pairing depends on seeing a start before its matching finish, and
+  # timestamps alone cannot guarantee that: a segment roll can emit two records
+  # inside the same clock millisecond, so a purely chronological sort is free to
+  # invert a causally ordered pair and manufacture an `orphan_end`.
+  #
+  # When every event came from one persisted stream, append order is the ground
+  # truth and `source_line` reproduces it exactly, so sort by that instead.
+  # `record_id` only breaks ties within a line. Across several streams — or when
+  # any line number is missing, as with in-memory events — no shared append order
+  # exists, so fall back to the chronological key.
+  defp causal_pair_order(events) do
+    same_persisted_stream? =
+      events
+      |> Enum.map(& &1.source_path)
+      |> Enum.uniq()
+      |> then(fn paths ->
+        length(paths) == 1 and is_binary(hd(paths)) and
+          Enum.all?(events, &is_integer(&1.source_line))
+      end)
+
+    if same_persisted_stream? do
+      Enum.sort_by(events, &{&1.source_line, &1.record_id})
+    else
+      Enum.sort_by(events, &chronological_sort_key/1)
+    end
   end
 
   defp close_lifecycle_interval(event, intervals, open, key) do
@@ -898,14 +1003,24 @@ defmodule Aiur.RunTelemetry.Dataset do
     do: {event.attempt_id, event.event, event.operation_id}
 
   defp closed_interval(started, finished) do
+    {end_at, end_ms} = causal_endpoints(started, finished)
+
     interval_base(started)
     |> Map.merge(%{
       status: "closed",
-      end_at: finished.timestamp,
-      end_ms: finished.timestamp_ms,
-      duration_ms: max(finished.timestamp_ms - started.timestamp_ms, 0),
+      end_at: end_at,
+      end_ms: end_ms,
+      duration_ms: end_ms - started.timestamp_ms,
       outcome: finished.outcome || started.outcome
     })
+  end
+
+  defp causal_endpoints(started, finished) do
+    if finished.timestamp_ms < started.timestamp_ms do
+      {started.timestamp, started.timestamp_ms}
+    else
+      {finished.timestamp, finished.timestamp_ms}
+    end
   end
 
   defp point_interval(event, status) do
@@ -1039,6 +1154,33 @@ defmodule Aiur.RunTelemetry.Dataset do
 
   defp maybe_missing(missing, true, event), do: missing ++ [event]
   defp maybe_missing(missing, false, _event), do: missing
+
+  # Union of per-dataset provenance for `merge/1`: sources and schema versions
+  # deduplicate, record counts sum, and the time range spans every boot.
+  defp merge_provenance(datasets) do
+    provenances = Enum.map(datasets, & &1.provenance)
+
+    files = provenances |> Enum.flat_map(& &1.files) |> Enum.uniq()
+    inputs = provenances |> Enum.flat_map(& &1.inputs) |> Enum.uniq()
+    schema_versions = provenances |> Enum.flat_map(& &1.schema_versions) |> Enum.uniq() |> Enum.sort()
+    record_count = provenances |> Enum.reduce(0, &(&1.record_count + &2))
+
+    time_range =
+      case provenances |> Enum.map(& &1.time_range) |> Enum.reject(&is_nil/1) do
+        [] -> nil
+        ranges -> %{start: ranges |> Enum.map(& &1.start) |> Enum.min(), end: ranges |> Enum.map(& &1.end) |> Enum.max()}
+      end
+
+    %{
+      inputs: inputs,
+      files: files,
+      schema_versions: schema_versions,
+      time_range: time_range,
+      record_count: record_count,
+      enrich: Enum.any?(provenances, &Map.get(&1, :enrich, false)),
+      generated_by: "dataset:merge"
+    }
+  end
 
   defp provenance(inputs, files, records) do
     schema_versions = records |> Enum.map(& &1.schema_version) |> Enum.uniq() |> Enum.sort()

@@ -118,7 +118,7 @@ defmodule Aiur.CodingAgent do
           order: 0,
           label: "Codex",
           logo: "/provider-assets/codex-color.svg",
-          token_icon: "/provider-assets/codex-token.svg",
+          token_icon: "/provider-assets/claude-token.svg",
           css_class: "is-codex",
           command_color: "#8fbcff",
           command_border: "rgba(143, 188, 255, 0.4)",
@@ -186,7 +186,7 @@ defmodule Aiur.CodingAgent do
           order: 1,
           label: "Claude",
           logo: "/provider-assets/claude-symbol.svg",
-          token_icon: "/provider-assets/claude-token.svg",
+          token_icon: "/provider-assets/codex-token.svg",
           css_class: "is-claude",
           command_color: "#f2a76b",
           command_border: "rgba(242, 167, 107, 0.4)",
@@ -1127,7 +1127,11 @@ defmodule Aiur.CodingAgent do
     do: adapter_for_session(session).send_operator_message(session, payload)
 
   defp adapter_for_session(%{backend: backend}) when is_binary(backend), do: adapter(backend)
-  defp adapter_for_session(_session), do: adapter(Config.agent_kind())
+
+  defp adapter_for_session(session) do
+    raise ArgumentError,
+          "cannot resolve coding-agent backend for session #{inspect(session)}; expected a binary :backend"
+  end
 
   defp fetch_backend!(backend) do
     case Map.fetch(backends(), backend) do

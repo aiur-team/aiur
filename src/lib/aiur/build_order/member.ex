@@ -96,30 +96,45 @@ defmodule Aiur.BuildOrder.Member do
   defp icon(value) when is_binary(value) and byte_size(value) in 1..80, do: value
   defp icon(_value), do: nil
 
+  # Codes that say the member record itself is unusable — its identity, title,
+  # URL, labels or dependency data could not be read or contradicts itself.
+  #
+  # `:unresolved_internal_dependency` is deliberately absent. It records a
+  # same-repository dependency whose target is not a member of *this* Build
+  # Order, which is an ordinary fact about a Build Order still in flight: a
+  # member acquires a blocker filed outside its own root all the time. The
+  # member's own data is intact, the edge is well formed, and the presenter
+  # already annotates such an edge as leaving the graph
+  # (`AiurWeb.BuildOrderPresenter.edge_input/4`). Treating it as a member defect
+  # cascaded into `SelectedRoot` `:invalid_member`, made the whole selected root
+  # structurally invalid, and failed the entire read — so a single cross-root
+  # blocker erased 27 members from the page (#1777).
+  @invalidating_codes [
+    :connection_overflow,
+    :duplicate_identity,
+    :invalid_identity,
+    :invalid_dependency,
+    :invalid_endpoint_locator,
+    :invalid_member,
+    :invalid_label_connection,
+    :invalid_lifecycle,
+    :invalid_title,
+    :invalid_url,
+    :incomplete_labels,
+    :labels_overflow
+  ]
+
+  @doc false
+  @spec invalidating_codes() :: [atom()]
+  def invalidating_codes, do: @invalidating_codes
+
   @spec structurally_valid?(term()) :: boolean()
   def structurally_valid?(%__MODULE__{identity: identity, diagnostics: diagnostics})
       when is_list(diagnostics) do
     TrackerIdentity.joinable?(identity) and
       Enum.all?(diagnostics, fn
-        %Diagnostic{code: code} ->
-          code not in [
-            :connection_overflow,
-            :duplicate_identity,
-            :invalid_identity,
-            :invalid_dependency,
-            :invalid_endpoint_locator,
-            :invalid_member,
-            :invalid_label_connection,
-            :invalid_lifecycle,
-            :invalid_title,
-            :invalid_url,
-            :incomplete_labels,
-            :labels_overflow,
-            :unresolved_internal_dependency
-          ]
-
-        _other ->
-          false
+        %Diagnostic{code: code} -> code not in @invalidating_codes
+        _other -> false
       end)
   end
 

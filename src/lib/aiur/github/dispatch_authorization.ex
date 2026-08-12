@@ -19,7 +19,13 @@ defmodule Aiur.GitHub.DispatchAuthorization do
   @max_timeline_pages 4
 
   @spec authorize(Issue.t(), String.t(), String.t(), String.t(), keyword()) :: Issue.t()
-  def authorize(%Issue{} = issue, owner, repo, prefix, opts \\ []) do
+  def authorize(issue, owner, repo, prefix, opts \\ [])
+
+  def authorize(%Issue{state_labels: [_, _ | _] = state_labels} = issue, _owner, _repo, _prefix, _opts) do
+    deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
+  end
+
+  def authorize(%Issue{} = issue, owner, repo, prefix, opts) do
     allowed_users = allowed_users(opts)
 
     case trusted_creator(issue.creator_login, allowed_users) do

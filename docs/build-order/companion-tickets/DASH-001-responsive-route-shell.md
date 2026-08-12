@@ -26,7 +26,7 @@
 
 ## Outcome
 
-The Executor Control Center has URL-backed desktop and mobile navigation with a truthful per-route header for Units, Commands, the registered Build Order route, and the existing Analytics document, without clipping or client-only tab state.
+The Dashboard has URL-backed desktop and mobile navigation with a truthful per-route header for Units, Commands, the registered Build Order route, and the existing Analytics document, without clipping or client-only tab state.
 
 ## Context and evidence
 

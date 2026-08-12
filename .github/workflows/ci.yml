@@ -2,11 +2,23 @@ name: ci
 
 on:
   pull_request:
+  # Required for GitHub's merge queue: the queue builds each candidate on a
+  # `gh-readonly-queue/<base>/pr-<n>-<sha>` ref and waits for the required
+  # checks to report against it. Without this trigger no workflow runs there,
+  # the required checks never appear, and every queued PR is ejected when the
+  # queue's check timeout expires. See #1381.
+  merge_group:
   push:
     branches:
       - main
       - develop
       - v2
+
+# Initial PR runs share a stable group; reruns and every non-PR event get a
+# unique group so they cannot replace another pending or in-progress run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
 
 jobs:
   workflow-security:
@@ -23,6 +35,14 @@ jobs:
         run: bash scripts/test-human-only-merge-ruleset.sh
       - name: Test human-only merge ruleset drift check
         run: bash scripts/test-human-only-merge-ruleset-live.sh
+      - name: Test pull request merge-gate diagnostics
+        run: bash scripts/test-pr-merge-gate-diagnostic.sh
+      - name: Test rename preflight
+        run: make test-rename-preflight
+      - name: Test hourly retrospective visual check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
+      - name: Test hourly retrospective CLI check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
 
   merge-ruleset-drift:
     name: merge ruleset drift
@@ -162,6 +182,19 @@ jobs:
         run: sudo apt-get update && sudo apt-get install -y tmux
       - name: Agent teardown reaping regression (#423)
         run: make regression
+
+  analytics:
+    name: analytics
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Analytics reducer suite (stdlib unittest)
+        env:
+          PYTHONPATH: analytics/lib
+        run: python3 -m unittest discover -s analytics/tests -t analytics -v
 
   dialyzer:
     runs-on: ubuntu-latest

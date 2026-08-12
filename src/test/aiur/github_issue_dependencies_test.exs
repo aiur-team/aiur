@@ -76,6 +76,65 @@ defmodule Aiur.GitHub.IssueDependenciesTest do
       assert {:error, :cycle_detected} = IssueDependencies.declare(7, 80, request_fun: request_fun)
     end
 
+    test "GraphQL cycle checks paginate blocking dependencies before declaring" do
+      request_fun = fn req ->
+        cond do
+          String.contains?(req.url, "/issues/80") and not String.contains?(req.url, "dependencies") ->
+            {:ok, %{status: 200, headers: [], body: %{"id" => 80_001, "number" => 80}}}
+
+          String.contains?(req.url, "/issues/7/dependencies/blocked_by") ->
+            {:ok, %{status: 200, headers: [], body: []}}
+
+          true ->
+            flunk("unexpected REST request: #{inspect(req)}")
+        end
+      end
+
+      graph_request_fun = fn %{body: %{"query" => query, "variables" => variables}} ->
+        body =
+          cond do
+            String.contains?(query, "issue_80") and is_nil(variables["after_80"]) ->
+              %{
+                "data" => %{
+                  "repository" => %{
+                    "issue_80" => %{
+                      "blocking" => %{
+                        "nodes" => Enum.map(1..100, &%{"number" => &1 + 100}),
+                        "pageInfo" => %{"hasNextPage" => true, "endCursor" => "page-2"}
+                      }
+                    }
+                  }
+                }
+              }
+
+            String.contains?(query, "issue_80") and variables["after_80"] == "page-2" ->
+              %{
+                "data" => %{
+                  "repository" => %{
+                    "issue_80" => %{
+                      "blocking" => %{
+                        "nodes" => [%{"number" => 7}],
+                        "pageInfo" => %{"hasNextPage" => false, "endCursor" => nil}
+                      }
+                    }
+                  }
+                }
+              }
+
+            true ->
+              flunk("unexpected GraphQL request: #{inspect(%{query: query, variables: variables})}")
+          end
+
+        {:ok, %{status: 200, headers: [], body: body}}
+      end
+
+      assert {:error, :cycle_detected} =
+               IssueDependencies.declare(7, 80,
+                 request_fun: request_fun,
+                 graph_request_fun: graph_request_fun
+               )
+    end
+
     test "idempotent: blocker already present returns :already_present" do
       request_fun = fn req ->
         cond do

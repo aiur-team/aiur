@@ -26,6 +26,16 @@ alerts, and events; planning documents preserve approved intent.
 
 ## Establish the authority envelope
 
+Before consulting repository documentation, read
+`~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. It is the current machine's
+run-specific handoff; GitHub and Aiur still provide the authoritative live
+ticket and runtime state. Keep this single living document current whenever the
+operator gives a directive, frames the run's request, supplies context that
+cannot be recovered from the repository/history, or changes the Executor's
+role or authority. A directive not written into the handoff has not been
+recorded. When replacing an Executor, rewrite it wholesale with the next
+Executor's ranked work and hazards; never append another dated checkpoint.
+
 Record these decisions before making the corresponding mutations. Reuse clear
 answers already present in the request or handoff instead of asking again.
 
@@ -107,6 +117,52 @@ The Executor continuously:
 8. reviews its own structured monitoring wake/outcome history once per hour,
    records avoidable no-action checks and small evidence-based cadence/trigger
    adjustments, and remains available without polling merely to appear active.
+9. listens for newly created Commands, answers settled and reversible ones
+   with explicit Executor attribution, and escalates uncertain or consequential
+   ones to the operator without answering them.
+
+## Command decision loop
+
+Subscribe the durable Executor listener to `executor.decision.requested` for the
+lifetime of the run. Creation events wake the Executor immediately, and the
+listener's persisted replay cursor delivers events missed during disconnects.
+This listener is the command inbox: do not discover new Commands by polling or
+sweeping the decision store. Periodic monitoring remains necessary for runtime
+health, but it is not a parallel decision-discovery mechanism.
+
+Evaluate each Command in its current run, ticket, and decision-history context.
+This is a judgment call, not a rules engine: do not encode a table of command
+types that may be answered automatically. A direct answer is appropriate when
+it repeats a settled answer, follows from an established fact, or chooses an
+obvious reversible operation already inside the authority envelope. Submit it
+only through the `executor-answer` command so the durable answer actor is the
+Executor, not the operator. The dashboard must expose that attribution and
+history so the operator can find, revise, or supersede every Executor-made
+decision later; explanatory prose is not a substitute for actor attribution.
+Pass the event's current decision version, exactly one option or custom answer,
+a rationale, and an idempotency key. Use a stable `--executor-id` for the run
+when available (the CLI otherwise records `aiur-cli`), so replay stays
+idempotent and stale events cannot overwrite a later answer.
+
+If the Command is uncertain, irreversible, changes feature scope or product
+direction, exceeds the authority envelope, or requires the Executor to guess,
+do not answer it. Use the `executor-escalate` command to invoke the existing
+operator-notification path with the concrete question and uncertainty, and
+leave the decision open for the operator. Auto-answered Commands do not notify;
+explicitly escalated Commands do. Escalation also carries the current decision
+version and Executor identity, so stale escalation attempts are rejected and
+the operator-facing alert remains attributable.
+
+This judgement sits on top of a floor the store enforces, not in place of it.
+`DecisionStore` refuses an Executor-attributed answer unless the Command itself
+declares `authority: supervisor_allowed | supervisor_preferred` **and**
+`reversibility: reversible`; anything else — `human_required`, irreversible or
+partially reversible work, or an absent declaration — is rejected with
+`{:executor_scope, …}` and must be escalated. Treat that rejection as the
+Command telling you it was always the operator's. Escalations are appended to
+the Decision's durable event log as an attributed `executor_escalated` event,
+so "the Executor deferred to the human" is as recoverable later as "the
+Executor decided".
 
 ## Capacity policy
 
@@ -318,13 +374,49 @@ evidence named by the planning handoff.
 ## Merge mechanics
 
 Branch protection measures the identity of the **pusher**, not the commit
-author, and `require_last_push_approval` evaluates that identity. An inline
-`git -c credential.helper=` override silently falls back to the cached `gh`
-credential, and adding a token-bearing remote URL later does not repair a branch
-whose last push already carries the wrong identity. Push with an explicit
-token-bearing URL from the first push, and open agent pull requests with the
-agent's own token: GitHub counts the PR **opener**, not the commit author, when
-deciding self-approval.
+author, and `require_last_push_approval` evaluates the last **reviewable** push.
+The authenticating token determines the pusher; the URL username and commit
+author do not. An inline helper is additive unless the helper list is reset, so
+it can silently fall through to the Executor's cached `gh` credential. A
+token-bearing URL is both unsafe and ineffective as an after-the-fact repair:
+the #1401 experiment used the agent token, but pushed only tree-identical empty
+commits, which did not replace the earlier human reviewable-push attribution.
+Use the fail-closed recipe in `using-aiur/dev-loop.md` from the first real push,
+and open worker pull requests with the agent identity; GitHub counts the PR
+**opener**, not the commit author, when deciding self-approval.
+
+When required checks are green and a current CODEOWNER approval exists, but
+GitHub still reports `mergeStateStatus: BLOCKED` and
+`reviewDecision: REVIEW_REQUIRED`, do not spend another review or use
+`--admin` as a diagnostic probe. After an ordinary merge/queue attempt produces
+GitHub's generic policy error, fetch the read-only rule-suite evidence:
+
+```bash
+<loaded-aiur-run-skill>/scripts/diagnose-pr-merge-gate.sh <pr-number> <owner/repo>
+```
+
+The rule-suite endpoint requires repository Administration: read. The helper
+uses `AIUR_CI_READINESS_TOKEN` when present, otherwise the operator's `gh`
+keyring with `GITHUB_TOKEN`/`GH_TOKEN` overrides removed; it never gives that
+authority to the daemon or worker token. It correlates the failed suite to the
+pull request's generated merge commit and prints GitHub's exact active-rule
+`details`. When it succeeds, immediately emit an Executor-facing alert with
+that output verbatim:
+
+```text
+emit_alert(
+  name: "merge.rule-violation",
+  message: <exact diagnostic output>,
+  reason: "PR #N is green and approved but GitHub still blocks the merge",
+  needs_attention: true,
+  severity: "critical"
+)
+```
+
+If no suite matches, report that the exact diagnostic is unavailable; do not
+invent a GitHub message. The normal attempt is what creates the failed suite,
+so this path surfaces the reason immediately after the first refusal instead of
+requiring a second `--admin` attempt.
 
 The declaration requires every blocking CI job as required status checks,
 including `build`, `test`, and `workflow security`, with strict status checks

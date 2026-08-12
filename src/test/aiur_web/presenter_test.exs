@@ -292,6 +292,38 @@ defmodule AiurWeb.PresenterTest do
            } = payload.capacity_hold
   end
 
+  test "surfaces an active tracker dispatch hold" do
+    orchestrator_name = Module.concat(__MODULE__, :DispatchHoldOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    held_at = System.monotonic_time(:millisecond) - 7_000
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | dispatch_hold: %{
+            reason: :tracker_preflight,
+            detail: :invalid_or_expired_token,
+            held_since_ms: held_at
+          }
+      }
+    end)
+
+    publish_dashboard_snapshot(pid)
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert %{
+             held?: true,
+             reason: :tracker_preflight,
+             detail: :invalid_or_expired_token,
+             held_for_seconds: 7
+           } = payload.dispatch_hold
+  end
+
   test "reports a not-held capacity block when no admission hold is active" do
     orchestrator_name = Module.concat(__MODULE__, :NoCapacityHoldOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)

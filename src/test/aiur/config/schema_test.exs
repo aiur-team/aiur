@@ -14,6 +14,16 @@ defmodule Aiur.Config.SchemaTest do
     end
   end
 
+  describe "agent saturation sentinel" do
+    test "defaults to enabled and accepts an explicit opt-out" do
+      assert {:ok, defaults} = Schema.parse(%{})
+      assert defaults.agent.saturation_log_enabled == true
+
+      assert {:ok, configured} = Schema.parse(%{"agent" => %{"saturation_log_enabled" => false}})
+      assert configured.agent.saturation_log_enabled == false
+    end
+  end
+
   describe "host-pressure admission defaults" do
     test "max_concurrent_agents defaults nil (derived from host capacity) and run_queue_threshold is opt-in" do
       assert {:ok, defaults} = Schema.parse(%{})
@@ -289,6 +299,21 @@ defmodule Aiur.Config.SchemaTest do
     test "parses interval_seconds normally" do
       {:ok, settings} = Schema.parse(%{"polling" => %{"interval_seconds" => 60}})
       assert settings.polling.interval_seconds == 60
+    end
+
+    # The poll loop's GitHub spend is fixed cost that scales as 1/interval, so
+    # the default is what most fleets actually pay. At 30s it exceeded GitHub's
+    # whole 5,000 point/hour budget on its own. An operator who configures a
+    # tighter interval still gets it; only the unset case is widened.
+    test "interval_seconds defaults to the widened 120s" do
+      {:ok, unset} = Schema.parse(%{})
+      assert unset.polling.interval_seconds == 120
+
+      {:ok, empty_section} = Schema.parse(%{"polling" => %{}})
+      assert empty_section.polling.interval_seconds == 120
+
+      {:ok, tightened} = Schema.parse(%{"polling" => %{"interval_seconds" => 15}})
+      assert tightened.polling.interval_seconds == 15
     end
 
     # Measured: the provider usage endpoint serves roughly one request per two

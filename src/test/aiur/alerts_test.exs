@@ -1,7 +1,7 @@
 defmodule Aiur.AlertsTest do
   use Aiur.TestSupport
 
-  alias Aiur.{AgentLog, AlertFeed, Alerts, Orchestrator, TrackerIdentity}
+  alias Aiur.{AgentLog, AlertFeed, AlertLedger, Alerts, Orchestrator, TrackerIdentity}
   alias Aiur.Events.Exchange
   alias Aiur.Orchestrator.IssueSync
 
@@ -51,8 +51,21 @@ defmodule Aiur.AlertsTest do
   test "emit_system persists a dynamic readiness alert without a configured topic" do
     root = Path.join(System.tmp_dir!(), "aiur-readiness-alert-#{System.unique_integer([:positive])}")
     workspace = Path.join([root, "project", "1474"])
+    log_root = Path.join(root, "log")
+    previous_log_file = Application.get_env(:aiur, :log_file)
     File.mkdir_p!(workspace)
-    on_exit(fn -> File.rm_rf!(root) end)
+
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if previous_log_file do
+        Application.put_env(:aiur, :log_file, previous_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(root)
+    end)
 
     assert :ok =
              Alerts.emit_system("system.ci_readiness.not_ready",
@@ -62,8 +75,9 @@ defmodule Aiur.AlertsTest do
                workspace: workspace
              )
 
-    assert [%{"topic" => "system.ci_readiness.not_ready", "needs_attention" => true}] =
-             AlertFeed.list(roots: [root], log_roots: [])
+    assert Enum.any?(AlertFeed.list(ledger_paths: [AlertLedger.path()]), fn alert ->
+             alert["topic"] == "system.ci_readiness.not_ready" and alert["needs_attention"]
+           end)
   end
 
   # NOTE: Pre-Ticket-B, `emit_custom` rejected names starting with system
@@ -122,6 +136,38 @@ defmodule Aiur.AlertsTest do
     assert log =~ "\"reason\":\"Agent marked the ticket ready for human review\""
   end
 
+  test "tracker pause transitions persist and appear in the Executor alert feed" do
+    workspace_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-tracker-pause-#{System.unique_integer([:positive])}")
+
+    workspace = Path.join([workspace_root, "project", "MT-TRACKER-PAUSE"])
+    File.mkdir_p!(workspace)
+
+    on_exit(fn -> File.rm_rf!(workspace_root) end)
+
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    previous = %Issue{id: "issue-tracker-pause", identifier: "MT-TRACKER-PAUSE", state: "In Progress", title: "Pause"}
+    paused = %{previous | paused: true}
+
+    _state =
+      IssueSync.sync_polled_issue_state(
+        %Orchestrator.State{last_polled_issues: %{previous.id => previous}},
+        [paused]
+      )
+
+    log_path = Path.join(workspace, "logs/agent.ndjson")
+    log = File.read!(log_path)
+
+    assert log =~ "\"name\":\"ticket.MT-TRACKER-PAUSE.agent.paused\""
+    assert log =~ "\"reason\":\"Tracker added agent:paused (tracker pause override)"
+
+    assert Enum.any?(AlertFeed.list(roots: [workspace_root]), fn alert ->
+             alert["topic"] == "ticket.MT-TRACKER-PAUSE.agent.paused" and
+               alert["needs_attention"] == true
+           end)
+  end
+
   test "alerts without a local workspace are written to the central alert feed" do
     log_root =
       Path.join(System.tmp_dir!(), "aiur-alert-central-#{System.unique_integer([:positive])}")
@@ -151,6 +197,82 @@ defmodule Aiur.AlertsTest do
     assert central_log =~ "\"name\":\"system.dispatch.todo_capacity_exceeded\""
     assert central_log =~ "\"reason\":\"Todo queue exceeds configured capacity\""
     assert central_log =~ "\"needs_attention\":true"
+  end
+
+  test "central alerts with a local workspace are written to both feeds" do
+    workspace_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-central-workspace-#{System.unique_integer([:positive])}")
+
+    workspace = Path.join([workspace_root, "project", "MT-CENTRAL-WORKSPACE"])
+    log_root = Path.join(workspace_root, "central")
+    original_log_file = Application.get_env(:aiur, :log_file)
+    File.mkdir_p!(workspace)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+    write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(workspace_root)
+    end)
+
+    topic = "ticket.MT-CENTRAL-WORKSPACE.agent.attention.state_divergence"
+
+    assert :ok =
+             Alerts.emit_system(topic,
+               issue: "MT-CENTRAL-WORKSPACE",
+               reason: "Persist recovery state centrally",
+               needs_attention: true,
+               severity: "warning",
+               central: true
+             )
+
+    assert File.read!(Path.join(workspace, "logs/agent.ndjson")) =~ "\"topic\":\"#{topic}\""
+    assert File.read!(Path.join(log_root, "alerts.ndjson")) =~ "\"topic\":\"#{topic}\""
+    assert File.read!(AlertLedger.path()) =~ "\"topic\":\"#{topic}\""
+    assert [%{"topic" => ^topic}] = AlertFeed.list(needs_attention: true)
+  end
+
+  test "fleet dispatch alerts persist and appear in the Executor alert feed" do
+    log_root =
+      Path.join(System.tmp_dir!(), "aiur-alert-fleet-#{System.unique_integer([:positive])}")
+
+    original_log_file = Application.get_env(:aiur, :log_file)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(log_root)
+    end)
+
+    alerts = [
+      {"system.dispatch.prewarm_blocked", "Prewarm is building; fleet dispatch is paused."},
+      {"system.dispatch.capacity_starved", "Ready tickets=8, effective cap=3, configured cap=16."}
+    ]
+
+    Enum.each(alerts, fn {topic, reason} ->
+      assert :ok = Alerts.emit_system(topic, reason: reason, needs_attention: true, severity: "warning")
+    end)
+
+    central_log = Path.join(log_root, "alerts.ndjson") |> File.read!()
+    visible_alerts = AlertFeed.list(log_roots: [log_root])
+
+    Enum.each(alerts, fn {topic, reason} ->
+      assert central_log =~ "\"name\":\"#{topic}\""
+
+      assert Enum.any?(visible_alerts, fn alert ->
+               alert["topic"] == topic and alert["reason"] == reason and alert["needs_attention"] == true
+             end)
+    end)
   end
 
   test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
@@ -184,23 +306,17 @@ defmodule Aiur.AlertsTest do
              2
   end
 
-  test "agent paused and unpaused alerts fire from control-state transitions" do
-    workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-pause-#{System.unique_integer([:positive])}")
-
+  @tag :tmp_dir
+  test "cause-scoped pause and unpaused alerts fire from control-state transitions", %{tmp_dir: workspace_root} do
     workspace = Path.join(workspace_root, "MT-ALERT-5")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     orchestrator_name = Module.concat(__MODULE__, :PauseAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -231,7 +347,10 @@ defmodule Aiur.AlertsTest do
         if File.exists?(log_path) do
           log = File.read!(log_path)
 
-          String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.paused\"") and
+          String.contains?(
+            log,
+            "\"name\":\"ticket.MT-ALERT-5.agent.attention.paused-worker_pause_unknown\""
+          ) and
             String.contains?(log, "\"needs_attention\":true") and
             String.contains?(log, "\"severity\":\"warning\"") and
             String.contains?(log, "\"name\":\"ticket.MT-ALERT-5.agent.unpaused\"") and
@@ -245,28 +364,22 @@ defmodule Aiur.AlertsTest do
     )
   end
 
-  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip" do
+  @tag :tmp_dir
+  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip", %{tmp_dir: workspace_root} do
     # Regression: `send_resume_control_message/2` sync-flips control.status
     # from :paused to :working before the worker's `:worker_control_state`
     # confirmation comes back. The later confirmation sees previous_status
     # already :working and emits no transition alert — so the orchestrator
     # must emit the unpause alert itself at the sync-flip point.
-    workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-resume-sync-#{System.unique_integer([:positive])}")
-
     workspace = Path.join(workspace_root, "MT-RESUME-SYNC")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     orchestrator_name = Module.concat(__MODULE__, :ResumeSyncAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -324,6 +437,24 @@ defmodule Aiur.AlertsTest do
   end
 
   defp assert_eventually(_fun, 0), do: flunk("condition was not met in time")
+
+  # The orchestrator traps exits, so `Process.exit(pid, :normal)` only queues
+  # an `{:EXIT, _, :normal}` message and leaves it running. It then keeps
+  # appending to the workspace log while the sibling `on_exit` removes that
+  # directory, and under partition load `File.rm_rf!/1` fails with `:eexist`
+  # on the tree still being written. Wait for the writer to actually be gone.
+  defp stop_orchestrator!(pid) do
+    if Process.alive?(pid) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        5_000 -> flunk("orchestrator #{inspect(pid)} did not stop")
+      end
+    end
+  end
 
   describe "definition_for_topic/1 glob matching" do
     setup do

@@ -6,8 +6,9 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
-  alias Aiur.GitHub.{CiReadiness, Errors}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
+  alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
 
   alias Aiur.Orchestrator.{
@@ -20,6 +21,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Lifecycle,
     PrAnchored,
     Reconciler,
+    RetryEngine,
     Slots,
     State,
     StatusReport,
@@ -27,7 +29,6 @@ defmodule Aiur.Orchestrator.Dispatcher do
     TrackerHealth
   }
 
-  alias Aiur.Orchestrator.RetryEngine
   alias Aiur.RunTelemetry, as: RunTelemetry
   alias Aiur.RunTelemetry.Lifecycle, as: TelemetryLifecycle
 
@@ -41,21 +42,47 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
     state = %{state | poll_check_in_progress: false}
 
+    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
 
   @spec maybe_dispatch(State.t()) :: State.t()
   def maybe_dispatch(%State{} = state) do
+    CycleFetchCache.start_cycle()
+
+    try do
+      maybe_dispatch(state, &do_maybe_dispatch/1)
+    after
+      CycleFetchCache.end_cycle()
+    end
+  end
+
+  @doc false
+  @spec maybe_dispatch(State.t(), (State.t() -> State.t())) :: State.t()
+  def maybe_dispatch(%State{} = state, dispatch_fun) when is_function(dispatch_fun, 1) do
+    maybe_dispatch(state, dispatch_fun, &TrackerHealth.ensure_tracker_preflight/1)
+  end
+
+  @doc false
+  @spec maybe_dispatch(
+          State.t(),
+          (State.t() -> State.t()),
+          (State.t() -> {:ok, State.t()} | {:error, term(), State.t()})
+        ) :: State.t()
+  def maybe_dispatch(%State{} = state, dispatch_fun, preflight_fun)
+      when is_function(dispatch_fun, 1) and is_function(preflight_fun, 1) do
     state = Reconciler.reconcile_running_lifecycle(state)
 
-    case TrackerHealth.ensure_tracker_preflight(state) do
+    case preflight_fun.(state) do
       {:ok, state} ->
-        do_maybe_dispatch(state)
+        state
+        |> clear_tracker_preflight_alert()
+        |> dispatch_fun.()
 
       {:error, reason, state} ->
         TrackerHealth.log_tracker_preflight_error(reason)
-        state
+        emit_tracker_preflight_alert(state, reason)
     end
   end
 
@@ -69,8 +96,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = CommandScan.scan_pr_commands(state)
     state = PrAnchored.maybe_stop_closed_pr_anchored_agents(state)
 
-    case Tracker.fetch_candidate_issues() do
-      {:ok, issues} ->
+    case fetch_candidate_issues(state) do
+      {:ok, issues, state} ->
         state =
           state
           |> IssueSync.sync_polled_issue_state(issues)
@@ -89,10 +116,15 @@ defmodule Aiur.Orchestrator.Dispatcher do
         # is claimed and won't double-dispatch below.
         state = AutoResume.maybe_resume(state, System.monotonic_time(:millisecond))
 
-        state = dispatch_or_hold(state, issues)
+        state =
+          state
+          |> dispatch_or_hold(issues)
+          |> IssueSync.sync_capacity_starvation_alert(issues)
+          |> IssueSync.sync_fleet_capacity_starved_alert(issues)
+
         %{state | initial_dispatch_cycle: false}
 
-      {:error, reason} ->
+      {:error, reason, state} ->
         TrackerHealth.log_tracker_fetch_error(reason)
         state
     end
@@ -317,6 +349,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # slow or permanently-stuck base build stays visible in the daemon log.
   @prewarm_hold_log_interval_ticks 30
 
+  defp fetch_candidate_issues(%State{} = state) do
+    if Config.tracker_kind() == "github" do
+      case GitHubTracker.fetch_issues_by_states_conditional(
+             Config.active_states(),
+             issue_list_cache(state)
+           ) do
+        {:ok, issues, cache} -> {:ok, issues, put_issue_list_cache(state, cache)}
+        {:error, reason} -> {:error, reason, state}
+      end
+    else
+      case Tracker.fetch_candidate_issues() do
+        {:ok, issues} -> {:ok, issues, state}
+        {:error, reason} -> {:error, reason, state}
+      end
+    end
+  end
+
+  defp issue_list_cache(%State{ci_lifecycle: ci_lifecycle}) do
+    ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(:issue_list_cache, %{})
+  end
+
+  defp put_issue_list_cache(%State{} = state, cache) do
+    update_in(state.ci_lifecycle.poll_cache, &Map.put(&1 || %{}, :issue_list_cache, cache))
+  end
+
   # The base is readied before CPU admission so per-issue workspaces can use it
   # instead of cold-cloning. A failed build deliberately falls back to dispatch,
   # while an in-progress build holds this tick. The hold is made observable (see
@@ -332,18 +389,219 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term())) :: State.t()
   def dispatch_or_hold(%State{} = state, issues, trigger_fun)
       when is_list(issues) and is_function(trigger_fun, 0) do
+    dispatch_or_hold(state, issues, trigger_fun, [])
+  end
+
+  @doc false
+  @spec dispatch_or_hold(State.t(), [Issue.t()], (-> term()), keyword()) :: State.t()
+  def dispatch_or_hold(%State{} = state, issues, trigger_fun, opts)
+      when is_list(issues) and is_function(trigger_fun, 0) and is_list(opts) do
+    # Constraints are re-sampled every tick, so a stale gate never lingers in
+    # `status` after the condition clears.
+    state = %{state | dispatch_capacity_constraints: []}
+
     enabled? = Config.prewarm_enabled?()
     phase = if enabled?, do: trigger_fun.(), else: :ready
+    log_fun = Keyword.get(opts, :log_fun, &Logger.info/1)
+    admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
 
     case DispatchPolicy.prewarm_gate(enabled?, phase) do
       :dispatch ->
         maybe_log_base_error(phase)
-        maybe_choose_under_load(%{state | prewarm_hold_ticks: 0}, issues)
+
+        state
+        |> clear_prewarm_blocked_alert()
+        |> Map.put(:prewarm_hold_ticks, 0)
+        |> maybe_choose_under_load(issues, &maybe_choose/2, admission_probes_fun: admission_probes_fun)
 
       :hold ->
-        log_prewarm_hold(state, phase)
+        state
+        |> maybe_sample_host_pressure_under_prewarm_hold(issues, admission_probes_fun)
+        |> log_prewarm_hold(phase, log_fun)
+        |> emit_prewarm_blocked_alert(phase)
     end
   end
+
+  # Sample host pressure even though prewarm already decided the hold.
+  # Otherwise a prewarm phase that flickers ready/:building across ticks drops
+  # `load`/`memory`/`fd` from the constraint set, and IssueSync restarts the age
+  # of a gate that never actually cleared — suppressing the starvation alert for
+  # as long as prewarm keeps oscillating. Only probe when ready work exists,
+  # since that is the sole condition the starvation alert reports on.
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, [], _admission_probes_fun), do: state
+
+  defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun)
+       when is_list(issues) and is_function(admission_probes_fun, 0) do
+    probes = admission_probes_fun.()
+    state |> record_capacity_sample(probes) |> record_capacity_constraints(probes)
+  end
+
+  @doc false
+  @spec emit_prewarm_blocked_alert(State.t(), atom()) :: State.t()
+  def emit_prewarm_blocked_alert(%State{prewarm_blocked_alert_active: true} = state, phase),
+    do: record_capacity_constraint(state, :build, "prewarm=#{phase}")
+
+  def emit_prewarm_blocked_alert(%State{} = state, phase) do
+    reason =
+      "Prewarm is #{phase}; fleet dispatch is paused until the shared base becomes ready. " <>
+        "This condition is expected to clear automatically."
+
+    state = record_capacity_constraint(state, :build, "prewarm=#{phase}")
+
+    case Alerts.emit_system("system.dispatch.prewarm_blocked",
+           reason: reason,
+           needs_attention: true,
+           severity: "warning"
+         ) do
+      :ok ->
+        %{state | prewarm_blocked_alert_active: true, prewarm_blocked_alert_resolution_emitted: false}
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  @doc false
+  @spec clear_prewarm_blocked_alert(State.t()) :: State.t()
+  def clear_prewarm_blocked_alert(%State{prewarm_blocked_alert_resolution_emitted: true} = state),
+    do: %{state | prewarm_blocked_alert_active: false}
+
+  def clear_prewarm_blocked_alert(%State{} = state) do
+    active? =
+      state.prewarm_blocked_alert_active or
+        AlertFeed.active_system_attention?("system.dispatch.prewarm_blocked")
+
+    if active? do
+      case Alerts.emit_system("system.dispatch.prewarm_blocked.resolved",
+             reason: "Shared prewarm is ready; fleet dispatch may resume.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok -> %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+        {:error, _reason} -> state
+      end
+    else
+      %{state | prewarm_blocked_alert_active: false, prewarm_blocked_alert_resolution_emitted: true}
+    end
+  end
+
+  @doc false
+  @spec emit_tracker_preflight_alert(State.t(), term()) :: State.t()
+  def emit_tracker_preflight_alert(%State{} = state, reason) do
+    state = put_tracker_preflight_hold(state, reason)
+
+    case tracker_preflight_alert_context(reason) do
+      {:ok, signature, formatted_reason} ->
+        emit_tracker_preflight_alert(state, signature, formatted_reason)
+
+      :ignore ->
+        state
+    end
+  end
+
+  defp emit_tracker_preflight_alert(
+         %State{tracker_preflight_alert_signature: previous_signature} = state,
+         signature,
+         formatted_reason
+       ) do
+    if previous_signature == signature do
+      state
+    else
+      message =
+        "GitHub tracker authentication preflight failed; fleet dispatch is paused. Cause: " <>
+          "#{formatted_reason} This condition is expected to clear automatically once tracker authentication succeeds."
+
+      case Alerts.emit_system("system.tracker.auth_preflight_failed",
+             reason: message,
+             needs_attention: true,
+             severity: "warning"
+           ) do
+        :ok ->
+          %{state | tracker_preflight_alert_signature: signature, tracker_preflight_alert_resolution_emitted: false}
+
+        {:error, _reason} ->
+          state
+      end
+    end
+  end
+
+  @doc false
+  @spec clear_tracker_preflight_alert(State.t()) :: State.t()
+  def clear_tracker_preflight_alert(%State{tracker_preflight_alert_resolution_emitted: true} = state),
+    do: %{state | tracker_preflight_alert_signature: nil, dispatch_hold: nil}
+
+  def clear_tracker_preflight_alert(%State{} = state) do
+    active? =
+      not is_nil(state.tracker_preflight_alert_signature) or
+        AlertFeed.active_system_attention?("system.tracker.auth_preflight_failed")
+
+    if active? do
+      case Alerts.emit_system("system.tracker.auth_preflight_failed.resolved",
+             reason: "GitHub tracker authentication preflight recovered; fleet dispatch may resume.",
+             needs_attention: false,
+             severity: "info"
+           ) do
+        :ok ->
+          %{
+            state
+            | tracker_preflight_alert_signature: nil,
+              tracker_preflight_alert_resolution_emitted: true,
+              dispatch_hold: nil
+          }
+
+        {:error, _reason} ->
+          %{state | dispatch_hold: nil}
+      end
+    else
+      %{
+        state
+        | tracker_preflight_alert_signature: nil,
+          tracker_preflight_alert_resolution_emitted: true,
+          dispatch_hold: nil
+      }
+    end
+  end
+
+  defp put_tracker_preflight_hold(%State{} = state, reason) do
+    detail = tracker_preflight_detail(reason)
+
+    held_since_ms =
+      case state.dispatch_hold do
+        %{reason: :tracker_preflight, held_since_ms: held_since_ms} -> held_since_ms
+        _other -> System.monotonic_time(:millisecond)
+      end
+
+    %{
+      state
+      | dispatch_hold: %{
+          reason: :tracker_preflight,
+          detail: detail,
+          held_since_ms: held_since_ms
+        }
+    }
+  end
+
+  defp tracker_preflight_detail({:github_auth_preflight_failed, diagnostic}) when is_map(diagnostic) do
+    Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
+  end
+
+  defp tracker_preflight_detail(reason) when is_atom(reason), do: reason
+  defp tracker_preflight_detail(_reason), do: :unknown
+
+  defp tracker_preflight_alert_context({:github_auth_preflight_failed, diagnostic} = reason)
+       when is_map(diagnostic) do
+    formatted_reason = AuthPreflight.format_auth_preflight_error(reason)
+    classification = Map.get(diagnostic, :reason) || Map.get(diagnostic, "reason") || :unknown
+    repo = Map.get(diagnostic, :repo) || Map.get(diagnostic, "repo") || "unknown"
+
+    {:ok, "github-auth:#{classification}:#{repo}", "#{formatted_reason} (classification=#{classification})"}
+  end
+
+  defp tracker_preflight_alert_context(:missing_github_token) do
+    {:ok, "github-auth:missing_github_token", ":missing_github_token (classification=missing_github_token)"}
+  end
+
+  defp tracker_preflight_alert_context(_reason), do: :ignore
 
   # CPU load admission applies to NEW work only. Retries and reactivations bypass
   # this function so a capacity wait never burns their retry budget.
@@ -364,7 +622,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def maybe_choose_under_load(%State{} = state, issues, choose_fun, opts)
       when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
     now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
-    probes = admission_probes()
+    admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
+    probes = admission_probes_fun.()
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
@@ -377,10 +636,26 @@ defmodule Aiur.Orchestrator.Dispatcher do
         probes.cpu_snapshot,
         queued_demand?
       )
+      |> maybe_record_load_envelope_constraint()
+
+    # Sample every failing gate before applying admission priority. A memory or
+    # FD hold must not erase the age of an independently persistent load hold;
+    # IssueSync tracks each recorded gate identity across poll cycles, so the
+    # constraint list is deliberately broader than the single binding signal
+    # `admission_gate/1` returns below.
+    state = record_capacity_constraints(state, probes)
+    state = record_capacity_sample(state, probes)
 
     case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, queued_demand?)) do
       {:hold, reason} ->
-        reconcile_capacity_hold(state, {:hold, reason}, now_ms, opts)
+        # Every admission signal is sampled independently above, so the binding
+        # signal is normally already recorded and re-recording it would add a
+        # duplicate identity. Fall back to it only when nothing was sampled, so
+        # a held fleet always carries at least one constraint and
+        # `capacity_starved` can never read an empty list and silently clear.
+        state
+        |> record_fallback_binding_constraint(reason)
+        |> reconcile_capacity_hold({:hold, reason}, now_ms, opts)
 
       :dispatch ->
         state =
@@ -422,6 +697,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       load_threshold: hard_threshold,
       build_status: DispatchPolicy.read_build_status(),
       provider_backends: DispatchPolicy.read_provider_backends(),
+      github_quota: DispatchPolicy.read_github_quota(),
       cpu_snapshot: cpu_snapshot,
       target: target
     }
@@ -470,31 +746,53 @@ defmodule Aiur.Orchestrator.Dispatcher do
     active_states = DispatchPolicy.active_state_set()
     terminal_states = DispatchPolicy.terminal_state_set()
     initial_dispatch_cycle? = state.initial_dispatch_cycle == true
+    visible_issue_ids = MapSet.new(issues, & &1.id)
+    state = %{state | dispatch_declines: Map.take(state.dispatch_declines, MapSet.to_list(visible_issue_ids))}
 
     {state, _startup_todo_index} =
       issues
       |> DispatchPolicy.sort_issues_for_dispatch()
       |> Enum.reduce({state, 0}, fn issue, {state_acc, startup_todo_index} ->
-        if DispatchPolicy.should_dispatch_issue?(issue, state_acc, active_states, terminal_states) do
-          next_state = dispatch_issue(state_acc, issue)
+        case DispatchPolicy.dispatch_decision(issue, state_acc, active_states, terminal_states) do
+          :dispatch ->
+            next_state = dispatch_issue(state_acc, issue)
 
-          startup_todo_index =
-            maybe_schedule_startup_todo_alert(
-              state_acc,
-              next_state,
-              issue,
-              startup_todo_index,
-              initial_dispatch_cycle?
-            )
+            startup_todo_index =
+              maybe_schedule_startup_todo_alert(
+                state_acc,
+                next_state,
+                issue,
+                startup_todo_index,
+                initial_dispatch_cycle?
+              )
 
-          {next_state, startup_todo_index}
-        else
-          {state_acc, startup_todo_index}
+            {next_state, startup_todo_index}
+
+          {:skip, reason} ->
+            {maybe_emit_dispatch_decline(state_acc, issue, reason), startup_todo_index}
         end
       end)
 
     state
   end
+
+  defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, reason)
+       when reason in [:state_capacity, :worker_capacity, :claimed_without_runtime] do
+    if Slots.available_slots(state) > 0 do
+      record_dispatch_decline(
+        state,
+        issue,
+        reason,
+        "Ticket #{issue.identifier} was not selected despite free fleet slots: #{reason}",
+        reason == :claimed_without_runtime
+      )
+    else
+      state
+    end
+  end
+
+  defp maybe_emit_dispatch_decline(%State{} = state, %Issue{} = issue, _reason),
+    do: clear_dispatch_decline(state, issue)
 
   @spec dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt \\ nil, preferred_worker_host \\ nil) do
@@ -505,30 +803,96 @@ defmodule Aiur.Orchestrator.Dispatcher do
   @spec dispatch_issue(State.t(), term(), term(), term(), keyword()) :: State.t()
   def dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host, opts)
       when is_list(opts) do
-    case revalidate_issue_for_dispatch(
-           issue,
-           &Tracker.fetch_issue_states_by_ids/1,
-           DispatchPolicy.terminal_state_set()
-         ) do
+    issue_fetcher = Keyword.get(opts, :issue_fetcher, &Tracker.fetch_issue_states_by_ids/1)
+
+    case revalidate_issue_for_dispatch(issue, issue_fetcher, DispatchPolicy.terminal_state_set()) do
       {:ok, %Issue{} = refreshed_issue} ->
-        do_dispatch_issue(state, refreshed_issue, attempt, preferred_worker_host, opts)
+        state
+        |> clear_dispatch_decline(refreshed_issue)
+        |> do_dispatch_issue(refreshed_issue, attempt, preferred_worker_host, opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
 
-        state
+        emit_dispatch_attempt_decline(state, issue, :missing_after_revalidation, false)
 
       {:skip, %Issue{} = refreshed_issue} ->
         Logger.info("Skipping stale dispatch after issue refresh: #{State.issue_context(refreshed_issue)} state=#{inspect(refreshed_issue.state)} blocked_by=#{length(refreshed_issue.blocked_by)}")
 
-        state
+        reason =
+          case DispatchPolicy.dispatch_decision(refreshed_issue, state) do
+            {:skip, reason} -> {:stale_after_revalidation, reason}
+            :dispatch -> :stale_after_revalidation
+          end
+
+        emit_dispatch_attempt_decline(state, refreshed_issue, reason, false)
 
       {:error, reason} ->
         Logger.warning("Skipping dispatch; issue refresh failed for #{State.issue_context(issue)}: #{inspect(reason)}")
 
-        state
+        emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
     end
   end
+
+  defp emit_dispatch_attempt_decline(%State{} = state, %Issue{} = issue, reason, attention?) do
+    record_dispatch_decline(
+      state,
+      issue,
+      reason,
+      "Ticket #{issue.identifier} was selected but dispatch stopped: #{inspect(reason)}",
+      attention?
+    )
+  end
+
+  defp record_dispatch_decline(%State{} = state, %Issue{} = issue, reason, alert_reason, attention?) do
+    if Map.get(state.dispatch_declines, issue.id) == reason do
+      state
+    else
+      state = maybe_resolve_dispatch_decline(state, issue)
+
+      Alerts.emit_custom(
+        dispatch_decline_topic(issue, attention?),
+        "Dispatch declined for #{issue.identifier}: #{inspect(reason)}.",
+        issue: issue.identifier,
+        reason: alert_reason,
+        needs_attention: attention?,
+        severity: if(attention?, do: "warning", else: "info"),
+        event_source: :system
+      )
+
+      %{state | dispatch_declines: Map.put(state.dispatch_declines, issue.id, reason)}
+    end
+  end
+
+  defp clear_dispatch_decline(%State{} = state, %Issue{} = issue) do
+    state = maybe_resolve_dispatch_decline(state, issue)
+    %{state | dispatch_declines: Map.delete(state.dispatch_declines, issue.id)}
+  end
+
+  defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
+    case Map.get(state.dispatch_declines, issue.id) do
+      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed] ->
+        Alerts.emit_custom(
+          dispatch_decline_topic(issue, true) <> ".resolved",
+          "Dispatch decline cleared for #{issue.identifier}.",
+          issue: issue.identifier,
+          reason: "Ticket #{issue.identifier} is no longer blocked by #{reason}.",
+          needs_attention: false,
+          severity: "info",
+          event_source: :system
+        )
+
+      _other ->
+        :ok
+    end
+
+    state
+  end
+
+  defp dispatch_decline_topic(%Issue{id: issue_id}, true),
+    do: "ticket.#{issue_id}.agent.attention.dispatch-declined"
+
+  defp dispatch_decline_topic(_issue, false), do: "dispatch.candidate_declined"
 
   @spec do_dispatch_issue(State.t(), term(), term(), term()) :: State.t()
   def do_dispatch_issue(%State{} = state, issue, attempt, preferred_worker_host) do
@@ -745,24 +1109,71 @@ defmodule Aiur.Orchestrator.Dispatcher do
   def record_dispatch_committed(%State{} = state, issue_id) when is_binary(issue_id) do
     case Config.agent_max_dispatches_per_ticket() do
       max when is_integer(max) and max > 0 ->
-        lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), persisted_lifetime(issue_id)) + 1
         entry = Map.get(thrash_budget(state), issue_id, %{})
+        head_sha = observed_head_sha(state, issue_id)
 
-        # The in-memory count is updated even when the durable write fails so
-        # the latch still bounds a stuck ticket within this daemon generation
-        # while the store is broken (the fail-open `persisted_lifetime/1` keeps
-        # it from latching every ticket fleet-wide).
-        case DispatchBudgetStore.put_lifetime(issue_id, lifetime) do
-          :ok ->
-            put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
-
-          {:error, reason} ->
-            Logger.error("Dispatch budget commit failed (in-memory count retained): issue_id=#{issue_id} reason=#{inspect(reason)}")
-            put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
+        if noop_redispatch?(entry, head_sha) do
+          skip_noop_lifetime_bill(state, issue_id, head_sha)
+        else
+          bill_lifetime_dispatch(state, issue_id, entry, head_sha)
         end
 
       _ ->
         state
+    end
+  end
+
+  # The previous dispatch of this ticket left the pull request head exactly
+  # where it found it, so that turn produced no pushed work. A rework turn with
+  # nothing to rework must not walk the ticket toward the terminal lifetime
+  # latch (#1756) — bill nothing and let the head sha stand, so an unbounded
+  # run of no-op turns costs exactly the one unit already billed for the head.
+  defp noop_redispatch?(entry, head_sha) do
+    is_binary(head_sha) and head_sha != "" and Map.get(entry, :billed_head_sha) == head_sha
+  end
+
+  defp skip_noop_lifetime_bill(%State{} = state, issue_id, head_sha) do
+    Logger.info("Lifetime dispatch unit withheld; previous turn pushed nothing: issue_id=#{issue_id} head_sha=#{head_sha}")
+
+    state
+  end
+
+  defp bill_lifetime_dispatch(%State{} = state, issue_id, entry, head_sha) do
+    lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), persisted_lifetime(issue_id)) + 1
+    entry = put_billed_head_sha(entry, head_sha)
+
+    # The in-memory count is updated even when the durable write fails so
+    # the latch still bounds a stuck ticket within this daemon generation
+    # while the store is broken (the fail-open `persisted_lifetime/1` keeps
+    # it from latching every ticket fleet-wide).
+    case DispatchBudgetStore.put_lifetime(issue_id, lifetime) do
+      :ok ->
+        put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
+
+      {:error, reason} ->
+        Logger.error("Dispatch budget commit failed (in-memory count retained): issue_id=#{issue_id} reason=#{inspect(reason)}")
+        put_thrash_budget(state, Map.put(thrash_budget(state), issue_id, Map.put(entry, :lifetime, lifetime)))
+    end
+  end
+
+  defp put_billed_head_sha(entry, head_sha) when is_binary(head_sha) and head_sha != "",
+    do: Map.put(entry, :billed_head_sha, head_sha)
+
+  # An unknown head (no PR yet, an unreadable poll, the REST fallback) bills
+  # normally and clears the marker, so the next dispatch cannot be mistaken for
+  # a repeat of this one.
+  defp put_billed_head_sha(entry, _head_sha), do: Map.delete(entry, :billed_head_sha)
+
+  # Last pull request head the CI poller observed for this ticket. `poll_cache`
+  # is refreshed on every CI poll of an active ticket and survives the agent's
+  # turn ending, which is what makes it a usable before/after marker here.
+  defp observed_head_sha(%State{} = state, issue_id) do
+    with %Issue{} = issue <- Map.get(state.last_polled_issues, issue_id),
+         target when is_binary(target) <- CiLifecycle.ci_target_for_issue(issue),
+         %{head_sha: head_sha} <- state.ci_lifecycle |> Map.get(:poll_cache, %{}) |> Map.get(target) do
+      head_sha
+    else
+      _other -> nil
     end
   end
 
@@ -820,14 +1231,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
     previous = Map.get(thrash_budget(state), issue_id)
     lifetime = max(lifetime_of(previous), persisted_lifetime(issue_id))
 
-    case previous do
-      %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
-        %{window_start_ms: start, count: count + 1, lifetime: lifetime}
+    next =
+      case previous do
+        %{window_start_ms: start, count: count} when now_ms - start < window_ms ->
+          %{window_start_ms: start, count: count + 1, lifetime: lifetime}
 
-      _ ->
-        %{window_start_ms: now_ms, count: 1, lifetime: lifetime}
-    end
+        _ ->
+          %{window_start_ms: now_ms, count: 1, lifetime: lifetime}
+      end
+
+    # The window rolls, the head marker does not: it records which pull request
+    # head the lifetime counter was last billed for, and only a new head clears
+    # it (see `noop_redispatch?/2`).
+    carry_billed_head_sha(next, previous)
   end
+
+  defp carry_billed_head_sha(next, %{billed_head_sha: head_sha}) when is_binary(head_sha),
+    do: Map.put(next, :billed_head_sha, head_sha)
+
+  defp carry_billed_head_sha(next, _previous), do: next
 
   defp lifetime_of(%{lifetime: lifetime}) when is_integer(lifetime), do: lifetime
   defp lifetime_of(_entry), do: 0
@@ -942,9 +1364,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
           %{String.t() => :none | {:lifetime, non_neg_integer(), pos_integer()}}
   def dispatch_latch_statuses(%State{} = state, issue_ids) when is_list(issue_ids) do
     max = Config.agent_max_dispatches_per_ticket()
+    latch_enabled? = max > 0
 
     persisted =
-      if max > 0 do
+      if latch_enabled? do
         read_lifetimes_once()
       else
         %{}
@@ -954,7 +1377,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       lifetime = max(lifetime_of(Map.get(thrash_budget(state), issue_id)), Map.get(persisted, issue_id, 0))
 
       status =
-        if max > 0 and lifetime >= max do
+        if latch_enabled? and lifetime >= max do
           {:lifetime, lifetime, max}
         else
           :none
@@ -1134,6 +1557,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     Logger.info("aiur_perf provider_hold surface=dispatch backends=#{inspect(backends)} status=all_usage_limited")
   end
 
+  defp log_admission_hold(%{signal: :github_quota, measured: quota, threshold: _}) do
+    Logger.info(
+      "aiur_perf github_quota_hold surface=dispatch resource=#{quota.resource} " <>
+        "remaining=#{quota.remaining} limit=#{quota.limit} reset_at=#{DateTime.to_iso8601(quota.reset_at)}"
+    )
+  end
+
   defp log_fd_hold(:exhausted) do
     Logger.info(
       "aiur_perf fd_hold surface=dispatch status=exhausted used=unknown limit=unknown " <>
@@ -1149,6 +1579,122 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
   end
 
+  # Records every currently-failing host-pressure gate so `status` can explain a
+  # non-dispatching fleet and IssueSync can age each gate independently.
+  defp record_capacity_constraints(%State{} = state, probes) do
+    state
+    |> maybe_record_memory_constraint(
+      DispatchPolicy.memory_gate(probes.memory_mb, probes.memory_threshold_mb),
+      probes.memory_mb,
+      probes.memory_threshold_mb
+    )
+    |> maybe_record_fd_constraint(DispatchPolicy.fd_gate(probes.fd_sample), probes.fd_sample)
+    |> maybe_record_load_constraint(
+      DispatchPolicy.load_gate(probes.load, probes.load_threshold, probes.schedulers),
+      probes.load,
+      probes.load_threshold,
+      probes.schedulers
+    )
+    |> maybe_record_run_queue_constraint(
+      DispatchPolicy.run_queue_gate(probes.runnable, probes.schedulers, probes.run_queue_threshold),
+      probes
+    )
+    |> maybe_record_build_constraint(
+      DispatchPolicy.build_gate(probes.build_status),
+      probes.build_status
+    )
+    |> maybe_record_provider_constraint(
+      DispatchPolicy.provider_gate(probes.provider_backends),
+      probes.provider_backends
+    )
+    |> maybe_record_github_quota_constraint(Map.get(probes, :github_quota, :available))
+  end
+
+  defp record_capacity_sample(%State{} = state, probes) do
+    %{
+      state
+      | dispatch_capacity_sample: %{
+          load: probes.load,
+          load_threshold: probes.load_threshold,
+          target: probes.target,
+          schedulers: probes.schedulers
+        }
+    }
+  end
+
+  defp maybe_record_run_queue_constraint(state, :hold, probes) do
+    record_capacity_constraint(
+      state,
+      :run_queue,
+      "runnable=#{inspect(probes.runnable)} threshold=#{inspect(probes.run_queue_threshold)} " <>
+        "schedulers=#{probes.schedulers}"
+    )
+  end
+
+  defp maybe_record_run_queue_constraint(state, _gate, _probes), do: state
+
+  defp maybe_record_build_constraint(state, :hold, status),
+    do: record_capacity_constraint(state, :build_queue, "build=#{inspect(status)}")
+
+  defp maybe_record_build_constraint(state, _gate, _status), do: state
+
+  defp maybe_record_provider_constraint(state, :hold, backends),
+    do: record_capacity_constraint(state, :provider, "backends=#{inspect(backends)}")
+
+  defp maybe_record_provider_constraint(state, _gate, _backends), do: state
+
+  defp maybe_record_github_quota_constraint(state, {:hold, quota}) do
+    record_capacity_constraint(
+      state,
+      :github_quota,
+      "resource=#{quota.resource} remaining=#{quota.remaining} limit=#{quota.limit} reset_at=#{DateTime.to_iso8601(quota.reset_at)}"
+    )
+  end
+
+  defp maybe_record_github_quota_constraint(state, _status), do: state
+
+  defp record_fallback_binding_constraint(%State{dispatch_capacity_constraints: []} = state, %{signal: signal} = reason)
+       when is_atom(signal) do
+    record_capacity_constraint(
+      state,
+      binding_constraint_kind(signal),
+      "measured=#{inspect(Map.get(reason, :measured))} threshold=#{inspect(Map.get(reason, :threshold))}"
+    )
+  end
+
+  defp record_fallback_binding_constraint(%State{} = state, _reason), do: state
+
+  # `admission_gate/1`'s `:build` signal is build-queue saturation, which is a
+  # different condition from the prewarm hold that records the `:build`
+  # constraint kind; keep them distinct so an alert never misattributes one.
+  defp binding_constraint_kind(:build), do: :build_queue
+  defp binding_constraint_kind(signal), do: signal
+
+  defp maybe_record_memory_constraint(state, :hold, available_memory_mb, threshold_mb) do
+    record_capacity_constraint(
+      state,
+      :memory,
+      "available_mb=#{available_memory_mb} threshold_mb=#{threshold_mb}"
+    )
+  end
+
+  defp maybe_record_memory_constraint(state, _gate, _available_memory_mb, _threshold_mb), do: state
+
+  defp maybe_record_fd_constraint(state, :hold, sample),
+    do: record_capacity_constraint(state, :fd, fd_constraint_detail(sample))
+
+  defp maybe_record_fd_constraint(state, _gate, _sample), do: state
+
+  defp maybe_record_load_constraint(state, :hold, load, threshold, schedulers) do
+    record_capacity_constraint(
+      state,
+      :load,
+      "load=#{inspect(load)} threshold=#{threshold} schedulers=#{schedulers}"
+    )
+  end
+
+  defp maybe_record_load_constraint(state, _gate, _load, _threshold, _schedulers), do: state
+
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()
   end
@@ -1156,6 +1702,35 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp maybe_choose(state, issues) do
     if Slots.available_slots(state) > 0, do: choose_issues(state, issues), else: state
   end
+
+  defp maybe_record_load_envelope_constraint(%State{} = state) do
+    configured = Slots.max_concurrent_agent_limit(state)
+    effective = Slots.effective_concurrent_agent_limit(state)
+
+    if effective < configured do
+      record_capacity_constraint(state, :load_envelope, "effective_cap=#{effective} configured_cap=#{configured}")
+    else
+      state
+    end
+  end
+
+  defp record_capacity_constraint(%State{} = state, kind, detail) when is_atom(kind) and is_binary(detail) do
+    constraint = %{kind: kind, detail: detail}
+
+    if constraint in state.dispatch_capacity_constraints do
+      state
+    else
+      %{state | dispatch_capacity_constraints: [constraint | state.dispatch_capacity_constraints]}
+    end
+  end
+
+  defp fd_constraint_detail(:exhausted), do: "available=0 limit=unknown"
+
+  defp fd_constraint_detail(%{available: available, limit: limit}) do
+    "available=#{available} limit=#{limit}"
+  end
+
+  defp fd_constraint_detail(_sample), do: "sample=unknown"
 
   defp maybe_log_base_error({:error, reason}),
     do: Logger.warning("prewarm base unavailable (#{inspect(reason)}); dispatching via cold clone")
@@ -1168,12 +1743,19 @@ defmodule Aiur.Orchestrator.Dispatcher do
   # consecutive hold ticks and emit one `aiur_perf prewarm_hold` line at most
   # once per `@prewarm_hold_log_interval_ticks`; the counter resets as soon as
   # the gate lets a tick through, so the interval measures back-to-back holds.
-  defp log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase) do
+  @doc false
+  @spec log_prewarm_hold(State.t(), term()) :: State.t()
+  def log_prewarm_hold(%State{} = state, phase), do: log_prewarm_hold(state, phase, &Logger.info/1)
+
+  @doc false
+  @spec log_prewarm_hold(State.t(), term(), (String.t() -> term())) :: State.t()
+  def log_prewarm_hold(%State{prewarm_hold_ticks: ticks} = state, phase, log_fun)
+      when is_function(log_fun, 1) do
     next_ticks = ticks + 1
     state = %{state | prewarm_hold_ticks: next_ticks}
 
     if rem(next_ticks, @prewarm_hold_log_interval_ticks) == 1 do
-      Logger.info("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
+      log_fun.("aiur_perf prewarm_hold surface=dispatch phase=#{inspect(phase)}")
     end
 
     state
@@ -1281,10 +1863,31 @@ defmodule Aiur.Orchestrator.Dispatcher do
          is_binary(issue.identifier) do
       case update_state_fun.(issue.identifier, "error") do
         :ok ->
+          lifetime = Map.get(entry, :lifetime, 0)
+          maximum = Config.agent_max_dispatches_per_ticket()
+
+          Alerts.emit_custom(
+            "ticket.#{issue.identifier}.agent.attention.error-lifetime_latch",
+            "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+            issue: issue.identifier,
+            reason: "Agent entered error because its lifetime dispatch latch is #{lifetime}/#{maximum}; this will not clear on its own.",
+            needs_attention: true,
+            severity: "warning",
+            # IssueSync reconstructs the persisted error cause after a restart
+            # from the central feed only, so this attention must land there or
+            # it can never be resolved or rearmed.
+            central: true
+          )
+
           updated_entry = Map.put(entry, :durable_latch_applied, true)
           state = put_thrash_budget(state, Map.put(thrash_budget(state), issue.id, updated_entry))
 
-          %{state | claimed: MapSet.delete(state.claimed, issue.id)}
+          %{
+            state
+            | claimed: MapSet.delete(state.claimed, issue.id),
+              observed_error_alerts: MapSet.put(state.observed_error_alerts, issue.id),
+              observed_error_alert_causes: Map.put(state.observed_error_alert_causes, issue.id, :lifetime_latch)
+          }
 
         {:error, reason} ->
           Logger.error("Unable to persist lifetime dispatch latch: issue_id=#{issue.id} issue_identifier=#{issue.identifier} reason=#{inspect(reason)}")
@@ -1331,8 +1934,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
         Logger.info("Dispatching issue to agent: #{State.issue_context(issue)} pid=#{inspect(pid)} attempt=#{inspect(attempt)} worker_host=#{worker_host || "local"}")
         record_rework_resume(issue, lifecycle_attempt_id)
 
-        running =
-          Map.put(state.running, issue.id, %{
+        running_entry =
+          %{
             pid: pid,
             ref: ref,
             identifier: issue.identifier,
@@ -1361,7 +1964,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
             retry_attempt: RetryEngine.normalize_retry_attempt(attempt),
             prior_work: Keyword.get(opts, :prior_work, false),
             started_at: DateTime.utc_now()
-          })
+          }
+          |> inherit_redispatch_safety(Map.get(state.running, issue.id))
+
+        running = Map.put(state.running, issue.id, running_entry)
 
         %{
           state
@@ -1393,6 +1999,25 @@ defmodule Aiur.Orchestrator.Dispatcher do
         "ticket-" <> (10 |> :crypto.strong_rand_bytes() |> Base.url_encode64(padding: false))
     end
   end
+
+  # Backend replacement leaves a parked entry in place until a new Task is
+  # admitted. Transfer only the deliberately staged safety context; ordinary
+  # dispatches never carry arbitrary state from an older worker.
+  defp inherit_redispatch_safety(entry, %{redispatch_safety: safety} = previous) when is_map(safety) do
+    entry
+    |> Map.put(:redispatch_safety, safety)
+    |> Map.put(:rate_limit_fallback_replacement, Map.get(previous, :rate_limit_fallback_replacement) == true)
+    |> maybe_put_redispatch_fence(Map.get(previous, :lifecycle_fence))
+    |> maybe_put_redispatch_workspace(Map.get(safety, :workspace_path))
+  end
+
+  defp inherit_redispatch_safety(entry, _previous), do: entry
+
+  defp maybe_put_redispatch_fence(entry, fence) when is_map(fence), do: Map.put(entry, :lifecycle_fence, fence)
+  defp maybe_put_redispatch_fence(entry, _fence), do: entry
+
+  defp maybe_put_redispatch_workspace(entry, path) when is_binary(path), do: Map.put(entry, :workspace_path, path)
+  defp maybe_put_redispatch_workspace(entry, _path), do: entry
 
   # Attempt IDs are retained in Decision provenance, whose identity fields are
   # deliberately bounded and exclude arbitrary tracker payload. Hash the stable

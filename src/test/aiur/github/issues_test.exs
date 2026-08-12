@@ -90,6 +90,101 @@ defmodule Aiur.GitHub.IssuesTest do
       assert {:ok, issues} = Issues.fetch_issues_by_states(["ci-wait"], request_fun: request_fun)
       assert Enum.map(issues, & &1.id) |> MapSet.new() == MapSet.new(["100", "200"])
     end
+
+    test "reuses every cached page after conditional responses" do
+      issue = fn number ->
+        %{
+          "number" => number,
+          "title" => "Issue #{number}",
+          "body" => nil,
+          "html_url" => "https://github.com/owner/repo/issues/#{number}",
+          "labels" => [%{"name" => "sym:ci-wait"}],
+          "assignee" => nil,
+          "created_at" => "2026-01-01T00:00:00Z",
+          "updated_at" => "2026-01-02T00:00:00Z"
+        }
+      end
+
+      page_one =
+        "https://api.github.com/repos/owner/repo/issues?labels=sym%3Aci-wait&state=open&per_page=100"
+
+      page_two = page_one <> "&page=2"
+
+      cache = %{
+        "sym:ci-wait" => %{
+          pages: %{
+            page_one => %{
+              etag: "one",
+              issues: [Issues.normalize_issue(issue.(1), "owner", "repo", "sym")],
+              next_url: page_two
+            },
+            page_two => %{
+              etag: "two",
+              issues: [Issues.normalize_issue(issue.(2), "owner", "repo", "sym")],
+              next_url: nil
+            }
+          }
+        }
+      }
+
+      request_fun = fn
+        %{url: url, etag: etag} ->
+          assert {url, etag} in [{page_one, "one"}, {page_two, "two"}]
+          {:ok, %{status: 304}}
+
+        # Dispatch authorization reads each issue's timeline to find who applied
+        # the trigger label. Unconditional requests reaching this clause are the
+        # proof that the conditional path still authorizes.
+        %{url: url} ->
+          assert url =~ "/timeline"
+          {:ok, %{status: 200, headers: [], body: []}}
+      end
+
+      assert {:ok, issues, updated_cache} =
+               Issues.fetch_issues_by_states_conditional(["ci-wait"], cache, request_fun: request_fun)
+
+      assert Enum.map(issues, & &1.id) |> Enum.sort() == ["1", "2"]
+      assert updated_cache == cache
+    end
+
+    # Regression guard: the conditional path once returned `Map.values(...)`
+    # without `authorize_dispatches/6`. `normalize_issue/5` defaults
+    # `dispatch_authorized?: false`, so `DispatchPolicy.candidate_issue?/3`
+    # rejected every issue and the daemon silently dispatched nothing.
+    test "authorizes dispatch on the conditional path just like the unconditional one" do
+      gh_issue = %{
+        "number" => 7,
+        "title" => "Issue 7",
+        "body" => nil,
+        "html_url" => "https://github.com/owner/repo/issues/7",
+        "labels" => [%{"name" => "sym:ci-wait"}],
+        "assignee" => nil,
+        "user" => %{"login" => "its-everdred"},
+        "created_at" => "2026-01-01T00:00:00Z",
+        "updated_at" => "2026-01-02T00:00:00Z"
+      }
+
+      request_fun = fn
+        %{url: url, etag: _etag} ->
+          assert url =~ "/issues?labels="
+          {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+
+        %{url: url} ->
+          assert url =~ "/issues?labels=" or url =~ "/timeline"
+          {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+      end
+
+      assert {:ok, conditional_issues, _cache} =
+               Issues.fetch_issues_by_states_conditional(["ci-wait"], %{}, request_fun: request_fun)
+
+      assert {:ok, unconditional_issues} =
+               Issues.fetch_issues_by_states(["ci-wait"], request_fun: request_fun)
+
+      assert Enum.map(conditional_issues, & &1.dispatch_authorized?) ==
+               Enum.map(unconditional_issues, & &1.dispatch_authorized?)
+
+      assert [true] = Enum.map(conditional_issues, & &1.dispatch_authorized?)
+    end
   end
 
   describe "fetch_issue_states_by_ids/2" do
@@ -285,6 +380,20 @@ defmodule Aiur.GitHub.IssuesTest do
       issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
       assert issue.paused == true
       assert issue.state == "in-progress"
+    end
+
+    test "does not choose between contradictory workflow state labels" do
+      gh = %{
+        "number" => 18,
+        "title" => "Contradictory labels",
+        "labels" => [%{"name" => "sym:error"}, %{"name" => "sym:todo"}],
+        "state" => "open"
+      }
+
+      issue = Issues.normalize_issue(gh, "owner", "repo", "sym")
+
+      assert issue.state == nil
+      assert issue.state_labels == ["error", "todo"]
     end
 
     test "keeps the fallback marker out of workflow state selection" do
