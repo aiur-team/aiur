@@ -27,7 +27,7 @@ import process from "node:process";
 import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint, usb } from "usb";
 
 import { parseBrightness } from "./device-path.js";
-import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid } from "./channel.js";
+import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs } from "./channel.js";
 import type { HidBackend } from "./backend.js";
 import { POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
@@ -132,6 +132,7 @@ export const main = async (): Promise<void> => {
   let latestGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
   let latestUsage: Readonly<Record<string, unknown>> = {};
   let transcriptFeed: string[] = [];
+  let logsFeed: StreamDeckLogs = {};
   let activeBackend: HidBackend | null = null;
   let channel: Awaited<ReturnType<typeof connectStreamDeckChannel>> | null = null;
   let runtime: Runtime | null = null;
@@ -154,6 +155,12 @@ export const main = async (): Promise<void> => {
       focusedIdentifier: current.focusedIdentifier,
       columnOffset: current.columnOffset,
       transcriptLines: current.transcriptLines,
+      eventLines: current.eventLines,
+      eventOffset: current.eventOffset,
+      eventHasPrevious: current.eventHasPrevious,
+      eventHasNext: current.eventHasNext,
+      chatHasPrevious: current.chatHasPrevious,
+      chatHasNext: current.chatHasNext,
     };
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
@@ -188,6 +195,7 @@ export const main = async (): Promise<void> => {
           grid: (grid) => { latestGrid = grid; if (activeBackend !== null) void repaint(activeBackend); },
           usage: (usage) => { latestUsage = usage; if (activeBackend !== null) void repaint(activeBackend); },
           transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; controller.setTranscript(transcriptFeed); },
+          logs: (logs) => { logsFeed = logs; controller.setLogs(logsFeed); },
           control: () => undefined,
           closed: (error) => {
             console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
@@ -236,6 +244,7 @@ export const main = async (): Promise<void> => {
     onInput: controller.handleReport,
     repaint,
     onBackendClosed: (backend) => {
+      if (backend === null) return;
       if (activeBackend === backend) activeBackend = null;
     },
     registerSignals: (handler) => {

@@ -32,12 +32,23 @@ export interface StreamDeckGrid {
   readonly max_column_offset: number;
 }
 
+export interface StreamDeckLogs {
+  readonly event_keys?: readonly Record<string, unknown>[];
+  readonly event_keys_visible?: readonly Record<string, unknown>[];
+  readonly transcript?: readonly Record<string, unknown>[];
+  readonly events_offset?: number;
+  readonly events_max_offset?: number;
+  readonly transcript_offset?: number;
+  readonly transcript_max_offset?: number;
+}
+
 export interface StreamDeckChannelEvents {
   snapshot(snapshot: StreamDeckSnapshot): void;
   fleet(agents: readonly StreamDeckAgentState[]): void;
   grid(grid: StreamDeckGrid): void;
   usage(usage: Readonly<Record<string, unknown>>): void;
   transcript(line: string): void;
+  logs(logs: StreamDeckLogs): void;
   control(payload: Readonly<Record<string, unknown>>): void;
   closed(error: unknown): void;
 }
@@ -146,6 +157,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     }
     else if (event === "usage") options.events.usage(payload as Readonly<Record<string, unknown>>);
     else if (event === "transcript") options.events.transcript(String((payload as { body?: unknown }).body ?? ""));
+    else if (event === "logs") options.events.logs(payload as StreamDeckLogs);
     else if (event === "control") options.events.control(payload as Readonly<Record<string, unknown>>);
   };
   const notifyClosed = (error: unknown): void => {

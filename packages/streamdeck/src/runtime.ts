@@ -63,7 +63,7 @@ export interface RuntimeEnv {
   /** Renderer hook to repaint the current view. */
   repaint?(backend: HidBackend): Promise<void>;
   /** Clears the renderer's reference when a handle is unplugged or recycled. */
-  onBackendClosed?(backend: HidBackend): void;
+  onBackendClosed(backend: HidBackend | null): void;
   /** Lock name; defaults to {@link DEFAULT_LOCK_NAME}. */
   lockName?: string;
 }
@@ -171,7 +171,7 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
     cancelReopen();
     const closing = backend;
     backend = null;
-    if (closing !== null) env.onBackendClosed?.(closing);
+    env.onBackendClosed(closing);
     // Teardown errors are normal on unplug; swallow them.
     await closing?.close().catch(() => undefined);
   };

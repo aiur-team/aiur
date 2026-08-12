@@ -71,11 +71,13 @@ describe("physical controller composition", () => {
     controller.setTranscript(["one", "two", "three", "four"]);
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
-    controller.handleReport(dialTurn(3, 1));
+    controller.handleReport(dialButton(3));
+    controller.handleReport(dialButton(3, false));
     controller.handleReport(dialButton(3));
     expect(controller.state().columnOffset).toBeGreaterThan(0);
     controller.handleReport(dialButton(3, false));
-    controller.handleReport(dialTurn(3, 1));
+    controller.handleReport(dialButton(3));
+    controller.handleReport(dialButton(3, false));
     controller.handleReport(keyReport(2, true));
     expect(controller.state().mode).toBe("logs");
     controller.handleReport(keyReport(2, false));
@@ -94,5 +96,32 @@ describe("physical controller composition", () => {
     controller.handleReport(dialButton(0));
     expect(controller.state().mode).toBe("grid");
     expect(changed.mock.calls.length).toBeGreaterThan(2);
+  });
+
+  it("keeps event paging visible and transcript scrolling independent", () => {
+    const changed = vi.fn();
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: changed });
+    controller.setLogs({
+      event_keys: Array.from({ length: 12 }, (_, index) => ({ label: `event-${index}` })),
+      events_max_offset: 4,
+      transcript: [{ body: "chat-a" }, { body: "chat-b" }, { body: "chat-c" }, { body: "chat-d" }],
+      transcript_max_offset: 2,
+    });
+    controller.handleReport(keyReport(0, true));
+    controller.handleReport(keyReport(0, false));
+    controller.handleReport(keyReport(2, true));
+    controller.handleReport(keyReport(2, false));
+    expect(controller.state().mode).toBe("logs");
+    const before = controller.state();
+    controller.handleReport(dialButton(3));
+    controller.handleReport(dialButton(3, false));
+    expect(controller.state().eventOffset).toBeGreaterThan(before.eventOffset);
+    expect(controller.state().eventLines).toContain("event-0");
+    const eventOffset = controller.state().eventOffset;
+    controller.handleReport(dialTurn(0, 1));
+    expect(controller.state().chatOffset).toBeGreaterThan(0);
+    expect(controller.state().eventOffset).toBe(eventOffset);
+    expect(controller.state().chatHasPrevious).toBe(true);
+    expect(changed).toHaveBeenCalled();
   });
 });

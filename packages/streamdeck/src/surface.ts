@@ -19,6 +19,12 @@ export interface PhysicalSurfaceState {
   readonly focusedIdentifier: string | null;
   readonly columnOffset: number;
   readonly transcriptLines?: readonly string[];
+  readonly eventLines?: readonly string[];
+  readonly eventOffset?: number;
+  readonly eventHasPrevious?: boolean;
+  readonly eventHasNext?: boolean;
+  readonly chatHasPrevious?: boolean;
+  readonly chatHasNext?: boolean;
 }
 
 const faceColours: Readonly<Record<string, RgbColor>> = {
@@ -39,6 +45,16 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
   progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : 0,
   priority: agent.priority === true,
   dependency_ready: agent.dependency_ready === true,
+}));
+
+const descriptorEvents = (lines: readonly string[], offset: number): AgentInput[] => lines.slice(offset, offset + 8).map((line, index) => ({
+  identifier: `event-${offset + index}`,
+  title: line,
+  vendor: "logs",
+  bucket: "queued",
+  progress_percent: 0,
+  priority: false,
+  dependency_ready: true,
 }));
 
 /**
@@ -80,7 +96,9 @@ export const createPhysicalSurface = () => {
       if (signature === lastSignature) return;
       lastSignature = signature;
       const focused = state.focusedIdentifier === null ? null : grid.agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
-      const visibleGrid = layoutKeys(descriptorAgents(grid), state.columnOffset);
+      const visibleGrid = state.mode === "logs"
+        ? layoutKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0), 0)
+        : layoutKeys(descriptorAgents(grid), state.columnOffset);
       const paints = renderer.render(visibleGrid);
       for (const paint of paints) {
         await keyQueue?.enqueue(paint);
@@ -90,7 +108,13 @@ export const createPhysicalSurface = () => {
         data: { identity: String(focused.identifier), status: String(focused.bucket ?? "unknown"), percent: Number(focused.progress_percent ?? 0), ticketId: String(focused.identifier) },
       } : state.mode === "logs" ? {
         mode: "logs",
-        data: { lines: state.transcriptLines ?? [] },
+        data: {
+          lines: state.transcriptLines ?? [],
+          chatHasPrevious: state.chatHasPrevious,
+          chatHasNext: state.chatHasNext,
+          eventHasPrevious: state.eventHasPrevious,
+          eventHasNext: state.eventHasNext,
+        },
       } : {
         mode: "grid",
         data: {

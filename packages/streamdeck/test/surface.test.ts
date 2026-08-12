@@ -29,4 +29,20 @@ describe("physical surface composition", () => {
     await surface.repaint({ write, sendFeatureReport } as never, grid);
     expect(write.mock.calls.length).toBeGreaterThanOrEqual(firstWrites);
   });
+
+  it("renders event-window changes separately from transcript changes", async () => {
+    const write = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const surface = createPhysicalSurface();
+    const backend = { write, sendFeatureReport } as never;
+    const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
+    const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: ["event-a", "event-b", "event-c"], eventOffset: 0, transcriptLines: ["chat-a", "chat-b"], eventHasNext: true, chatHasNext: true };
+    await surface.repaint(backend, grid, {}, undefined, base);
+    const first = write.mock.calls.length;
+    await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1 });
+    const afterEvent = write.mock.calls.length;
+    await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1, transcriptLines: ["chat-b", "chat-c"] });
+    expect(afterEvent).toBeGreaterThan(first);
+    expect(write.mock.calls.length).toBeGreaterThan(afterEvent);
+  });
 });

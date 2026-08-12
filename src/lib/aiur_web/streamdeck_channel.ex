@@ -3,9 +3,9 @@ defmodule AiurWeb.StreamdeckChannel do
 
   use Phoenix.Channel
 
-  alias Aiur.{AgentChat, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
+  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, DecisionPubSub, ProviderMeterSnapshot}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
-  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckProjection, StreamdeckTranscriptRelay}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckLogs, StreamdeckProjection, StreamdeckTranscriptRelay}
 
   @impl true
   def join(
@@ -39,7 +39,9 @@ defmodule AiurWeb.StreamdeckChannel do
     socket = unsubscribe_focused(socket)
     {:ok, relay} = StreamdeckTranscriptRelay.start_link(self(), identifier, transcript_flush_ms())
 
-    {:reply, {:ok, %{"focused" => identifier}}, assign(socket, focused_agent: identifier, transcript_relay: relay)}
+    socket = assign(socket, focused_agent: identifier, transcript_relay: relay)
+    push(socket, "logs", logs_projection(identifier))
+    {:reply, {:ok, %{"focused" => identifier}}, socket}
   end
 
   def handle_in("focus", _payload, socket), do: {:reply, {:error, %{reason: "invalid_identifier"}}, socket}
@@ -102,6 +104,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   def handle_info({:streamdeck_transcript, identifier, event}, %{assigns: %{focused_agent: identifier}} = socket) do
     push(socket, "transcript", StreamdeckProjection.transcript(identifier, event))
+    push(socket, "logs", logs_projection(identifier))
     {:noreply, socket}
   end
 
@@ -140,5 +143,12 @@ defmodule AiurWeb.StreamdeckChannel do
   defp transcript_flush_ms do
     Endpoint.config(:streamdeck_transcript_flush_ms) ||
       Application.get_env(:aiur, Endpoint, []) |> Keyword.get(:streamdeck_transcript_flush_ms) || 250
+  end
+
+  defp logs_projection(identifier) do
+    case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+      {:ok, %{events: events}} -> StreamdeckLogs.project(events)
+      _ -> StreamdeckLogs.project([])
+    end
   end
 end
