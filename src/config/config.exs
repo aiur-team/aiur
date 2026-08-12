@@ -54,6 +54,11 @@ if config_env() == :test do
   # instance with an injected request_fun.
   config :aiur, :build_order_adhoc_poll?, false
 
+  # The shared app must not replace the singleton BranchRefStore with real
+  # remote refs while tests are exercising it with synthetic refs. Ticker
+  # tests start their own paused instances with injected ls_remote functions.
+  config :aiur, :ls_remote_ticker_enabled?, false
+
   # Likewise the pack status projection: it reads GitHub and writes status.json
   # beside every discovered pack, so the shared app must stay idle.
   config :aiur, :build_order_pack_status_poll?, false

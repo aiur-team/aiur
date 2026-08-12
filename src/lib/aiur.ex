@@ -158,6 +158,7 @@ defmodule Aiur.Application do
     dashboard? = Keyword.fetch!(opts, :dashboard?)
     telemetry? = Keyword.get(opts, :telemetry?, true)
     executor_mode? = Keyword.get(opts, :executor_mode?, Application.get_env(:aiur, :executor_mode, false))
+    ls_remote_ticker? = Keyword.get(opts, :ls_remote_ticker?, Application.get_env(:aiur, :ls_remote_ticker_enabled?, true))
 
     cli_children =
       if interactive_cli? do
@@ -278,7 +279,7 @@ defmodule Aiur.Application do
       Aiur.DecisionExpiry,
       Aiur.CurrentRunMembership.Reconciler,
       Aiur.CurrentRunProjections,
-      Aiur.Events.LsRemoteTicker,
+      if(ls_remote_ticker?, do: Aiur.Events.LsRemoteTicker),
       Aiur.ProgressCheckin.Worker,
       Aiur.Executor.TakeoverAlert.Store,
       Aiur.Executor.TakeoverAlert.Monitor,
