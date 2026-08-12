@@ -419,12 +419,13 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       wait_until(fn -> not Process.alive?(second_request) end)
     end
 
-    test "termination does not hang after a completed poll owner exits" do
+    test "termination does not hang after a completed poll waits for release" do
       state = CommentPolling.start_async(%Aiur.Orchestrator.State{running: %{}}, comment_poll_opts(fn _states -> {:ok, []} end))
       state = await_async_started(state)
       poll = state.github_comment_poll
 
-      wait_until(fn -> not Process.alive?(poll.owner) end)
+      wait_until(fn -> not Process.alive?(poll.pid) end)
+      assert Process.alive?(poll.owner)
 
       terminator = Task.async(fn -> CommentPolling.terminate_poll(poll) end)
       assert Task.await(terminator, 1_000) == :ok
@@ -453,6 +454,14 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
       assert_receive {:before_ack_poll, poll}
       assert_receive {:before_ack_result, :ok}, 1_000
       refute Process.alive?(poll)
+    end
+
+    test "production routing reaps a waiting poll when its owner dies before start", %{orchestrator: pid} do
+      assert_owner_death_reaps_poll(pid, :before_start)
+    end
+
+    test "production routing reaps a started poll when its owner dies before guarding", %{orchestrator: pid} do
+      assert_owner_death_reaps_poll(pid, :after_start_before_guard)
     end
 
     test "an orchestrator crash reaps its blocked poll and request descendants" do
@@ -635,6 +644,58 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
     after
       5_000 -> flunk("the asynchronous comment poll never announced its pid")
     end
+  end
+
+  defp assert_owner_death_reaps_poll(orchestrator, blocked_phase) do
+    test_pid = self()
+
+    phase_hook = fn phase, owner, poll ->
+      if phase == blocked_phase do
+        send(test_pid, {:owner_phase_reached, phase, owner, poll})
+        Process.sleep(:infinity)
+      end
+    end
+
+    review_issue_fetcher = fn _states ->
+      send(test_pid, {:owned_poll_work_started, self()})
+      Process.sleep(:infinity)
+    end
+
+    opts = Keyword.put(comment_poll_opts(review_issue_fetcher), :owner_phase_hook, phase_hook)
+
+    :sys.replace_state(orchestrator, fn state -> CommentPolling.start_async(state, opts) end)
+
+    assert_receive {:owner_phase_reached, ^blocked_phase, owner, poll}, 5_000
+
+    on_exit(fn ->
+      if Process.alive?(owner), do: Process.exit(owner, :kill)
+      if Process.alive?(poll), do: Process.exit(poll, :kill)
+    end)
+
+    work_process =
+      if blocked_phase == :after_start_before_guard do
+        assert_receive {:owned_poll_work_started, worker}, 5_000
+        worker
+      else
+        refute_receive {:owned_poll_work_started, _worker}, 100
+        nil
+      end
+
+    owner_ref = Process.monitor(owner)
+    poll_ref = Process.monitor(poll)
+    work_ref = if is_pid(work_process), do: Process.monitor(work_process)
+    Process.exit(owner, :kill)
+
+    assert_receive {:DOWN, ^owner_ref, :process, ^owner, :killed}, 5_000
+    assert_receive {:DOWN, ^poll_ref, :process, ^poll, :killed}, 5_000
+
+    if is_reference(work_ref) do
+      assert_receive {:DOWN, ^work_ref, :process, ^work_process, _reason}, 5_000
+    end
+
+    wait_until(fn -> :sys.get_state(orchestrator).github_comment_poll == nil end)
+
+    refute Process.alive?(poll)
   end
 
   # `:sys.replace_state/2` evaluates its function inside the target process, so

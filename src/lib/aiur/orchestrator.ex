@@ -184,6 +184,10 @@ defmodule Aiur.Orchestrator do
       when is_reference(ref) and is_pid(owner) and is_pid(pid),
       do: {:noreply, CommentPolling.apply_async_started(state, ref, owner, pid)}
 
+  def handle_info({:github_comment_poll_guarding, ref, owner, pid}, state)
+      when is_reference(ref) and is_pid(owner) and is_pid(pid),
+      do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
