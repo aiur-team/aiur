@@ -95,5 +95,17 @@ defmodule Aiur.Orchestrator.StatusReportTest do
 
     assert status.waiting_reason == :waiting_for_dependency
     assert status.blocked_by == [blocker]
+
+    [snapshot_status] = StatusReport.snapshot_payload(%State{last_polled_issues: %{issue.id => issue}}).idle
+
+    assert snapshot_status.waiting_reason == status.waiting_reason
+    assert snapshot_status.blocked_by == status.blocked_by
+  end
+
+  test "human-wait alert threshold is episode-based and inclusive" do
+    now = ~U[2026-08-11 12:00:00Z]
+
+    refute StatusReport.waiting_for_human_alert_due?(DateTime.add(now, -599, :second), now)
+    assert StatusReport.waiting_for_human_alert_due?(DateTime.add(now, -600, :second), now)
   end
 end

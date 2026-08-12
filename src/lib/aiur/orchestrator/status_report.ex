@@ -243,11 +243,19 @@ defmodule Aiur.Orchestrator.StatusReport do
   end
 
   @spec status(State.t()) :: {:reply, [map()], State.t()}
-  def status(%State{} = state), do: {:reply, agent_statuses(state), state}
+  def status(%State{} = state) do
+    {statuses, state} = agent_statuses_and_state(state)
+    {:reply, statuses, state}
+  end
 
   @spec status_with_capacity(State.t()) :: {:reply, {[map()], map()}, State.t()}
   def status_with_capacity(%State{} = state),
-    do: {:reply, {agent_statuses(state), Slots.max_concurrent_agent_status(state)}, state}
+    do:
+      state
+      |> agent_statuses_and_state()
+      |> then(fn {statuses, state} ->
+        {:reply, {statuses, Slots.max_concurrent_agent_status(state)}, state}
+      end)
 
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
   def snapshot(%State{} = state) do
@@ -466,41 +474,33 @@ defmodule Aiur.Orchestrator.StatusReport do
   defp idle_issue_snapshot(
          %State{} = state,
          %Issue{} = issue,
-         terminal_states,
+         _terminal_states,
          now_ms,
          latch_statuses,
          activity_by_identity
        ) do
     identifier = issue.identifier || issue.id
-    blocked_by_open? = DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, terminal_states)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     latch = Map.get(latch_statuses, issue.id, :none)
-    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, issue.id, now_ms)
+    idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
 
     %{
       issue_id: issue.id,
       identifier: identifier,
       tracker_identity: Issue.tracker_identity(issue),
       state: issue.state,
+      work_state: idle_issue_work_state(issue),
       tag: State.issue_tag(issue),
       title: issue.title,
       url: issue.url,
       tracker_paused: Issue.paused?(issue),
       queue_depth: OM.queue_depth_for_issue(state, identifier),
       # #1453 supplies the idle-reason evidence; #1457 renders it.
-      dispatch_latch: latch,
-      auto_resume_retry_in_ms: auto_resume_retry_in_ms,
-      waiting_reason:
-        WaitingReason.for_idle(
-          issue.state,
-          blocked_by_open?,
-          open_decision_count,
-          latched_lifetime: latch != :none,
-          tracker_paused: Issue.paused?(issue),
-          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
-          dispatch_hold_reason: get_in(state.dispatch_hold, [:reason]),
-          capacity_hold_active?: capacity_hold_active?(state)
-        ),
+      dispatch_latch: idle_evidence.dispatch_latch,
+      auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
+      dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
+      capacity_hold_active?: idle_evidence.capacity_hold_active?,
+      waiting_reason: idle_evidence.waiting_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
@@ -731,18 +731,36 @@ defmodule Aiur.Orchestrator.StatusReport do
     agent_statuses(state, status_fun)
   end
 
+  defp agent_statuses_and_state(%State{} = state) do
+    status_fun =
+      if Config.prewarm_enabled?(),
+        do: &RepoBase.status/1,
+        else: fn _timeout -> {:unavailable, nil} end
+
+    {statuses, state} = agent_statuses_raw(state, status_fun)
+    {statuses, track_waiting_for_human_episodes(state, statuses, DateTime.utc_now())}
+  end
+
   @doc false
   @spec agent_statuses(State.t(), (timeout() -> term())) :: [map()]
   def agent_statuses(%State{} = state, status_fun) when is_function(status_fun, 1) do
+    {statuses, _state} = agent_statuses_raw(state, status_fun)
+    statuses
+  end
+
+  defp agent_statuses_raw(%State{} = state, status_fun) when is_function(status_fun, 1) do
     now = DateTime.utc_now()
     prewarm_phase = prewarm_phase(status_fun)
 
     running_by_identifier =
       Map.new(state.running, fn {_id, entry} -> {Map.get(entry, :identifier), entry} end)
 
-    (running_statuses(state, now) ++
-       retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
-    |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
+    statuses =
+      (running_statuses(state, now) ++
+         retry_statuses(state) ++ idle_statuses(state, running_by_identifier, prewarm_phase))
+      |> Enum.sort_by(fn status -> to_string(status.identifier || status.issue_id || "") end)
+
+    {statuses, state}
   end
 
   defp running_statuses(%State{} = state, %DateTime{} = now) do
@@ -768,12 +786,6 @@ defmodule Aiur.Orchestrator.StatusReport do
         stale_for_seconds: stale_for_seconds,
         stall_timeout_seconds: stall_timeout_seconds()
       })
-
-    maybe_emit_waiting_for_human_alert(
-      identifier,
-      waiting_reason,
-      State.running_seconds(Map.get(entry, :started_at), now)
-    )
 
     %{
       issue_id: issue_id,
@@ -899,6 +911,9 @@ defmodule Aiur.Orchestrator.StatusReport do
     work_state = idle_issue_work_state(issue)
     pause_reason = idle_issue_pause_reason(issue)
 
+    idle_evidence = idle_evidence(state, issue, latch_status, open_decision_count, System.monotonic_time(:millisecond))
+    waiting_reason = idle_evidence.waiting_reason
+
     %{
       issue_id: Map.get(issue, :id),
       identifier: identifier,
@@ -928,16 +943,11 @@ defmodule Aiur.Orchestrator.StatusReport do
           max_dispatches,
           latch_status
         ),
-      waiting_reason:
-        WaitingReason.for_idle(
-          Map.get(issue, :state),
-          DispatchPolicy.todo_issue_blocked_by_non_terminal?(
-            issue,
-            DispatchPolicy.terminal_state_set()
-          ),
-          open_decision_count,
-          tracker_paused: Issue.paused?(issue)
-        ),
+      waiting_reason: waiting_reason,
+      dispatch_latch: idle_evidence.dispatch_latch,
+      auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
+      dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
+      capacity_hold_active?: idle_evidence.capacity_hold_active?,
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
@@ -945,9 +955,85 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
   end
 
-  defp maybe_emit_waiting_for_human_alert(identifier, :waiting_for_human, runtime_seconds)
-       when is_binary(identifier) and is_integer(runtime_seconds) and
-              runtime_seconds >= @waiting_for_human_alert_after_seconds do
+  defp idle_evidence(%State{} = state, issue, latch_status, open_decision_count, now_ms) do
+    auto_resume_retry_in_ms = AutoResume.retry_in_ms(state, Map.get(issue, :id), now_ms)
+    dispatch_hold_reason = Map.get(state.dispatch_hold || %{}, :reason)
+    capacity_hold_active? = capacity_hold_active?(state)
+
+    %{
+      dispatch_latch: latch_status,
+      auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+      dispatch_hold_reason: dispatch_hold_reason,
+      capacity_hold_active?: capacity_hold_active?,
+      waiting_reason:
+        WaitingReason.for_idle(
+          Map.get(issue, :state),
+          DispatchPolicy.todo_issue_blocked_by_non_terminal?(issue, DispatchPolicy.terminal_state_set()),
+          open_decision_count,
+          latched_lifetime: latch_status != :none,
+          tracker_paused: Issue.paused?(issue),
+          auto_resume_retry_in_ms: auto_resume_retry_in_ms,
+          dispatch_hold_reason: dispatch_hold_reason,
+          capacity_hold_active?: capacity_hold_active?
+        )
+    }
+  end
+
+  defp track_waiting_for_human_episodes(%State{} = state, statuses, now) do
+    current =
+      statuses
+      |> Enum.filter(&human_wait_alert_candidate?/1)
+      |> Map.new(fn status -> {status.identifier, status} end)
+
+    Enum.each(state.waiting_for_human_episodes, fn {identifier, episode} ->
+      if not Map.has_key?(current, identifier) and episode.alerted?,
+        do: emit_waiting_for_human_resolution(identifier)
+    end)
+
+    episodes =
+      Enum.reduce(current, %{}, fn {identifier, _status}, acc ->
+        episode = Map.get(state.waiting_for_human_episodes, identifier, %{since: now, alerted?: false})
+        elapsed = DateTime.diff(now, episode.since, :second)
+
+        episode =
+          if waiting_for_human_alert_due?(episode.since, now) and not episode.alerted? do
+            maybe_emit_waiting_for_human_alert(identifier, elapsed)
+            %{episode | alerted?: true}
+          else
+            episode
+          end
+
+        Map.put(acc, identifier, episode)
+      end)
+
+    %{state | waiting_for_human_episodes: episodes}
+  end
+
+  @doc false
+  @spec waiting_for_human_alert_due?(DateTime.t(), DateTime.t()) :: boolean()
+  def waiting_for_human_alert_due?(%DateTime{} = since, %DateTime{} = now) do
+    DateTime.diff(now, since, :second) >= @waiting_for_human_alert_after_seconds
+  end
+
+  defp human_wait_alert_candidate?(%{waiting_reason: :waiting_for_human} = status) do
+    (is_integer(status.open_decision_count) and status.open_decision_count > 0) or
+      status.pause_reason in [:agent_pause_request, :input_required]
+  end
+
+  defp human_wait_alert_candidate?(_status), do: false
+
+  defp emit_waiting_for_human_resolution(identifier) do
+    Alerts.emit_system("ticket.#{identifier}.agent.attention.waiting_for_human.resolved",
+      issue: identifier,
+      reason: "Agent is no longer waiting for Executor input.",
+      needs_attention: false,
+      severity: "info",
+      central: true
+    )
+  end
+
+  defp maybe_emit_waiting_for_human_alert(identifier, runtime_seconds)
+       when is_binary(identifier) and is_integer(runtime_seconds) do
     topic = "ticket.#{identifier}.agent.attention.waiting_for_human"
 
     unless AlertFeed.active_ticket_attention?(topic) do
@@ -960,8 +1046,6 @@ defmodule Aiur.Orchestrator.StatusReport do
       )
     end
   end
-
-  defp maybe_emit_waiting_for_human_alert(_identifier, _waiting_reason, _runtime_seconds), do: :ok
 
   defp idle_status_reason(
          _work_state,
