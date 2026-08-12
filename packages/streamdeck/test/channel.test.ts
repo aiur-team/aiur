@@ -44,4 +44,28 @@ describe("Stream Deck Phoenix channel", () => {
     expect(events.grid).toHaveBeenCalledOnce();
     expect(events.logs).toHaveBeenCalledWith({ event_keys: [{ label: "LIVE" }], transcript: [{ body: "chat" }] });
   });
+
+  it("queues focus until join and reports Phoenix channel shutdown frames", async () => {
+    const socket = socketHarness();
+    const events = {
+      snapshot: vi.fn(), fleet: vi.fn(), grid: vi.fn(), usage: vi.fn(), transcript: vi.fn(), logs: vi.fn(), control: vi.fn(), closed: vi.fn(),
+    };
+    const channel = await connectStreamDeckChannel({
+      baseUrl: "http://aiur.test:4000",
+      username: "operator",
+      password: "secret",
+      fetch: vi.fn(async () => ({ ok: true, json: async () => ({ token: "signed-token" }) })),
+      websocket: vi.fn(() => socket),
+      events,
+    });
+
+    channel.focus("1358");
+    socket.open();
+    expect(socket.sent).toHaveLength(1);
+    socket.message(["4", "1", "streamdeck:fleet", "phx_reply", { status: "ok", response: {} }]);
+    expect(JSON.parse(socket.sent[1])).toEqual(["4", "1", "streamdeck:fleet", "focus", { identifier: "1358" }]);
+    socket.message(["", "", "", "phx_close", {}]);
+    expect(events.closed).toHaveBeenCalledWith(expect.any(Error));
+    channel.close();
+  });
 });

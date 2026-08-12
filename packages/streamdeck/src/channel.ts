@@ -124,8 +124,12 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   let stopped = false;
   let heartbeat: ReturnType<typeof setInterval> | null = null;
   let closedNotified = false;
+  const pending: Array<{ event: string; payload: Record<string, unknown> }> = [];
   const send = (event: string, payload: Record<string, unknown>): void => {
-    if (!joined) return;
+    if (!joined) {
+      pending.push({ event, payload });
+      return;
+    }
     socket.send(JSON.stringify(["4", String(++reference), "streamdeck:fleet", event, payload]));
   };
 
@@ -142,6 +146,11 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
     const payload = frame[4];
     if (event === "phx_reply" && (payload as { status?: unknown } | undefined)?.status === "ok") {
       joined = true;
+      for (const command of pending.splice(0)) send(command.event, command.payload);
+      return;
+    }
+    if (event === "phx_close" || event === "phx_error") {
+      notifyClosed(new Error(`Stream Deck channel ${event}`));
       return;
     }
     if (typeof event !== "string" || typeof payload !== "object" || payload === null) return;

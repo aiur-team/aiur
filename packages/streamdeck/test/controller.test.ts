@@ -5,7 +5,7 @@ import type { StreamDeckGrid } from "../src/channel.js";
 const grid = (count = 10): StreamDeckGrid => ({
   agents: Array.from({ length: count }, (_, index) => ({
     identifier: `agent-${index}`,
-    bucket: index === 3 ? "running" : "queued",
+    bucket: index === 6 ? "running" : "queued",
     title: `Agent ${index}`,
     vendor: "codex",
     progress_percent: 20,
@@ -49,20 +49,20 @@ describe("physical controller composition", () => {
 
     controller.handleReport(keyReport(3, true));
     controller.handleReport(keyReport(3, false));
-    expect(controller.state()).toMatchObject({ mode: "cmd", focusedIdentifier: "agent-3" });
-    expect(focus).toHaveBeenCalledWith("agent-3");
+    expect(controller.state()).toMatchObject({ mode: "cmd", focusedIdentifier: "agent-6" });
+    expect(focus).toHaveBeenCalledWith("agent-6");
 
     controller.handleReport(keyReport(0, true));
-    expect(control).toHaveBeenCalledWith("agent-3", "pause");
+    expect(control).toHaveBeenCalledWith("agent-6", "pause");
     expect(changed).toHaveBeenCalled();
 
     const resume = vi.fn();
-    const pausedGrid = (): StreamDeckGrid => ({ ...grid(), agents: grid().agents.map((agent, index) => index === 3 ? { ...agent, bucket: "paused" } : agent) });
+    const pausedGrid = (): StreamDeckGrid => ({ ...grid(), agents: grid().agents.map((agent, index) => index === 6 ? { ...agent, bucket: "paused" } : agent) });
     const pausedController = createPhysicalController({ grid: pausedGrid, channel: () => ({ focus: vi.fn(), control: resume }), stateChanged: vi.fn() });
     pausedController.handleReport(keyReport(3, true));
     pausedController.handleReport(keyReport(3, false));
     pausedController.handleReport(keyReport(0, true));
-    expect(resume).toHaveBeenCalledWith("agent-3", "resume");
+    expect(resume).toHaveBeenCalledWith("agent-6", "resume");
   });
 
   it("pages, enters logs, scrolls chat, and backs out through the physical controls", () => {

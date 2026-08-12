@@ -39,7 +39,7 @@ const initialState: ControllerState = {
 };
 
 const agentAt = (grid: StreamDeckGrid, offset: number, key: number): Readonly<Record<string, unknown>> | undefined =>
-  grid.agents[(offset * 2) + (key % 8)];
+  grid.agents[(offset + (key % 4)) * 2 + (key < 4 ? 0 : 1)];
 
 const identifierOf = (agent: Readonly<Record<string, unknown>> | undefined): string | null =>
   typeof agent?.identifier === "string" ? agent.identifier : null;
