@@ -19,9 +19,8 @@ defmodule Aiur.Opencode.SlotPolicy do
   auto-boot at startup (`target_count`). It is NOT the ceiling on how
   many opencode instances can exist. Beyond the warm pool, an open with
   no ready slot grows the pool one cold slot at a time (via `grow_slot/0`)
-  up to `max_slots` — the same `max(grid, max_concurrent_agents)` value
-  `PaneManager` uses for its slot bookkeeping, so every grown slot still
-  has a layout cell.
+  up to `max_slots` — the layout capacity `max_vertical_panes * 2 - 1`,
+  independent of the orchestrator's agent concurrency cap.
 
   ## Public API
 
@@ -39,14 +38,18 @@ defmodule Aiur.Opencode.SlotPolicy do
   use GenServer
   require Logger
 
+  alias Aiur.AgentEvents
   alias Aiur.Boot
   alias Aiur.Opencode.{Slot, SlotSupervisor}
 
   defstruct target_count: 0,
             highest_started: 0,
+            live_slots: MapSet.new(),
             max_slots: 0,
+            max_concurrent_agents: nil,
             pubsub: Aiur.PubSub,
-            slot_starter: SlotSupervisor
+            slot_starter: SlotSupervisor,
+            slot_stopper: SlotSupervisor
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -109,6 +112,33 @@ defmodule Aiur.Opencode.SlotPolicy do
     :exit, _ -> 0
   end
 
+  @doc "Return the cached live agent cap, falling back to config before boot."
+  @spec live_max_concurrent_agents() :: pos_integer()
+  def live_max_concurrent_agents do
+    case Process.whereis(__MODULE__) do
+      nil -> configured_max_concurrent_agents()
+      pid -> GenServer.call(pid, :max_concurrent_agents, 1_000)
+    end
+  catch
+    :exit, _ -> configured_max_concurrent_agents()
+  end
+
+  @spec max_concurrent_agents(GenServer.server()) :: pos_integer()
+  def max_concurrent_agents(server), do: GenServer.call(server, :max_concurrent_agents, 1_000)
+
+  @doc "Return the current warm-pool size without querying the orchestrator."
+  @spec warm_pool_size() :: non_neg_integer()
+  def warm_pool_size do
+    case Process.whereis(__MODULE__) do
+      nil -> min(Aiur.Config.pre_warmed_sessions(), configured_max_concurrent_agents())
+      pid -> target_count(pid)
+    end
+  rescue
+    _ -> 3
+  catch
+    :exit, _ -> 3
+  end
+
   @doc """
   Start the next slot on demand, cold, up to `max_slots`.
 
@@ -144,10 +174,13 @@ defmodule Aiur.Opencode.SlotPolicy do
 
     pubsub = Keyword.get(opts, :pubsub, Aiur.PubSub)
     slot_starter = Keyword.get(opts, :slot_starter, SlotSupervisor)
+    slot_stopper = Keyword.get(opts, :slot_stopper, SlotSupervisor)
+    max_concurrent_agents = Keyword.get(opts, :max_concurrent_agents, configured_max_concurrent_agents())
 
     Logger.info("opencode_slot_policy phase=init elapsed_ms=#{Boot.elapsed_ms()} target_count=#{target_count} max_slots=#{max_slots} mode=parallel")
 
     :ok = Phoenix.PubSub.subscribe(pubsub, Slot.slots_topic())
+    :ok = Phoenix.PubSub.subscribe(pubsub, AgentEvents.poll_state_topic())
 
     send(self(), :start_all_slots)
 
@@ -155,9 +188,12 @@ defmodule Aiur.Opencode.SlotPolicy do
      %__MODULE__{
        target_count: target_count,
        highest_started: 0,
+       live_slots: MapSet.new(),
        max_slots: max_slots,
+       max_concurrent_agents: max_concurrent_agents,
        pubsub: pubsub,
-       slot_starter: slot_starter
+       slot_starter: slot_starter,
+       slot_stopper: slot_stopper
      }}
   end
 
@@ -172,9 +208,9 @@ defmodule Aiur.Opencode.SlotPolicy do
 
     Logger.info("opencode_slot_policy phase=parallel_boot_start elapsed_ms=#{Boot.elapsed_ms()} target=#{target}")
 
-    highest =
+    {highest, live_slots} =
       1..target
-      |> Enum.reduce(0, fn slot_index, acc ->
+      |> Enum.reduce({0, MapSet.new()}, fn slot_index, {highest, live_slots} ->
         case state.slot_starter.start_slot(slot_index) do
           {:ok, _pid} ->
             Phoenix.PubSub.broadcast(
@@ -183,21 +219,21 @@ defmodule Aiur.Opencode.SlotPolicy do
               {:slot_starting, slot_index}
             )
 
-            max(acc, slot_index)
+            {max(highest, slot_index), MapSet.put(live_slots, slot_index)}
 
           {:error, reason} ->
             Logger.warning("opencode_slot_policy phase=parallel_boot_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{slot_index} reason=#{inspect(reason)}")
 
-            acc
+            {highest, live_slots}
         end
       end)
 
     Logger.info("opencode_slot_policy phase=parallel_boot_dispatched elapsed_ms=#{Boot.elapsed_ms()} highest=#{highest}")
 
-    {:noreply, %{state | highest_started: highest}}
+    {:noreply, %{state | highest_started: highest, live_slots: live_slots}}
   end
 
-  def handle_info({:slot_ready, n}, %{target_count: target} = state)
+  def handle_info({:slot_ready, n, _pid}, %{target_count: target} = state)
       when n >= target do
     if n == target do
       Logger.info("opencode_slot_policy phase=chain_complete elapsed_ms=#{Boot.elapsed_ms()} slots=#{target}")
@@ -208,7 +244,7 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:noreply, state}
   end
 
-  def handle_info({:slot_ready, _n}, state) do
+  def handle_info({:slot_ready, _n, _pid}, state) do
     {:noreply, state}
   end
 
@@ -225,6 +261,11 @@ defmodule Aiur.Opencode.SlotPolicy do
 
   def handle_info({:slot_visible_changed, _slot_index, _identifier}, state),
     do: {:noreply, state}
+
+  def handle_info({:poll_state_changed, %{max_concurrent_agents: cap}}, state)
+      when is_integer(cap) and cap > 0 do
+    {:noreply, resize_for_cap(state, cap)}
+  end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -255,6 +296,10 @@ defmodule Aiur.Opencode.SlotPolicy do
     {:reply, state.max_slots, state}
   end
 
+  def handle_call(:max_concurrent_agents, _from, state) do
+    {:reply, state.max_concurrent_agents, state}
+  end
+
   def handle_call(:grow_slot, _from, %{highest_started: highest, max_slots: max} = state)
       when highest >= max do
     Aiur.Perf.event(:slot_policy_grow_at_capacity, highest_started: highest, max_slots: max)
@@ -272,7 +317,7 @@ defmodule Aiur.Opencode.SlotPolicy do
 
         Aiur.Perf.event(:slot_policy_grow, slot: next, max_slots: state.max_slots)
 
-        {:reply, {:ok, next, pid}, %{state | highest_started: next}}
+        {:reply, {:ok, next, pid}, %{state | highest_started: next, live_slots: MapSet.put(state.live_slots, next)}}
 
       {:error, reason} = err ->
         Logger.warning("opencode_slot_policy phase=grow_failed elapsed_ms=#{Boot.elapsed_ms()} slot=#{next} reason=#{inspect(reason)}")
@@ -289,23 +334,94 @@ defmodule Aiur.Opencode.SlotPolicy do
   # goes through the cold placeholder path.
   defp default_target_count do
     pre_warmed = Aiur.Config.pre_warmed_sessions()
-    max_agents = Aiur.Config.max_concurrent_agents()
+    max_agents = configured_max_concurrent_agents()
     min(pre_warmed, max_agents)
   rescue
     _ -> 3
   end
 
   # Hard cap on total slots. Mirrors `PaneManager`'s `slot_count` —
-  # `max(grid, max_concurrent_agents)` — so every slot the pool can grow
+  # the layout grid — so every slot the pool can grow
   # to still has a layout cell (PaneManager seeds `slot_panes` and lays
-  # out `1..slot_count`). Growing past it would leave a slot with no
-  # visual home. The warm pool (`target_count`) is independent and
-  # usually smaller.
+  # out `1..slot_count`). The cap is recalculated when poll state changes;
+  # the warm pool (`target_count`) remains independently configurable.
   defp default_max_slots do
     grid = Aiur.Config.max_vertical_panes() * 2 - 1
-    max_agents = Aiur.Config.max_concurrent_agents()
-    max(grid, max_agents)
+    grid
   rescue
     _ -> 3
+  end
+
+  defp configured_max_concurrent_agents do
+    Aiur.Config.max_concurrent_agents()
+  rescue
+    _ -> 3
+  end
+
+  defp resize_for_cap(state, cap) do
+    target = min(Aiur.Config.pre_warmed_sessions(), cap)
+    max_slots = Aiur.Config.max_vertical_panes() * 2 - 1
+    state = %{state | target_count: target, max_slots: max_slots, max_concurrent_agents: cap}
+    state = drain_excess_warm_slots(state)
+
+    if missing_warm_slot?(state, target) do
+      start_slots(state, target)
+    else
+      state
+    end
+  rescue
+    _ -> %{state | max_concurrent_agents: cap}
+  end
+
+  defp start_slots(state, target) do
+    next = next_missing_slot(state, target)
+
+    if next == nil do
+      state
+    else
+      start_slot_and_continue(state, next, target)
+    end
+  end
+
+  defp start_slot_and_continue(state, next, target) do
+    case state.slot_starter.start_slot(next) do
+      {:ok, _pid} ->
+        Phoenix.PubSub.broadcast(state.pubsub, Slot.slots_topic(), {:slot_starting, next})
+        updated = %{state | highest_started: max(state.highest_started, next), live_slots: MapSet.put(state.live_slots, next)}
+        start_slots(updated, target)
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp missing_warm_slot?(state, target), do: next_missing_slot(state, target) != nil
+
+  defp next_missing_slot(state, target) do
+    if target <= 0 do
+      nil
+    else
+      Enum.find(1..target, &(!MapSet.member?(state.live_slots, &1)))
+    end
+  end
+
+  defp drain_excess_warm_slots(%{live_slots: live_slots, target_count: target} = state) do
+    live_slots
+    |> Enum.filter(&(&1 > target))
+    |> Enum.sort(:desc)
+    |> Enum.reduce(state, fn slot_index, acc ->
+      case acc.slot_stopper.stop_slot(slot_index) do
+        result when result in [:ok, :not_found] ->
+          remaining = MapSet.delete(acc.live_slots, slot_index)
+          %{acc | live_slots: remaining, highest_started: highest_live_slot(remaining)}
+
+        _busy ->
+          acc
+      end
+    end)
+  end
+
+  defp highest_live_slot(live_slots) do
+    Enum.max(live_slots, fn -> 0 end)
   end
 end

@@ -47,11 +47,13 @@ defmodule Aiur.DecisionStore do
     DecisionRevision,
     DecisionRevisionDispatch,
     DecisionValidation,
+    ExecutorCommandAttention,
     ExecutorEvents,
     JsonStore,
     SecretRedactor
   }
 
+  alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionQuery.Params, as: DecisionQueryParams
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{IdGenerator, Publisher}
@@ -63,6 +65,10 @@ defmodule Aiur.DecisionStore do
   @default_dispatch_delay_ms 0
   @default_reconcile_delay_ms 250
   @default_retry_delays_ms [250, 1_000, 5_000]
+  # Code-enforced ceiling on what the Executor may answer without the operator.
+  # Kept as explicit allowlists so an unknown or missing value fails closed.
+  @executor_answerable_authorities [:supervisor_allowed, :supervisor_preferred]
+  @executor_answerable_reversibilities [:reversible]
   @recent_audit_limit 50
   @recent_decision_limit 50
   @maximum_legacy_page_limit 200
@@ -74,9 +80,18 @@ defmodule Aiur.DecisionStore do
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
+  @doc """
+  Starts the store.
+
+  Only the application singleton may use the configured default state
+  directory. Every other instance must receive its own `:state_dir` so it
+  cannot contend with the application's durable decision audit stream.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    with :ok <- validate_start_options(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
+    end
   end
 
   @doc """
@@ -125,6 +140,23 @@ defmodule Aiur.DecisionStore do
   def answer(decision_id, payload, opts \\ [], server \\ __MODULE__, timeout \\ @request_timeout)
       when is_binary(decision_id) and is_map(payload) and is_list(opts) do
     GenServer.call(server, {:answer, decision_id, payload, opts}, timeout)
+  end
+
+  @doc """
+  Durably records that the Executor deferred one still-undecided Command to
+  the operator, then opens the keyed operator attention.
+
+  The Command's status is deliberately unchanged: it stays exactly as
+  answerable as it was, so the operator can still answer it and can still
+  override the Executor. What changes is the audit trail — the escalation is
+  appended as an attributed `:executor_escalated` event, so a later reader can
+  see that the Executor deferred rather than decided.
+  """
+  @spec escalate_executor_command(String.t(), map(), GenServer.server(), timeout()) ::
+          {:ok, map()} | {:error, term()}
+  def escalate_executor_command(decision_id, payload, server \\ __MODULE__, timeout \\ @request_timeout)
+      when is_binary(decision_id) and is_map(payload) do
+    GenServer.call(server, {:escalate_executor_command, decision_id, payload}, timeout)
   end
 
   @doc "Durably dismisses an open Decision without recording an answer."
@@ -320,7 +352,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def init(opts) do
     state =
-      case Config.Paths.decision_state_dir() do
+      case state_dir(opts) do
         {:ok, dir} -> boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))
         {:error, reason} -> unavailable_state(nil, {:path_unresolved, reason})
       end
@@ -328,6 +360,27 @@ defmodule Aiur.DecisionStore do
       |> configure_dispatch(opts)
 
     {:ok, state, {:continue, :schedule_reconciliation}}
+  end
+
+  defp validate_start_options(opts) do
+    case Keyword.fetch(opts, :state_dir) do
+      :error -> validate_missing_state_dir(Keyword.get(opts, :name))
+      {:ok, state_dir} -> validate_state_dir(state_dir)
+    end
+  end
+
+  defp validate_missing_state_dir(__MODULE__), do: :ok
+  defp validate_missing_state_dir(nil), do: {:error, :unnamed_store_requires_state_dir}
+  defp validate_missing_state_dir(_name), do: {:error, :non_singleton_store_requires_state_dir}
+
+  defp validate_state_dir(state_dir) when is_binary(state_dir) and state_dir != "", do: :ok
+  defp validate_state_dir(_state_dir), do: {:error, :invalid_state_dir}
+
+  defp state_dir(opts) do
+    case Keyword.fetch(opts, :state_dir) do
+      {:ok, dir} -> {:ok, dir}
+      :error -> Config.Paths.decision_state_dir()
+    end
   end
 
   defp configure_dispatch(state, opts) do
@@ -346,6 +399,10 @@ defmodule Aiur.DecisionStore do
       revision_follow_up_projector: revision_projector,
       revision_follow_up_resolver: revision_resolver,
       event_id_reserver: Keyword.get(opts, :event_id_reserver, &IdGenerator.reserve_durable_id/0),
+      executor_attention_opener: Keyword.get(opts, :executor_attention_opener, &ExecutorCommandAttention.open/3),
+      executor_request_boot_reconciler: Keyword.get(opts, :executor_request_boot_reconciler, &ExecutorEvents.reconcile_requested/1),
+      executor_request_publisher: Keyword.get(opts, :executor_request_publisher, &ExecutorEvents.publish_requested/1),
+      executor_request_reconciler: Keyword.get(opts, :executor_request_reconciler, &ExecutorEvents.ensure_requested/1),
       dispatching: MapSet.new(),
       retry_counts: %{},
       projecting_revision_follow_ups: MapSet.new(),
@@ -359,6 +416,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def handle_continue(:schedule_reconciliation, state) do
     if state.writable? do
+      reconcile_requested_executor_notifications(state)
       reconcile_deferred_executor_notifications(state)
       reproject_failure_attentions(state)
 
@@ -398,15 +456,60 @@ defmodule Aiur.DecisionStore do
           # O(1). The public history call reverses them back to audit order.
           history: reverse_histories(history),
           audit_history: audit_history,
-          recent_audit: records |> Enum.reverse() |> Enum.take(@recent_audit_limit),
+          # Unrecognized records are retained on disk and in `records`, but
+          # they are not shown: this binary cannot render an event whose shape
+          # it does not know, and guessing would be worse than omitting.
+          recent_audit:
+            records
+            |> Enum.reject(&match?(%Unrecognized{}, &1))
+            |> Enum.reverse()
+            |> Enum.take(@recent_audit_limit),
           writable?: true,
           health: :writable
         }
         |> repair_projection()
+        |> report_unrecognized_records(records, ndjson_path)
         |> apply_corruption(transition_corruption || corruption)
 
       {:error, reason} ->
         unavailable_state(ndjson_path, {:replay_failed, reason})
+    end
+  end
+
+  # A newer binary wrote event types this one cannot interpret. That is version
+  # skew, not damage, so the store stays writable and keeps answering Commands
+  # — but the operator is told, because their projection is silently missing
+  # whatever those events said. Deliberately not `needs_attention`: the fix is
+  # to roll forward again, and nothing is lost by waiting.
+  defp report_unrecognized_records(state, records, path) do
+    types =
+      records
+      |> Enum.filter(&match?(%Unrecognized{}, &1))
+      |> Enum.map(& &1.event_type)
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    if types == [] do
+      state
+    else
+      listed = Enum.join(types, ", ")
+
+      Logger.warning(
+        "aiur_decision_store phase=unrecognized_event_types path=#{path} types=#{listed} " <>
+          "action=retained_and_skipped"
+      )
+
+      _ =
+        Alerts.emit_custom(
+          "decision_store.unrecognized_event_types",
+          "DecisionStore replayed audit records this build does not understand (#{listed}) at #{path}. " <>
+            "They are retained on disk and skipped; the store stays writable. " <>
+            "This build is older than the one that wrote them — roll forward to project them.",
+          needs_attention: false,
+          severity: "warning"
+        )
+
+      state
     end
   end
 
@@ -479,6 +582,94 @@ defmodule Aiur.DecisionStore do
     error -> {:error, Exception.message(error)}
   end
 
+  defp handle_executor_escalation(decision_id, payload, state) do
+    expected_version = Map.get(payload, :expected_version, Map.get(payload, "expected_version"))
+    executor_id = present_executor_field(payload, :executor_id)
+    reason = present_executor_field(payload, :reason)
+
+    with true <- is_integer(expected_version) and expected_version > 0,
+         executor_id when is_binary(executor_id) <- executor_id,
+         reason when is_binary(reason) <- reason,
+         {:ok, decision} <- fetch_decision(state, decision_id),
+         :ok <- validate_executor_escalation(decision, expected_version) do
+      record_executor_escalation(state, decision, executor_id, reason)
+    else
+      false -> {:reply, {:error, :invalid_expected_version}, state}
+      nil -> {:reply, {:error, :invalid_escalation}, state}
+      {:error, reason} -> {:reply, {:error, reason}, state}
+    end
+  end
+
+  # "The Executor decided" and "the Executor deferred to the human" are both
+  # decisions about the same Command, so both are appended to the same durable
+  # event log before any alert is attempted. The alert marker can be cleaned
+  # up, replaced, or lost; the DecisionEvent is what makes the escalation
+  # auditable and attributable afterwards.
+  defp record_executor_escalation(state, decision, executor_id, reason) do
+    if executor_escalation_recorded?(state, decision) do
+      open_and_reply(state, decision, executor_id, reason)
+    else
+      data = %{actor: %{kind: :executor, id: executor_id}, detail: reason}
+
+      case build_and_persist_event(:executor_escalated, decision, data, DateTime.utc_now(), state) do
+        {:ok, next_state, updated} -> open_and_reply(next_state, updated, executor_id, reason)
+        {:error, reason} -> {:reply, {:error, reason}, state}
+      end
+    end
+  end
+
+  # Re-escalating an already-recorded Command version is a no-op append: the
+  # attention opener is separately idempotent and reports `:already_open`.
+  defp executor_escalation_recorded?(state, decision) do
+    state.audit_history
+    |> Map.get(decision.decision_id, [])
+    |> Enum.any?(&(&1.type == :executor_escalated and &1.decision_version == decision.version))
+  end
+
+  defp open_and_reply(state, decision, executor_id, reason) do
+    case open_executor_attention(state, decision, executor_id, reason) do
+      {:ok, status} -> {:reply, {:ok, %{status: status, decision: decision}}, state}
+      {:error, failure} -> {:reply, {:error, failure}, state}
+    end
+  end
+
+  defp validate_executor_escalation(decision, expected_version) do
+    cond do
+      decision.version != expected_version ->
+        {:error, {:stale_version, expected_version, decision.version}}
+
+      not is_nil(decision.answer) ->
+        {:error, :already_answered}
+
+      decision.decision_status not in [:open, :deferred] ->
+        {:error, {:not_open, decision.decision_status}}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp open_executor_attention(state, decision, executor_id, reason) do
+    state.executor_attention_opener.(decision, executor_id, reason)
+  rescue
+    error -> {:error, {:attention_unavailable, Exception.message(error)}}
+  catch
+    :exit, reason -> {:error, {:attention_unavailable, reason}}
+  end
+
+  defp present_executor_field(payload, key) do
+    case Map.get(payload, key, Map.get(payload, Atom.to_string(key))) do
+      value when is_binary(value) ->
+        case String.trim(value) do
+          "" -> nil
+          value -> value
+        end
+
+      _value ->
+        nil
+    end
+  end
+
   @impl true
   def handle_call({:request, _payload, _opts}, _from, %{writable?: false} = state) do
     {:reply, {:error, {:store_unavailable, state.health}}, state}
@@ -515,6 +706,14 @@ defmodule Aiur.DecisionStore do
 
   def handle_call({:answer, decision_id, payload, opts}, _from, state) do
     handle_answer(decision_id, payload, opts, state)
+  end
+
+  def handle_call({:escalate_executor_command, _decision_id, _payload}, _from, %{writable?: false} = state) do
+    {:reply, {:error, {:store_unavailable, state.health}}, state}
+  end
+
+  def handle_call({:escalate_executor_command, decision_id, payload}, _from, state) do
+    handle_executor_escalation(decision_id, payload, state)
   end
 
   def handle_call({:dismiss, _decision_id, _opts}, _from, %{writable?: false} = state) do
@@ -994,6 +1193,28 @@ defmodule Aiur.DecisionStore do
   defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :supervisor}}, %Decision{}),
     do: {:error, {:answer_invalid, {:supervisor_basis, :decision_mismatch}}}
 
+  # The Executor may answer a Command directly, but "obvious" needs a floor the
+  # code enforces rather than one the Executor's prompt is trusted to observe.
+  # The Command's own author declares how consequential it is, so that
+  # declaration is the gate: only an already-delegable authority and a fully
+  # reversible outcome may be auto-answered. Everything else — human_required,
+  # irreversible or partially reversible work, and any unrecognized or missing
+  # value — is refused here so the Executor must escalate it to the operator
+  # instead. This mirrors the supervisor basis check directly above: both bind
+  # a non-operator answer to the Decision's own declared policy fields.
+  defp validate_answer_policy_context(%DecisionAnswer{actor: %{kind: :executor}}, %Decision{} = request) do
+    cond do
+      request.authority not in @executor_answerable_authorities ->
+        {:error, {:answer_invalid, {:executor_scope, {:authority, request.authority}}}}
+
+      request.reversibility not in @executor_answerable_reversibilities ->
+        {:error, {:answer_invalid, {:executor_scope, {:reversibility, request.reversibility}}}}
+
+      true ->
+        :ok
+    end
+  end
+
   defp validate_answer_policy_context(%DecisionAnswer{}, %Decision{}), do: :ok
 
   defp answer_error({:answer_invalid, {:stale_version, expected, current}}),
@@ -1051,15 +1272,33 @@ defmodule Aiur.DecisionStore do
   defp handle_dismiss(decision_id, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts) do
-      case decision.decision_status do
-        :open -> persist_dismissal(decision, actor, state)
-        :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
-        status -> {:reply, {:error, {:conflict, status}}, state}
+      cond do
+        decision.decision_status == :dismissed ->
+          {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+        decision.decision_status not in [:open, :deferred] ->
+          {:reply, {:error, {:conflict, decision.decision_status}}, state}
+
+        unresolvable_block?(decision) ->
+          {:reply, {:error, {:conflict, :blocking_requires_answer}}, state}
+
+        true ->
+          persist_dismissal(decision, actor, state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  # Dismissal records a status and stops: it delivers nothing to the waiting
+  # agent. That is honest for a non-blocking notice, and honest for a legacy
+  # attention because the caller resolves the underlying attention alongside
+  # it. For an agent-filed blocking Command neither holds — the ticket stays
+  # blocked while the row leaves the operator's inbox, which turns a visible
+  # block into an invisible one. Refuse instead: the answer path (including a
+  # custom response) is what actually releases the agent.
+  defp unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
+  defp unresolvable_block?(_decision), do: false
 
   defp persist_dismissal(decision, actor, state) do
     case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do
@@ -1511,7 +1750,7 @@ defmodule Aiur.DecisionStore do
         }
         |> repair_projection()
 
-      notify(current, event_id)
+      notify(current, event_id, state)
       {:reply, {:ok, %{status: :accepted, decision: current}}, new_state}
     else
       {:error, reason} -> {:reply, {:error, {:append_failed, reason}}, state}
@@ -1620,6 +1859,10 @@ defmodule Aiur.DecisionStore do
       notify_deferred_executor(decision)
     end
 
+    if event.type in [:answer_recorded, :decision_dismissed, :decision_expired] do
+      resolve_executor_escalation(decision)
+    end
+
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
     rescue
@@ -1629,11 +1872,48 @@ defmodule Aiur.DecisionStore do
     :ok
   end
 
+  defp resolve_executor_escalation(decision) do
+    case ExecutorCommandAttention.resolve(decision) do
+      :ok -> :ok
+      {:error, reason} -> Logger.warning("aiur_decision_store phase=executor_escalation_resolution_failed reason=#{inspect(reason)}")
+    end
+  rescue
+    error -> Logger.warning("aiur_decision_store phase=executor_escalation_resolution_failed error=#{Exception.message(error)}")
+  end
+
   defp reconcile_deferred_executor_notifications(state) do
     state.current
     |> Map.values()
     |> Enum.filter(&(&1.decision_status == :deferred))
     |> Enum.each(&notify_deferred_executor/1)
+  end
+
+  defp reconcile_requested_executor_notifications(state) do
+    decisions =
+      state.current
+      |> Map.values()
+      |> Enum.filter(&(&1.decision_status in [:open, :deferred]))
+
+    reconcile_requested_executor_notifications(decisions, state)
+  end
+
+  defp reconcile_requested_executor_notifications(decisions, state) do
+    case state.executor_request_boot_reconciler.(decisions) do
+      {:ok, _published_count} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("aiur_decision_store phase=executor_request_reconciliation_failed reason=#{inspect(reason)}")
+        Enum.each(decisions, &schedule_executor_request_retry(&1, state, 0))
+    end
+  rescue
+    error ->
+      Logger.warning("aiur_decision_store phase=executor_request_reconciliation_failed error=#{Exception.message(error)}")
+      Enum.each(decisions, &schedule_executor_request_retry(&1, state, 0))
+  catch
+    :exit, reason ->
+      Logger.warning("aiur_decision_store phase=executor_request_reconciliation_failed exit=#{inspect(reason)}")
+      Enum.each(decisions, &schedule_executor_request_retry(&1, state, 0))
   end
 
   defp notify_deferred_executor(decision) do
@@ -1649,6 +1929,7 @@ defmodule Aiur.DecisionStore do
   defp lifecycle_slug(:decision_expired), do: "expired"
   defp lifecycle_slug(:decision_dismissed), do: "dismissed"
   defp lifecycle_slug(:decision_deferred), do: "deferred"
+  defp lifecycle_slug(:executor_escalated), do: "executor-escalated"
   defp lifecycle_slug(:enriched), do: "enriched"
   defp lifecycle_slug(:revision_recorded), do: "revision-recorded"
   defp lifecycle_slug(:dispatch_queued), do: "queued"
@@ -2131,6 +2412,18 @@ defmodule Aiur.DecisionStore do
   end
 
   @impl true
+  def handle_info({:retry_executor_request_notification, decision_id, version, attempt}, state) do
+    case Map.get(state.current, decision_id) do
+      %Decision{version: ^version, decision_status: status} = decision when status in [:open, :deferred] ->
+        notify_requested_executor(decision, state, :executor_request_reconciler, attempt)
+
+      _terminal_or_replaced ->
+        :ok
+    end
+
+    {:noreply, state}
+  end
+
   def handle_info({:reconcile_dispatches, fences}, state) do
     next_state =
       Enum.reduce(fences, state, &reconcile_scheduled_decision/2)
@@ -2926,7 +3219,7 @@ defmodule Aiur.DecisionStore do
     MapSet.member?(Map.get(state, :lifecycle_append_failures, MapSet.new()), action_id)
   end
 
-  defp notify(decision, event_id) do
+  defp notify(decision, event_id, state) do
     topic = "ticket.#{decision.ticket.identifier}.agent.decision.requested"
     payload = DecisionProjection.to_json_safe(decision)
 
@@ -2936,6 +3229,8 @@ defmodule Aiur.DecisionStore do
       error -> Logger.warning("aiur_decision_store phase=notify_publisher_failed error=#{Exception.message(error)}")
     end
 
+    notify_requested_executor(decision, state, :executor_request_publisher)
+
     try do
       DecisionPubSub.broadcast_changed(decision.decision_id, decision.version)
     rescue
@@ -2943,6 +3238,49 @@ defmodule Aiur.DecisionStore do
     end
 
     :ok
+  end
+
+  defp notify_requested_executor(decision, state, publisher_key, attempt \\ 0) do
+    case state[publisher_key].(decision) do
+      {:ok, _id, _subscribers} ->
+        :ok
+
+      {:error, reason} ->
+        Logger.warning("aiur_decision_store phase=executor_request_notification_failed reason=#{inspect(reason)}")
+        schedule_executor_request_retry(decision, state, attempt)
+    end
+  rescue
+    error ->
+      Logger.warning("aiur_decision_store phase=executor_request_notification_failed error=#{Exception.message(error)}")
+      schedule_executor_request_retry(decision, state, attempt)
+  catch
+    :exit, reason ->
+      Logger.warning("aiur_decision_store phase=executor_request_notification_failed exit=#{inspect(reason)}")
+      schedule_executor_request_retry(decision, state, attempt)
+  end
+
+  # Bounded exactly like every sibling retry path (`schedule_append_retry`,
+  # `schedule_transient_retry`): once the configured delay ladder is exhausted
+  # the store gives up rather than reconciling the whole journal forever.
+  defp schedule_executor_request_retry(decision, state, attempt) do
+    case Enum.at(state.retry_delays_ms, attempt) do
+      delay when is_integer(delay) and delay >= 0 ->
+        state.dispatch_scheduler.(
+          self(),
+          {:retry_executor_request_notification, decision.decision_id, decision.version, attempt + 1},
+          delay
+        )
+
+        :ok
+
+      _exhausted ->
+        Logger.warning(
+          "aiur_decision_store phase=executor_request_notification_retry_exhausted " <>
+            "decision_id=#{decision.decision_id} version=#{decision.version} attempts=#{attempt}"
+        )
+
+        :ok
+    end
   end
 
   defp recent_audit_payload(state, records) do

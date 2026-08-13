@@ -7,6 +7,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
   alias Aiur.BuildOrder.{Catalog, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.{RunTelemetry, TrackerIdentity}
+  alias Aiur.TestSupport.AwaitingCommands
   alias Aiur.UsageAggregate.Projection
   alias AiurWeb.Endpoint
 
@@ -37,7 +38,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
     end
   end
 
-  setup do
+  setup context do
     previous_telemetry = Application.get_env(:aiur, :analytics_telemetry_file)
     previous_endpoint = Application.get_env(:aiur, Endpoint)
 
@@ -50,6 +51,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
         dashboard_writable: false,
         dashboard_auth_required: false
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -508,5 +510,65 @@ defmodule AiurWeb.AnalyticsLiveTest do
           extra
         )
     }
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Analytics" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ "decisions-banner"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "re-reads the awaiting count on a Command signal and on its own tick" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+    store = Endpoint.config(:decision_store)
+
+    {:ok, view, html} = live(build_conn(), "/analytics")
+    assert html =~ "2 units awaiting commands"
+
+    # A best-effort broadcast is the fast path.
+    :ok = AwaitingCommands.put_counts(store, open: 1, awaiting: 1, blocking: 0, awaiting_blocking: 0)
+    send(view.pid, {:decision_changed, "dec-1", 2})
+    assert render(view) =~ "1 unit awaiting commands"
+
+    # The tick is the safety net for a broadcast that never arrives: without it
+    # this page would keep showing a count the Commands page has moved past.
+    :ok = AwaitingCommands.put_counts(store, open: 0, awaiting: 0)
+    send(view.pid, :awaiting_commands_tick)
+    refute render(view) =~ "units awaiting commands"
+  end
+
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  test "omits the awaiting-Commands banner when nothing is waiting" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, _view, html} = live(build_conn(), "/analytics")
+
+    refute html =~ "units awaiting commands"
+    refute html =~ "decisions-banner"
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "survives every message the Command topic carries" do
+    Application.put_env(:aiur, :analytics_telemetry_file, @fixtures)
+
+    {:ok, view, html} = live(build_conn(), "/analytics")
+    assert html =~ "2 units awaiting commands"
+
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: AwaitingCommands.start(counts)]
+    end
   end
 end

@@ -8,7 +8,7 @@ defmodule Aiur.Opencode.Slot.AttachPane do
 
   require Logger
 
-  alias Aiur.Opencode.{HiddenWindow, Protocol}
+  alias Aiur.Opencode.{HiddenWindow, Protocol, SlotSupervisor}
   alias Aiur.Tmux
 
   @hidden_split_percent 50
@@ -29,6 +29,8 @@ defmodule Aiur.Opencode.Slot.AttachPane do
   def spawn(_slot_index, base_url, keep_alive_pane) do
     attach_cmd = Protocol.attach_command(base_url)
 
+    resize_hidden_window_for_live_slots()
+
     with {:ok, pane_id} <-
            Tmux.split_pane(
              Tmux,
@@ -41,6 +43,23 @@ defmodule Aiur.Opencode.Slot.AttachPane do
       Aiur.ProcessReaper.register(:agent, {:pane, pane_id})
       {:ok, pane_id}
     end
+  end
+
+  defp resize_hidden_window_for_live_slots do
+    slot_count = max(SlotSupervisor.slot_count(), 1)
+
+    with {:ok, [dims | _]} <- Tmux.command(Tmux, "display-message -p -t aiur-orangekid-default:0 \"\#{window_width} \#{window_height}\""),
+         [width, height] <- String.split(String.trim(dims), " ", trim: true),
+         {term_w, ""} <- Integer.parse(width),
+         {term_h, ""} <- Integer.parse(height) do
+      pane_width = max(div(term_w, 2), 40)
+      _ = Tmux.command(Tmux, "resize-window -t aiur-orangekid-default:aiur-hidden -x #{pane_width * slot_count} -y #{term_h}")
+      _ = Tmux.command(Tmux, "select-layout -t aiur-orangekid-default:aiur-hidden even-horizontal")
+    end
+
+    :ok
+  rescue
+    _ -> :ok
   end
 
   @doc """

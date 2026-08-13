@@ -69,7 +69,8 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
 
   defp announce_ready(indexes) do
     for index <- indexes do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_ready, index})
+      {:ok, pid} = SlotRegistry.lookup(index)
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_ready, index, pid})
     end
   end
 
@@ -96,6 +97,60 @@ defmodule Aiur.Regression.OpencodeSlotsTest do
       refute_receive {:slot_call, _, _, _}, 1000
 
       announce_ready([1])
+      assert_receive {:slot_call, :set_visible, 1, "issue-1"}, 2000
+    end
+
+    test "terminated slot lifetime is purged before a replacement can fan out", %{pool: pool} do
+      AttachPool.seed(pool, ["issue-1"])
+      sync(pool)
+      start_slots(self(), 1)
+      announce_ready([1])
+      assert_receive {:slot_call, :set_visible, 1, "issue-1"}, 2000
+
+      {:ok, old_pid} = SlotRegistry.lookup(1)
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_terminated, 1, old_pid})
+
+      assert Enum.any?(1..20, fn _ ->
+               state = sync(pool)
+
+               ready? =
+                 AttachPool.attach_count(pool, "issue-1") == 0 and
+                   not Map.has_key?(state.fanned_out_slots, 1) and
+                   not Map.has_key?(state.slot_pids, 1)
+
+               unless ready?, do: Process.sleep(50)
+               ready?
+             end)
+    end
+
+    test "a stale ready cannot suppress replacement lifetime fan-out", %{pool: pool} do
+      AttachPool.seed(pool, ["issue-1"])
+      sync(pool)
+      start_slots(self(), 1)
+      {:ok, old_pid} = SlotRegistry.lookup(1)
+      announce_ready([1])
+      assert_receive {:slot_call, :set_visible, 1, "issue-1"}, 2000
+
+      Phoenix.PubSub.broadcast(Aiur.PubSub, Slot.slots_topic(), {:slot_terminated, 1, old_pid})
+      stop_supervised({:slot, 1})
+      start_slots(self(), 1)
+      {:ok, replacement_pid} = SlotRegistry.lookup(1)
+      refute replacement_pid == old_pid
+
+      Phoenix.PubSub.broadcast(
+        Aiur.PubSub,
+        Slot.slots_topic(),
+        {:slot_ready, 1, old_pid}
+      )
+
+      refute_receive {:slot_call, :set_visible, 1, _}, 500
+
+      Phoenix.PubSub.broadcast(
+        Aiur.PubSub,
+        Slot.slots_topic(),
+        {:slot_ready, 1, replacement_pid}
+      )
+
       assert_receive {:slot_call, :set_visible, 1, "issue-1"}, 2000
     end
 

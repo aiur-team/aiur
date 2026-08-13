@@ -236,14 +236,48 @@ defmodule Aiur.Regression.EngineControlTest do
       end)
 
       {out, 0} =
-        run_sourced_engine(
-          ~s|if run_control_rpc "Aiur.AgentControlCLI.status()"; then code=0; else code=$?; fi; echo "CODE=$code"|,
-          [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}]
-        )
+        run_control_rpc_captured("Aiur.AgentControlCLI.status()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state}
+        ])
 
       assert out =~ "CODE=1"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "failed with exit 1 and returned no diagnostic output"
       refute out =~ "returned no exit marker"
       refute out =~ "no running aiur node"
+    end
+
+    test "a forwarded application error is printed without exposing its protocol marker" do
+      rel = fake_release()
+      state = tmp_state()
+
+      File.write!(Path.join([rel, "bin", "aiur"]), """
+      #!/usr/bin/env bash
+      echo "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 5s; outcome is unknown"
+      echo "__AIUR_CONTROL_EXIT__:124"
+      """)
+
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured("Aiur.AgentControlCLI.status()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state}
+        ])
+
+      assert out =~ "CODE=124"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "aiur: status query timed out after 5s; outcome is unknown"
+      refute out =~ "__AIUR_CONTROL_ERROR__"
+      refute out =~ "__AIUR_CONTROL_EXIT__"
     end
 
     test "a missing marker is an error" do
@@ -292,12 +326,138 @@ defmodule Aiur.Regression.EngineControlTest do
       assert out =~ "timed out after 1s"
     end
 
+    test "a timed-out rpc discards partial command output and emits one diagnostic line" do
+      rel = fake_release()
+      state = tmp_state()
+
+      File.write!(Path.join([rel, "bin", "aiur"]), """
+      #!/usr/bin/env bash
+      echo "ISSUE  STATE"
+      echo "#44    working"
+      sleep 5
+      """)
+
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured("Aiur.AgentControlCLI.agents()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state},
+          {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", "1"}
+        ])
+
+      assert out =~ "CODE=124"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "timed out after 1s"
+      assert out =~ "outcome is unknown"
+      assert out =~ "partial output was discarded"
+      refute out =~ "ISSUE  STATE"
+      refute out =~ "#44    working"
+    end
+
+    test "a silent streaming rpc failure emits a diagnostic" do
+      rel = fake_release()
+      state = tmp_state()
+      File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\nexit 9\n")
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_captured("run_control_stream", "Aiur.AgentControlCLI.executor_listen()", [
+          {"AIUR_RELEASE_DIR", rel},
+          {"AIUR_BG_STATE_DIR", state}
+        ])
+
+      assert out =~ "CODE=9"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "aiur: streaming control RPC failed with exit 9"
+    end
+
+    test "an rpc that dies without a word names the command instead of pointing at nothing (#1684)" do
+      rel = fake_release()
+      state = tmp_state()
+      # `elixir --rpc-eval` kills itself with no message when the evaluated
+      # expression exits — what a GenServer call timing out against a saturated
+      # daemon does. This is the shape that produced exit 1 with an empty buffer.
+      File.write!(Path.join([rel, "bin", "aiur"]), "#!/usr/bin/env bash\nexit 1\n")
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      {out, 0} =
+        run_control_rpc_captured(
+          "Aiur.AgentControlCLI.status()",
+          [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", state}],
+          ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND=status|
+        )
+
+      assert out =~ "CODE=1"
+      assert out =~ "STDOUT_BYTES=0"
+      assert out =~ "STDERR_LINES=1"
+      assert out =~ "aiur: status failed against"
+      assert out =~ "with no diagnostic output (node is running); outcome is unknown"
+      refute out =~ "see the error above"
+    end
+
+    test "every read-only command surfaces a diagnostic on each silent-failure shape (#1684)" do
+      state = tmp_state()
+      on_exit(fn -> File.rm_rf(state) end)
+
+      shapes = [
+        {"silent nonzero exit", "#!/usr/bin/env bash\nexit 1\n", "1"},
+        {"nonzero marker, no output", "#!/usr/bin/env bash\necho \"__AIUR_CONTROL_EXIT__:1\"\n", "1"},
+        {"no marker at all", "#!/usr/bin/env bash\n", "1"},
+        {"hung rpc", "#!/usr/bin/env bash\nsleep 5\n", "1"}
+      ]
+
+      for command <- ~w(status agents watch alerts usage commands analytics),
+          {shape, body, timeout_seconds} <- shapes do
+        rel = fake_release()
+        File.write!(Path.join([rel, "bin", "aiur"]), body)
+        File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+        on_exit(fn -> File.rm_rf(rel) end)
+
+        {out, 0} =
+          run_control_rpc_captured(
+            "Aiur.AgentControlCLI.#{command}()",
+            [
+              {"AIUR_RELEASE_DIR", rel},
+              {"AIUR_BG_STATE_DIR", state},
+              {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", timeout_seconds}
+            ],
+            ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND=#{command}|
+          )
+
+        context = "#{command} / #{shape}: #{out}"
+
+        refute out =~ "CODE=0", context
+        assert out =~ ~r/STDERR_LINES=[1-9]/, context
+        assert out =~ "aiur: #{command} ", context
+      end
+    end
+
     test "the marker and readiness literals are pinned across both languages" do
       cli = File.read!(Path.expand("../../../lib/aiur/agent_control_cli.ex", __DIR__))
       engine = File.read!(@engine)
 
       assert cli =~ ~s|@exit_marker "__AIUR_CONTROL_EXIT__:"|
+      assert cli =~ ~s|@error_marker "__AIUR_CONTROL_ERROR__:"|
       assert engine =~ ~s|marker="__AIUR_CONTROL_EXIT__:"|
+      assert engine =~ ~s|error_marker="__AIUR_CONTROL_ERROR__:"|
       assert engine =~ "__AIUR_CONTROL_READY__"
       assert engine =~ "__AIUR_CONTROL_NOT_READY__"
     end
@@ -533,6 +693,41 @@ defmodule Aiur.Regression.EngineControlTest do
       env: [{"AIUR_ENGINE", @engine} | env],
       stderr_to_stdout: true
     )
+  end
+
+  defp run_control_rpc_captured(expression, env, prelude \\ "") do
+    run_control_captured("run_control_rpc", expression, env, prelude)
+  end
+
+  defp run_control_captured(function, expression, env, prelude \\ "") do
+    stdout_path = Path.join(System.tmp_dir!(), "aiur-control-stdout-#{System.unique_integer([:positive])}")
+    stderr_path = Path.join(System.tmp_dir!(), "aiur-control-stderr-#{System.unique_integer([:positive])}")
+
+    on_exit(fn ->
+      File.rm(stdout_path)
+      File.rm(stderr_path)
+    end)
+
+    script = """
+    #{prelude}
+    if "$CONTROL_FUNCTION" "$CONTROL_EXPRESSION" >"$STDOUT_PATH" 2>"$STDERR_PATH"; then
+      code=0
+    else
+      code=$?
+    fi
+    echo "CODE=$code"
+    echo "STDOUT_BYTES=$(wc -c < \"$STDOUT_PATH\")"
+    echo "STDERR_LINES=$(wc -l < \"$STDERR_PATH\")"
+    cat "$STDERR_PATH"
+    """
+
+    run_sourced_engine(script, [
+      {"CONTROL_FUNCTION", function},
+      {"CONTROL_EXPRESSION", expression},
+      {"STDOUT_PATH", stdout_path},
+      {"STDERR_PATH", stderr_path}
+      | env
+    ])
   end
 
   defp fake_tmux_script(body) do

@@ -1,10 +1,32 @@
 defmodule Aiur.PaneManagerTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.{AgentPubSub, PaneManager, Tmux}
 
   setup do
     start_pane_manager(3)
+  end
+
+  test "two unnamed instances start independently" do
+    {:ok, first_tmux} =
+      start_supervised({Tmux, [transport: {:mock, self()}, session: "first"]}, id: :first_unnamed_tmux)
+
+    {:ok, second_tmux} =
+      start_supervised({Tmux, [transport: {:mock, self()}, session: "second"]}, id: :second_unnamed_tmux)
+
+    {:ok, first} =
+      start_supervised(
+        {PaneManager, [tmux: first_tmux, agent_list_pane: "%1", window_target: "first:0", slot_count: 1]},
+        id: :first_unnamed_pane_manager
+      )
+
+    {:ok, second} =
+      start_supervised(
+        {PaneManager, [tmux: second_tmux, agent_list_pane: "%1", window_target: "second:0", slot_count: 1]},
+        id: :second_unnamed_pane_manager
+      )
+
+    assert first != second
   end
 
   defp start_pane_manager(max_vertical_panes) do

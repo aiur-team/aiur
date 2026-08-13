@@ -328,13 +328,15 @@ defmodule AiurWeb.BuildOrder.RouteState do
 
   defp selected_snapshot_for_state?(_snapshot, _state), do: false
 
+  # Availability outranks structure: an unfetched graph is unknown, not malformed,
+  # and routing it to `:selected_invalid` tells every downstream region (usage,
+  # analytics, breakdown) to blame the operator's Build Order for an outage.
   defp selected_status(%Snapshot{data: %SelectedRoot{} = selected, health: %ProviderHealth{} = health}) do
-    cond do
-      not SelectedRoot.structurally_valid?(selected) -> :selected_invalid
-      health.state == :structurally_invalid -> :selected_invalid
-      health.state == :stale -> :selected_stale
-      health.state == :unavailable -> :selected_unavailable
-      true -> :selected
+    case SelectedRoot.availability(selected, health) do
+      :structurally_invalid -> :selected_invalid
+      :provider_stale -> :selected_stale
+      :provider_unavailable -> :selected_unavailable
+      nil -> if SelectedRoot.structurally_valid?(selected), do: :selected, else: :selected_invalid
     end
   end
 
@@ -342,6 +344,13 @@ defmodule AiurWeb.BuildOrder.RouteState do
 
   defp selected_status(%Snapshot{data: nil, health: %ProviderHealth{state: :structurally_invalid}}),
     do: :selected_invalid
+
+  # An unfetched graph whose provider has not yet recorded a failure is still
+  # loading, not unavailable: the initial demand returns a nil-data snapshot
+  # while the async fetch is in flight, and erroring here is the flicker the
+  # shimmer replaces. A recorded failure is the only honest "unavailable".
+  defp selected_status(%Snapshot{data: nil, health: %ProviderHealth{state: :unavailable, failure: nil}}),
+    do: :selected_loading
 
   defp selected_status(%Snapshot{data: nil, health: %ProviderHealth{state: :unavailable}}),
     do: :selected_unavailable

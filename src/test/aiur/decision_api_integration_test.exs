@@ -38,6 +38,7 @@ defmodule Aiur.DecisionApiIntegrationTest do
     {:ok, store} =
       DecisionStore.start_link(
         name: nil,
+        state_dir: dir,
         filesystem_sync_fun: fn -> :ok end,
         dispatcher: dispatcher,
         dispatch_delay_ms: 0

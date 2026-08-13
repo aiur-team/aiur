@@ -10,6 +10,19 @@ defmodule AiurWeb.StaticAssets do
   @phoenix_live_view_js_path Application.app_dir(:phoenix_live_view, "priv/static/phoenix_live_view.js")
   @layout_vendor_path "priv/static/vendor/elk/0.11.1"
 
+  @revalidated_static_paths ~w(
+    aiur-dom-svg-layout
+    aiur-dom-svg-layout-adapter.js
+    aiur-dom-svg-layout-loader.js
+    build-order-grid-hook.js
+    conversation-drawer-hook.js
+    dashboard.css
+    streamdeck-emulator-hook.js
+    ticket-context-dialog-hook.js
+    time-brush-hook.js
+  )
+  @long_lived_static_paths ~w(aiur-logo.png bungee.woff2)
+
   @layout_asset_definitions %{
     engine: %{name: "engine", revision: "elk-0.11.1", file: "elk-worker.min.js"},
     worker: %{name: "worker", revision: "worker-v1", file: "aiur-layout-worker.js"},
@@ -31,6 +44,7 @@ defmodule AiurWeb.StaticAssets do
     "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
+    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"},
     "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
   }
 
@@ -53,6 +67,30 @@ defmodule AiurWeb.StaticAssets do
     "/vendor/phoenix/phoenix.js" => {"application/javascript", @phoenix_js},
     "/vendor/phoenix_live_view/phoenix_live_view.js" => {"application/javascript", @phoenix_live_view_js}
   }
+
+  @spec revalidated_static_paths() :: [String.t()]
+  def revalidated_static_paths, do: @revalidated_static_paths
+
+  @spec long_lived_static_paths() :: [String.t()]
+  def long_lived_static_paths, do: @long_lived_static_paths
+
+  @spec provider_asset_paths() :: [String.t()]
+  def provider_asset_paths do
+    CodingAgent.provider_descriptors()
+    |> Enum.flat_map(&[&1.logo, &1.token_icon])
+    |> Enum.map(&String.replace_prefix(&1, "/provider-assets/", ""))
+    |> Enum.uniq()
+    |> Enum.sort()
+  end
+
+  @spec served_path?([String.t()]) :: boolean()
+  def served_path?(["provider-assets", asset]), do: asset in provider_asset_paths()
+
+  def served_path?([asset | _segments]) do
+    asset in @revalidated_static_paths or asset in @long_lived_static_paths
+  end
+
+  def served_path?(_path), do: false
 
   @spec layout_asset_urls() :: %{engine: String.t(), worker: String.t(), client: String.t()}
   def layout_asset_urls do

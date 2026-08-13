@@ -107,13 +107,31 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # (column headings + a single "No active agents" row) rather than an error.
     assert unavailable =~ "No active agents"
     assert unavailable =~ "units-table"
+    assert unavailable =~ "Units catalog unavailable"
+    assert unavailable =~ "membership failed"
     assert empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
     assert filtered =~ ~s(class="btn ghost units-reset")
-    assert stale =~ "Units may be stale"
-    assert stale =~ "last known membership"
+    # A stale catalog no longer prints a dedicated banner; the last-known-good
+    # rows render directly without the noisy "Stale Units catalog" notice.
+    refute stale =~ "Stale Units catalog"
+    refute stale =~ "last known membership"
+    assert stale =~ "units-table"
     assert stale =~ "Responsive Units interface"
+
+    # A stale catalog with nothing retained must still account for the empty
+    # table rather than rendering a blank area.
+    stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
+    refute stale_empty =~ "Stale Units catalog"
+    assert stale_empty =~ "No units have been observed in this run."
+    refute stale_empty =~ "units-table"
+
+    # The filter-hides-everything case still belongs to zero_result?, not to the
+    # catalog-empty message.
+    stale_filtered = render(%{status: :stale, message: "last known membership", rows: [], zero_result?: true})
+    assert stale_filtered =~ "No units match this valid scope"
+    refute stale_filtered =~ "No units have been observed in this run."
 
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
     assert partial =~ "Units catalog is partial"
@@ -208,6 +226,36 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     render_component(&UnitsTable.units_table/1, %{view: view, now: ~U[2026-07-17 12:00:00Z]})
   end
 
+  test "reserves the red alert treatment for rows blocked awaiting a command/decision" do
+    html = render(view([row_with_tone(:blocked)]))
+
+    assert html =~ ~s(class="units-row is-blocked")
+    assert html =~ ~s(class="ut-alert")
+  end
+
+  test "renders active, queued, and paused rows with distinct non-red tones" do
+    active = render(view([row_with_tone(:active)]))
+    queued = render(view([row_with_tone(:queued)]))
+    paused = render(view([row_with_tone(:paused)]))
+
+    # Active is neutral: no tone class and no warning glyph.
+    refute active =~ ~s(is-blocked)
+    refute active =~ ~s(is-paused)
+    refute active =~ ~s(is-queued)
+    refute active =~ ~s(has-alert)
+    refute active =~ ~s(class="ut-alert")
+
+    # Queued is muted and never carries the red-blocking or warning treatment.
+    assert queued =~ ~s(class="units-row is-queued")
+    refute queued =~ ~s(is-blocked)
+    refute queued =~ ~s(class="ut-alert")
+
+    # Paused is a subtle amber/gray tone, distinct from blocked red.
+    assert paused =~ ~s(class="units-row is-paused")
+    refute paused =~ ~s(is-blocked)
+    refute paused =~ ~s(class="ut-alert")
+  end
+
   test "offers the explicit Read conversation action only when a valid handle is present" do
     handle = "conversation:" <> String.duplicate("a", 43)
     row = Map.put(row(), :live_conversation, %{generation_handle: handle})
@@ -290,5 +338,32 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
       field_sources: %{},
       sources: %{}
     }
+  end
+
+  defp row_with_tone(:blocked), do: row()
+
+  defp row_with_tone(:active) do
+    row()
+    |> Map.put(:reasons, %{waiting: :active, blocking: nil, alert: nil, pause: nil, stuck: nil})
+    |> Map.put(:open_command_count, 0)
+    |> put_in([:runtime, :waiting_reason], :active)
+    |> put_in([:runtime, :work_state], :working)
+  end
+
+  defp row_with_tone(:queued) do
+    row()
+    |> Map.put(:reasons, %{waiting: :awaiting_dispatch, blocking: nil, alert: nil, pause: nil, stuck: nil})
+    |> Map.put(:open_command_count, 0)
+    |> put_in([:runtime, :bucket], :retrying)
+    |> put_in([:runtime, :waiting_reason], :awaiting_dispatch)
+    |> put_in([:runtime, :work_state], :idle)
+  end
+
+  defp row_with_tone(:paused) do
+    row()
+    |> Map.put(:reasons, %{waiting: :paused, blocking: nil, alert: nil, pause: :operator_pause, stuck: nil})
+    |> Map.put(:open_command_count, 0)
+    |> put_in([:runtime, :work_state], :paused)
+    |> put_in([:runtime, :waiting_reason], :paused)
   end
 end

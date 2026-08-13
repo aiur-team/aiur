@@ -845,4 +845,8 @@ defmodule Aiur.Orchestrator.OperatorMessages do
 
   @spec issue_control_capabilities(State.t(), String.t()) :: map()
   defdelegate issue_control_capabilities(state, issue_identifier), to: Capabilities
+
+  @doc false
+  @spec issue_control_capabilities(State.t(), String.t(), map() | nil) :: map()
+  defdelegate issue_control_capabilities(state, issue_identifier, running_entry), to: Capabilities
 end

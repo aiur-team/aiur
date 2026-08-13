@@ -173,18 +173,18 @@ defmodule Aiur.OpenAICompat.BalanceBaseline do
   end
 
   # Best-effort persistence: a write that raises (read-only mount, full disk,
-  # path is a directory) must never take down the whole meter probe, so it
-  # degrades to "no baseline → dollar-only".
+  # path is a directory, or an intermediate directory that cannot be created)
+  # must never take down the whole meter probe, so it degrades to
+  # "no baseline → dollar-only". `File.mkdir_p!/1` is inside the guard for the
+  # same reason `File.write!/1` is: a `mkdir` that fails (read-only mount) is
+  # exactly the failure this module promises to contain, not to propagate.
   defp write(path, state) do
     File.mkdir_p!(Path.dirname(path))
-
-    try do
-      File.write!(path, Jason.encode!(state, pretty: true))
-      :ok
-    rescue
-      _error -> :error
-    catch
-      _kind, _reason -> :error
-    end
+    File.write!(path, Jason.encode!(state, pretty: true))
+    :ok
+  rescue
+    _error -> :error
+  catch
+    _kind, _reason -> :error
   end
 end

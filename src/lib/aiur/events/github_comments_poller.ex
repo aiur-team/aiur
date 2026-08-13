@@ -17,6 +17,15 @@ defmodule Aiur.Events.GithubCommentsPoller do
   @default_max_concurrency 4
   @default_target_timeout 60_000
 
+  @doc false
+  @spec max_duration_ms(non_neg_integer(), keyword()) :: non_neg_integer()
+  def max_duration_ms(target_count, opts) when is_integer(target_count) and target_count >= 0 do
+    max_concurrency = positive_integer_option(opts, :max_concurrency, @default_max_concurrency)
+    target_timeout = positive_integer_option(opts, :timeout, @default_target_timeout)
+    waves = ceil_div(target_count, max_concurrency)
+    waves * target_timeout
+  end
+
   @spec poll([target()], keyword()) :: {:ok, map()}
   def poll(targets, opts \\ []) when is_list(targets) do
     targets = normalize_targets(targets)
@@ -94,29 +103,31 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
 
     task_opts = [
-      max_concurrency: Keyword.get(opts, :max_concurrency, @default_max_concurrency),
-      timeout: Keyword.get(opts, :timeout, @default_target_timeout),
+      max_concurrency: positive_integer_option(opts, :max_concurrency, @default_max_concurrency),
+      timeout: positive_integer_option(opts, :timeout, @default_target_timeout),
       on_timeout: :kill_task
     ]
 
-    case Process.whereis(Aiur.TaskSupervisor) do
-      pid when is_pid(pid) ->
-        pid
-        |> Task.Supervisor.async_stream_nolink(targets, run_target, task_opts)
-        |> Enum.to_list()
+    previous_trap_exit = Process.flag(:trap_exit, true)
 
-      nil ->
-        previous_trap_exit = Process.flag(:trap_exit, true)
-
-        try do
-          targets
-          |> Task.async_stream(run_target, task_opts)
-          |> Enum.to_list()
-        after
-          Process.flag(:trap_exit, previous_trap_exit)
-        end
+    try do
+      targets
+      |> Task.async_stream(run_target, task_opts)
+      |> Enum.to_list()
+    after
+      Process.flag(:trap_exit, previous_trap_exit)
     end
   end
+
+  defp positive_integer_option(opts, key, default) do
+    case Keyword.get(opts, key, default) do
+      value when is_integer(value) and value > 0 -> value
+      _other -> default
+    end
+  end
+
+  defp ceil_div(0, _denominator), do: 0
+  defp ceil_div(numerator, denominator), do: div(numerator + denominator - 1, denominator)
 
   defp normalize_targets(targets) do
     targets
@@ -254,15 +265,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp poll_pr_comments_for_open_pull_request(target, pr, since, etags, repo, opts) when is_map(pr) do
     case parse_integer(Map.get(pr, "number")) do
       pr_number when is_integer(pr_number) ->
+        review_context = review_context(pr)
+
         {conversation_count, conversation_newest, conversation_result, conversation_etag} =
-          poll_pr_issue_comments(target, pr_number, since, Map.get(etags, {:pr_issue, pr_number}), repo, opts)
+          poll_pr_issue_comments(target, pr_number, since, Map.get(etags, {:pr_issue, pr_number}), repo, review_context, opts)
 
         {thread_count, thread_result} =
-          poll_unaddressed_pr_review_threads(target, pr_number, repo, opts)
+          poll_unaddressed_pr_review_threads(target, pr_number, repo, approval_only_context(review_context), opts)
 
         {review_count, review_result, review_seen_at} =
           if review_submission_enabled?(target, opts),
-            do: poll_pr_review_submissions(target, pr_number, repo, opts),
+            do: poll_pr_review_submissions(target, pr_number, repo, review_context, opts),
             else: {0, :ok, nil}
 
         {
@@ -281,17 +294,17 @@ defmodule Aiur.Events.GithubCommentsPoller do
   defp poll_pr_comments_for_open_pull_request(_target, nil, _since, _etags, _repo, _opts),
     do: {0, nil, [:ok], %{}, nil}
 
-  defp poll_pr_issue_comments(target, pr_number, since, etag, repo, opts) do
+  defp poll_pr_issue_comments(target, pr_number, since, etag, repo, review_context, opts) do
     case batch_value(opts, target, :pr_issue_comments) do
       {:ok, comments} ->
-        {publish_pr_issue_comments(target, pr_number, comments, repo), newest_comment_datetime(comments), :ok, etag}
+        {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, etag}
 
       :missing ->
         request_opts = opts |> Keyword.put(:since, since) |> Keyword.put(:etag, etag)
 
         case Client.fetch_issue_comments_conditional(pr_number, request_opts) do
           {:ok, comments, next_etag} ->
-            {publish_pr_issue_comments(target, pr_number, comments, repo), newest_comment_datetime(comments), :ok, next_etag}
+            {publish_pr_issue_comments(target, pr_number, comments, repo, review_context), newest_comment_datetime(comments), :ok, next_etag}
 
           {:not_modified, next_etag} ->
             {0, nil, :ok, next_etag}
@@ -304,22 +317,32 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
   end
 
-  defp publish_pr_issue_comments(target, pr_number, comments, repo) do
+  defp publish_pr_issue_comments(target, pr_number, comments, repo, review_context) do
     comments
     |> Enum.reject(&CommentFilter.agent_workpad?/1)
-    |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo))
+    |> Enum.map(&publish_pr_issue_comment(target, pr_number, &1, repo, review_context))
     |> Enum.count(&match?({:ok, _, _}, &1))
   end
 
-  defp poll_unaddressed_pr_review_threads(target, pr_number, repo, opts) do
+  # Review-staleness context the orchestrator's rework gate reads off the event
+  # (`Aiur.Orchestrator.ReviewFreshness`). Only the GraphQL batch resolves these
+  # fields; the REST fallback path publishes `nil` and the gate stays inert.
+  defp review_context(pr) do
+    %{
+      "review_decision" => Map.get(pr, "review_decision"),
+      "head_committed_at" => Map.get(pr, "head_committed_at")
+    }
+  end
+
+  defp poll_unaddressed_pr_review_threads(target, pr_number, repo, review_context, opts) do
     case batch_value(opts, target, :review_thread_comments) do
       {:ok, comments} ->
-        {publish_pr_review_comments(target, pr_number, comments, repo), :ok}
+        {publish_pr_review_comments(target, pr_number, comments, repo, review_context), :ok}
 
       :missing ->
         case Client.fetch_unaddressed_pr_review_thread_comments(pr_number, opts) do
           {:ok, comments} ->
-            {publish_pr_review_comments(target, pr_number, comments, repo), :ok}
+            {publish_pr_review_comments(target, pr_number, comments, repo, review_context), :ok}
 
           {:error, reason} ->
             Logger.warning("GithubCommentsPoller PR review threads failed: issue=#{target} pr=#{pr_number} reason=#{inspect(reason)}")
@@ -329,11 +352,18 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
   end
 
-  defp publish_pr_review_comments(target, pr_number, comments, repo) do
+  defp publish_pr_review_comments(target, pr_number, comments, repo, review_context) do
     comments
-    |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo))
+    |> Enum.map(&publish_pr_review_comment(target, pr_number, &1, repo, review_context))
     |> Enum.count(&match?({:ok, _, _}, &1))
   end
+
+  # An inline review thread is a per-finding conversation with its own
+  # resolution protocol, and it stays actionable across pushes that did not
+  # touch it — so thread comments carry only the approval half of the context.
+  # An APPROVED pull request is never rework; an old thread comment still is.
+  defp approval_only_context(review_context),
+    do: Map.delete(review_context, "head_committed_at")
 
   defp batch_value(opts, target, key) do
     with %{} = batch <- Keyword.get(opts, :comment_batch),
@@ -345,7 +375,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
   end
 
-  defp poll_pr_review_submissions(target, pr_number, repo, opts) do
+  defp poll_pr_review_submissions(target, pr_number, repo, review_context, opts) do
     since = Map.get(Keyword.get(opts, :pr_review_seen_at, %{}), to_string(target))
     # Fall back to the issue-comment cursor so reviews submitted before it are
     # treated as already processed — mirrors the ?since= filter used for comments
@@ -362,7 +392,7 @@ defmodule Aiur.Events.GithubCommentsPoller do
 
         count =
           actionable
-          |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo))
+          |> Enum.map(&publish_pr_review_submission(target, pr_number, &1, repo, review_context))
           |> Enum.count(&match?({:ok, _, _}, &1))
 
         max_seen = reviews |> Enum.map(&Map.get(&1, "submitted_at")) |> Enum.reject(&is_nil/1) |> Enum.max(fn -> nil end)
@@ -434,14 +464,14 @@ defmodule Aiur.Events.GithubCommentsPoller do
     end
   end
 
-  defp publish_pr_review_submission(target, pr_number, review, repo) when is_map(review) do
+  defp publish_pr_review_submission(target, pr_number, review, repo, review_context) when is_map(review) do
     actor = get_in(review, ["user", "login"])
     review_id = Map.get(review, "id")
     dedup_key = GithubKeys.pr_review_dedup_key(repo, pr_number, review_id)
 
     publish_comment(
       "ticket.#{target}.pr.review_comment",
-      %{issue_number: target, comment: review},
+      %{issue_number: target, comment: review, pull_request: review_context},
       actor,
       issue_number: target,
       dedup_key: dedup_key
@@ -461,25 +491,25 @@ defmodule Aiur.Events.GithubCommentsPoller do
     )
   end
 
-  defp publish_pr_issue_comment(target, pr_number, comment, repo) when is_map(comment) do
+  defp publish_pr_issue_comment(target, pr_number, comment, repo, review_context) when is_map(comment) do
     actor = get_in(comment, ["user", "login"])
 
     publish_comment(
       "ticket.#{target}.issue.commented",
-      %{issue_number: target, comment: comment},
+      %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
       dedup_key: GithubKeys.comment_dedup_key(repo, "issue_comment", pr_number, Map.get(comment, "id"))
     )
   end
 
-  defp publish_pr_review_comment(target, pr_number, comment, repo) when is_map(comment) do
+  defp publish_pr_review_comment(target, pr_number, comment, repo, review_context) when is_map(comment) do
     actor = get_in(comment, ["user", "login"])
     dedup_key = pr_review_comment_dedup_key(repo, pr_number, comment)
 
     publish_comment(
       "ticket.#{target}.pr.review_comment",
-      %{issue_number: target, comment: comment},
+      %{issue_number: target, comment: comment, pull_request: review_context},
       actor,
       issue_number: target,
       dedup_key: dedup_key

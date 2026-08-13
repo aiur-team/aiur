@@ -133,6 +133,33 @@ defmodule Aiur.AiurAgentSkillTest do
     assert relay =~ "free-text-only Decision only when predefined choices would genuinely be"
   end
 
+  test "Command authoring assumes the operator has zero ticket context" do
+    relay = File.read!(Path.join(@claude_skill, "emit-and-subscribe.md"))
+
+    assert relay =~ "Assume the operator has zero context"
+    assert relay =~ "The first line the operator reads is the `question`"
+    assert relay =~ "state what each option causes"
+    assert relay =~ "Name every referent"
+    assert relay =~ "No answer:"
+    assert relay =~ "under a minute"
+
+    [_guidance, worked_example] = String.split(relay, "#### Before and after: a real Command from sandbox issue #101", parts: 2)
+    [_, payload_json] = Regex.run(~r/```jsonc\n(.*?)\n```/s, worked_example)
+    payload = Jason.decode!(payload_json)
+
+    assert payload["question"] =~ "square 43 with direct multiplication or the integer-power helper?"
+    assert payload["context"]["short_summary"] =~ "both options return 1849"
+    assert payload["context"]["long_context_markdown"] =~ "`function_c/0`, the demo's final function"
+    assert payload["context"]["long_context_markdown"] =~ "43 from `function_b/0`, the preceding ticket's function"
+
+    options = Map.new(payload["options"], &{&1["id"], &1})
+    assert options["multiply"]["description"] =~ "supporting powers other than two later would require changing the expression"
+    assert options["power"]["description"] =~ "another integer exponent later becomes a one-argument edit"
+    assert payload["recommendation"]["option_id"] == "multiply"
+    assert payload["consequence_of_delay"] =~ "No answer: issue #101's agent remains paused"
+    assert payload["consequence_of_delay"] =~ "no timeout chooses automatically"
+  end
+
   test "blocker guidance keeps unblocked work moving" do
     shared_prompt = File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md"))
     repo_prompt = File.read!(Path.join(@repo_root, ".aiur/prompt.md"))
@@ -183,6 +210,24 @@ defmodule Aiur.AiurAgentSkillTest do
     assert repo_prompt =~ "Never infer readiness from `branch.push` alone"
     assert repo_prompt =~ "remove temporary stubs"
     assert taxonomy =~ "keep unrelated prep moving"
+  end
+
+  # #1763: two agents staged a workpad body at `/tmp/wp_new.md`, the second write
+  # won, and one ticket's workpad was published carrying the other's plan and PR
+  # number. The `PATCH` returned 200, so only a body diff would have caught it.
+  test "staging guidance keeps comment bodies out of the shared /tmp" do
+    shared_prompt = one_line(File.read!(Path.join(@repo_root, "src/prompts/shared-agent-instructions.md")))
+    repo_prompt = one_line(File.read!(Path.join(@repo_root, ".aiur/prompt.md")))
+
+    assert shared_prompt =~ "Concurrent Aiur agents share the host's `/tmp`"
+    assert shared_prompt =~ "`TMPDIR` already points at"
+    assert shared_prompt =~ "Never write to a bare `/tmp/<generic-name>`"
+    assert shared_prompt =~ "Verifying a comment write means diffing, not checking the status code"
+    assert shared_prompt =~ "diff the returned body against the exact body you intended to publish"
+
+    assert repo_prompt =~ "Stage every temporary file in a workspace-local path"
+    assert repo_prompt =~ "Never write a GitHub comment or PR body to a bare `/tmp/<generic-name>`"
+    assert repo_prompt =~ "For a comment body this means diffing, not checking the status code"
   end
 
   test "aiur run and status skill descriptions cover iarc and aiur triggers" do

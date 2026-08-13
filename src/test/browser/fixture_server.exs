@@ -28,6 +28,7 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script defer src="/assets/phoenix.js"></script>
         <script defer src="/assets/phoenix_live_view.js"></script>
         <script defer src="/aiur-dom-svg-layout-loader.js"></script>
+        <script defer src="/conversation-drawer-hook.js"></script>
         <script defer src="/assets/time-brush-hook.js"></script>
         <script defer src="/assets/ticket-context-dialog-hook.js"></script>
         <script defer src="/assets/build-order-grid-hook.js"></script>
@@ -37,6 +38,28 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
         <script>
           window.addEventListener("DOMContentLoaded", function () {
             var csrfToken = document.querySelector("meta[name='csrf-token']").getAttribute("content");
+            window.BrowserHarnessHooks.NavToggle = {
+              mounted: function () {
+                try {
+                  var stored = window.localStorage.getItem("aiur-nav-collapsed");
+                  if (stored === "true" || stored === "false") {
+                    var collapsed = stored === "true";
+                    if (collapsed !== (this.el.getAttribute("aria-pressed") === "true")) {
+                      this.pushEvent("restore-nav", { collapsed: collapsed });
+                    }
+                  }
+                } catch (_error) {}
+              },
+              updated: function () {
+                try {
+                  window.localStorage.setItem(
+                    "aiur-nav-collapsed",
+                    this.el.getAttribute("aria-pressed") === "true" ? "true" : "false"
+                  );
+                } catch (_error) {}
+              }
+            };
+
             window.BrowserHarnessHooks.ThemeToggle = {
               mounted: function () {
                 this.onClick = () => {
@@ -55,6 +78,10 @@ defmodule Aiur.BrowserHarness.FixtureLayout do
 
             if (window.AiurTicketContextDialogHook) {
               window.BrowserHarnessHooks.TicketContextDialog = window.AiurTicketContextDialogHook;
+            }
+
+            if (window.AiurConversationDrawerHook) {
+              window.BrowserHarnessHooks.ConversationDrawer = window.AiurConversationDrawerHook;
             }
 
             if (window.AiurBuildOrderGridHook) {
@@ -84,13 +111,14 @@ end
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:analytics, analytics(%{}))
+     |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
@@ -102,6 +130,9 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
+  def handle_event("toggle-nav", _params, socket), do: {:noreply, NavState.toggle(socket)}
+  def handle_event("restore-nav", %{"collapsed" => collapsed}, socket), do: {:noreply, NavState.restore(socket, collapsed)}
+
   @impl true
   def render(assigns) do
     ~H"""
@@ -111,6 +142,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
         routes={RouteRegistry.routes(@analytics)}
         tracker_kind="fixture"
         agent_kind="fixture"
+        nav_collapsed={@nav_collapsed}
       >
         <section class="section-card" aria-labelledby="route-shell-fixture-title">
           <h2 id="route-shell-fixture-title">Route shell fixture</h2>
@@ -800,6 +832,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
   alias AiurWeb.OperatorControlCenter.{
+    ConversationDrawer,
     DecisionPath,
     TicketContext,
     UnitsFilters,
@@ -807,6 +840,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     UnitsTable,
     UnitsURL
   }
+
+  alias AiurWeb.OperatorControlCenter.ConversationDrawer.Presenter, as: ConversationPresenter
 
   @now ~U[2026-07-17 12:00:00Z]
 
@@ -818,6 +853,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:selection, UnitsURL.default_selection())
      |> assign(:now, @now)
      |> assign(:context, nil)
+     |> assign(:conversation_drawer, nil)
      |> assign(:selected_row, nil)
      |> assign(:generation, 1)}
   end
@@ -859,7 +895,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
-  def handle_event("read-conversation", _params, socket), do: {:noreply, socket}
+  def handle_event("read-conversation", %{"unit" => token}, socket) do
+    case UnitsPresenter.lookup(socket.assigns.catalog, token) do
+      {:ok, row} ->
+        drawer = %{
+          origin_id: "units-conversation-#{token}",
+          view: ConversationPresenter.present(row, conversation_snapshot())
+        }
+
+        {:noreply, assign(socket, :conversation_drawer, drawer)}
+
+      {:error, :not_found} ->
+        {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-conversation", _params, socket), do: {:noreply, assign(socket, :conversation_drawer, nil)}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply, socket |> assign(:context, nil) |> assign(:selected_row, nil)}
@@ -940,6 +991,15 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         context={@context}
         close_event="close-ticket-context"
         fallback_focus_id="units-title"
+      />
+
+      <ConversationDrawer.conversation_drawer
+        :if={@conversation_drawer}
+        id="units-fixture-conversation-drawer"
+        view={@conversation_drawer.view}
+        close_event="close-conversation"
+        fallback_focus_id="units-title"
+        origin_id={@conversation_drawer.origin_id}
       />
     </main>
     """
@@ -1034,6 +1094,28 @@ defmodule Aiur.BrowserHarness.UnitsLive do
           latest_evidence: %{status: :unknown}
         })
       end)
+  end
+
+  defp conversation_snapshot do
+    %{
+      state: :live,
+      health: :healthy,
+      freshness: :current,
+      messages: [
+        %{
+          id: "fixture-message",
+          role: "agent",
+          title: "Assistant",
+          body: "Conversation drawer hook is running.",
+          occurred_at: @now,
+          observed_at: @now
+        }
+      ],
+      observed_at: @now,
+      truncated?: false,
+      evicted_count: 0,
+      source: %{worker_generation: 1, session_id: "fixture-session"}
+    }
   end
 
   defp row(identity, overrides) do
@@ -1175,6 +1257,36 @@ defmodule Aiur.BrowserHarness.FixtureAuth do
   end
 end
 
+defmodule Aiur.BrowserHarness.FixtureStreamdeckControl do
+  @moduledoc """
+  Lets one browser spec opt its own fixture server into a writable dashboard.
+
+  Stream Deck key presses only reach the agent control facade when the
+  dashboard is writable, so the operator-flow spec needs that gate open to
+  prove a pause actually pauses. Every `run-browser-tests.mjs` invocation gets
+  its own fixture server, so flipping it here cannot leak into another spec.
+  """
+
+  use Phoenix.Controller, formats: []
+
+  import Plug.Conn
+
+  alias Aiur.BrowserHarness.FixtureServer
+
+  @modes %{"writable" => true, "read_only" => false}
+
+  def configure(conn, %{"mode" => mode}) when is_map_key(@modes, mode) do
+    Phoenix.Config.put(AiurWeb.Endpoint, :dashboard_writable, Map.fetch!(@modes, mode))
+    FixtureServer.reset_streamdeck_pauses()
+
+    conn
+    |> put_resp_content_type("text/plain")
+    |> send_resp(200, "streamdeck fixture control: #{mode}")
+  end
+
+  def configure(conn, _params), do: send_resp(conn, 404, "unknown streamdeck fixture control mode")
+end
+
 defmodule Aiur.BrowserHarness.FixtureAssets do
   use Phoenix.Controller, formats: []
 
@@ -1225,7 +1337,13 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def catalog do
-    entries = [root(42, "Release dashboard"), RootSummary.new(%{}), root(43, "Stale planning lane")]
+    entries = [
+      root(42, "Release dashboard"),
+      RootSummary.new(%{}),
+      root(43, "Stale planning lane"),
+      root(1567, "Unavailable planning graph"),
+      root(1568, "Malformed planning graph")
+    ]
 
     %Snapshot{
       scope: :catalog,
@@ -1257,6 +1375,14 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   @impl true
   def load_sources do
+    %{
+      execution: %{running: [], retrying: [], idle: []},
+      activity: %{generation: 9, entries: [activity(identity(5))], diagnostics: %{}}
+    }
+  end
+
+  @impl true
+  def load_runtime_sources do
     %{
       execution: %{running: [], retrying: [], idle: []},
       activity: %{generation: 9, entries: [activity(identity(5))], diagnostics: %{}}
@@ -1297,6 +1423,39 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
         data: SelectedRoot.new(root(43, "Stale planning lane"), [member(8, "Stale member")], health(8, :stale)),
         health: health(8, :stale)
       }
+
+    {:ok, snapshot}
+  end
+
+  defp selected_snapshot(%TrackerIdentity{identifier: "1567"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 9,
+      # #1791's reported shape: the root is known but its members could not be
+      # read, so every downstream pane used to raise its own alarm about the one
+      # fault. A specific read fault, not a laundered outage — the page must
+      # repeat the code the provider actually reported.
+      data: SelectedRoot.new(root(1567, "Unavailable planning graph"), [], unavailable_health()),
+      health: unavailable_health()
+    }
+
+    {:ok, snapshot}
+  end
+
+  # The fail-closed shape: a malformed root the provider *did* return, alongside
+  # provider health deliberately marked failed. The page must name the structural
+  # defect, never the `rate_limited` marking that only records failing closed.
+  defp selected_snapshot(%TrackerIdentity{identifier: "1568"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 9,
+      data: SelectedRoot.new(root(1568, "Malformed planning graph"), [:malformed_member], unavailable_health()),
+      health: unavailable_health()
+    }
 
     {:ok, snapshot}
   end
@@ -1391,6 +1550,14 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
 
   defp issue_url(number), do: "https://github.com/owner/repo/issues/#{number}"
 
+  defp unavailable_health do
+    ProviderHealth.new(9, :unavailable, false,
+      observed_at: @observed_at,
+      last_success_at: @observed_at,
+      failure: :rate_limited
+    )
+  end
+
   defp health(generation, state) do
     ProviderHealth.new(generation, state, state == :healthy,
       observed_at: @observed_at,
@@ -1477,6 +1644,192 @@ defmodule Aiur.BrowserHarness.ProviderMetersLive do
   end
 end
 
+# The provider meter row above Units collapses into a single grouped table once
+# it would otherwise render more than four panes. The threshold is what this
+# fixture exists to exercise, so it carries five panes — the GitHub pane plus
+# four model providers — which is the first configuration that trips it.
+defmodule Aiur.BrowserHarness.MeterRowLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+
+  @now ~U[2026-07-18 11:30:00Z]
+  @reset ~U[2026-07-18 12:00:00Z]
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell" data-meter-row-fixture="true">
+      <h1 class="sr-only">Provider meter row fixture</h1>
+      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+    </main>
+    """
+  end
+
+  defp run, do: %{state: :ready, counts: %{remaining: 4}, progress: %{kind: :exact, percent: 60}, elapsed: %{label: "20m"}, eta: %{label: "About 8m remaining"}}
+
+  defp usage do
+    %{
+      state: :ready,
+      providers: %{
+        codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "2.50"}]},
+        claude: %{tokens: %{total: 2_000}, api_equivalent: [%{currency: "USD", amount: "6.25"}]}
+      }
+    }
+  end
+
+  # One provider per freshness state the compressed row has to keep
+  # distinguishable: a fresh reading, a fresh zero, a stale last-known-good, and
+  # a provider that reported nothing at all.
+  defp meters do
+    %{
+      state: :authorized,
+      cards: [
+        card(:codex, "Codex", :healthy, "Healthy", [window("Session", 40, 3_000, 5_000, :fresh)]),
+        card(:claude, "Claude", :stale, "Stale (last known-good)", [window("Session", 62, 1_900, 5_000, :stale)]),
+        card(:deepseek, "DeepSeek", :healthy, "Healthy", [window("Session", 0, 5_000, 5_000, :fresh)]),
+        card(:kimi, "Kimi", :unavailable, "Unavailable", [])
+      ]
+    }
+  end
+
+  defp card(provider, label, state, status_label, windows) do
+    %{provider: provider, provider_label: label, state: state, status_label: status_label, auth_mode: %{value: :api_key}, windows: windows}
+  end
+
+  defp window(name, percent, remaining, limit, freshness) do
+    %{
+      kind: :rate_limit,
+      name: name,
+      coverage_label: "Supported",
+      meter: %{kind: :exact, now: percent, min: 0, max: 100},
+      used: percent,
+      used_percent: percent,
+      remaining: remaining,
+      limit: limit,
+      freshness: freshness,
+      resets_at: @reset
+    }
+  end
+
+  defp github_quota do
+    %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 3_750, limit: 5_000, used_percent: 25.0, reset_at: @reset},
+        "graphql" => %{resource: "graphql", remaining: 500, limit: 5_000, used_percent: 90.0, reset_at: @reset}
+      },
+      attribution: [
+        %{consumer: "ticket:1790", reads: 3, writes: 0, total: 3, cost: 78, costs: %{"graphql" => 78}, estimated?: false},
+        %{consumer: "unattributed", reads: 40, writes: 2, total: 42, cost: 96, costs: %{"core" => 96}, estimated?: false}
+      ],
+      coverage: %{
+        estimated?: false,
+        resources: %{
+          "core" => %{attributed: 96, named: 0, spend: 1_250, fraction: 0.0768, named_fraction: 0.0, estimated?: false},
+          "graphql" => %{attributed: 78, named: 78, spend: 4_500, fraction: 0.0173, named_fraction: 0.0173, estimated?: false}
+        }
+      },
+      backoffs: []
+    }
+  end
+end
+
+# The GitHub quota card as an operator sees it when both budgets are gone: the
+# state the panel was reported wrong in (#1805). Two providers keep the strip
+# out of its compressed form, so this is the full card, not the grouped table.
+defmodule Aiur.BrowserHarness.QuotaPanelLive do
+  use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
+
+  alias AiurWeb.OperatorControlCenter.RunSummaryStrip
+
+  @now ~U[2026-07-18 11:30:00Z]
+  @core_reset ~U[2026-07-18 11:42:00Z]
+  @graphql_reset ~U[2026-07-18 11:49:00Z]
+
+  @impl true
+  def mount(_params, _session, socket), do: {:ok, assign(socket, :now, @now)}
+
+  @impl true
+  def render(assigns) do
+    ~H"""
+    <main class="app-shell" data-quota-panel-fixture="true">
+      <h1 class="sr-only">GitHub quota panel fixture</h1>
+      <RunSummaryStrip.run_summary_strip run={run()} usage={usage()} meters={meters()} github_quota={github_quota()} now={@now} />
+    </main>
+    """
+  end
+
+  defp run, do: %{state: :ready, counts: %{remaining: 4}, progress: %{kind: :exact, percent: 60}, elapsed: %{label: "20m"}, eta: %{label: "About 8m remaining"}}
+
+  defp usage do
+    %{state: :ready, providers: %{codex: %{tokens: %{total: 1_500}, api_equivalent: [%{currency: "USD", amount: "2.50"}]}}}
+  end
+
+  defp meters do
+    %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :healthy,
+          status_label: "Healthy",
+          auth_mode: %{value: :api_key},
+          windows: [
+            %{
+              kind: :rate_limit,
+              name: "Session",
+              coverage_label: "Supported",
+              meter: %{kind: :exact, now: 40, min: 0, max: 100},
+              used: 40,
+              used_percent: 40,
+              remaining: 3_000,
+              limit: 5_000,
+              freshness: :fresh,
+              resets_at: @graphql_reset
+            }
+          ]
+        }
+      ]
+    }
+  end
+
+  # The reported numbers: both budgets exhausted, a heavy GraphQL consumer
+  # measured in points, and a coverage figure stated per budget — core's
+  # requests against core's window, GraphQL's points against GraphQL's, which
+  # reset seven minutes apart and therefore share no denominator.
+  #
+  # Only the GraphQL rows carry `estimated?`, because that is the only place the
+  # quota module can produce it: core calls are always billed one request and
+  # recorded `:reported`.
+  defp github_quota do
+    %{
+      state: :observed,
+      windows: %{
+        "core" => %{resource: "core", remaining: 0, limit: 5_000, used_percent: 100.0, reset_at: @core_reset},
+        "graphql" => %{resource: "graphql", remaining: 0, limit: 5_000, used_percent: 100.0, reset_at: @graphql_reset}
+      },
+      attribution: [
+        %{consumer: "ticket:1790", reads: 12, writes: 1, total: 13, cost: 338, costs: %{"graphql" => 312, "core" => 26}, estimated?: false},
+        %{consumer: "ticket:1792", reads: 44, writes: 3, total: 47, cost: 47, costs: %{"core" => 47}, estimated?: false},
+        %{consumer: "unattributed", reads: 21, writes: 0, total: 21, cost: 21, costs: %{"graphql" => 21}, estimated?: true}
+      ],
+      coverage: %{
+        estimated?: true,
+        resources: %{
+          "core" => %{attributed: 73, named: 73, spend: 5_000, fraction: 0.0146, named_fraction: 0.0146, estimated?: false},
+          "graphql" => %{attributed: 333, named: 312, spend: 5_000, fraction: 0.0666, named_fraction: 0.0624, estimated?: true}
+        }
+      },
+      backoffs: []
+    }
+  end
+end
+
 defmodule Aiur.BrowserHarness.FixtureRouter do
   use Phoenix.Router
   import Phoenix.LiveView.Router
@@ -1516,6 +1869,7 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     pipe_through(:browser)
 
     get("/auth/:mode", Aiur.BrowserHarness.FixtureAuth, :authenticate)
+    get("/streamdeck-control/:mode", Aiur.BrowserHarness.FixtureStreamdeckControl, :configure)
   end
 
   scope "/" do
@@ -1525,6 +1879,8 @@ defmodule Aiur.BrowserHarness.FixtureRouter do
     live("/ticket-context", Aiur.BrowserHarness.TicketContextLive, :index)
     live("/units", Aiur.BrowserHarness.UnitsLive, :index)
     live("/provider-meters", Aiur.BrowserHarness.ProviderMetersLive, :index)
+    live("/meter-row", Aiur.BrowserHarness.MeterRowLive, :index)
+    live("/quota-panel", Aiur.BrowserHarness.QuotaPanelLive, :index)
     live("/", Aiur.BrowserHarness.RouteShellLive, :index)
     live("/decisions", Aiur.BrowserHarness.RouteShellLive, :decisions)
     live("/decisions/:decision_id", Aiur.BrowserHarness.RouteShellLive, :decision)
@@ -1558,6 +1914,33 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
   @session_options [store: :cookie, key: "_aiur_browser_harness", signing_salt: "browser-harness", http_only: true, same_site: "Lax"]
 
   socket("/live", Phoenix.LiveView.Socket, websocket: [connect_info: [session: @session_options]], longpoll: false)
+
+  plug(Plug.Static,
+    at: "/",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.revalidated_static_paths(),
+    cache_control_for_etags: "private, max-age=0, must-revalidate",
+    cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
+  )
+
+  plug(Plug.Static,
+    at: "/",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.long_lived_static_paths(),
+    cache_control_for_etags: "public, max-age=31536000",
+    cache_control_for_vsn_requests: "public, max-age=31536000"
+  )
+
+  plug(Plug.Static,
+    at: "/provider-assets",
+    from: :aiur,
+    gzip: false,
+    only: AiurWeb.StaticAssets.provider_asset_paths(),
+    cache_control_for_etags: "private, max-age=0, must-revalidate",
+    cache_control_for_vsn_requests: "private, max-age=0, must-revalidate"
+  )
 
   plug(Plug.RequestId)
   plug(Plug.Session, @session_options)
@@ -1616,6 +1999,40 @@ defmodule Aiur.BrowserHarness.FixtureServer do
     :persistent_term.put({__MODULE__, :streamdeck_snapshot_identities}, Enum.map(identifiers, &to_string/1))
   end
 
+  @doc """
+  Fixture stand-in for `AgentChat.pause/1` and `AgentChat.resume/1`.
+
+  The emulator's key press is only meaningful if the fleet it renders actually
+  moves, so the fixture records the operator pause and republishes the fleet.
+  The next projection buckets the agent as `:paused`, exactly as the real
+  orchestrator snapshot would.
+  """
+  def streamdeck_pause(identifier), do: {:ok, set_streamdeck_paused(identifier, true)}
+
+  def streamdeck_resume(identifier), do: {:ok, set_streamdeck_paused(identifier, false)}
+
+  @doc "Drops every recorded operator pause so a spec starts from the seeded fleet."
+  def reset_streamdeck_pauses do
+    :persistent_term.put({__MODULE__, :streamdeck_paused}, MapSet.new())
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
+    :ok
+  end
+
+  defp set_streamdeck_paused(identifier, paused?) do
+    identifier = to_string(identifier)
+    current = :persistent_term.get({__MODULE__, :streamdeck_paused}, MapSet.new())
+    updated = if paused?, do: MapSet.put(current, identifier), else: MapSet.delete(current, identifier)
+
+    :persistent_term.put({__MODULE__, :streamdeck_paused}, updated)
+    Phoenix.PubSub.broadcast(Aiur.PubSub, "streamdeck:fixture", :streamdeck_fixture_fleet_changed)
+
+    identifier
+  end
+
+  defp streamdeck_paused?(identifier) do
+    MapSet.member?(:persistent_term.get({__MODULE__, :streamdeck_paused}, MapSet.new()), to_string(identifier))
+  end
+
   def streamdeck_snapshot do
     case :persistent_term.get({__MODULE__, :streamdeck_snapshot_identities}, nil) do
       identifiers when is_list(identifiers) ->
@@ -1626,10 +2043,13 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         # initially focuses 1331; seed its durable feed so the production
         # AgentEventFeed path has real content to project in logs mode.
         write_feed_if_missing("1331")
+        # The operator flow drives one agent through cmd and logs, so the
+        # running agent it controls needs a durable feed of its own.
+        write_feed_if_missing("1352")
 
         %{
-          running: [streamdeck_agent("1352", "Fixture running", "codex")],
-          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error)],
+          running: [streamdeck_agent("1352", "Fixture running", "codex", progress_percent: 0)],
+          retrying: [streamdeck_agent("1338", "Fixture stuck", "codex", work_state: :error, progress_percent: 100)],
           idle: [
             streamdeck_agent("1345", "Fixture paused", "claude", work_state: :paused),
             streamdeck_agent("1350", "Fixture queued", "codex", waiting_reason: :waiting_for_dependency),
@@ -1666,23 +2086,51 @@ defmodule Aiur.BrowserHarness.FixtureServer do
 
   def streamdeck_provider_meters do
     %{
-      "claude" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 30}}},
-      "codex" => %{"state" => "observed", "windows" => %{"daily" => %{"used_percent" => 50}}}
+      "claude" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"kind" => "rate_limit", "used_percent" => 30, "remaining" => "22m", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 47, "resets_at" => "2026-08-13T18:00:00Z", "freshness" => "fresh"}
+        }
+      },
+      "codex" => %{
+        "state" => "observed",
+        "windows" => %{
+          "session" => %{"kind" => "rate_limit", "used_percent" => 50, "remaining" => "1h", "freshness" => "fresh"},
+          "weekly" => %{"kind" => "rate_limit", "used_percent" => 75, "resets_at" => "2026-08-14T20:00:00Z", "freshness" => "fresh"}
+        }
+      }
     }
   end
 
+  # Seeded once per harness boot, not once per disk lifetime. `File.exists?/1`
+  # alone made the feed sticky: a local run reused whatever a previous run had
+  # written, so editing this fixture silently had no effect on the tests that
+  # read it. The snapshot callbacks fire on every poll, hence the guard.
   defp write_feed_if_missing(identifier) when is_binary(identifier) do
-    path = IssueLog.transcript_path(identifier)
-    if File.exists?(path), do: :ok, else: write_feed(path)
+    key = {__MODULE__, :seeded_feed, identifier}
+
+    if :persistent_term.get(key, false) do
+      :ok
+    else
+      write_feed(IssueLog.transcript_path(identifier))
+      :persistent_term.put(key, true)
+    end
   end
 
   defp write_feed(path) do
     File.mkdir_p!(Path.dirname(path))
 
+    # A mix of roles, not ten assistants: the roles are what `AgentEventFeed`
+    # maps onto the five Stream Deck direction badges, so a single-role feed
+    # would let a log key assert its badge without the mapping being wired at
+    # all. Events 1..5 cover AGENT, CONSUME, SYSTEM, INFO and EMIT in order.
+    roles = %{1 => "assistant", 2 => "user", 3 => "system", 4 => "reasoning", 5 => "command"}
+
     events =
       Enum.map(10..1, fn index ->
         %{
-          "role" => "assistant",
+          "role" => Map.get(roles, index, "assistant"),
           "body" => "event-#{index}",
           "timestamp" => "2026-08-02T00:00:00Z",
           "msg_id" => nil,
@@ -1701,12 +2149,17 @@ defmodule Aiur.BrowserHarness.FixtureServer do
       |> Application.get_env(AiurWeb.Endpoint, [])
       |> Keyword.merge(
         server: false,
+        # Stays read-only by default so incidental key presses in other specs
+        # cannot mutate the shared fixture fleet. The operator-flow spec opts its
+        # own fixture server in through `/streamdeck-control/writable`.
         dashboard_writable: false,
         control_center_cache: false,
         snapshot_timeout_ms: 100,
         streamdeck_fixture_fleet: true,
         streamdeck_snapshot_fun: &__MODULE__.streamdeck_snapshot/0,
-        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0
+        streamdeck_provider_meters_fun: &__MODULE__.streamdeck_provider_meters/0,
+        agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
+        agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1
       )
       |> Keyword.delete(:streamdeck_logs_fun)
 
@@ -1714,20 +2167,25 @@ defmodule Aiur.BrowserHarness.FixtureServer do
   end
 
   defp streamdeck_agent(identifier, title, backend, attrs \\ []) do
-    Map.merge(
-      %{
-        identifier: identifier,
-        title: title,
-        backend: backend,
-        work_state: :working,
-        open_decision_count: 0,
-        waiting_reason: :active,
-        tracker_paused: false,
-        progress_percent: 50,
-        priority: nil
-      },
-      Map.new(attrs)
-    )
+    %{
+      identifier: identifier,
+      title: title,
+      backend: backend,
+      work_state: :working,
+      open_decision_count: 0,
+      waiting_reason: :active,
+      tracker_paused: false,
+      progress_percent: 50,
+      priority: nil
+    }
+    |> Map.merge(Map.new(attrs))
+    |> apply_operator_pause(identifier)
+  end
+
+  # An operator pause outranks the seeded work state so a key press moves the
+  # agent into the paused bucket without the fixture restating every field.
+  defp apply_operator_pause(agent, identifier) do
+    if streamdeck_paused?(identifier), do: Map.put(agent, :tracker_paused, true), else: agent
   end
 end
 

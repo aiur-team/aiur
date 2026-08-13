@@ -32,6 +32,7 @@
  * event has exactly one entry.
  */
 
+import { directionBadgeColor, type DirectionBadge } from "./key-face-contract.js";
 import type { StreamDeckEventProjection } from "./mode.js";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +40,10 @@ import type { StreamDeckEventProjection } from "./mode.js";
 // ---------------------------------------------------------------------------
 
 /** Direction badge as emitted by AgentEventFeed. */
-export type Badge = "EMIT" | "CONSUME" | "AGENT" | "SYSTEM" | "INFO";
+export type Badge = DirectionBadge;
+
+/** The log renderer's contract-derived foreground colour for an event badge. */
+export const badgeColor = (badge: Badge): string => directionBadgeColor(badge);
 
 /** Transcript role as stored server-side. */
 export type Role = "user" | "assistant" | "system" | "command" | "alert" | "reasoning" | "tool";

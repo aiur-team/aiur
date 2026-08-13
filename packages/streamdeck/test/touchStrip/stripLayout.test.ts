@@ -82,4 +82,19 @@ describe("composeStrip", () => {
     expect(s1).toMatchObject({ kind: "chat", line: "" });
     expect(s2).toMatchObject({ kind: "chat", line: "" });
   });
+
+  it("logs mode exposes independent chat and event bounds", () => {
+    const [back, , , events] = composeStrip({
+      mode: "logs",
+      data: { lines: ["chat"], chatHasNext: true, eventHasPrevious: true, eventHasNext: true },
+    });
+    expect(back).toMatchObject({ kind: "hint", label: "CHAT", direction: "forward" });
+    expect(events).toMatchObject({ kind: "hint", label: "EVENTS ↑↓", direction: "back" });
+  });
+
+  it("renders one-sided event and chat bounds", () => {
+    expect(composeStrip({ mode: "logs", data: { lines: [], eventHasPrevious: true } })[3]).toMatchObject({ label: "EVENTS ↑" });
+    expect(composeStrip({ mode: "logs", data: { lines: [], eventHasNext: true } })[3]).toMatchObject({ label: "EVENTS ↓" });
+    expect(composeStrip({ mode: "logs", data: { lines: [], chatHasPrevious: true } })[0]).toMatchObject({ label: "CHAT" });
+  });
 });

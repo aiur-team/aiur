@@ -19,6 +19,7 @@ defmodule Aiur.AgentRunner.MessageHandler do
     TrackerIdentity
   }
 
+  alias Aiur.AgentRunner.CodexUpdateRelay
   alias Aiur.AgentRunner.QueueDrain
   alias Aiur.Protocol.MapAccess
   alias Aiur.RunTelemetry.Lifecycle
@@ -576,9 +577,12 @@ defmodule Aiur.AgentRunner.MessageHandler do
     )
   end
 
+  # Streaming deltas are coalesced here rather than dropped downstream: the
+  # orchestrator cannot filter what is already in its mailbox, and the mailbox
+  # is exactly what #1731 buried. See `CodexUpdateRelay`.
   defp send_codex_update(recipient, %Issue{id: issue_id}, message)
        when is_binary(issue_id) and is_pid(recipient) do
-    send(recipient, {:codex_worker_update, issue_id, message})
+    _decision = CodexUpdateRelay.relay(recipient, issue_id, message)
     :ok
   end
 
@@ -637,6 +641,17 @@ defmodule Aiur.AgentRunner.MessageHandler do
   end
 
   def send_control_state(_recipient, _issue, _status, _payload), do: :ok
+
+  @doc false
+  @spec send_control_rejection(pid() | nil, Issue.t(), pos_integer(), non_neg_integer(), atom()) :: :ok
+  def send_control_rejection(recipient, %Issue{id: issue_id}, request_id, generation, class)
+      when is_pid(recipient) and is_binary(issue_id) and is_integer(request_id) and request_id > 0 and
+             is_integer(generation) and generation >= 0 and is_atom(class) do
+    send(recipient, {:worker_control_rejected, issue_id, request_id, generation, class})
+    :ok
+  end
+
+  def send_control_rejection(_recipient, _issue, _request_id, _generation, _class), do: :ok
 
   defp normalize_control_payload(
          status,

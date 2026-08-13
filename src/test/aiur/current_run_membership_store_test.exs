@@ -7,6 +7,7 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
 
   @run_id "membership-store-test"
   @now ~U[2026-07-14 12:00:00Z]
+  @async_assert_timeout 2_000
 
   setup do
     dir = Path.join(System.tmp_dir!(), "aiur-current-run-membership-#{System.unique_integer([:positive])}")
@@ -690,11 +691,11 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
       )
 
     {:ok, task} = Task.start(fn -> Store.observe(identity(), :queued, server: pid, observed_at: @now) end)
-    assert_receive :checkpoint_started
+    assert_receive :checkpoint_started, @async_assert_timeout
     task_ref = Process.monitor(task)
     crash(pid)
     Process.exit(task, :kill)
-    assert_receive {:DOWN, ^task_ref, :process, ^task, _reason}
+    assert_receive {:DOWN, ^task_ref, :process, ^task, _reason}, @async_assert_timeout
 
     recovered = start_store!(dir)
     assert %{generation: 1, health: :healthy, members: [%{lifecycle: :queued}]} = Store.snapshot(server: recovered)
@@ -775,6 +776,6 @@ defmodule Aiur.CurrentRunMembership.StoreTest do
     ref = Process.monitor(pid)
     Process.unlink(pid)
     Process.exit(pid, :kill)
-    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}
+    assert_receive {:DOWN, ^ref, :process, ^pid, :killed}, @async_assert_timeout
   end
 end

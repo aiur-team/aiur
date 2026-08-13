@@ -69,11 +69,14 @@ defmodule AiurWeb.DashboardCssThemeTest do
   @streamdeck_dark_root_pins ~w(
     --accent
     --accent-ink
+    --attention
     --attention-ink
     --blocking-ink
     --blocking-soft
     --good
+    --good-ink
     --super
+    --ack
   )
 
   # Pinned to chassis-specific values rather than `:root` — the key face is

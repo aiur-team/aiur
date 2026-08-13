@@ -2,8 +2,8 @@
 
 ## Decision
 
-Usage/accounting and the adjacent run-summary surface are a standalone Executor
-Control Center program, not Build Order behavior. Sixteen companion tickets
+Usage/accounting and the adjacent run-summary surface are a standalone Dashboard
+program, not Build Order behavior. Sixteen companion tickets
 own it:
 
 1. privacy-safe provider-account generation;

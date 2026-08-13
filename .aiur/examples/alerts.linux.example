@@ -66,6 +66,14 @@ alerts:
     message: Fleet dispatch capacity recovered
     sound:
       - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
+  "system.fleet.capacity.starved":
+    message: Fleet capacity is under-utilised
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-warning.oga"
+  "system.fleet.capacity.starved.resolved":
+    message: Fleet capacity starvation recovered
+    sound:
+      - "/usr/share/sounds/freedesktop/stereo/dialog-information.oga"
   "system.tracker.auth_preflight_failed":
     message: Tracker authentication is blocking fleet dispatch
     sound:
