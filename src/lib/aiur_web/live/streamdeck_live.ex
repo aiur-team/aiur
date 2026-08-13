@@ -616,7 +616,7 @@ defmodule AiurWeb.StreamdeckLive do
               <pre><code>mkdir -p ~/.local/share/aiur/streamdeck
     tar -xzf ~/Downloads/*streamdeck*.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></pre>
             </li>
-            <li><strong>Pair with your daemon.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
+            <li><strong>Configure the sidecar.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
               <pre><code>AIUR_PHOENIX_URL
     AIUR_DASHBOARD_USERNAME
     AIUR_DASHBOARD_PASSWORD</code></pre>
@@ -635,7 +635,7 @@ defmodule AiurWeb.StreamdeckLive do
               <pre><code>mkdir -p "$HOME/Library/Application Support/aiur/streamdeck"
     tar -xzf ~/Downloads/*streamdeck*.tar.gz -C "$HOME/Library/Application Support/aiur/streamdeck" --strip-components=1</code></pre>
             </li>
-            <li><strong>Pair with your daemon.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
+            <li><strong>Configure the sidecar.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
               <pre><code>AIUR_PHOENIX_URL
     AIUR_DASHBOARD_USERNAME
     AIUR_DASHBOARD_PASSWORD</code></pre>
