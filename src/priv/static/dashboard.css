@@ -173,10 +173,10 @@ textarea:focus-visible,
 .app-shell {
   max-width: 1440px;
   margin-inline: auto;
-  /* Block padding is a fixed 16px (not rem) so the sticky sidebar's resting
-     offset and its sticky `top` stay in lockstep even while a root font-size
-     change is mid-reflow; a rem here lets the two diverge transiently. Page zoom
-     still scales px, so real zoom behaviour is unchanged. */
+  /* Mobile/tablet gutter: the sidebar is hidden and the fixed bottom nav
+     reserves its own space, so content needs this to stay off the edges. On
+     desktop (>=960px) it is dropped so the sidebar and topbar run edge-to-edge;
+     .shell-content re-adds the inline gutter there. */
   padding: 16px 1.15rem;
 }
 
@@ -5804,11 +5804,22 @@ html[data-theme="light"] .rs-github-mark {
     grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
   }
 
+  /* The sidebar and topbar run edge-to-edge: drop .app-shell's outer gutter and
+     re-add the inline gutter inside the content column. */
+  .app-shell {
+    padding: 0;
+  }
+
+  .shell-content {
+    padding-inline: 1.15rem;
+    padding-block-end: 1rem;
+  }
+
   .shell-sidebar {
     position: sticky;
-    /* Match .app-shell's fixed 16px block padding so the sticky offset equals
-       the resting offset regardless of root-font-size reflow timing. */
-    top: 16px;
+    /* The resting offset is now 0 (no .app-shell block padding), so the sticky
+       top matches it and the sidebar does not jump when it pins. */
+    top: 0;
   }
 }
 

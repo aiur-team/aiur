@@ -176,34 +176,27 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     ~H"""
     <div class="rs-model">
       <div class="rs-head">
-        <%!-- The spend figure leads an API-key provider row, left of the logo,
-              so the dollar amount is the first fact the eye meets. --%>
-        <div :if={@show_spend?} class="rs-stat rs-spend-lead">
-          <span class="rs-stat-label">Spend</span>
-          <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
-        </div>
-        <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
-        <%!-- The state chip is the row's staleness signal. A row that lost it
-              would read a last-known-good or unavailable value as a live one
-              (the failure mode of issue #1564), so it renders for every model,
-              including the healthy ones. --%>
+        <%!-- The state chip is the row's staleness signal: a row that lost it would read a last-known-good or unavailable value as live (issue #1564), so it renders for every model, including the healthy ones. --%>
         <span class={["rs-state", @state.class]}>{@state.label}</span>
         <div class="rs-head-stats">
           <div :if={@token_count} class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
             <span class="rs-stat-val">
               {@token_count}
-              <%!-- The per-provider token glyph sits to the right of the count.
-                    Decorative: the label already says Tokens. --%>
+              <%!-- The per-provider token glyph sits to the right of the count. Decorative: the label already says Tokens. --%>
               <img class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
             </span>
           </div>
-          <%!-- An unknown token count hides its label and the "N/A" text: a bare
-                "Tokens N/A" row is noise. The token glyph remains, alone, at the
-                top right of the card at logo size, so the card keeps its shape. --%>
+          <%!-- An unknown token count hides its label and the "N/A" text: the glyph remains, alone, at the right of the card, so the card keeps its shape. --%>
           <img :if={is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
         </div>
+        <%!-- The spend figure sits at the right of the row, immediately left of the right-aligned provider logo. --%>
+        <div :if={@show_spend?} class="rs-stat rs-spend">
+          <span class="rs-stat-label">Spend</span>
+          <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
+        </div>
+        <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
       </div>
       <div class="rs-limits">
         <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
