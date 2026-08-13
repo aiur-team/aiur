@@ -4825,6 +4825,13 @@ html[data-theme="light"] .toggle-icon .moon {
   color: var(--muted);
 }
 
+.history-result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .history-when {
   color: var(--muted);
   font-size: 0.72rem;
