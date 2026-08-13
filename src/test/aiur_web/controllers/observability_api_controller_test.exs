@@ -40,13 +40,25 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     end
   end
 
-  # api_write endpoints require a loopback Origin + the X-Aiur-Request header.
+  # api_write endpoints require a loopback Origin + the X-Aiur-Request header,
+  # and the dashboard_auth plug challenges every request once credentials are
+  # configured (test_helper sets them globally), so dashboard routes also carry
+  # the configured Basic Auth header.
   defp hook_conn(identifier, payload) do
     :post
     |> conn("/api/v1/#{identifier}/claude-hook", Jason.encode!(payload))
     |> put_req_header("content-type", "application/json")
     |> put_req_header("origin", "http://127.0.0.1")
     |> put_req_header("x-aiur-request", "1")
+    |> authed()
+  end
+
+  defp authed(conn) do
+    put_req_header(
+      conn,
+      "authorization",
+      "Basic " <> Base.encode64("operator:test-dashboard-secret")
+    )
   end
 
   defp call(conn), do: AiurWeb.Endpoint.call(conn, AiurWeb.Endpoint.init([]))
@@ -140,6 +152,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     |> conn("/api/v1/#{identifier}/#{action}")
     |> put_req_header("origin", "http://127.0.0.1")
     |> put_req_header("x-aiur-request", "1")
+    |> authed()
   end
 
   defp start_control_orchestrator(opts \\ []) do
@@ -184,6 +197,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
         |> conn("/api/v1/MT-EP/claude-hook", Jason.encode!(%{"hook_event_name" => "Stop"}))
         |> put_req_header("content-type", "application/json")
         |> put_req_header("origin", "http://127.0.0.1")
+        |> authed()
         |> call()
 
       assert conn.status == 403
@@ -253,6 +267,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
           |> conn("/api/v1/MT-CONTROL/#{action}")
           |> put_req_header("origin", "http://127.0.0.1")
           |> put_req_header("x-aiur-request", "1")
+          |> authed()
           |> call()
 
         assert json_response(conn, 405) == %{
@@ -265,7 +280,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
   test "GET /api/v1/state returns the full decision history by default" do
     install_decision_history!(51)
 
-    conn = call(conn(:get, "/api/v1/state"))
+    conn = call(conn(:get, "/api/v1/state") |> authed())
 
     assert conn.status == 200
     payload = Jason.decode!(conn.resp_body)
@@ -302,11 +317,11 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
       Jason.encode!(%{"role" => "assistant", "body" => "ready", "timestamp" => "2026-07-30T00:00:00Z", "payload" => nil}) <> "\n"
     )
 
-    conn = call(conn(:get, "/api/v1/#{identifier}/events?limit=1"))
+    conn = call(conn(:get, "/api/v1/#{identifier}/events?limit=1") |> authed())
     assert conn.status == 200
     assert %{"events" => [%{"badge" => "AGENT", "body" => "ready"}], "pagination" => %{"limit" => 1}} = Jason.decode!(conn.resp_body)
 
-    invalid = call(conn(:get, "/api/v1/#{identifier}/events?cursor=not-a-cursor"))
+    invalid = call(conn(:get, "/api/v1/#{identifier}/events?cursor=not-a-cursor") |> authed())
     assert invalid.status == 422
     assert Jason.decode!(invalid.resp_body)["error"]["code"] == "invalid_cursor"
   end
@@ -322,7 +337,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
         idle: []
       })
 
-    conn = call(conn(:get, "/api/v1/streamdeck/grid"))
+    conn = call(conn(:get, "/api/v1/streamdeck/grid") |> authed())
 
     assert conn.status == 200
 
@@ -342,7 +357,7 @@ defmodule AiurWeb.ObservabilityApiControllerTest do
     orchestrator = start_control_orchestrator()
     configure_endpoint(orchestrator)
 
-    conn = call(conn(:get, "/api/v1/streamdeck/grid"))
+    conn = call(conn(:get, "/api/v1/streamdeck/grid") |> authed())
 
     assert conn.status == 200
 

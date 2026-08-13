@@ -69,6 +69,25 @@ defmodule AiurWeb.FinancialDataAccessTest do
     assert conn.resp_body =~ "Dashboard authentication is not configured"
   end
 
+  test "configured credentials still challenge unauthenticated requests when not required" do
+    configure_credentials("operator", "secret")
+    configure_endpoint(dashboard_auth_required: false, dashboard_writable: false)
+
+    refused = FinancialDataAccess.call(session_conn(), [])
+
+    assert refused.status == 401
+    assert refused.halted
+
+    authenticated =
+      session_conn()
+      |> put_req_header("authorization", "Basic " <> Base.encode64("operator:secret"))
+      |> FinancialDataAccess.call([])
+      |> FinancialDataAccess.call(:persist_session)
+
+    refute authenticated.halted
+    assert is_map(get_session(authenticated, FinancialDataAccess.session_key()))
+  end
+
   test "Plug callbacks fail closed and expose only verified socket-private context" do
     assert FinancialDataAccess.init(required?: true) == [required?: true]
 

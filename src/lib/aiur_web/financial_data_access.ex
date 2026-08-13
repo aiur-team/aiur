@@ -65,7 +65,16 @@ defmodule AiurWeb.FinancialDataAccess do
   end
 
   defp authenticate_configured_request(conn, config) do
-    authenticated = configured_conn(conn, config)
+    # Credentials present means the request must prove them, regardless of the
+    # `required?` setting. `required?` only distinguishes how an *unconfigured*
+    # request fails (401 challenge vs 503 refusal); it must never turn a
+    # configured endpoint into an open pass-through.
+    authenticated =
+      Plug.BasicAuth.basic_auth(conn,
+        username: config.username,
+        password: config.password,
+        realm: "Aiur"
+      )
 
     if authenticated.halted do
       authenticated
@@ -73,16 +82,6 @@ defmodule AiurWeb.FinancialDataAccess do
       put_private(authenticated, @conn_private_key, Proof.new_session_marker(config, @version))
     end
   end
-
-  defp configured_conn(conn, %{required?: true} = config) do
-    Plug.BasicAuth.basic_auth(conn,
-      username: config.username,
-      password: config.password,
-      realm: "Aiur"
-    )
-  end
-
-  defp configured_conn(conn, _config), do: conn
 
   @doc "Persists staged auth evidence only after the browser session is fetched."
   @spec persist_session(Plug.Conn.t(), keyword()) :: Plug.Conn.t()
