@@ -184,10 +184,6 @@ textarea:focus-visible,
   display: grid;
   min-width: 0;
   gap: 1.25rem;
-  /* The topbar is fixed and overlays the top of the page; both the sidebar and
-     the content column clear it so the brand row and the body are never hidden
-     underneath. */
-  padding-top: 4rem;
 }
 
 .shell-sidebar {
@@ -1714,10 +1710,8 @@ textarea:focus-visible,
 }
 
 .topbar {
-  position: fixed;
+  position: sticky;
   top: 0;
-  left: 0;
-  right: 0;
   z-index: 30;
   display: flex;
   align-items: center;
@@ -5803,9 +5797,9 @@ html[data-theme="light"] .rs-github-mark {
 
   .shell-sidebar {
     position: sticky;
-    /* Below the fixed topbar (4rem), so the sidebar never slides underneath
-       the translucent title bar as it sticks. */
-    top: 4rem;
+    /* Match .app-shell's fixed 16px block padding so the sticky offset equals
+       the resting offset regardless of root-font-size reflow timing. */
+    top: 16px;
   }
 }
 

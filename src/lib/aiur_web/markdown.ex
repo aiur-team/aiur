@@ -134,10 +134,8 @@ defmodule AiurWeb.Markdown do
   end
 
   defp safe_url?(url) do
-    case URI.parse(url) do
-      %URI{scheme: scheme} -> scheme in @safe_link_schemes
-      _ -> false
-    end
+    %URI{scheme: scheme} = URI.parse(url)
+    scheme in @safe_link_schemes
   end
 
   defp strong(text), do: Regex.replace(@strong, text, "<strong>\\1</strong>")
