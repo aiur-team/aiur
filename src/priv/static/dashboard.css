@@ -3315,33 +3315,10 @@ html[data-theme="light"] .toggle-icon .moon {
   vertical-align: middle;
 }
 
-.ut-id-cell {
-  position: relative;
-}
-
-.units-row.is-blocked .ut-id-cell,
-.units-row.has-alert .ut-id-cell {
-  padding-left: 1.8rem;
-}
-
 .ut-id-num {
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
-}
-
-.ut-alert {
-  position: absolute;
-  left: 0.45rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--fg);
-}
-
-.ut-alert svg {
-  display: block;
-  width: 1rem;
-  height: 1rem;
 }
 
 .ut-pill-row {
