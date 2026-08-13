@@ -1245,15 +1245,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "is-live"
   end
 
-  test "the nav icon is a 4x2 key grid, matching the physical device" do
+  test "the nav icon is a 2x2 key grid" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     [svg] =
-      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="4\.5".*?</svg>}s, html) ||
+      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="4" y="4".*?</svg>}s, html) ||
         flunk("the Stream Deck nav icon svg was not rendered")
 
-    assert length(Regex.scan(~r/<circle /, svg)) == 8,
-           "the Stream Deck nav icon must show 8 keys in a 4x2 grid, like the device"
+    assert length(Regex.scan(~r/<rect /, svg)) == 4,
+           "the Stream Deck nav icon must show 4 keys in a 2x2 grid"
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do
