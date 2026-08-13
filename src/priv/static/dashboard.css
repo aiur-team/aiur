@@ -5032,8 +5032,10 @@ html[data-theme="light"] .rs-github-mark {
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 2rem;
-  height: 2rem;
+  /* 44px is the WCAG minimum target size the responsive ticket-context spec
+     asserts across every button/link in the drawer. */
+  width: 2.75rem;
+  height: 2.75rem;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 50%;
