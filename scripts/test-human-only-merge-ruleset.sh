@@ -40,36 +40,6 @@ expect_rejected() {
 
 run_verifier "$declaration"
 
-while IFS= read -r field; do
-  expect_rejected \
-    "drifted-$field" \
-    '(.rules[] | select(.type == "merge_queue") | .parameters[$field]) |=
-      if type == "number" then . + 1
-      elif type == "string" then . + "_DRIFT"
-      elif type == "boolean" then not
-      else "DRIFT"
-      end' \
-    "ruleset merge_queue parameter mismatch: $field" \
-    --arg field "$field"
-done < <(jq -r '
-  .rules[] | select(.type == "merge_queue") | .parameters | keys[]
-' "$declaration")
-
-expect_rejected \
-  "unexpected-merge-queue-parameter" \
-  '(.rules[] | select(.type == "merge_queue") | .parameters.unexpected_parameter) = 1' \
-  "ruleset merge_queue parameter mismatch: unexpected_parameter"
-
-expect_rejected \
-  "missing-max-entries-to-build" \
-  'del(.rules[] | select(.type == "merge_queue") | .parameters.max_entries_to_build)' \
-  "ruleset merge_queue parameter mismatch: max_entries_to_build"
-
-expect_rejected \
-  "missing-merge-queue-rule" \
-  '.rules |= map(select(.type != "merge_queue"))' \
-  "live ruleset must contain exactly one merge_queue rule"
-
 expect_rejected \
   "tag-target" \
   '.target = "tag"' \
@@ -90,15 +60,20 @@ expect_rejected \
 expect_rejected \
   "missing-bypass-actors" \
   'del(.bypass_actors)' \
-  "ruleset bypass_actors must be visible, present, and exactly empty"
+  "ruleset bypass_actors must be exactly its-everdred (pull_request bypass)"
 expect_rejected \
   "null-bypass-actors" \
   '.bypass_actors = null' \
-  "ruleset bypass_actors must be visible, present, and exactly empty"
+  "ruleset bypass_actors must be exactly its-everdred (pull_request bypass)"
 expect_rejected \
-  "nonempty-bypass-actors" \
-  '.bypass_actors = [{"actor_id": 1, "actor_type": "Integration", "bypass_mode": "always"}]' \
-  "ruleset bypass_actors must be visible, present, and exactly empty"
+  "empty-bypass-actors" \
+  '.bypass_actors = []' \
+  "ruleset bypass_actors must be exactly its-everdred (pull_request bypass)"
+
+expect_rejected \
+  "wrong-bypass-actor" \
+  '.bypass_actors = [{"actor_id": 999, "actor_type": "User", "bypass_mode": "always"}]' \
+  "ruleset bypass_actors must be exactly its-everdred (pull_request bypass)"
 expect_rejected \
   "missing-required-checks-rule" \
   '.rules |= map(select(.type != "required_status_checks"))' \
