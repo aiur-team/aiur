@@ -7,7 +7,16 @@ defmodule Aiur.Config do
   alias Aiur.BuildGate
   alias Aiur.Config.Schema
   alias Aiur.Config.Schema.AgentValidation
+  alias Aiur.Config.Schema.EnvResolver
   alias Aiur.Workflow
+  alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
+
+  # Every environment variable config preparation or `Schema.parse/1` can read
+  # that is *not* named by the config itself. The workspace-root default is
+  # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
+  # fallbacks. Anything added to those paths must be added here, or the settings
+  # memo will not expire when the variable changes.
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -23,7 +32,6 @@ defmodule Aiur.Config do
   {% endif %}
   """
 
-  @default_base_branch "main"
   @default_telemetry_retention_max_bytes 64 * 1024 * 1024
   @default_telemetry_retention_max_age_days 30
   @minimum_telemetry_retention_prune_interval_bytes 1 * 1024 * 1024
@@ -34,8 +42,120 @@ defmodule Aiur.Config do
           turn_sandbox_policy: map()
         }
 
+  @doc """
+  The parsed config.
+
+  This is the single most-called read in the system, so it must be cheap and it
+  must not serialize. Two things make it so (#1731):
+
+    * `Workflow.current_with_generation/0` is an ETS lookup, not a
+      `GenServer.call` into `Aiur.WorkflowStore`.
+    * the `Schema.parse/1` result is memoized against the store generation, so
+      the schema work happens once per *config change* rather than once per
+      read. Before this, every caller re-prepared and re-parsed the same map.
+  """
   @spec settings() :: {:ok, Schema.t()} | {:error, term()}
-  def settings, do: settings_from(Workflow.current())
+  def settings do
+    case Workflow.current_with_generation() do
+      {:ok, workflow, generation} when is_integer(generation) ->
+        cached_settings(workflow, generation)
+
+      {:ok, workflow, _unknown} ->
+        settings_from({:ok, workflow})
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  # `Schema.parse/1` is not a pure function of the config map: `$ENV` references,
+  # `LINEAR_API_KEY`/`LINEAR_ASSIGNEE` and the workspace-root default all read
+  # the process environment at parse time. Keying the memo on the config
+  # generation alone would freeze a resolved secret for the life of the config —
+  # and would break every test that sets an env var and re-reads settings. So
+  # the key carries an environment epoch as well; a `System.put_env` to any
+  # variable the parse depends on invalidates the memo exactly like a config
+  # edit does. See `env_epoch/2` for why that is not the whole environment.
+  defp cached_settings(workflow, generation) do
+    key = {generation, env_epoch(workflow, generation)}
+
+    case WorkflowStoreCache.fetch_settings(key) do
+      {:ok, settings} ->
+        {:ok, settings}
+
+      :error ->
+        case settings_from({:ok, workflow}) do
+          {:ok, settings} = result ->
+            WorkflowStoreCache.put_settings(key, settings)
+            result
+
+          error ->
+            # Never memoize a parse failure: the operator fixes the config in
+            # place and the fix arrives as a new generation anyway, but a
+            # cached error would also mask a transient read.
+            error
+        end
+    end
+  end
+
+  # The memo must expire when any environment variable the parse depends on
+  # changes, or a resolved secret freezes for the life of the config. Hashing
+  # the *whole* environment does that, but it is not free: 154us per call on a
+  # 226-variable host, against ~0.5us for the ETS lookup it guards. Since
+  # `settings/0` is the most-called read in the system — a single status render
+  # reaches it dozens of times — that made the env hash essentially 100% of the
+  # remaining cost of this function.
+  #
+  # The variables the parse can actually consult are fixed by the config
+  # content: the `$NAME` tokens the config itself references, plus the implicit
+  # set above. So derive that list once per generation and sample only those.
+  # The dependency set is a superset of what is really read (every `$NAME`
+  # anywhere in the config, not just in fields that resolve one), so the key
+  # can only expire too eagerly, never too late.
+  defp env_epoch(workflow, generation) do
+    workflow
+    |> env_names(generation)
+    |> Enum.map(&System.get_env/1)
+    |> :erlang.phash2()
+  end
+
+  defp env_names(workflow, generation) do
+    case WorkflowStoreCache.fetch_env_names(generation) do
+      {:ok, names} ->
+        names
+
+      :error ->
+        names = referenced_env_names(workflow)
+        WorkflowStoreCache.put_env_names(generation, names)
+        names
+    end
+  end
+
+  defp referenced_env_names(%{config: config}) when is_map(config) do
+    @implicit_env_vars
+    |> MapSet.new()
+    |> collect_env_names(config)
+    |> Enum.sort()
+  end
+
+  defp collect_env_names(acc, value) when is_map(value) and not is_struct(value) do
+    Enum.reduce(value, acc, fn {key, nested}, acc ->
+      acc |> collect_env_names(key) |> collect_env_names(nested)
+    end)
+  end
+
+  defp collect_env_names(acc, value) when is_list(value) do
+    Enum.reduce(value, acc, &collect_env_names(&2, &1))
+  end
+
+  defp collect_env_names(acc, value) when is_binary(value) do
+    case EnvResolver.env_reference_name(value) do
+      {:ok, name} -> MapSet.put(acc, name)
+      :error -> acc
+    end
+  end
+
+  defp collect_env_names(acc, _value), do: acc
 
   # Like `settings/0` but reads the config file directly, bypassing the
   # `WorkflowStore` cache. For callers that must see on-disk truth rather than a
@@ -81,18 +201,80 @@ defmodule Aiur.Config do
     settings!().tracker.kind
   end
 
-  @doc "The configured tracker integration branch, defaulting to `main`."
+  @doc "The configured tracker integration branch. Raises when it cannot be resolved safely."
   @spec base_branch() :: String.t()
-  def base_branch do
-    case settings() do
-      {:ok, %{tracker: %{base_branch: name}}} when is_binary(name) and name != "" -> name
-      _ -> @default_base_branch
+  @spec base_branch(term()) :: String.t()
+  @spec base_branch(term(), keyword()) :: String.t()
+  def base_branch(source \\ settings(), context \\ [])
+
+  def base_branch({:ok, %{tracker: tracker}}, context), do: base_branch(tracker, context)
+
+  def base_branch({:error, reason}, context) do
+    raise_unresolved_base_branch({:config_error, reason}, context)
+  end
+
+  def base_branch(opts, context) when is_list(opts) do
+    case Keyword.fetch(opts, :base_branch) do
+      {:ok, branch} -> require_base_branch(branch, context)
+      :error -> base_branch(settings(), context)
     end
   end
 
+  def base_branch(%{tracker: tracker}, context), do: base_branch(tracker, context)
+  def base_branch(%{"tracker" => tracker}, context), do: base_branch(tracker, context)
+  def base_branch(%{base_branch: branch}, context), do: require_base_branch(branch, context)
+  def base_branch(%{"base_branch" => branch}, context), do: require_base_branch(branch, context)
+  def base_branch(%{}, context), do: raise_unresolved_base_branch(:missing, context)
+  def base_branch(source, context), do: raise_unresolved_base_branch({:invalid_source, source}, context)
+
+  defp require_base_branch(branch, context) when is_binary(branch) and byte_size(branch) > 0 do
+    case String.trim(branch) do
+      "" -> raise_unresolved_base_branch(:empty, context)
+      trimmed -> trimmed
+    end
+  end
+
+  defp require_base_branch(branch, context), do: raise_unresolved_base_branch({:invalid, branch}, context)
+
+  defp raise_unresolved_base_branch(reason, context) do
+    cwd = context |> Keyword.get_lazy(:cwd, &File.cwd!/0) |> Path.expand()
+
+    config_path =
+      context
+      |> Keyword.get_lazy(:config_path, &Workflow.workflow_file_path/0)
+      |> Path.expand(cwd)
+
+    raise ArgumentError,
+          "tracker.base_branch could not be resolved; config path searched: #{config_path}; " <>
+            "resolved working directory: #{cwd}; reason: #{inspect(reason)}"
+  end
+
+  @doc "Ordered dispatch preference. Empty means the deprecated `agent.kind`/`agent.switch_model_on_ratelimit` fields apply."
+  @spec agent_priority() :: [String.t()]
+  def agent_priority, do: settings!().agent.priority || []
+
+  @doc "Default backend: the first entry of `agent.priority` when present, else the deprecated `agent.kind` field."
   @spec agent_kind() :: String.t()
   def agent_kind do
-    settings!().agent.kind || Aiur.CodingAgent.default_backend()
+    case agent_priority() do
+      [primary | _] -> primary
+      [] -> settings!().agent.kind || Aiur.CodingAgent.default_backend()
+    end
+  end
+
+  @doc "Raw settings for a registry-named backend, or an empty map when absent."
+  @spec backend_config(String.t()) :: map()
+  def backend_config(backend) when is_binary(backend) do
+    agent_backend_configs()
+    |> Map.get(backend, %{})
+  end
+
+  @doc "Raw settings for all registry-named backends, with each `agent.priority` member marked enabled so presence in the array makes it dispatchable."
+  @spec agent_backend_configs() :: map()
+  def agent_backend_configs do
+    Enum.reduce(agent_priority(), settings!().agent.backend_configs || %{}, fn backend, acc ->
+      Map.update(acc, backend, %{"enabled" => true}, &Map.put(&1, "enabled", true))
+    end)
   end
 
   @doc "Raw settings for a registry-named backend, or an empty map when absent."
@@ -111,21 +293,32 @@ defmodule Aiur.Config do
     settings!().agent.routing || %{}
   end
 
+  @doc "Claim-time fallback order: `agent.priority` when present, else the deprecated `agent.switch_model_on_ratelimit` field."
   @spec switch_model_on_ratelimit() :: [String.t()]
-  def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
+  def switch_model_on_ratelimit do
+    case agent_priority() do
+      [] -> settings!().agent.switch_model_on_ratelimit || []
+      priority -> priority
+    end
+  end
 
   @doc """
   The registered backend the automatic usage-limit fallback reroutes *to*
   (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
   `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
-  disabled (`agent.rate_limit_fallback: ""`). Any registry-declared eligible
-  from the primary is accepted; the default is `"claude"`. Unlike
-  `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
-  this is default-on and reroutes a running local agent, reverting at a safe
-  turn boundary once `Aiur.ModelAvailability` confirms the primary recovered.
+  disabled. When `agent.priority` is set, this is the first eligible fallback
+  target after the primary; otherwise it reads the deprecated
+  `agent.rate_limit_fallback` field (`""` disables).
   """
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
+    case agent_priority() do
+      [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
+      [] -> legacy_rate_limit_fallback()
+    end
+  end
+
+  defp legacy_rate_limit_fallback do
     case settings!().agent.rate_limit_fallback do
       backend when is_binary(backend) and backend != "" -> backend
       _ -> nil
@@ -136,11 +329,16 @@ defmodule Aiur.Config do
   The registered backend the usage-limit fallback reroutes *from* — the pair's
   primary. Only an already-running agent on this backend that hits
   `usage_limit_exhausted` is eligible for the reroute to
-  `rate_limit_fallback_backend/0`. Defaults to `"codex"`, preserving the
-  historical codex -> claude reroute.
+  `rate_limit_fallback_backend/0`. When `agent.priority` is set this is its
+  first entry; otherwise it reads the deprecated `agent.rate_limit_primary`.
   """
   @spec rate_limit_primary_backend() :: String.t()
-  def rate_limit_primary_backend, do: settings!().agent.rate_limit_primary
+  def rate_limit_primary_backend do
+    case agent_priority() do
+      [primary | _] -> primary
+      [] -> settings!().agent.rate_limit_primary
+    end
+  end
 
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
@@ -645,8 +843,9 @@ defmodule Aiur.Config do
 
   @doc "Whether run telemetry recording is active. True by default; set `observability.telemetry_enabled: false` to opt out."
   @spec telemetry_enabled?() :: boolean()
-  def telemetry_enabled? do
-    case settings_uncached() do
+  @spec telemetry_enabled?(term()) :: boolean()
+  def telemetry_enabled?(settings \\ settings_uncached()) do
+    case settings do
       {:ok, %{observability: observability}} -> observability.telemetry_enabled
       _other -> true
     end
@@ -842,10 +1041,27 @@ defmodule Aiur.Config do
     tracker = map_section(config, "tracker")
     agent = map_section(config, "agent")
     linear = map_section(config, "linear")
+    server = map_section(config, "server")
 
     config
     |> Map.put("tracker", prepare_tracker_config(config, tracker, linear))
     |> Map.put("agent", prepare_agent_config(config, agent))
+    |> Map.put("server", prepare_server_config(server))
+  end
+
+  defp prepare_server_config(server) do
+    if has_section?(server, "host") do
+      server
+    else
+      Map.put(server, "host", default_server_host())
+    end
+  end
+
+  defp default_server_host do
+    case System.get_env("AIUR_DEFAULT_DASHBOARD_HOST") do
+      host when is_binary(host) and host != "" -> host
+      _ -> "127.0.0.1"
+    end
   end
 
   defp prepare_tracker_config(config, tracker, linear) do

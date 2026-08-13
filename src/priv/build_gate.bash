@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
-# Sourced through BASH_ENV for local Aiur coding-agent shells. It intentionally
-# gates only Mix compile/test work; editing, Git, and other shell commands stay
-# free to run while a verification command holds a lease.
+# Sourced through BASH_ENV for local Aiur coding-agent shells and by the
+# shell-independent Mix/mise command wrappers. It intentionally gates only Mix
+# compile/test work; editing, Git, and other shell commands stay free to run
+# while a verification command holds a lease.
 
 if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
   AIUR_BUILD_GATE_HOOK_LOADED=1
@@ -41,6 +42,20 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
       compile | test) return 0 ;;
       *) return 1 ;;
     esac
+  }
+
+  aiur_build_gate_real_command() {
+    local command_name=$1 candidate
+    local wrapper_path="${AIUR_BUILD_GATE_BIN:-}/$command_name"
+
+    while IFS= read -r candidate; do
+      if [[ -z ${AIUR_BUILD_GATE_BIN:-} || $candidate != "$wrapper_path" ]]; then
+        printf '%s\n' "$candidate"
+        return 0
+      fi
+    done < <(type -aP "$command_name" 2>/dev/null)
+
+    return 1
   }
 
   aiur_build_gate_owner_pid() {
@@ -458,7 +473,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     # then keeps the lease until every adopted descendant has exited.
     holder_script="$(dirname "${BASH_SOURCE[0]}")/build_gate_holder.py"
 
-    exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
+    AIUR_BUILD_GATE_ACTIVE=1 exec "$python_binary" "$holder_script" "$ready_path" "$started_path" "$command_pid_path" \
       "$command_ready_path" "$status_path" "$status_ack_path" "$owner_path" "$token" \
       "$parent_pid" "$agent_pgid" "$slot_fd" "$handshake_seconds" "$ack_seconds" "$@"
   }
@@ -768,7 +783,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
           return 125
         fi
 
-        if "$executable" "$@"; then
+        if AIUR_BUILD_GATE_ACTIVE=1 "$executable" "$@"; then
           result=0
         else
           result=$?
@@ -825,7 +840,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
             return "$pacing_result"
           fi
 
-          if "$executable" "$@"; then
+          if AIUR_BUILD_GATE_ACTIVE=1 "$executable" "$@"; then
             result=0
           else
             result=$?
@@ -1059,7 +1074,7 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
         fi
 
         exec {queue_fd}>&-
-        if "$executable" "$@"; then
+        if AIUR_BUILD_GATE_ACTIVE=1 "$executable" "$@"; then
           result=0
         else
           result=$?
@@ -1320,29 +1335,108 @@ if [[ -z ${AIUR_BUILD_GATE_HOOK_LOADED:-} ]]; then
     printf '%s\n' "$1"
   }
 
+  aiur_build_gate_elixir_mix_task() {
+    while (($#)); do
+      case $1 in
+        -S)
+          shift
+          [[ ${1:-} == mix ]] || return 1
+          shift
+          printf '%s\n' "${1:-}"
+          return 0
+          ;;
+
+        -e | -r | -pr | -pa | -pz | --app | --erl | --cookie)
+          shift
+          (($#)) || return 1
+          shift
+          ;;
+
+        --) return 1 ;;
+        -*) shift ;;
+        *) return 1 ;;
+      esac
+    done
+
+    return 1
+  }
+
+  aiur_build_gate_path_without_wrapper() {
+    local remaining=${PATH:-} path_entry filtered_path= separator= more
+
+    while :; do
+      path_entry=${remaining%%:*}
+
+      if [[ $remaining == *:* ]]; then
+        remaining=${remaining#*:}
+        more=1
+      else
+        more=0
+      fi
+
+      [[ -n $path_entry ]] || path_entry=.
+
+      if [[ $path_entry != "${AIUR_BUILD_GATE_BIN:-}" ]]; then
+        filtered_path+="$separator$path_entry"
+        separator=:
+      fi
+
+      ((more == 1)) || break
+    done
+
+    printf '%s\n' "$filtered_path"
+  }
+
+  aiur_build_gate_command_unavailable() {
+    aiur_build_gate_log "gate_error reason=command_unavailable command=$1 status=127"
+    return 127
+  }
+
+  elixir() {
+    local elixir_binary mix_task real_path
+    elixir_binary=$(aiur_build_gate_real_command elixir)
+
+    if [[ -z $elixir_binary ]]; then
+      aiur_build_gate_command_unavailable elixir
+      return $?
+    fi
+
+    if mix_task=$(aiur_build_gate_elixir_mix_task "$@"); then
+      real_path=$(aiur_build_gate_path_without_wrapper)
+
+      if aiur_build_gate_needs_slot "$mix_task"; then
+        aiur_build_gate_run "$mix_task" env "PATH=$real_path" "$elixir_binary" "$@"
+      else
+        PATH=$real_path "$elixir_binary" "$@"
+      fi
+    else
+      "$elixir_binary" "$@"
+    fi
+  }
+
   mix() {
     local mix_binary
-    mix_binary=$(type -P mix)
+    mix_binary=$(aiur_build_gate_real_command mix)
 
     if [[ -n $mix_binary ]] && aiur_build_gate_needs_slot "${1:-}"; then
       aiur_build_gate_run "${1:-}" "$mix_binary" "$@"
     elif [[ -n $mix_binary ]]; then
       "$mix_binary" "$@"
     else
-      command mix "$@"
+      aiur_build_gate_command_unavailable mix
     fi
   }
 
   mise() {
     local mise_binary phase
-    mise_binary=$(type -P mise)
+    mise_binary=$(aiur_build_gate_real_command mise)
 
     if [[ -n $mise_binary ]] && phase=$(aiur_build_gate_mise_phase "$@"); then
       aiur_build_gate_run "$phase" "$mise_binary" "$@"
     elif [[ -n $mise_binary ]]; then
       "$mise_binary" "$@"
     else
-      command mise "$@"
+      aiur_build_gate_command_unavailable mise
     fi
   }
 fi

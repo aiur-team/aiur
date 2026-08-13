@@ -14,9 +14,9 @@ defmodule Aiur.DecisionAnswer do
   @identity_max 200
   @response_max 4_000
   @rationale_max 4_000
-  @actor_kinds [:operator, :agent, :supervisor, :system]
+  @actor_kinds [:operator, :executor, :agent, :supervisor, :system]
 
-  @type actor :: %{kind: :operator | :agent | :supervisor | :system, id: String.t() | nil}
+  @type actor :: %{kind: :operator | :executor | :agent | :supervisor | :system, id: String.t() | nil}
 
   @type t :: %__MODULE__{
           action_id: String.t(),

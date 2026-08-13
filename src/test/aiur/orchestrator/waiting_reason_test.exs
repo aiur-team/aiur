@@ -237,6 +237,14 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
       assert WaitingReason.for_idle("error", false, 0, auto_resume_retry_in_ms: 120_000) == :paused_transient
     end
 
+    test "a tracker preflight hold names an otherwise dispatchable row" do
+      assert WaitingReason.for_idle("todo", false, 0, dispatch_hold_reason: :tracker_preflight) ==
+               :tracker_unavailable
+
+      assert WaitingReason.for_idle("ci-wait", false, 0, dispatch_hold_reason: :tracker_preflight) ==
+               :waiting_for_ci
+    end
+
     test "the latch wins over an operator pause and a pending transient resume" do
       assert WaitingReason.for_idle("error", false, 0,
                latched_lifetime: true,
@@ -267,6 +275,12 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
                capacity_hold_active?: true,
                auto_resume_retry_in_ms: 120_000
              ) == :paused_transient
+    end
+  end
+
+  describe "render/1" do
+    test "renders the released-claim classifier (#1475)" do
+      assert WaitingReason.render(:claim_released) == "claim_released"
     end
   end
 end

@@ -74,7 +74,7 @@ defmodule Aiur.Init do
         io.puts.("Found an existing config at #{target}; resuming setup.")
         Resume.print_saved_summary(io, config)
         effective_target = Resume.maybe_migrate_layout(io, deps, kind, location, target)
-        tracker = Resume.tracker_from_config(deps, config)
+        tracker = Resume.tracker_from_config(deps, config, config_path: effective_target)
 
         case deps.setup_repo_state.(tracker) do
           :ok ->
@@ -102,14 +102,16 @@ defmodule Aiur.Init do
       :ok ->
         agents = Questions.prompt_agents(io)
         routing = Questions.prompt_routing(io, agents)
-        rate_limit_fallback = Questions.prompt_rate_limit_fallback(io, agents)
         permission_mode = Questions.prompt_permission_mode(io)
         workspace_root = io.input.("Where should agents work?", Questions.workspace_default(tracker), nil)
         max_agents = Questions.prompt_int(io, "Max concurrent agents", 10, 1)
         max_turns = Questions.prompt_max_turns(io)
         max_duration = Questions.prompt_max_duration(io)
         pre_warmed = Questions.prompt_int(io, "How many opencode sessions would you like to pre-warm?", 3, 0)
-        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 30, 1)
+        # Matches Schema.Polling's default. The scaffold writes this value into
+        # .aiurconfig explicitly, so it — not the schema default — is what new
+        # installs actually poll at.
+        polling = Questions.prompt_int(io, "How often should aiur check the tracker for new work? (seconds)", 120, 1)
         prompt_file = if location == :global, do: "", else: io.input.("Per-repo agent prompt file", @prompt_basename, nil)
         prewarm = Prewarm.prompt_prewarm(io, deps, location)
         Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
@@ -120,7 +122,6 @@ defmodule Aiur.Init do
             tracker: tracker,
             agents: agents,
             routing: routing,
-            rate_limit_fallback: rate_limit_fallback,
             permission_mode: permission_mode,
             workspace_root: workspace_root,
             max_agents: max_agents,
@@ -150,7 +151,7 @@ defmodule Aiur.Init do
               io,
               deps,
               tracker
-              |> Map.put(:base_branch, configured_base_branch(config_yaml))
+              |> Map.put(:base_branch, Aiur.Config.base_branch(tracker))
               |> Map.put(:config_path, path),
               agents
             )
@@ -215,7 +216,15 @@ defmodule Aiur.Init do
 
   defp rate_limit_pair(config) do
     agent = Map.get(config, "agent", %{})
-    {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+
+    case List.wrap(agent["priority"]) do
+      [primary | rest] ->
+        fallback = Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
+        {primary, fallback || Aiur.CodingAgent.default_rate_limit_fallback()}
+
+      [] ->
+        {Map.get(agent, "rate_limit_primary", Aiur.CodingAgent.default_backend()), Map.get(agent, "rate_limit_fallback", Aiur.CodingAgent.default_rate_limit_fallback())}
+    end
   end
 
   @spec runtime_deps() :: deps()

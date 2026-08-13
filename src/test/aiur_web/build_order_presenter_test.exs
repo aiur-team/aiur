@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrderPresenterTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Dependency, Member, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Dependency, Diagnostic, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrderPresenter
@@ -169,7 +169,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert Enum.all?(model.edges, &(&1.state == :unknown))
     assert node(model, 1).readiness == :unknown
     assert :external_dependency in diagnostic_codes(model)
-    assert :unresolved_internal_dependency in diagnostic_codes(model)
+    refute :unresolved_internal_dependency in diagnostic_codes(model)
     assert model.adjacency[key(1)] == []
 
     external = Enum.find(model.edges, &(&1.kind == :external))
@@ -177,6 +177,19 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     relationships = BuildOrderPresenter.relationships(model, identity(1))
     assert relationships.external == Enum.filter(relationships.blocked_by, &(&1.kind != :native))
+  end
+
+  test "a same-repository blocker outside the root is a cross-root edge, not a missing dependency" do
+    # #1777 made this ordinary; #1872 removes the false "configured-repository
+    # dependency is missing from this graph" warning it used to surface.
+    target = member(1, dependencies: [Dependency.new(identity(1), identity(8), issue_url(8), :blocked_by)])
+
+    model = BuildOrderPresenter.present(snapshot([target]), status_snapshot(), activity_snapshot())
+
+    assert [edge] = model.edges
+    assert edge.kind == :native
+    assert edge.state == :unknown
+    refute :unresolved_internal_dependency in diagnostic_codes(model)
   end
 
   test "same issue number in another repository never joins runtime facts" do
@@ -447,6 +460,50 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert length(model.edges) == 1
     assert node(model, 1).activity.provenance == %{}
     refute inspect(model) =~ token
+  end
+
+  test "reports an unavailable provider as a provider problem, not a malformed graph" do
+    # The shape the projection stores after a failed read of a perfectly
+    # well-formed Build Order: no data, and a provider that could not fetch.
+    health = ProviderHealth.new(:unknown, :unavailable, false, last_success_at: @now)
+
+    model =
+      BuildOrderPresenter.present(
+        %Snapshot{scope: {:selected, identity(100)}, repository: @repository, generation: :unknown, data: nil, health: health},
+        status_snapshot(),
+        activity_snapshot()
+      )
+
+    assert model.status == :provider_unavailable
+    assert diagnostic_codes(model) == [:provider_unavailable]
+
+    # Zeros must never stand in for unknown: the counts were never resolved.
+    refute model.summary.resolved?
+  end
+
+  test "reports a fetched-but-degraded selected root as unavailable rather than structurally invalid" do
+    degraded = %{SelectedRoot.new(root(identity(100)), [], ProviderHealth.new(:unknown, :unavailable, false)) | diagnostics: [Diagnostic.new(:call_budget_exhausted)]}
+
+    snapshot = %Snapshot{
+      scope: {:selected, identity(100)},
+      repository: @repository,
+      generation: 7,
+      data: degraded,
+      health: ProviderHealth.new(:unknown, :unavailable, false)
+    }
+
+    model = BuildOrderPresenter.present(snapshot, status_snapshot(), activity_snapshot())
+
+    assert model.status == :provider_unavailable
+  end
+
+  test "still reports a genuinely malformed graph as structurally invalid" do
+    malformed = Member.new(%{identity: identity(2), title: "Member", url: issue_url(2), dependencies: [:malformed]})
+
+    model = BuildOrderPresenter.present(snapshot([malformed]), status_snapshot(), activity_snapshot())
+
+    assert model.status == :structurally_invalid
+    assert model.summary.resolved?
   end
 
   defp snapshot(members, opts \\ []) do

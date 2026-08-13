@@ -37,7 +37,7 @@ defmodule Aiur.Opencode.AttachPool do
   use GenServer
   require Logger
 
-  alias Aiur.Opencode.{Protocol, Slot, SlotRegistry}
+  alias Aiur.Opencode.{Protocol, Slot, SlotRegistry, SlotSupervisor}
   alias Aiur.Tmux
 
   @topic "attach_pool"
@@ -56,7 +56,8 @@ defmodule Aiur.Opencode.AttachPool do
             # leadoff must only fire ONCE — otherwise a re-ready races
             # against in-flight `set_visible` calls from `do_seed` and
             # displaces the assignment the user just triggered.
-            fanned_out_slots: MapSet.new()
+            fanned_out_slots: %{},
+            slot_pids: %{}
 
   @type attachment :: %{
           attached_slots: MapSet.t(pos_integer()),
@@ -249,12 +250,21 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   @impl true
-  def handle_info({:slot_ready, slot_index}, state) do
+  def handle_info({:slot_ready, slot_index, pid}, state) do
     # First time we've seen this slot ready — kick its initial attach
     # fan-out (leadoff + remaining active agents). On subsequent re-
     # readys (rebuild path), only re-attach non-leadoff identifiers so
     # the slot's existing leadoff isn't displaced.
-    {:noreply, kickoff_fan_out(state, slot_index)}
+    if current_slot_pid(slot_index) == pid do
+      state = reset_replaced_slot(state, slot_index, pid)
+      {:noreply, kickoff_fan_out(state, slot_index)}
+    else
+      {:noreply, state}
+    end
+  end
+
+  def handle_info({:slot_terminated, slot_index, pid}, state) do
+    {:noreply, purge_slot_lifetime(state, slot_index, pid)}
   end
 
   def handle_info({:slot_attach_added, slot_index, identifier}, state) do
@@ -437,7 +447,7 @@ defmodule Aiur.Opencode.AttachPool do
         start = rem(slot_index - 1, n)
         leadoff = Enum.at(state.active_identifiers, start)
         _ = start_leadoff_task(state, slot_index, leadoff)
-        %{state | fanned_out_slots: MapSet.put(state.fanned_out_slots, slot_index)}
+        %{state | fanned_out_slots: Map.put(state.fanned_out_slots, slot_index, current_slot_pid(slot_index))}
     end
   end
 
@@ -482,7 +492,55 @@ defmodule Aiur.Opencode.AttachPool do
   end
 
   defp slot_already_fanned_out?(state, slot_index) do
-    MapSet.member?(state.fanned_out_slots, slot_index)
+    case {Map.get(state.fanned_out_slots, slot_index), current_slot_pid(slot_index)} do
+      {pid, pid} when is_pid(pid) -> true
+      _ -> false
+    end
+  end
+
+  defp current_slot_pid(slot_index) do
+    case SlotRegistry.lookup(slot_index) do
+      {:ok, pid} -> pid
+      :not_found -> nil
+    end
+  end
+
+  defp reset_replaced_slot(state, slot_index, current_pid) do
+    case Map.get(state.slot_pids, slot_index) do
+      nil ->
+        %{state | slot_pids: Map.put(state.slot_pids, slot_index, current_pid)}
+
+      ^current_pid ->
+        state
+
+      old_pid ->
+        state
+        |> purge_slot_lifetime(slot_index, old_pid)
+        |> Map.update!(:slot_pids, &Map.put(&1, slot_index, current_pid))
+    end
+  end
+
+  defp purge_slot_lifetime(state, slot_index, pid) do
+    if Map.get(state.slot_pids, slot_index) == pid do
+      state
+      |> purge_slot_attachments(slot_index)
+      |> Map.update!(:fully_warmed_slots, &MapSet.delete(&1, slot_index))
+      |> Map.update!(:in_flight, &MapSet.filter(&1, fn {index, _} -> index != slot_index end))
+      |> Map.update!(:fanned_out_slots, &Map.delete(&1, slot_index))
+      |> Map.update!(:slot_pids, &Map.delete(&1, slot_index))
+    else
+      state
+    end
+  end
+
+  defp purge_slot_attachments(state, slot_index) do
+    Enum.reduce(state.attachments, state, fn {identifier, attachment}, acc ->
+      if MapSet.member?(attachment.attached_slots, slot_index) do
+        do_attach_removed(acc, slot_index, identifier)
+      else
+        acc
+      end
+    end)
   end
 
   defp do_attach_added(state, slot_index, identifier) do
@@ -848,9 +906,7 @@ defmodule Aiur.Opencode.AttachPool do
          [w_str, h_str] <- String.split(String.trim(dims_str), " ", trim: true),
          {term_w, ""} <- Integer.parse(w_str),
          {term_h, ""} <- Integer.parse(h_str) do
-      pre_warmed = Aiur.Config.pre_warmed_sessions()
-      max_agents = Aiur.Config.max_concurrent_agents()
-      slot_count = max(min(pre_warmed, max_agents), 1)
+      slot_count = max(SlotSupervisor.slot_count(), 1)
       chat_pane_width = max(div(term_w, 2), 40)
       hidden_window_w = chat_pane_width * slot_count
 

@@ -3,6 +3,95 @@ defmodule Aiur.Init.QuestionsTest do
 
   alias Aiur.Init.Questions
 
+  test "prompt_tracker offers and logs the repository default branch read from the API" do
+    parent = self()
+
+    io = %{
+      select: fn "Issue tracker", _options, _default -> "github" end,
+      input: fn
+        "GitHub repo (owner/name)", _default, _hint -> "owner/repo"
+        "Tracker base branch", default, _hint -> default
+      end,
+      puts: fn message -> send(parent, {:puts, message}) end
+    }
+
+    deps = %{
+      detect_repo: fn -> "owner/repo" end,
+      detect_default_branch: fn "owner/repo" -> "develop" end
+    }
+
+    assert Questions.prompt_tracker(io, deps, :repo_local) ==
+             %{kind: "github", repo: "owner/repo", base_branch: "develop"}
+
+    assert_received {:puts, message}
+    assert message =~ "default branch"
+    assert message =~ "develop"
+  end
+
+  test "prompt_tracker preserves an explicit branch instead of the API default" do
+    io = %{
+      select: fn "Issue tracker", _options, _default -> "github" end,
+      input: fn
+        "GitHub repo (owner/name)", _default, _hint -> "owner/repo"
+        "Tracker base branch", _default, _hint -> "release"
+      end,
+      puts: fn _message -> :ok end
+    }
+
+    deps = %{
+      detect_repo: fn -> "owner/repo" end,
+      detect_default_branch: fn "owner/repo" -> "develop" end
+    }
+
+    assert Questions.prompt_tracker(io, deps, :repo_local) ==
+             %{kind: "github", repo: "owner/repo", base_branch: "release"}
+  end
+
+  test "prompt_tracker reads the API default only once while retrying blank answers" do
+    parent = self()
+    attempts = :atomics.new(1, [])
+
+    io = %{
+      select: fn "Issue tracker", _options, _default -> "github" end,
+      input: fn
+        "GitHub repo (owner/name)", _default, _hint ->
+          "owner/repo"
+
+        "Tracker base branch", default, _hint ->
+          if :atomics.add_get(attempts, 1, 1) == 1, do: "", else: default
+      end,
+      puts: fn message -> send(parent, {:puts, message}) end
+    }
+
+    deps = %{
+      detect_repo: fn -> "owner/repo" end,
+      detect_default_branch: fn "owner/repo" ->
+        send(parent, :detected_default)
+        "develop"
+      end
+    }
+
+    assert Questions.prompt_tracker(io, deps, :repo_local).base_branch == "develop"
+    assert_received :detected_default
+    refute_received :detected_default
+  end
+
+  test "global tracker setup requires an explicit branch instead of pinning the current repository default" do
+    io = %{
+      select: fn "Issue tracker", _options, _default -> "github" end,
+      input: fn "Tracker base branch", nil, _hint -> "release" end,
+      puts: fn _message -> :ok end
+    }
+
+    deps = %{
+      detect_repo: fn -> flunk("global config must not persist the current repository") end,
+      detect_default_branch: fn nil -> nil end
+    }
+
+    assert Questions.prompt_tracker(io, deps, :global) ==
+             %{kind: "github", repo: nil, base_branch: "release"}
+  end
+
   test "normalize_int_or_none accepts none aliases, integers, and invalid values" do
     assert Questions.normalize_int_or_none("none") == :none
     assert Questions.normalize_int_or_none("") == :none

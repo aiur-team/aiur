@@ -6,6 +6,10 @@ defmodule Aiur.Config.Schema.Github do
   @max_planning_root_limit 100
   @max_planning_page_budget 4
   @max_planning_call_budget 4
+  @default_max_inflight 4
+  @default_max_inflight_per_endpoint 2
+  @default_requests_per_minute 120
+  @default_stagger_ms 75
 
   @primary_key false
   embedded_schema do
@@ -18,6 +22,10 @@ defmodule Aiur.Config.Schema.Github do
     field(:planning_root_limit, :integer, default: @max_planning_root_limit)
     field(:planning_page_budget, :integer, default: @max_planning_page_budget)
     field(:planning_call_budget, :integer, default: @max_planning_call_budget)
+    field(:max_inflight, :integer, default: @default_max_inflight)
+    field(:max_inflight_per_endpoint, :integer, default: @default_max_inflight_per_endpoint)
+    field(:requests_per_minute, :integer, default: @default_requests_per_minute)
+    field(:stagger_ms, :integer, default: @default_stagger_ms)
   end
 
   @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
@@ -34,11 +42,23 @@ defmodule Aiur.Config.Schema.Github do
         :human_mergers,
         :planning_root_limit,
         :planning_page_budget,
-        :planning_call_budget
+        :planning_call_budget,
+        :max_inflight,
+        :max_inflight_per_endpoint,
+        :requests_per_minute,
+        :stagger_ms
       ],
       empty_values: []
     )
-    |> validate_required([:planning_root_limit, :planning_page_budget, :planning_call_budget])
+    |> validate_required([
+      :planning_root_limit,
+      :planning_page_budget,
+      :planning_call_budget,
+      :max_inflight,
+      :max_inflight_per_endpoint,
+      :requests_per_minute,
+      :stagger_ms
+    ])
     |> validate_login_list(:allowed_users)
     |> validate_login_list(:human_mergers)
     |> validate_number(:planning_root_limit,
@@ -53,6 +73,30 @@ defmodule Aiur.Config.Schema.Github do
       greater_than: 0,
       less_than_or_equal_to: @max_planning_call_budget
     )
+    |> validate_number(:max_inflight, greater_than: 0, less_than_or_equal_to: 100)
+    |> validate_number(:max_inflight_per_endpoint, greater_than: 0, less_than_or_equal_to: 100)
+    |> validate_number(:requests_per_minute, greater_than: 0, less_than_or_equal_to: 10_000)
+    |> validate_number(:stagger_ms, greater_than_or_equal_to: 0, less_than_or_equal_to: 5_000)
+    |> validate_endpoint_concurrency()
+  end
+
+  defp validate_endpoint_concurrency(changeset) do
+    global = get_field(changeset, :max_inflight)
+    endpoint = get_field(changeset, :max_inflight_per_endpoint)
+
+    if is_integer(global) and is_integer(endpoint) and endpoint > global do
+      add_error(changeset, :max_inflight_per_endpoint, "must not exceed max_inflight")
+    else
+      changeset
+    end
+  end
+
+  defp validate_login_list(changeset, field) do
+    validate_change(changeset, field, fn ^field, users ->
+      if Enum.all?(users, &(is_binary(&1) and String.trim(&1) != "")),
+        do: [],
+        else: [{field, "must contain non-empty GitHub logins"}]
+    end)
   end
 
   defp validate_login_list(changeset, field) do

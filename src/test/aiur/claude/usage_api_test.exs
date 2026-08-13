@@ -103,10 +103,18 @@ defmodule Aiur.Claude.UsageApiTest do
     end
 
     @tag :tmp_dir
-    test "an empty token string is rejected", %{tmp_dir: dir} do
-      # An empty accessToken trips the `token == ""` guard, which shares the
-      # else branch with an expired token.
+    test "an empty token string is rejected as no oauth token", %{tmp_dir: dir} do
+      # An empty accessToken is "not signed in", not "token lapsed": it must
+      # yield :no_oauth_token so the surface can name the honest state.
       path = write_credentials(dir, oauth_json(%{"accessToken" => ""}))
+      assert {:error, :no_oauth_token} = UsageApi.access_token(credentials_path: path)
+    end
+
+    @tag :tmp_dir
+    test "a zero expiry is rejected as expired", %{tmp_dir: dir} do
+      # A signed-out Claude Code writes `expiresAt: 0` alongside a token; it
+      # must read as already expired rather than "no expiry".
+      path = write_credentials(dir, oauth_json(%{"accessToken" => "sk-zero", "expiresAt" => 0}))
       assert {:error, :token_expired} = UsageApi.access_token(credentials_path: path)
     end
 

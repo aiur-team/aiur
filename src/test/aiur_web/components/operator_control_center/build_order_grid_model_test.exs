@@ -31,7 +31,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       [card] = BuildOrderGridModel.build(model, nil).cards
 
       assert card.merged
-      assert card.progress == 100
+      assert card.completion == %{progress: 100, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1}
       assert card.status_word == "merged"
     end
 
@@ -41,16 +41,31 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       [card] = BuildOrderGridModel.build(model([]), adhoc).cards
 
       assert card.merged
-      assert card.progress == 100
+      assert card.completion == %{progress: 100, progress_resolution: :resolved, progress_resolved_count: 1, member_count: 1}
     end
 
-    test "unknown progress renders 0 without a bar" do
-      model = model([node(:a, "A", "plan-graph", 1, status: :status_blocking, progress: :unknown)])
+    test "an unresolvable live card carries an explicit unresolved contract" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1,
+            status: :status_blocking,
+            progress: :unknown,
+            lifecycle: %{state: :unknown, state_reason: :unknown}
+          )
+        ])
 
       [card] = BuildOrderGridModel.build(model, nil).cards
 
-      refute card.has_progress
-      assert card.progress == 0
+      assert card.completion == %{progress: nil, progress_resolution: :unresolved, progress_resolved_count: 0, member_count: 1}
+    end
+
+    test "renders a planned member alongside live members" do
+      model = model([node(:live, "A", "plan-graph", 1, status: :status_completed), node(:draft, "B", "plan-graph", 1, planned?: true)])
+
+      cards = BuildOrderGridModel.build(model, nil).cards
+
+      assert Enum.find(cards, &(&1.id == "A")).state == :merged
+      assert Enum.find(cards, &(&1.id == "B")).state == :planned
     end
 
     test "renders a planned member alongside live members" do
@@ -74,7 +89,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       [wave] = BuildOrderGridModel.build(model, nil).waves
 
       # (4*1.0 + 1*0.0) / (4 + 1) = 80%
-      assert wave.pct == 80
+      assert wave.completion == %{progress: 80, progress_resolution: :resolved, progress_resolved_count: 2, member_count: 2}
       assert wave.core?
       assert wave.label == "W1"
     end
@@ -84,7 +99,45 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       adhoc = adhoc([%{adhoc_row("9", 1) | lifecycle: :open}])
       waves = BuildOrderGridModel.build(model, adhoc).waves
       w1 = Enum.find(waves, &(&1.phase == 1))
-      assert w1.pct == 100
+      assert w1.completion.progress == 100
+    end
+
+    test "keeps resolved coverage and marks an aggregate partial" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1, status: :status_completed, complexity: 4),
+          node(:b, "B", "plan-graph", 1,
+            status: :status_unknown,
+            complexity: 1,
+            progress: :unknown,
+            lifecycle: %{state: :unknown, state_reason: :unknown}
+          )
+        ])
+
+      grid = BuildOrderGridModel.build(model, nil)
+      assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+      assert hd(grid.columns).core?
+      assert hd(grid.columns).completion.progress_resolution == :partial
+      assert hd(grid.waves).completion.progress_resolution == :partial
+    end
+
+    test "a wave and epic whose members are all terminal report resolved" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1,
+            status: :status_completed,
+            lifecycle: %{state: :closed, state_reason: :completed}
+          ),
+          node(:b, "B", "plan-graph", 1,
+            status: :status_not_planned,
+            lifecycle: %{state: :closed, state_reason: :not_planned}
+          )
+        ])
+
+      grid = BuildOrderGridModel.build(model, nil)
+
+      assert [%{completion: %{progress_resolution: :resolved}}] = grid.waves
+      assert [%{completion: %{progress_resolution: :resolved}}] = grid.columns
     end
 
     test "preserves unknown aggregate completion when any core card lacks progress" do

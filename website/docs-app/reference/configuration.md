@@ -40,8 +40,75 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `polling.interval_seconds` | integer | 30 | Seconds between tracker polls. |
+| `polling.interval_seconds` | integer | 120 | Seconds between tracker polls. The repo-events firehose shares this tick. |
 | `polling.usage_interval_seconds` | integer | 300 | Seconds between provider-meter probes. Values below 120 are rejected to avoid provider rate-limit degradation. |
+
+### Choosing a poll interval
+
+Polling spends GitHub GraphQL points at a rate inversely proportional to the
+interval, and that spend is fixed cost — it does not depend on how many agents
+are running. Against GitHub's 5,000 point/hour budget:
+
+| `interval_seconds` | Approximate poll spend | Worst-case wake latency |
+| --- | --- | --- |
+| 30 | ~5,800 points/hour | 30s |
+| 60 | ~2,900 points/hour | 60s |
+| 120 | ~1,450 points/hour | 2m |
+| 300 | ~580 points/hour | 5m |
+
+At 30 seconds the poll loop alone can exhaust the hourly budget before a single
+agent makes a request, which is why the default is 120. Tightening it below 60
+is only safe on a small fleet.
+
+The figures above are what each interval costs if it is actually applied. GitHub
+also sends an `X-Poll-Interval` header on the repo-events endpoint — 60 seconds
+by default — and Aiur treats it as a floor. The interval actually used is the
+wider of the two, so setting `interval_seconds` below 60 generally does not
+speed polling up, while setting it above 60 does slow polling down.
+
+Widening past 120 seconds is the flat part of the curve: each further step
+saves less quota than the last while the wake latency grows proportionally.
+Aiur's poll is state-based — it reads current issue labels and pull request
+state rather than replaying an event log — so a longer interval delays a wake
+but does not lose one. The exception is comment-driven wakes, where a comment
+posted and answered between two polls is not distinguishable from no comment.
+
+## webhooks
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `webhooks.repos` | list of `owner/name` | `[]` | Repos expected to deliver webhooks. A hint only — a listed repo keeps polling at full rate until it actually delivers. |
+| `webhooks.silence_threshold_seconds` | integer | 900 | How long a proven repo may go without a delivery before it degrades back to full polling and raises a needs-attention alert. |
+| `webhooks.sweep_interval_seconds` | integer | 60 | How often proven repos are checked for silence. |
+| `webhooks.poll_widen_factor` | float | 2.0 | Multiplier applied to `polling.interval_seconds` for repos proven webhook-backed. Values below 1.0 are rejected. |
+
+### How widening interacts with polling
+
+Webhooks are the fast path; polling is not removed, it is demoted to a
+reconciliation sweep. The widen factor is what demotes it, and it applies to one
+repo at a time based on that repo's observed state:
+
+| Repo state | Interval used |
+| --- | --- |
+| Never configured for webhooks | `interval_seconds` |
+| Configured but has never delivered | `interval_seconds` |
+| Proven — has delivered at least once | `interval_seconds × poll_widen_factor` |
+| Proven, then silent past the threshold | `interval_seconds` |
+
+Only an observed, signature-verified delivery promotes a repo to the widened
+interval. Configuration alone never does, because configuration says a webhook is
+*expected* and only a delivery proves the App install, the secret, and the ingress
+all work.
+
+The last row is the safety property worth stating on its own: when deliveries
+stop, the silence sweep degrades that repo, the alert names it, and the next poll
+tick is computed at the tighter interval automatically. There is no operator
+action and no separate restore path — a fleet that goes blind polls at full rate
+while it is blind. A delivery arriving later restores webhook mode on its own.
+
+`X-Poll-Interval` and connectivity backoffs remain floors on top of all of this:
+the tick actually used is the widest of the widened interval, GitHub's floor, and
+any active backoff.
 
 ## workspace
 
@@ -62,7 +129,8 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `agent.kind` | string | `codex` | Default coding backend; an explicit value wins, otherwise a `claude:` section infers `claude`, a `codex:` section infers `codex`, and no backend section falls back to `codex`. |
+| `agent.priority` | array | `[]` | Ordered dispatch preference. Presence in the array makes a backend dispatchable; the first available entry is the default backend; and when a backend hits a token or usage limit aiur falls back to the next one in the list, returning to an earlier one once it recovers. When non-empty it replaces `agent.kind`, `agent.switch_model_on_ratelimit`, and the `backend_configs.<b>.enabled` opt-in. |
+| `agent.kind` | string | `codex` | Deprecated default backend; ignored when `agent.priority` is non-empty. |
 | `agent.remote_control` | boolean | false | Opts RC-capable backends into remote control. |
 | `agent.prior_work_continuation` | boolean | true | Lets a resumed ticket continue existing workspace work when policy permits. |
 | `agent.max_dispatches_per_ticket` | integer | 0 | Per-ticket dispatch latch; 0 disables the latch. |
@@ -72,8 +140,8 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.min_free_memory_mb` | integer or nil | nil | Linux `MemAvailable` floor shared by dispatch and the Mix build gate. |
 | `agent.max_concurrent_agents_by_state` | map | `%{}` | Per-state caps overriding the global cap. |
 | `agent.routing` | map | `%{}` | Maps complexity levels to backend/model/effort routing. |
-| `agent.switch_model_on_ratelimit` | array | `[]` | Opt-in backend order for a new claim when a model is rate-limited. |
-| `agent.rate_limit_fallback` | string | `claude` | Automatic recovery backend for an already-running Codex agent; `""` disables it. |
+| `agent.switch_model_on_ratelimit` | array | `[]` | Deprecated claim-time fallback order; ignored when `agent.priority` is non-empty. |
+| `agent.rate_limit_fallback` | string | `claude` | Deprecated automatic recovery backend for an already-running agent; derived from the first eligible `agent.priority` entry after the primary when set; `""` disables it. |
 | `agent.complexity_prompts` | map | `%{}` | Adds prompt guidance by complexity level. |
 | `agent.max_turns` | integer or nil | nil | Per-issue turn cap; nil is uncapped. |
 | `agent.max_retry_attempts` | integer | 3 | Failed-turn retry count. |
@@ -88,8 +156,8 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
-| `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including enablement and credentials for OpenAI-compatible backends. |
-| `agent.rate_limit_primary` | string | default backend | Primary backend watched for automatic rate-limit recovery. |
+| `agent.backend_configs` | map | `%{}` | Provider-specific configuration, including per-backend settings and credentials for OpenAI-compatible backends. A backend listed in `agent.priority` is enabled automatically. |
+| `agent.rate_limit_primary` | string | default backend | Deprecated primary backend watched for automatic rate-limit recovery; derived from `agent.priority` when set. |
 | `agent.max_turns_by_complexity` | map | `%{}` | Per-complexity turn caps. |
 | `agent.mix_scheduler_cap` | integer | 4 | Caps schedulers in agent-launched Mix BEAMs. |
 | `agent.saturation_log_enabled` | boolean | true | Records host and VM diagnostics when sustained load crosses the saturation threshold. |
@@ -212,6 +280,12 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 
 `dashboard_writable` is an authorization gate, not an authentication mechanism. Writable dashboards, including the default loopback dashboard, require `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD`; a read-only loopback dashboard does not. The supervising-Executor Decision API uses the separate `AIUR_SUPERVISOR_TOKEN` bearer credential.
 
+## GitHub webhook receiver
+
+`POST /api/v1/github/webhook` accepts GitHub webhook deliveries. It has no configuration keys and no bearer credential: every delivery is authenticated by the `X-Hub-Signature-256` HMAC-SHA256 digest GitHub computes over the raw request body, using the shared secret in `AIUR_GITHUB_WEBHOOK_SECRET`. Set that variable to the same secret configured on the GitHub webhook.
+
+The receiver fails closed. A delivery is rejected with `401` when the signature header is absent, malformed, or does not match, and when `AIUR_GITHUB_WEBHOOK_SECRET` is unset or blank — the latter also raises a needs-attention `system.github_webhook.secret_missing` alert, because a misconfigured deployment must never accept unsigned deliveries. The legacy SHA-1 `X-Hub-Signature` header is ignored and is never accepted as a fallback. Deliveries larger than 25 MB, GitHub's own delivery ceiling, are refused.
+
 ## decisions
 
 | Key | Type | Default | Controls |
@@ -226,7 +300,9 @@ These policy keys never grant transport access by themselves. The supervisor API
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
 | `server.port` | integer | 0 | HTTP port; 0 selects a free OS port. |
-| `server.host` | string | `127.0.0.1` | HTTP bind address. |
+| `server.host` | string | launcher-selected | HTTP bind address. An explicit value wins over the launcher's authenticated Tailscale-or-loopback default. |
+
+When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscale IPv4 if dashboard credentials are configured and otherwise uses `127.0.0.1`. A configured value is never replaced by that default. An explicit `--host` remains the highest-precedence override.
 
 ## opencode
 

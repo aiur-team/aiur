@@ -57,14 +57,22 @@ defmodule Aiur.AgentEventFeed do
   def badge(:system), do: "SYSTEM"
   def badge(:reasoning), do: "INFO"
   def badge(:alert), do: "INFO"
-  def badge(role) when is_binary(role), do: role |> role_atom() |> badge()
+
+  def badge(role) when is_binary(role) and role in ["command", "tool", "user", "assistant", "system", "reasoning", "alert"],
+    do: role |> role_atom() |> badge()
+
+  # A persisted role can outlive the currently-known provider vocabulary.
+  # Preserve that event in the Stream Deck feed with the neutral category
+  # instead of misclassifying it as a system lifecycle event.
+  def badge(_role), do: "INFO"
 
   defp entry(%{"role" => role, "payload" => payload} = event) when is_map(payload) do
+    badge = badge(role)
     role = role_atom(role)
-    if role == :tool, do: diff_entry(event, payload), else: message_entry(event, role)
+    if role == :tool, do: diff_entry(event, payload), else: message_entry(event, role, badge)
   end
 
-  defp entry(%{"role" => role} = event), do: message_entry(event, role_atom(role))
+  defp entry(%{"role" => role} = event), do: message_entry(event, role_atom(role), badge(role))
   defp entry(_event), do: %{type: "message", badge: "INFO", role: "system", body: ""}
 
   defp diff_entry(event, %{"tool" => "edit", "changes" => changes}) when is_list(changes) do
@@ -97,10 +105,10 @@ defmodule Aiur.AgentEventFeed do
     }
   end
 
-  defp message_entry(event, role) do
+  defp message_entry(event, role, badge \\ nil) do
     %{
       type: "message",
-      badge: badge(role),
+      badge: badge || badge(role),
       role: Atom.to_string(role),
       body: Map.get(event, "body", ""),
       timestamp: Map.get(event, "timestamp"),

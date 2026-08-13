@@ -15,6 +15,26 @@ defmodule Aiur.BuildOrder.Diagnostic do
   @spec new(code()) :: t()
   def new(code) when is_atom(code), do: %__MODULE__{code: code, text: text_for(code)}
 
+  @provider_sourced [
+    :call_budget_exhausted,
+    :page_budget_exhausted,
+    :pagination_mismatch,
+    :provider_schema,
+    :provider_unavailable
+  ]
+
+  @doc """
+  Whether a diagnostic records a failure to read from the provider rather than a
+  defect in the Build Order itself.
+
+  A provider-sourced diagnostic says "we could not fetch this"; every other code
+  says "this is malformed". The two demand opposite operator responses, so a
+  structural verdict must never be derived from a provider-sourced diagnostic.
+  """
+  @spec provider_sourced?(term()) :: boolean()
+  def provider_sourced?(%__MODULE__{code: code}), do: code in @provider_sourced
+  def provider_sourced?(_diagnostic), do: false
+
   defp text_for(:ambiguous_complexity), do: "Complexity label is ambiguous."
   defp text_for(:ambiguous_lane), do: "Build lane label is ambiguous."
   defp text_for(:ambiguous_marker), do: "Planning marker is ambiguous."

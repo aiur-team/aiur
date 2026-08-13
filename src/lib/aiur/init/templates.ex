@@ -87,13 +87,14 @@ defmodule Aiur.Init.Templates do
   def build_fills(d) do
     %{
       "{{TRACKER_KIND}}" => d.tracker.kind,
+      "{{BASE_BRANCH}}" => d.tracker |> Aiur.Config.base_branch() |> Jason.encode!(),
       "{{TRACKER_PROVIDER}}" => tracker_provider_block(d.tracker),
       "{{AGENT_KIND}}" => Questions.primary_kind(d.agents),
+      "{{PRIORITY}}" => priority_inline(d.agents),
       "{{MAX_AGENTS}}" => Integer.to_string(d.max_agents),
       "{{MAX_TURNS}}" => to_string(d.max_turns),
       "{{MAX_AGENT_DURATION}}" => Integer.to_string(d.max_duration),
       "{{ROUTING}}" => routing_inline(d.routing),
-      "{{RATE_LIMIT_FALLBACK}}" => rate_limit_fallback_line(Map.get(d, :rate_limit_fallback, [])),
       "{{PERMISSION_MODE}}" => d.permission_mode,
       "{{WORKSPACE_ROOT}}" => d.workspace_root,
       "{{PROMPT_FILE}}" => d.prompt_file,
@@ -117,9 +118,6 @@ defmodule Aiur.Init.Templates do
     do: "  base_build_file: #{@prewarm_file_name}\n"
 
   defp prewarm_base_build_file_line(_), do: ""
-
-  defp rate_limit_fallback_line([]), do: ""
-  defp rate_limit_fallback_line(backends), do: "  switch_model_on_ratelimit: [#{Enum.join(backends, ", ")}]\n"
 
   defp tracker_provider_block(%{kind: "github"} = github) do
     # label_prefix is fixed (`agent`) and matches the schema default, so the
@@ -148,6 +146,10 @@ defmodule Aiur.Init.Templates do
 
   defp routing_inline(routing) do
     "{" <> Enum.map_join(1..5, ", ", fn level -> "#{level}: #{Map.fetch!(routing, level)}" end) <> "}"
+  end
+
+  defp priority_inline(agents) do
+    "[" <> Enum.join(agents, ", ") <> "]"
   end
 
   defp repo_display(repo) when is_binary(repo) do

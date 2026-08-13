@@ -62,8 +62,12 @@ defmodule Aiur.Init.ResumeTest do
   test "tracker_from_config reads github, linear, and other trackers" do
     deps = %{detect_repo: fn -> "detected/repo" end}
 
-    assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "github"}}) ==
-             %{kind: "github", repo: "detected/repo", label_prefix: "agent", base_branch: "main"}
+    error =
+      assert_raise ArgumentError, fn ->
+        Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "github"}}, config_path: "/tmp/resumed-aiur-config")
+      end
+
+    assert error.message =~ "/tmp/resumed-aiur-config"
 
     assert Resume.tracker_from_config(deps, %{
              "tracker" => %{
@@ -74,10 +78,15 @@ defmodule Aiur.Init.ResumeTest do
            }) == %{kind: "github", repo: "owner/repo", label_prefix: "team", base_branch: "develop"}
 
     assert Resume.tracker_from_config(deps, %{
-             "tracker" => %{"kind" => "linear", "linear" => %{"api_key" => "key", "project_slug" => "slug"}}
-           }) == %{kind: "linear", api_key: "key", project_slug: "slug"}
+             "tracker" => %{
+               "kind" => "linear",
+               "base_branch" => "develop",
+               "linear" => %{"api_key" => "key", "project_slug" => "slug"}
+             }
+           }) == %{kind: "linear", api_key: "key", project_slug: "slug", base_branch: "develop"}
 
-    assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "memory"}}) == %{kind: "memory"}
+    assert Resume.tracker_from_config(deps, %{"tracker" => %{"kind" => "memory", "base_branch" => "develop"}}) ==
+             %{kind: "memory", base_branch: "develop"}
   end
 
   test "agents_from_config includes routing backends, deduped and sorted" do

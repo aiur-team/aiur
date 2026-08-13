@@ -234,7 +234,9 @@ defmodule Aiur.AlertsTest do
     assert File.read!(Path.join(workspace, "logs/agent.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(Path.join(log_root, "alerts.ndjson")) =~ "\"topic\":\"#{topic}\""
     assert File.read!(AlertLedger.path()) =~ "\"topic\":\"#{topic}\""
-    assert [%{"topic" => ^topic}] = AlertFeed.list(needs_attention: true)
+
+    assert [%{"topic" => ^topic}] =
+             AlertFeed.list(needs_attention: true) |> Enum.filter(&(&1["topic"] == topic))
   end
 
   test "fleet dispatch alerts persist and appear in the Executor alert feed" do
@@ -306,23 +308,17 @@ defmodule Aiur.AlertsTest do
              2
   end
 
-  test "cause-scoped pause and unpaused alerts fire from control-state transitions" do
-    workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-pause-#{System.unique_integer([:positive])}")
-
+  @tag :tmp_dir
+  test "cause-scoped pause and unpaused alerts fire from control-state transitions", %{tmp_dir: workspace_root} do
     workspace = Path.join(workspace_root, "MT-ALERT-5")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     orchestrator_name = Module.concat(__MODULE__, :PauseAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -370,28 +366,22 @@ defmodule Aiur.AlertsTest do
     )
   end
 
-  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip" do
+  @tag :tmp_dir
+  test "operator-initiated resume emits an agent.unpaused alert at the orchestrator sync-flip", %{tmp_dir: workspace_root} do
     # Regression: `send_resume_control_message/2` sync-flips control.status
     # from :paused to :working before the worker's `:worker_control_state`
     # confirmation comes back. The later confirmation sees previous_status
     # already :working and emits no transition alert — so the orchestrator
     # must emit the unpause alert itself at the sync-flip point.
-    workspace_root =
-      Path.join(System.tmp_dir!(), "aiur-alert-resume-sync-#{System.unique_integer([:positive])}")
-
     workspace = Path.join(workspace_root, "MT-RESUME-SYNC")
     File.mkdir_p!(workspace)
-
-    on_exit(fn -> File.rm_rf!(workspace_root) end)
 
     write_workflow_file!(Workflow.workflow_file_path(), workspace_root: workspace_root)
 
     orchestrator_name = Module.concat(__MODULE__, :ResumeSyncAlertOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
 
-    on_exit(fn ->
-      if Process.alive?(pid), do: Process.exit(pid, :normal)
-    end)
+    on_exit(fn -> stop_orchestrator!(pid) end)
 
     :sys.replace_state(pid, fn state ->
       %{
@@ -449,6 +439,24 @@ defmodule Aiur.AlertsTest do
   end
 
   defp assert_eventually(_fun, 0), do: flunk("condition was not met in time")
+
+  # The orchestrator traps exits, so `Process.exit(pid, :normal)` only queues
+  # an `{:EXIT, _, :normal}` message and leaves it running. It then keeps
+  # appending to the workspace log while the sibling `on_exit` removes that
+  # directory, and under partition load `File.rm_rf!/1` fails with `:eexist`
+  # on the tree still being written. Wait for the writer to actually be gone.
+  defp stop_orchestrator!(pid) do
+    if Process.alive?(pid) do
+      ref = Process.monitor(pid)
+      Process.exit(pid, :kill)
+
+      receive do
+        {:DOWN, ^ref, :process, ^pid, _reason} -> :ok
+      after
+        5_000 -> flunk("orchestrator #{inspect(pid)} did not stop")
+      end
+    end
+  end
 
   describe "definition_for_topic/1 glob matching" do
     setup do

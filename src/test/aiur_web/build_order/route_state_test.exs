@@ -1,7 +1,7 @@
 defmodule AiurWeb.BuildOrder.RouteStateTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth, RootSummary, SelectedRoot}
+  alias Aiur.BuildOrder.{Catalog, Diagnostic, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.RouteState
@@ -143,7 +143,9 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
       identity: identity,
       state: state
     } do
-      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 1, :unavailable))
+      {state, :generation} =
+        RouteState.put_selected(state, selected_snapshot(identity, nil, 1, :unavailable, failure: :provider_unavailable))
+
       assert RouteState.status(state) == :selected_unavailable
 
       {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 2, :stale))
@@ -151,6 +153,17 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
 
       {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 3, :structurally_invalid))
       assert RouteState.status(state) == :selected_invalid
+    end
+
+    test "treats an unfetched graph with no recorded failure as still loading", %{
+      identity: identity,
+      state: state
+    } do
+      # A nil-data unavailable snapshot with no recorded failure is the shape the
+      # initial demand returns while its async fetch is in flight, so it must
+      # read as loading — not as a provider outage.
+      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 1, :unavailable))
+      assert RouteState.status(state) == :selected_loading
     end
 
     test "marks only the exact empty selected scope unavailable after demand failure", %{
@@ -178,6 +191,21 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
 
       assert RouteState.status(state) == :selected_invalid
       assert RouteState.selected_snapshot(state).data == invalid
+    end
+
+    test "routes a provider-degraded selected root to unavailable, not invalid", %{identity: identity, state: state} do
+      # A read that failed for provider reasons leaves no root and no members.
+      # Calling that `:selected_invalid` tells the usage and analytics regions
+      # the operator's Build Order is malformed when it was merely unfetched.
+      degraded = %{
+        SelectedRoot.new(nil, [], health(1, :unavailable))
+        | diagnostics: [Diagnostic.new(:provider_unavailable)]
+      }
+
+      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, degraded, 1, :unavailable))
+
+      assert RouteState.status(state) == :selected_unavailable
+      refute RouteState.status(state) == :selected_invalid
     end
 
     test "scoped async tokens expire on root and planning generation changes", %{identity: identity, state: state} do

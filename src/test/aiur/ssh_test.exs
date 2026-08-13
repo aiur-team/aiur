@@ -102,6 +102,53 @@ defmodule Aiur.SSHTest do
     assert {:error, :ssh_not_found} = SSH.run("localhost", "printf ok")
   end
 
+  test "run_script/3 streams scripts larger than the per-argument limit" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-script-test-#{System.unique_integer([:positive])}")
+    trace_file = Path.join(test_root, "ssh.trace")
+    input_file = Path.join(test_root, "ssh.input")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      File.rm_rf(test_root)
+    end)
+
+    install_fake_ssh!(test_root, trace_file, """
+    #!/bin/sh
+    printf 'ARGV:%s\\n' "$*" >> "#{trace_file}"
+    cat > "#{input_file}"
+    exit 0
+    """)
+
+    script = "printf streamed\\n" <> String.duplicate("# payload padding\\n", 10_000)
+    assert byte_size(script) > 128 * 1_024
+
+    assert {:ok, {"", 0}} =
+             SSH.run_script("worker-01:2200", script, stderr_to_stdout: true)
+
+    assert File.read!(input_file) == script
+    trace = File.read!(trace_file)
+    assert trace =~ "-T -p 2200 worker-01 bash -lc"
+    assert trace =~ "bash -s"
+  end
+
+  test "run_script/3 removes its staged input when ssh is unavailable" do
+    test_root = Path.join(System.tmp_dir!(), "aiur-ssh-script-missing-test-#{System.unique_integer([:positive])}")
+    previous_path = System.get_env("PATH")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      File.rm_rf(test_root)
+    end)
+
+    File.mkdir_p!(test_root)
+    System.put_env("PATH", test_root)
+    staged_before = staged_scripts()
+
+    assert {:error, :ssh_not_found} = SSH.run_script("worker-01", "printf unreachable\n")
+    assert staged_scripts() == staged_before
+  end
+
   test "start_port/3 supports binary output without line mode" do
     test_root = Path.join(System.tmp_dir!(), "aiur-ssh-port-test-#{System.unique_integer([:positive])}")
     trace_file = Path.join(test_root, "ssh.trace")
@@ -192,6 +239,13 @@ defmodule Aiur.SSHTest do
       Process.sleep(25)
       wait_for_trace!(trace_file, attempts - 1)
     end
+  end
+
+  defp staged_scripts do
+    System.tmp_dir!()
+    |> Path.join("aiur-ssh-script-*.sh")
+    |> Path.wildcard()
+    |> MapSet.new()
   end
 
   defp restore_env(key, nil), do: System.delete_env(key)

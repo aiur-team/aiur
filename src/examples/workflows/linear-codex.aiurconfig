@@ -1,5 +1,6 @@
 tracker:
   kind: linear
+  base_branch: your-base-branch
   active_states:
     - Todo
     - In Progress
@@ -27,7 +28,7 @@ hooks:
   before_remove: |
     git status --short
 agent:
-  kind: codex
+  priority: [codex]
   max_concurrent_agents: 10
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}

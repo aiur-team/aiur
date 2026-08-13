@@ -11,6 +11,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   alias Aiur.Orchestrator.{
     CiLifecycle,
+    ControlLifecycle,
     HumanReview,
     OperatorMessages,
     PauseResume,
@@ -274,6 +275,51 @@ defmodule Aiur.OrchestratorStatusTest do
              Orchestrator.dashboard_snapshot(stalled_name, 50)
   end
 
+  test "an orchestrator wedged after draining its mailbox still reports a stale fleet snapshot" do
+    orchestrator_name = Module.concat(__MODULE__, :DrainedWedgeSnapshotOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    previous_ceiling = Application.get_env(:aiur, :snapshot_stale_age_ceiling_ms)
+    Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, 60)
+
+    on_exit(fn ->
+      if is_nil(previous_ceiling) do
+        Application.delete_env(:aiur, :snapshot_stale_age_ceiling_ms)
+      else
+        Application.put_env(:aiur, :snapshot_stale_age_ceiling_ms, previous_ceiling)
+      end
+
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    :ok = SnapshotStore.publish(orchestrator_name, %{running: [], retrying: [], idle: []})
+
+    # The symmetric failure to a backlogged orchestrator: this one wedges with
+    # an empty mailbox, so there is no backlog to corroborate the stall. A
+    # depth-gated rule would keep serving this snapshot as `:current` forever,
+    # which is the "stale renders as current" defect the Units page exists to
+    # prevent. Age alone must be enough.
+    :sys.suspend(pid)
+    Process.sleep(90)
+
+    assert 0 = pid |> Process.info(:message_queue_len) |> elem(1)
+
+    assert {:stale, %{running: [], retrying: [], idle: []}, %{status: :stale, reason: :snapshot_stalled, age_seconds: age_seconds}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 5_000)
+
+    assert is_integer(age_seconds)
+
+    # A long read timeout must not buy back currency: the ceiling is absolute.
+    assert {:stale, _snapshot, %{reason: :snapshot_stalled}} =
+             Orchestrator.dashboard_snapshot(orchestrator_name, 600_000)
+  end
+
   test "decoupled publisher keeps the fleet snapshot current while the orchestrator is starved" do
     orchestrator_name = Module.concat(__MODULE__, :PublisherDecoupledSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -423,6 +469,42 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [] = :ets.lookup(SnapshotPublisher, orchestrator_name)
   end
 
+  test "discarding an unnamed snapshot removes the publisher delivery marker" do
+    orchestrator = self()
+    generation = SnapshotStore.begin_generation(orchestrator)
+
+    :ok = SnapshotPublisher.write(orchestrator, generation, %State{agent_totals: %{}})
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = SnapshotStore.discard(orchestrator)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+  end
+
+  test "stopping an unnamed orchestrator discards its snapshot state" do
+    {:ok, orchestrator} = Orchestrator.start_link(initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(orchestrator), do: Process.exit(orchestrator, :normal)
+    end)
+
+    :sys.replace_state(orchestrator, &%{&1 | snapshot_ready?: true})
+    state = :sys.get_state(orchestrator)
+    :ok = StatusReport.notify_dashboard(state)
+
+    assert eventually?(fn ->
+             Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+           end)
+
+    assert :ok = GenServer.stop(orchestrator, :normal)
+    assert [] = :ets.lookup(SnapshotPublisher, orchestrator)
+    refute Map.has_key?(:sys.get_state(SnapshotPublisher), orchestrator)
+    assert :orchestrator_unavailable = SnapshotStore.read(orchestrator, 50)
+  end
+
   test "dashboard serves its last-known-good snapshot when the orchestrator is unavailable" do
     orchestrator_name = Module.concat(__MODULE__, :RestartingSnapshotOrchestrator)
     {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
@@ -494,6 +576,102 @@ defmodule Aiur.OrchestratorStatusTest do
     assert [%{queue_depth: 1, pending_operator_messages: [%{text: "show this message"}]}] = snapshot.running
   end
 
+  test "dashboard projection retains the latest declined resume and held pause condition" do
+    issue_id = "issue-declined-resume"
+
+    entry =
+      issue_id
+      |> running_entry("MT-DECLINED-RESUME", :paused)
+      |> Map.put(:paused_reason, :max_agent_duration)
+
+    attrs = %{
+      request_id: 91,
+      issue_id: issue_id,
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 91, 1, now: ~U[2026-08-11 12:00:01Z])
+
+    {:ok, _request, lifecycle} =
+      ControlLifecycle.reject(lifecycle, 91, :not_eligible,
+        now: ~U[2026-08-11 12:00:02Z],
+        condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+      )
+
+    {:ok, _request, lifecycle} =
+      ControlLifecycle.request(
+        lifecycle,
+        %{attrs | request_id: 92, action: :pause, expected_status: :working},
+        now: ~U[2026-08-11 12:00:03Z]
+      )
+
+    snapshot =
+      %State{running: %{issue_id => entry}, control_lifecycle: lifecycle}
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert [row] = snapshot.running
+    assert row.pause_reason == :max_agent_duration
+
+    assert %{action: :pause, request_id: 92, status: :requested} = row.control.latest_control
+
+    assert %{
+             action: :resume,
+             request_id: 91,
+             status: :rejected,
+             rejection: %{
+               class: :not_eligible,
+               condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+             }
+           } = row.control.latest_resume_control
+
+    assert Enum.map(row.control.recent_controls, & &1.request_id) == [91, 92]
+  end
+
+  test "dashboard projection retains a dropped resume and its expiry reason" do
+    issue_id = "issue-dropped-resume"
+
+    entry =
+      issue_id
+      |> running_entry("MT-DROPPED-RESUME", :paused)
+      |> Map.put(:paused_reason, :operator_pause)
+
+    attrs = %{
+      request_id: 93,
+      issue_id: issue_id,
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 93, 1, now: ~U[2026-08-11 12:00:01Z])
+    {[expired], lifecycle} = ControlLifecycle.expire_due(lifecycle, 1_000, now: ~U[2026-08-11 12:00:02.001Z])
+    assert expired.expiry.reason == :timeout
+
+    snapshot =
+      %State{running: %{issue_id => entry}, control_lifecycle: lifecycle}
+      |> StatusReport.snapshot_input()
+      |> StatusReport.snapshot_payload()
+
+    assert [row] = snapshot.running
+    assert row.pause_reason == :operator_pause
+
+    assert %{action: :resume, request_id: 93, status: :expired, expiry: %{reason: :timeout}} =
+             row.control.latest_resume_control
+  end
+
   test "dashboard projection retains CI facts for retries absent from the latest poll" do
     state = %State{
       retry_attempts: %{
@@ -559,7 +737,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert {:noreply, _store} =
              SnapshotStore.handle_info(
-               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}}},
+               {:snapshot_built, callback_ref, orchestrator_name, make_ref(), {:ok, %{marker: :stale}, nil}},
                %{pending: %{}, task_ref: callback_ref, monitor_ref: nil, timer_ref: nil}
              )
 
@@ -1235,7 +1413,7 @@ defmodule Aiur.OrchestratorStatusTest do
 
   test "resuming a paused agent into its reserved slot succeeds when no other active agents" do
     orchestrator_name = Module.concat(__MODULE__, :ResumePausedOnlySlotOrchestrator)
-    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
     parent = self()
 
     on_exit(fn ->
@@ -2100,6 +2278,12 @@ defmodule Aiur.OrchestratorStatusTest do
            ] = snapshot.retrying
 
     assert due_in_ms > 0
+
+    # No issue was ever polled for "mt-500", so its upstream list is unknown
+    # rather than empty. `nil` is what makes the Stream Deck render the key
+    # `Blocked`; an `[]` here would read as "no dependencies" and render it
+    # `Unblocked` off data we never resolved.
+    assert [%{blocked_by: nil}] = snapshot.retrying
   end
 
   test "status API, snapshot, and PubSub retain exact tracker identities" do

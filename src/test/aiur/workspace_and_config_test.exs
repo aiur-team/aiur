@@ -1121,7 +1121,7 @@ defmodule Aiur.WorkspaceAndConfigTest do
     end
   end
 
-  test "workspace installs only agent skills (no repo content) when no bootstrap hook is configured" do
+  test "workspace installs agent support (no repo content) when no bootstrap hook is configured" do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
@@ -1138,11 +1138,12 @@ defmodule Aiur.WorkspaceAndConfigTest do
       assert File.dir?(workspace)
 
       # With no bootstrap hook the workspace gets no repo content, but aiur still
-      # seeds its bundled agent skills (#689) so a dispatched agent can load them
-      # without a filesystem search.
+      # seeds its bundled agent skills (#689) and GitHub quota guard so a
+      # dispatched agent has its operating support without a filesystem search.
       assert {:ok, entries} = File.ls(workspace)
-      assert Enum.sort(entries) == [".claude", ".codex", ".fake"]
+      assert Enum.sort(entries) == [".aiur-runtime", ".claude", ".codex", ".fake"]
       assert File.exists?(Path.join([workspace, ".claude", "skills", "using-aiur", "SKILL.md"]))
+      assert File.exists?(Path.join([workspace, ".aiur-runtime", "bin", "gh"]))
     after
       File.rm_rf(workspace_root)
     end
@@ -2110,6 +2111,25 @@ defmodule Aiur.WorkspaceAndConfigTest do
     assert Config.settings!().agent.codex.command == "codex app-server"
   end
 
+  test "launcher dashboard default fills only a missing server host" do
+    env_var = "AIUR_DEFAULT_DASHBOARD_HOST"
+    previous_default = System.get_env(env_var)
+
+    on_exit(fn -> restore_env(env_var, previous_default) end)
+    System.delete_env(env_var)
+
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.settings!().server.host == "127.0.0.1"
+
+    System.put_env(env_var, "100.64.0.10")
+
+    write_workflow_file!(Workflow.workflow_file_path())
+    assert Config.settings!().server.host == "100.64.0.10"
+
+    write_workflow_file!(Workflow.workflow_file_path(), server_host: "0.0.0.0")
+    assert Config.settings!().server.host == "0.0.0.0"
+  end
+
   test "config resolves $VAR references for env-backed secret and path values" do
     workspace_env_var = "SYMP_WORKSPACE_ROOT_#{System.unique_integer([:positive])}"
     api_key_env_var = "SYMP_LINEAR_API_KEY_#{System.unique_integer([:positive])}"
@@ -2178,6 +2198,11 @@ defmodule Aiur.WorkspaceAndConfigTest do
     """
 
     File.write!(Workflow.workflow_file_path(), config)
+    # A raw write bypasses `write_workflow_file!/2`, which normally reloads the
+    # store for you. Since #1731 a read no longer reloads on the caller's
+    # behalf — the store owns freshness — so ask for the reload explicitly
+    # rather than racing its one-second poll.
+    assert :ok = WorkflowStore.force_reload()
 
     assert Config.settings!().agent.max_concurrent_agents == 10
     assert Config.max_concurrent_agents_for_state("Todo") == 1

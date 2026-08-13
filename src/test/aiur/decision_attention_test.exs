@@ -333,8 +333,8 @@ defmodule Aiur.DecisionAttentionTest do
 
     first_identifier = "#{prefix}-1"
     second_identifier = "#{prefix}-2"
-    assert_receive {:bounded_import, ^first_identifier, "Question 1?"}
-    assert_receive {:bounded_import, ^second_identifier, "Question 2?"}
+    assert_receive {:bounded_import, ^first_identifier, "Question 1?"}, 2_000
+    assert_receive {:bounded_import, ^second_identifier, "Question 2?"}, 2_000
     refute_receive {:bounded_import, _, _}
     assert eventually(fn -> :sys.get_state(pid).importing? == false end)
     assert map_size(:sys.get_state(pid).attentions) == 2
@@ -359,6 +359,7 @@ defmodule Aiur.DecisionAttentionTest do
     {:ok, store} =
       DecisionStore.start_link(
         name: nil,
+        state_dir: dir,
         filesystem_sync_fun: fn -> :ok end
       )
 

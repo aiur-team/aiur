@@ -319,10 +319,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
 
   defp answer_notice(_accepted), do: "Answer recorded. Durable dispatch is pending."
 
-  defp dismiss_notice(%{status: :duplicate}), do: "This Command was already acknowledged."
+  defp dismiss_notice(%{status: :duplicate}), do: "This Command was already closed."
 
   defp dismiss_notice(_accepted),
-    do: "Command acknowledged and closed without a recorded answer."
+    do: "Command closed without a recorded answer."
 
   defp defer_notice(%{status: :duplicate}), do: "This Command is already deferred to the Executor."
   defp defer_notice(_accepted), do: "Command deferred to the Executor. It remains available for an answer."
@@ -340,6 +340,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCommands do
     do: "This submission token was already used with different content. Review the refreshed answer."
 
   defp command_error({:conflict, :resolved}), do: "This Command is already resolved."
+
+  defp command_error({:conflict, :blocking_requires_answer}),
+    do: "This Command is still blocking its agent. Closing it would hide the block without releasing it — record an answer instead."
+
   defp command_error({:answer_invalid, {:option_id, :unknown}}), do: "That option is no longer available."
 
   defp command_error({:answer_invalid, {_field, :too_long}}),
