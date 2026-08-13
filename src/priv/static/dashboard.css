@@ -7347,6 +7347,12 @@ html[data-theme="light"] .rs-github-mark {
   margin: 1.25rem 0;
 }
 
+/* The graph is its own section-card pane now; the pane's padding replaces the
+   graph's own vertical breathing room so the card stays tight. */
+.bo-graph-pane .bo-grid-root {
+  margin: 0;
+}
+
 /* --- wave-progress header strip --- */
 .bo-waves-head {
   margin-bottom: 1rem;
