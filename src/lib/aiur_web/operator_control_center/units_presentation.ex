@@ -15,7 +15,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
     {priority, priority_class} = priority(row)
 
     %{
-      provider: agent_label(family),
+      provider: agent_label(row),
       family: family,
       complexity: Map.get(row, :complexity),
       model: model_label(row),
@@ -56,6 +56,12 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   def age_label(_age_seconds), do: "unknown age"
 
   @spec latest_text(map()) :: String.t()
+  def latest_text(%{reasons: %{resume: %{outcome: :declined} = outcome}}),
+    do: "Resume declined — #{resume_condition(outcome)}; #{resume_detail(outcome)}"
+
+  def latest_text(%{reasons: %{resume: %{outcome: :dropped} = outcome}}),
+    do: "Resume dropped — #{resume_condition(outcome)}; #{resume_detail(outcome)}"
+
   def latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
   def latest_text(_row), do: "No recent activity"
 
@@ -96,11 +102,19 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
 
   def agent_family(_row), do: nil
 
-  @spec agent_label(atom() | nil) :: String.t()
+  # The Unit pill label for a row: the provider family label when it resolves,
+  # otherwise the resolved/requested model, otherwise the configured backend.
+  # Never a bare "Agent" — a dispatched ticket should always resolve to a model
+  # or its configured backend rather than an empty fallback label.
+  @spec agent_label(map() | atom() | nil) :: String.t() | nil
+  def agent_label(%{} = row) do
+    agent_label(agent_family(row)) || model_label(row) || backend_label(row)
+  end
+
   def agent_label(family) do
     case CodingAgent.provider_descriptor(family) do
       %{label: label} -> label
-      _ -> "Agent"
+      _ -> nil
     end
   end
 
@@ -108,6 +122,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
   def model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
   def model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
   def model_label(_row), do: nil
+
+  defp backend_label(%{backend: backend}) when is_binary(backend) and backend != "" do
+    backend |> String.replace("_", " ") |> String.capitalize()
+  end
+
+  defp backend_label(%{backend: backend}) when is_atom(backend) and not is_nil(backend) do
+    backend |> Atom.to_string() |> String.replace("_", " ") |> String.capitalize()
+  end
+
+  defp backend_label(_row), do: nil
 
   @spec priority(map()) :: {String.t(), String.t()}
   def priority(%{effort: :deep}), do: {"HIGH", "is-high"}
@@ -152,6 +176,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresentation do
     do: "#{percent}%"
 
   defp progress_label(_row), do: "—"
+
+  defp resume_condition(%{pause_reason: :max_agent_duration}), do: "maximum agent duration reached"
+
+  defp resume_condition(%{pause_reason: reason}) when is_atom(reason),
+    do: humanize_atom(reason)
+
+  defp resume_condition(_outcome), do: "pause condition unknown"
+
+  defp resume_detail(%{detail: %{message: message}}) when is_binary(message), do: message
+  defp resume_detail(%{detail: %{class: class}}) when is_atom(class), do: humanize_atom(class)
+  defp resume_detail(%{detail: %{reason: reason}}) when is_atom(reason), do: humanize_atom(reason)
+  defp resume_detail(_outcome), do: "no diagnostic reported"
+
+  defp humanize_atom(value), do: value |> Atom.to_string() |> String.replace("_", " ")
 
   defp format_duration(seconds) do
     hours = div(seconds, 3_600)

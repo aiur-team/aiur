@@ -59,9 +59,6 @@ defmodule Aiur.BuildOrder.GitHubGraph.Dependencies do
           :ok ->
             {dependency, diagnostics}
 
-          :unresolved ->
-            {dependency, [Diagnostic.new(:unresolved_internal_dependency) | diagnostics]}
-
           :contradictory ->
             dependency = append_diagnostics(dependency, [Diagnostic.new(:invalid_endpoint_locator)])
             {dependency, [Diagnostic.new(:invalid_endpoint_locator) | diagnostics]}
@@ -72,10 +69,16 @@ defmodule Aiur.BuildOrder.GitHubGraph.Dependencies do
     |> append_diagnostics(diagnostics |> Enum.reverse() |> Enum.uniq())
   end
 
+  # A native dependency whose endpoint is not among the root's members is a
+  # cross-root reference — a real ticket in the configured repository filed
+  # outside this Build Order, which is an ordinary fact about a Build Order
+  # still in flight (#1777). It is not a defect, so it contributes no
+  # diagnostic; only an endpoint that is present but contradicts its canonical
+  # locator is flagged.
   defp status(%Dependency{kind: :native, identity: identity, url: url}, locators) do
     case Map.fetch(locators, Endpoint.key(identity)) do
       {:ok, canonical} -> if(Endpoint.locator_matches?(identity, url, canonical), do: :ok, else: :contradictory)
-      :error -> :unresolved
+      :error -> :ok
     end
   end
 

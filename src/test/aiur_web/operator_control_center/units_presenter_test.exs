@@ -173,7 +173,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
     stale_payload =
       alpha
       |> payload()
-      |> put_in([:fleet, :snapshot_freshness], %{status: :stale, reason: :snapshot_timeout, age_seconds: 42, observed_at: "2026-07-17T11:59:18Z"})
+      |> put_in([:fleet, :snapshot_freshness], %{status: :stale, reason: :snapshot_timeout, age_seconds: 342, observed_at: "2026-07-17T11:59:18Z"})
 
     catalog =
       UnitsPresenter.load(stale_payload,
@@ -183,9 +183,27 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenterTest do
 
     assert catalog.status == :stale
     assert catalog.message =~ "last-known-good Units catalog"
-    assert catalog.message =~ "42s old"
+    assert catalog.message =~ "5m 42s old"
     refute catalog.message =~ "membership is healthy"
     assert [%{identity: ^alpha}] = catalog.snapshot.rows
+  end
+
+  test "a fleet snapshot marked stale while still young is not presented as stale" do
+    alpha = identity("NODE-fresh-fleet", "41")
+
+    young_payload =
+      alpha
+      |> payload()
+      |> put_in([:fleet, :snapshot_freshness], %{status: :stale, reason: :snapshot_timeout, age_seconds: 18, observed_at: "2026-07-17T11:59:42Z"})
+
+    catalog =
+      UnitsPresenter.load(young_payload,
+        membership_fun: fn -> membership([member(alpha)]) end,
+        activity_fun: fn -> %{entries: []} end
+      )
+
+    assert catalog.status == :ready
+    refute catalog.message
   end
 
   test "an unavailable fleet snapshot never reports a healthy membership as the reason" do

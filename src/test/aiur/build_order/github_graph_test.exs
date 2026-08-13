@@ -691,9 +691,11 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   end
 
   # A same-repository blocker that is not a member of this root is an ordinary
-  # fact about a Build Order still in flight, not a defect in the member. It is
-  # recorded on the member and the read still succeeds — failing the read here
-  # erased every member of a 27-member root from the page (#1777).
+  # fact about a Build Order still in flight, not a defect in the member. The
+  # member stays clean and the read still succeeds — failing the read here
+  # erased every member of a 27-member root from the page (#1777), and flagging
+  # the member only produced the false "configured-repository dependency is
+  # missing from this graph" warning (#1872).
   test "records a missing internal endpoint without failing the read" do
     root = root(1)
     missing_internal = member(2, root, blocked_by: [endpoint(99)])
@@ -705,7 +707,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert selected.diagnostics == []
     assert length(selected.members) == 1
 
-    assert :unresolved_internal_dependency in (selected.members
+    refute :unresolved_internal_dependency in (selected.members
                                                |> hd()
                                                |> Map.fetch!(:diagnostics)
                                                |> Enum.map(& &1.code))
@@ -728,12 +730,9 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     assert Enum.map(selected.members, & &1.lifecycle.state) == [:closed, :open, :open]
     assert SelectedRoot.status(selected) == :ready
 
-    unresolved =
-      Enum.filter(selected.members, fn member ->
-        :unresolved_internal_dependency in Enum.map(member.diagnostics, & &1.code)
-      end)
-
-    assert Enum.map(unresolved, & &1.identity.identifier) == ["3", "5"]
+    # Cross-root blockers are ordinary, so no member carries the misleading
+    # "missing from this graph" diagnostic.
+    assert Enum.all?(selected.members, &(:unresolved_internal_dependency not in Enum.map(&1.diagnostics, fn d -> d.code end)))
   end
 
   test "rejects an unqualified endpoint and accepts a cycle when every endpoint is present" do

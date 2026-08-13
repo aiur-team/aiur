@@ -35,6 +35,9 @@ defmodule AiurWeb.StaticAssetController do
   @spec aiur_logo(Conn.t(), map()) :: Conn.t()
   def aiur_logo(conn, _params), do: serve(conn, "/aiur-logo.png")
 
+  @spec github_mark(Conn.t(), map()) :: Conn.t()
+  def github_mark(conn, _params), do: serve(conn, "/images/github-mark.svg", revalidate?: true)
+
   @spec provider_asset(Conn.t(), map()) :: Conn.t()
   def provider_asset(conn, %{"provider_asset" => asset}) when is_list(asset),
     do: serve(conn, "/provider-assets/" <> Enum.join(asset, "/"), revalidate?: true)

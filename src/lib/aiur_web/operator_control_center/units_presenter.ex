@@ -9,6 +9,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   alias Aiur.{CurrentRunMembership, TicketActivity, TrackerIdentity}
   alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresentation, UnitsRow}
 
+  # A fleet view only counts as "stale" once it is genuinely old; a snapshot
+  # marked stale a few seconds after its last publish is still effectively
+  # current and must not demote the catalog to last-known-good.
+  @fleet_stale_after_seconds 300
+
   @type catalog_status :: :ready | :empty | :stale | :unavailable
 
   @spec load(map(), keyword()) :: map()
@@ -289,7 +294,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
 
   defp fleet_view_degraded?(snapshot) do
     fleet_health(snapshot) not in [:healthy, :available] or
-      fleet_freshness_status(snapshot) in [:stale, :unknown, :unavailable]
+      fleet_freshness_degraded?(snapshot)
+  end
+
+  # A `:stale` freshness is only a degradation once the view is actually old;
+  # `:unknown`/`:unavailable` have no age to compare and stay degraded.
+  defp fleet_freshness_degraded?(snapshot) do
+    case {fleet_freshness_status(snapshot), fleet_age_seconds(snapshot)} do
+      {:stale, age_seconds} when is_integer(age_seconds) and age_seconds >= @fleet_stale_after_seconds -> true
+      {status, _age_seconds} when status in [:unknown, :unavailable] -> true
+      _freshness -> false
+    end
   end
 
   defp fleet_health(snapshot), do: snapshot |> Map.get(:health, %{}) |> Map.get(:status, :unknown)
@@ -334,7 +349,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
       fleet_health(snapshot) not in [:healthy, :available] ->
         "#{lead} while the fleet snapshot is unavailable."
 
-      fleet_freshness_status(snapshot) in [:stale, :unknown, :unavailable] ->
+      fleet_freshness_degraded?(snapshot) ->
         "#{lead} while fleet snapshot refresh is degraded." <> fleet_age_phrase(snapshot)
 
       true ->

@@ -5,6 +5,7 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
 
   alias Aiur.OpaqueIdentifier
   alias AiurWeb.BuildOrder.TicketContextPresenter
+  alias AiurWeb.Markdown
 
   attr(:id, :string, required: true)
   attr(:context, :map, required: true)
@@ -84,111 +85,139 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
   defp context_content(assigns) do
     ~H"""
     <header class="modal-header ticket-context-header">
-      <div>
+      <div class="ticket-context-heading">
         <p class="section-eyebrow">Ticket context</p>
-        <p class="ticket-context-repository mono">{@context.repository}<span :if={@context.identifier}> · #{@context.identifier}</span></p>
-        <h2 id={@heading_id} tabindex="-1" data-dialog-heading data-ticket-context-focus="heading">{@context.title}</h2>
+        <p class="ticket-context-repository mono">{@context.repository}</p>
+        <div class="ticket-context-nav">
+          <span :if={@context.identifier} class="ticket-context-id mono">#{@context.identifier}</span>
+          <h2
+            id={@heading_id}
+            tabindex="-1"
+            data-dialog-heading
+            data-ticket-context-focus="heading"
+            class="ticket-context-title"
+          >{@context.title}</h2>
+        </div>
       </div>
-      <button :if={@close_event} type="button" class="tool-btn" phx-click={@close_event} data-ticket-context-focus="close">Close</button>
+      <button
+        :if={@close_event}
+        type="button"
+        class="ticket-context-close"
+        phx-click={@close_event}
+        data-ticket-context-focus="close"
+        aria-label="Close ticket context"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6l12 12"/></svg>
+      </button>
     </header>
 
-    <div :if={available_capabilities(@capabilities) != []} class="ticket-context-ctas">
-      <a
-        :for={capability <- available_capabilities(@capabilities)}
-        class="btn sm ticket-context-cta"
-        href={capability.href}
-        target={if(capability.external?, do: "_blank")}
-        rel={if(capability.external?, do: "noopener noreferrer")}
-        data-ticket-context-focus={capability_focus_key(capability)}
-      >{cta_label(capability)}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
-    </div>
-
-    <p :if={@context.description} class="ticket-context-description">{@context.description}</p>
-
-    <section
-      :if={dependencies?(@context.dependencies)}
-      class="ticket-context-dependencies"
-      aria-labelledby={"#{@heading_id}-dependencies"}
-    >
-      <h3 id={"#{@heading_id}-dependencies"}>Dependencies</h3>
-      <%!-- Follow-up (#1270): tags are non-clickable — the OCC ticket-context data path does
-      not yet carry linked-ticket tokens. Mirror the prototype's openTicketModal goto wiring
-      once the build-order graph is plumbed to this component. --%>
-      <div :if={@context.dependencies.blocked_by != []} class="ticket-context-dep-group">
-        <span class="ticket-context-dep-label">Blocked by</span>
-        <span :for={dep <- @context.dependencies.blocked_by} class="ticket-context-dep-tag">#{dep.identifier}<span :if={dep.title}> · {dep.title}</span></span>
+    <div class="ticket-context-body">
+      <div :if={available_capabilities(@capabilities) != []} class="ticket-context-ctas">
+        <a
+          :for={capability <- available_capabilities(@capabilities)}
+          class="btn sm ticket-context-cta"
+          href={capability.href}
+          target={if(capability.external?, do: "_blank")}
+          rel={if(capability.external?, do: "noopener noreferrer")}
+          data-ticket-context-focus={capability_focus_key(capability)}
+        >{cta_label(capability)}<span :if={capability.external?} aria-hidden="true"> ↗</span></a>
       </div>
-      <div :if={@context.dependencies.blocking != []} class="ticket-context-dep-group">
-        <span class="ticket-context-dep-label">Blocking</span>
-        <span :for={dep <- @context.dependencies.blocking} class="ticket-context-dep-tag">#{dep.identifier}<span :if={dep.title}> · {dep.title}</span></span>
-      </div>
-    </section>
 
-    <div :if={@extension != []} class="ticket-context-extension">{render_slot(@extension)}</div>
-
-    <div class="ticket-context-grid">
-      <section class="detail-block" aria-labelledby={"#{@heading_id}-facts"}>
-        <h3 id={"#{@heading_id}-facts"}>Ticket facts</h3>
-        <dl class="metadata-list ticket-context-metadata">
-          <div><dt>State</dt><dd>{lifecycle_label(@context.lifecycle)}</dd></div>
-          <div><dt>Progress</dt><dd>{@progress_message}</dd></div>
-          <div><dt>Last activity</dt><dd><.timestamp value={last_activity_at(@context)} /></dd></div>
-          <div><dt>Dependencies</dt><dd>{dependency_count(@context.dependencies)}</dd></div>
-        </dl>
+      <section :if={@context.description} class="ticket-context-description" aria-labelledby={"#{@heading_id}-description"}>
+        <h3 id={"#{@heading_id}-description"}>Description</h3>
+        <div class="ticket-context-markdown">{Markdown.render(@context.description)}</div>
       </section>
 
-      <section class="detail-block" aria-labelledby={"#{@heading_id}-activity"}>
-        <h3 id={"#{@heading_id}-activity"}>Progress</h3>
-        <p class="ticket-context-progress">{@progress_message}</p>
-        <meter :if={is_integer(@context.progress.percent)} min="0" max="100" value={@context.progress.percent}>{@context.progress.percent}%</meter>
+      <section
+        :if={dependencies?(@context.dependencies)}
+        class="ticket-context-dependencies"
+        aria-labelledby={"#{@heading_id}-dependencies"}
+      >
+        <h3 id={"#{@heading_id}-dependencies"}>Dependencies</h3>
+        <%!-- Follow-up (#1270): tags are non-clickable — the OCC ticket-context data path does
+        not yet carry linked-ticket tokens. Mirror the prototype's openTicketModal goto wiring
+        once the build-order graph is plumbed to this component. --%>
+        <div :if={@context.dependencies.blocked_by != []} class="ticket-context-dep-group">
+          <span class="ticket-context-dep-label">Blocked by</span>
+          <span :for={dep <- @context.dependencies.blocked_by} class="ticket-context-dep-tag">#{dep.identifier}<span :if={dep.title}> · {dep.title}</span></span>
+        </div>
+        <div :if={@context.dependencies.blocking != []} class="ticket-context-dep-group">
+          <span class="ticket-context-dep-label">Blocking</span>
+          <span :for={dep <- @context.dependencies.blocking} class="ticket-context-dep-tag">#{dep.identifier}<span :if={dep.title}> · {dep.title}</span></span>
+        </div>
       </section>
+
+      <div :if={@extension != []} class="ticket-context-extension">{render_slot(@extension)}</div>
+
+      <div class="ticket-context-grid">
+        <section class="detail-block" aria-labelledby={"#{@heading_id}-facts"}>
+          <h3 id={"#{@heading_id}-facts"}>Ticket facts</h3>
+          <dl class="metadata-list ticket-context-metadata">
+            <div><dt>State</dt><dd>{lifecycle_label(@context.lifecycle)}</dd></div>
+            <div><dt>Progress</dt><dd>{@progress_message}</dd></div>
+            <div><dt>Last activity</dt><dd><.timestamp value={last_activity_at(@context)} /></dd></div>
+            <div><dt>Dependencies</dt><dd>{dependency_count(@context.dependencies)}</dd></div>
+          </dl>
+        </section>
+
+        <section class="detail-block" aria-labelledby={"#{@heading_id}-activity"}>
+          <h3 id={"#{@heading_id}-activity"}>Progress</h3>
+          <p class="ticket-context-progress">{@progress_message}</p>
+          <meter :if={is_integer(@context.progress.percent)} min="0" max="100" value={@context.progress.percent}>{@context.progress.percent}%</meter>
+        </section>
+      </div>
+
+      <section class="ticket-context-logs-section" aria-labelledby={"#{@heading_id}-logs"}>
+        <header class="section-header compact">
+          <div>
+            <p class="section-eyebrow">Unified activity</p>
+            <h3 id={"#{@heading_id}-logs"}>Logs</h3>
+          </div>
+        </header>
+        <p :if={@context.logs.entries == [] and not progress_entry?(@context.progress)} class="empty-state compact">No safe Log entries are available.</p>
+        <p :if={@context.logs.truncated?} class="ticket-context-status" role="status">Logs are truncated to the newest safe entries.</p>
+        <div :if={@context.logs.entries != [] or progress_entry?(@context.progress)} class="ticket-context-logs-wrap">
+          <table class="ticket-context-logs">
+            <thead><tr><th>Activity</th><th>Detail</th><th>When</th></tr></thead>
+            <tbody>
+              <tr :if={progress_entry?(@context.progress)} class="ticket-context-progress-row">
+                <td><strong>Progress update</strong></td>
+                <td>{progress_entry_text(@context.progress)}</td>
+                <td><.timestamp value={progress_entry_at(@context.progress)} /></td>
+              </tr>
+              <tr :for={entry <- @context.logs.entries}>
+                <td>
+                  <details>
+                    <summary><strong>{entry.label}</strong></summary>
+                    <dl>
+                      <div><dt>Event</dt><dd>{state_label(entry.kind)}</dd></div>
+                      <div><dt>Source</dt><dd>{state_label(entry.source)}</dd></div>
+                      <div><dt>Observed</dt><dd><.timestamp value={entry.observed_at} /></dd></div>
+                    </dl>
+                  </details>
+                </td>
+                <td>{activity_detail(entry)}</td>
+                <td><.timestamp value={entry.occurred_at || entry.observed_at} /></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <nav
+        :if={unavailable_capabilities(@capabilities) != []}
+        class="ticket-context-capabilities"
+        aria-label="Unavailable ticket destinations"
+      >
+        <h3>Unavailable destinations</h3>
+        <div class="link-list">
+          <div :for={capability <- unavailable_capabilities(@capabilities)} class="ticket-context-capability">
+            <span class="link-pill unavailable" aria-disabled="true">{capability.label}</span>
+            <p class="ticket-context-capability-reason">{capability.reason}</p>
+          </div>
+        </div>
+      </nav>
     </div>
-
-    <section class="ticket-context-logs-section" aria-labelledby={"#{@heading_id}-logs"}>
-      <header class="section-header compact">
-        <div>
-          <p class="section-eyebrow">Bounded activity</p>
-          <h3 id={"#{@heading_id}-logs"}>Logs</h3>
-        </div>
-      </header>
-      <p :if={@context.logs.entries == []} class="empty-state compact">No safe Log entries are available.</p>
-      <p :if={@context.logs.truncated?} class="ticket-context-status" role="status">Logs are truncated to the newest safe entries.</p>
-      <div :if={@context.logs.entries != []} class="ticket-context-logs-wrap">
-        <table class="ticket-context-logs">
-          <thead><tr><th>Activity</th><th>Detail</th><th>When</th></tr></thead>
-          <tbody>
-            <tr :for={entry <- @context.logs.entries}>
-              <td>
-                <details>
-                  <summary><strong>{entry.label}</strong></summary>
-                  <dl>
-                    <div><dt>Event</dt><dd>{state_label(entry.kind)}</dd></div>
-                    <div><dt>Source</dt><dd>{state_label(entry.source)}</dd></div>
-                    <div><dt>Observed</dt><dd><.timestamp value={entry.observed_at} /></dd></div>
-                  </dl>
-                </details>
-              </td>
-              <td>{activity_detail(entry)}</td>
-              <td><.timestamp value={entry.occurred_at || entry.observed_at} /></td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <nav
-      :if={unavailable_capabilities(@capabilities) != []}
-      class="ticket-context-capabilities"
-      aria-label="Unavailable ticket destinations"
-    >
-      <h3>Unavailable destinations</h3>
-      <div class="link-list">
-        <div :for={capability <- unavailable_capabilities(@capabilities)} class="ticket-context-capability">
-          <span class="link-pill unavailable" aria-disabled="true">{capability.label}</span>
-          <p class="ticket-context-capability-reason">{capability.reason}</p>
-        </div>
-      </div>
-    </nav>
     """
   end
 
@@ -231,6 +260,18 @@ defmodule AiurWeb.OperatorControlCenter.TicketContext do
     do: "#{percent}% · #{state_label(source)}"
 
   defp progress_message(_progress), do: "Progress is unknown."
+
+  defp progress_entry?(%{status: :known, percent: percent}) when is_integer(percent) and percent in 0..100, do: true
+  defp progress_entry?(_progress), do: false
+
+  defp progress_entry_text(%{percent: percent}) when is_integer(percent) and percent in 0..100,
+    do: "#{percent}% complete"
+
+  defp progress_entry_text(_progress), do: "Progress updated"
+
+  defp progress_entry_at(%{occurred_at: %DateTime{} = at}), do: at
+  defp progress_entry_at(%{observed_at: %DateTime{} = at}), do: at
+  defp progress_entry_at(_progress), do: nil
 
   defp activity_detail(%{details: %{percent: percent}}), do: "#{percent}% complete"
 

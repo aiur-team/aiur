@@ -45,6 +45,10 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
         by_auth_mode: [contributor(:subscription, "USD", "2.50")],
         by_ticket: [contributor({"acme", "aiur", 42}, "USD", "2.50")],
         by_provider: [],
+        by_model: [
+          %{key: "claude-sonnet-4", tokens: %{input: 1000, cached_input: 200, output: 500}},
+          %{key: "gpt-5.2-codex", tokens: %{input: 300, output: 100}}
+        ],
         by_currency: []
       },
       reconciliation: %{reconciled?: true, by_dimension: %{}},
@@ -91,59 +95,49 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     end
   end
 
-  test "authorized panel keeps the two monetary bases in separate named regions" do
+  test "authorized panel renders a tokens-by-model line chart and destination bars" do
     html = render(ready_view())
 
-    assert html =~ "API-equivalent estimate"
-    assert html =~ "Provider-reported estimate"
-    assert html =~ "not billed spend"
-    assert html =~ "2.50 USD"
-    assert html =~ "1.25 USD"
-    # A live-region status and named token table.
+    assert html =~ "Tokens by model"
+    assert html =~ "<svg"
+    assert html =~ "claude-sonnet-4"
+    assert html =~ "gpt-5.2-codex"
+    # The destination bars name input, output and reasoning.
+    assert html =~ ">Input<"
+    assert html =~ ">Output<"
+    assert html =~ ">Reasoning<"
+    # A live-region status remains for screen readers.
     assert html =~ ~s(aria-live="polite")
-    assert html =~ "Tokens"
-    assert html =~ "1500"
   end
 
-  test "a subscription API-equivalent total is marked and carries an accessible disclosure" do
-    html = render(ready_view())
+  test "a model with no additive tokens is omitted from the chart" do
+    snap =
+      snapshot(%{
+        contributors: %{
+          snapshot().contributors
+          | by_model: [
+              %{key: "reasoning-only-model", tokens: %{reasoning_output: 250, provider_reported_total: 900}},
+              %{key: "gpt-5.2-codex", tokens: %{input: 300, output: 100}}
+            ]
+        }
+      })
 
-    assert html =~ "usage-summary-mark"
-    assert html =~ "(subscription estimate)"
-    # Native <details> disclosure is keyboard and touch accessible.
-    assert html =~ "<details"
-    assert html =~ "not allocated"
+    html = render(UsageSummaryPresenter.present(snap))
+
+    refute html =~ "reasoning-only-model"
+    assert html =~ "gpt-5.2-codex"
   end
 
-  test "tier is shown per generation with no combined tier" do
-    html = render(ready_view())
-    assert html =~ "Pro"
-    assert html =~ "claude / app_server"
-    # A combined cross-provider tier is never emitted.
-    refute html =~ "Combined tier"
-  end
+  test "the long tail of models folds into a single Other line" do
+    models =
+      for n <- 1..10 do
+        %{key: "model-#{n}", tokens: %{input: 100, output: 50}}
+      end
 
-  test "drill-down controls expose expanded state and a rendered region" do
-    page = UsageSummaryPresenter.drill_down(snapshot(), :by_ticket, [])
-    html = render(ready_view(), drill_down: page, drill_trigger: "by_ticket")
+    snap = snapshot(%{contributors: %{snapshot().contributors | by_model: models}})
+    html = render(UsageSummaryPresenter.present(snap))
 
-    assert html =~ ~s(phx-click="usage-drill-down")
-    assert html =~ ~s(aria-controls="usage-drill-region")
-    assert html =~ "acme/aiur#42"
-    assert html =~ "usage-control"
-    # Closing returns focus to the dimension trigger for keyboard users.
-    assert html =~ "usage-drill-close"
-    assert html =~ "focus"
-    assert html =~ "#usage-drill-by_ticket"
-  end
-
-  test "unknown pricing coverage is named, not shown as zero" do
-    view =
-      UsageSummaryPresenter.present(snapshot(%{api_equivalent_estimate: %{rollup: %{}, coverage: %{known: 0, unknown: 5, reasons: [], status: :unknown}}}))
-
-    html = render(view)
-    assert html =~ "No priceable usage in scope."
-    refute html =~ "0.00 USD"
+    assert html =~ "Other"
   end
 
   test "stale view shows the last-known-good banner" do

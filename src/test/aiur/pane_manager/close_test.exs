@@ -1,5 +1,26 @@
+defmodule Aiur.PaneManager.CloseTest.FakeSlot do
+  use GenServer
+
+  alias Aiur.Opencode.SlotRegistry
+
+  def start_link({index, pane_id, parent, ready_ref}), do: GenServer.start_link(__MODULE__, {index, pane_id, parent, ready_ref})
+
+  def init({index, pane_id, parent, ready_ref}) do
+    :ok = SlotRegistry.register_self(index)
+    send(parent, {ready_ref, :ready})
+    {:ok, {pane_id, parent, ready_ref}}
+  end
+
+  def handle_call(:snapshot, _from, {pane_id, _parent, _ref} = state), do: {:reply, %{pane_id: pane_id}, state}
+
+  def handle_call(:deselect, _from, {_pane_id, parent, ref} = state) do
+    send(parent, {ref, :deselected})
+    {:reply, :ok, state}
+  end
+end
+
 defmodule Aiur.PaneManager.CloseTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.{AgentPubSub, Tmux}
   alias Aiur.PaneManager.{Close, State}
@@ -126,26 +147,5 @@ defmodule Aiur.PaneManager.CloseTest do
 
     assert {:reply, :ok, new_state} = Task.await(task)
     refute Map.has_key?(new_state.identifier_to_pane, "issue-22")
-  end
-end
-
-defmodule Aiur.PaneManager.CloseTest.FakeSlot do
-  use GenServer
-
-  alias Aiur.Opencode.SlotRegistry
-
-  def start_link({index, pane_id, parent, ready_ref}), do: GenServer.start_link(__MODULE__, {index, pane_id, parent, ready_ref})
-
-  def init({index, pane_id, parent, ready_ref}) do
-    :ok = SlotRegistry.register_self(index)
-    send(parent, {ready_ref, :ready})
-    {:ok, {pane_id, parent, ready_ref}}
-  end
-
-  def handle_call(:snapshot, _from, {pane_id, _parent, _ref} = state), do: {:reply, %{pane_id: pane_id}, state}
-
-  def handle_call(:deselect, _from, {_pane_id, parent, ref} = state) do
-    send(parent, {ref, :deselected})
-    {:reply, :ok, state}
   end
 end

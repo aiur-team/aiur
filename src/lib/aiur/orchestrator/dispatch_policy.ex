@@ -559,6 +559,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
           | :terminal_state
           | :dependency
           | :already_running
+          | :auto_resume_pending
           | :retry_backoff
           | :model_fallback_waiting
           | :workspace_ownership_waiting
@@ -645,6 +646,7 @@ defmodule Aiur.Orchestrator.DispatchPolicy do
     cond do
       todo_issue_blocked_by_non_terminal?(issue, terminal_states) -> {:skip, :dependency}
       Map.has_key?(state.running, issue.id) -> {:skip, :already_running}
+      Map.has_key?(state.auto_resume, issue.id) -> {:skip, :auto_resume_pending}
       MapSet.member?(state.claimed, issue.id) -> {:skip, claimed_decline_reason(state, issue.id)}
       not state_slots_available?(issue, state) -> {:skip, :state_capacity}
       not Slots.worker_slots_available?(state) -> {:skip, :worker_capacity}

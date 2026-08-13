@@ -75,7 +75,11 @@ defmodule Aiur.Config.Schema.Agent do
 
   @primary_key false
   embedded_schema do
+    # Deprecated: `priority` wins when present; read the effective value via `Aiur.Config.agent_kind/0`.
     field(:kind, :string, default: Aiur.CodingAgent.default_backend())
+
+    # Ordered dispatch preference. Presence enables a backend, the first available entry is the default, and the array is the fallback order when a backend hits a token or usage limit.
+    field(:priority, {:array, :string}, default: [])
     # Setting #2 (RC opt-in), orthogonal to :kind. Only consulted when the
     # resolved backend is RC-capable. This default is the single flip point
     # for always-remote: change `false` here and every dispatch attaches RC.
@@ -181,6 +185,7 @@ defmodule Aiur.Config.Schema.Agent do
       attrs |> drop_uncapped_max_turns() |> default_mix_scheduler_cap(),
       [
         :kind,
+        :priority,
         :remote_control,
         :prior_work_continuation,
         :max_dispatches_per_ticket,
@@ -238,6 +243,15 @@ defmodule Aiur.Config.Schema.Agent do
     |> update_change(:routing, &AgentValidation.normalize_agent_routing/1)
     |> AgentValidation.validate_agent_routing(:routing)
     |> validate_dispatch_selections()
+    |> validate_change(:priority, fn :priority, backends ->
+      known = Aiur.CodingAgent.known_backends()
+
+      cond do
+        backends != Enum.uniq(backends) -> [priority: "must not contain duplicate backends"]
+        Enum.all?(backends, &(&1 in known)) -> []
+        true -> [priority: "contains an unknown backend; known backends: #{inspect(known)}"]
+      end
+    end)
     |> validate_change(:switch_model_on_ratelimit, fn :switch_model_on_ratelimit, backends ->
       known = Aiur.CodingAgent.known_backends()
 
@@ -264,13 +278,19 @@ defmodule Aiur.Config.Schema.Agent do
   end
 
   defp validate_dispatch_selections(changeset) do
-    dispatchable = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+    dispatchable = dispatchable_with_priority(changeset)
 
     changeset
     |> reject_disabled_backend(:kind, Ecto.Changeset.get_field(changeset, :kind), dispatchable)
     |> reject_disabled_backends(:switch_model_on_ratelimit, Ecto.Changeset.get_field(changeset, :switch_model_on_ratelimit), dispatchable)
     |> reject_disabled_backend(:rate_limit_primary, Ecto.Changeset.get_field(changeset, :rate_limit_primary), dispatchable)
     |> reject_disabled_backend(:rate_limit_fallback, Ecto.Changeset.get_field(changeset, :rate_limit_fallback), dispatchable)
+  end
+
+  defp dispatchable_with_priority(changeset) do
+    priority = Ecto.Changeset.get_field(changeset, :priority) || []
+    base = Aiur.CodingAgent.dispatchable_backends(Ecto.Changeset.get_field(changeset, :backend_configs) || %{})
+    Enum.uniq(priority ++ base)
   end
 
   defp reject_disabled_backends(changeset, field, values, dispatchable) when is_list(values) do

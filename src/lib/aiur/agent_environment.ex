@@ -3,7 +3,8 @@ defmodule Aiur.AgentEnvironment do
   Helpers for preparing child agent process environments.
   """
 
-  alias Aiur.{AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
+  alias Aiur.GitHub.Budget
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Workspace.Remote
 
@@ -102,6 +103,10 @@ defmodule Aiur.AgentEnvironment do
       PATH="$AIUR_AGENT_BIN:$PATH"
       export PATH
     fi
+    if [ -n "${AIUR_BUILD_GATE_BIN:-}" ]; then
+      PATH="$AIUR_BUILD_GATE_BIN:$PATH"
+      export PATH
+    fi
     """)
   end
 
@@ -135,11 +140,13 @@ defmodule Aiur.AgentEnvironment do
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
-    real_gh = System.find_executable("gh")
+    real_gh = AgentGitHubGuard.real_gh()
+    github_budget = Budget.guard_settings()
+    build_gate_env = BuildGate.shell_env()
     real_git = System.find_executable("git")
 
     unset_inherited_env =
-      Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names(), fn name ->
+      Enum.map(@parent_log_env_names ++ @operator_only_env_names ++ provider_credential_env_names() ++ ["AIUR_GITHUB_BUDGET_KEY"], fn name ->
         {String.to_charlist(name), false}
       end)
 
@@ -153,6 +160,13 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
+        {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
+        {~c"AIUR_GITHUB_MAX_INFLIGHT", github_budget.max_inflight |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", github_budget.max_inflight_per_endpoint |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", github_budget.requests_per_minute |> Integer.to_string() |> String.to_charlist()},
+        {~c"AIUR_GITHUB_STAGGER_MS", github_budget.stagger_ms |> Integer.to_string() |> String.to_charlist()},
         {~c"AIUR_REAL_GIT", if(real_git, do: String.to_charlist(real_git), else: false)},
         # Trust the workspace ROOT so the repo's `mise.toml` is honored wherever it
         # lives (most repos — including aiur — keep it at the root, not under
@@ -181,7 +195,8 @@ defmodule Aiur.AgentEnvironment do
         Enum.map(mix_scheduler_env(), fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end) ++
-        Enum.map(BuildGate.shell_env(), fn {name, value} ->
+        build_gate_bin_env(workspace, build_gate_env) ++
+        Enum.map(build_gate_env, fn {name, value} ->
           {String.to_charlist(name), String.to_charlist(value)}
         end)
 
@@ -227,6 +242,8 @@ defmodule Aiur.AgentEnvironment do
     base_branch = configured_base_branch(opts)
     label_prefix = configured_label_prefix(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
+    github_budget = Budget.guard_settings()
+    build_gate_exports = build_gate_export_prefix(workspace, opts)
 
     # Trust the workspace ROOT (see `workspace_env/1`): the SSH-launch path needs
     # the same root-level trust so mise-provided tools resolve in the workspace.
@@ -251,13 +268,22 @@ defmodule Aiur.AgentEnvironment do
     # covers workspaces provisioned before this existed; only redirect TMPDIR
     # when it succeeds, so an unwritable path leaves the launch working rather
     # than pointing every tool at a directory that is not there.
-    "{\n#{sidecar_exports}\nAIUR_REAL_GH=\"$(command -v gh 2>/dev/null || true)\"\n" <>
+    "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\n" <>
       "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
+      "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>
+      "AIUR_GITHUB_BUDGET_ROOT=\"$HOME/${AIUR_GITHUB_BUDGET_ROOT#\\~/}\"\nexport AIUR_GITHUB_BUDGET_ROOT\n" <>
+      "unset AIUR_GITHUB_BUDGET_KEY\n" <>
+      "export AIUR_GITHUB_BUDGET_BROKER=#{Aiur.Shell.escape(AgentGitHubGuard.budget_broker_path(workspace))}\n" <>
+      "export AIUR_GITHUB_BUDGET_CONSUMER=#{Aiur.Shell.escape("workspace:#{workspace}")}\n" <>
+      "export AIUR_GITHUB_MAX_INFLIGHT=#{github_budget.max_inflight}\n" <>
+      "export AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=#{github_budget.max_inflight_per_endpoint}\n" <>
+      "export AIUR_GITHUB_REQUESTS_PER_MINUTE=#{github_budget.requests_per_minute}\n" <>
+      "export AIUR_GITHUB_STAGGER_MS=#{github_budget.stagger_ms}\n" <>
       "aiur_scratch_dir=#{Aiur.Shell.escape(AgentScratch.dir(workspace))}\n" <>
       "if mkdir -p \"$aiur_scratch_dir\" 2>/dev/null; then\n" <>
       ~s(  TMPDIR="$aiur_scratch_dir"; TMP="$aiur_scratch_dir"; TEMP="$aiur_scratch_dir"\n) <>
@@ -268,6 +294,23 @@ defmodule Aiur.AgentEnvironment do
   end
 
   def workspace_env_export_prefix(_, _opts), do: ""
+
+  defp build_gate_export_prefix(workspace, opts) do
+    if Keyword.get(opts, :build_gate, false) do
+      format_build_gate_exports(workspace, BuildGate.shell_env())
+    else
+      ""
+    end
+  end
+
+  defp format_build_gate_exports(_workspace, []), do: ""
+
+  defp format_build_gate_exports(workspace, build_gate_env) do
+    [{"AIUR_BUILD_GATE_BIN", AgentBuildGuard.bin_dir(workspace)} | build_gate_env]
+    |> Enum.map_join("", fn {name, value} ->
+      "#{Remote.remote_shell_assign(name, value)}\nexport #{name}\n"
+    end)
+  end
 
   @doc """
   `System.cmd`-compatible env tuples (binary key/value) that trust the prewarm
@@ -313,6 +356,12 @@ defmodule Aiur.AgentEnvironment do
       {"AIUR_AGENT_MIX_SCHEDULERS", Integer.to_string(cap)},
       {"ELIXIR_ERL_OPTIONS", scheduler_options(cap)}
     ]
+  end
+
+  defp build_gate_bin_env(_workspace, []), do: []
+
+  defp build_gate_bin_env(workspace, _build_gate_env) do
+    [{~c"AIUR_BUILD_GATE_BIN", workspace |> AgentBuildGuard.bin_dir() |> String.to_charlist()}]
   end
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)

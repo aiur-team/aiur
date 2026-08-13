@@ -54,7 +54,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         </div>
       </div>
 
-      <div :if={is_nil(@graph_failure) and is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
+      <div :if={is_nil(@graph_failure) and is_nil(@model) and @status == :selected_loading} class="bo-loading" role="status" aria-live="polite">
+        <span class="sr-only">Loading selected graph</span>
+        <div class="bo-shimmer bo-shimmer-lede" aria-hidden="true"></div>
+        <div class="bo-shimmer-metrics" aria-hidden="true">
+          <div :for={_metric <- 1..5} class="bo-shimmer bo-shimmer-metric"></div>
+        </div>
+        <div class="bo-shimmer-grid" aria-hidden="true">
+          <div :for={_card <- 1..8} class="bo-shimmer bo-shimmer-card"></div>
+        </div>
+      </div>
+
+      <div :if={is_nil(@graph_failure) and is_nil(@model) and @status != :selected_loading} class="bo-state-card" role={state_role(@status)}>
         <h3>{state_title(@status)}</h3>
         <p>{state_message(@status)}</p>
       </div>
@@ -97,16 +108,15 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           unavailable={@analytics_unavailable}
           loading={@analytics_loading}
           time_domain={@time_domain}
-        />
-
-        <BuildOrderUsage.build_order_usage
-          :if={@model.status != :empty}
-          scope={@usage_scope}
-          view={@usage_view}
-          announcement={@usage_announcement}
-          drill_down={@usage_drill_down}
-          drill_trigger={@usage_drill_trigger}
-        />
+        >
+          <BuildOrderUsage.build_order_usage
+            scope={@usage_scope}
+            view={@usage_view}
+            announcement={@usage_announcement}
+            drill_down={@usage_drill_down}
+            drill_trigger={@usage_drill_trigger}
+          />
+        </BuildOrderAnalytics.build_order_analytics>
 
         <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">
           <li :for={diagnostic <- @model.diagnostics}>{diagnostic.text}</li>
@@ -267,13 +277,21 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
   # render here or a bookmarked detail page never says which Build Order it is.
   # An unresolved root has no name to state, and inventing one would be a lie.
   defp root_title(%Snapshot{data: %SelectedRoot{root: %{title: title}}}) when is_binary(title) do
-    case String.trim(title) do
+    case title |> String.trim() |> strip_bo_prefix() do
       "" -> nil
       trimmed -> trimmed
     end
   end
 
   defp root_title(_snapshot), do: nil
+
+  # Build Order issues are often titled with a leading "BO:" tag. The dashboard
+  # renders the title as a page lede, where the tag is noise the operator
+  # already knows from context — strip it (case-insensitively) here only, never
+  # from the underlying root data.
+  defp strip_bo_prefix(title) do
+    String.replace(title, ~r/^BO\s*:\s*/i, "", global: false)
+  end
 
   # An unresolved graph has no counts to show. Rendering the zeros of an empty
   # model would state a number we never read — "Unresolved" is the honest cell.

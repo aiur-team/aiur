@@ -156,6 +156,73 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     end
   end
 
+  describe "credential absence is awaiting observation, not a hard failure" do
+    # A missing DeepSeek/OpenRouter API key, a missing credentials file, or a
+    # malformed credential blob means the provider cannot be read *yet* — not
+    # that it is broken. These render as loading, matching a first observation
+    # that has not arrived, rather than a misleading hard "unavailable".
+    test "a missing or malformed credential blob renders loading" do
+      for failure <- [:no_credentials, :malformed_credentials] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :claude,
+          backend: :app_server,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :loading,
+               "expected #{inspect(failure)} to render loading, got a hard state"
+      end
+    end
+
+    test "a missing API key or disabled provider renders loading" do
+      for failure <- [:missing_api_key, :missing_api_key_configuration, :disabled] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :deepseek,
+          backend: :openai_compat,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        assert card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).state == :loading,
+               "expected #{inspect(failure)} to render loading, got a hard state"
+      end
+    end
+
+    # An absent, empty, or expired Claude OAuth token is a stable "not signed
+    # in" state, not a transient "loading" one: no observation will ever arrive
+    # until the operator signs in to Claude Code.
+    test "an absent or expired Claude OAuth token renders an honest not-signed-in state" do
+      for failure <- [:no_oauth_token, :token_expired] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :claude,
+          backend: :app_server,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        claude = card(Presenter.present(authorized(), %{claude: snapshot}), :claude)
+
+        assert claude.state == :signed_out,
+               "expected #{inspect(failure)} to render not-signed-in, got #{inspect(claude.state)}"
+
+        assert claude.status_label == "Not signed in"
+        assert claude.health.failure_label in ["No OAuth token", "OAuth token expired"]
+      end
+    end
+
+    test "a real authentication failure still renders a hard state" do
+      snapshot = %ProviderMeterSnapshot{
+        provider: :deepseek,
+        backend: :openai_compat,
+        provider_account_generation: nil,
+        health: %{state: :unavailable, failure: :authentication, last_observed_at: nil, last_source_version: nil}
+      }
+
+      assert card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).state == :unavailable
+    end
+  end
+
   describe "meter windows: coverage, standing, resets, zero" do
     test "a supported window exposes an exact semantic meter value" do
       window = window(used_percent: 40, remaining_percent: 60, coverage: :supported, standing: :allowed, resets_at: @reset)
