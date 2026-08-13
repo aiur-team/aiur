@@ -4849,6 +4849,13 @@ html[data-theme="light"] .rs-github-mark {
   color: var(--muted);
 }
 
+.history-result {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
 .history-when {
   color: var(--muted);
   font-size: 0.72rem;

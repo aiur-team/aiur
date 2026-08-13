@@ -129,6 +129,32 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(id="streamdeck-install-modal")
   end
 
+  test "the download control opens the setup modal even when no package is published" do
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :streamdeck_package, %{})}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+      html = view |> element("#streamdeck-download-control") |> render_click()
+
+      # The setup steps render regardless of package availability; only the
+      # download link and release metadata step aside.
+      assert html =~ ~s(id="streamdeck-install-modal")
+      assert html =~ "Install on your Stream Deck +"
+      assert html =~ "No package published for this release"
+      assert html =~ "Pair it with your daemon"
+      assert html =~ "Create the sidecar directory"
+      assert html =~ "Plug in the deck"
+      assert html =~ "What success looks like"
+      refute html =~ "Download the Stream Deck + package"
+      refute html =~ "aiur-streamdeck-"
+      refute html =~ "Aiur commit"
+    after
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
+  end
+
   test "renders the complete agent key face" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
@@ -711,6 +737,30 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert Process.alive?(relay)
   end
 
+  test "the transcript relay is stopped when the LiveView terminates" do
+    {:ok, view, _html} = live(build_conn(), "/streamdeck")
+
+    identifier =
+      Enum.find(
+        ~w(1352 1345 1350 1360 1361 1362 1363 1366 1367 1370 1371 1372 1373 1374 1375 1376 1377),
+        fn id ->
+          match?([{_relay, _metadata}], Registry.lookup(Aiur.PubSub, AgentEvents.agent_topic(id)))
+        end
+      )
+
+    assert is_binary(identifier)
+    topic = AgentEvents.agent_topic(identifier)
+
+    assert [{relay, _metadata}] = Registry.lookup(Aiur.PubSub, topic)
+    assert Process.alive?(relay)
+
+    # The relay is `start_link`ed to the LiveView, so a normal exit does not
+    # reap it through the link alone. The LiveView must stop it in terminate/2.
+    GenServer.stop(view.pid)
+
+    refute Process.alive?(relay)
+  end
+
   test "key selection follows the focused agent even in read-only mode" do
     {:ok, view, _html} = live(build_conn(), "/streamdeck")
     previous_writable = Endpoint.config(:dashboard_writable)
@@ -1020,6 +1070,39 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     send(view.pid, {:provider_meter_changed, %{}})
     assert render(view) =~ "60% · 22m"
+  end
+
+  test "a provider meter change refreshes meters without re-reading the fleet snapshot", %{snapshot_agent: snapshot_agent, meter_agent: meter_agent} do
+    {:ok, counter} = Agent.start_link(fn -> 0 end)
+
+    counting_snapshot_fun = fn ->
+      Agent.update(counter, &(&1 + 1))
+      Agent.get(snapshot_agent, & &1)
+    end
+
+    endpoint_config = Application.get_env(:aiur, Endpoint)
+    Endpoint.config_change(%{Endpoint => Keyword.put(endpoint_config, :streamdeck_snapshot_fun, counting_snapshot_fun)}, [])
+
+    try do
+      {:ok, view, _html} = live(build_conn(), "/streamdeck")
+      reads_before = Agent.get(counter, & &1)
+      assert reads_before > 0
+
+      Agent.update(meter_agent, fn meters ->
+        put_in(meters["claude"]["windows"]["session"]["used_percent"], 60)
+      end)
+
+      send(view.pid, {:provider_meter_changed, %{}})
+      html = render(view)
+
+      assert html =~ "60% · 22m"
+      # Meter observations must not re-project the fleet: the grid snapshot was
+      # read once at mount and not again for the meter refresh.
+      assert Agent.get(counter, & &1) == reads_before
+    after
+      Agent.stop(counter)
+      Endpoint.config_change(%{Endpoint => endpoint_config}, [])
+    end
   end
 
   test "renders an unobserved provider without treating it as zero percent", %{meter_agent: meter_agent} do
