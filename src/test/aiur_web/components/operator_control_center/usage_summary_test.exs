@@ -95,16 +95,17 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     end
   end
 
-  test "authorized panel renders a tokens-by-model chart" do
+  test "authorized panel renders a tokens-by-model line chart and destination bars" do
     html = render(ready_view())
 
     assert html =~ "Tokens by model"
     assert html =~ "<svg"
     assert html =~ "claude-sonnet-4"
     assert html =~ "gpt-5.2-codex"
-    # Ranked per-model totals: 1000 + 200 + 500 = 1700, and 300 + 100 = 400.
-    assert html =~ "1700"
-    assert html =~ "400"
+    # The destination bars name input, output and reasoning.
+    assert html =~ ">Input<"
+    assert html =~ ">Output<"
+    assert html =~ ">Reasoning<"
     # A live-region status remains for screen readers.
     assert html =~ ~s(aria-live="polite")
   end
@@ -127,7 +128,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     assert html =~ "gpt-5.2-codex"
   end
 
-  test "the long tail of models folds into a single Other bar" do
+  test "the long tail of models folds into a single Other line" do
     models =
       for n <- 1..10 do
         %{key: "model-#{n}", tokens: %{input: 100, output: 50}}
@@ -137,20 +138,6 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryTest do
     html = render(UsageSummaryPresenter.present(snap))
 
     assert html =~ "Other"
-  end
-
-  test "drill-down controls expose expanded state and a rendered region" do
-    page = UsageSummaryPresenter.drill_down(snapshot(), :by_ticket, [])
-    html = render(ready_view(), drill_down: page, drill_trigger: "by_ticket")
-
-    assert html =~ ~s(phx-click="usage-drill-down")
-    assert html =~ ~s(aria-controls="usage-drill-region")
-    assert html =~ "acme/aiur#42"
-    assert html =~ "usage-control"
-    # Closing returns focus to the dimension trigger for keyboard users.
-    assert html =~ "usage-drill-close"
-    assert html =~ "focus"
-    assert html =~ "#usage-drill-by_ticket"
   end
 
   test "stale view shows the last-known-good banner" do

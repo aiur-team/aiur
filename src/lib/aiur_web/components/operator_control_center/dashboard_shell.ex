@@ -3,7 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.RouteRegistry
+  alias AiurWeb.OperatorControlCenter.{Overview, RouteRegistry}
 
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
@@ -21,6 +21,8 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # state), writable-gated like every other control surface.
   attr(:globally_paused, :boolean, default: false)
   attr(:writable, :boolean, default: false)
+  # Fleet snapshot freshness, for the compact logo-adjacent staleness label.
+  attr(:fleet_freshness, :map, default: %{})
   # Rendered above the route heading, for anything that should be read before
   # the page it interrupts.
   slot(:banner)
@@ -34,6 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
           <span class="brand-wordmark"><b>aiur</b></span>
+          <Overview.stale_label freshness={@fleet_freshness} />
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>

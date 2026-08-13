@@ -803,13 +803,13 @@ defmodule AiurWeb.DashboardLiveTest do
     assert unknown_fault =~ "something_else"
   end
 
-  test "a stalled orchestrator's stale banner names the stall, not a busy mailbox" do
+  test "a stalled orchestrator's stale label names the stall, not a busy mailbox" do
     html =
-      render_component(&Overview.stale_snapshot/1,
+      render_component(&Overview.stale_label/1,
         freshness: %{status: :stale, reason: :snapshot_stalled, age_seconds: 7_440}
       )
 
-    assert html =~ "Stale fleet snapshot"
+    assert html =~ "Stale fleet"
     assert html =~ "The Orchestrator has stopped publishing."
     assert html =~ "2h 4m old"
     refute html =~ "The Orchestrator is busy."
@@ -817,12 +817,12 @@ defmodule AiurWeb.DashboardLiveTest do
 
   test "a stale fleet snapshot carries its age with last-known-good vocabulary" do
     html =
-      render_component(&Overview.stale_snapshot/1,
+      render_component(&Overview.stale_label/1,
         freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 95}
       )
 
-    assert html =~ "Stale fleet snapshot"
-    assert html =~ "Showing the last-known-good fleet view while refresh is degraded"
+    assert html =~ "Stale fleet"
+    assert html =~ "Showing the last-known-good fleet view"
     assert html =~ "1m 35s old"
     # The contradiction the operator reported: never unavailable and healthy at once.
     refute html =~ "unavailable"
@@ -830,12 +830,12 @@ defmodule AiurWeb.DashboardLiveTest do
 
   test "labels stale timeout and unavailable snapshots differently" do
     timeout_html =
-      render_component(&Overview.stale_snapshot/1,
+      render_component(&Overview.stale_label/1,
         freshness: %{status: :stale, reason: :snapshot_timeout, age_seconds: 6}
       )
 
     unavailable_html =
-      render_component(&Overview.stale_snapshot/1,
+      render_component(&Overview.stale_label/1,
         freshness: %{status: :stale, reason: :orchestrator_unavailable, age_seconds: 6}
       )
 
@@ -3721,7 +3721,7 @@ defmodule AiurWeb.DashboardLiveTest do
     send(view.pid, {:ticket_detail_updated, units_ticket_detail(identity, "Updated ticket context")})
     assert render(view) =~ "Updated ticket context"
 
-    view |> element("#units-ticket-context button", "Close") |> render_click()
+    view |> element("#units-ticket-context .ticket-context-close") |> render_click()
     refute_receive {:detail_unsubscribed, ^identity}
     assert_receive {:history_unsubscribed, ^identity}
     refute has_element?(view, "#units-ticket-context")

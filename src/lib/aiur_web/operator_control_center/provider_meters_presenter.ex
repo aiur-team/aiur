@@ -27,18 +27,22 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   @real_failures [:authentication, :malformed, :timeout, :transport]
 
   # Failure reasons that mean "no observation is possible *yet*" rather than a
-  # hard failure: a provider whose credentials have not been supplied (or have
-  # lapsed) cannot be read, but it is not broken. They render as loading,
-  # exactly like a first observation that simply has not arrived.
+  # hard failure: a provider whose credentials have not been supplied cannot be
+  # read, but it is not broken. They render as loading, exactly like a first
+  # observation that simply has not arrived.
   @credential_failures [
-    :token_expired,
-    :no_oauth_token,
     :no_credentials,
     :malformed_credentials,
     :missing_api_key,
     :missing_api_key_configuration,
     :disabled
   ]
+
+  # Failure reasons that mean the account is not signed in: an OAuth token that
+  # is absent, empty, or expired. Unlike a missing API key, this is a stable,
+  # user-actionable state ("sign in to Claude Code"), so it renders honestly as
+  # "not signed in" rather than hanging in an eternal loading state.
+  @signed_out_failures [:no_oauth_token, :token_expired]
 
   @window_kind_order %{rate_limit: 0, credit: 1, spend_control: 2}
 
@@ -133,6 +137,10 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp card_state(nil), do: :loading
 
   defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: :unknown_account_generation}}), do: :unknown
+
+  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: failure}})
+       when failure in @signed_out_failures,
+       do: :signed_out
 
   defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: failure}})
        when failure in @credential_failures,
@@ -312,6 +320,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   end
 
   defp card_sentence(%{provider_label: label, state: :loading}), do: "#{label}: loading account meters."
+  defp card_sentence(%{provider_label: label, state: :signed_out}), do: "#{label}: not signed in, no OAuth token."
   defp card_sentence(%{provider_label: label, state: :unknown}), do: "#{label}: no plan or quota available."
   defp card_sentence(%{provider_label: label, state: :error} = card), do: "#{label}: provider error, #{failure_phrase(card)}."
   defp card_sentence(%{provider_label: label}), do: "#{label}: account meters unavailable."
@@ -343,6 +352,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp backend_label(_snapshot), do: "Backend unknown"
 
   defp status_label(:loading), do: "Loading…"
+  defp status_label(:signed_out), do: "Not signed in"
   defp status_label(:unknown), do: ""
   defp status_label(:unavailable), do: "Unavailable"
   defp status_label(:error), do: "Provider error"
@@ -389,6 +399,8 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp failure_label(:transport), do: "Transport error"
   defp failure_label(:no_observation), do: "Awaiting first observation"
   defp failure_label(:unknown_account_generation), do: "Account identity unknown"
+  defp failure_label(:no_oauth_token), do: "No OAuth token"
+  defp failure_label(:token_expired), do: "OAuth token expired"
   defp failure_label(nil), do: nil
   defp failure_label(other), do: other |> to_string() |> String.replace("_", " ")
 

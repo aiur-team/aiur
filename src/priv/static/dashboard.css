@@ -885,6 +885,14 @@ textarea:focus-visible,
   align-items: start;
 }
 
+/* A single-dimension breakdown pane (Waves or Epics) rendered as its own
+   top-level pane; stacks one column so rows span the full pane width. */
+.bo-breakdown-pane {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
 /* Grid/flex items default to min-width:auto and single-column grids get an
    `auto` track — both grow to content's natural width, which let the breakdown
    tables push the whole content column (and page) wider than the viewport.
@@ -1702,12 +1710,20 @@ textarea:focus-visible,
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 1rem;
   flex-wrap: wrap;
-  padding: 0.15rem 0.15rem 0.6rem;
+  padding: 0.5rem 1.15rem;
+  /* Translucent so the blurred page reads through, not a solid slab. */
+  background: color-mix(in srgb, var(--surface) 72%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--hairline);
 }
 
 .brand-mini {
@@ -1770,6 +1786,22 @@ textarea:focus-visible,
 
 .brand-row #nav-toggle {
   margin-left: -0.15rem;
+}
+
+/* The compact fleet-staleness label rides beside the brand logo. The full
+   explanation (age + reason) lives in the hover popover. */
+.fleet-stale-label {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 999px;
+  background: var(--attention-soft);
+  color: var(--attention-ink);
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+  cursor: help;
 }
 
 /* The global pause switch reads OFF (muted, like its sibling toggles) and flips
@@ -1974,24 +2006,6 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .readonly-banner b {
   color: var(--fg);
-}
-
-/* Stale data must read as stale: the age sits at the end of the banner and
-   never scrolls out of the operator's line of sight. */
-.stale-banner {
-  justify-content: space-between;
-}
-
-.stale-age {
-  flex: 0 0 auto;
-  padding: 0.16rem 0.5rem;
-  border: 1px solid var(--attention-line);
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--attention-ink);
-  font-size: 0.78rem;
-  font-weight: 600;
-  white-space: nowrap;
 }
 
 .error-card .error-code {
@@ -2688,6 +2702,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .decision-action-buttons {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 0.5rem;
 }
 
@@ -3657,15 +3672,10 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 /* One model per row, reusing the head + limits vocabulary the provider cards
-   used. The hairline separates models without re-introducing per-model card
-   borders. */
+   used. Rows are separated by the container's gap, not hairlines, so the pane
+   reads as one continuous block. */
 .rs-model {
   min-width: 0;
-}
-
-.rs-model + .rs-model {
-  border-top: 1px solid var(--line);
-  padding-top: 0.9rem;
 }
 
 /* The stats cluster must be able to drop below the name and shrink: at the
@@ -3689,16 +3699,14 @@ html[data-theme="light"] .toggle-icon .moon {
   object-fit: contain;
 }
 
-.rs-github-logo {
-  display: inline-grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--fg);
-  color: var(--surface);
-  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.48rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+/* The GitHub mark ships as a black glyph; the dashboard's default theme is
+   dark, so invert it to a light glyph. The light theme shows the native mark. */
+.rs-github-mark {
+  filter: invert(1);
+}
+
+html[data-theme="light"] .rs-github-mark {
+  filter: none;
 }
 
 .rs-name {
@@ -4287,6 +4295,22 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .units-row.has-alert td {
   background: color-mix(in srgb, var(--attention) 10%, var(--surface));
+}
+
+/* Paused rows: a subtle gray left edge + soft gray tint — visually distinct
+   from the aggressive red blocking treatment and the neutral active rows. */
+.units-row.is-paused td:first-child {
+  box-shadow: inset 5px 0 #9aa0ac;
+}
+
+.units-row.is-paused td {
+  background: color-mix(in srgb, #9aa0ac 9%, var(--surface));
+}
+
+/* Queued rows: muted — dimmed text over the standard surface, no tint or
+   attention edge. */
+.units-row.is-queued td {
+  color: var(--muted);
 }
 
 /* The alert/blocked row tints warm and lighten the cell background, which drops
@@ -4960,14 +4984,96 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ticket-context-panel {
-  grid-template-rows: none;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 0;
   width: min(920px, 100%);
   max-height: calc(100dvh - 2rem);
-  overflow: auto;
+  overflow: hidden;
+  padding: 0;
 }
 
 .ticket-context-header {
   align-items: center;
+}
+
+/* Fixed header row: the panel is a two-row grid (header + scrollable body), so
+   the header never scrolls out of view and the close button stays pinned to the
+   top-right corner of the drawer. */
+.ticket-context-panel .ticket-context-header {
+  position: relative;
+  flex: none;
+  padding: 0.75rem 1rem;
+  background: var(--surface);
+  border-bottom: 1px solid var(--line);
+  border-radius: var(--radius) var(--radius) 0 0;
+}
+
+.ticket-context-heading {
+  min-width: 0;
+}
+
+.ticket-context-nav {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  min-width: 0;
+  margin-top: 0.15rem;
+}
+
+.ticket-context-id {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.ticket-context-title {
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.95rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ticket-context-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  /* 44px is the WCAG minimum target size the responsive ticket-context spec
+     asserts across every button/link in the drawer. */
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  background: var(--pill-bg);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+.ticket-context-close:hover {
+  color: var(--fg);
+  border-color: var(--line-strong);
+  background: var(--surface-2);
+}
+
+.ticket-context-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.ticket-context-body {
+  display: grid;
+  align-content: start;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.ticket-context-panel .ticket-context-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 1rem;
 }
 
 .ticket-context-panel .section-eyebrow,
@@ -4997,9 +5103,91 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ticket-context-description {
+  min-width: 0;
+}
+
+.ticket-context-description h3 {
   margin: 0;
+  font-size: 0.92rem;
+}
+
+.ticket-context-markdown {
+  max-height: 16rem;
+  overflow: auto;
+  margin: 0.5rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.86rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ticket-context-markdown > :first-child {
+  margin-top: 0;
+}
+
+.ticket-context-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.ticket-context-markdown p {
+  margin: 0 0 0.65rem;
+}
+
+.ticket-context-markdown h1,
+.ticket-context-markdown h2,
+.ticket-context-markdown h3,
+.ticket-context-markdown h4,
+.ticket-context-markdown h5,
+.ticket-context-markdown h6 {
+  margin: 0.9rem 0 0.4rem;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.ticket-context-markdown pre {
+  margin: 0.65rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.ticket-context-markdown code {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.82rem;
+}
+
+.ticket-context-markdown :not(pre) > code {
+  padding: 0.1rem 0.3rem;
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.ticket-context-markdown ul,
+.ticket-context-markdown ol {
+  margin: 0.5rem 0;
+  padding-left: 1.4rem;
+}
+
+.ticket-context-markdown blockquote {
+  margin: 0.65rem 0;
+  padding: 0.2rem 0 0.2rem 0.75rem;
+  border-left: 3px solid var(--accent-line);
   color: var(--muted);
-  white-space: pre-wrap;
+}
+
+.ticket-context-markdown a {
+  color: var(--accent-ink);
+}
+
+.ticket-context-markdown hr {
+  margin: 0.75rem 0;
+  border: none;
+  border-top: 1px solid var(--line);
 }
 
 .ticket-context-status {
@@ -5086,8 +5274,19 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .ticket-context-logs-wrap {
-  overflow-x: auto;
+  overflow: auto;
+  max-height: 20rem;
   margin: 0.75rem 0 0;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+
+.ticket-context-progress-row {
+  background: var(--good-soft);
+}
+
+.ticket-context-progress-row td {
+  border-bottom-color: var(--good-line);
 }
 
 .ticket-context-logs {
@@ -6534,7 +6733,8 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .provider-meter-card.state-stale,
-.provider-meter-card.state-unknown {
+.provider-meter-card.state-unknown,
+.provider-meter-card.state-signed_out {
   border-color: var(--attention);
 }
 
@@ -6572,7 +6772,8 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .provider-meter-badge.state-partial,
 .provider-meter-badge.state-stale,
-.provider-meter-badge.state-unknown {
+.provider-meter-badge.state-unknown,
+.provider-meter-badge.state-signed_out {
   border-color: var(--attention);
 }
 
@@ -6860,6 +7061,20 @@ html[data-theme="light"] .toggle-icon .moon {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
   gap: 1rem;
+}
+
+/* Two-pane token chart: cumulative per-model line on the left, tokens-by-
+   destination bars on the right. */
+.usage-token-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.usage-token-line,
+.usage-token-bars {
+  min-width: 0;
 }
 
 .usage-summary-panel {
@@ -7495,13 +7710,17 @@ html[data-theme="light"] .toggle-icon .moon {
    In flight is the accent (blue): live, not done. */
 .bo-node.is-working {
   border-color: var(--accent-line);
-  background: var(--accent-soft);
+  background:
+    linear-gradient(var(--accent-soft), var(--accent-soft)),
+    var(--surface-2);
   box-shadow: 0 0 0 1px var(--accent-line);
 }
 
 .bo-node.is-merged {
   border-color: var(--good-line);
-  background: var(--good-soft);
+  background:
+    linear-gradient(var(--good-soft), var(--good-soft)),
+    var(--surface-2);
   box-shadow: 0 0 0 1px var(--good-line);
 }
 

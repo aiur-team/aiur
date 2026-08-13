@@ -169,7 +169,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     assert Enum.all?(model.edges, &(&1.state == :unknown))
     assert node(model, 1).readiness == :unknown
     assert :external_dependency in diagnostic_codes(model)
-    assert :unresolved_internal_dependency in diagnostic_codes(model)
+    refute :unresolved_internal_dependency in diagnostic_codes(model)
     assert model.adjacency[key(1)] == []
 
     external = Enum.find(model.edges, &(&1.kind == :external))
@@ -177,6 +177,19 @@ defmodule AiurWeb.BuildOrderPresenterTest do
 
     relationships = BuildOrderPresenter.relationships(model, identity(1))
     assert relationships.external == Enum.filter(relationships.blocked_by, &(&1.kind != :native))
+  end
+
+  test "a same-repository blocker outside the root is a cross-root edge, not a missing dependency" do
+    # #1777 made this ordinary; #1872 removes the false "configured-repository
+    # dependency is missing from this graph" warning it used to surface.
+    target = member(1, dependencies: [Dependency.new(identity(1), identity(8), issue_url(8), :blocked_by)])
+
+    model = BuildOrderPresenter.present(snapshot([target]), status_snapshot(), activity_snapshot())
+
+    assert [edge] = model.edges
+    assert edge.kind == :native
+    assert edge.state == :unknown
+    refute :unresolved_internal_dependency in diagnostic_codes(model)
   end
 
   test "same issue number in another repository never joins runtime facts" do

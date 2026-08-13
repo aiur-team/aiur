@@ -111,6 +111,25 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModelTest do
       assert hd(grid.columns).completion.progress_resolution == :partial
       assert hd(grid.waves).completion.progress_resolution == :partial
     end
+
+    test "a wave and epic whose members are all terminal report resolved" do
+      model =
+        model([
+          node(:a, "A", "plan-graph", 1,
+            status: :status_completed,
+            lifecycle: %{state: :closed, state_reason: :completed}
+          ),
+          node(:b, "B", "plan-graph", 1,
+            status: :status_not_planned,
+            lifecycle: %{state: :closed, state_reason: :not_planned}
+          )
+        ])
+
+      grid = BuildOrderGridModel.build(model, nil)
+
+      assert [%{completion: %{progress_resolution: :resolved}}] = grid.waves
+      assert [%{completion: %{progress_resolution: :resolved}}] = grid.columns
+    end
   end
 
   describe "build/2 edges" do

@@ -605,6 +605,20 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ ~s(aria-label="Dismiss blocker")
   end
 
+  test "command footer never renders more than two buttons" do
+    blocking =
+      action_decision(blocking: true, legacy_attention: %{slug: "scope-question", topic: "ticket.1.attention"})
+
+    free_form = action_decision(options: [], recommendation: nil)
+
+    for decision <- [blocking, free_form] do
+      html = render_component(&DecisionAction.decision_action/1, %{decision: decision, state: %{}, writable: true})
+
+      buttons = html |> Floki.parse_document!() |> Floki.find(".decision-action-buttons button")
+      assert length(buttons) == 2
+    end
+  end
+
   test "dismissed historic card offers a change choice answer without another dismiss" do
     decision = action_decision(decision_status: :dismissed)
 
@@ -1009,7 +1023,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ "Build Order graph summary"
     refute html =~ "Unresolved"
     refute html =~ "Plan distribution"
-    refute html =~ "Build Order analytics"
+    refute html =~ ">Analytics<"
     refute html =~ "Usage and cost"
     refute html =~ "Root data is unavailable"
   end
