@@ -20,7 +20,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
     "#6bd6a6",
     "#7fd4e0",
     "#8fbcff",
-    "#d98f5b",
+    "#e29b63",
     "#e3b341",
     "#e3b341",
     "#e3b341",
