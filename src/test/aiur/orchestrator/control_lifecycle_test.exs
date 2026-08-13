@@ -109,6 +109,34 @@ defmodule Aiur.Orchestrator.ControlLifecycleTest do
     assert {:ignored, ^lifecycle} = ControlLifecycle.apply(lifecycle, "pause-1", "worker-1", now: @now)
   end
 
+  test "an unknown worker rejection class is ignored without raising" do
+    lifecycle = ControlLifecycle.new(now: @now)
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, request_attrs(request_id: "pause-1"), now: @now)
+
+    assert {:ignored, ^lifecycle} = ControlLifecycle.reject(lifecycle, "pause-1", :unrecognized_worker_rule, now: @now)
+    assert %{status: :requested} = ControlLifecycle.current_pending(lifecycle, "issue-1")
+  end
+
+  test "rejection retains the held control condition with the terminal outcome" do
+    lifecycle = ControlLifecycle.new(now: @now)
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, request_attrs(request_id: "pause-1"), now: @now)
+
+    assert {:ok, request, lifecycle} =
+             ControlLifecycle.reject(lifecycle, "pause-1", :not_eligible,
+               now: DateTime.add(@now, 1, :second),
+               condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+             )
+
+    assert request.rejection.condition == %{control_status: :paused, pause_reason: :max_agent_duration}
+
+    restored = lifecycle |> ControlLifecycle.dump() |> ControlLifecycle.restore([])
+
+    assert ControlLifecycle.get(restored, "pause-1").rejection.condition == %{
+             control_status: :paused,
+             pause_reason: :max_agent_duration
+           }
+  end
+
   test "events use an allowlist and do not expose sensitive request metadata" do
     lifecycle = ControlLifecycle.new(now: @now)
 

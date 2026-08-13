@@ -9,6 +9,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
 
   alias Aiur.{AgentPubSub, AgentQueueStore, Alerts, Config, CurrentRunMembership, Issue, Tracker, TrackerIdentity}
   alias Aiur.GitHub.Client, as: GitHubClient
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Workspace.Ownership
@@ -412,14 +413,21 @@ defmodule Aiur.Orchestrator.RetryEngine do
       # parking until an operator notices (#1453). The structured transient
       # reason wins when recorded; otherwise the formatted error string is the
       # fallback (which `AutoResume.classify/1` treats as terminal).
-      released = release_issue_claim(state, issue_id)
+      exhaustion_reason = effective_exhaustion_reason(transient_reason, error)
+
+      released =
+        state
+        |> release_issue_claim(issue_id)
+        |> record_claim_release(issue_id, exhaustion_reason)
 
       released =
         maybe_schedule_transient_auto_resume(
           released,
           issue_id,
-          effective_exhaustion_reason(transient_reason, error)
+          exhaustion_reason
         )
+
+      emit_claim_released_alert(released, issue_id, identifier, failed_attempts, exhaustion_reason, %{worker_host: worker_host})
 
       released
       |> Map.put(:retry_attempts, Map.delete(released.retry_attempts, issue_id))
@@ -536,6 +544,20 @@ defmodule Aiur.Orchestrator.RetryEngine do
   @spec release_issue_claim(State.t(), String.t()) :: State.t()
   def release_issue_claim(%State{} = state, issue_id) do
     %{state | claimed: MapSet.delete(state.claimed, issue_id)}
+  end
+
+  @doc false
+  @spec record_claim_release(State.t(), String.t(), term()) :: State.t()
+  def record_claim_release(%State{} = state, issue_id, reason) when is_binary(issue_id) do
+    {cause, details} = claim_release_reason(reason)
+
+    release = %{
+      cause: cause,
+      details: details,
+      released_at_ms: System.monotonic_time(:millisecond)
+    }
+
+    %{state | released_claims: Map.put(state.released_claims || %{}, issue_id, release)}
   end
 
   @doc false
@@ -706,7 +728,7 @@ defmodule Aiur.Orchestrator.RetryEngine do
       cause ->
         Logger.info("Scheduling transient auto-resume issue_id=#{issue_id} cause=#{cause} reason=#{inspect(reason)}")
 
-        AutoResume.schedule(state, issue_id, cause)
+        AutoResume.schedule(state, issue_id, cause, recovery_delay_options(reason))
     end
   end
 
@@ -719,13 +741,17 @@ defmodule Aiur.Orchestrator.RetryEngine do
     )
 
     if retry_poll_failures >= @max_retry_poll_failures and not metadata[:terminal_membership_pending?] do
-      emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata)
-
       # A transient tracker failure (403 / rate limit / provider timeout) that
       # exhausted retry polling schedules a bounded automatic re-dispatch once
       # the cause clears, instead of parking until an operator notices (#1453).
-      release_issue_claim(state, issue_id)
-      |> maybe_schedule_transient_auto_resume(issue_id, reason)
+      released =
+        state
+        |> release_issue_claim(issue_id)
+        |> record_claim_release(issue_id, reason)
+        |> maybe_schedule_transient_auto_resume(issue_id, reason)
+
+      emit_claim_released_alert(released, issue_id, identifier, attempt, reason, metadata)
+      released
     else
       schedule_issue_retry(
         state,
@@ -741,16 +767,22 @@ defmodule Aiur.Orchestrator.RetryEngine do
     end
   end
 
-  defp emit_retry_poll_exhausted_alert(issue_id, identifier, attempt, reason, metadata) do
+  defp emit_claim_released_alert(state, issue_id, identifier, attempt, reason, metadata) do
+    {reason_code, details} = claim_release_reason(reason)
+    auto_reclaim = Map.get(state.auto_resume, issue_id)
+    recovery = claim_recovery_message(auto_reclaim)
+
     message =
-      "Retry polling could not confirm issue state for #{identifier} after #{@max_retry_poll_failures} tracker failure(s); released claim so the ticket can be picked up after tracker recovery. Last tracker error: #{inspect(reason)}. Last agent retry attempt remains #{attempt}."
+      "Released claim for ticket=#{identifier} agent=#{metadata[:worker_host] || identifier} after #{@max_retry_poll_failures} tracker failures " <>
+        "(reason=#{reason_code}, credential=#{credential_identity()}#{claim_release_detail_suffix(details)}). #{recovery}"
 
     Logger.error(
-      "Retry poll exhausted for issue_id=#{issue_id} issue_identifier=#{identifier} agent_attempt=#{attempt} max_retry_poll_failures=#{@max_retry_poll_failures} tracker_error=#{inspect(reason)}; releasing claim"
+      "Claim released for issue_id=#{issue_id} issue_identifier=#{identifier} agent_attempt=#{attempt} " <>
+        "max_retry_poll_failures=#{@max_retry_poll_failures} reason=#{reason_code} tracker_error=#{inspect(reason)}"
     )
 
     Alerts.emit_custom(
-      "orchestrator.retry_poll.exhausted",
+      "orchestrator.claim_released",
       message,
       issue: identifier,
       worker_host: metadata[:worker_host],
@@ -759,6 +791,56 @@ defmodule Aiur.Orchestrator.RetryEngine do
       severity: "warning"
     )
   end
+
+  defp claim_release_reason({:github, :rate_limited, details}) when is_map(details), do: {:rate_limit_exhausted, details}
+  defp claim_release_reason(_reason), do: {:tracker_retry_exhausted, %{}}
+
+  defp recovery_delay_options({:github, :rate_limited, details}) when is_map(details) do
+    [retry_after: details[:retry_after], reset_at: details[:reset_at]]
+  end
+
+  defp recovery_delay_options(_reason), do: []
+
+  # Identify the credential that actually made the rate-limited request, not the
+  # one the operator configured. `GitHubConfig.bot_account/0` is a config string:
+  # under a GitHub App installation token it names a different principal than the
+  # token in use, and naming the wrong principal on a security-adjacent alert is
+  # worse than naming none. A fingerprint of the token that was actually used is
+  # verifiable; when there is no token, say `unknown`.
+  #
+  # The verified login (`Aiur.GitHub.BotIdentity.fetch_authenticated_viewer_login/2`)
+  # is deliberately not used here: it costs a live GitHub API call, and this code
+  # path runs precisely when GitHub has stopped answering (#1475).
+  defp credential_identity do
+    case GitHubConfig.token() do
+      token when is_binary(token) and byte_size(token) > 0 ->
+        "token-sha256:" <> (:crypto.hash(:sha256, token) |> Base.encode16(case: :lower) |> binary_part(0, 12))
+
+      _ ->
+        "unknown"
+    end
+  end
+
+  defp claim_release_detail_suffix(details) do
+    [:remaining, :reset_at, :retry_after]
+    |> Enum.flat_map(fn key ->
+      case Map.get(details, key) do
+        nil -> []
+        value -> [", #{key}=#{value}"]
+      end
+    end)
+    |> Enum.join()
+  end
+
+  defp claim_recovery_message(%{cause: :rate_limit, attempt: attempt}) do
+    "Automatic re-claim is scheduled after rate-limit recovery (attempt #{attempt}/#{AutoResume.max_attempts()})."
+  end
+
+  defp claim_recovery_message(%{cause: cause, attempt: attempt}) do
+    "Automatic re-claim is scheduled after #{cause} recovery (attempt #{attempt}/#{AutoResume.max_attempts()})."
+  end
+
+  defp claim_recovery_message(_auto_reclaim), do: "Automatic re-claim is not scheduled; operator recovery is required."
 
   @doc false
   @spec handle_retry_issue_lookup(

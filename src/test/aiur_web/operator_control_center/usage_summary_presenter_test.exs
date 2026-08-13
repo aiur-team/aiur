@@ -25,6 +25,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
         by_provider: [contributor(:claude, "USD", "2.50")],
         by_auth_mode: [contributor(:api_key, "USD", "2.50")],
         by_ticket: [contributor({"acme", "aiur", 42}, "USD", "2.50")],
+        by_model: [],
         by_currency: []
       },
       reconciliation: %{reconciled?: true, by_dimension: %{by_provider: true, by_currency: true}},
@@ -173,6 +174,74 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenterTest do
       assert view.retained_interval.earliest == 100
       assert view.retained_interval.latest == 200
       assert view.retained_interval.status == :full
+    end
+  end
+
+  describe "models" do
+    test "ranks models by additive tokens and names each dimension" do
+      snap =
+        snapshot(%{
+          contributors: %{
+            snapshot().contributors
+            | by_model: [
+                %{key: "gpt-5.2-codex", tokens: %{input: 300, output: 100}},
+                %{key: "claude-sonnet-4", tokens: %{input: 1000, cached_input: 200, output: 500}}
+              ]
+          }
+        })
+
+      view = Presenter.present(snap)
+
+      assert [
+               %{label: "claude-sonnet-4", total: 1700},
+               %{label: "gpt-5.2-codex", total: 400}
+             ] = view.models.entries
+
+      assert [
+               %{dimension: :cached_input, count: 200},
+               %{dimension: :input, count: 1000},
+               %{dimension: :output, count: 500}
+             ] = hd(view.models.entries).segments
+
+      assert view.models.any?
+    end
+
+    test "reasoning output and provider totals are never stacked as additive" do
+      snap =
+        snapshot(%{
+          contributors: %{
+            snapshot().contributors
+            | by_model: [
+                %{
+                  key: "claude-sonnet-4",
+                  tokens: %{input: 1000, output: 500, reasoning_output: 250, provider_reported_total: 1750}
+                }
+              ]
+          }
+        })
+
+      view = Presenter.present(snap)
+      assert [%{total: 1500} = entry] = view.models.entries
+      refute Enum.any?(entry.segments, &(&1.dimension in [:reasoning_output, :provider_reported_total]))
+    end
+
+    test "an unknown model key is named unknown" do
+      snap =
+        snapshot(%{
+          contributors: %{
+            snapshot().contributors
+            | by_model: [%{key: nil, tokens: %{input: 10}}]
+          }
+        })
+
+      view = Presenter.present(snap)
+      assert [%{label: "Unknown", total: 10}] = view.models.entries
+    end
+
+    test "an empty by_model contributor set yields no chart entries" do
+      view = Presenter.present(snapshot())
+      assert view.models.entries == []
+      refute view.models.any?
     end
   end
 

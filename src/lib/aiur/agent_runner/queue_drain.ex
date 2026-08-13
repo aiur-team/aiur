@@ -160,28 +160,29 @@ defmodule Aiur.AgentRunner.QueueDrain do
       {:resume_agent, request_id, generation} when is_integer(request_id) and is_integer(generation) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
 
-        # A stale containment latch makes the next app-server turn return an
-        # immediate `{:paused, %{request_id: :containment}}`. Clear it only
-        # after the orchestrator admitted this resume, so an Executor pause
-        # remains protected until an actual resume reaches the worker.
-        _ = PauseContainment.release_target(issue.identifier)
+        case apply_resume_control(issue, codex_update_recipient, request_id, generation) do
+          :ok ->
+            # An explicit resume drains the agent queue so restored items land
+            # in the same turn instead of waiting for another checkpoint.
+            claim_and_run_or_continue(
+              app_session,
+              issue,
+              message_handler,
+              orchestrator,
+              codex_update_recipient,
+              opts
+            )
 
-        MessageHandler.send_control_state(codex_update_recipient, issue, :working, %{
-          request_id: request_id,
-          generation: generation
-        })
-
-        # An explicit resume drains the agent queue so restored items
-        # land in the same turn instead of being deferred until the next
-        # checkpoint of an initial-prompt turn.
-        claim_and_run_or_continue(
-          app_session,
-          issue,
-          message_handler,
-          orchestrator,
-          codex_update_recipient,
-          opts
-        )
+          {:error, _class} ->
+            wait_for_operator_message(
+              app_session,
+              issue,
+              message_handler,
+              orchestrator,
+              codex_update_recipient,
+              opts
+            )
+        end
 
       {:resume_agent, request_id} when is_integer(request_id) ->
         Logger.info("Resuming paused agent for #{Aiur.AgentRunner.issue_context(issue)} request_id=#{request_id}")
@@ -196,6 +197,25 @@ defmodule Aiur.AgentRunner.QueueDrain do
           codex_update_recipient,
           opts
         )
+    end
+  end
+
+  @doc false
+  @spec apply_resume_control(Issue.t(), pid() | nil, pos_integer(), non_neg_integer(), keyword()) ::
+          :ok | {:error, :pause_release_failed}
+  def apply_resume_control(issue, recipient, request_id, generation, opts \\ []) do
+    release = Keyword.get(opts, :release_pause, &PauseContainment.release_target/1)
+
+    case release.(issue.identifier) do
+      :ok ->
+        MessageHandler.send_control_state(recipient, issue, :working, %{
+          request_id: request_id,
+          generation: generation
+        })
+
+      _not_released ->
+        MessageHandler.send_control_rejection(recipient, issue, request_id, generation, :pause_release_failed)
+        {:error, :pause_release_failed}
     end
   end
 

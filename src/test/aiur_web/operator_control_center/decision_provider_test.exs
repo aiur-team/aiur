@@ -26,7 +26,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionProviderTest do
     original_override = Application.get_env(:aiur, :decision_state_dir)
     dir = Path.join(System.tmp_dir!(), "aiur-decision-provider-#{System.unique_integer([:positive])}")
     Application.put_env(:aiur, :decision_state_dir, dir)
-    {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end)
 
     on_exit(fn ->
       Aiur.TestSupport.safe_stop(store)

@@ -10,6 +10,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   alias Aiur.Orchestrator.{
     AgentTeardown,
+    CommentPolling,
     CommentWake,
     ControlLifecycleStore,
     DispatchPolicy,
@@ -49,8 +50,12 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
   @spec request_refresh_api(GenServer.server()) :: map() | :unavailable
   def request_refresh_api(server) do
-    if Process.whereis(server) do
-      GenServer.call(server, :request_refresh)
+    if State.alive?(server) do
+      try do
+        GenServer.call(server, :request_refresh)
+      catch
+        :exit, _ -> :unavailable
+      end
     else
       :unavailable
     end
@@ -71,7 +76,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
 
     :ok = ControlLifecycleStore.save(control_lifecycle)
 
-    snapshot_key = Keyword.get(opts, :name, Aiur.Orchestrator)
+    snapshot_key = Keyword.get(opts, :name) || self()
     persisted_global_pause = GlobalPauseStore.load()
     global_pause = initial_global_pause(persisted_global_pause)
 
@@ -158,6 +163,11 @@ defmodule Aiur.Orchestrator.Lifecycle do
   # tasks die.
   @spec terminate(term(), State.t() | term()) :: :ok
   def terminate(_reason, %State{running: running} = state) when is_map(running) do
+    # The comment poll owns linked target tasks whose guarded request workers
+    # may still hold GitHub sockets. Reap that tree before this owner exits so
+    # an orderly stop never overlaps it with a successor's first poll.
+    _ = CommentPolling.terminate_poll(state.github_comment_poll)
+
     # Comment-rework retries reschedule themselves for up to a minute with
     # escalating delays. Cancel them here so a stopping orchestrator never leaves
     # a timer firing — and logging — into whatever runs after it (#1747).
@@ -169,10 +179,16 @@ defmodule Aiur.Orchestrator.Lifecycle do
     # there would kill every agent the restarted orchestrator spawns.
     _ = ProcessReaper.reap([:agent], drain: false)
     Enum.each(running, fn {_issue_id, entry} -> AgentTeardown.kill_repl_session(entry) end)
+    discard_unnamed_snapshot(state)
     :ok
   end
 
   def terminate(_reason, _state), do: :ok
+
+  defp discard_unnamed_snapshot(%State{snapshot_key: snapshot_key}) when is_pid(snapshot_key),
+    do: SnapshotStore.discard(snapshot_key)
+
+  defp discard_unnamed_snapshot(_state), do: :ok
 
   @spec handle_tick(State.t()) :: {:noreply, State.t()}
   def handle_tick(%State{} = state) do
@@ -187,6 +203,7 @@ defmodule Aiur.Orchestrator.Lifecycle do
         tick_token: nil
     }
 
+    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
     StatusReport.notify_dashboard(state)
     :ok = schedule_poll_cycle_start()
     {:noreply, state}

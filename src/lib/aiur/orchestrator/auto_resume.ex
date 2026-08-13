@@ -96,12 +96,21 @@ defmodule Aiur.Orchestrator.AutoResume do
     schedule(state, issue_id, cause, &Alerts.emit_system/2)
   end
 
+  @spec schedule(State.t(), String.t(), cause(), keyword()) :: State.t()
+  def schedule(%State{} = state, issue_id, cause, opts) when is_binary(issue_id) and is_atom(cause) and is_list(opts) do
+    schedule_with_options(state, issue_id, cause, Keyword.put_new(opts, :emit_fun, &Alerts.emit_system/2))
+  end
+
   @doc false
   # Testable variant with an injected alert emitter; the production path routes
   # through `Alerts.emit_system/2`.
   @spec schedule(State.t(), String.t(), cause(), (String.t(), keyword() -> term())) :: State.t()
   def schedule(%State{} = state, issue_id, cause, emit_fun)
       when is_binary(issue_id) and is_atom(cause) and is_function(emit_fun, 2) do
+    schedule_with_options(state, issue_id, cause, emit_fun: emit_fun)
+  end
+
+  defp schedule_with_options(%State{} = state, issue_id, cause, opts) do
     entries = state.auto_resume || %{}
     previous = Map.get(entries, issue_id) || %{}
     attempt = Map.get(previous, :attempt, 0) + 1
@@ -109,7 +118,7 @@ defmodule Aiur.Orchestrator.AutoResume do
     if attempt > @max_attempts do
       Logger.warning("Transient auto-resume exhausted for issue_id=#{issue_id} attempts=#{@max_attempts} cause=#{cause}; parking for operator recovery")
 
-      emit_fun.("ticket.#{issue_id}.agent.auto_resume_exhausted",
+      Keyword.fetch!(opts, :emit_fun).("ticket.#{issue_id}.agent.auto_resume_exhausted",
         message:
           "Transient auto-resume exhausted for issue #{issue_id} after #{@max_attempts} " <>
             "attempts (cause=#{cause}); the ticket is parked for operator recovery.",
@@ -122,7 +131,9 @@ defmodule Aiur.Orchestrator.AutoResume do
 
       %{state | auto_resume: Map.delete(entries, issue_id)}
     else
-      entry = %{attempt: attempt, cause: cause, scheduled_at_ms: System.monotonic_time(:millisecond)}
+      scheduled_at_ms = System.monotonic_time(:millisecond)
+      due_at_ms = max(scheduled_at_ms + backoff_ms(attempt), recovery_due_at_ms(opts, scheduled_at_ms))
+      entry = %{attempt: attempt, cause: cause, scheduled_at_ms: scheduled_at_ms, due_at_ms: due_at_ms}
       %{state | auto_resume: Map.put(entries, issue_id, entry)}
     end
   end
@@ -131,8 +142,8 @@ defmodule Aiur.Orchestrator.AutoResume do
   @spec retry_in_ms(State.t(), String.t(), integer()) :: non_neg_integer() | nil
   def retry_in_ms(%State{} = state, issue_id, now_ms) when is_binary(issue_id) do
     case Map.get(state.auto_resume, issue_id) do
-      %{attempt: attempt, scheduled_at_ms: scheduled_at} ->
-        retry_at = scheduled_at + backoff_ms(attempt)
+      %{attempt: attempt, scheduled_at_ms: scheduled_at} = entry ->
+        retry_at = Map.get(entry, :due_at_ms, scheduled_at + backoff_ms(attempt))
         max(0, retry_at - now_ms)
 
       _ ->
@@ -144,11 +155,11 @@ defmodule Aiur.Orchestrator.AutoResume do
   @spec due_entries(State.t(), integer()) :: [{String.t(), map()}]
   def due_entries(%State{} = state, now_ms) do
     state.auto_resume
-    |> Enum.filter(fn {_issue_id, %{attempt: attempt, scheduled_at_ms: scheduled_at}} ->
-      scheduled_at + backoff_ms(attempt) <= now_ms
+    |> Enum.filter(fn {_issue_id, %{attempt: attempt, scheduled_at_ms: scheduled_at} = entry} ->
+      Map.get(entry, :due_at_ms, scheduled_at + backoff_ms(attempt)) <= now_ms
     end)
-    |> Enum.sort_by(fn {_issue_id, %{attempt: attempt, scheduled_at_ms: scheduled_at}} ->
-      scheduled_at + backoff_ms(attempt)
+    |> Enum.sort_by(fn {_issue_id, %{attempt: attempt, scheduled_at_ms: scheduled_at} = entry} ->
+      Map.get(entry, :due_at_ms, scheduled_at + backoff_ms(attempt))
     end)
   end
 
@@ -233,7 +244,7 @@ defmodule Aiur.Orchestrator.AutoResume do
 
         if MapSet.member?(next_state.claimed, issue.id) or Map.has_key?(next_state.running, issue.id) do
           Logger.info("Transient auto-resume dispatched #{State.issue_context(issue)}")
-          %{next_state | auto_resume: Map.delete(next_state.auto_resume, issue.id)}
+          %{next_state | auto_resume: Map.delete(next_state.auto_resume, issue.id), released_claims: Map.delete(next_state.released_claims, issue.id)}
         else
           # Admission passed but the dispatch itself refused (thrash window,
           # backend usage limit, worker-capacity race, spawn failure) — a real
@@ -267,5 +278,19 @@ defmodule Aiur.Orchestrator.AutoResume do
         Logger.warning("Transient auto-resume state restore failed for #{State.issue_context(issue)}: #{inspect(reason)}")
         state
     end
+  end
+
+  defp recovery_due_at_ms(opts, now_ms) do
+    retry_after_ms = if is_integer(opts[:retry_after]) and opts[:retry_after] > 0, do: opts[:retry_after] * 1_000, else: 0
+
+    reset_after_ms =
+      with reset_at when is_binary(reset_at) <- opts[:reset_at],
+           {:ok, reset_at, _offset} <- DateTime.from_iso8601(reset_at) do
+        max(0, DateTime.diff(reset_at, DateTime.utc_now(), :millisecond))
+      else
+        _ -> 0
+      end
+
+    now_ms + max(retry_after_ms, reset_after_ms)
   end
 end

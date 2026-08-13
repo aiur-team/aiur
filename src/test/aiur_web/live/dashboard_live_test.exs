@@ -1580,9 +1580,14 @@ defmodule AiurWeb.DashboardLiveTest do
         {:ok, %{status: :accepted, item: %{id: 5_080}}}
       end)
 
+    # Non-blocking: this fixture only needs historic rows to page over, and a
+    # blocking Command cannot be closed without an answer.
     decisions =
       for index <- 0..26 do
-        request_dashboard_decision(store, "open-page-#{index}", "reversible", now: DateTime.add(~U[2026-07-13 08:00:00Z], index, :second))
+        request_dashboard_decision(store, "open-page-#{index}", "reversible",
+          blocking: false,
+          now: DateTime.add(~U[2026-07-13 08:00:00Z], index, :second)
+        )
       end
 
     Enum.each(Enum.drop(decisions, 2), fn decision ->
@@ -2939,7 +2944,11 @@ defmodule AiurWeb.DashboardLiveTest do
       |> element("#decision-#{decision.decision_id} button[phx-click=\"dismiss-decision\"]")
       |> render_click()
 
-    assert html =~ "acknowledged"
+    # The notice states what happened, not which affordance was used: the same
+    # event backs the Acknowledge button and the blocker dismissal, so claiming
+    # an acknowledgement here would be false on the other route.
+    assert html =~ "Command closed without a recorded answer."
+    refute html =~ "acknowledged"
     assert {:ok, dismissed} = DecisionStore.get(decision.decision_id, store)
     assert dismissed.decision_status == :dismissed
     assert dismissed.answer == nil
@@ -5072,6 +5081,7 @@ defmodule AiurWeb.DashboardLiveTest do
 
     defaults = [
       name: name,
+      state_dir: dir,
       dispatcher: dispatcher,
       dispatch_delay_ms: 0,
       retry_delays_ms: [],
@@ -5084,12 +5094,16 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp request_dashboard_decision(store, source_id, reversibility \\ "reversible", opts \\ []) do
     {decision_authority, opts} = Keyword.pop(opts, :decision_authority)
+    # Blocking by default, but a fixture that only needs historic rows must be
+    # able to opt out: the store refuses to dismiss a blocking Command it
+    # cannot release.
+    {blocking?, opts} = Keyword.pop(opts, :blocking, true)
 
     request =
       %{
         "source_id" => source_id,
         "question" => "Should the dashboard ship this change?",
-        "blocking" => true,
+        "blocking" => blocking?,
         "urgency" => "critical",
         "reversibility" => reversibility,
         "options" => [

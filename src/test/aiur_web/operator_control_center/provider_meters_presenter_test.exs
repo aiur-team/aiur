@@ -156,6 +156,51 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     end
   end
 
+  describe "credential absence is awaiting observation, not a hard failure" do
+    # An expired or absent Claude OAuth token, or a missing DeepSeek/OpenRouter
+    # API key, means the provider cannot be read *yet* — not that it is broken.
+    # These render as loading, matching a first observation that has not arrived,
+    # rather than a misleading hard "unavailable".
+    test "a missing or expired Claude OAuth token renders loading" do
+      for failure <- [:token_expired, :no_oauth_token, :no_credentials, :malformed_credentials] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :claude,
+          backend: :app_server,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :loading,
+               "expected #{inspect(failure)} to render loading, got a hard state"
+      end
+    end
+
+    test "a missing API key or disabled provider renders loading" do
+      for failure <- [:missing_api_key, :missing_api_key_configuration, :disabled] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :deepseek,
+          backend: :openai_compat,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        assert card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).state == :loading,
+               "expected #{inspect(failure)} to render loading, got a hard state"
+      end
+    end
+
+    test "a real authentication failure still renders a hard state" do
+      snapshot = %ProviderMeterSnapshot{
+        provider: :deepseek,
+        backend: :openai_compat,
+        provider_account_generation: nil,
+        health: %{state: :unavailable, failure: :authentication, last_observed_at: nil, last_source_version: nil}
+      }
+
+      assert card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).state == :unavailable
+    end
+  end
+
   describe "meter windows: coverage, standing, resets, zero" do
     test "a supported window exposes an exact semantic meter value" do
       window = window(used_percent: 40, remaining_percent: 60, coverage: :supported, standing: :allowed, resets_at: @reset)

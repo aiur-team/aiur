@@ -52,7 +52,10 @@ defmodule Aiur.Config.Schema.AgentValidation do
   @doc false
   @spec validate_agent_routing(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_agent_routing(changeset, field) do
-    known = Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{})
+    known =
+      ((get_field(changeset, :priority) || []) ++
+         Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{}))
+      |> Enum.uniq()
 
     validate_change(changeset, field, fn ^field, routing ->
       Enum.flat_map(routing, fn {level, value} ->
