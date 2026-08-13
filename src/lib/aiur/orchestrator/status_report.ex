@@ -220,24 +220,13 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
   end
 
-  # A dashboard can show a pending control only for a running issue. Preserve
-  # those records, not the full bounded-but-fleet-wide control history.
+  # A dashboard needs bounded control history for each running issue so CLI
+  # receipt correlation survives a newer request and terminal resume reasons
+  # remain visible after the live event passes. The lifecycle already caps
+  # this history per issue; exclude every non-rendered issue from the copy.
   defp snapshot_control_lifecycle(%State{} = state) do
-    Enum.reduce(state.running, %ControlLifecycle{}, fn {_issue_id, entry}, lifecycle ->
-      issue_id = entry |> Map.get(:issue, %{}) |> Map.get(:id)
-
-      case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
-        %{request_id: request_id} = request ->
-          %{
-            lifecycle
-            | pending: Map.put(lifecycle.pending, issue_id, request_id),
-              records: Map.put(lifecycle.records, request_id, request)
-          }
-
-        nil ->
-          lifecycle
-      end
-    end)
+    issue_ids = Enum.map(state.running, fn {_issue_id, entry} -> entry |> Map.get(:issue, %{}) |> Map.get(:id) end)
+    ControlLifecycle.snapshot_for(state.control_lifecycle, issue_ids)
   end
 
   # Queue depth and visible operator messages are dashboard contract fields.
@@ -430,7 +419,7 @@ defmodule Aiur.Orchestrator.StatusReport do
          stall_timeout_seconds,
          activity_by_identity
        ) do
-    capabilities = OM.issue_control_capabilities(state, metadata.identifier)
+    capabilities = OM.issue_control_capabilities(state, metadata.identifier, metadata)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
@@ -861,6 +850,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
     work_state = get_in(entry, [:control, :status]) || :working
+    capabilities = OM.issue_control_capabilities(state, identifier, entry)
     pause_reason = Map.get(entry, :paused_reason)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     stale_for_seconds = stale_for_seconds(entry, now)
@@ -891,7 +881,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       session_id: Map.get(entry, :session_id),
       live_conversation: Map.get(entry, :live_conversation),
       runtime_seconds: State.running_seconds(Map.get(entry, :started_at), now),
-      queue_depth: OM.queue_depth_for_issue(state, identifier),
+      queue_depth: capabilities.queue_depth,
+      control: capabilities,
       complexity: issue_complexity(issue),
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
