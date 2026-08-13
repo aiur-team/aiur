@@ -49,8 +49,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:windows, github_windows(assigns.quota))
       |> assign(:attribution, github_attribution(assigns.quota))
-      |> assign(:coverage, github_coverage(assigns.quota))
-      |> assign(:coverage_rows, assigns.quota |> github_coverage() |> github_coverage_rows())
       |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
@@ -85,19 +83,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :for={backoff <- @backoffs} class="github-quota-backoff">
           <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
           <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
-        </div>
-        <%!-- Aiur cannot see every call billed to the shared credential, so the
-              coverage line states how much of each budget's real spend it can
-              tie to a named ticket and how much it observed at all — rather
-              than leaving the meter unexplained (#1805).
-
-              One line per budget, each against its own window's spend. Core
-              bills requests and GraphQL bills points on windows that reset at
-              different times, so a combined "% of 10000 spent this window"
-              would name a quantity and a window that do not exist. --%>
-        <div :for={{resource, entry} <- @coverage_rows} class="github-quota-coverage">
-          <span class="rs-limit-label">Attributed {github_resource_label(resource)}</span>
-          <span class="rs-limit-meta">{github_coverage_meta(entry)}</span>
         </div>
       </div>
     </div>
@@ -316,50 +301,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp github_attribution(_quota), do: nil
-
-  defp github_coverage(%{coverage: %{resources: resources} = coverage}) when is_map(resources) and map_size(resources) > 0, do: coverage
-  defp github_coverage(_quota), do: nil
-
-  # Rendered in meter order so the coverage lines read down the card against the
-  # windows they qualify.
-  defp github_coverage_rows(%{resources: resources}) when is_map(resources) do
-    Enum.flat_map(@github_resources, fn resource ->
-      case Map.get(resources, resource) do
-        %{} = entry -> [{resource, entry}]
-        _absent -> []
-      end
-    end)
-  end
-
-  defp github_coverage_rows(_coverage), do: []
-
-  # Two numbers an operator can act on, both against this budget's own window:
-  # how much of its real spend Aiur can tie to a named ticket, and how much of it
-  # Aiur observed at all. The gap between them is traffic Aiur saw but could not
-  # tie to a ticket; what is missing from both is traffic it never saw.
-  defp github_coverage_meta(entry) do
-    named = Map.get(entry, :named_fraction) || 0.0
-    observed = Map.get(entry, :fraction) || 0.0
-    spend = Map.get(entry, :spend, 0)
-
-    meta = "#{percent_text(named)} of #{spend} spent this window · #{percent_text(observed)} observed"
-
-    if Map.get(entry, :estimated?), do: meta <> " · cost partly estimated", else: meta
-  end
-
-  # Sub-1% coverage is the whole finding, so it must not round to "0%".
-  defp percent_text(fraction) when is_float(fraction) or is_integer(fraction) do
-    percent = fraction * 100.0
-
-    cond do
-      percent >= 10 -> "#{round(percent)}%"
-      percent >= 1 -> "#{Float.round(percent, 1)}%"
-      percent > 0 -> "#{Float.round(percent, 2)}%"
-      true -> "0%"
-    end
-  end
-
-  defp percent_text(_fraction), do: "0%"
 
   defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
 

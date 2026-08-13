@@ -85,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "3 units"
   end
 
-  test "renders GitHub core and GraphQL quota with reset and per-budget coverage" do
+  test "renders GitHub core and GraphQL quota with reset" do
     github_quota = %{
       state: :observed,
       windows: %{
@@ -120,23 +120,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "9R / 2W"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
 
-    # No single ticket is crowned a "top consumer": the spend ranking is gone,
-    # and a consumer identity must not leak through the coverage lines.
+    # The top-consumer ranking and per-budget coverage context are removed;
+    # no consumer identity leaks through the card.
     refute html =~ "Top consumer"
     refute html =~ "ticket:1670"
-
-    # Coverage is stated per budget, each against its own window's spend.
-    assert 132 / 1250 == 0.1056
-    assert html =~ "Attributed Core"
-    assert html =~ "9.6% of 1250 spent this window · 11% observed"
-    assert html =~ "Attributed GraphQL"
-    assert html =~ "0% of 4500 spent this window · 0% observed"
+    refute html =~ "Attributed"
   end
 
-  # A consumer's spend is billed to the budget it drained, so coverage is
-  # stated per budget. With no core window observed, the card claims no core
-  # coverage rather than folding a budget it cannot see into a combined figure.
-  test "states GraphQL coverage only when no core window was observed" do
+  # The attribution/coverage context is removed: no ticket identity or
+  # attributed-spend lines leak through the card, regardless of window data.
+  test "omits attribution and coverage context when only a GraphQL window is observed" do
     github_quota = %{
       state: :observed,
       windows: %{
@@ -161,25 +154,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert 92 / 5000 == 0.0184
-    assert html =~ "Attributed GraphQL"
-    assert html =~ "1.8% of 5000 spent this window · 1.8% observed"
-
-    # No ticket is named, and a budget with no window claims no coverage.
+    assert html =~ "0/5000 left"
     refute html =~ "ticket:1790"
     refute html =~ "ticket:1791"
-    refute html =~ "Attributed Core"
+    refute html =~ "Attributed"
   end
 
-  # An unattributed 99.96% presented as a leader invites acting on it. With no
-  # named consumer the panel must still say what it can account for, rather
-  # than falling silent and leaving the meter unexplained.
-  #
-  # The estimation caveat sits on GraphQL because that is the only place the
-  # quota module can produce it: `request_cost/3` marks core calls `:reported`
-  # always, and only a GraphQL response that did not report `rateLimit { cost }`
-  # is recorded as assumed.
-  test "states coverage even when nothing can be attributed to a ticket" do
+  # The attribution/coverage context is removed even when nothing can be
+  # attributed to a ticket; the card simply omits it rather than falling silent
+  # about a context that no longer exists.
+  test "omits attribution and coverage context when nothing can be attributed to a ticket" do
     github_quota = %{
       state: :observed,
       windows: %{
@@ -202,9 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     refute html =~ "Top consumer"
-    assert html =~ "Attributed GraphQL"
-    assert 2 / 5000 == 0.0004
-    assert html =~ "0% of 5000 spent this window · 0.04% observed · cost partly estimated"
+    refute html =~ "Attributed"
   end
 
   test "names an active secondary-limit backoff, which the primary meters cannot show" do
@@ -1126,9 +1108,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     end)
   end
 
-  # GitHub coverage is stated per budget in the full card, and no single ticket
-  # is named a consumer.
-  test "GitHub coverage is per-budget and names no leader" do
+  # GitHub attribution/coverage context is removed in the full card; no ticket
+  # is named a consumer and no attributed-spend line renders.
+  test "GitHub card omits attribution and coverage context" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         quota =
@@ -1153,16 +1135,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
             now: @now
           })
 
-        # A percent per budget, each against its own window's spend.
-        assert 18 / 1250 == 0.0144
-        assert (78 / 4500) |> Float.round(4) == 0.0173
-        assert html =~ "Attributed Core"
-        assert html =~ "1.4% of 1250 spent this window · 1.4% observed"
-        assert html =~ "Attributed GraphQL"
-        assert html =~ "1.7% of 4500 spent this window · 2.1% observed · cost partly estimated"
-
         refute html =~ "ticket:1790"
         refute html =~ "Top consumer"
+        refute html =~ "Attributed"
       end)
     end)
   end
