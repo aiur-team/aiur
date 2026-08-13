@@ -29,7 +29,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   @spec history(map()) :: Phoenix.LiveView.Rendered.t()
   def history(assigns) do
     ~H"""
-    <section class="recent-section command-history" aria-labelledby="decision-history-title">
+    <section class="section-card command-history" aria-labelledby="decision-history-title">
       <div class="recent-subtitle-row">
         <p class="recent-subtitle" id="decision-history-title">Command history</p>
         <span class="history-count mono">{count_label(@loaded, @total)}</span>
@@ -59,8 +59,10 @@ defmodule AiurWeb.OperatorControlCenter.History do
               </td>
               <td class="history-outcome">{decision_choice(decision) || "—"}</td>
               <td>
-                <span class={["chip", tone(decision)]}>{decision_status(decision)}</span>
-                <span :if={answer_actor_label(decision)} class={answer_actor_class(decision)}>{answer_actor_label(decision)}</span>
+                <div class="history-result">
+                  <span class={["chip", tone(decision)]}>{decision_status(decision)}</span>
+                  <span :if={answer_actor_label(decision)} class={answer_actor_class(decision)}>{answer_actor_label(decision)}</span>
+                </div>
               </td>
               <td class="history-when mono">{raised_at(decision.created_at)}</td>
               <td class="history-open">

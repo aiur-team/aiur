@@ -114,11 +114,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    assert html =~ "GitHub API"
+    assert html =~ "Github"
+    assert html =~ "APIS"
+    assert html =~ "1 API"
+    assert html =~ ~s(<img class="rs-logo rs-github-mark" src="/images/github-mark.svg")
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
     assert html =~ "9R / 2W"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
+    # The two GitHub budgets explain their units on hover.
+    assert html =~ ~s(title="REST request budget")
+    assert html =~ ~s(title="GraphQL point budget")
 
     # The top-consumer ranking and per-budget coverage context are removed;
     # no consumer identity leaks through the card.
@@ -799,9 +805,43 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    [codex_html, claude_html] = String.split(html, "Claude", parts: 2)
-    refute codex_html =~ "$2.50"
-    assert claude_html =~ "$6.25"
+    # Codex is subscription, so its spend figure is dropped; Claude remains an
+    # API-key card and keeps its spend figure (now leading its row).
+    refute html =~ "$2.50"
+    assert html =~ "$6.25"
+  end
+
+  # The spend figure leads an API-key model row, left of the provider logo, so
+  # the dollar amount is the first fact the eye meets.
+  test "the spend figure precedes the provider logo in an API-key model row" do
+    with_deepseek_key(fn ->
+      meters = %{
+        state: :authorized,
+        cards: [
+          %{
+            provider: :deepseek,
+            provider_label: "DeepSeek",
+            state: :ready,
+            status_label: "Healthy",
+            auth_mode: %{value: :api_key},
+            windows: []
+          }
+        ]
+      }
+
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: %{state: :loading},
+          usage: %{state: :locked, providers: %{}},
+          meters: meters,
+          now: @now
+        })
+
+      [before_name, _after] = String.split(html, "DeepSeek", parts: 2)
+      {spend_pos, _} = :binary.match(before_name, "rs-stat-spend")
+      {logo_pos, _} = :binary.match(before_name, ~s(class="rs-logo"))
+      assert spend_pos < logo_pos
+    end)
   end
 
   # Rule 2: a provider card is omitted unless that provider is keyed. App-server
@@ -1081,7 +1121,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         # them.
         for provider <- ["DeepSeek", "Codex", "Claude", "Kimi"], do: assert(html =~ provider)
         [_, models_html] = String.split(html, "rs-models", parts: 2)
-        refute models_html =~ "GitHub API"
+        refute models_html =~ "Github"
       end)
     end)
   end
