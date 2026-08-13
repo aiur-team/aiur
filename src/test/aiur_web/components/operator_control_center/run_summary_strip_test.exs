@@ -811,9 +811,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "$6.25"
   end
 
-  # The spend figure leads an API-key model row, left of the provider logo, so
-  # the dollar amount is the first fact the eye meets.
-  test "the spend figure precedes the provider logo in an API-key model row" do
+  # The spend figure sits at the right of an API-key model row, immediately left
+  # of the right-aligned provider logo (the logo is the row's last element).
+  test "the spend figure sits before the right-aligned provider logo in an API-key model row" do
     with_deepseek_key(fn ->
       meters = %{
         state: :authorized,
@@ -837,9 +837,9 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           now: @now
         })
 
-      [before_name, _after] = String.split(html, "DeepSeek", parts: 2)
-      {spend_pos, _} = :binary.match(before_name, "rs-stat-spend")
-      {logo_pos, _} = :binary.match(before_name, ~s(class="rs-logo"))
+      [_before, after_name] = String.split(html, "DeepSeek", parts: 2)
+      {spend_pos, _} = :binary.match(after_name, "rs-stat-spend")
+      {logo_pos, _} = :binary.match(after_name, ~s(<img class="rs-logo" src=))
       assert spend_pos < logo_pos
     end)
   end
