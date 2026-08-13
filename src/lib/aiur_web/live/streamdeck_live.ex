@@ -19,7 +19,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
+  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Config, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
 
   alias AiurWeb.{
@@ -316,16 +316,13 @@ defmodule AiurWeb.StreamdeckLive do
             </svg>
             <span class="sd-brand-name">STREAM DECK</span>
             <div class="sd-package-controls">
-              <a
+              <button
                 id="streamdeck-download-control"
                 class="sd-install-control"
-                href={@streamdeck_package.url}
-                download
+                type="button"
+                phx-click="open-streamdeck-install"
               >
                 Download
-              </a>
-              <button id="streamdeck-install-control" class="sd-install-control" type="button" phx-click="open-streamdeck-install">
-                Install +
               </button>
             </div>
           </header>
@@ -564,10 +561,7 @@ defmodule AiurWeb.StreamdeckLive do
                   aria-valuenow={knob.value}
                   data-value={knob.value}
                 >
-                  <span class="sd-knob-marker" aria-hidden="true"></span>
-                  <span class="sd-knob-inner">{knob.value}</span>
                 </div>
-                <span :if={is_nil(knob.hint)} aria-hidden="true">{knob.label}</span>
                 <span :if={knob.hint} class="sd-dial-hint">
                   <span style={"visibility: " <> if(knob.hint.older?, do: "visible", else: "hidden")}>‹</span>{knob.hint.label}<span style={"visibility: " <> if(knob.hint.newer?, do: "visible", else: "hidden")}>›</span>
                 </span>
@@ -587,7 +581,7 @@ defmodule AiurWeb.StreamdeckLive do
           phx-click-away="close-streamdeck-install"
           phx-hook="TicketContextDialog"
           data-close-event="close-streamdeck-install"
-          data-origin-id="streamdeck-install-control"
+          data-origin-id="streamdeck-download-control"
         >
           <header class="modal-header">
             <div>
@@ -754,11 +748,31 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp screen_descriptors(grid, usage, current_page, focus) do
     live = live_count(grid)
+    families = configured_provider_families()
 
     [
       %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live, remaining: max(grid.total - live, 0), meters: []}
-      | Enum.map(CodingAgent.provider_descriptors(), &provider_segment(&1, usage))
+      | CodingAgent.provider_descriptors()
+        |> Enum.filter(&MapSet.member?(families, &1.provider))
+        |> Enum.map(&provider_segment(&1, usage))
     ] ++ [pager_segment(grid, current_page, focus)]
+  end
+
+  # Provider segments reflect only the backends actually configured for this
+  # run (agent.priority / agent.backend_configs), matching the dispatchable
+  # set the Units page resolves. Unconfigured providers are hidden entirely.
+  defp configured_provider_families do
+    provider_families(CodingAgent.dispatchable_backends(Config.agent_backend_configs()))
+  rescue
+    _error -> provider_families(CodingAgent.dispatchable_backends())
+  end
+
+  defp provider_families(backends) do
+    backends
+    |> Enum.map(&CodingAgent.family_for/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&String.to_atom/1)
+    |> MapSet.new()
   end
 
   # A focused command takes the pager segment over: the dots give way to the
