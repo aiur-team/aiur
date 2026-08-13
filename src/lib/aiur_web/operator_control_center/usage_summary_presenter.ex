@@ -9,7 +9,9 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   protected provider-meter facts the caller supplies). It only formats and names
   those facts and keeps the distinct states (locked, loading, empty, partial,
   stale, unavailable, ready) and the distinct monetary bases (provider-reported
-  estimate vs API-equivalent estimate) visibly separate.
+  estimate vs API-equivalent estimate) visibly separate. It also exposes a
+  ranked `models` view (`view.models`) for the tokens-by-model chart: additive,
+  non-overlapping token dimensions per model, capped with an `Other` tail.
 
   ## Truthfulness invariants
 
@@ -99,6 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
       currency: Map.get(source, :currency),
       scope: present_scope(Map.get(source, :scope, %{})),
       tokens: present_tokens(Map.get(source, :tokens, %{})),
+      models: present_models(get_in(source, [:contributors, :by_model]) || []),
       providers: present_providers(get_in(source, [:contributors, :by_provider]) || [], subscription_currencies),
       api_equivalent: present_api_equivalent(Map.get(source, :api_equivalent_estimate, %{}), subscription_currencies),
       provider_reported: present_provider_reported(Map.get(source, :provider_reported_estimate, %{})),
@@ -224,6 +227,83 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummaryPresenter do
   defp token_label(dimension) do
     dimension |> to_string() |> String.replace("_", " ") |> String.capitalize()
   end
+
+  # --- models (tokens-by-model chart) ---------------------------------------
+
+  # The additive, non-overlapping token dimensions, in stack order.
+  # `reasoning_output` is a subset of `output` and `provider_reported_total` is
+  # the provider's own (non-additive) total, so neither is stacked; stacking
+  # them would double count against the other segments.
+  @chart_dimensions [:cached_input, :cache_creation_input, :input, :output]
+  @max_chart_models 8
+
+  # One ranked bar per model (capped at `@max_chart_models` with the long tail
+  # folded into an `Other` bar), each stacking the additive token dimensions.
+  defp present_models(entries) when is_list(entries) do
+    models =
+      entries
+      |> Enum.map(&present_model/1)
+      |> Enum.reject(&(&1.total == 0))
+      |> Enum.sort_by(& &1.total, :desc)
+
+    {shown, rest} = Enum.split(models, @max_chart_models)
+    shown = if rest == [], do: shown, else: shown ++ [aggregate_model(rest)]
+
+    %{entries: shown, any?: shown != []}
+  end
+
+  defp present_models(_entries), do: %{entries: [], any?: false}
+
+  defp present_model(entry) do
+    tokens = Map.get(entry, :tokens, %{})
+
+    segments =
+      @chart_dimensions
+      |> Enum.flat_map(fn dimension ->
+        case Map.get(tokens, dimension) do
+          count when is_integer(count) and count > 0 ->
+            [%{dimension: dimension, label: token_label(dimension), count: count}]
+
+          _absent ->
+            []
+        end
+      end)
+
+    %{
+      label: model_label(Map.get(entry, :key)),
+      total: Enum.reduce(segments, 0, &(&1.count + &2)),
+      segments: segments
+    }
+  end
+
+  # Fold the ranked remainder past the chart cap into a single `Other` bar so a
+  # long tail of models never disappears from the totals.
+  defp aggregate_model(models) do
+    segments =
+      @chart_dimensions
+      |> Enum.map(&dimension_segment(&1, models))
+      |> Enum.reject(&(&1.count == 0))
+
+    %{label: "Other", total: Enum.reduce(segments, 0, &(&1.count + &2)), segments: segments}
+  end
+
+  defp dimension_segment(dimension, models) do
+    count = Enum.reduce(models, 0, &(&2 + segment_count(&1.segments, dimension)))
+
+    %{dimension: dimension, label: token_label(dimension), count: count}
+  end
+
+  defp segment_count(segments, dimension) do
+    case Enum.find(segments, &(&1.dimension == dimension)) do
+      nil -> 0
+      segment -> segment.count
+    end
+  end
+
+  defp model_label(nil), do: "Unknown"
+  defp model_label(:unknown), do: "Unknown"
+  defp model_label(label) when is_binary(label), do: label
+  defp model_label(label), do: to_string(label)
 
   # --- API-equivalent estimate ---------------------------------------------
 

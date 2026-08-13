@@ -24,7 +24,7 @@ nominal frontend tickets.
 ## Current Dashboard Baseline
 
 As of `origin/main` at
-`9849f32963c2a65367bce565b3f5ede3777c218f`, the Executor Control Center
+`9849f32963c2a65367bce565b3f5ede3777c218f`, the Dashboard
 integration and documentation closeout are merged. `src/lib/aiur_web/router.ex`
 exposes Units at `/`, the Decision inbox/detail at `/decisions` and
 `/decisions/:id`, and the separate controller-backed analytics report at

@@ -99,14 +99,14 @@ defmodule Aiur.Init.Resume do
     end
   end
 
-  # Backends to provision labels for: the default agent kind plus any backend
-  # named in the routing table (e.g. `claude:sonnet` -> `claude`).
+  # Backends to provision labels for: every `agent.priority` entry (falling back
+  # to the deprecated `agent.kind`), plus any backend named in the routing table.
   @spec agents_from_config(map()) :: [String.t()]
   def agents_from_config(config) do
     agent = config["agent"] || %{}
     routing_backends = (agent["routing"] || %{}) |> Map.values() |> Enum.map(&routing_backend/1)
 
-    [agent["kind"] | routing_backends]
+    (List.wrap(agent["priority"]) ++ [agent["kind"] | routing_backends])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.filter(&(&1 in Questions.agent_kind_choices()))
     |> Questions.agent_kinds()

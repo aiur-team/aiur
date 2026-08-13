@@ -85,7 +85,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     refute html =~ "3 units"
   end
 
-  test "renders GitHub core and GraphQL quota with reset and coarse ownership" do
+  test "renders GitHub core and GraphQL quota with reset" do
     github_quota = %{
       state: :observed,
       windows: %{
@@ -120,33 +120,22 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ "9R / 2W"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
 
-    # The leader spent 120 of core's 1,250 requests: 9.6% of the budget it is
-    # actually draining. Against a core-plus-GraphQL denominator (5,750) it
-    # would read 2.1% — a number belonging to no budget.
-    assert 120 / 1250 == 0.096
-    assert html =~ "ticket:1670 · Core 120 requests (9.6%)"
-    refute html =~ "5750"
-    refute html =~ "of window spend"
-
-    # Coverage is stated per budget, each against its own window's spend.
-    assert 132 / 1250 == 0.1056
-    assert html =~ "Attributed Core"
-    assert html =~ "9.6% of 1250 spent this window · 11% observed"
-    assert html =~ "Attributed GraphQL"
-    assert html =~ "0% of 4500 spent this window · 0% observed"
+    # The top-consumer ranking and per-budget coverage context are removed;
+    # no consumer identity leaks through the card.
+    refute html =~ "Top consumer"
+    refute html =~ "ticket:1670"
+    refute html =~ "Attributed"
   end
 
-  # The reported bug: 5,000 points spent, "top consumer · 2 requests". The
-  # leader is now the heaviest by cost, and it cannot be read as the whole
-  # picture because the panel states the share it was drawn from.
-  test "ranks the top GitHub consumer by cost and states the share of spend it accounts for" do
+  # The attribution/coverage context is removed: no ticket identity or
+  # attributed-spend lines leak through the card, regardless of window data.
+  test "omits attribution and coverage context when only a GraphQL window is observed" do
     github_quota = %{
       state: :observed,
       windows: %{
         "graphql" => %{resource: "graphql", remaining: 0, limit: 5000, used_percent: 100.0, reset_at: DateTime.add(@now, 19, :minute)}
       },
       attribution: [
-        # Fewer calls, more points: the caller actually burning the budget.
         %{consumer: "ticket:1790", reads: 2, writes: 0, total: 2, cost: 52, costs: %{"graphql" => 52}, estimated?: false},
         %{consumer: "ticket:1791", reads: 40, writes: 0, total: 40, cost: 40, costs: %{"graphql" => 40}, estimated?: false}
       ],
@@ -165,29 +154,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    # 52 of GraphQL's 5,000 points, stated in points against the GraphQL budget.
-    assert 52 / 5000 == 0.0104
-    assert html =~ "ticket:1790 · GraphQL 52 points (1.0%)"
-    refute html =~ "ticket:1791 ·"
-
-    assert 92 / 5000 == 0.0184
-    assert html =~ "Attributed GraphQL"
-    assert html =~ "1.8% of 5000 spent this window · 1.8% observed"
-
-    # Core reported no window, so the card claims no core coverage rather than
-    # folding a budget it cannot see into a combined figure.
-    refute html =~ "Attributed Core"
+    assert html =~ "0/5000 left"
+    refute html =~ "ticket:1790"
+    refute html =~ "ticket:1791"
+    refute html =~ "Attributed"
   end
 
-  # An unattributed 99.96% presented as a leader invites acting on it. With no
-  # named consumer the panel must still say what it can account for, rather
-  # than falling silent and leaving the meter unexplained.
-  #
-  # The estimation caveat sits on GraphQL because that is the only place the
-  # quota module can produce it: `request_cost/3` marks core calls `:reported`
-  # always, and only a GraphQL response that did not report `rateLimit { cost }`
-  # is recorded as assumed.
-  test "states coverage even when nothing can be attributed to a ticket" do
+  # The attribution/coverage context is removed even when nothing can be
+  # attributed to a ticket; the card simply omits it rather than falling silent
+  # about a context that no longer exists.
+  test "omits attribution and coverage context when nothing can be attributed to a ticket" do
     github_quota = %{
       state: :observed,
       windows: %{
@@ -210,9 +186,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     refute html =~ "Top consumer"
-    assert html =~ "Attributed GraphQL"
-    assert 2 / 5000 == 0.0004
-    assert html =~ "0% of 5000 spent this window · 0.04% observed · cost partly estimated"
+    refute html =~ "Attributed"
   end
 
   test "names an active secondary-limit backoff, which the primary meters cannot show" do
@@ -401,6 +375,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
       })
 
     assert html =~ "88%"
+  end
+
+  # Codex reports `hasCredits`/`unlimited`/`rateLimitResetCredits` facts, not a
+  # prepaid dollar balance. They must not render as a "Credits … balance" row
+  # with a meter, which would imply a spendable balance that does not exist.
+  test "codex drops its credit windows instead of rendering a balance" do
+    meters = %{
+      state: :authorized,
+      cards: [
+        %{
+          provider: :codex,
+          provider_label: "Codex",
+          state: :ready,
+          status_label: "Healthy",
+          auth_mode: %{value: :subscription},
+          windows: [
+            scoped_window("codex:primary", 12),
+            %{kind: :credit, name: :credits, coverage_label: "Supported", credits: %{status: :exhausted, label: "Exhausted"}}
+          ]
+        }
+      ]
+    }
+
+    html =
+      render_component(&RunSummaryStrip.run_summary_strip/1, %{
+        run: %{state: :loading},
+        usage: %{state: :ready, providers: %{}},
+        meters: meters,
+        now: @now
+      })
+
+    assert html =~ "12%"
+    refute html =~ "balance"
+    refute html =~ "Exhausted"
   end
 
   # A prepaid balance is a :credit window with no percentage. It must render as
@@ -918,7 +926,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   # files (`codex-color.svg` is the Codex mark, `claude-symbol.svg` is
   # Anthropic's) and every other surface already pair codex→codex-color and
   # claude→claude-symbol, so the strip keeps the truthful pairing.
-  test "renders each card's own registry logo" do
+  test "renders each model's own registry logo" do
     html =
       render_component(&RunSummaryStrip.run_summary_strip/1, %{
         run: %{state: :loading},
@@ -927,11 +935,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
         now: @now
       })
 
-    [_, codex_card, claude_card | _] = String.split(html, ~s(<div class="rs-block">))
-    assert codex_card =~ "/provider-assets/codex-color.svg"
-    refute codex_card =~ "/provider-assets/claude-symbol.svg"
-    assert claude_card =~ "/provider-assets/claude-symbol.svg"
-    refute claude_card =~ "/provider-assets/codex-color.svg"
+    [_, codex_row, claude_row | _] = String.split(html, ~s(<div class="rs-model">))
+    assert codex_row =~ "/provider-assets/codex-color.svg"
+    refute codex_row =~ "/provider-assets/claude-symbol.svg"
+    assert claude_row =~ "/provider-assets/claude-symbol.svg"
+    refute claude_row =~ "/provider-assets/codex-color.svg"
   end
 
   # Rule 6: an unknown token count hides the label and the "N/A", leaving the
@@ -1028,89 +1036,81 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(class="is-critical" style="width:100%")
   end
 
-  # ---- compressed row (more than four panes) ----
+  # ---- models pane ----
   #
-  # The GitHub pane counts as a pane, so today's four (GitHub plus three model
-  # providers) stay as they are and the fifth provider is what trips the
-  # compressed form.
+  # The GitHub card keeps its own pane, and every model provider's progress
+  # bars sit together in one 2/3-width pane. The model count does not change
+  # the pane count, so there is no overflow to collapse.
 
-  test "four panes keep the existing provider panes" do
+  test "GitHub keeps its own pane beside a single models pane" do
     with_deepseek_key(fn ->
       html =
         render_component(&RunSummaryStrip.run_summary_strip/1, %{
           run: run_view(),
           usage: usage_view(),
-          meters: %{state: :authorized, cards: Enum.take(compressed_cards(), 3)},
+          meters: %{state: :authorized, cards: Enum.take(model_cards(), 3)},
           github_quota: github_quota_view(),
           now: @now
         })
 
-      refute html =~ "is-compressed"
-      refute html =~ "Agent APIs"
       assert html =~ ~s(<section class="run-summary" aria-label="Provider and GitHub usage">)
-      # The unchanged panes: a GitHub card plus one card per provider.
-      assert pane_count(html) == 4
+      # Two panes: the GitHub card plus one models pane.
+      assert pane_count(html) == 2
+      assert html =~ ~s(<div class="rs-block github-quota-card">)
+      assert html =~ ~s(<div class="rs-block rs-models" aria-label="Model providers">)
+      assert html =~ "3 models"
     end)
   end
 
-  test "a fifth pane collapses the row into one grouped table" do
+  test "a fourth model still fits the single models pane" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         html =
           render_component(&RunSummaryStrip.run_summary_strip/1, %{
             run: run_view(),
             usage: usage_view(),
-            meters: %{state: :authorized, cards: compressed_cards()},
+            meters: %{state: :authorized, cards: model_cards()},
             github_quota: github_quota_view(),
             now: @now
           })
 
-        assert html =~ ~s(<section class="run-summary is-compressed")
-        # Exactly one pane, holding every provider.
-        assert pane_count(html) == 1
+        assert pane_count(html) == 2
+        assert html =~ "4 models"
 
-        # The grouping is rendered, not implied by ordering: the agent APIs sit
-        # under their own heading and GitHub under "Other".
-        assert html =~ "Agent APIs"
-        assert html =~ "4 providers"
-        assert html =~ "1 provider"
-
-        compacted = compact(html)
-        [_, after_agent] = String.split(compacted, "Agent APIs", parts: 2)
-        [agent_group, other_group] = String.split(after_agent, "Other", parts: 2)
-
-        for provider <- ["DeepSeek", "Codex", "Claude", "Kimi"], do: assert(agent_group =~ provider)
-        refute agent_group =~ "GitHub API"
-        assert other_group =~ "GitHub API"
+        # Every model is a row inside the one pane, and GitHub is not one of
+        # them.
+        for provider <- ["DeepSeek", "Codex", "Claude", "Kimi"], do: assert(html =~ provider)
+        [_, models_html] = String.split(html, "rs-models", parts: 2)
+        refute models_html =~ "GitHub API"
       end)
     end)
   end
 
-  test "the compressed row carries remaining, limit, and reset for each provider" do
+  test "each model shows its percentage and reset; GitHub shows remaining and limit" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         html =
           render_component(&RunSummaryStrip.run_summary_strip/1, %{
             run: run_view(),
             usage: usage_view(),
-            meters: %{state: :authorized, cards: compressed_cards()},
+            meters: %{state: :authorized, cards: model_cards()},
             github_quota: github_quota_view(),
             now: @now
           })
 
-        assert html =~ "3000/5000 left · resets in 30m"
-        assert html =~ "5000/5000 left · resets in 30m"
-        # GitHub keeps its own remaining/limit and reset in the compressed row.
+        # Model windows render the percent form.
+        assert html =~ "40% · resets in 30m"
+        assert html =~ "62% · resets in 30m"
+        assert html =~ "0% · resets in 30m"
+        # GitHub keeps its own remaining/limit and reset in its pane.
         assert html =~ "3750/5000 left · resets in 30m"
       end)
     end)
   end
 
-  # The compressed row's meta track is a fixed width that does not wrap, so the
-  # coverage statement is carried there in its short form. The full sentence —
-  # leader, its share, coverage and the estimation caveat — overflowed the
-  # grouped table and broke the row's no-horizontal-scroll guarantee.
-  test "the compressed row states coverage per budget in short form and names no leader" do
+  # GitHub attribution/coverage context is removed in the full card; no ticket
+  # is named a consumer and no attributed-spend line renders.
+  test "GitHub card omits attribution and coverage context" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         quota =
@@ -1130,127 +1130,81 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
           render_component(&RunSummaryStrip.run_summary_strip/1, %{
             run: run_view(),
             usage: usage_view(),
-            meters: %{state: :authorized, cards: compressed_cards()},
+            meters: %{state: :authorized, cards: model_cards()},
             github_quota: quota,
             now: @now
           })
 
-        # A percent per budget with no denominator: true at any width, where a
-        # shared denominator across two budgets is true at none.
-        assert 18 / 1250 == 0.0144
-        assert (78 / 4500) |> Float.round(4) == 0.0173
-        assert html =~ "Attributed"
-        assert html =~ "Core 1.4% · GraphQL 1.7%"
-
-        # The long form belongs to the full card, not to this fixed-width row.
-        refute html =~ "spent this window"
-        refute html =~ "cost partly estimated"
         refute html =~ "ticket:1790"
+        refute html =~ "Top consumer"
+        refute html =~ "Attributed"
       end)
     end)
   end
 
-  # The distinction the compressed row exists to preserve (issue #1564): a
-  # stale or unavailable reading must never render like a healthy zero.
-  test "the compressed row distinguishes stale and unavailable from a healthy zero" do
+  # The distinction the models pane exists to preserve (issue #1564): a stale
+  # or unavailable reading must never render like a healthy zero.
+  test "the models pane distinguishes stale and unavailable from a healthy zero" do
     with_deepseek_key(fn ->
       with_kimi_key(fn ->
         html =
           render_component(&RunSummaryStrip.run_summary_strip/1, %{
             run: run_view(),
             usage: usage_view(),
-            meters: %{state: :authorized, cards: compressed_cards()},
+            meters: %{state: :authorized, cards: model_cards()},
             github_quota: github_quota_view(),
             now: @now
           })
 
-        compacted = compact(html)
-
         # DeepSeek is a real, fresh zero-consumed reading.
-        assert compacted =~ ~s(DeepSeek</span>)
         assert html =~ ~s(<span class="rs-state is-healthy">Healthy</span>)
+        assert html =~ "0% · resets in 30m"
 
         # Claude's window is stale: the reading is labelled rather than
         # presented as current.
-        assert html =~ "1900/5000 left · resets in 30m (stale)"
+        assert html =~ "62% · resets in 30m (stale)"
         assert html =~ ~s(<span class="rs-state is-stale">Stale</span>)
 
-        # Kimi reported nothing at all, which is neither healthy nor a zero: it
-        # gets the hollow no-measurement track, not an empty bar.
+        # Kimi reported nothing at all, which is neither healthy nor a zero.
         assert html =~ ~s(<span class="rs-state is-unavailable">Unavailable</span>)
         assert html =~ ~s(<span class="rs-limit-meta">Unavailable</span>)
-        assert compacted =~ ~s(<span class="rs-meter rs-meter-none"></span> <span class="rs-limit-meta">Unavailable</span>)
-
-        # DeepSeek's real zero keeps a drawn bar, so the two never read alike.
-        assert html =~ ~s(<div class="rs-meter"><i class="" style="width:0%"></i></div>)
       end)
     end)
   end
 
-  test "a secondary-limit backoff renders as a note with no fabricated meter width" do
+  test "a GitHub card still awaiting a response shows the awaiting placeholder" do
     with_deepseek_key(fn ->
-      with_kimi_key(fn ->
-        quota = Map.put(github_quota_view(), :backoffs, [%{resource: "core", seconds_remaining: 45}])
+      quota = %{github_quota_view() | state: :loading, windows: %{}}
 
-        html =
-          render_component(&RunSummaryStrip.run_summary_strip/1, %{
-            run: run_view(),
-            usage: usage_view(),
-            meters: %{state: :authorized, cards: compressed_cards()},
-            github_quota: quota,
-            now: @now
-          })
+      html =
+        render_component(&RunSummaryStrip.run_summary_strip/1, %{
+          run: run_view(),
+          usage: usage_view(),
+          meters: %{state: :authorized, cards: Enum.take(model_cards(), 1)},
+          github_quota: quota,
+          now: @now
+        })
 
-        assert html =~ "Core backoff"
-        assert html =~ "Secondary limit · 45s left"
-        assert html =~ ~s(class="rs-meter rs-meter-none")
-        assert html =~ ~s(<span class="rs-state is-partial">Backoff</span>)
-      end)
+      assert html =~ "Awaiting GitHub response"
     end)
   end
 
-  test "a GitHub row still awaiting a response draws no bar rather than an empty one" do
-    with_deepseek_key(fn ->
-      with_kimi_key(fn ->
-        quota = %{github_quota_view() | state: :loading, windows: %{}}
-
-        html =
-          render_component(&RunSummaryStrip.run_summary_strip/1, %{
-            run: run_view(),
-            usage: usage_view(),
-            meters: %{state: :authorized, cards: compressed_cards()},
-            github_quota: quota,
-            now: @now
-          })
-
-        assert html =~ ~s(<span class="rs-state is-nodata">Awaiting</span>)
-
-        # The unmeasured GitHub quota must not render the same drawn track that
-        # DeepSeek's genuine 0%-consumed reading does.
-        assert compact(html) =~
-                 ~s(<span class="rs-meter rs-meter-none"></span> <span class="rs-limit-meta">Awaiting GitHub response</span>)
-
-        refute html =~ ~s(<div class="rs-meter"><i class="" style="width:0%"></i></div><span class="rs-limit-meta">Awaiting)
-      end)
-    end)
-  end
-
-  # Every pane in the strip is an `.rs-block`, whether it is the GitHub card, a
-  # vendor card, or the single compressed pane.
+  # Every pane in the strip is an `.rs-block`: the GitHub card and the models
+  # pane.
   defp pane_count(html), do: length(String.split(html, "rs-block")) - 1
 
-  defp compressed_cards do
+  defp model_cards do
     [
-      compressed_card(:codex, "Codex", :healthy, "Healthy", [compressed_window("Session", 40, remaining: 3000, limit: 5000)]),
-      compressed_card(:claude, "Claude", :stale, "Stale (last known-good)", [
-        compressed_window("Session", 62, remaining: 1900, limit: 5000, freshness: :stale)
+      model_card(:codex, "Codex", :healthy, "Healthy", [model_window("Session", 40, remaining: 3000, limit: 5000)]),
+      model_card(:claude, "Claude", :stale, "Stale (last known-good)", [
+        model_window("Session", 62, remaining: 1900, limit: 5000, freshness: :stale)
       ]),
-      compressed_card(:deepseek, "DeepSeek", :healthy, "Healthy", [compressed_window("Session", 0, remaining: 5000, limit: 5000)]),
-      compressed_card(:kimi, "Kimi", :unavailable, "Unavailable", [])
+      model_card(:deepseek, "DeepSeek", :healthy, "Healthy", [model_window("Session", 0, remaining: 5000, limit: 5000)]),
+      model_card(:kimi, "Kimi", :unavailable, "Unavailable", [])
     ]
   end
 
-  defp compressed_card(provider, label, state, status_label, windows) do
+  defp model_card(provider, label, state, status_label, windows) do
     %{
       provider: provider,
       provider_label: label,
@@ -1261,7 +1215,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     }
   end
 
-  defp compressed_window(name, percent, opts) do
+  defp model_window(name, percent, opts) do
     %{
       kind: :rate_limit,
       name: name,

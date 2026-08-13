@@ -25,6 +25,21 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   alias AiurWeb.FinancialDataAccess
 
   @real_failures [:authentication, :malformed, :timeout, :transport]
+
+  # Failure reasons that mean "no observation is possible *yet*" rather than a
+  # hard failure: a provider whose credentials have not been supplied (or have
+  # lapsed) cannot be read, but it is not broken. They render as loading,
+  # exactly like a first observation that simply has not arrived.
+  @credential_failures [
+    :token_expired,
+    :no_oauth_token,
+    :no_credentials,
+    :malformed_credentials,
+    :missing_api_key,
+    :missing_api_key_configuration,
+    :disabled
+  ]
+
   @window_kind_order %{rate_limit: 0, credit: 1, spend_control: 2}
 
   @type snapshots :: %{optional(atom()) => ProviderMeterSnapshot.t() | nil}
@@ -118,6 +133,11 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp card_state(nil), do: :loading
 
   defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: :unknown_account_generation}}), do: :unknown
+
+  defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: failure}})
+       when failure in @credential_failures,
+       do: :loading
+
   defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable, failure: :no_observation}}), do: :loading
   defp card_state(%ProviderMeterSnapshot{health: %{state: :unavailable}}), do: :unavailable
   defp card_state(%ProviderMeterSnapshot{health: %{state: :healthy}}), do: :healthy

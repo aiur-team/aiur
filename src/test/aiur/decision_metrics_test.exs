@@ -200,7 +200,7 @@ defmodule Aiur.DecisionMetricsTest do
         else: Application.delete_env(:aiur, :decision_state_dir)
     end)
 
-    {:ok, store} = DecisionStore.start_link(name: nil, filesystem_sync_fun: fn -> :ok end)
+    {:ok, store} = DecisionStore.start_link(name: nil, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
     on_exit(fn -> stop_if_alive(store) end)
 
     ticket = %{identifier: "42", title: "Decision metrics", url: nil}

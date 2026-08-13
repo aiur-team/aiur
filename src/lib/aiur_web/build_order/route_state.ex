@@ -345,6 +345,13 @@ defmodule AiurWeb.BuildOrder.RouteState do
   defp selected_status(%Snapshot{data: nil, health: %ProviderHealth{state: :structurally_invalid}}),
     do: :selected_invalid
 
+  # An unfetched graph whose provider has not yet recorded a failure is still
+  # loading, not unavailable: the initial demand returns a nil-data snapshot
+  # while the async fetch is in flight, and erroring here is the flicker the
+  # shimmer replaces. A recorded failure is the only honest "unavailable".
+  defp selected_status(%Snapshot{data: nil, health: %ProviderHealth{state: :unavailable, failure: nil}}),
+    do: :selected_loading
+
   defp selected_status(%Snapshot{data: nil, health: %ProviderHealth{state: :unavailable}}),
     do: :selected_unavailable
 

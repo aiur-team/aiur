@@ -11,12 +11,12 @@ defmodule Aiur.Config do
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache, as: WorkflowStoreCache
 
-  # Every environment variable `Schema.parse/1` can read that is *not* named by
-  # the config itself. `finalize_settings/1` reads the first two directly, and
-  # the workspace-root default is `System.tmp_dir!/0`, which is TMPDIR/TEMP/TMP
-  # and then non-environment fallbacks. Anything added to that function must be
-  # added here, or its memo will not expire when the variable changes.
-  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE TMPDIR TEMP TMP)
+  # Every environment variable config preparation or `Schema.parse/1` can read
+  # that is *not* named by the config itself. The workspace-root default is
+  # `System.tmp_dir!/0`, which reads TMPDIR/TEMP/TMP before its non-environment
+  # fallbacks. Anything added to those paths must be added here, or the settings
+  # memo will not expire when the variable changes.
+  @implicit_env_vars ~w(LINEAR_API_KEY LINEAR_ASSIGNEE AIUR_DEFAULT_DASHBOARD_HOST TMPDIR TEMP TMP)
 
   @default_prompt_template """
   You are working on a Linear issue.
@@ -249,42 +249,65 @@ defmodule Aiur.Config do
             "resolved working directory: #{cwd}; reason: #{inspect(reason)}"
   end
 
+  @doc "Ordered dispatch preference. Empty means the deprecated `agent.kind`/`agent.switch_model_on_ratelimit` fields apply."
+  @spec agent_priority() :: [String.t()]
+  def agent_priority, do: settings!().agent.priority || []
+
+  @doc "Default backend: the first entry of `agent.priority` when present, else the deprecated `agent.kind` field."
   @spec agent_kind() :: String.t()
   def agent_kind do
-    settings!().agent.kind || Aiur.CodingAgent.default_backend()
+    case agent_priority() do
+      [primary | _] -> primary
+      [] -> settings!().agent.kind || Aiur.CodingAgent.default_backend()
+    end
   end
 
   @doc "Raw settings for a registry-named backend, or an empty map when absent."
   @spec backend_config(String.t()) :: map()
   def backend_config(backend) when is_binary(backend) do
-    settings!().agent.backend_configs
+    agent_backend_configs()
     |> Map.get(backend, %{})
   end
 
-  @doc "Raw settings for all registry-named backends."
+  @doc "Raw settings for all registry-named backends, with each `agent.priority` member marked enabled so presence in the array makes it dispatchable."
   @spec agent_backend_configs() :: map()
-  def agent_backend_configs, do: settings!().agent.backend_configs || %{}
+  def agent_backend_configs do
+    Enum.reduce(agent_priority(), settings!().agent.backend_configs || %{}, fn backend, acc ->
+      Map.update(acc, backend, %{"enabled" => true}, &Map.put(&1, "enabled", true))
+    end)
+  end
 
   @spec agent_routing() :: %{pos_integer() => String.t()}
   def agent_routing do
     settings!().agent.routing || %{}
   end
 
+  @doc "Claim-time fallback order: `agent.priority` when present, else the deprecated `agent.switch_model_on_ratelimit` field."
   @spec switch_model_on_ratelimit() :: [String.t()]
-  def switch_model_on_ratelimit, do: settings!().agent.switch_model_on_ratelimit || []
+  def switch_model_on_ratelimit do
+    case agent_priority() do
+      [] -> settings!().agent.switch_model_on_ratelimit || []
+      priority -> priority
+    end
+  end
 
   @doc """
   The registered backend the automatic usage-limit fallback reroutes *to*
   (`Aiur.Orchestrator.RateLimitFallback`) when an already-running agent on
   `rate_limit_primary_backend/0` hits `usage_limit_exhausted`, or `nil` when
-  disabled (`agent.rate_limit_fallback: ""`). Any registry-declared eligible
-  from the primary is accepted; the default is `"claude"`. Unlike
-  `switch_model_on_ratelimit/0` (opt-in, only ever applies to a new claim),
-  this is default-on and reroutes a running local agent, reverting at a safe
-  turn boundary once `Aiur.ModelAvailability` confirms the primary recovered.
+  disabled. When `agent.priority` is set, this is the first eligible fallback
+  target after the primary; otherwise it reads the deprecated
+  `agent.rate_limit_fallback` field (`""` disables).
   """
   @spec rate_limit_fallback_backend() :: String.t() | nil
   def rate_limit_fallback_backend do
+    case agent_priority() do
+      [_primary | rest] -> Enum.find(rest, &(&1 in Aiur.CodingAgent.rate_limit_fallback_targets()))
+      [] -> legacy_rate_limit_fallback()
+    end
+  end
+
+  defp legacy_rate_limit_fallback do
     case settings!().agent.rate_limit_fallback do
       backend when is_binary(backend) and backend != "" -> backend
       _ -> nil
@@ -295,11 +318,16 @@ defmodule Aiur.Config do
   The registered backend the usage-limit fallback reroutes *from* — the pair's
   primary. Only an already-running agent on this backend that hits
   `usage_limit_exhausted` is eligible for the reroute to
-  `rate_limit_fallback_backend/0`. Defaults to `"codex"`, preserving the
-  historical codex -> claude reroute.
+  `rate_limit_fallback_backend/0`. When `agent.priority` is set this is its
+  first entry; otherwise it reads the deprecated `agent.rate_limit_primary`.
   """
   @spec rate_limit_primary_backend() :: String.t()
-  def rate_limit_primary_backend, do: settings!().agent.rate_limit_primary
+  def rate_limit_primary_backend do
+    case agent_priority() do
+      [primary | _] -> primary
+      [] -> settings!().agent.rate_limit_primary
+    end
+  end
 
   @doc """
   Setting #2: whether dispatched agents attach a `claude remote-control`
@@ -1002,10 +1030,27 @@ defmodule Aiur.Config do
     tracker = map_section(config, "tracker")
     agent = map_section(config, "agent")
     linear = map_section(config, "linear")
+    server = map_section(config, "server")
 
     config
     |> Map.put("tracker", prepare_tracker_config(config, tracker, linear))
     |> Map.put("agent", prepare_agent_config(config, agent))
+    |> Map.put("server", prepare_server_config(server))
+  end
+
+  defp prepare_server_config(server) do
+    if has_section?(server, "host") do
+      server
+    else
+      Map.put(server, "host", default_server_host())
+    end
+  end
+
+  defp default_server_host do
+    case System.get_env("AIUR_DEFAULT_DASHBOARD_HOST") do
+      host when is_binary(host) and host != "" -> host
+      _ -> "127.0.0.1"
+    end
   end
 
   defp prepare_tracker_config(config, tracker, linear) do

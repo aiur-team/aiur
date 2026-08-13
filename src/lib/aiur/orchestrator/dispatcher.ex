@@ -42,6 +42,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = Lifecycle.schedule_tick(state, TrackerHealth.next_poll_delay_ms(state))
     state = %{state | poll_check_in_progress: false}
 
+    state = StatusReport.sync_waiting_for_human_episodes(state, DateTime.utc_now())
     StatusReport.notify_dashboard(state)
     {:noreply, state}
   end
@@ -89,7 +90,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
     state = maybe_warn_ci_readiness(state)
     state = TrackedSet.refresh(state)
     state = CommentPolling.poll_github_firehose(state)
-    state = CommentPolling.poll_github_comments(state)
+    # Issued, not awaited: the Orchestrator was captured parked in this poll's
+    # `Task.async_stream` fan-out with 5,729 messages behind it on an idle host
+    # (#1837). The answer arrives as `{:github_comments_polled, ...}`.
+    state = CommentPolling.start_async(state)
     state = CiLifecycle.poll_github_ci(state)
     state = Reconciler.refresh_running_issue_states(state)
     state = CommandScan.scan_pr_commands(state)
@@ -1615,6 +1619,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       state
       | dispatch_capacity_sample: %{
           load: probes.load,
+          load_threshold: probes.load_threshold,
           target: probes.target,
           schedulers: probes.schedulers
         }
@@ -1972,7 +1977,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           | running: running,
             claimed: MapSet.put(state.claimed, issue.id),
-            retry_attempts: Map.delete(state.retry_attempts, issue.id)
+            retry_attempts: Map.delete(state.retry_attempts, issue.id),
+            released_claims: Map.delete(state.released_claims, issue.id)
         }
 
       {:error, reason} ->

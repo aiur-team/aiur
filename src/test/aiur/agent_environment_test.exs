@@ -2,6 +2,7 @@ defmodule Aiur.AgentEnvironmentTest do
   use ExUnit.Case, async: true
 
   alias Aiur.AgentEnvironment
+  alias Aiur.GitHub.Budget
 
   test "identifies inherited Erlang distribution environment names" do
     assert AgentEnvironment.erlang_distribution_env_name?("ERL_AFLAGS")
@@ -106,14 +107,33 @@ defmodule Aiur.AgentEnvironmentTest do
           {"BINDIR", "/opt/user-otp/bin"},
           {"EMU", "custom-beam"},
           {"PROGNAME", "custom-erl"},
-          {"PATH", unrelated_path}
+          {"PATH", unrelated_path},
+          {"AIUR_AGENT_BIN", ""}
         ]
       )
 
     assert ["/opt/user-otp", "/opt/user-otp/bin", "custom-beam", "custom-erl", path] =
              String.split(output, "\n")
 
-    assert String.starts_with?(path, unrelated_path)
+    # Login shells may prepend the agent command-guard directory and append
+    # system defaults; the caller's unrelated entries must survive in order.
+    unrelated_entries = String.split(unrelated_path, ":")
+    assert Enum.filter(String.split(path, ":"), &(&1 in unrelated_entries)) == unrelated_entries
+  end
+
+  test "scrub_shell_command puts the build gate before other agent commands" do
+    command = AgentEnvironment.scrub_shell_command(~s(printf '%s' "$PATH"))
+
+    assert {path, 0} =
+             System.cmd("bash", ["-lc", command],
+               env: [
+                 {"AIUR_BUILD_GATE_BIN", "/workspace/build-bin"},
+                 {"AIUR_AGENT_BIN", "/workspace/agent-bin"},
+                 {"PATH", "/usr/bin"}
+               ]
+             )
+
+    assert String.starts_with?(path, "/workspace/build-bin:/workspace/agent-bin:")
   end
 
   test "scrub_shell_command tracks mixed launcher ownership independently" do
@@ -363,11 +383,31 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
       assert is_list(real_gh) or real_gh == false
 
+      assert {~c"AIUR_REAL_GIT", real_git} = List.keyfind(env, ~c"AIUR_REAL_GIT", 0)
+      assert is_list(real_git) or real_git == false
+
       assert {~c"AIUR_AGENT_WORKSPACE", ~c"/work/aiur/440"} =
                List.keyfind(env, ~c"AIUR_AGENT_WORKSPACE", 0)
 
       assert {~c"AIUR_AGENT_QUOTA_STATE_PATH", ~c"/work/aiur/440/.aiur-runtime/github-quota"} =
                List.keyfind(env, ~c"AIUR_AGENT_QUOTA_STATE_PATH", 0)
+
+      # The guard fingerprints the credential that `gh` actually uses. Passing
+      # the daemon credential's key here would merge unrelated App/PAT budgets.
+      assert {~c"AIUR_GITHUB_BUDGET_KEY", false} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_KEY", 0)
+      assert {~c"AIUR_GITHUB_BUDGET_ROOT", budget_root} = List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_ROOT", 0)
+      assert to_string(budget_root) == Budget.state_dir()
+
+      assert {~c"AIUR_GITHUB_BUDGET_BROKER", ~c"/work/aiur/440/.aiur-runtime/bin/aiur-github-budget"} =
+               List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_BROKER", 0)
+
+      assert {~c"AIUR_GITHUB_BUDGET_CONSUMER", ~c"workspace:/work/aiur/440"} =
+               List.keyfind(env, ~c"AIUR_GITHUB_BUDGET_CONSUMER", 0)
+
+      assert {~c"AIUR_GITHUB_MAX_INFLIGHT", ~c"4"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT", 0)
+      assert {~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", ~c"2"} = List.keyfind(env, ~c"AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT", 0)
+      assert {~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", ~c"120"} = List.keyfind(env, ~c"AIUR_GITHUB_REQUESTS_PER_MINUTE", 0)
+      assert {~c"AIUR_GITHUB_STAGGER_MS", ~c"75"} = List.keyfind(env, ~c"AIUR_GITHUB_STAGGER_MS", 0)
 
       assert {~c"AIUR_BASE_BRANCH", ~c"integration"} =
                List.keyfind(env, ~c"AIUR_BASE_BRANCH", 0)
@@ -380,6 +420,9 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"BASH_ENV", hook_path} = List.keyfind(env, ~c"BASH_ENV", 0)
       assert File.regular?(to_string(hook_path))
+
+      assert {~c"AIUR_BUILD_GATE_BIN", ~c"/work/aiur/440/.aiur-runtime/build-bin"} =
+               List.keyfind(env, ~c"AIUR_BUILD_GATE_BIN", 0)
 
       assert {~c"AIUR_BUILD_GATE_SLOTS", ~c"2"} =
                List.keyfind(env, ~c"AIUR_BUILD_GATE_SLOTS", 0)
@@ -436,10 +479,20 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "HEX_HOME=\"$HOME/${HEX_HOME#\\~/}\""
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
-      assert prefix =~ "AIUR_REAL_GH=\"$(command -v gh"
+      assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT=\"$(command -v git"
+      assert prefix =~ "AIUR_GITHUB_BUDGET_CONSUMER='workspace:/work/aiur/440'"
+      assert prefix =~ "AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'"
+      assert prefix =~ "AIUR_GITHUB_BUDGET_BROKER='/work/aiur/440/.aiur-runtime/bin/aiur-github-budget'"
+      assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT=4"
+      assert prefix =~ "AIUR_GITHUB_MAX_INFLIGHT_PER_ENDPOINT=2"
+      assert prefix =~ "AIUR_GITHUB_REQUESTS_PER_MINUTE=120"
+      assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
+      assert prefix =~ "export AIUR_REAL_GH AIUR_REAL_GIT"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
+      assert prefix =~ "unset AIUR_GITHUB_BUDGET_KEY"
+      refute prefix =~ "AIUR_BUILD_GATE_BIN='"
       assert prefix =~ "AIUR_CI_READINESS_TOKEN"
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
@@ -474,6 +527,18 @@ defmodule Aiur.AgentEnvironmentTest do
 
     test "returns an empty string for a non-binary path" do
       assert AgentEnvironment.workspace_env_export_prefix(nil) == ""
+    end
+
+    test "local export prefixes include build admission while remote prefixes stay gate-free" do
+      prefix =
+        AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
+          base_branch: "develop",
+          build_gate: true
+        )
+
+      assert prefix =~ "AIUR_BUILD_GATE_BIN='/work/aiur/440/.aiur-runtime/build-bin'"
+      assert prefix =~ "BASH_ENV="
+      assert prefix =~ "AIUR_BUILD_GATE_SLOTS='2'"
     end
   end
 

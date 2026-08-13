@@ -914,7 +914,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
       held =
         Dispatcher.dispatch_or_hold(state, ready, fn -> :building end, admission_probes_fun: admission_probes)
 
-      assert held.dispatch_capacity_sample == %{load: 0.7, target: 1.0, schedulers: 16}
+      assert held.dispatch_capacity_sample == %{load: 0.7, load_threshold: 1.0, target: 1.0, schedulers: 16}
 
       waiting = IssueSync.sync_fleet_capacity_starved_alert(held, ready, 1_000)
       assert waiting.fleet_capacity_starvation.since_ms == 1_000

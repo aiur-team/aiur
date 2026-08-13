@@ -3,10 +3,10 @@ defmodule Aiur.AgentControlCLITest do
 
   import ExUnit.CaptureIO
 
-  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, RepoBase}
+  alias Aiur.{AgentControlCLI, AlertLedger, Asks, BuildGate, Config, DispatchBudgetStore, Issue, RepoBase}
+  alias Aiur.AgentRunner.QueueDrain
   alias Aiur.GitHub.CiReadiness
-  alias Aiur.Orchestrator.ControlLifecycle
-  alias Aiur.Orchestrator.State
+  alias Aiur.Orchestrator.{ControlLifecycle, Dispatcher, DispatchPolicy, State}
   alias Aiur.TrackerIdentity
 
   defp capture_todo(ids, opts) do
@@ -137,8 +137,32 @@ defmodule Aiur.AgentControlCLITest do
 
     spawn_link(fn ->
       receive do
-        {:resume_agent, _request_id, _generation} ->
-          send(orchestrator, {:worker_control_state, issue_id, :working})
+        {:resume_agent, request_id, generation} ->
+          send(orchestrator, {
+            :worker_control_state,
+            issue_id,
+            :working,
+            %{request_id: request_id, generation: generation}
+          })
+      after
+        5_000 -> :timeout
+      end
+    end)
+  end
+
+  defp declining_agent(issue_id) do
+    orchestrator = Process.whereis(Orchestrator)
+
+    spawn_link(fn ->
+      receive do
+        {:resume_agent, request_id, generation} ->
+          QueueDrain.apply_resume_control(
+            %Issue{id: issue_id, identifier: "repo#44"},
+            orchestrator,
+            request_id,
+            generation,
+            release_pause: fn _identifier -> :ignored end
+          )
       after
         5_000 -> :timeout
       end
@@ -173,11 +197,20 @@ defmodule Aiur.AgentControlCLITest do
     pid = Process.whereis(Orchestrator)
     original_state = :sys.get_state(pid)
     original_health_status_fun = Application.get_env(:aiur, :supervision_health_status_fun)
+    original_loadavg = Application.get_env(:aiur, :loadavg_source_override)
 
     Application.put_env(:aiur, :supervision_health_status_fun, fn -> {:ok, %{expected: 2, healthy: 2, missing: []}} end)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 0.0 0.0 1/1 1"} end)
 
     :sys.replace_state(pid, fn state ->
-      %{state | running: %{}, last_polled_issues: %{}, session_max_concurrent_agents: nil}
+      %{
+        state
+        | running: %{},
+          last_polled_issues: %{},
+          session_max_concurrent_agents: nil,
+          capacity_hold: nil,
+          dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil}
+      }
     end)
 
     on_exit(fn ->
@@ -189,6 +222,12 @@ defmodule Aiur.AgentControlCLITest do
         Application.put_env(:aiur, :supervision_health_status_fun, original_health_status_fun)
       else
         Application.delete_env(:aiur, :supervision_health_status_fun)
+      end
+
+      if original_loadavg do
+        Application.put_env(:aiur, :loadavg_source_override, original_loadavg)
+      else
+        Application.delete_env(:aiur, :loadavg_source_override)
       end
     end)
 
@@ -484,6 +523,34 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
+    dependency = %Issue{
+      id: "issue-99",
+      identifier: "repo#99",
+      state: "todo",
+      title: "Dependency",
+      blocked_by: [%{id: "issue-12", identifier: "repo#12", state: "in-progress"}]
+    }
+
+    paused =
+      running_entry("issue-44", "repo#44", :paused)
+      |> Map.put(:paused_reason, :agent_pause_request)
+      |> Map.put(:issue, %Issue{id: "issue-44", identifier: "repo#44", state: "in-progress", title: "Needs input"})
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => paused}, last_polled_issues: %{"issue-99" => dependency}}
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#44    paused"
+    assert output =~ "waiting=waiting_for_human"
+    assert output =~ "pause_reason=agent_pause_request"
+    assert output =~ "#99    idle"
+    assert output =~ "waiting=waiting_for_dependency"
+    assert output =~ "blocked_by=repo#12"
+  end
+
   test "status makes degraded supervision explicit" do
     Application.put_env(:aiur, :supervision_health_status_fun, fn ->
       {:ok, %{expected: 2, healthy: 1, missing: [%{id: Aiur.Events.IdGenerator, reason: :killed}]}}
@@ -540,8 +607,69 @@ defmodule Aiur.AgentControlCLITest do
     assert output =~ "#18    paused  Retrying (operator; transient: tracker 403, retry ~4m)"
   end
 
+  test "status counts released claims awaiting automatic re-claim", %{orchestrator: pid} do
+    released = %Issue{id: "issue-released", identifier: "repo#1475", state: "todo", title: "Reclaim me"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{released.id => released},
+          auto_resume: %{
+            released.id => %{attempt: 1, cause: :rate_limit, scheduled_at_ms: System.monotonic_time(:millisecond)}
+          },
+          released_claims: %{released.id => %{cause: :rate_limit, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1475  idle    Reclaim me (claim released: rate limit; automatic re-claim ~2m)"
+    assert output =~ "RELEASED CLAIMS 1 (automatic re-claim pending)"
+  end
+
+  test "status retains a released claim after automatic re-claim is unavailable", %{orchestrator: pid} do
+    released = %Issue{id: "issue-released-no-retry", identifier: "repo#1476", state: "todo", title: "Needs operator recovery"}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{released.id => released},
+          released_claims: %{released.id => %{cause: :tracker_retry_exhausted, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1476  idle    Needs operator recovery (claim released: tracker retry exhausted)"
+    assert output =~ "RELEASED CLAIMS 1 (operator recovery required for some claims)"
+  end
+
+  test "status hides a released claim once the ticket reaches a terminal tracker state (#1475)", %{orchestrator: pid} do
+    active = %Issue{id: "issue-released-active", identifier: "repo#1477", state: "todo", title: "Still recoverable"}
+    closed = %Issue{id: "issue-released-closed", identifier: "repo#1478", state: "Done", title: "Already closed"}
+    release = %{cause: :tracker_retry_exhausted, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | last_polled_issues: %{active.id => active, closed.id => closed},
+          released_claims: %{active.id => release, closed.id => release}
+      }
+    end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "#1477  idle    Still recoverable (claim released: tracker retry exhausted)"
+    refute output =~ "#1478"
+
+    # The headline must be computed from the rows that are printed, so a claim
+    # nobody can act on cannot inflate the count behind the operator's back.
+    assert output =~ "RELEASED CLAIMS 1 (operator recovery required for some claims)"
+    refute output =~ "RELEASED CLAIMS 2"
+  end
+
   test "status shows a durable lifetime latch after in-memory recovery state is lost", %{orchestrator: pid} do
-    write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(),
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(),
       tracker_kind: "memory",
       max_dispatches_per_ticket: 40
     )
@@ -640,12 +768,114 @@ defmodule Aiur.AgentControlCLITest do
     assert envelope_output =~ "AGENTS 1/2 (binding: AIMD envelope, effective cap=1)"
   end
 
+  test "status reports only the daemon's own admission hold as the binding constraint", %{orchestrator: pid} do
+    local_schedulers = System.schedulers_online()
+    local_load = local_schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
+    probes = %{
+      memory_mb: :unavailable,
+      memory_threshold_mb: nil,
+      fd_sample: :unavailable,
+      runnable: :unavailable,
+      run_queue_threshold: nil,
+      schedulers: local_schedulers,
+      load: local_load,
+      load_threshold: 1.5,
+      build_status: %{enabled?: false, capacity: 0, active: 0, queued: 0},
+      provider_backends: [],
+      github_quota: :available,
+      cpu_snapshot: :unavailable,
+      target: nil
+    }
+
+    assert {:hold, %{signal: :load, measured: ^local_load, threshold: threshold}} =
+             DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true))
+
+    assert threshold == local_schedulers * 1.5
+
+    sampled =
+      :sys.get_state(pid)
+      |> Map.merge(%{max_concurrent_agents: 10, effective_concurrent_agents: 10, last_polled_issues: %{"queued" => queued_issue()}})
+      |> Dispatcher.maybe_choose_under_load(
+        [queued_issue()],
+        fn state, _issues ->
+          send(self(), :dispatched)
+          state
+        end,
+        admission_probes_fun: fn -> probes end
+      )
+
+    refute_received :dispatched
+    assert %{signal: :load, measured: ^local_load, threshold: ^threshold} = sampled.capacity_hold
+    :sys.replace_state(pid, fn _state -> sampled end)
+
+    output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+
+    assert output =~
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
+
+    # The daemon still holds. A quiet LOCAL sample must not clear the daemon's
+    # decision, and the local line must never claim to be the fleet's binding
+    # constraint.
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "0.0 1.0 1.0 1/1 1"} end)
+
+    persisted_hold_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert persisted_hold_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
+    refute persisted_hold_output =~ "(binding: load)"
+
+    # The inverse, and the actual regression guard: the daemon is NOT holding,
+    # but the CLI's own host is over the CLI's own threshold. A locally
+    # re-derived gate used to print "binding: load" here — a fleet-level cause
+    # the daemon never decided (#1610).
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{local_load} 1.0 1.0 1/1 1"} end)
+    :sys.replace_state(pid, fn _state -> %{sampled | capacity_hold: nil} end)
+
+    fallback_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert fallback_output =~ "AGENTS 0/10 (binding: none)"
+    refute fallback_output =~ "AGENTS 0/10 (binding: load"
+
+    assert fallback_output =~
+             "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
+  end
+
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
+    # Deliberately run this at a HIGH local load with the daemon NOT holding
+    # (capacity_hold: nil). Ticket supply is the real binding constraint here;
+    # a locally re-derived load gate used to overwrite it with "binding: load"
+    # (#1610). A pinned 0.0 loadavg would let that defect pass unnoticed, so the
+    # sample is pushed well over the local threshold on purpose.
+    schedulers = System.schedulers_online()
+    saturated_load = schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{saturated_load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
     :sys.replace_state(pid, fn state ->
       %{
         state
         | max_concurrent_agents: 2,
           effective_concurrent_agents: 2,
+          capacity_hold: nil,
           last_polled_issues: %{
             "issue-paused" => Map.put(queued_issue(), :paused, true),
             "issue-unauthorized" => Map.put(queued_issue("issue-unauthorized"), :dispatch_authorized?, false)
@@ -656,6 +886,13 @@ defmodule Aiur.AgentControlCLITest do
     output = capture_io(fn -> AgentControlCLI.status() end)
 
     assert output =~ "AGENTS 0/2 (binding: ticket supply)"
+    refute output =~ "AGENTS 0/2 (binding: load"
+
+    # The local reading is still reported — just as a local host sample, not as
+    # the fleet's decision.
+    assert output =~
+             "LOAD #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+               "(local host sample; over local threshold, dispatch may be held)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -1155,11 +1392,13 @@ defmodule Aiur.AgentControlCLITest do
   # as the resume is queued for the agent, so a CLI that prints on that reply
   # reports a completed resume for an agent that is still paused — exactly what
   # left three agents in `operator_pause` while the CLI reported no failure.
-  test "a queued resume the agent never applies is reported as unconfirmed, not as resumed", %{orchestrator: pid} do
+  test "a queued resume still pending at the confirmation deadline reports an unknown outcome", %{orchestrator: pid} do
     :sys.replace_state(pid, fn state ->
+      entry = modern_running_entry("issue-44", "repo#44", :paused) |> Map.put(:paused_reason, :operator_pause)
+
       %{
         state
-        | running: %{"issue-44" => modern_running_entry("issue-44", "repo#44", :paused)},
+        | running: %{"issue-44" => entry},
           control_lifecycle: %ControlLifecycle{}
       }
     end)
@@ -1176,9 +1415,234 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
     assert stderr =~ "aiur: resume request accepted for #44"
-    assert stderr =~ "still paused"
-    assert stderr =~ "the resume is unconfirmed"
+    assert stderr =~ "confirmation window elapsed"
+    assert stderr =~ "outcome is unknown"
+    assert stderr =~ "control status remains paused"
+    refute stderr =~ "resume dropped"
+    refute stderr =~ "resume declined"
     assert [%{identifier: "repo#44", state: :paused}] = Orchestrator.status(Orchestrator, 1_000)
+  end
+
+  test "an expired queued resume is reported as dropped, not declined", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 997}} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    entry = modern_running_entry("issue-44", "repo#44", :paused) |> Map.put(:paused_reason, :operator_pause)
+
+    attrs = %{
+      request_id: 997,
+      issue_id: "issue-44",
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 997, 1, now: ~U[2026-08-11 12:00:01Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.expire(lifecycle, 997, :timeout, now: ~U[2026-08-11 12:00:02Z])
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => entry}, control_lifecycle: lifecycle}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "resume dropped (timeout)"
+    assert stderr =~ "control status remains paused"
+    refute stderr =~ "resume declined"
+    refute stderr =~ "outcome is unknown"
+  end
+
+  test "a queued resume the agent declines reports the held status and condition", %{orchestrator: pid} do
+    agent = declining_agent("issue-44")
+
+    entry =
+      "issue-44"
+      |> modern_running_entry("repo#44", :paused, agent)
+      |> Map.put(:paused_reason, :max_agent_duration)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => entry},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output =
+          with_resume_confirm_timeout(3_000, fn ->
+            capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          end)
+
+        refute output =~ "aiur: resumed #44"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "aiur: resume declined for #44"
+    assert stderr =~ "control status remains paused"
+    assert stderr =~ "maximum agent duration reached"
+    assert stderr =~ "worker could not release the active pause containment"
+    refute stderr =~ "resume dropped"
+    refute stderr =~ "unconfirmed"
+  end
+
+  test "a queued resume with no correlatable lifecycle says why is unknown", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 999}} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | running: %{"issue-44" => modern_running_entry("issue-44", "repo#44", :paused)},
+          control_lifecycle: %ControlLifecycle{}
+      }
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output =
+          with_resume_confirm_timeout(300, fn ->
+            capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+          end)
+
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "why it was not applied could not be determined"
+    assert stderr =~ "missing control outcome"
+    assert stderr =~ "control status remains paused"
+    assert stderr =~ "pause condition: unknown"
+    assert stderr =~ "outcome is unknown"
+    refute stderr =~ "resume dropped"
+    refute stderr =~ "resume declined"
+  end
+
+  test "a queued resume ignores a terminal outcome for a different request", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 999}} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    entry = modern_running_entry("issue-44", "repo#44", :paused)
+
+    attrs = %{
+      request_id: 998,
+      issue_id: "issue-44",
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 998, 1, now: ~U[2026-08-11 12:00:01Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.reject(lifecycle, 998, :not_eligible, now: ~U[2026-08-11 12:00:02Z])
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => entry}, control_lifecycle: lifecycle}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = with_resume_confirm_timeout(300, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "mismatched control outcome"
+    assert stderr =~ "outcome is unknown"
+    refute stderr =~ "resume declined"
+    refute stderr =~ "resume dropped"
+  end
+
+  test "a superseded queued resume reports its exact correlated decline", %{orchestrator: pid} do
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" -> {:ok, {:resumed, 997}} end)
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    entry = modern_running_entry("issue-44", "repo#44", :paused) |> Map.put(:paused_reason, :operator_pause)
+
+    attrs = %{
+      request_id: 997,
+      issue_id: "issue-44",
+      tracker_identity: entry.issue.tracker_identity,
+      action: :resume,
+      generation: 1,
+      expected_status: :paused,
+      expected_version: 0,
+      requester: :operator
+    }
+
+    lifecycle = ControlLifecycle.new(now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, attrs, now: ~U[2026-08-11 12:00:00Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 997, 1, now: ~U[2026-08-11 12:00:01Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.request(lifecycle, %{attrs | request_id: 998}, now: ~U[2026-08-11 12:00:02Z])
+    {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 998, 1, now: ~U[2026-08-11 12:00:03Z])
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => entry}, control_lifecycle: lifecycle}
+    end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = capture_io(fn -> AgentControlCLI.resume(["44"]) end)
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "resume declined for #44"
+    assert stderr =~ "newer control intent superseded"
+    refute stderr =~ "outcome is unknown"
+    refute stderr =~ "resume dropped"
+  end
+
+  test "a deactivated row cannot masquerade as applying a queued resume", %{orchestrator: pid} do
+    entry = modern_running_entry("issue-44", "repo#44", :paused) |> Map.put(:paused_reason, :operator_pause)
+
+    :sys.replace_state(pid, fn state ->
+      %{state | running: %{"issue-44" => entry}, control_lifecycle: ControlLifecycle.new()}
+    end)
+
+    Application.put_env(:aiur, :agent_control_cli_resume_fun, fn "repo#44" ->
+      :sys.replace_state(pid, fn state ->
+        attrs = %{
+          request_id: 996,
+          issue_id: "issue-44",
+          tracker_identity: entry.issue.tracker_identity,
+          action: :resume,
+          generation: 1,
+          expected_status: :paused,
+          expected_version: 0,
+          requester: :operator
+        }
+
+        {:ok, _request, lifecycle} = ControlLifecycle.request(state.control_lifecycle, attrs)
+        {:ok, _request, lifecycle} = ControlLifecycle.accept(lifecycle, 996, 1)
+        deactivated = put_in(entry, [:control, :status], :deactivated)
+        %{state | running: %{"issue-44" => deactivated}, control_lifecycle: lifecycle}
+      end)
+
+      {:ok, {:resumed, 996}}
+    end)
+
+    on_exit(fn -> Application.delete_env(:aiur, :agent_control_cli_resume_fun) end)
+
+    stderr =
+      capture_io(:stderr, fn ->
+        output = with_resume_confirm_timeout(300, fn -> capture_io(fn -> AgentControlCLI.resume(["44"]) end) end)
+        refute output =~ "aiur: resumed #44"
+        assert output =~ "__AIUR_CONTROL_EXIT__:1"
+      end)
+
+    assert stderr =~ "outcome is unknown"
   end
 
   test "a queued resume the agent applies is reported as resumed", %{orchestrator: pid} do
@@ -1441,10 +1905,25 @@ defmodule Aiur.AgentControlCLITest do
   end
 
   test "status distinguishes a bounded query timeout", %{orchestrator: pid} do
+    schedulers = System.schedulers_online()
+    load = schedulers * 2.0
+    previous_loadavg = Application.get_env(:aiur, :loadavg_source_override)
+    Application.put_env(:aiur, :loadavg_source_override, fn -> {:ok, "#{load} 1.0 1.0 1/1 1"} end)
+
+    on_exit(fn ->
+      if previous_loadavg,
+        do: Application.put_env(:aiur, :loadavg_source_override, previous_loadavg),
+        else: Application.delete_env(:aiur, :loadavg_source_override)
+    end)
+
     :sys.suspend(pid)
 
     try do
       output = capture_io(fn -> AgentControlCLI.status(status_timeout_ms: 1) end)
+
+      assert output =~
+               "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
+                 "(local host sample; over local threshold, dispatch may be held)"
 
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
@@ -1959,7 +2438,7 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
       restore_workflow_file_after_test()
-      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
 
       assert {:ok, ask} =
                Asks.create("owner/repo", %{
@@ -1994,7 +2473,7 @@ defmodule Aiur.AgentControlCLITest do
       end)
 
       restore_workflow_file_after_test()
-      write_workflow_file_synced!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
+      write_workflow_file!(Aiur.Workflow.workflow_file_path(), tracker_kind: "github", tracker_repo: "owner/repo")
       :ok = RepoBase.ensure_state_tree("owner/repo")
 
       File.write!(

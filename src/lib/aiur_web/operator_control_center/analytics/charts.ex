@@ -305,6 +305,82 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
     svg(@w, h, inner, "Complexity breakdown")
   end
 
+  @model_token_dimensions [
+    {:cached_input, "Cached input", 2},
+    {:cache_creation_input, "Cache creation input", 4},
+    {:input, "Input", 1},
+    {:output, "Output", 3}
+  ]
+
+  @doc """
+  Ordered token-dimension legend entries for the tokens-by-model chart, as
+  `{dimension, label, series-color}`. The color is the same `--an-s#` series
+  variable the bars use, so legend and chart stay in lockstep.
+  """
+  @spec model_token_legend() :: [{atom(), String.t(), String.t()}]
+  def model_token_legend do
+    Enum.map(@model_token_dimensions, fn {dimension, label, i} -> {dimension, label, scolor(i)} end)
+  end
+
+  @doc """
+  Stacked horizontal bars of additive token counts per model, ranked by total
+  tokens. `models` is the presenter's `%{entries: [%{label, total, segments}]}`
+  view: each bar is a model and each segment a token dimension.
+  """
+  @spec model_tokens(map()) :: String.t()
+  def model_tokens(%{entries: []}), do: ""
+
+  def model_tokens(%{entries: entries}) when is_list(entries) do
+    rowh = 26
+    {ml, mr, mt, mb} = {150, 64, 8, 20}
+    pw = @w - ml - mr
+    maxv = entries |> Enum.map(& &1.total) |> Enum.max(fn -> 1 end) |> max(1)
+    h = length(entries) * rowh + mt + mb
+
+    bars =
+      entries
+      |> Enum.with_index()
+      |> Enum.map_join("", fn {entry, index} ->
+        y = mt + index * rowh
+
+        text(ml - 6, y + rowh / 2 + 3, model_label(entry.label), anchor: "end", fill: "var(--muted)") <>
+          model_bar(entry, ml, y, rowh, pw, maxv) <>
+          text(ml + pw + 6, y + rowh / 2 + 3, to_string(entry.total), fill: "var(--fg)")
+      end)
+
+    svg(@w, h, bars, "Tokens per model")
+  end
+
+  def model_tokens(_models), do: ""
+
+  defp model_bar(entry, ml, y, rowh, pw, maxv) do
+    {_x, out} =
+      Enum.reduce(entry.segments, {ml, []}, fn segment, {x, acc} ->
+        w = segment.count / maxv * pw
+        color = segment_color(segment.dimension)
+
+        rect =
+          ~s|<rect x="#{r2(x)}" y="#{r2(y + 3)}" width="#{r2(w)}" height="#{rowh - 8}" fill="#{color}" fill-opacity="0.85"><title>#{segment.label}: #{segment.count} tokens — #{entry.label}</title></rect>|
+
+        {x + w, [rect | acc]}
+      end)
+
+    out |> Enum.reverse() |> Enum.join()
+  end
+
+  defp segment_color(dimension) do
+    case Enum.find(@model_token_dimensions, fn {dim, _label, _i} -> dim == dimension end) do
+      {_dim, _label, i} -> scolor(i)
+      nil -> scolor(8)
+    end
+  end
+
+  defp model_label(label) when is_binary(label) do
+    if String.length(label) > 24, do: String.slice(label, 0, 24) <> "…", else: label
+  end
+
+  defp model_label(_label), do: "Unknown"
+
   # ---- shared builders ----
 
   defp stacked_areas(series, layers, xf, yf) do

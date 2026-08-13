@@ -1,5 +1,5 @@
 defmodule Aiur.Claude.Repl.PromptSubmitTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.Claude.Repl.PromptSubmit
   alias Aiur.Tmux

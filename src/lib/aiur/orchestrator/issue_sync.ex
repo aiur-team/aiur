@@ -7,7 +7,7 @@ defmodule Aiur.Orchestrator.IssueSync do
   alias Aiur.{AgentQueue, AgentQueueStore, AlertFeed, Alerts, CodingAgent, Config, CurrentRunMembership, DispatchBudgetStore, Issue, Tracker, TrackerIdentity}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator
-  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, Reconciler, Slots, State}
+  alias Aiur.Orchestrator.{AutoSubscriptions, DispatchPolicy, MembershipLifecycle, OperatorMessages, PushRouting, Reconciler, Slots, State}
 
   @idle_terminal_verification_batch_size 25
   @capacity_starvation_alert_after_ms 60_000
@@ -152,7 +152,36 @@ defmodule Aiur.Orchestrator.IssueSync do
         |> emit_dependency_transition_events(previous_issue, issue)
       end)
 
-    %{state | last_polled_issues: retained_issues}
+    # `issues` is the active poll: pass it so the recheck prefers a freshly
+    # polled blockee over the snapshot stored in the running entry.
+    state = PushRouting.recheck_cleared_dependency_pauses(state, fetch_issue_states_fun, issues)
+
+    %{
+      state
+      | last_polled_issues: retained_issues,
+        released_claims: purge_resolved_released_claims(state.released_claims, retained_issues, terminal_states)
+    }
+  end
+
+  # A `released_claims` entry exists only to tell the operator that a claim was
+  # dropped and still needs recovery. Once the ticket reaches a terminal tracker
+  # state there is nothing left to recover, and the entry becomes a permanently
+  # inflated `RELEASED CLAIMS n` that an operator will chase and find nothing
+  # behind. Losing one line of history is cheap; a confident wrong count is not.
+  #
+  # Filter against the RETAINED issues, not the raw poll. A claim is released
+  # because the tracker was failing or rate-limiting us, which is exactly when a
+  # poll comes back partial — and a ticket merely absent from one such poll is
+  # still pending terminal verification, not gone. `retained_issues` already
+  # encodes that distinction, so an entry survives until the disappearance is
+  # confirmed rather than vanishing on the first bad poll (#1475).
+  defp purge_resolved_released_claims(released_claims, retained_issues, terminal_states) when is_map(released_claims) do
+    Map.filter(released_claims, fn {issue_id, _release} ->
+      case Map.get(retained_issues, issue_id) do
+        %Issue{state: issue_state} -> not DispatchPolicy.terminal_issue_state?(issue_state, terminal_states)
+        _confirmed_gone -> false
+      end
+    end)
   end
 
   defp issues_by_id(issues) do
@@ -418,6 +447,7 @@ defmodule Aiur.Orchestrator.IssueSync do
             previous_blockers[blocker_id],
             :dependency_removed
           )
+          |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, previous_blockers[blocker_id], :removed)
         end)
 
       Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
@@ -726,15 +756,19 @@ defmodule Aiur.Orchestrator.IssueSync do
         enqueue_dependency_event(state, issue, current_blocker, :blocker_became_non_terminal)
 
       !blocker_terminal?(previous_blocker) and blocker_terminal?(current_blocker) ->
-        enqueue_dependency_event(state, issue, current_blocker, :blocker_became_terminal)
+        state
+        |> enqueue_dependency_event(issue, current_blocker, :blocker_became_terminal)
+        |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, current_blocker)
 
       true ->
         state
     end
   end
 
-  defp enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
-       when is_map(blocker) do
+  @doc false
+  @spec enqueue_dependency_event(State.t(), Issue.t(), map(), atom()) :: State.t()
+  def enqueue_dependency_event(%State{} = state, %Issue{} = issue, blocker, update_kind)
+      when is_map(blocker) do
     body = blocker_event_body(issue, blocker, update_kind)
 
     {queue_store, item} =
@@ -758,7 +792,7 @@ defmodule Aiur.Orchestrator.IssueSync do
     end
   end
 
-  defp enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
+  def enqueue_dependency_event(%State{} = state, _issue, _blocker, _update_kind), do: state
 
   defp blocker_event_body(issue, blocker, update_kind) do
     %{

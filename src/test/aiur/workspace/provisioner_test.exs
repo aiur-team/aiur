@@ -4,6 +4,13 @@ defmodule Aiur.Workspace.ProvisionerTest do
   alias Aiur.{Workflow, Workspace}
   alias Aiur.Workspace.Provisioner
 
+  @linux_build_gate match?({:unix, :linux}, :os.type()) and
+                      not is_nil(System.find_executable("flock"))
+  @linux_only if(@linux_build_gate,
+                do: [linux_lock: true],
+                else: [skip: "requires Linux flock leases"]
+              )
+
   test "remote workers receive the bundled agent skill install script" do
     parent = self()
 
@@ -18,20 +25,83 @@ defmodule Aiur.Workspace.ProvisionerTest do
     assert script =~ ".claude/skills/design-import"
     assert script =~ "agents/openai.yaml"
     assert script =~ ".codex/skills/design-import"
-    assert script =~ ".aiur-runtime/bin/gh"
+    assert script =~ ~s(bin="$workspace/.aiur-runtime/bin")
+    assert script =~ "for command_name in 'gh'"
+    assert script =~ "for command_name in 'git'"
+    assert script =~ ~s(target="$bin/$command_name")
     assert script =~ "chmod 755"
     # Without a workspace-private scratch dir, remote agents fall back to the
     # worker's shared /tmp and clobber each other's staged files (#1763).
     assert script =~ ".aiur-runtime/tmp"
   end
 
-  test "local workspaces get a private scratch directory" do
+  test "local workspaces get command guards and a private scratch directory" do
     workspace = Path.join(System.tmp_dir!(), "aiur-provision-scratch-#{System.unique_integer([:positive])}")
     File.mkdir_p!(workspace)
     on_exit(fn -> File.rm_rf(workspace) end)
 
     assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
     assert File.dir?(Path.join(workspace, ".aiur-runtime/tmp"))
+
+    elixir_wrapper = Path.join(workspace, ".aiur-runtime/build-bin/elixir")
+    mix_wrapper = Path.join(workspace, ".aiur-runtime/build-bin/mix")
+    mise_wrapper = Path.join(workspace, ".aiur-runtime/build-bin/mise")
+    assert File.regular?(elixir_wrapper)
+    assert File.regular?(mix_wrapper)
+    assert File.regular?(mise_wrapper)
+
+    mix_inode = File.stat!(mix_wrapper).inode
+    assert :ok = Provisioner.maybe_install_agent_support(workspace, nil)
+    assert File.stat!(mix_wrapper).inode == mix_inode
+  end
+
+  @tag @linux_only
+  test "bulk workspace creation caps external POSIX after_create child builds" do
+    test_root = Path.join(System.tmp_dir!(), "workspace-build-gate-#{System.unique_integer([:positive])}")
+    workspace_root = Path.join(test_root, "workspaces")
+    bin_dir = Path.join(test_root, "bin")
+    active_path = Path.join(test_root, "active")
+    max_path = Path.join(test_root, "max")
+    on_exit(fn -> File.rm_rf!(test_root) end)
+
+    File.mkdir_p!(bin_dir)
+    File.write!(active_path, "0\n")
+    File.write!(max_path, "0\n")
+    write_concurrency_probe!(Path.join(bin_dir, "mise"), active_path, max_path)
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      tracker_kind: "memory",
+      workspace_root: workspace_root,
+      max_concurrent_builds: 1,
+      build_start_stagger_seconds: 0,
+      min_free_memory_mb: nil,
+      hook_after_create: """
+      git init --quiet -b main
+      git config user.email test@example.com
+      git config user.name "Test User"
+      printf initialized > README.md
+      git add README.md
+      git commit --quiet -m init
+      printf '#!/bin/sh\nexec mise exec -- mix compile\n' > hook-build
+      chmod +x hook-build
+      probe_bin=#{Aiur.Shell.escape(bin_dir)}
+      if [ -n "${AIUR_BUILD_GATE_BIN:-}" ]; then
+        case "$PATH" in "$AIUR_BUILD_GATE_BIN":*) ;; *) exit 88 ;; esac
+      fi
+      PATH="${AIUR_BUILD_GATE_BIN:+$AIUR_BUILD_GATE_BIN:}$probe_bin:/usr/bin:/bin" ./hook-build
+      """
+    )
+
+    1..4
+    |> Task.async_stream(
+      fn identifier -> Workspace.create_for_issue("BUILD-#{identifier}") end,
+      max_concurrency: 4,
+      ordered: false,
+      timeout: 15_000
+    )
+    |> Enum.each(fn result -> assert match?({:ok, {:ok, _workspace}}, result) end)
+
+    assert File.read!(max_path) == "1\n"
   end
 
   test "remote support installation failures stop workspace preparation" do
@@ -39,6 +109,30 @@ defmodule Aiur.Workspace.ProvisionerTest do
 
     assert {:error, {:remote_agent_support_install_failed, {:ok, {"unsafe support path", 73}}}} =
              Provisioner.maybe_install_agent_support("/remote/workspace", "worker-1", runner)
+  end
+
+  defp write_concurrency_probe!(path, active_path, max_path) do
+    active_path = Aiur.Shell.escape(active_path)
+    max_path = Aiur.Shell.escape(max_path)
+
+    File.write!(path, """
+    #!/usr/bin/env bash
+    exec 9>>#{active_path}.lock
+    flock 9
+    active=$(<#{active_path})
+    active=$((active + 1))
+    printf '%s\n' "$active" > #{active_path}
+    max=$(<#{max_path})
+    if ((active > max)); then printf '%s\n' "$active" > #{max_path}; fi
+    flock -u 9
+    sleep 0.3
+    flock 9
+    active=$(<#{active_path})
+    printf '%s\n' "$((active - 1))" > #{active_path}
+    flock -u 9
+    """)
+
+    File.chmod!(path, 0o755)
   end
 
   test "parse_remote_workspace_output/1 with valid marker line returns ok tuple" do
