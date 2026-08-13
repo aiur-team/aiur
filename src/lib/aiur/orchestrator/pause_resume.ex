@@ -45,6 +45,16 @@ defmodule Aiur.Orchestrator.PauseResume do
   def resume_agent(server, issue_identifier),
     do: control_api_call(server, {:resume_agent, issue_identifier})
 
+  @spec resume_agent_with_receipt(String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(issue_identifier),
+    do: resume_agent_with_receipt(Aiur.Orchestrator, issue_identifier)
+
+  @spec resume_agent_with_receipt(GenServer.server(), String.t()) ::
+          {:ok, :resumed | :started | :reactivated | {:resumed, pos_integer()}} | {:error, term()}
+  def resume_agent_with_receipt(server, issue_identifier),
+    do: control_api_call(server, {:resume_agent_with_receipt, issue_identifier})
+
   @spec reset_dispatch_budget(String.t()) :: {:ok, :queued} | {:error, term()}
   def reset_dispatch_budget(issue_identifier), do: reset_dispatch_budget(Aiur.Orchestrator, issue_identifier)
 
@@ -205,6 +215,23 @@ defmodule Aiur.Orchestrator.PauseResume do
     StatusReport.notify_dashboard(state)
     {:reply, reply, state}
   end
+
+  @spec resume_issue_with_receipt_call(State.t(), String.t()) :: {:reply, term(), State.t()}
+  def resume_issue_with_receipt_call(%State{} = state, issue_identifier) do
+    {:reply, reply, state} = resume_issue_call(state, issue_identifier)
+    {:reply, attach_resume_receipt(reply, state, issue_identifier), state}
+  end
+
+  defp attach_resume_receipt({:ok, :resumed} = reply, state, issue_identifier) do
+    with %{issue: %{id: issue_id}} <- State.find_running_by_identifier(state.running, issue_identifier),
+         %{action: :resume, request_id: request_id} <- ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
+      {:ok, {:resumed, request_id}}
+    else
+      _ -> reply
+    end
+  end
+
+  defp attach_resume_receipt(reply, _state, _issue_identifier), do: reply
 
   @spec pause_agent_call(State.t(), String.t() | TrackerIdentity.t()) :: {:reply, term(), State.t()}
   def pause_agent_call(%State{globally_paused: true} = state, _issue_identifier),
@@ -734,6 +761,30 @@ defmodule Aiur.Orchestrator.PauseResume do
           {:applied, request, state} ->
             apply_worker_control_state(state, issue_id, running_entry, status, pause_payload, request)
         end
+    end
+  end
+
+  @doc false
+  @spec handle_worker_control_rejected(State.t(), String.t(), pos_integer(), non_neg_integer(), atom()) ::
+          {:noreply, State.t()}
+  def handle_worker_control_rejected(%State{} = state, issue_id, request_id, generation, class) do
+    with %{issue: %{id: ^issue_id}} = running_entry <- Map.get(state.running, issue_id),
+         %{issue_id: ^issue_id, generation: ^generation, status: status} when status in [:requested, :accepted] <-
+           ControlLifecycle.get(state.control_lifecycle, request_id),
+         {:ok, rejected, lifecycle} <-
+           ControlLifecycle.reject(state.control_lifecycle, request_id, class,
+             now: DateTime.utc_now(),
+             condition: %{
+               control_status: get_in(running_entry, [:control, :status]) || :paused,
+               pause_reason: Map.get(running_entry, :paused_reason)
+             }
+           ) do
+      state = %{state | control_lifecycle: lifecycle} |> persist_control_lifecycle()
+      publish_control_lifecycle(Map.get(running_entry, :identifier), rejected)
+      StatusReport.notify_dashboard(state)
+      {:noreply, state}
+    else
+      _ -> {:noreply, state}
     end
   end
 
