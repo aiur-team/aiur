@@ -32,6 +32,9 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
       |> assign(:snapshot, RouteState.selected_snapshot(assigns.route_state))
       |> assign(:graph_failure, graph_failure(assigns.model, assigns.route_state))
 
+    assigns =
+      assign(assigns, :show_panes?, is_nil(assigns.graph_failure) and not is_nil(assigns.model))
+
     ~H"""
     <section class="bo-surface" aria-labelledby="build-order-details-title">
       <h2 id="build-order-details-title" class="sr-only">Build Order details</h2>
@@ -70,7 +73,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         <p>{state_message(@status)}</p>
       </div>
 
-      <div :if={is_nil(@graph_failure) and not is_nil(@model)} class="bo-selected-summary">
+      <div :if={@show_panes?} class="bo-selected-summary">
         <p :if={root_title(@snapshot)} class="bo-selected-lede">{root_title(@snapshot)}</p>
         <div :if={@model.status not in [:ready, :empty]} class="bo-state-card" role={model_state_role(@model)}>
           <h3>{model_state_title(@model)}</h3>
@@ -89,8 +92,13 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           <p>This Build Order currently has no direct members.</p>
         </div>
 
+        <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">
+          <li :for={diagnostic <- @model.diagnostics}>{diagnostic.text}</li>
+        </ul>
+      </div>
+
+      <section :if={@show_panes? and @model.nodes != []} class="section-card bo-graph-pane">
         <BuildOrderGraph.build_order_graph
-          :if={@model.nodes != []}
           id="selected-build-order-graph"
           root_id={RouteState.root_identifier(@route_state)}
           provider_generation={positive_generation(@snapshot)}
@@ -98,11 +106,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
           model={@model}
           adhoc={@adhoc}
         />
+      </section>
 
-        <BuildOrderBreakdown.build_order_breakdown :if={@model.status != :empty} model={@model} adhoc={@adhoc} />
+      <section :if={@show_panes? and @model.status != :empty} class="section-card bo-breakdown-pane">
+        <BuildOrderBreakdown.build_order_breakdown model={@model} adhoc={@adhoc} />
+      </section>
 
+      <section :if={@show_panes? and @model.status != :empty} class="section-card bo-analytics-pane">
         <BuildOrderAnalytics.build_order_analytics
-          :if={@model.status != :empty}
           scope={@analytics_scope}
           model={@analytics_model}
           unavailable={@analytics_unavailable}
@@ -117,11 +128,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
             drill_trigger={@usage_drill_trigger}
           />
         </BuildOrderAnalytics.build_order_analytics>
-
-        <ul :if={@model.diagnostics != []} class="bo-diagnostics" aria-label="Build Order diagnostics">
-          <li :for={diagnostic <- @model.diagnostics}>{diagnostic.text}</li>
-        </ul>
-      </div>
+      </section>
     </section>
     """
   end

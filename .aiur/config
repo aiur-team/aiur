@@ -28,13 +28,16 @@ pre_warmed_sessions: 3
 # Cap (MB) on total ~/.aiur/logs size; oldest sessions swept every 5 min once exceeded. See Aiur.Logs.Retention.
 max_log_history_mb: 1000
 server:
-  host: 100.81.109.51
+  host: 0.0.0.0
   port: 4000
 workspace:
   root: ~/code/aiur-workspaces
 hooks_file: hooks
 agent:
-  kind: codex
+  # Ordered dispatch preference: presence enables a backend, the first available
+  # entry is the default, and aiur falls back to the next one when a token or
+  # usage limit hits. DeepSeek first for the remaining Build Order #1567 work.
+  priority: [deepseek, codex, claude]
   max_concurrent_agents: 16
   # Bound every agent-launched Mix VM (and ExUnit's default max_cases) to four schedulers.
   mix_scheduler_cap: 4
@@ -70,17 +73,15 @@ agent:
   # output) is killed after this. Raised from the 5-min default so flake-fix /
   # full-suite validation runs can complete. turn_timeout_ms already defaults to 60 min.
   stall_timeout_ms: 3600000
-  # Complexity labels select a codex model family and reasoning effort. These
-  # name the *family* (`luna`/`terra`/`sol`), not a version, so each level keeps
-  # resolving to the newest model in that family instead of breaking when a
-  # pinned version is retired. Pin a version (`codex:gpt-5.6-sol:max`) only when
-  # that exact release is deliberately wanted.
-  routing:
-    1: "codex:luna:low"
-    2: "codex:luna:medium"
-    3: "codex:terra:high"
-    4: "codex:terra:xhigh"
-    5: "codex:sol:max"
+  # Complexity routing is left unset for this run: every complexity level falls
+  # back to `priority`, so DeepSeek is the default backend for the remaining
+  # Build Order #1567 work with codex/claude as fallback.
+  # routing:
+  #   1: "codex:luna:low"
+  #   2: "codex:luna:medium"
+  #   3: "codex:terra:high"
+  #   4: "codex:terra:xhigh"
+  #   5: "codex:sol:max"
   codex:
     command: codex app-server
     approval_policy: never

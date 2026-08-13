@@ -447,16 +447,16 @@ defmodule AiurWeb.BuildOrder.PlanningSourceTest do
     assert root.progress_resolved_count == 1
     assert root.member_count == 2
     {:ok, selected} = PlanningSource.demand(root.identity)
-    [completed, missing] = selected.data.members
+    [completed, active] = selected.data.members
 
     assert completed.lifecycle.state == :closed
-    assert missing.lifecycle.state == :unknown
-    assert missing.lifecycle.state_reason == :unknown
+    assert active.lifecycle.state == :open
+    assert active.lifecycle.state_reason == :none
 
     grid = selected |> BuildOrderPresenter.present(:unavailable, :unavailable) |> BuildOrderGridModel.build(nil)
-    assert grid.overall_completion == %{progress: 100, progress_resolution: :partial, progress_resolved_count: 1, member_count: 2}
+    assert grid.overall_completion == %{progress: 60, progress_resolution: :resolved, progress_resolved_count: 2, member_count: 2}
     assert Enum.find(grid.waves, &(&1.phase == 2)).completion.progress == 100
-    assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :unresolved
+    assert Enum.find(grid.waves, &(&1.phase == 3)).completion.progress_resolution == :resolved
   end
 
   test "preserves PackStatus budget exhaustion through an incomplete projection" do

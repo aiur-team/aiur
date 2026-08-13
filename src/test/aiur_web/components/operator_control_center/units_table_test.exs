@@ -230,7 +230,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     html = render(view([row_with_tone(:blocked)]))
 
     assert html =~ ~s(class="units-row is-blocked")
-    assert html =~ ~s(class="ut-alert")
+    refute html =~ ~s(class="ut-alert")
+  end
+
+  test "paused and queued rows never render red even with blocking/alert reasons" do
+    paused = render(view([row_with_tone(:paused_with_attention)]))
+    queued = render(view([row_with_tone(:queued_with_attention)]))
+
+    assert paused =~ ~s(class="units-row is-paused")
+    refute paused =~ ~s(class="units-row is-blocked")
+    refute paused =~ ~s(class="units-row has-alert")
+
+    assert queued =~ ~s(class="units-row is-queued")
+    refute queued =~ ~s(class="units-row is-blocked")
+    refute queued =~ ~s(class="units-row has-alert")
   end
 
   test "renders active, queued, and paused rows with distinct non-red tones" do
@@ -365,5 +378,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     |> Map.put(:open_command_count, 0)
     |> put_in([:runtime, :work_state], :paused)
     |> put_in([:runtime, :waiting_reason], :paused)
+  end
+
+  defp row_with_tone(:paused_with_attention) do
+    row() |> put_in([:runtime, :work_state], :paused)
+  end
+
+  defp row_with_tone(:queued_with_attention) do
+    row()
+    |> Map.put(:reasons, %{waiting: :awaiting_dispatch, blocking: :waiting_for_dependency, alert: :open_command, pause: nil, stuck: nil})
+    |> put_in([:runtime, :bucket], :retrying)
+    |> put_in([:runtime, :waiting_reason], :awaiting_dispatch)
+    |> put_in([:runtime, :work_state], :idle)
   end
 end

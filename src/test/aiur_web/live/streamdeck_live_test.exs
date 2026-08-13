@@ -104,23 +104,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="streamdeck-install-modal")
     assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
     assert html =~ "Install on your Stream Deck +"
-    assert html =~ "Linux with udev"
-    assert html =~ "Pair it with your daemon"
     assert html =~ "Download the Stream Deck + package"
-    assert html =~ "Create the sidecar directory"
+    assert html =~ "Extract the sidecar"
     assert html =~ "--strip-components=1"
-    assert html =~ "Create the pairing directory"
-    assert html =~ "Create the pairing file"
-    assert html =~ "Restrict the pairing file"
+    assert html =~ "Configure the sidecar"
     assert html =~ "AIUR_PHOENIX_URL"
-    assert html =~ "Install the udev rule"
-    assert html =~ "Install the user unit"
-    assert html =~ "Reload user systemd"
-    assert html =~ "Enable the sidecar"
-    assert html =~ "Plug in the deck"
+    assert html =~ "Install and start"
+    assert html =~ "systemctl --user enable --now aiur-streamdeck.service"
     assert html =~ "What success looks like"
     assert html =~ "0.0.0-dev.0098e3ac86a2"
-    assert html =~ "0098e3ac86a2e49e685e8e6ff67248373de43f1d"
+    refute html =~ "Aiur commit"
+    refute html =~ "Pair with your daemon"
+    refute html =~ "Linux with udev"
     refute html =~ "AIUR_DASHBOARD_PASSWORD="
     refute html =~ "streamdeck-password"
     refute html =~ "browser_fixture_password"
@@ -143,9 +138,9 @@ defmodule AiurWeb.StreamdeckLiveTest do
       assert html =~ ~s(id="streamdeck-install-modal")
       assert html =~ "Install on your Stream Deck +"
       assert html =~ "No package published for this release"
-      assert html =~ "Pair it with your daemon"
-      assert html =~ "Create the sidecar directory"
-      assert html =~ "Plug in the deck"
+      assert html =~ "Extract the sidecar"
+      assert html =~ "Configure the sidecar"
+      assert html =~ "Install and start"
       assert html =~ "What success looks like"
       refute html =~ "Download the Stream Deck + package"
       refute html =~ "aiur-streamdeck-"
@@ -480,10 +475,11 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "pause") =~ ~s(data-command-state="running")
 
-    html = render_hook(view, "command-press", %{"command" => "pause"})
+    # The fleet topic is what re-reads the settled state; a command press does
+    # not block on a snapshot read.
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
 
-    assert_receive {:streamdeck_pause, "1352"}
-    assert html =~ "Pause requested for #1352"
     # The key adopts the state the orchestrator settled on, not the one the
     # press assumed: it now offers Play, with the paused state and icon.
     assert command_key(html, "pause") =~ "Play"
@@ -496,6 +492,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert_receive {:streamdeck_resume, "1352"}
     assert html =~ "Resume requested for #1352"
+
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
+
     assert command_key(html, "pause") =~ "Pause"
     assert command_key(html, "pause") =~ ~s(data-command-state="running")
     assert command_icon(html, "pause") == "pause"
@@ -514,6 +514,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert_receive {:streamdeck_deprioritize, "1352"}
     assert html =~ "Deprioritize requested for #1352"
+
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
+
     assert command_key(html, "priority") =~ "Prioritize"
     assert command_key(html, "priority") =~ ~s(data-command-state="standard")
     assert command_icon(html, "priority") == "up"
@@ -532,6 +536,10 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
     assert_receive {:streamdeck_prioritize, "1352"}
     assert html =~ "Prioritize requested for #1352"
+
+    send(view.pid, {:status_changed, %{identifier: "1352"}})
+    html = render(view)
+
     assert command_key(html, "priority") =~ "Deprioritize"
     assert command_key(html, "priority") =~ ~s(data-command-state="prioritized")
     assert command_icon(html, "priority") == "down"
@@ -599,12 +607,17 @@ defmodule AiurWeb.StreamdeckLiveTest do
       assert command_key(html, "pause") =~ "Pause"
       assert command_key(html, "pause") =~ ~s(data-command-state="running")
 
-      # The status region carries the failure visibly rather than staying
-      # screen-reader-only, so the operator sees a swallowed control call.
-      assert html =~ ~s(id="sd-control-status" class="sd-control-status")
+      # The status banner (outside the device) carries the failure visibly, so
+      # the operator sees a swallowed control call rather than nothing.
+      assert html =~ ~s(id="sd-control-status" class="streamdeck-status")
 
       html = render_hook(view, "command-press", %{"command" => "priority"})
       assert html =~ "Deprioritize requested for #1352"
+
+      # The fleet topic re-reads the settled state; a command press does not
+      # block on a snapshot read.
+      send(view.pid, {:status_changed, %{identifier: "1352"}})
+      render(view)
 
       # Now standard, so the same key resolves to prioritize — which raises.
       html = render_hook(view, "command-press", %{"command" => "priority"})
@@ -1232,15 +1245,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "is-live"
   end
 
-  test "the nav icon is a 4x2 key grid, matching the physical device" do
+  test "the nav icon is a 2x2 key grid" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     [svg] =
-      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="4\.5".*?</svg>}s, html) ||
+      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="4" y="4".*?</svg>}s, html) ||
         flunk("the Stream Deck nav icon svg was not rendered")
 
-    assert length(Regex.scan(~r/<circle /, svg)) == 8,
-           "the Stream Deck nav icon must show 8 keys in a 4x2 grid, like the device"
+    assert length(Regex.scan(~r/<rect /, svg)) == 4,
+           "the Stream Deck nav icon must show 4 keys in a 2x2 grid"
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do

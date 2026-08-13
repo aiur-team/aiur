@@ -100,6 +100,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:mic_held?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
+      |> assign(:os, detect_os(user_agent(socket)))
       |> refresh_grid()
 
     socket = assign(socket, :logs, load_logs(socket.assigns.selected_identifier))
@@ -319,7 +320,8 @@ defmodule AiurWeb.StreamdeckLive do
       {key_face_css()}
 
       <section id="streamdeck-page" class="sd-stage" aria-label="Stream Deck emulator" phx-hook="StreamdeckEmulator">
-        <div class="sd-device" role="group" aria-label="Stream Deck + control surface" data-mode={@sd_mode}>
+        <div :if={@control_feedback} id="sd-control-status" class="streamdeck-status" role="status" aria-live="polite">{control_feedback(@control_feedback)}</div>
+        <div class="sd-device" data-mode={@sd_mode}>
           <header class="sd-brand">
             <svg class="sd-brand-logo" viewBox="0 0 24 24" fill="none" aria-hidden="true">
               <circle cx="12" cy="12" r="9" stroke="#fff" stroke-width="2" />
@@ -381,10 +383,6 @@ defmodule AiurWeb.StreamdeckLive do
           <% end %>
 
           <%= if @sd_mode == :cmd do %>
-          <%!-- The live region stays screen-reader-only until there is something to
-               say, so a control failure becomes visible on the deck face rather than
-               being announced only to assistive tech. --%>
-          <p id="sd-control-status" class={[!@control_feedback && "sr-only", @control_feedback && "sd-control-status"]} role="status" aria-live="polite">{control_feedback(@control_feedback)}</p>
           <ul id="sd-keys" class="sd-keys sd-cmd-keys" data-mode-view="cmd" aria-label="Available commands">
             <li :for={key <- command_keys(@sd_active, @mic_held?)} class={["sd-key", "sd-cmd-key", key.mic? && "sd-mic-key", key.mic? && @mic_held? && "mic-live", key.empty? && "is-empty", !key.empty? && key.disabled? && "is-disabled"]} aria-hidden={to_string(key.empty?)}>
               <button :if={!key.empty?} type="button" class="sd-key-face" data-streamdeck-command={key.command} data-command-state={key.state} data-command-hold={key.mic? && "true"} data-streamdeck-identifier={@selected_identifier} disabled={key.disabled?} aria-disabled={to_string(key.disabled?)} aria-label={key.label}>
@@ -603,45 +601,57 @@ defmodule AiurWeb.StreamdeckLive do
             <button type="button" class="tool-btn" phx-click="close-streamdeck-install">Close</button>
           </header>
 
-          <p class="sd-install-intro">
-            You need a Stream Deck +, Linux with udev, and a running Aiur daemon that the deck can reach.
+          <p :if={@os == :windows} class="sd-install-intro">
+            Windows isn't fully supported yet. Run the sidecar under WSL2, or drive the fleet from the dashboard.
           </p>
 
-          <section class="sd-install-pairing" aria-labelledby="streamdeck-pairing-title">
-            <h3 id="streamdeck-pairing-title">Pair it with your daemon</h3>
-            <p>
-              Put the daemon address and the dashboard’s HTTP Basic Auth username and password in
-              <code>~/.config/aiur/streamdeck.env</code>. Get the address from the dashboard URL and the credential from
-              the dashboard configuration or the operator who runs it. Use <code>https://</code> for a daemon outside
-              the local machine; never paste a live credential into this page.
-            </p>
-          </section>
+          <p :if={@os != :windows} class="sd-install-intro">
+            Download the sidecar, point it at your daemon, then install and start it.
+          </p>
 
-          <ol class="sd-install-steps">
-            <li :if={package?(@streamdeck_package)}><a href={@streamdeck_package.url} download><strong>Download the Stream Deck + package.</strong></a></li>
+          <ol :if={@os == :linux} class="sd-install-steps">
+            <li :if={package?(@streamdeck_package)}><strong><a href={@streamdeck_package.url} download>Download the Stream Deck + package.</a></strong></li>
             <li :if={!package?(@streamdeck_package)}><strong>No package published for this release.</strong> Build the sidecar from source and continue with the steps below.</li>
-            <li><strong>Create the sidecar directory:</strong> <code>install -dm755 ~/.local/share/aiur/streamdeck</code></li>
-            <li><strong>Extract the archive:</strong> <code>tar -xzf /path/to/downloaded-archive.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></li>
-            <li><strong>Create the pairing directory:</strong> <code>install -dm700 ~/.config/aiur</code></li>
-            <li><strong>Create the pairing file:</strong> <code>touch ~/.config/aiur/streamdeck.env</code></li>
-            <li><strong>Restrict the pairing file:</strong> <code>chmod 600 ~/.config/aiur/streamdeck.env</code></li>
-            <li><strong>Add the daemon values</strong> for <code>AIUR_PHOENIX_URL</code>, <code>AIUR_DASHBOARD_USERNAME</code>, and <code>AIUR_DASHBOARD_PASSWORD</code>.</li>
-            <li><strong>Install the udev rule:</strong> <code>sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules /etc/udev/rules.d/70-streamdeck.rules</code></li>
-            <li><strong>Install the user unit:</strong> <code>install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service ~/.config/systemd/user/aiur-streamdeck.service</code></li>
-            <li><strong>Reload user systemd:</strong> <code>systemctl --user daemon-reload</code></li>
-            <li><strong>Enable the sidecar:</strong> <code>systemctl --user enable --now aiur-streamdeck.service</code></li>
-            <li><strong>Plug in the deck.</strong> The sidecar detects it and paints the fleet.</li>
+            <li><strong>Extract the sidecar.</strong>
+              <pre><code>mkdir -p ~/.local/share/aiur/streamdeck
+    tar -xzf ~/Downloads/*streamdeck*.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></pre>
+            </li>
+            <li><strong>Configure the sidecar.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
+              <pre><code>AIUR_PHOENIX_URL
+    AIUR_DASHBOARD_USERNAME
+    AIUR_DASHBOARD_PASSWORD</code></pre>
+            </li>
+            <li><strong>Install and start.</strong>
+              <pre><code>sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules /etc/udev/rules.d/
+    install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service ~/.config/systemd/user/
+    systemctl --user enable --now aiur-streamdeck.service</code></pre>
+            </li>
           </ol>
 
-          <section class="sd-install-result" aria-labelledby="streamdeck-success-title">
+          <ol :if={@os == :mac} class="sd-install-steps">
+            <li :if={package?(@streamdeck_package)}><strong><a href={@streamdeck_package.url} download>Download the Stream Deck + package.</a></strong></li>
+            <li :if={!package?(@streamdeck_package)}><strong>No package published for this release.</strong> Build the sidecar from source and continue with the steps below.</li>
+            <li><strong>Extract the sidecar.</strong>
+              <pre><code>mkdir -p "$HOME/Library/Application Support/aiur/streamdeck"
+    tar -xzf ~/Downloads/*streamdeck*.tar.gz -C "$HOME/Library/Application Support/aiur/streamdeck" --strip-components=1</code></pre>
+            </li>
+            <li><strong>Configure the sidecar.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
+              <pre><code>AIUR_PHOENIX_URL
+    AIUR_DASHBOARD_USERNAME
+    AIUR_DASHBOARD_PASSWORD</code></pre>
+            </li>
+            <li><strong>Run the sidecar.</strong>
+              <pre><code>"$HOME/Library/Application Support/aiur/streamdeck/aiur-streamdeck"</code></pre>
+            </li>
+          </ol>
+
+          <section :if={@os != :windows} class="sd-install-result" aria-labelledby="streamdeck-success-title">
             <h3 id="streamdeck-success-title">What success looks like</h3>
             <p>The deck shows your Aiur fleet. If it does not, first check <code>systemctl --user status aiur-streamdeck.service</code>.</p>
           </section>
 
           <p :if={package?(@streamdeck_package)} class="modal-meta">
             <a href={@streamdeck_package.url} download>Download package {@streamdeck_package.version}</a>
-            <span aria-hidden="true"> · </span>
-            Aiur commit <code>{@streamdeck_package.commit}</code>
           </p>
           <p :if={!package?(@streamdeck_package)} class="modal-meta">No Stream Deck + package published for this release.</p>
         </section>
@@ -1013,9 +1023,13 @@ defmodule AiurWeb.StreamdeckLive do
   defp invoke_command(socket, command) do
     case socket.assigns.sd_active do
       %{identifier: identifier} = agent when not is_nil(identifier) ->
-        socket
-        |> invoke_agent_control(to_string(identifier), control_action_for(command, agent))
-        |> refresh_grid()
+        # A control command changes one agent's state, and the orchestrator
+        # broadcasts the settled state on the fleet/status topics this view is
+        # already subscribed to. Re-reading the whole fleet snapshot here would
+        # make the button press block on a `dashboard_snapshot` read (the same
+        # cost `refresh_meters/1` avoids for meter observations), so the press
+        # only issues the control call and leaves the refresh to the topic.
+        invoke_agent_control(socket, to_string(identifier), control_action_for(command, agent))
 
       _agent ->
         assign(socket, :control_feedback, "No agent selected")
@@ -1310,6 +1324,25 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp control_feedback(nil), do: ""
   defp control_feedback(feedback), do: feedback
+
+  # The install modal tailors its steps to the operator's OS. The User-Agent is
+  # read from connect info on mount (never during a dead render, where it can be
+  # absent); anything we cannot parse falls back to Linux, the supported target.
+  defp user_agent(socket) do
+    get_connect_info(socket, :user_agent)
+  rescue
+    _ -> nil
+  end
+
+  defp detect_os(user_agent) when is_binary(user_agent) do
+    cond do
+      String.contains?(user_agent, "Windows") -> :windows
+      String.contains?(user_agent, "Macintosh") or String.contains?(user_agent, "Mac OS") or String.contains?(user_agent, "Darwin") -> :mac
+      true -> :linux
+    end
+  end
+
+  defp detect_os(_user_agent), do: :linux
 
   defp load_grid do
     snapshot =

@@ -173,10 +173,10 @@ textarea:focus-visible,
 .app-shell {
   max-width: 1440px;
   margin-inline: auto;
-  /* Block padding is a fixed 16px (not rem) so the sticky sidebar's resting
-     offset and its sticky `top` stay in lockstep even while a root font-size
-     change is mid-reflow; a rem here lets the two diverge transiently. Page zoom
-     still scales px, so real zoom behaviour is unchanged. */
+  /* Mobile/tablet gutter: the sidebar is hidden and the fixed bottom nav
+     reserves its own space, so content needs this to stay off the edges. On
+     desktop (>=960px) it is dropped so the sidebar and topbar run edge-to-edge;
+     .shell-content re-adds the inline gutter there. */
   padding: 16px 1.15rem;
 }
 
@@ -3315,33 +3315,10 @@ html[data-theme="light"] .toggle-icon .moon {
   vertical-align: middle;
 }
 
-.ut-id-cell {
-  position: relative;
-}
-
-.units-row.is-blocked .ut-id-cell,
-.units-row.has-alert .ut-id-cell {
-  padding-left: 1.8rem;
-}
-
 .ut-id-num {
   font-weight: 600;
   color: var(--muted);
   white-space: nowrap;
-}
-
-.ut-alert {
-  position: absolute;
-  left: 0.45rem;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--fg);
-}
-
-.ut-alert svg {
-  display: block;
-  width: 1rem;
-  height: 1rem;
 }
 
 .ut-pill-row {
@@ -3391,9 +3368,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .u-prio.is-med {
-  color: #d98f5b;
-  border-color: rgba(217, 143, 91, 0.4);
-  background: rgba(217, 143, 91, 0.12);
+  color: #e29b63;
+  border-color: rgba(226, 155, 99, 0.4);
+  background: rgba(226, 155, 99, 0.12);
 }
 
 .u-prio.is-low {
@@ -4324,7 +4301,7 @@ html[data-theme="light"] .rs-github-mark {
 
 .units-row.has-alert .u-prio.is-med,
 .units-row.is-blocked .u-prio.is-med {
-  color: color-mix(in srgb, var(--fg) 30%, #d98f5b);
+  color: color-mix(in srgb, var(--fg) 30%, #e29b63);
 }
 
 .units-identity {
@@ -5804,11 +5781,22 @@ html[data-theme="light"] .rs-github-mark {
     grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
   }
 
+  /* The sidebar and topbar run edge-to-edge: drop .app-shell's outer gutter and
+     re-add the inline gutter inside the content column. */
+  .app-shell {
+    padding: 0;
+  }
+
+  .shell-content {
+    padding-inline: 1.15rem;
+    padding-block-end: 1rem;
+  }
+
   .shell-sidebar {
     position: sticky;
-    /* Match .app-shell's fixed 16px block padding so the sticky offset equals
-       the resting offset regardless of root-font-size reflow timing. */
-    top: 16px;
+    /* The resting offset is now 0 (no .app-shell block padding), so the sticky
+       top matches it and the sidebar does not jump when it pins. */
+    top: 0;
   }
 }
 
@@ -7359,6 +7347,12 @@ html[data-theme="light"] .rs-github-mark {
   margin: 1.25rem 0;
 }
 
+/* The graph is its own section-card pane now; the pane's padding replaces the
+   graph's own vertical breathing room so the card stays tight. */
+.bo-graph-pane .bo-grid-root {
+  margin: 0;
+}
+
 /* --- wave-progress header strip --- */
 .bo-waves-head {
   margin-bottom: 1rem;
@@ -8099,6 +8093,23 @@ html[data-theme="light"] .rs-github-mark {
 
 .sd-install-modal code {
   overflow-wrap: anywhere;
+}
+
+.sd-install-modal pre {
+  margin: 0.45rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.sd-install-modal pre code {
+  display: block;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-wrap: normal;
 }
 
 .sd-install-modal .modal-meta {
@@ -9094,13 +9105,20 @@ html[data-theme="light"] .sd-device {
   opacity: 0.45;
 }
 
-/* Control feedback is screen-reader-only until there is something to report; a
-   failed control call is meant to be seen on the deck face, not just heard. */
-.sd-control-status {
-  margin: 0 0 0.4rem;
+/* Control feedback (a requested or failed control call) is rendered in a banner
+   outside the device, so the emulated deck's key/dial layout never shifts when a
+   status line appears or clears. */
+.streamdeck-status {
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 10px;
+  background: var(--attention-soft);
   color: var(--attention-ink);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-align: center;

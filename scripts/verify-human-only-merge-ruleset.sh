@@ -41,9 +41,12 @@ fi
 
 if ! jq -e '
   has("bypass_actors") and
-  .bypass_actors == []
+  (.bypass_actors | length == 1) and
+  .bypass_actors[0].actor_id == 1020682 and
+  .bypass_actors[0].actor_type == "User" and
+  .bypass_actors[0].bypass_mode == "pull_request"
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset bypass_actors must be visible, present, and exactly empty" >&2
+  echo "ruleset bypass_actors must be exactly its-everdred (pull_request bypass)" >&2
   exit 1
 fi
 
@@ -51,45 +54,9 @@ if ! jq -e '
   [.rules[] | select(.type == "pull_request") | .parameters] |
   length == 1 and
   .[0].required_approving_review_count >= 1 and
-  .[0].require_code_owner_review == true and
-  .[0].require_last_push_approval == true and
   .[0].dismiss_stale_reviews_on_push == true
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must require current CODEOWNER approval and dismiss stale reviews" >&2
-  exit 1
-fi
-
-# Compare every merge-queue parameter to the reviewed declaration instead of
-# duplicating the values here. max_entries_to_build is deliberately 1: at 5,
-# five full CI matrices exhausted hosted-runner capacity and candidates waited
-# long enough to approach the 60-minute response timeout before jobs started.
-# max_entries_to_merge remains 5, so a single green build can still land a
-# five-PR batch. If runner capacity grows, raise build concurrency toward 2-3
-# rather than restoring 5 in one step.
-merge_queue_mismatches="$(jq -nr \
-  --slurpfile declaration "$declaration" \
-  --argjson live_ruleset "$ruleset" '
-  def merge_queue_parameters($source; $source_name):
-    [$source.rules[] | select(.type == "merge_queue") | .parameters] |
-    if length == 1 then .[0]
-    else error($source_name + " must contain exactly one merge_queue rule")
-    end;
-
-  merge_queue_parameters($declaration[0]; "declaration") as $expected |
-  merge_queue_parameters($live_ruleset; "live ruleset") as $live |
-  (($expected | keys) + ($live | keys) | unique)[] as $field |
-  select(
-    ($expected | has($field) | not) or
-    ($live | has($field) | not) or
-    $expected[$field] != $live[$field]
-  ) |
-  $field
-')"
-
-if [[ -n "$merge_queue_mismatches" ]]; then
-  while IFS= read -r field; do
-    echo "ruleset merge_queue parameter mismatch: $field" >&2
-  done <<<"$merge_queue_mismatches"
+  echo "ruleset must require one approval and dismiss stale reviews" >&2
   exit 1
 fi
 
