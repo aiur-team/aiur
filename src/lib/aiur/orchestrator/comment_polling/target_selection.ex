@@ -18,6 +18,12 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
   @merging_state "merging"
   @comment_poll_review_states [@human_review_state, @merging_state]
 
+  @doc false
+  @spec max_comment_poll_target_count(State.t(), keyword()) :: non_neg_integer()
+  def max_comment_poll_target_count(%State{} = state, opts) do
+    map_size(state.running) + human_review_comment_target_limit(opts) + watch_comment_target_limit(opts)
+  end
+
   @spec github_comment_poll_targets(State.t(), keyword()) ::
           {:ok, [String.t()], [map()], [map()]} | {:error, term()}
   def github_comment_poll_targets(%State{} = state, opts) do
@@ -32,6 +38,24 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
         |> Enum.uniq()
 
       {:ok, targets, human_review_targets, watch_targets}
+    end
+  end
+
+  @spec github_comment_poll_targets_with_cache(State.t(), keyword()) ::
+          {:ok, [String.t()], [map()], [map()], map()} | {:error, term()}
+  def github_comment_poll_targets_with_cache(%State{} = state, opts) do
+    with {:ok, human_review_targets, cache} <-
+           human_review_comment_poll_targets_with_cache(state, opts),
+         {:ok, watch_targets} <- watch_comment_poll_targets(state, opts) do
+      running_targets = running_comment_poll_targets(state)
+
+      targets =
+        running_targets
+        |> Kernel.++(Enum.map(human_review_targets, & &1.target))
+        |> Kernel.++(Enum.map(watch_targets, & &1.target))
+        |> Enum.uniq()
+
+      {:ok, targets, human_review_targets, watch_targets, cache}
     end
   end
 
@@ -152,6 +176,46 @@ defmodule Aiur.Orchestrator.CommentPolling.TargetSelection do
       other ->
         {:error, {:unexpected_human_review_targets, other}}
     end
+  end
+
+  defp human_review_comment_poll_targets_with_cache(%State{} = state, opts) do
+    case Keyword.fetch(opts, :review_issue_fetcher) do
+      {:ok, fetcher} ->
+        case fetcher.(@comment_poll_review_states) do
+          {:ok, issues} when is_list(issues) ->
+            {:ok, human_review_targets_from_issues(state, issues, opts), issue_list_cache(state)}
+
+          {:error, _reason} = error ->
+            error
+
+          other ->
+            {:error, {:unexpected_human_review_targets, other}}
+        end
+
+      :error ->
+        case GitHubClient.fetch_issues_by_states_conditional(
+               @comment_poll_review_states,
+               issue_list_cache(state),
+               opts
+             ) do
+          {:ok, issues, cache} -> {:ok, human_review_targets_from_issues(state, issues, opts), cache}
+          {:error, _reason} = error -> error
+        end
+    end
+  end
+
+  defp issue_list_cache(%State{github_comment_issue_list_cache: cache}), do: cache
+
+  defp human_review_targets_from_issues(state, issues, opts) do
+    issues
+    |> Enum.reject(&Issue.paused?/1)
+    |> Enum.map(&human_review_comment_target_for_issue/1)
+    |> Enum.reject(&is_nil/1)
+    |> dedupe_human_review_targets()
+    |> Enum.sort_by(&human_review_comment_target_sort_key(state, &1))
+    |> Enum.take(human_review_comment_target_limit(opts))
+    |> Enum.map(&with_human_review_pr_updated_at(&1, opts))
+    |> Enum.reject(&unchanged_human_review_comment_target?(state, &1))
   end
 
   defp comment_target_for_issue(%Issue{identifier: identifier}) when not is_nil(identifier),

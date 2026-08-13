@@ -14,6 +14,13 @@ defmodule AiurWeb.Router do
     plug(AiurWeb.SupervisorAuth)
   end
 
+  # GitHub webhook deliveries carry no bearer token and no browser session:
+  # they authenticate by HMAC signature over the raw body, so they need their
+  # own pipeline rather than the dashboard or supervisor auth pipelines.
+  pipeline :github_webhook do
+    plug(AiurWeb.GithubWebhook.Auth)
+  end
+
   pipeline :browser do
     plug(:fetch_session)
     plug(AiurWeb.FinancialDataAccess, :persist_session)
@@ -48,6 +55,19 @@ defmodule AiurWeb.Router do
   # behind this gate (see the route scopes below).
   pipeline :require_writable do
     plug(:require_dashboard_writable)
+  end
+
+  # Keep the webhook receiver ahead of every other scope: the dashboard's
+  # trailing `/*path` catch-all would otherwise claim this path and answer with
+  # a Basic-Auth challenge instead of a signature check. The literal path is
+  # asserted against `AiurWeb.GithubWebhook.path/0` in the router tests, since
+  # the endpoint's body reader keys raw-body caching off that same value.
+  scope "/", AiurWeb do
+    pipe_through(:github_webhook)
+
+    # `log: false` suppresses Phoenix's default dispatch log, which would
+    # otherwise write the entire decoded webhook payload into the debug log.
+    post("/api/v1/github/webhook", GithubWebhookController, :create, log: false)
   end
 
   # Supervisor Decision mutations retain the dashboard's existing write
@@ -91,15 +111,14 @@ defmodule AiurWeb.Router do
     get("/ticket-context-dialog-hook.js", StaticAssetController, :ticket_context_dialog_hook)
     get("/build-order-grid-hook.js", StaticAssetController, :build_order_grid_hook)
     get("/time-brush-hook.js", StaticAssetController, :time_brush_hook)
+    get("/streamdeck-emulator-hook.js", StaticAssetController, :streamdeck_emulator_hook)
     get("/aiur-dom-svg-layout-adapter.js", StaticAssetController, :dom_svg_layout_adapter)
     get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
     get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
-    get("/codex-color.svg", StaticAssetController, :codex_color_svg)
-    get("/claude-symbol.svg", StaticAssetController, :claude_symbol_svg)
-    get("/codex-token.svg", StaticAssetController, :codex_token_svg)
-    get("/claude-token.svg", StaticAssetController, :claude_token_svg)
+    get("/images/github-mark.svg", StaticAssetController, :github_mark)
     get("/bungee.woff2", StaticAssetController, :bungee_font)
+    get("/provider-assets/*provider_asset", StaticAssetController, :provider_asset)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
     get("/vendor/phoenix/phoenix.js", StaticAssetController, :phoenix_js)
     get("/vendor/phoenix_live_view/phoenix_live_view.js", StaticAssetController, :phoenix_live_view_js)
@@ -116,6 +135,7 @@ defmodule AiurWeb.Router do
       live("/build-orders", BuildOrderLive, :build_orders)
       live("/build-orders/:root_number", BuildOrderLive, :build_order)
       live("/analytics", AnalyticsLive, :analytics)
+      live("/streamdeck", StreamdeckLive, :streamdeck)
     end
   end
 

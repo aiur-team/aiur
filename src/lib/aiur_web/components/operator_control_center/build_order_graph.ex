@@ -8,6 +8,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   use Phoenix.Component
 
+  alias Aiur.BuildOrder.ProgressRenderer
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextSelection
   alias AiurWeb.OperatorControlCenter.{BuildOrderEpicIcon, BuildOrderGridModel}
@@ -24,15 +25,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
     grid = BuildOrderGridModel.build(assigns.model, assigns.adhoc)
 
     cells = Enum.group_by(grid.cards, &{&1.lane, &1.phase})
+    columns = Enum.map(grid.columns, &with_html_progress/1)
+    waves = Enum.map(grid.waves, &with_html_progress/1)
 
     assigns =
       assigns
-      |> assign(:columns, grid.columns)
-      |> assign(:waves, grid.waves)
+      |> assign(:columns, columns)
+      |> assign(:waves, waves)
       |> assign(:edges, grid.edges)
       |> assign(:cells, cells)
       |> assign(:columns_style, columns_style(grid.columns, cells))
-      |> assign(:core_waves, Enum.filter(grid.waves, & &1.core?))
+      |> assign(:core_waves, Enum.filter(waves, & &1.core?))
+      |> assign(:overall_progress, html_progress(grid.overall_completion))
       |> assign(:planning?, grid.planning?)
 
     ~H"""
@@ -48,13 +52,21 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
       <div :if={@core_waves != [] and not @planning?} class="bo-waves-head" aria-label="Wave completion">
 
+        <div class="bo-wave-seg">
+          <div class="bo-wave-seg-top">
+            <span class="bo-wave-seg-label">Overall</span>
+            <span class="bo-wave-seg-pct">{@overall_progress.label}</span>
+          </div>
+          <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(@overall_progress)}></i></span>
+        </div>
+
         <div class="bo-waves-strip">
           <div :for={wave <- @core_waves} class="bo-wave-seg">
             <div class="bo-wave-seg-top">
               <span class="bo-wave-seg-label">{wave.label}</span>
-              <span class="bo-wave-seg-pct">{wave.pct}%</span>
+              <span class="bo-wave-seg-pct">{wave.progress_view.label}</span>
             </div>
-            <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(wave.pct)}></i></span>
+            <span class="bo-wave-seg-meter" aria-hidden="true"><i style={wave_meter_style(wave.progress_view)}></i></span>
           </div>
         </div>
       </div>
@@ -89,6 +101,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
                 <BuildOrderEpicIcon.build_order_epic_icon lane={col.lane} class="bo-epic-icon" colored />
                 <span class="bo-epic-label">{col.label}</span>
                 <span class="bo-epic-count">{col.count}</span>
+                <span :if={col.core? and not @planning?} class="bo-epic-count">{col.progress_view.label}</span>
               </div>
             </div>
 
@@ -132,6 +145,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       assigns
       |> assign(:nav_value, nav_value(assigns.model, assigns.card))
       |> assign(:origin_id, origin_id(assigns.model, assigns.card))
+      |> assign(:progress, html_progress(assigns.card.completion))
 
     ~H"""
     <div
@@ -139,14 +153,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       id={@origin_id}
       data-bo-card={@card.id}
       data-bo-state={@card.state}
-      aria-label={card_aria(@card, @nav_value)}
+      aria-label={card_aria(@card, @nav_value, @progress.label)}
       tabindex="0"
       role={@nav_value && "button"}
       phx-click={@nav_value && "open-ticket-context"}
       phx-value-member={@nav_value}
     >
       <div class="bo-node-top">
-        <BuildOrderEpicIcon.build_order_epic_icon lane={@card.lane} class="bo-node-ic" />
+        <BuildOrderEpicIcon.build_order_epic_icon lane={@card.icon || @card.lane} class="bo-node-ic" />
         <span class="bo-node-id">{@card.id}</span>
         <span
           class="bo-node-blocks"
@@ -157,11 +171,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
       </div>
       <div class="bo-node-title">{@card.title}</div>
       <div class="bo-node-status">
-        <span :if={@card.has_progress} class="bo-node-pct">{@card.progress}%</span>
+        <span :if={@card.state != :planned} class="bo-node-pct" data-progress-state={@progress.state}>{@progress.label}</span>
         <span :if={@card.complexity} class="bo-node-cx">Cx {@card.complexity}</span>
         <span class="bo-node-word">{@card.status_word}</span>
       </div>
-      <span class="bo-node-bar" aria-hidden="true"><i style={"width:#{@card.progress || 0}%"}></i></span>
+      <span :if={@card.state != :planned and is_integer(@progress.percent)} class="bo-node-bar" aria-hidden="true"><i style={"width:#{@progress.percent}%"}></i></span>
     </div>
     """
   end
@@ -202,11 +216,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
   defp column_cap(epic_count) when epic_count <= 7, do: 2
   defp column_cap(_epic_count), do: 1
 
-  # Hue ramps red (0%) → green (100%): pct*1.2 maps 100 → 120° (green).
-  defp wave_meter_style(pct) when is_integer(pct),
-    do: "width:#{pct}%; background:hsl(#{round(pct * 1.2)} 68% 46%)"
+  # Hue ramps red (0%) → green (100%): percent*1.2 maps 100 → 120° (green).
+  defp wave_meter_style(%{percent: percent}) when is_integer(percent),
+    do: "width:#{percent}%; background:hsl(#{round(percent * 1.2)} 68% 46%)"
 
-  defp wave_meter_style(_pct), do: "width:0%"
+  defp wave_meter_style(_progress), do: "width:0%"
 
   # "Blocks" tag colour ramps green (blocks nothing) → red (blocks many): each
   # blocked ticket shifts the hue 20° toward red, clamped at 0° (red).
@@ -233,11 +247,14 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGraph do
 
   defp origin_id(_model, _card), do: nil
 
-  defp card_aria(card, nav_value) do
+  defp card_aria(card, nav_value, progress_label) do
     prefix = if nav_value, do: ["Open ticket context:"], else: []
 
-    (prefix ++ [card.id, card.title, "#{card.progress}%", card.status_word, blocks_title(card.blocks)])
+    (prefix ++ [card.id, card.title, progress_label, card.status_word, blocks_title(card.blocks)])
     |> Enum.reject(&(&1 in [nil, ""]))
     |> Enum.join(" · ")
   end
+
+  defp with_html_progress(item), do: Map.put(item, :progress_view, html_progress(item.completion))
+  defp html_progress(completion), do: ProgressRenderer.html(completion)
 end

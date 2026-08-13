@@ -1,5 +1,10 @@
 # Build Order Executor Handoff
 
+> **Superseded:** the live, machine-local Executor handoff now belongs at
+> `~/.aiur/repo/<owner>/<repo>/executor/handoff.md`. This tracked document is
+> retained as historical context only; new handoffs must replace the state-node
+> document rather than append here.
+
 ## New-machine handoff — orangekid-opus (2026-07-18 ~22:40 PDT)
 
 Supersedes all checkpoints below. Run is post-54: 54/54 core merged long ago;
@@ -66,7 +71,7 @@ tmux session `aiur-orangekid-0f62c25cdf-default`.
   MAX_DIMENSION for node sizes), then `direction: "RIGHT"→"DOWN"` in
   `measurement.js` for the design's top-down phase-row layout. 54 nodes, ~107
   edges, is-layout-ready. Regression test added at protocol level.
-- **"Operator Control Center" rename** (was "Executor Control Center").
+- **"Operator Control Center" rename** (was "Dashboard").
 - **Units/Commands/Build Order** card parity: modal deps, header CTAs, Cx badges,
   progress bars, edge legend, filler trims, plain-language state messages.
 - Preview `docs/build-order/plan-preview.html` refreshed (54/54) + served copy

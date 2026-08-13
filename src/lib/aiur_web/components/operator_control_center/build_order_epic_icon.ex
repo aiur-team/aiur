@@ -28,11 +28,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   }
 
   @generic_icon "squares-2x2"
+  @explicit_icons ["bolt", "cube", "sparkles", "server-stack", "rectangle-group"]
 
   # Vendored by the `:heroicons` dep (source only); present at compile time.
   @outline_dir "deps/heroicons/optimized/24/outline"
 
-  @svgs (for name <- Map.values(@lane_icons) ++ [@generic_icon], into: %{} do
+  @svgs (for name <- Map.values(@lane_icons) ++ @explicit_icons ++ [@generic_icon], into: %{} do
            path = Path.join(@outline_dir, "#{name}.svg")
            @external_resource path
 
@@ -114,7 +115,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderEpicIcon do
   def planning_lanes, do: ["plan-graph", "runtime", "dashboard-ui", "accounting", "platform"]
 
   defp svg_for(lane) when is_binary(lane) do
-    name = Map.get(@lane_icons, lane, @generic_icon)
+    name = Map.get(@lane_icons, lane, lane)
     Map.get(@svgs, name, Map.fetch!(@svgs, @generic_icon))
   end
 

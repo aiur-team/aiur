@@ -438,7 +438,18 @@ defmodule Aiur.CoordinationTasksTest do
     assert log =~ ~s(issue_id="internal-1033")
     assert log =~ ~s(issue_identifier="AIUR-1033")
     assert log =~ "timeout_ms=456"
-    assert byte_size(log) < 1_000
+
+    # Bound the *emitted detail* rather than the whole capture: `capture_log/1`
+    # captures the global Logger, so a total-size assertion is falsifiable by any
+    # unrelated process that happens to log during this block (#1747).
+    longest_detail_run =
+      ~r/x+/
+      |> Regex.scan(log)
+      |> Enum.map(fn [run] -> byte_size(run) end)
+      |> Enum.max(fn -> 0 end)
+
+    assert longest_detail_run > 0, "expected the failure detail to be logged"
+    assert longest_detail_run <= 500
   end
 
   defp blocking_operation(test_pid) do

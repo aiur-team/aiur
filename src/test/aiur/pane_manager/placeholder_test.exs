@@ -1,5 +1,5 @@
 defmodule Aiur.PaneManager.PlaceholderTest do
-  use ExUnit.Case, async: false
+  use ExUnit.Case, async: true
 
   alias Aiur.PaneManager.{Placeholder, State}
   alias Aiur.Tmux

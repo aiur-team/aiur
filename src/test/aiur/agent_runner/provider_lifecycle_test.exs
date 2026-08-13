@@ -29,7 +29,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
              )
 
     assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, issue.identifier)
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   test "late prior turn start cannot wedge the next real runner turn" do
@@ -37,7 +37,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     issue = issue("MT-LATE-START")
 
     assert :ok = AgentRunner.run(issue, nil, two_turn_opts(issue))
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   test "duplicate anonymous completion cannot finish the next real runner turn" do
@@ -53,23 +53,32 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   test "idle completion consumes the anonymous fallback before the next real turn" do
     {marker, release} = lifecycle_barrier("idle-boundary")
     paths = prepare_case("idle-boundary", idle_boundary_script(marker, release))
     issue = issue("MT-IDLE-BOUNDARY")
+    issue_id = issue.id
+    parent = self()
     opts = two_turn_opts(issue)
 
-    task = Task.async(fn -> AgentRunner.run(issue, nil, opts) end)
+    task = Task.async(fn -> AgentRunner.run(issue, parent, opts) end)
 
     assert wait_for_path(marker)
-    assert Task.yield(task, 100) == nil
+
+    assert_receive {:codex_worker_update, ^issue_id, %{event: :turn_completed, payload: %{"params" => %{"turn" => anonymous_turn}}}},
+                   30_000
+
+    refute Map.has_key?(anonymous_turn, "id")
+
+    assert_receive {:codex_worker_update, ^issue_id, %{event: :notification, payload: %{"method" => "test/idle-boundary"}}},
+                   30_000
 
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   test "cancelled pause retires the old provider turn before the resumed real turn" do
@@ -95,7 +104,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   test "quota pause retires the failed provider turn before the resumed real turn" do
@@ -120,7 +129,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
 
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   test "operator interrupt consumes the anonymous fallback before its queued turn" do
@@ -180,7 +189,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     File.touch!(release)
     assert Task.await(task, 15_000) == :ok
     assert :empty == OperatorMessages.claim_next_queue_item(orchestrator_name, issue.identifier)
-    assert turn_start_count(paths.trace) == 2
+    assert_turn_starts(paths.trace, 2)
   end
 
   defp prepare_case(name, script) do
@@ -303,6 +312,7 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
             else
               printf '{"id":%s,"result":{"turn":{"id":"turn-new","status":"inProgress"}}}\n' "$request_id"
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+              printf '%s\n' '{"method":"test/idle-boundary","params":{}}'
               touch "#{marker}"
               while [ ! -f "#{release}" ]; do sleep 0.01; done
               printf '%s\n' '{"method":"turn/completed","params":{"turn":{"id":"turn-new","status":"completed"}}}'
@@ -408,14 +418,63 @@ defmodule Aiur.AgentRunner.ProviderLifecycleTest do
     """
   end
 
-  defp turn_start_count(trace) do
+  # A bare count mismatch here is undiagnosable after the fact: the fake
+  # provider's trace is the only record of which frames the runner actually
+  # sent, and `prepare_case`'s `on_exit` deletes it. Issue #1765 lost a
+  # merge-queue ejection to exactly that — CI reported `left: 3 / right: 2` and
+  # nothing else, so the extra `turn/start` could not be attributed to a
+  # primary turn, a queue-item delivery, or a mid-turn checkpoint write. Fail
+  # with the recorded frame sequence attached.
+  defp assert_turn_starts(trace, expected) do
+    frames = trace_frames(trace)
+    actual = Enum.count(frames, &String.contains?(&1, ~s("method":"turn/start")))
+
+    if actual != expected do
+      flunk("""
+      expected #{expected} turn/start frames, saw #{actual}
+
+      recorded provider frames (method + request id, in order):
+      #{Enum.map_join(frames, "\n", &"  #{summarize_frame(&1)}")}
+      """)
+    end
+
+    :ok
+  end
+
+  defp trace_frames(trace) do
     trace
     |> File.read!()
     |> String.split("\n", trim: true)
-    |> Enum.count(&String.contains?(&1, ~s("method":"turn/start")))
   end
 
-  defp wait_for_path(path, attempts \\ 200)
+  # Turn prompts run to tens of kilobytes, so the raw lines are unreadable in a
+  # CI log. The ordered method/id sequence is what attributes an extra frame to
+  # its sender: the primary turn and a queue-item turn both use the fixed
+  # `turn/start` request id, while a mid-turn checkpoint write uses a unique one.
+  defp summarize_frame(frame) do
+    method =
+      case Regex.run(~r/"method":"([^"]+)"/, frame) do
+        [_, method] -> method
+        _ -> "?"
+      end
+
+    id =
+      case Regex.run(~r/"id":(\d+)/, frame) do
+        [_, id] -> id
+        _ -> "-"
+      end
+
+    "#{method} id=#{id}"
+  end
+
+  # 30s, not the original 5s. These markers gate on a full fake-provider turn
+  # round-tripping through the app-server session, and the merge-queue runners
+  # execute this file inside a `coverage` shard on an already-saturated box.
+  # A 5s stopwatch there is a coin flip, not an assertion about behaviour
+  # (#1765): the wait was observed timing out locally under CPU contention
+  # while the run itself was healthy. The budget stays bounded so a genuine
+  # wedge still fails rather than hanging the suite.
+  defp wait_for_path(path, attempts \\ 1_200)
   defp wait_for_path(_path, 0), do: false
 
   defp wait_for_path(path, attempts) do

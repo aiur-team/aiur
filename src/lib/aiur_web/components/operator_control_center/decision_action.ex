@@ -13,12 +13,37 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
+    decision = assigns.decision
+    status = decision.decision_status
+    blocking? = Map.get(decision, :blocking, false)
+
+    answerable? = status in [:open, :deferred, :dismissed]
+
+    # Only offer the control where dismissal genuinely clears the block:
+    # the dashboard resolves the underlying legacy attention alongside it.
+    # An agent-filed blocking Command has no such path and the store
+    # refuses it, so it must be answered rather than closed.
+    dismissible? =
+      blocking? and
+        not is_nil(Map.get(decision, :legacy_attention)) and
+        status in [:open, :deferred]
+
+    acknowledgeable? = decision.options == [] and status == :open and not blocking?
+
+    # The command footer never renders more than two buttons: the submit button
+    # plus at most one secondary action. Defer is the secondary action that can
+    # otherwise coexist with a dismiss/acknowledge, so it yields to whichever of
+    # those is present rather than crowding the row.
+    deferrable? = status in [:open, :deferred] and not dismissible? and not acknowledgeable?
+
     assigns =
       assign(assigns,
         form: form,
         choice: choice,
-        answerable?: assigns.decision.decision_status in [:open, :deferred, :dismissed],
-        deferrable?: assigns.decision.decision_status in [:open, :deferred],
+        answerable?: answerable?,
+        deferrable?: deferrable?,
+        dismissible?: dismissible?,
+        acknowledgeable?: acknowledgeable?,
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )
@@ -65,7 +90,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
             <input type="radio" name="answer[choice]" value="custom" checked={@choice == "custom"} />
             <span class="decision-choice-copy">
               <strong>Custom response</strong>
-              <small>Record a bounded response in your own words.</small>
+              <small>Record a response in your own words.</small>
             </span>
           </label>
         </fieldset>
@@ -93,6 +118,24 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
               phx-value-decision-id={@decision.decision_id}
               phx-disable-with="Deferring…"
             >{if @decision.decision_status == :deferred, do: "Notify Executor again", else: "Defer to Executor"}</button>
+            <button
+              :if={@dismissible?}
+              class="btn ghost icon-only decision-dismiss"
+              type="button"
+              phx-click="dismiss-decision"
+              phx-value-decision-id={@decision.decision_id}
+              phx-disable-with="×"
+              aria-label="Dismiss blocker"
+              title="Dismiss blocker"
+            >×</button>
+            <button
+              :if={@acknowledgeable?}
+              class="btn ghost"
+              type="button"
+              phx-click="dismiss-decision"
+              phx-value-decision-id={@decision.decision_id}
+              phx-disable-with="Acknowledging…"
+            >Acknowledge</button>
             <button class="btn" type="submit" phx-disable-with="Recording…">{if @decision.decision_status in [:dismissed, :deferred], do: "Change choice", else: "Decision"}</button>
           </div>
         </footer>

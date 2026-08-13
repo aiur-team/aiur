@@ -86,6 +86,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       entry = Map.fetch!(next.running, identifier)
       assert entry.control.status == :deactivated
+      assert entry.paused_reason == :ci_wait
       assert entry.pid == nil
       assert entry.ref == nil
       assert entry.completed_provenance
@@ -93,6 +94,23 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
       assert is_reference(token)
       assert is_reference(timer_ref)
+    end
+
+    test "a deactivated+ci-wait entry is woken by the CI terminal event" do
+      identifier = unique_identifier("deactivated-terminal-wake")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :deactivated, paused_reason: :ci_wait)
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+
+      in_progress_issue = %{issue | state: "in-progress"}
+      RecordingGitHubClient.return_issues([in_progress_issue])
+
+      next = CiLifecycle.maybe_resume_for_ci_terminal(armed, identifier, :passed)
+
+      assert next.running[identifier].issue.state == "in-progress"
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 
     test "pending CI writes ci-wait and waits for live-runner pause evidence" do
@@ -273,6 +291,60 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
       assert next.running[identifier].issue.state == "human-review"
       assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
+    end
+
+    test "a stale ci-wait projection cannot rework the persisted approved head" do
+      identifier = unique_identifier("ci-stale-approved-head")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      :ok = CIApprovalStore.save(%{identifier => "reviewed-head"}, %{})
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> then(fn state ->
+          %{state | ci_lifecycle: Map.merge(state.ci_lifecycle, CIApprovalStore.load())}
+        end)
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "reviewed-head",
+          pr_number: 99,
+          failures: [%{name: "quarantined tests (non-blocking)", result: "failure"}]
+        })
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, {:tracker_update, ^identifier, "rework", _opts}}
+      assert next.running[identifier].issue.state == "ci-wait"
+      assert next.ci_lifecycle.approved_heads == %{identifier => "reviewed-head"}
+    end
+
+    test "a stale ci-wait projection still reworks a different head" do
+      identifier = unique_identifier("ci-stale-superseded-head")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+        |> with_approved_head(identifier, "reviewed-head")
+
+      next =
+        poll_ci(state, issue, %{
+          decision: :failed,
+          head_sha: "pushed-head",
+          pr_number: 99,
+          failures: [%{name: "lint", result: "failure", excerpt: "lint failed"}]
+        })
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "rework", [expected_state: "ci-wait"]}}
+      assert next.running[identifier].issue.state == "rework"
+      assert next.ci_lifecycle.approved_heads == %{}
     end
 
     test "a CI failure observed after a dismissed-failure handoff anchors the reviewed head" do
@@ -501,6 +573,103 @@ defmodule Aiur.OrchestratorCILifecycleTest do
 
       refute_received {:recorded, _position, _message}
       assert next.running[identifier].control.status == :paused
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "a deactivated runner entering CI wait gets paused_reason and fallback rewake armed" do
+      identifier = unique_identifier("deactivated-ci-wait")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :deactivated, [])
+      next = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+
+      entry = Map.fetch!(next.running, identifier)
+      assert entry.control.status == :deactivated
+      assert entry.paused_reason == :ci_wait
+      assert %{token: token, timer_ref: timer_ref} = next.ci_lifecycle.rewakes[identifier]
+      assert is_reference(token)
+      assert is_reference(timer_ref)
+    end
+
+    test "a deactivated ci-wait entry is recovered by the fallback rewake" do
+      identifier = unique_identifier("deactivated-rewake")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [%{issue | state: "ci-wait"}]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      assert_received {:recorded, 1, {:tracker_update, ^identifier, "in-progress", [expected_state: "ci-wait"]}}
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "deactivated ci-wait rewake does not wake when issue is no longer in ci-wait state" do
+      identifier = unique_identifier("deactivated-rewake-state-guard")
+      recorder = start_recorder()
+      issue = issue(identifier, "ci-wait")
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      transitioned_issue = %{issue | state: "in-progress"}
+      issue_fetcher = fn [^identifier] -> {:ok, [transitioned_issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :deactivated
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "deactivated ci-wait rewake does not wake when issue is operator-paused" do
+      identifier = unique_identifier("deactivated-rewake-paused-guard")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | paused: true}
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :deactivated
+      assert next.running[identifier].issue.paused
+      refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
+    end
+
+    test "deactivated ci-wait rewake does not wake when issue is routed away from this worker" do
+      identifier = unique_identifier("deactivated-rewake-routed-guard")
+      recorder = start_recorder()
+      issue = %{issue(identifier, "ci-wait") | assigned_to_worker: false}
+
+      state = running_state(issue, recorder, :deactivated, [])
+      armed = CiLifecycle.pause_issue_for_ci_wait(state, issue)
+      %{token: token} = armed.ci_lifecycle.rewakes[identifier]
+
+      issue_fetcher = fn [^identifier] -> {:ok, [issue]} end
+
+      next = CiLifecycle.handle_ci_wait_rewake(armed, identifier, token, issue_fetcher: issue_fetcher)
+
+      sync_recorder(recorder)
+
+      refute_received {:recorded, _position, _message}
+      assert next.running[identifier].control.status == :deactivated
       refute Map.has_key?(next.ci_lifecycle.rewakes, identifier)
     end
 

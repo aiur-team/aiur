@@ -177,7 +177,13 @@ defmodule Aiur.AgentEventFeedTest do
   test "badge maps atoms, persisted strings, and unknown roles safely" do
     assert AgentEventFeed.badge(:command) == "EMIT"
     assert AgentEventFeed.badge("user") == "CONSUME"
-    assert AgentEventFeed.badge("unknown") == "SYSTEM"
+    assert AgentEventFeed.badge("unknown") == "INFO"
+  end
+
+  test "retains unknown persisted roles with the INFO badge", %{identifier: identifier} do
+    write_events(identifier, [event("provider_extension", "new provider event")])
+
+    assert {:ok, %{events: [%{body: "new provider event", badge: "INFO"}]}} = AgentEventFeed.list(identifier)
   end
 
   test "keeps malformed payloads as messages and renders provider deleted lines", %{identifier: identifier} do

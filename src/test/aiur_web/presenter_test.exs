@@ -4,6 +4,7 @@ defmodule AiurWeb.PresenterTest do
   alias Aiur.Events.SubscriptionStore
   alias Aiur.{Issue, RecentMerge, TicketActivity, TicketObservation, TrackerIdentity}
   alias Aiur.Orchestrator
+  alias Aiur.Orchestrator.{SnapshotStore, StatusReport}
   alias Aiur.TicketActivity.Projection
   alias AiurWeb.Presenter
 
@@ -44,6 +45,11 @@ defmodule AiurWeb.PresenterTest do
       identifier: identifier,
       reason: nil
     }
+  end
+
+  defp publish_dashboard_snapshot(pid) do
+    state = :sys.get_state(pid)
+    :ok = SnapshotStore.publish(state.snapshot_key, StatusReport.snapshot_payload(state))
   end
 
   test "projects explicit waiting reasons, staleness, CI/PR, and idle rows" do
@@ -135,6 +141,8 @@ defmodule AiurWeb.PresenterTest do
       }
     end)
 
+    publish_dashboard_snapshot(pid)
+
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
     assert payload.counts == %{running: 1, retrying: 1, idle: 1}
@@ -216,6 +224,8 @@ defmodule AiurWeb.PresenterTest do
       %{state | running: %{"issue-first" => first, "issue-second" => second}}
     end)
 
+    publish_dashboard_snapshot(pid)
+
     assert {:error, :issue_not_found} = Presenter.issue_payload(identifier, orchestrator_name, 1_000)
   end
 
@@ -237,11 +247,96 @@ defmodule AiurWeb.PresenterTest do
       %{state | running: %{"issue-decision" => running_entry("issue-decision", identifier, :working)}}
     end)
 
+    publish_dashboard_snapshot(pid)
+
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
     assert [running_row] = payload.running
     assert running_row.open_decision_count == 1
     assert running_row.open_decision_count_health == :available
+  end
+
+  test "surfaces an active capacity hold with the measured limiting signal and threshold" do
+    orchestrator_name = Module.concat(__MODULE__, :CapacityHoldOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    held_at = System.monotonic_time(:millisecond) - 12_000
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | capacity_hold: %{
+            signal: :load,
+            measured: 19.5,
+            threshold: 18.0,
+            held_since_ms: held_at,
+            alerted?: true
+          }
+      }
+    end)
+
+    publish_dashboard_snapshot(pid)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert %{
+             held?: true,
+             signal: :load,
+             measured: 19.5,
+             threshold: 18.0,
+             held_for_seconds: 12
+           } = payload.capacity_hold
+  end
+
+  test "surfaces an active tracker dispatch hold" do
+    orchestrator_name = Module.concat(__MODULE__, :DispatchHoldOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    held_at = System.monotonic_time(:millisecond) - 7_000
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | dispatch_hold: %{
+            reason: :tracker_preflight,
+            detail: :invalid_or_expired_token,
+            held_since_ms: held_at
+          }
+      }
+    end)
+
+    publish_dashboard_snapshot(pid)
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert %{
+             held?: true,
+             reason: :tracker_preflight,
+             detail: :invalid_or_expired_token,
+             held_for_seconds: 7
+           } = payload.dispatch_hold
+  end
+
+  test "reports a not-held capacity block when no admission hold is active" do
+    orchestrator_name = Module.concat(__MODULE__, :NoCapacityHoldOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    publish_dashboard_snapshot(pid)
+
+    payload = Presenter.state_payload(orchestrator_name, 1_000)
+
+    assert %{held?: false, signal: nil, threshold: nil} = payload.capacity_hold
   end
 
   test "snapshot carries fresh activity progress, including retained retry identities" do
@@ -377,12 +472,15 @@ defmodule AiurWeb.PresenterTest do
       |> Map.put(:paused_reason, :global_pause)
 
     :sys.replace_state(pid, fn state ->
-      %{state | running: %{"issue-held" => held_entry}, globally_paused: true}
+      %{state | running: %{"issue-held" => held_entry}, globally_paused: true, global_pause: %{paused_at: ~U[2026-08-01 12:00:00Z], source: "dashboard"}}
     end)
+
+    publish_dashboard_snapshot(pid)
 
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
     assert payload.globally_paused == true
+    assert payload.global_pause == %{globally_paused: true, paused_at: "2026-08-01T12:00:00Z", source: "dashboard"}
     assert [running_row] = payload.running
     assert running_row.waiting_reason == :run_paused
   end
@@ -401,6 +499,8 @@ defmodule AiurWeb.PresenterTest do
     :sys.replace_state(pid, fn state ->
       %{state | running: %{"issue-decision" => running_entry("issue-decision", identifier, :working)}}
     end)
+
+    publish_dashboard_snapshot(pid)
 
     payload = Presenter.state_payload(orchestrator_name, 1_000)
 
@@ -450,7 +550,7 @@ defmodule AiurWeb.PresenterTest do
         telemetry_file_fun: fn -> telemetry_path end
       )
 
-    assert payload.error.code == "snapshot_unavailable"
+    assert payload.error.code == "orchestrator_unavailable"
     assert payload.decision_history == %{status: :available, entries: [decision], message: nil}
     assert [recent] = payload.recent_merges.entries
     assert recent.number == 42
@@ -462,6 +562,33 @@ defmodule AiurWeb.PresenterTest do
              path: "/analytics",
              message: "Open the separate durable telemetry report."
            }
+  end
+
+  test "renders a stale last-known-good fleet instead of a snapshot error" do
+    orchestrator_name = Module.concat(__MODULE__, :StaleFleetOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name, initial_poll?: false)
+
+    on_exit(fn ->
+      try do
+        :sys.resume(pid)
+      catch
+        :exit, _reason -> :ok
+      end
+
+      if Process.alive?(pid), do: Process.exit(pid, :normal)
+    end)
+
+    publish_dashboard_snapshot(pid)
+
+    :sys.suspend(pid)
+    send(pid, :dispatch_backlog)
+
+    payload = Presenter.state_payload(orchestrator_name, 0)
+
+    refute Map.has_key?(payload, :error)
+    assert payload.counts == %{running: 0, retrying: 0, idle: 0}
+    assert payload.snapshot_freshness.status == :stale
+    assert is_integer(payload.snapshot_freshness.age_seconds)
   end
 
   test "an unavailable optional provider does not hide the other durable section" do

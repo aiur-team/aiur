@@ -1,6 +1,8 @@
 defmodule Aiur.ApplicationTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
+
   alias Aiur.Application, as: AiurApp
 
   defmodule SuccessStubDistribution do
@@ -20,6 +22,12 @@ defmodule Aiur.ApplicationTest do
     # shutdown. There's no cleanup to perform — releases unmount on
     # node halt — so the callback just returns :ok.
     assert :ok = AiurApp.stop(:any_state)
+  end
+
+  test "logs the resolved base branch exactly once at info level" do
+    log = capture_log(fn -> assert :ok = AiurApp.log_base_branch({:ok, %{tracker: %{base_branch: "develop"}}}) end)
+
+    assert length(Regex.scan(~r/aiur_boot phase=config base_branch="develop"/, log)) == 1
   end
 
   describe "start_distribution/1" do
@@ -255,10 +263,32 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
+    test "GitHub quota authority starts before the orchestrator in every run shape" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        quota = Enum.find_index(mods, &(&1 == Aiur.GitHub.Quota))
+        orchestrator = Enum.find_index(mods, &(&1 == Aiur.Orchestrator))
+        assert quota < orchestrator
+      end
+    end
+
     test "the shared test orchestrator starts without a poll cycle" do
       specs = AiurApp.child_specs(interactive_cli?: false, headless?: true, dashboard?: false)
 
-      assert {Aiur.Orchestrator, initial_poll?: false} in specs
+      assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
+    end
+
+    test "singleton runtime services are explicitly named by their child specs" do
+      specs = AiurApp.child_specs(interactive_cli?: true, headless?: false, dashboard?: false)
+
+      assert {Aiur.Tmux, name: Aiur.Tmux} in specs
+      assert {Aiur.PaneManager, name: Aiur.PaneManager} in specs
+      assert {Aiur.Events.Exchange, name: Aiur.Events.Exchange} in specs
+      assert {Aiur.DecisionStore, name: Aiur.DecisionStore} in specs
+      assert {Aiur.Orchestrator, name: Aiur.Orchestrator, initial_poll?: false} in specs
     end
 
     test "current-run membership starts before the orchestrator and reconciles after it" do
@@ -429,10 +459,10 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
-    test "debug mode inserts telemetry after Exchange and before Publisher in both shapes" do
+    test "telemetry_enabled inserts telemetry supervisor after Exchange and before Publisher in both shapes" do
       for opts <- [
-            [interactive_cli?: true, headless?: false, dashboard?: true, debug?: true],
-            [interactive_cli?: false, headless?: true, dashboard?: false, debug?: true]
+            [interactive_cli?: true, headless?: false, dashboard?: true, telemetry?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false, telemetry?: true]
           ] do
         mods = modules(AiurApp.child_specs(opts))
         exchange = Enum.find_index(mods, &(&1 == Aiur.Events.Exchange))
@@ -444,14 +474,67 @@ defmodule Aiur.ApplicationTest do
       end
     end
 
-    test "non-debug child lists contain no telemetry process" do
+    test "telemetry disabled removes telemetry supervisor" do
       for opts <- [
-            [interactive_cli?: true, headless?: false, dashboard?: true, debug?: false],
-            [interactive_cli?: false, headless?: true, dashboard?: false, debug?: false]
+            [interactive_cli?: true, headless?: false, dashboard?: true, telemetry?: false],
+            [interactive_cli?: false, headless?: true, dashboard?: false, telemetry?: false]
           ] do
         mods = modules(AiurApp.child_specs(opts))
         refute Aiur.RunTelemetry.Supervisor in mods
       end
+    end
+
+    test "telemetry supervisor is present by default (no telemetry? opt)" do
+      for opts <- [
+            [interactive_cli?: true, headless?: false, dashboard?: true],
+            [interactive_cli?: false, headless?: true, dashboard?: false]
+          ] do
+        mods = modules(AiurApp.child_specs(opts))
+        assert Aiur.RunTelemetry.Supervisor in mods
+      end
+    end
+  end
+
+  describe "RunTelemetry.start_boot/0 enabled gate" do
+    test "start_boot/0 writes telemetry_enabled false from config, so telemetry_enabled?/0 agrees" do
+      enabled_key = {Aiur.RunTelemetry, :telemetry_enabled}
+      original_pt = :persistent_term.get(enabled_key, :unset)
+      original_path = Application.get_env(:aiur, :workflow_file_path)
+
+      tmp = Path.join(System.tmp_dir!(), "disabled-boot-test-#{System.unique_integer([:positive])}")
+      config_path = Path.join(tmp, "disabled.aiurconfig")
+      File.mkdir_p!(tmp)
+
+      File.write!(config_path, """
+      tracker:
+        kind: github
+        github:
+          repo: test-org/test-repo
+          label_prefix: agent
+      observability:
+        telemetry_enabled: false
+      """)
+
+      on_exit(fn ->
+        File.rm_rf!(tmp)
+
+        case original_path do
+          nil -> Application.delete_env(:aiur, :workflow_file_path)
+          value -> Application.put_env(:aiur, :workflow_file_path, value)
+        end
+
+        case original_pt do
+          :unset -> :persistent_term.erase(enabled_key)
+          value -> :persistent_term.put(enabled_key, value)
+        end
+      end)
+
+      Application.put_env(:aiur, :workflow_file_path, config_path)
+      assert Aiur.Config.telemetry_enabled?() == false
+
+      Aiur.RunTelemetry.start_boot()
+
+      assert Aiur.RunTelemetry.telemetry_enabled?() == false
     end
   end
 end

@@ -72,7 +72,7 @@ defmodule Aiur.Events.Publisher do
   Options:
 
     * `:issue_number` — number used by the contamination filter; nil
-      bypasses filter (e.g. system topics like `system.main.branch.push`)
+      bypasses filter (e.g. system topics like `system.<base_branch>.branch.push`)
     * `:actor` — author login; if matches `bot_account`, drop
     * `:dedup_key` — stable source-specific key; if set, dedup is applied
     * `:bypass_contamination` — when `true`, skip the tracked-issue
@@ -100,7 +100,7 @@ defmodule Aiur.Events.Publisher do
       executor_topic_from_github?(topic, payload, opts) ->
         {:error, :executor_namespace_rejects_github_source}
 
-      bot_self_loop?(actor) ->
+      filtered_bot_self_loop?(topic, actor) ->
         :filtered
 
       not Keyword.get(opts, :bypass_contamination, false) and
@@ -287,6 +287,11 @@ defmodule Aiur.Events.Publisher do
       _ -> false
     end
   end
+
+  defp authoritative_merge_topic?(topic), do: String.ends_with?(topic, ".pr.merged")
+
+  defp filtered_bot_self_loop?(topic, actor),
+    do: bot_self_loop?(actor) and not authoritative_merge_topic?(topic)
 
   defp tracked?(nil), do: true
 

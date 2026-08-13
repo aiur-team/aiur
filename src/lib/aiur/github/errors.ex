@@ -68,11 +68,8 @@ defmodule Aiur.GitHub.Errors do
   def classify_status(403, response) do
     if rate_limited_response?(response, :unknown) do
       {:github, :rate_limited,
-       %{
-         status: 403,
-         retry_after: retry_after(response),
-         poll_interval: rate_limit_poll_interval(response)
-       }}
+       %{status: 403, retry_after: retry_after(response), reset_at: rate_limit_reset(response), poll_interval: rate_limit_poll_interval(response)}
+       |> Map.merge(rate_limit_observation(response))}
     else
       {:github, :http, %{status: 403}}
     end
@@ -80,11 +77,8 @@ defmodule Aiur.GitHub.Errors do
 
   def classify_status(429, response) do
     {:github, :rate_limited,
-     %{
-       status: 429,
-       retry_after: retry_after(response),
-       poll_interval: rate_limit_poll_interval(response)
-     }}
+     %{status: 429, retry_after: retry_after(response), reset_at: rate_limit_reset(response), poll_interval: rate_limit_poll_interval(response)}
+     |> Map.merge(rate_limit_observation(response))}
   end
 
   def classify_status(status, _response), do: {:github, :http, %{status: status}}
@@ -143,6 +137,8 @@ defmodule Aiur.GitHub.Errors do
   def retryable_github_error?({:github, kind, _detail})
       when kind in [:dns, :timeout, :tls, :transport, :rate_limited],
       do: true
+
+  def retryable_github_error?({:github, :http, %{status: status}}) when status in 500..599, do: true
 
   def retryable_github_error?(_reason), do: false
 end

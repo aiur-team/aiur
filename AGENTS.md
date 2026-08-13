@@ -77,14 +77,14 @@ aiurdev pause | resume        # pause / resume the workflow
 aiurdev --todo <ids...> [--only] # queue tickets; optionally dequeue all other pending tickets
 aiurdev init                  # scaffold .aiur/ (or migrate a legacy .aiurconfig)
 aiurdev build                 # force-rebuild the local release (shim-only)
-aiurdev --host …              # opt out of the local-only --host injection
+aiurdev --host …              # explicitly override configured/default dashboard host
 ```
 
 Every subcommand except `build` is handled by the shared engine, so the
-npm-installed `aiur` accepts the exact same set. The engine injects
-`--host 127.0.0.1` on the run path unless you pass `--host` somewhere in the
-args. Pass `--host` when you want to expose the dashboard over the network
-(e.g. Tailscale, LAN).
+npm-installed `aiur` accepts the exact same set. When config omits `server.host`,
+the engine supplies a lower-precedence default: an authenticated Tailscale IPv4
+when safely available, otherwise `127.0.0.1`. A configured value wins over that
+default; explicit `--host` wins over both.
 
 Claude Remote Control requires the dashboard server's lifecycle-hook endpoint.
 Aiur therefore rejects `--no-dashboard` when `agent.remote_control` is enabled
@@ -154,10 +154,13 @@ makes HTTPS Just Work.
 ## Auth
 
 The dashboard reads `AIUR_DASHBOARD_USERNAME` / `AIUR_DASHBOARD_PASSWORD`
-from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run
-the engine loads `./.env` from the current directory so the release picks
-these up (a value already exported in your shell always wins). `aiur init`
-also reads `.env` for the token during setup.
+from the environment, and the GitHub tracker reads `GITHUB_TOKEN`. On a run,
+credential precedence is: an already-exported environment value, then
+`~/.aiur/.env`, then `./.env` in the current repository. Each dotenv file only
+fills unset names. Provider keys use `MOONSHOT_API_KEY`, `DEEPSEEK_API_KEY`,
+`OPENROUTER_API_KEY`, and (for the credits meter) `OPENROUTER_MANAGEMENT_KEY`.
+Keep the global per-user file outside Git trees and never commit either dotenv
+file. `aiur init` also reads `.env` for the GitHub token during setup.
 
 GitHub tracker auth uses `GITHUB_TOKEN` for polling and `gh auth setup-git`
 for git pushes/PRs. Verify with `gh auth status` in the same shell that

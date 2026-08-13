@@ -107,6 +107,16 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
     end
   end
 
+  @spec refresh_live_state(Socket.t()) :: Socket.t()
+  def refresh_live_state(socket) do
+    socket = reload_catalog(socket)
+
+    case RouteState.selected_identity(socket.assigns.route_state) do
+      %TrackerIdentity{} = identity -> refresh_selected(socket, identity)
+      _identity -> schedule_reload(socket)
+    end
+  end
+
   @spec complete_reload(Socket.t(), term(), term()) :: Socket.t()
   def complete_reload(socket, token, sources) do
     socket = assign(socket, :source_reload_loading?, false)
@@ -128,11 +138,17 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   @spec assign_model(Socket.t()) :: Socket.t()
   def assign_model(socket) do
     model =
-      case RouteState.selected_snapshot(socket.assigns.route_state) do
-        %Snapshot{} = snapshot ->
+      case {RouteState.selected_snapshot(socket.assigns.route_state), RouteState.status(socket.assigns.route_state)} do
+        # A selected scope that is still loading has no renderable model yet:
+        # the nil-data snapshot the demand returns while the async fetch is in
+        # flight must surface as the shimmer, not a provider-unavailable model.
+        {%Snapshot{}, :selected_loading} ->
+          nil
+
+        {%Snapshot{} = snapshot, _status} ->
           BuildOrderPresenter.present(snapshot, socket.assigns.sources.execution, socket.assigns.sources.activity)
 
-        _snapshot ->
+        _no_snapshot ->
           nil
       end
 
@@ -200,6 +216,15 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
 
       _failure ->
         assign(socket, :route_state, RouteState.demand_failed(socket.assigns.route_state, identity))
+    end
+  end
+
+  defp refresh_selected(socket, identity) do
+    source = socket.assigns.source
+
+    case Runtime.safe_source_call(source, :selected, [identity], {:error, :unavailable}) do
+      {:ok, %Snapshot{} = snapshot} -> put_selected(socket, snapshot)
+      _failure -> schedule_reload(socket)
     end
   end
 

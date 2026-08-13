@@ -65,6 +65,9 @@ defmodule Aiur.CodingAgent.Backend do
       persistent-REPL transport).
     * `:fallback_backend` — the backend a failed spawn degrades to,
       once, so a transport failure never strands an issue.
+    * `:remote_worker` — whether sessions and workspace tools can execute on
+      configured SSH workers. Defaults to `true`; direct local transports must
+      opt out so dispatch never hands them a remote-only workspace path.
     * `:model_aliases` — whether generic model tags are `:native` (the
       backend's own CLI resolves `opus` to the newest opus, so aiur
       passes them through) or `:derived` (aiur synthesizes a family
@@ -80,12 +83,28 @@ defmodule Aiur.CodingAgent.Backend do
           optional(:control_application_confirmation) => :confirmed | :request_only | :unsupported,
           required(:remote_control) => boolean(),
           required(:resumable) => boolean(),
+          optional(:remote_worker) => boolean(),
           required(:models) => [String.t()],
           optional(:model_aliases) => :native | :derived,
           required(:efforts) => [String.t()],
           optional(:immediate_delivery) => boolean(),
           optional(:remote_transport) => CodingAgent.backend(),
-          optional(:fallback_backend) => CodingAgent.backend()
+          optional(:fallback_backend) => CodingAgent.backend(),
+          optional(:model_catalog) => (map() -> term()),
+          optional(:model_catalog_backend) => CodingAgent.backend(),
+          optional(:meter_probe) => (atom(), CodingAgent.backend(), keyword() -> map()),
+          optional(:run_telemetry) => (map() -> term()),
+          optional(:presentation) => map(),
+          optional(:pricing) => map(),
+          optional(:usage) => map(),
+          optional(:account_generation) => map(),
+          optional(:default) => boolean(),
+          optional(:rate_limit_fallback) => CodingAgent.backend(),
+          optional(:configurable) => boolean(),
+          optional(:init_order) => non_neg_integer(),
+          optional(:default_command) => String.t(),
+          optional(:install_hint) => String.t(),
+          optional(atom()) => term()
         }
 
   @doc "Start a session in the workspace. See \"Resume contract\"."

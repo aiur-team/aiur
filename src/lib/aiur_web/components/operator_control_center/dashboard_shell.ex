@@ -3,10 +3,13 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
 
   use Phoenix.Component
 
-  alias AiurWeb.OperatorControlCenter.RouteRegistry
+  alias AiurWeb.OperatorControlCenter.{Overview, RouteRegistry}
 
   attr(:route, :map, required: true)
   attr(:routes, :list, required: true)
+  attr(:title, :string, default: nil)
+  attr(:back_path, :string, default: nil)
+  attr(:back_label, :string, default: "Back")
   attr(:tracker_kind, :string, required: true)
   attr(:agent_kind, :string, required: true)
   attr(:nav_counts, :map, default: %{})
@@ -18,6 +21,8 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   # state), writable-gated like every other control surface.
   attr(:globally_paused, :boolean, default: false)
   attr(:writable, :boolean, default: false)
+  # Fleet snapshot freshness, for the compact logo-adjacent staleness label.
+  attr(:fleet_freshness, :map, default: %{})
   # Rendered above the route heading, for anything that should be read before
   # the page it interrupts.
   slot(:banner)
@@ -31,6 +36,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
           <span class="brand-wordmark"><b>aiur</b></span>
+          <Overview.stale_label freshness={@fleet_freshness} />
           <span class="status-badge status-badge-offline brand-live">
             <span class="status-badge-dot"></span>Offline
           </span>
@@ -78,9 +84,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             <%!-- The same glyph the nav uses for this route, so the heading and
                   the nav item read as the same thing. Decorative: the heading
                   text already names the route. --%>
-            <h1 id="route-title">
-              <span class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
-              <span>{@route.label}</span>
+            <h1 id="route-title" aria-label={@title || @route.label}>
+              <.link :if={@back_path} patch={@back_path} class="route-title-icon route-title-back" aria-label={@back_label}>
+                <span aria-hidden="true">{nav_icon(@route.id)}</span>
+              </.link>
+              <span :if={is_nil(@back_path)} class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
+              <span>{@title || @route.label}</span>
             </h1>
             <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
           </div>
@@ -286,6 +295,12 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   defp nav_icon(:analytics) do
     Phoenix.HTML.raw(
       ~s(<svg #{@nav_svg_attrs}><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="5"/><rect x="12" y="8" width="3" height="9"/><rect x="17" y="5" width="3" height="12"/></svg>)
+    )
+  end
+
+  defp nav_icon(:streamdeck) do
+    Phoenix.HTML.raw(
+      ~s(<svg #{@nav_svg_attrs}><rect x="2" y="4.5" width="20" height="15" rx="3"/><circle cx="6.5" cy="9.5" r="1.1"/><circle cx="10.5" cy="9.5" r="1.1"/><circle cx="14.5" cy="9.5" r="1.1"/><circle cx="18.5" cy="9.5" r="1.1"/><circle cx="6.5" cy="14.5" r="1.1"/><circle cx="10.5" cy="14.5" r="1.1"/><circle cx="14.5" cy="14.5" r="1.1"/><circle cx="18.5" cy="14.5" r="1.1"/></svg>)
     )
   end
 

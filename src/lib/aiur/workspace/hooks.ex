@@ -2,7 +2,7 @@ defmodule Aiur.Workspace.Hooks do
   @moduledoc "Workspace lifecycle hooks: run_hook/5 with env-scrub and Task-timeout envelope, after-create / after-run / before-remove dispatch, and GitHub connectivity preflight."
 
   require Logger
-  alias Aiur.{Alerts, Config, RepoBase}
+  alias Aiur.{AgentBuildGuard, Alerts, BuildGate, Config, RepoBase}
   alias Aiur.GitHub.Client, as: GitHubClient
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.GitHub.Tracker, as: GitHubTracker
@@ -26,7 +26,7 @@ defmodule Aiur.Workspace.Hooks do
 
   defp run_after_create_hook(command, workspace, issue_context, true, nil) do
     Reconstruction.run(workspace, fn stage ->
-      run_hook(command, stage, issue_context, "after_create", nil)
+      run_reconstruction_hook(command, stage, issue_context, "after_create")
     end)
   end
 
@@ -52,51 +52,8 @@ defmodule Aiur.Workspace.Hooks do
 
   @spec run_hook(String.t(), Path.t(), map(), String.t(), String.t() | nil) ::
           :ok | {:error, term()}
-  def run_hook(command, workspace, issue_context, hook_name, nil) do
-    timeout_ms = Config.settings!().hooks.timeout_ms
-    started_at = System.monotonic_time(:millisecond)
-
-    Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
-
-    # Scrub Erlang distribution env before running the hook command.
-    # Without this, the Executor’s ERL_AFLAGS / RELEASE_NODE /
-    # RELEASE_COOKIE propagate into the hook, and any `mix` call in
-    # the hook tries to start an Erlang node with the Executor’s
-    # name and fails instantly:
-    #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
-    #    seems to be in use by another Erlang node`
-    # The error is non-fatal at the shell level (hook continues to
-    # the next `&&` chain step which also fails), so deps.get +
-    # compile silently produce nothing and the agent pays the cost
-    # of the cold fetch on its first turn. Reuses the same scrub
-    # that AgentEnvironment applies for the agent's own shell.
-    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
-
-    task =
-      Task.async(fn ->
-        System.cmd("sh", ["-lc", scrubbed_command],
-          cd: workspace,
-          stderr_to_stdout: true,
-          env: hook_env(issue_context)
-        )
-      end)
-
-    case Task.yield(task, timeout_ms) do
-      {:ok, cmd_result} ->
-        elapsed_ms = System.monotonic_time(:millisecond) - started_at
-
-        Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{Context.log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
-
-        handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
-
-      nil ->
-        Task.shutdown(task, :brutal_kill)
-
-        Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
-
-        {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
-    end
-  end
+  def run_hook(command, workspace, issue_context, hook_name, nil),
+    do: run_local_hook(command, workspace, issue_context, hook_name, workspace)
 
   def run_hook(command, workspace, issue_context, hook_name, worker_host) when is_binary(worker_host) do
     timeout_ms = Config.settings!().hooks.timeout_ms
@@ -116,14 +73,121 @@ defmodule Aiur.Workspace.Hooks do
   end
 
   @doc false
+  @spec run_reconstruction_hook(String.t(), Path.t(), map(), String.t()) ::
+          :ok | {:error, term()}
+  def run_reconstruction_hook(command, stage, issue_context, hook_name) do
+    # Cold-clone hooks require a genuinely empty stage (`git clone ... .`).
+    # Keep the pre-hook wrappers in the reconstruction root beside that
+    # stage; Reconstruction owns the root, and the support tree is removed
+    # before either promotion or failure cleanup.
+    build_guard_root = Path.dirname(stage)
+
+    try do
+      run_local_hook(command, stage, issue_context, hook_name, build_guard_root)
+    after
+      File.rm_rf(Path.join(build_guard_root, ".aiur-runtime"))
+    end
+  end
+
+  defp run_local_hook(command, workspace, issue_context, hook_name, build_guard_root) do
+    timeout_ms = Config.settings!().hooks.timeout_ms
+    started_at = System.monotonic_time(:millisecond)
+
+    Logger.info("Running workspace hook hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local")
+
+    # Scrub Erlang distribution env before running the hook command.
+    # Without this, the Executor’s ERL_AFLAGS / RELEASE_NODE /
+    # RELEASE_COOKIE propagate into the hook, and any `mix` call in
+    # the hook tries to start an Erlang node with the Executor’s
+    # name and fails instantly:
+    #   `Protocol 'inet_tcp': the name aiur-orangekid@127.0.0.1
+    #    seems to be in use by another Erlang node`
+    # The error is non-fatal at the shell level (hook continues to
+    # the next `&&` chain step which also fails), so deps.get +
+    # compile silently produce nothing and the agent pays the cost
+    # of the cold fetch on its first turn. Reuses the same scrub
+    # that AgentEnvironment applies for the agent's own shell.
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+
+    with {:ok, build_gate_env} <- local_build_gate_env(build_guard_root) do
+      shell = if build_gate_env == [], do: "sh", else: "bash"
+
+      task =
+        Task.async(fn ->
+          System.cmd(shell, ["-lc", scrubbed_command],
+            cd: workspace,
+            stderr_to_stdout: true,
+            env: build_gate_env ++ hook_env(issue_context)
+          )
+        end)
+
+      case Task.yield(task, timeout_ms) do
+        {:ok, cmd_result} ->
+          elapsed_ms = System.monotonic_time(:millisecond) - started_at
+
+          Logger.info("aiur_perf workspace_hook phase=done hook=#{hook_name} #{Context.log_context(issue_context)} elapsed_ms=#{elapsed_ms}")
+
+          handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
+
+        nil ->
+          Task.shutdown(task, :brutal_kill)
+
+          Logger.warning("Workspace hook timed out hook=#{hook_name} #{Context.log_context(issue_context)} workspace=#{workspace} worker_host=local timeout_ms=#{timeout_ms}")
+
+          {:error, {:workspace_hook_timeout, hook_name, timeout_ms}}
+      end
+    end
+  end
+
+  defp local_build_gate_env(build_guard_root) do
+    case BuildGate.shell_env() do
+      [] ->
+        {:ok, []}
+
+      build_gate_env ->
+        with :ok <- AgentBuildGuard.install(build_guard_root) do
+          bin_dir = AgentBuildGuard.bin_dir(build_guard_root)
+
+          path =
+            [bin_dir, System.get_env("PATH")]
+            |> Enum.reject(&(&1 in [nil, ""]))
+            |> Enum.join(":")
+
+          {:ok, [{"AIUR_BUILD_GATE_BIN", bin_dir}, {"PATH", path} | build_gate_env]}
+        end
+    end
+  end
+
+  @doc false
   @spec remote_hook_command(String.t(), Path.t(), map()) :: String.t()
   def remote_hook_command(command, workspace, issue_context) do
-    exports =
-      hook_env(issue_context)
-      |> Enum.map_join(" ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+    {state_path, environment} =
+      hook_env(issue_context, remote?: true)
+      |> Enum.split_with(fn {key, _value} -> key == "AIUR_REPO_STATE_PATH" end)
 
-    prefix = if exports == "", do: "", else: "export #{exports}; "
-    "#{prefix}cd #{Aiur.Shell.escape(workspace)} && #{command}"
+    state_exports =
+      Enum.map_join(state_path, "\n", fn {key, value} ->
+        [Remote.remote_shell_assign(key, value), "export #{key}"]
+        |> Enum.join("\n")
+      end)
+
+    exports = Enum.map_join(environment, " ", fn {key, value} -> "#{key}=#{Aiur.Shell.escape(value)}" end)
+
+    prefix =
+      [
+        state_exports,
+        if(exports == "", do: "", else: "export #{exports};")
+      ]
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.join("\n")
+
+    scrubbed_command = Aiur.AgentEnvironment.scrub_shell_command(command)
+
+    if prefix == "" do
+      "cd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
+    else
+      "#{prefix}\ncd #{Aiur.Shell.escape(workspace)} && #{scrubbed_command}"
+    end
   end
 
   @doc false
@@ -183,13 +247,28 @@ defmodule Aiur.Workspace.Hooks do
   # `git clone "$THIS_REPOSITORY_URL" .` without hardcoding the URL.
   # `THIS_BASE_BRANCH` is resolved by RepoBase, keeping generated hooks on the
   # same configured branch as warm-base refresh and materialization.
-  defp hook_env(issue_context) do
+  #
+  # `AIUR_REPO_STATE_PATH` is ALWAYS exported. Scaffolded hooks (which `aiur
+  # init` writes for every tracker) guard it with `${VAR:?}`, so a tracker
+  # without a repo slug must still receive a usable value or the whole hook
+  # aborts. Non-GitHub trackers get the same neutral state path that
+  # `AgentEnvironment` hands agents, keeping hooks and agents consistent.
+  defp hook_env(issue_context, opts \\ []) do
+    remote? = Keyword.get(opts, :remote?, false)
+
     repository_env =
-      with "github" <- Config.settings!().tracker.kind,
-           repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
-        [{"THIS_REPOSITORY_URL", "https://github.com/#{repo}.git"}, {"THIS_BASE_BRANCH", RepoBase.base_branch()}]
-      else
-        _ -> []
+      case github_repo_url() do
+        nil ->
+          [{"AIUR_REPO_STATE_PATH", repo_state_path(Aiur.AgentEnvironment.neutral_repo_url(), remote?)}]
+
+        repo_url ->
+          :ok = RepoBase.ensure_state_tree(repo_url)
+
+          [
+            {"THIS_REPOSITORY_URL", repo_url},
+            {"THIS_BASE_BRANCH", RepoBase.base_branch()},
+            {"AIUR_REPO_STATE_PATH", repo_state_path(repo_url, remote?)}
+          ]
       end
 
     case Map.get(issue_context, :branch_name) do
@@ -197,6 +276,18 @@ defmodule Aiur.Workspace.Hooks do
       _ -> repository_env
     end
   end
+
+  defp github_repo_url do
+    with "github" <- Config.settings!().tracker.kind,
+         repo when is_binary(repo) and repo != "" <- Aiur.GitHub.Config.repo() do
+      "https://github.com/#{repo}.git"
+    else
+      _ -> nil
+    end
+  end
+
+  defp repo_state_path(repo_url, true), do: Path.join("~", RepoBase.repo_relative_path(repo_url))
+  defp repo_state_path(repo_url, false), do: RepoBase.repo_path(repo_url)
 
   defp sanitize_hook_output_for_log(output, max_bytes \\ 2_048) do
     binary_output = IO.iodata_to_binary(output)

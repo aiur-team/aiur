@@ -11,31 +11,39 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
   @doc "Returns a model cropped to one shared, valid chart-axis domain."
   @spec with_time_domain(map(), term()) :: map()
-  def with_time_domain(%{window: window} = model, domain) do
+  def with_time_domain(%{} = model, domain) do
     case normalize_time_domain(model, domain) do
       nil ->
         model
 
       {t0, t1} ->
-        original_start = Map.get(window, :axis_origin_ms, window.start_ms)
-        now_ms = Map.get(window, :now_ms, window.end_ms)
-
-        %{
-          model
-          | window: window |> Map.put(:start_ms, t0) |> Map.put(:end_ms, t1) |> Map.put(:axis_origin_ms, original_start) |> Map.put(:now_ms, now_ms),
-            series: crop_series(model.series, t0, t1)
-        }
+        with_exact_time_domain(model, {t0, t1})
     end
+  end
+
+  @doc "Returns a model cropped to an exact valid chart-axis domain."
+  @spec with_exact_time_domain(map(), {integer(), integer()}, keyword()) :: map()
+  def with_exact_time_domain(%{window: window} = model, {t0, t1}, opts \\ []) when is_integer(t0) and is_integer(t1) and t0 <= t1 do
+    original_start = Map.get(window, :axis_origin_ms, window.start_ms)
+    now_ms = Map.get(window, :now_ms, window.end_ms)
+
+    %{
+      model
+      | window: window |> Map.put(:start_ms, t0) |> Map.put(:end_ms, t1) |> Map.put(:axis_origin_ms, original_start) |> Map.put(:now_ms, now_ms),
+        series: crop_series(model.series, t0, t1, Keyword.get(opts, :boundary_samples, true))
+    }
   end
 
   # Keeps in-domain samples plus one boundary sample on each side (the last
   # before t0 and the first after t1) so chart lines reach the plot edges even
   # when the zoom lands between samples.
-  defp crop_series(series, t0, t1) do
+  defp crop_series(series, t0, t1, true) do
     {before, rest} = Enum.split_while(series, &(&1.t_ms < t0))
     {inside, after_domain} = Enum.split_while(rest, &(&1.t_ms <= t1))
     Enum.take(before, -1) ++ inside ++ Enum.take(after_domain, 1)
   end
+
+  defp crop_series(series, t0, t1, false), do: Enum.filter(series, &(&1.t_ms >= t0 and &1.t_ms <= t1))
 
   @doc "Normalizes hook event values to a non-degenerate chart-axis domain."
   @spec normalize_time_domain(map(), term()) :: {integer(), integer()} | nil
@@ -296,6 +304,111 @@ defmodule AiurWeb.OperatorControlCenter.Analytics.Charts do
 
     svg(@w, h, inner, "Complexity breakdown")
   end
+
+  @doc """
+  Cumulative tokens over the ranked model order. The grouped usage snapshot
+  carries no per-sample timestamp, so there is no true time series; this renders
+  each model as a coloured step on a cumulative line, in first-seen (highest
+  total first) order — the closest time-ordered proxy available. A model's line
+  "appears" at its rank and rises by that model's total.
+  """
+  @spec model_tokens_timeline(map()) :: String.t()
+  def model_tokens_timeline(%{entries: entries}) when is_list(entries) and entries != [] do
+    h = 240
+    {ml, mr, mt, mb} = {40, 14, 16, 26}
+    pw = @w - ml - mr
+    ph = h - mt - mb
+    n = length(entries)
+    total = entries |> Enum.map(& &1.total) |> Enum.sum()
+    maxv = max(total, 1)
+
+    {steps, _} =
+      Enum.map_reduce(entries, 0, fn entry, acc ->
+        next = acc + entry.total
+        {{acc, next, entry}, next}
+      end)
+
+    xf = fn i -> ml + i / max(n, 1) * pw end
+    yf = fn v -> mt + ph - v / maxv * ph end
+
+    segments =
+      steps
+      |> Enum.with_index()
+      |> Enum.map_join("", fn {{before_total, after_total, entry}, i} ->
+        color = scolor(i + 1)
+        x0 = r2(xf.(i))
+        x1 = r2(xf.(i + 1))
+        y0 = r2(yf.(before_total))
+        y1 = r2(yf.(after_total))
+        label_x = r2((xf.(i) + xf.(i + 1)) / 2)
+
+        ~s|<line x1="#{x0}" y1="#{y0}" x2="#{x1}" y2="#{y1}" stroke="#{color}" stroke-width="3" stroke-linecap="round"><title>#{entry.label}: #{entry.total} tokens</title></line>| <>
+          text(label_x, max(y1 - 6, mt + 9), model_label(entry.label), anchor: "middle", fill: "var(--muted)")
+      end)
+
+    inner =
+      y_grid(maxv, yf, ml, @w - mr, &to_string(round(&1))) <>
+        segments <>
+        ~s|<line x1="#{ml}" x2="#{@w - mr}" y1="#{r2(mt + ph)}" y2="#{r2(mt + ph)}" stroke="var(--line)"/>|
+
+    svg(@w, h, inner, "Cumulative tokens per model over first-seen order")
+  end
+
+  def model_tokens_timeline(_models), do: ""
+
+  @doc """
+  Bar chart of where the scoped tokens went: input (including cached and
+  cache-creation input), output, and reasoning output. Reasoning is part of
+  output, so the output bar includes it.
+  """
+  @spec token_destination(map()) :: String.t()
+  def token_destination(%{entries: entries}) when is_list(entries) and entries != [] do
+    counts = Map.new(entries, &{&1.dimension, &1.count})
+
+    input =
+      Map.get(counts, :input, 0) + Map.get(counts, :cached_input, 0) + Map.get(counts, :cache_creation_input, 0)
+
+    output = Map.get(counts, :output, 0)
+    reasoning = Map.get(counts, :reasoning_output, 0)
+
+    bars = [
+      {"Input", input, scolor(1)},
+      {"Output", output, scolor(2)},
+      {"Reasoning", reasoning, scolor(3)}
+    ]
+
+    h = 240
+    {ml, mr, mt, mb} = {40, 14, 16, 26}
+    pw = @w - ml - mr
+    ph = h - mt - mb
+    maxv = bars |> Enum.map(fn {_label, value, _color} -> value end) |> Enum.max(fn -> 1 end) |> max(1)
+    groupw = pw / length(bars)
+    barw = min(groupw * 0.5, 80)
+
+    rects =
+      bars
+      |> Enum.with_index()
+      |> Enum.map_join("", fn {{label, value, color}, i} ->
+        x = ml + i * groupw + (groupw - barw) / 2
+        bh = value / maxv * ph
+        y = mt + ph - bh
+        center = x + barw / 2
+
+        ~s|<rect x="#{r2(x)}" y="#{r2(y)}" width="#{r2(barw)}" height="#{r2(bh)}" rx="3" fill="#{color}" fill-opacity="0.85"><title>#{label}: #{value} tokens</title></rect>| <>
+          text(center, max(y - 6, mt + 9), to_string(value), anchor: "middle", fill: "var(--fg)") <>
+          text(center, mt + ph + 16, label, anchor: "middle", fill: "var(--muted)")
+      end)
+
+    svg(@w, h, rects, "Tokens by destination")
+  end
+
+  def token_destination(_tokens), do: ""
+
+  defp model_label(label) when is_binary(label) do
+    if String.length(label) > 24, do: String.slice(label, 0, 24) <> "…", else: label
+  end
+
+  defp model_label(_label), do: "Unknown"
 
   # ---- shared builders ----
 

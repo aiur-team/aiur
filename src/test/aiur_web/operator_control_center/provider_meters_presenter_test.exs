@@ -41,12 +41,19 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
   end
 
   describe "authorized composition" do
-    test "renders one card per provider in Codex-then-Claude order" do
+    test "renders one card per registry provider in registry order" do
       view = Presenter.present(authorized(), %{codex: healthy(:codex), claude: healthy(:claude)})
 
       assert view.state == :authorized
-      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude]
-      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude"]
+      assert Enum.map(view.cards, & &1.provider) == [:codex, :claude, :kimi, :deepseek, :openrouter, :fake]
+      assert Enum.map(view.cards, & &1.provider_label) == ["Codex", "Claude", "Kimi", "DeepSeek", "OpenRouter", "Fake"]
+    end
+
+    test "names the generic transport backend" do
+      snapshot = %{healthy(:deepseek) | backend: :openai_compat}
+      view = Presenter.present(authorized(), %{deepseek: snapshot})
+
+      assert Enum.find(view.cards, &(&1.provider == :deepseek)).backend_label == "OpenAI-compatible API"
     end
 
     test "a provider with no loaded snapshot renders loading without affecting the other card" do
@@ -149,6 +156,73 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
     end
   end
 
+  describe "credential absence is awaiting observation, not a hard failure" do
+    # A missing DeepSeek/OpenRouter API key, a missing credentials file, or a
+    # malformed credential blob means the provider cannot be read *yet* — not
+    # that it is broken. These render as loading, matching a first observation
+    # that has not arrived, rather than a misleading hard "unavailable".
+    test "a missing or malformed credential blob renders loading" do
+      for failure <- [:no_credentials, :malformed_credentials] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :claude,
+          backend: :app_server,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        assert card(Presenter.present(authorized(), %{claude: snapshot}), :claude).state == :loading,
+               "expected #{inspect(failure)} to render loading, got a hard state"
+      end
+    end
+
+    test "a missing API key or disabled provider renders loading" do
+      for failure <- [:missing_api_key, :missing_api_key_configuration, :disabled] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :deepseek,
+          backend: :openai_compat,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        assert card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).state == :loading,
+               "expected #{inspect(failure)} to render loading, got a hard state"
+      end
+    end
+
+    # An absent, empty, or expired Claude OAuth token is a stable "not signed
+    # in" state, not a transient "loading" one: no observation will ever arrive
+    # until the operator signs in to Claude Code.
+    test "an absent or expired Claude OAuth token renders an honest not-signed-in state" do
+      for failure <- [:no_oauth_token, :token_expired] do
+        snapshot = %ProviderMeterSnapshot{
+          provider: :claude,
+          backend: :app_server,
+          provider_account_generation: nil,
+          health: %{state: :unavailable, failure: failure, last_observed_at: nil, last_source_version: nil}
+        }
+
+        claude = card(Presenter.present(authorized(), %{claude: snapshot}), :claude)
+
+        assert claude.state == :signed_out,
+               "expected #{inspect(failure)} to render not-signed-in, got #{inspect(claude.state)}"
+
+        assert claude.status_label == "Not signed in"
+        assert claude.health.failure_label in ["No OAuth token", "OAuth token expired"]
+      end
+    end
+
+    test "a real authentication failure still renders a hard state" do
+      snapshot = %ProviderMeterSnapshot{
+        provider: :deepseek,
+        backend: :openai_compat,
+        provider_account_generation: nil,
+        health: %{state: :unavailable, failure: :authentication, last_observed_at: nil, last_source_version: nil}
+      }
+
+      assert card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).state == :unavailable
+    end
+  end
+
   describe "meter windows: coverage, standing, resets, zero" do
     test "a supported window exposes an exact semantic meter value" do
       window = window(used_percent: 40, remaining_percent: 60, coverage: :supported, standing: :allowed, resets_at: @reset)
@@ -191,6 +265,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert by_kind[:credit].credits.label == "Exhausted"
       assert by_kind[:credit].credits.amount == 0
       assert by_kind[:spend_control].spend_control.label == "Enabled"
+
+      # A prepaid provider reports dollars, not a consumed fraction. A supported
+      # window carrying no used_percent must render as no meter at all: showing
+      # it as "0% used" reads as full headroom when the truth is unknown (#1436).
+      assert by_kind[:credit].meter == %{kind: :none}
+      assert by_kind[:spend_control].meter == %{kind: :none}
     end
 
     test "windows sort deterministically by kind then name" do
@@ -203,6 +283,21 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
 
       order = card(Presenter.present(authorized(), %{codex: with_windows(:codex, windows)}), :codex).windows |> Enum.map(& &1.name)
       assert order == ["Primary", "Secondary", "Credits", "Spend control"]
+    end
+
+    # A surface must be able to name a credit window's age ("as of HH:MM") and
+    # its freshness horizon, so the presenter carries both timestamps through.
+    test "a window exposes its observed_at and expires_at timestamps" do
+      expires_at = DateTime.add(@observed, 300, :second)
+
+      credit =
+        window(kind: :credit, name: "Credits", coverage: :supported, used_percent: nil, credits: %{status: :available, amount: 7.25})
+        |> Map.put(:observed_at, @observed)
+        |> Map.put(:expires_at, expires_at)
+
+      [view] = card(Presenter.present(authorized(), %{codex: with_windows(:codex, %{"c" => credit})}), :codex).windows
+      assert view.observed_at == @observed
+      assert view.expires_at == expires_at
     end
   end
 

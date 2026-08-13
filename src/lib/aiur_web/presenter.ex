@@ -22,31 +22,51 @@ defmodule AiurWeb.Presenter do
   def analytics_navigation(opts \\ []), do: analytics_payload(opts)
 
   defp orchestrator_payload(orchestrator, snapshot_timeout_ms) do
-    case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
-      %{} = snapshot ->
-        idle = Map.get(snapshot, :idle, [])
+    case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
+      {status, snapshot, freshness} when status in [:current, :stale] ->
+        snapshot_payload(snapshot, freshness)
 
-        %{
-          counts: %{
-            running: length(snapshot.running),
-            retrying: length(snapshot.retrying),
-            idle: length(idle)
-          },
-          running: Enum.map(snapshot.running, &running_entry_payload/1),
-          retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
-          idle: Enum.map(idle, &idle_entry_payload/1),
-          agent_totals: public_agent_totals(snapshot.agent_totals),
-          capacity: capacity_payload(Map.get(snapshot, :capacity)),
-          globally_paused: Map.get(snapshot, :globally_paused, false) == true
-        }
+      :snapshot_unpublished ->
+        %{error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"}}
 
-      :timeout ->
-        %{error: %{code: "snapshot_timeout", message: "Snapshot timed out"}}
-
-      :unavailable ->
-        %{error: %{code: "snapshot_unavailable", message: "Snapshot unavailable"}}
+      :orchestrator_unavailable ->
+        %{error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"}}
     end
   end
+
+  defp snapshot_payload(snapshot, freshness) do
+    idle = Map.get(snapshot, :idle, [])
+    globally_paused = Map.get(snapshot, :globally_paused, false) == true
+
+    payload = %{
+      counts: %{
+        running: length(snapshot.running),
+        retrying: length(snapshot.retrying),
+        idle: length(idle)
+      },
+      running: Enum.map(snapshot.running, &running_entry_payload/1),
+      retrying: Enum.map(snapshot.retrying, &retry_entry_payload/1),
+      idle: Enum.map(idle, &idle_entry_payload/1),
+      agent_totals: public_agent_totals(snapshot.agent_totals),
+      capacity: capacity_payload(Map.get(snapshot, :capacity)),
+      capacity_hold: capacity_hold_payload(Map.get(snapshot, :capacity_hold)),
+      dispatch_hold: dispatch_hold_payload(Map.get(snapshot, :dispatch_hold)),
+      globally_paused: globally_paused
+    }
+
+    payload = if globally_paused, do: Map.put(payload, :global_pause, public_global_pause(Map.get(snapshot, :global_pause, %{}))), else: payload
+
+    if freshness.status == :stale, do: Map.put(payload, :snapshot_freshness, freshness), else: payload
+  end
+
+  defp public_global_pause(%{} = pause) do
+    Map.update(pause, :paused_at, nil, fn
+      %DateTime{} = value -> DateTime.to_iso8601(value)
+      value -> value
+    end)
+  end
+
+  defp public_global_pause(_), do: %{globally_paused: false, paused_at: nil, source: nil}
 
   defp auxiliary_payload(opts) do
     %{
@@ -168,8 +188,8 @@ defmodule AiurWeb.Presenter do
 
   @spec issue_payload(String.t(), GenServer.name(), timeout()) :: {:ok, map()} | {:error, :issue_not_found}
   def issue_payload(issue_identifier, orchestrator, snapshot_timeout_ms) when is_binary(issue_identifier) do
-    case Orchestrator.snapshot(orchestrator, snapshot_timeout_ms) do
-      %{} = snapshot ->
+    case Orchestrator.dashboard_snapshot(orchestrator, snapshot_timeout_ms) do
+      {_status, snapshot, _freshness} ->
         running_matches = Enum.filter(snapshot.running, &(&1.identifier == issue_identifier))
         retry_matches = Enum.filter(snapshot.retrying, &(&1.identifier == issue_identifier))
         idle_matches = Enum.filter(Map.get(snapshot, :idle, []), &(&1.identifier == issue_identifier))
@@ -459,6 +479,34 @@ defmodule AiurWeb.Presenter do
   end
 
   defp capacity_payload(_capacity), do: nil
+
+  # The active host-pressure admission hold from `State.capacity_hold`, surfaced
+  # so an Executor can distinguish capacity backoff from an idle or broken
+  # fleet. The signal names the measured limiting resource and its threshold.
+  defp capacity_hold_payload(%{held?: true} = hold) do
+    %{
+      held?: true,
+      signal: Map.get(hold, :signal),
+      measured: Map.get(hold, :measured),
+      threshold: Map.get(hold, :threshold),
+      held_for_seconds: non_negative_integer(Map.get(hold, :held_for_seconds))
+    }
+  end
+
+  defp capacity_hold_payload(_hold),
+    do: %{held?: false, signal: nil, measured: nil, threshold: nil, held_for_seconds: 0}
+
+  defp dispatch_hold_payload(%{held?: true} = hold) do
+    %{
+      held?: true,
+      reason: Map.get(hold, :reason),
+      detail: Map.get(hold, :detail),
+      held_for_seconds: non_negative_integer(Map.get(hold, :held_for_seconds))
+    }
+  end
+
+  defp dispatch_hold_payload(_hold),
+    do: %{held?: false, reason: nil, detail: nil, held_for_seconds: 0}
 
   defp positive_integer(value) when is_integer(value) and value > 0, do: value
   defp positive_integer(_value), do: nil

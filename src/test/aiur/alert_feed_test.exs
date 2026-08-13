@@ -1,141 +1,182 @@
 defmodule Aiur.AlertFeedTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.AlertFeed
+  alias Aiur.{AlertFeed, AlertLedger}
 
   setup do
     root = Path.join(System.tmp_dir!(), "aiur-alert-feed-#{System.unique_integer([:positive])}")
+    ledger = Path.join(root, "project.alerts.ndjson")
     on_exit(fn -> File.rm_rf!(root) end)
-    {:ok, root: root}
+    {:ok, root: root, ledger: ledger}
   end
 
-  test "reads structured alert fields from persisted agent logs", %{root: root} do
-    log = Path.join(root, "repo/42/logs/agent.ndjson")
-    File.mkdir_p!(Path.dirname(log))
-
-    File.write!(log, """
-    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.paused","message":"Agent paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"turn","topic":"ticket.42.turn.started"}
+  test "reads structured alert fields from the project ledger", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.paused","message":"Agent paused","reason":"operator paused the agent","severity":"warning","needs_attention":true,"source_ticket_id":"42","agent":"42"}
     """)
 
-    assert [
-             %{
-               "source_ticket_id" => "42",
-               "ticket" => "42",
-               "agent" => "42",
-               "topic" => "ticket.42.agent.paused",
-               "reason" => "operator paused the agent",
-               "severity" => "warning",
-               "needs_attention" => true
-             }
-           ] = AlertFeed.list(roots: [root], log_roots: [])
+    assert [alert] = AlertFeed.list(ledger_paths: [ledger])
+    assert alert["source_ticket_id"] == "42"
+    assert alert["ticket"] == "42"
+    assert alert["agent"] == "42"
+    assert alert["topic"] == "ticket.42.agent.paused"
+    assert alert["reason"] == "operator paused the agent"
+    assert alert["severity"] == "warning"
+    assert alert["needs_attention"]
   end
 
-  test "needs-attention filtering only trusts emitted boolean fields", %{root: root} do
-    log = Path.join(root, "repo/38/logs/agent.ndjson")
-    File.mkdir_p!(Path.dirname(log))
-
-    File.write!(log, """
-    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","name":"ticket.38.agent.paused","message":"legacy paused"}
-    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","name":"ticket.38.agent.tokens_exhausted","message":"tokens","needs_attention":true}
+  test "collapses repeated open attentions and removes them after resolution", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.scope","message":"first","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"ticket.42.agent.attention.scope","message":"latest","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"ticket.42.agent.attention.scope.resolved","message":"resolved","needs_attention":false,"source_ticket_id":"42"}
     """)
 
-    assert [
-             %{
-               "topic" => "ticket.38.agent.tokens_exhausted",
-               "needs_attention" => true
-             }
-           ] = AlertFeed.list(roots: [root], log_roots: [], needs_attention: true)
+    assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
   end
 
-  test "reads central alert feed entries", %{root: root} do
-    log_root = Path.join(root, "logs")
-    File.mkdir_p!(log_root)
+  test "does not open workspace transcripts during a normal default-ledger read", %{root: root} do
+    workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(workspace_log))
+    assert {"", 0} = System.cmd("mkfifo", [workspace_log])
 
-    File.write!(Path.join(log_root, "alerts.ndjson"), """
-    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"system.github.connectivity_lost","message":"GitHub connectivity lost","reason":"GitHub API failed","severity":"warning","needs_attention":true,"source_ticket_id":null}
+    ledger = AlertLedger.path(log_roots: [root])
+
+    write_ledger!(ledger, """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.paused","message":"paused","needs_attention":true,"source_ticket_id":"42"}
     """)
 
-    assert [
-             %{
-               "agent" => "system",
-               "topic" => "system.github.connectivity_lost",
-               "reason" => "GitHub API failed",
-               "severity" => "warning",
-               "needs_attention" => true
-             }
-           ] = AlertFeed.list(roots: [root], log_roots: [log_root], needs_attention: true)
+    task = Task.async(fn -> AlertFeed.list(roots: [root], log_roots: [root], needs_attention: true) end)
+
+    case Task.yield(task, 1_000) do
+      {:ok, [%{"topic" => "ticket.42.agent.paused"}]} ->
+        :ok
+
+      nil ->
+        Task.shutdown(task, :brutal_kill)
+        flunk("normal AlertFeed reads must not open workspace transcripts")
+    end
   end
 
-  test "projects only active legacy decision attentions", %{root: root} do
-    project_root = Path.join(root, "its-everdred/aiur")
-    log = Path.join(project_root, "42/logs/agent.ndjson")
-    File.mkdir_p!(Path.dirname(log))
+  test "backfills legacy workspace alerts once outside normal reads", %{root: root, ledger: ledger} do
+    legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(legacy))
 
-    File.write!(log, """
-    {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"alert","timestamp":"2026-07-12T01:00:30Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this now?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"alert","timestamp":"2026-07-12T01:01:00Z","topic":"ticket.42.agent.paused","reason":"Paused","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"alert","timestamp":"2026-07-12T01:01:30Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","reason":"Decision delivery failed","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"alert","timestamp":"2026-07-12T01:02:00Z","topic":"ticket.43.agent.attention.done","reason":"Executor decision required: Already handled?","severity":"warning","needs_attention":true,"source_ticket_id":"43"}
-    {"event":"alert","timestamp":"2026-07-12T01:03:00Z","topic":"ticket.43.agent.attention.done.resolved","reason":"Executor decision resolved.","severity":"info","needs_attention":false,"source_ticket_id":"43"}
+    File.write!(legacy, """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.scope","message":"first","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"ticket.42.agent.attention.scope","message":"latest","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"ticket.42.agent.attention.scope.resolved","message":"resolved","needs_attention":false,"source_ticket_id":"42"}
     """)
 
-    assert [attention] =
-             AlertFeed.list_decision_attentions(roots: [project_root], log_roots: [])
+    assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
+    assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
 
-    assert attention == %{
-             identifier: "42",
-             slug: "scope-question",
-             question: "Which scope owns this now?",
-             topic: "ticket.42.agent.attention.scope-question",
-             source_created_at: ~U[2026-07-12 01:00:00Z]
-           }
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
+    assert 3 == ledger |> File.stream!() |> Enum.count()
   end
 
-  test "normalizes legacy persisted decision copy at the presentation boundary", %{root: root} do
-    project_root = Path.join(root, "its-everdred/aiur")
-    log = Path.join(project_root, "42/logs/agent.ndjson")
-    File.mkdir_p!(Path.dirname(log))
+  test "backfill does not duplicate alerts mirrored in workspace and central logs", %{root: root, ledger: ledger} do
+    legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    central = Path.join(root, "alerts.ndjson")
+    File.mkdir_p!(Path.dirname(legacy))
 
-    File.write!(log, """
-    {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","message":"Operator decision required: Which scope owns this?","reason":"Operator decision required: Which scope owns this?","severity":"warning","needs_attention":true,"source_ticket_id":"42"}
-    """)
+    event =
+      "{\"event\":\"alert\",\"timestamp\":\"2026-06-25T01:00:00Z\",\"topic\":\"ticket.42.agent.paused\",\"message\":\"paused\",\"reason\":\"paused\",\"severity\":\"warning\",\"needs_attention\":true,\"source_ticket_id\":\"42\",\"agent\":\"42\"}\n"
 
-    assert [alert] = AlertFeed.list(roots: [project_root], log_roots: [])
-    assert alert["message"] == "Executor decision required: Which scope owns this?"
-    assert alert["reason"] == "Executor decision required: Which scope owns this?"
+    File.write!(legacy, event)
+    File.write!(central, String.replace(event, ~s(,"agent":"42"), ""))
 
-    assert [%{question: "Which scope owns this?"}] =
-             AlertFeed.list_decision_attentions(roots: [project_root], log_roots: [])
-
-    assert File.read!(log) =~ "Operator decision required: Which scope owns this?"
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [root], ledger_path: ledger)
+    assert 1 == ledger |> File.stream!() |> Enum.count()
   end
 
-  test "a malformed alert timestamp becomes nil provenance", %{root: root} do
-    log = Path.join(root, "42/logs/agent.ndjson")
-    File.mkdir_p!(Path.dirname(log))
+  test "backfill keeps legacy alert bytes while normalizing presentation", %{root: root, ledger: ledger} do
+    legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(legacy))
 
-    File.write!(log, """
-    {"event":"alert","timestamp":"not-a-time","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","needs_attention":true}
-    """)
+    File.write!(legacy, "{\"event\":\"alert\",\"topic\":\"ticket.42.agent.attention.scope\",\"message\":\"Operator decision required\",\"needs_attention\":true}\n")
 
-    assert [%{source_created_at: nil}] =
-             AlertFeed.list_decision_attentions(roots: [root], log_roots: [])
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
+    assert File.read!(ledger) =~ "Operator decision required"
+    assert [%{"message" => "Executor decision required"}] = AlertFeed.list(ledger_paths: [ledger])
   end
 
-  test "collapses repeated open attentions for one ticket and slug to the latest projection", %{root: root} do
-    log_root = Path.join(root, "logs")
-    File.mkdir_p!(log_root)
-
-    File.write!(Path.join(log_root, "alerts.ndjson"), """
-    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","message":"first failure","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"ticket.42.agent.attention.decision-delivery-act-1","message":"restart projection","needs_attention":true,"source_ticket_id":"42"}
-    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"ticket.42.agent.attention.other","message":"other attention","needs_attention":true,"source_ticket_id":"42"}
+  test "missing resolution timestamps sort after timestamped opens", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","topic":"ticket.42.agent.attention.scope.resolved","needs_attention":false,"source_ticket_id":"42","timestamp":null}
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"ticket.42.agent.attention.scope","needs_attention":true,"source_ticket_id":"42"}
     """)
 
-    alerts = AlertFeed.list(roots: [], log_roots: [log_root], needs_attention: true)
+    assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
+  end
 
-    assert Enum.map(alerts, & &1["message"]) == ["restart projection", "other attention"]
+  test "attention probes retain central-only scope", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","topic":"system.test.workspace_only","needs_attention":true,"agent":"42"}
+    {"event":"alert","topic":"system.test.central","needs_attention":true,"agent":"system"}
+    """)
+
+    refute AlertFeed.active_system_attention?("system.test.workspace_only", ledger_paths: [ledger])
+    assert AlertFeed.active_system_attention?("system.test.central", ledger_paths: [ledger])
+  end
+
+  test "backfill lock does not block ledger appends", %{ledger: ledger} do
+    parent = self()
+
+    task =
+      Task.async(fn ->
+        AlertLedger.with_backfill_lock([ledger_path: ledger], fn ->
+          send(parent, :backfill_lock_acquired)
+
+          receive do
+            :release_backfill_lock -> :ok
+          end
+        end)
+      end)
+
+    assert_receive :backfill_lock_acquired
+    assert :ok = AlertLedger.append(%{"topic" => "ticket.42.agent.paused"}, ledger_path: ledger)
+    send(task.pid, :release_backfill_lock)
+    assert :ok = Task.await(task)
+  end
+
+  test "backfill keeps a distinct marker for a custom ledger filename", %{root: root} do
+    ledger = Path.join(root, "ledger.ndjson")
+    legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    File.mkdir_p!(Path.dirname(legacy))
+    File.write!(legacy, "{\"event\":\"alert\",\"topic\":\"ticket.42.agent.paused\",\"needs_attention\":true}\n")
+
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
+    assert File.read!(ledger) =~ "\"event\":\"alert\""
+    assert AlertLedger.backfilled?(ledger_path: ledger)
+  end
+
+  test "a failed ledger write leaves backfill pending for a later retry", %{root: root} do
+    blocked = Path.join(root, "blocked")
+    ledger = Path.join(blocked, "ledger.ndjson")
+    legacy = Path.join(root, "repo/42/logs/agent.ndjson")
+    File.mkdir_p!(root)
+    File.write!(blocked, "not a directory")
+    File.mkdir_p!(Path.dirname(legacy))
+    File.write!(legacy, "{\"event\":\"alert\",\"topic\":\"ticket.42.agent.paused\",\"needs_attention\":true}\n")
+
+    assert :ok = AlertFeed.backfill(roots: [root], log_roots: [], ledger_path: ledger)
+    refute AlertLedger.backfilled?(ledger_path: ledger)
+  end
+
+  test "projects active decision attentions from the ledger", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","timestamp":"2026-07-12T01:00:00Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this?","needs_attention":true,"source_ticket_id":"42"}
+    {"event":"alert","timestamp":"2026-07-12T01:00:30Z","topic":"ticket.42.agent.attention.scope-question","reason":"Executor decision required: Which scope owns this now?","needs_attention":true,"source_ticket_id":"42"}
+    """)
+
+    assert [%{identifier: "42", slug: "scope-question", question: "Which scope owns this now?", source_created_at: ~U[2026-07-12 01:00:00Z]}] =
+             AlertFeed.list_decision_attentions(ledger_paths: [ledger])
+  end
+
+  defp write_ledger!(path, contents) do
+    File.mkdir_p!(Path.dirname(path))
+    File.write!(path, contents)
   end
 end

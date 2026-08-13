@@ -16,9 +16,9 @@ defmodule Aiur.GitHub.Labels do
   """
 
   alias Aiur.CodingAgent
+  alias Aiur.GitHub.Transport
 
   @base_url "https://api.github.com"
-  @api_version "2022-11-28"
 
   # Agent lifecycle state suffixes the orchestrator manages. Test-reset cleanup
   # consumes `state_labels/1` directly so this remains the single source.
@@ -46,7 +46,8 @@ defmodule Aiur.GitHub.Labels do
   @spec label_set(String.t(), [String.t()]) :: [String.t()]
   def label_set(prefix, backends) do
     state_labels(prefix) ++
-      marker_labels(prefix) ++
+      required_rate_limit_fallback_labels(prefix) ++
+      (marker_labels(prefix) -- rate_limit_fallback_marker_labels(prefix)) ++
       model_labels(backends) ++ alias_labels(backends) ++ effort_labels() ++ complexity_labels()
   end
 
@@ -68,10 +69,19 @@ defmodule Aiur.GitHub.Labels do
   @spec marker_labels(String.t()) :: [String.t()]
   def marker_labels(prefix), do: Enum.map(@marker_suffixes, &"#{prefix}:#{&1}")
 
-  @doc "Labels required for the default codex-to-claude fallback."
+  @doc "Labels required for the configured rate-limit fallback pair."
   @spec required_rate_limit_fallback_labels(String.t()) :: [String.t()]
   def required_rate_limit_fallback_labels(prefix),
-    do: rate_limit_fallback_marker_labels(prefix) ++ ["model:claude"]
+    do: required_rate_limit_fallback_labels(prefix, CodingAgent.default_backend(), CodingAgent.default_rate_limit_fallback())
+
+  @spec required_rate_limit_fallback_labels(String.t(), String.t(), String.t() | nil) :: [String.t()]
+  def required_rate_limit_fallback_labels(prefix, _primary, fallback) do
+    rate_limit_fallback_marker_labels(prefix) ++
+      case fallback do
+        backend when is_binary(backend) and backend != "" -> ["model:" <> backend]
+        _ -> []
+      end
+  end
 
   @doc "Whether a prefixed-label suffix is a marker rather than a workflow state."
   @spec marker_suffix?(term()) :: boolean()
@@ -177,13 +187,5 @@ defmodule Aiur.GitHub.Labels do
 
   defp already_exists?(_body), do: false
 
-  defp default_request_fun(%{method: :post, url: url, token: token, body: body}) do
-    headers = [
-      {"Authorization", "Bearer #{token}"},
-      {"Accept", "application/vnd.github+json"},
-      {"X-GitHub-Api-Version", @api_version}
-    ]
-
-    Req.post(url, headers: headers, json: body, connect_options: [timeout: 30_000])
-  end
+  defp default_request_fun(request), do: Transport.default_request_fun(request)
 end

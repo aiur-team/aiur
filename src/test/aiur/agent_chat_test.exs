@@ -1,9 +1,16 @@
 defmodule Aiur.AgentChatTest do
   use ExUnit.Case, async: false
 
+  import Aiur.TestSupport, only: [github_owner: 0, github_repository: 0, github_repository_name: 0]
+
   alias Aiur.AgentChat
   alias Aiur.Orchestrator
   alias Aiur.TrackerIdentity
+
+  test "fixture identity components come from the canonical repository slug" do
+    identity = tracker_identity()
+    assert "#{identity.owner}/#{identity.repository}" == github_repository()
+  end
 
   test "send delegates to orchestrator control path" do
     assert {:error, reason} = AgentChat.send("MT-CHAT", "hello")
@@ -18,6 +25,14 @@ defmodule Aiur.AgentChatTest do
   test "resume delegates to orchestrator control path" do
     assert {:error, reason} = AgentChat.resume("MT-CHAT")
     assert reason in [:unavailable, :no_running_agent]
+  end
+
+  test "priority controls delegate to the orchestrator control path" do
+    assert {:error, prioritize_reason} = AgentChat.prioritize("MT-CHAT")
+    assert prioritize_reason in [:unavailable, :unknown_issue]
+
+    assert {:error, deprioritize_reason} = AgentChat.deprioritize("MT-CHAT")
+    assert deprioritize_reason in [:unavailable, :unknown_issue]
   end
 
   test "interrupt delegates to orchestrator control path" do
@@ -88,8 +103,8 @@ defmodule Aiur.AgentChatTest do
       version: 1,
       status: :joinable,
       kind: :github,
-      owner: "its-everdred",
-      repository: "aiur",
+      owner: github_owner(),
+      repository: github_repository_name(),
       provider_id: "I_kwDOreplrc",
       identifier: "101",
       reason: nil

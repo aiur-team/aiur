@@ -3,6 +3,7 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
 
   use Phoenix.Component
 
+  alias Aiur.CodingAgent
   alias AiurWeb.OperatorControlCenter.{DecisionAction, DecisionDetail, DecisionPath}
   alias Phoenix.LiveView.JS
 
@@ -25,9 +26,12 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
       |> assign(:recommendation_label, recommendation_label(assigns.decision))
       |> assign(:option_previews, Enum.take(assigns.decision.options, 2))
       |> assign(:selected_answer_label, selected_answer_label(assigns.decision))
+      |> assign(:operator_answer?, operator_answer?(assigns.decision))
+      |> assign(:executor_answer?, executor_answer?(assigns.decision))
       |> assign(:supervisor_answer?, supervisor_answer?(assigns.decision))
       |> assign(:confidence, supervisor_confidence(assigns.decision))
       |> assign(:agent_label, agent_label(assigns.decision))
+      |> assign(:agent_style, agent_style(assigns.decision))
       |> assign(:model_label, model_label(assigns.decision))
       |> assign(:status_badge, status_badge(assigns.decision))
 
@@ -62,20 +66,28 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
           </div>
           <div class="decision-card-foot">
             <span class={["chip cmd-blocking", @decision.blocking && "blocking"]}><span class="chip-dot"></span>{if @decision.blocking, do: "Blocking", else: "Non-blocking"}</span>
-            <span class="chip age">{@age}</span>
-            <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]}>{@agent_label}</span>
+            <span :if={@agent_label} class={["chip cmd-agent", agent_class(@decision)]} style={@agent_style}>{@agent_label}</span>
             <span :if={@model_label} class="chip mono">{@model_label}</span>
-            <span class="chip mono faint">{@decision.ticket[:identifier] || @decision.decision_id}</span>
             <span :if={@recommendation_label} class="recommendation-chip">SA recommends <b>{@recommendation_label}</b></span>
             <span :if={@selected_answer_label} class="chip accent">Selected · {@selected_answer_label}</span>
+            <span :if={@operator_answer?} class="chip accent">Operator answer</span>
+            <span :if={@executor_answer?} class="chip good">Executor answer</span>
             <span :if={@supervisor_answer?} class="chip super">Supervisor answer</span>
             <span :if={is_integer(@confidence)} class="chip super">{@confidence}% confidence</span>
             <span :if={Map.get(@decision, :superseded?, false)} class="chip super">Superseded</span>
           </div>
         </div>
         <div class="decision-card-side">
+          <span class="decision-age mono">{@age}</span>
           <span :if={@status_badge} class={["cmd-status-badge", @status_badge.tone]}><span class="chip-dot"></span>{@status_badge.label}</span>
-          <span class="expand-hint">{expand_label(@decision, @selected)} <span aria-hidden="true">⌄</span></span>
+          <span class="expand-hint">
+            {expand_label(@decision, @selected)}
+            <span class="expand-chevron" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </span>
+          </span>
         </div>
       </.link>
 
@@ -118,7 +130,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   defp status_badge(%{decision_status: :expired}), do: %{label: "Expired", tone: "is-dismissed"}
   defp status_badge(%{decision_status: :decided}), do: %{label: "Answered", tone: "is-answered"}
   defp status_badge(%{decision_status: :acknowledged}), do: %{label: "Acknowledged", tone: "is-answered"}
-  defp status_badge(%{decision_status: :dismissed}), do: %{label: "Dismissed", tone: "is-dismissed"}
+  # `:dismissed` is not `:acknowledged`. Both reach this badge, and labelling
+  # them alike made the durable record assert an acknowledgement the operator
+  # never gave. "Closed" is true of every route into `:dismissed`.
+  defp status_badge(%{decision_status: :dismissed}), do: %{label: "Closed", tone: "is-dismissed"}
   defp status_badge(%{decision_status: :resolved}), do: %{label: "Resolved", tone: "is-resolved"}
   defp status_badge(_decision), do: nil
 
@@ -151,6 +166,16 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
     end
   end
 
+  defp agent_style(decision) do
+    case CodingAgent.provider_descriptor(agent_family(decision)) do
+      %{command_color: color, command_border: border} ->
+        "--provider-command-color: #{color}; --provider-command-border: #{border}"
+
+      _ ->
+        nil
+    end
+  end
+
   defp agent_family(decision) do
     provenance = Map.get(decision, :provenance)
     map_value(provenance, :agent_family) || map_value(provenance, :backend)
@@ -175,6 +200,18 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
     do: Map.get(answer, :selected_option_id) == option.id
 
   defp selected_option?(_decision, _option), do: false
+
+  defp operator_answer?(%{answer: answer}) when is_map(answer) do
+    get_in(answer, [:actor, :kind]) in [:operator, "operator"]
+  end
+
+  defp operator_answer?(_decision), do: false
+
+  defp executor_answer?(%{answer: answer}) when is_map(answer) do
+    get_in(answer, [:actor, :kind]) in [:executor, "executor"]
+  end
+
+  defp executor_answer?(_decision), do: false
 
   defp supervisor_answer?(%{answer: answer}) when is_map(answer) do
     get_in(answer, [:actor, :kind]) in [:supervisor, "supervisor"]

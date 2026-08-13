@@ -1,5 +1,6 @@
 tracker:
   kind: github
+  base_branch: your-base-branch
   active_states:
     - todo
     - in-progress
@@ -14,6 +15,9 @@ tracker:
     allowed_users:
       - your-github-login
       - your-teammate-login
+    # Required for human-only merge attribution. Keep machine identities out.
+    human_mergers:
+      - your-github-login
     # Optional: trusted human Executor logins whose GitHub comments reach
     # agent event digests even when CODEOWNERS team expansion is unavailable.
     # trusted_accounts:
@@ -23,6 +27,11 @@ tracker:
     planning_root_limit: 100
     planning_page_budget: 4
     planning_call_budget: 4
+    # Host-local coordination for daemons and agent `gh` calls sharing one token.
+    max_inflight: 4
+    max_inflight_per_endpoint: 2
+    requests_per_minute: 120
+    stagger_ms: 75
 build_order:
   # Supervised configured-repository detail and sanitized typed-history providers.
   # Restart clears retained snapshots; selected tickets reload on demand.
@@ -39,6 +48,8 @@ build_order:
   ticket_history_max_identities: 100
   ticket_history_stale_after_ms: 60000
 observability:
+  # Set to false to disable run telemetry recording (Analytics page will be empty).
+  # telemetry_enabled: true
   # Retain useful cross-session telemetry without splitting an individual boot.
   telemetry_retention_max_bytes: 67108864
   telemetry_retention_max_age_days: 30
@@ -48,8 +59,11 @@ hooks:
   after_create: |
     # Aiur runs this in an empty atomic staging directory.
     git clone "$THIS_REPOSITORY_URL" .
+    issue_id="$(basename "$PWD")"
+    git checkout -b "aiur/${issue_id}" "origin/$THIS_BASE_BRANCH"
+    git update-ref refs/aiur/branch-start HEAD
 agent:
-  kind: claude
+  priority: [claude]
   max_concurrent_agents: 5
   max_turns: 20
   # max_turns_by_complexity: {1: 6, 2: 12, 3: 20}

@@ -14,6 +14,10 @@ defmodule Aiur.Init.Templates do
   @prompt_example_template File.read!(@prompt_example_path)
   @repo_placeholder "{{REPO}}"
 
+  @executor_handoff_example_path Path.expand("../../../../.aiur/examples/executor-handoff.md.example", __DIR__)
+  @external_resource @executor_handoff_example_path
+  @executor_handoff_example_template File.read!(@executor_handoff_example_path)
+
   @env_content "GITHUB_TOKEN=\n"
 
   # Embed the annotated example at compile time so the wizard works from a
@@ -69,6 +73,10 @@ defmodule Aiur.Init.Templates do
   @spec prompt_file_template() :: String.t()
   def prompt_file_template, do: @prompt_example_template
 
+  @doc "Raw executor handoff template that `aiur init` seeds in the repository state node."
+  @spec executor_handoff_template() :: String.t()
+  def executor_handoff_template, do: @executor_handoff_example_template
+
   @doc "Prompt_file scaffold with the repo placeholder filled for `repo` (or a neutral fallback)."
   @spec prompt_file_scaffold(String.t() | nil) :: String.t()
   def prompt_file_scaffold(repo) do
@@ -79,13 +87,14 @@ defmodule Aiur.Init.Templates do
   def build_fills(d) do
     %{
       "{{TRACKER_KIND}}" => d.tracker.kind,
+      "{{BASE_BRANCH}}" => d.tracker |> Aiur.Config.base_branch() |> Jason.encode!(),
       "{{TRACKER_PROVIDER}}" => tracker_provider_block(d.tracker),
       "{{AGENT_KIND}}" => Questions.primary_kind(d.agents),
+      "{{PRIORITY}}" => priority_inline(d.agents),
       "{{MAX_AGENTS}}" => Integer.to_string(d.max_agents),
       "{{MAX_TURNS}}" => to_string(d.max_turns),
       "{{MAX_AGENT_DURATION}}" => Integer.to_string(d.max_duration),
       "{{ROUTING}}" => routing_inline(d.routing),
-      "{{RATE_LIMIT_FALLBACK}}" => rate_limit_fallback_line(Map.get(d, :rate_limit_fallback, [])),
       "{{PERMISSION_MODE}}" => d.permission_mode,
       "{{WORKSPACE_ROOT}}" => d.workspace_root,
       "{{PROMPT_FILE}}" => d.prompt_file,
@@ -109,9 +118,6 @@ defmodule Aiur.Init.Templates do
     do: "  base_build_file: #{@prewarm_file_name}\n"
 
   defp prewarm_base_build_file_line(_), do: ""
-
-  defp rate_limit_fallback_line([]), do: ""
-  defp rate_limit_fallback_line(backends), do: "  switch_model_on_ratelimit: [#{Enum.join(backends, ", ")}]\n"
 
   defp tracker_provider_block(%{kind: "github"} = github) do
     # label_prefix is fixed (`agent`) and matches the schema default, so the
@@ -140,6 +146,10 @@ defmodule Aiur.Init.Templates do
 
   defp routing_inline(routing) do
     "{" <> Enum.map_join(1..5, ", ", fn level -> "#{level}: #{Map.fetch!(routing, level)}" end) <> "}"
+  end
+
+  defp priority_inline(agents) do
+    "[" <> Enum.join(agents, ", ") <> "]"
   end
 
   defp repo_display(repo) when is_binary(repo) do

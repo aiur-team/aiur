@@ -11,8 +11,10 @@
     "outDir": "dist",
     "rootDir": "src",
     "isolatedModules": true,
+    "resolveJsonModule": true,
     "verbatimModuleSyntax": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "types": ["node"]
   },
   "include": ["src"]
 }

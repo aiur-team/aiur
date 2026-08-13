@@ -1,7 +1,7 @@
 defmodule Aiur.Config.Schema.AgentValidation do
   @moduledoc "Normalizers and changeset validators for the agent section's map fields (state limits, complexity routing, complexity prompts) and normalize_issue_state/1."
 
-  import Ecto.Changeset, only: [validate_change: 3]
+  import Ecto.Changeset, only: [get_field: 2, validate_change: 3]
 
   alias Aiur.Config.RoutingValue
 
@@ -52,7 +52,10 @@ defmodule Aiur.Config.Schema.AgentValidation do
   @doc false
   @spec validate_agent_routing(Ecto.Changeset.t(), atom()) :: Ecto.Changeset.t()
   def validate_agent_routing(changeset, field) do
-    known = Aiur.CodingAgent.known_backends()
+    known =
+      ((get_field(changeset, :priority) || []) ++
+         Aiur.CodingAgent.dispatchable_backends(get_field(changeset, :backend_configs) || %{}))
+      |> Enum.uniq()
 
     validate_change(changeset, field, fn ^field, routing ->
       Enum.flat_map(routing, fn {level, value} ->
@@ -68,7 +71,7 @@ defmodule Aiur.Config.Schema.AgentValidation do
 
       not is_binary(value) or RoutingValue.routing_backend(value) not in known ->
         [
-          {field, "unknown backend #{inspect(value)}; known backends: #{inspect(known)} (optionally backend:model)"}
+          {field, "unknown or disabled backend #{inspect(value)}; dispatchable backends: #{inspect(known)} (optionally backend:model)"}
         ]
 
       RoutingValue.routing_remote_flag?(value) and

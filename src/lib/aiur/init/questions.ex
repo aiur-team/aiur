@@ -6,9 +6,6 @@ defmodule Aiur.Init.Questions do
 
   @tracker_kinds ["github", "linear"]
   @permission_modes ["bypassPermissions", "default (coming soon)", "acceptEdits (coming soon)"]
-  # Low complexity routes to the first kind, high to the last.
-  @routing_order ["claude", "codex"]
-
   @spec workspace_default(map()) :: String.t()
   def workspace_default(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "",
     do: "~/.aiur/workspaces/" <> repo
@@ -32,15 +29,42 @@ defmodule Aiur.Init.Questions do
         # The global config is general, so it omits the repo (auto-detected
         # from the git remote of whatever repo aiur runs in).
         repo = if location == :global, do: nil, else: io.input.("GitHub repo (owner/name)", deps.detect_repo.(), nil)
-        %{kind: "github", repo: repo}
+        %{kind: "github", repo: repo, base_branch: prompt_base_branch(io, deps, repo)}
 
       "linear" ->
         %{
           kind: "linear",
           api_key: io.input.("Linear API key", nil, nil),
-          project_slug: io.input.("Linear project slug", nil, nil)
+          project_slug: io.input.("Linear project slug", nil, nil),
+          base_branch: prompt_base_branch(io, deps, nil)
         }
     end
+  end
+
+  defp prompt_base_branch(io, deps, repo) do
+    prompt_base_branch(io, deps.detect_default_branch.(repo))
+  end
+
+  defp prompt_base_branch(io, api_default) do
+    io.input.("Tracker base branch", api_default, "required; defaults to the repository default branch read from GitHub")
+    |> normalize_base_branch()
+    |> accept_base_branch(io, api_default)
+  end
+
+  defp normalize_base_branch(branch) when is_binary(branch), do: String.trim(branch)
+  defp normalize_base_branch(_missing), do: ""
+
+  defp accept_base_branch("", io, api_default) do
+    io.puts.("Tracker base branch is required; Aiur will not guess one.")
+    prompt_base_branch(io, api_default)
+  end
+
+  defp accept_base_branch(configured, io, api_default) do
+    if configured == api_default do
+      io.puts.("Using repository default branch from GitHub API: #{configured}")
+    end
+
+    configured
   end
 
   @spec prompt_agents(Aiur.Init.io()) :: [String.t()]
@@ -67,15 +91,6 @@ defmodule Aiur.Init.Questions do
       Map.new(1..5, fn level -> {level, prompt_routing_level(io, agents, level, primary)} end)
     else
       Map.new(1..5, fn level -> {level, primary} end)
-    end
-  end
-
-  @spec prompt_rate_limit_fallback(Aiur.Init.io(), [String.t()]) :: [String.t()]
-  def prompt_rate_limit_fallback(io, agents) do
-    if length(agents) > 1 and io.confirm.("Switch to another configured agent when a usage limit is reached?", false) do
-      io.multiselect.("Fallback priority (first available wins)", agents, agents)
-    else
-      []
     end
   end
 
@@ -154,9 +169,7 @@ defmodule Aiur.Init.Questions do
   end
 
   @spec agent_kind_choices() :: [String.t()]
-  def agent_kind_choices do
-    Enum.filter(@routing_order, &(&1 in known_agent_kinds()))
-  end
+  def agent_kind_choices, do: CodingAgent.configurable_backends()
 
   @spec primary_kind([String.t()]) :: String.t()
   def primary_kind(agents), do: hd(agent_kinds(agents))
@@ -165,7 +178,7 @@ defmodule Aiur.Init.Questions do
   def agent_kinds(kinds) when is_list(kinds) do
     kinds
     |> Enum.uniq()
-    |> Enum.sort_by(&Enum.find_index(@routing_order, fn k -> k == &1 end))
+    |> Enum.sort_by(&(Enum.find_index(agent_kind_choices(), fn kind -> kind == &1 end) || 9_999))
   end
 
   @doc false

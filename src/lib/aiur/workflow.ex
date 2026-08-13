@@ -100,6 +100,23 @@ defmodule Aiur.Workflow do
     end
   end
 
+  @doc """
+  Like `current/0`, but also returns the `WorkflowStore` generation the value
+  came from — or `:unknown` when the store is not running and the config was
+  read straight from disk. Callers use the generation to memoize derived work
+  (see `Aiur.Config.settings/0`) without re-deriving it on every read.
+  """
+  @spec current_with_generation() :: {:ok, loaded_workflow(), pos_integer() | :unknown} | {:error, term()}
+  def current_with_generation do
+    case Process.whereis(WorkflowStore) do
+      pid when is_pid(pid) ->
+        WorkflowStore.current_with_generation()
+
+      _ ->
+        with {:ok, workflow} <- load(), do: {:ok, workflow, :unknown}
+    end
+  end
+
   @spec load() :: {:ok, loaded_workflow()} | {:error, term()}
   def load do
     load(workflow_file_path())
@@ -113,6 +130,19 @@ defmodule Aiur.Workflow do
 
       {:error, reason} ->
         {:error, {:missing_workflow_file, path, reason}}
+    end
+  end
+
+  @doc false
+  @spec resolved_prewarm_file_path(Path.t()) :: Path.t() | nil
+  def resolved_prewarm_file_path(path) when is_binary(path) do
+    with {:ok, content} <- File.read(path),
+         {:ok, config} <- yaml_to_map(content),
+         %{} = prewarm <- Map.get(config, "prewarm"),
+         rel when is_binary(rel) and rel != "" <- Map.get(prewarm, "base_build_file") do
+      Path.expand(rel, Path.dirname(path))
+    else
+      _ -> nil
     end
   end
 

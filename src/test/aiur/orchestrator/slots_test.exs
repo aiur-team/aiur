@@ -31,6 +31,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
         }
       }
 
+      assert Slots.used_slots(state) == 3
       assert Slots.available_slots(state) == 0
     end
 
@@ -44,6 +45,7 @@ defmodule Aiur.Orchestrator.SlotsTest do
         }
       }
 
+      assert Slots.used_slots(state) == 2
       assert Slots.available_slots(state) == 1
     end
 
@@ -84,8 +86,11 @@ defmodule Aiur.Orchestrator.SlotsTest do
       assert %{
                active: 2,
                paused: 1,
+               reserved_paused: 1,
+               occupied: 3,
                configured: 3,
                max: 1,
+               available: 0,
                session_override?: true,
                draining?: true
              } = Slots.max_concurrent_agent_status(state)

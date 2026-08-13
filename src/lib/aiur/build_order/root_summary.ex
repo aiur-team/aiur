@@ -3,9 +3,12 @@ defmodule Aiur.BuildOrder.RootSummary do
 
   alias Aiur.{BuildOrder.Bounded, BuildOrder.Diagnostic, BuildOrder.Lifecycle, TrackerIdentity}
 
+  @type progress_resolution :: :resolved | :partial | :unresolved | :unknown
+
   @type t :: %__MODULE__{
           identity: TrackerIdentity.t() | nil,
           title: String.t(),
+          icon: String.t() | nil,
           url: String.t() | nil,
           parent_identity: TrackerIdentity.t() | nil,
           lifecycle: Lifecycle.t(),
@@ -16,11 +19,15 @@ defmodule Aiur.BuildOrder.RootSummary do
           epic_count: non_neg_integer() | nil,
           phase_count: non_neg_integer() | nil,
           progress: non_neg_integer() | nil,
+          progress_resolution: progress_resolution(),
+          progress_resolved_count: non_neg_integer() | nil,
+          completed?: boolean(),
           diagnostics: [Diagnostic.t()]
         }
 
   defstruct identity: nil,
             title: "Untitled Build Order",
+            icon: nil,
             url: nil,
             parent_identity: nil,
             lifecycle: %Lifecycle{},
@@ -31,6 +38,9 @@ defmodule Aiur.BuildOrder.RootSummary do
             epic_count: nil,
             phase_count: nil,
             progress: nil,
+            progress_resolution: :unknown,
+            progress_resolved_count: nil,
+            completed?: false,
             diagnostics: []
 
   @spec new(term()) :: t()
@@ -39,6 +49,9 @@ defmodule Aiur.BuildOrder.RootSummary do
     {title, title_diagnostic} = title(Map.get(attributes, :title))
     {url, url_diagnostic} = url(Map.get(attributes, :url), identity)
     {parent, parent_diagnostic} = parent(Map.get(attributes, :parent_identity))
+
+    {progress, progress_resolution} =
+      progress(percent(Map.get(attributes, :progress)), Map.get(attributes, :progress_resolution))
 
     diagnostics =
       Enum.reject(
@@ -54,6 +67,7 @@ defmodule Aiur.BuildOrder.RootSummary do
     %__MODULE__{
       identity: identity,
       title: title,
+      icon: icon(Map.get(attributes, :icon)),
       url: url,
       parent_identity: parent,
       lifecycle: lifecycle(attributes),
@@ -63,7 +77,10 @@ defmodule Aiur.BuildOrder.RootSummary do
       member_count: count(Map.get(attributes, :member_count)),
       epic_count: count(Map.get(attributes, :epic_count)),
       phase_count: count(Map.get(attributes, :phase_count)),
-      progress: percent(Map.get(attributes, :progress)),
+      progress: progress,
+      progress_resolution: progress_resolution,
+      progress_resolved_count: count(Map.get(attributes, :progress_resolved_count)),
+      completed?: Map.get(attributes, :completed?) == true,
       diagnostics: diagnostics
     }
   end
@@ -80,6 +97,9 @@ defmodule Aiur.BuildOrder.RootSummary do
       :error -> {"Untitled Build Order", Diagnostic.new(:invalid_title)}
     end
   end
+
+  defp icon(value) when is_binary(value) and byte_size(value) in 1..80, do: value
+  defp icon(_value), do: nil
 
   defp url(value, nil), do: safe_url(value)
 
@@ -127,6 +147,17 @@ defmodule Aiur.BuildOrder.RootSummary do
 
   defp percent(value) when is_integer(value) and value in 0..100, do: value
   defp percent(_value), do: nil
+
+  # A source that resolved completion for at least some members says so
+  # explicitly. `:unknown` is the legacy shape — a percent with no claim about
+  # how it was derived — and is preserved so callers that never resolved
+  # completion at all keep rendering exactly as before. A declared
+  # `:resolved`/`:partial` with no usable percent fails closed to
+  # `:unresolved` rather than degrading into an indistinguishable blank.
+  defp progress(nil, resolution) when resolution in [:resolved, :partial, :unresolved], do: {nil, :unresolved}
+  defp progress(_percent, :unresolved), do: {nil, :unresolved}
+  defp progress(percent, resolution) when resolution in [:resolved, :partial], do: {percent, resolution}
+  defp progress(percent, _resolution), do: {percent, :unknown}
   defp datetime(%DateTime{} = datetime), do: datetime
   defp datetime(_datetime), do: nil
 end

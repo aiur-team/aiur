@@ -157,7 +157,9 @@ defmodule Aiur.BuildOrder.GraphProjectionPubSubTest do
                      %Snapshot{
                        data: ^initial,
                        generation: 1,
-                       health: %{state: :stale, failure: :provider_unavailable}
+                       # A partial GraphQL answer keeps its own name rather than
+                       # being laundered into a generic outage (#1777).
+                       health: %{state: :stale, failure: :graphql_partial}
                      }
                    },
                    2_000

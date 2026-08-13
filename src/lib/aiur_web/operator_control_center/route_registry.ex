@@ -45,6 +45,17 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       owner: :analytics,
       availability: :available,
       active_actions: [:analytics]
+    },
+    %{
+      id: :streamdeck,
+      label: "Streamdeck+",
+      icon: "◉",
+      description: "Stream Deck + control surface",
+      path: "/streamdeck",
+      type: :live,
+      owner: :streamdeck,
+      availability: :available,
+      active_actions: [:streamdeck]
     }
   ]
 

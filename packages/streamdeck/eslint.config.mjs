@@ -5,6 +5,16 @@ export default tseslint.config(
   {
     ignores: ["coverage", "dist"],
   },
+  {
+    files: ["scripts/**/*.mjs"],
+    languageOptions: {
+      globals: {
+        URL: "readonly",
+        process: "readonly",
+        setTimeout: "readonly",
+      },
+    },
+  },
   eslint.configs.recommended,
   ...tseslint.configs.recommended,
 );

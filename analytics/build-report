@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Print a cross-boot retrospective report for one build order (the number-fetcher).
+set -euo pipefail
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+export PYTHONPATH="$script_dir/lib${PYTHONPATH:+:$PYTHONPATH}"
+exec python3 -m analytics.build_report "$@"

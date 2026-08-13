@@ -2,7 +2,7 @@ defmodule Aiur.CoreTest do
   use Aiur.TestSupport
 
   alias Aiur.Config.Schema
-  alias Aiur.Orchestrator.{Dispatcher, OperatorMessages, Reconciler, Slots}
+  alias Aiur.Orchestrator.{Dispatcher, DispatchPolicy, LifecycleFence, OperatorMessages, Reconciler, Slots}
 
   defmodule RetryPollFailingGitHubClient do
     def preflight_auth, do: :ok
@@ -64,7 +64,7 @@ defmodule Aiur.CoreTest do
     )
 
     config = Config.settings!()
-    assert config.polling.interval_seconds == 30
+    assert config.polling.interval_seconds == 120
     assert config.tracker.active_states == ["Todo", "In Progress"]
     assert config.tracker.terminal_states == ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"]
     assert config.tracker.linear.assignee == nil
@@ -190,6 +190,112 @@ defmodule Aiur.CoreTest do
       assert prompt =~ "{{ issue.title }}"
       assert is_binary(Config.workflow_prompt())
       assert Config.workflow_prompt() == prompt
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
+  end
+
+  test "production config treats GitHub closed as terminal so a fenced closed issue is finalized" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    try do
+      Workflow.set_workflow_file_path(Path.expand("../.aiur/config", File.cwd!()))
+
+      assert {:ok, %{config: config}} = Workflow.load()
+
+      terminal_states =
+        config
+        |> Map.get("tracker", %{})
+        |> Map.get("terminal_states", [])
+        |> Enum.map(&DispatchPolicy.normalize_issue_state/1)
+        |> Enum.reject(&(&1 == ""))
+        |> MapSet.new()
+
+      # Config-drift guard for #1329: the repo's own production config must treat
+      # GitHub `closed` as a terminal state, or a closed-but-fenced running entry
+      # is never released and `aiur status` keeps showing the ticket as running.
+      assert MapSet.member?(terminal_states, "closed")
+      assert DispatchPolicy.terminal_issue_state?("closed", terminal_states)
+
+      issue_id = "issue-prod-config-closed"
+      observed = %Issue{id: issue_id, identifier: "PROD-1", state: "closed"}
+
+      fenced_entry = fn opened_at ->
+        %{
+          identifier: "PROD-1",
+          issue: observed,
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: opened_at,
+            pending_item_ids: MapSet.new([1])
+          }
+        }
+      end
+
+      fresh_state = %Orchestrator.State{running: %{issue_id => fenced_entry.(DateTime.utc_now())}}
+
+      assert {:fenced, _next} =
+               LifecycleFence.reconcile_observed_state(fresh_state, observed, terminal_states)
+
+      expired_state = %Orchestrator.State{
+        running: %{issue_id => fenced_entry.(DateTime.add(DateTime.utc_now(), -31, :second))}
+      }
+
+      assert :admit =
+               LifecycleFence.reconcile_observed_state(expired_state, observed, terminal_states)
+    after
+      Workflow.set_workflow_file_path(original_workflow_path)
+    end
+  end
+
+  test "terminal fence grace is configurable and bounds teardown of a closed observation" do
+    original_workflow_path = Workflow.workflow_file_path()
+
+    try do
+      write_workflow_file!(Workflow.workflow_file_path(),
+        tracker_kind: "github",
+        tracker_terminal_states: ["done", "closed"],
+        tracker_terminal_fence_grace_seconds: 60
+      )
+
+      assert Config.terminal_fence_grace_seconds() == 60
+
+      terminal_states = DispatchPolicy.terminal_state_set()
+      assert MapSet.member?(terminal_states, "closed")
+
+      issue_id = "issue-grace-configurable"
+      observed = %Issue{id: issue_id, identifier: "GRACE-1", state: "closed"}
+
+      fenced_entry = fn opened_at ->
+        %{
+          identifier: "GRACE-1",
+          issue: observed,
+          control: %{status: :working},
+          lifecycle_fence: %{
+            authoritative_state: "in-progress",
+            generation: 1,
+            opened_at: opened_at,
+            pending_item_ids: MapSet.new([1])
+          }
+        }
+      end
+
+      # 45s old but the grace is 60s: still fenced, runner retained.
+      within_grace = %Orchestrator.State{
+        running: %{issue_id => fenced_entry.(DateTime.add(DateTime.utc_now(), -45, :second))}
+      }
+
+      assert {:fenced, _next} =
+               LifecycleFence.reconcile_observed_state(within_grace, observed, terminal_states)
+
+      # 61s old, past the configured 60s grace: admitted for teardown.
+      past_grace = %Orchestrator.State{
+        running: %{issue_id => fenced_entry.(DateTime.add(DateTime.utc_now(), -61, :second))}
+      }
+
+      assert :admit = LifecycleFence.reconcile_observed_state(past_grace, observed, terminal_states)
     after
       Workflow.set_workflow_file_path(original_workflow_path)
     end
@@ -367,6 +473,88 @@ defmodule Aiur.CoreTest do
     assert Process.whereis(Aiur.Orchestrator) == pid
 
     GenServer.stop(pid)
+  end
+
+  test "two unnamed orchestrators start independently" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+
+    {:ok, first} = start_supervised({Orchestrator, initial_poll?: false}, id: :first_unnamed_orchestrator)
+    {:ok, second} = start_supervised({Orchestrator, initial_poll?: false}, id: :second_unnamed_orchestrator)
+
+    assert first != second
+    assert :sys.get_state(first).snapshot_key != :sys.get_state(second).snapshot_key
+  end
+
+  test "an unnamed orchestrator accepts PID-targeted lifecycle and status APIs" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+
+    {:ok, orchestrator} = start_supervised({Orchestrator, initial_poll?: false}, id: :pid_targeted_orchestrator)
+
+    assert %{queued: true, operations: ["poll", "reconcile"]} = Orchestrator.request_refresh(orchestrator)
+    assert [] = Orchestrator.status(orchestrator, 1_000)
+    assert {[], capacity} = Orchestrator.status_with_capacity(orchestrator, 1_000)
+    assert is_map(capacity)
+    assert is_map(Orchestrator.snapshot(orchestrator, 1_000))
+    assert %{checking?: checking?} = Orchestrator.poll_status(orchestrator, 1_000)
+    assert is_boolean(checking?)
+    assert [] = Orchestrator.list_active_identifiers(orchestrator, 1_000)
+    assert [] = Orchestrator.list_running_active_identifiers(orchestrator, 1_000)
+  end
+
+  test "unregistered global and via orchestrator names are unavailable" do
+    registry_name = Module.concat(__MODULE__, PidTargetedOrchestratorRegistry)
+    start_supervised!({Registry, keys: :unique, name: registry_name})
+
+    unavailable_servers = [
+      {:global, {__MODULE__, :missing_orchestrator}},
+      {:via, Registry, {registry_name, :missing_orchestrator}}
+    ]
+
+    for server <- unavailable_servers do
+      assert :unavailable = Orchestrator.request_refresh(server)
+      assert :unavailable = Orchestrator.status(server, 1_000)
+      assert :unavailable = Orchestrator.snapshot(server, 1_000)
+      assert [] = Orchestrator.list_active_identifiers(server, 1_000)
+      assert [] = Orchestrator.list_running_active_identifiers(server, 1_000)
+    end
+  end
+
+  test "registered global and via orchestrator names accept lifecycle and status APIs" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+
+    registry_name = Module.concat(__MODULE__, LivePidTargetedOrchestratorRegistry)
+    start_supervised!({Registry, keys: :unique, name: registry_name})
+
+    global_name = {:global, {__MODULE__, :global_orchestrator}}
+    via_name = {:via, Registry, {registry_name, :via_orchestrator}}
+
+    {:ok, _} = start_supervised({Orchestrator, [name: global_name, initial_poll?: false]}, id: :global_targeted_orchestrator)
+    {:ok, _} = start_supervised({Orchestrator, [name: via_name, initial_poll?: false]}, id: :via_targeted_orchestrator)
+
+    for server <- [global_name, via_name] do
+      assert %{queued: true, operations: ["poll", "reconcile"]} = Orchestrator.request_refresh(server)
+      assert [] = Orchestrator.status(server, 1_000)
+      assert is_map(Orchestrator.snapshot(server, 1_000))
+      assert [] = Orchestrator.list_active_identifiers(server, 1_000)
+      assert [] = Orchestrator.list_running_active_identifiers(server, 1_000)
+    end
+  end
+
+  test "a stopped unnamed orchestrator is unavailable to lifecycle and status APIs" do
+    write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
+    Application.put_env(:aiur, :memory_tracker_issues, [])
+
+    {:ok, orchestrator} = start_supervised({Orchestrator, initial_poll?: false}, id: :stopped_pid_targeted_orchestrator)
+    :ok = GenServer.stop(orchestrator)
+
+    assert :unavailable = Orchestrator.request_refresh(orchestrator)
+    assert :unavailable = Orchestrator.status(orchestrator, 1_000)
+    assert :unavailable = Orchestrator.snapshot(orchestrator, 1_000)
+    assert [] = Orchestrator.list_active_identifiers(orchestrator, 1_000)
+    assert [] = Orchestrator.list_running_active_identifiers(orchestrator, 1_000)
   end
 
   test "linear issue state reconciliation fetch with no running issues is a no-op" do
@@ -877,6 +1065,8 @@ defmodule Aiur.CoreTest do
     assert log =~ "reason=retry_exhausted"
     assert log =~ "caller=Aiur.Orchestrator.move_exhausted_issue_to_error_state"
     assert log =~ "ticket.MT-EX.agent.retry_exhausted"
+    assert log =~ "ticket.MT-EX.agent.attention.error-retry_exhausted"
+    assert log =~ "automatic retry is no longer scheduled"
 
     assert_receive {:memory_tracker_state_update, "MT-EX", "error"}
   end
@@ -1095,8 +1285,9 @@ defmodule Aiur.CoreTest do
     assert log =~ "Retry poll failed for issue_id=#{issue_id} issue_identifier=MT-POLL"
     assert log =~ "retry_poll_failure=2/3 agent_attempt=1 tracker_error={:github_api_status, 403}"
     assert log =~ "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=MT-POLL"
-    assert log =~ "Retry poll exhausted for issue_id=#{issue_id} issue_identifier=MT-POLL agent_attempt=1"
-    assert log =~ "[alert] (#MT-POLL) orchestrator.retry_poll.exhausted"
+    assert log =~ "Claim released for issue_id=#{issue_id} issue_identifier=MT-POLL agent_attempt=1"
+    assert log =~ "reason=tracker_retry_exhausted"
+    assert log =~ "[alert] (#MT-POLL) orchestrator.claim_released"
   end
 
   test "stale retry timer messages do not consume newer retry entries" do

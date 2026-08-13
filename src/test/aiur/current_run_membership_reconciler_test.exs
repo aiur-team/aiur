@@ -13,6 +13,7 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         row("I-paused", state: "in-progress", work_state: :paused),
         row("I-waiting", state: "in-progress", waiting_reason: :waiting_for_ci),
         row("I-awaiting-dispatch", state: "in-progress", waiting_reason: :awaiting_dispatch),
+        row("I-tracker-unavailable", state: "in-progress", waiting_reason: :tracker_unavailable),
         row("I-unresponsive", state: "in-progress", waiting_reason: :unresponsive),
         row("I-replaced", state: "replaced")
       ],
@@ -32,12 +33,13 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
         MapSet.new(["done", "cancelled"])
       )
 
-    assert length(observations) == 10
+    assert length(observations) == 11
 
     assert_received {"I-running", :running}
     assert_received {"I-paused", :paused}
     assert_received {"I-waiting", :waiting}
     assert_received {"I-awaiting-dispatch", :waiting}
+    assert_received {"I-tracker-unavailable", :waiting}
     assert_received {"I-unresponsive", :waiting}
     assert_received {"I-replaced", :replaced}
     assert_received {"I-retrying", :retrying}
@@ -134,6 +136,60 @@ defmodule Aiur.CurrentRunMembership.ReconcilerTest do
     assert_receive {:reconciled, "I-recovered", :queued}
     assert Process.alive?(reconciler)
     assert Process.alive?(recovered_store)
+  end
+
+  test "a new run generation periodically discovers current agents without another dispatch event" do
+    parent = self()
+    dir = Path.join(System.tmp_dir!(), "aiur-membership-generation-reconcile-#{System.unique_integer([:positive])}")
+    reconciler_name = Module.concat(__MODULE__, "Generation#{System.unique_integer([:positive])}")
+    old_identity = row("I-old-generation", []).tracker_identity
+    current_row = row("I-current-generation", [])
+
+    {:ok, prior_store} = Store.start_link(name: nil, state_dir: dir, run_id: "prior-run")
+    assert {:ok, %{generation: 1}} = Store.observe(old_identity, :running, server: prior_store)
+    GenServer.stop(prior_store)
+
+    {:ok, current_store} = Store.start_link(name: nil, state_dir: dir, run_id: "current-run")
+    Process.unlink(current_store)
+    {:ok, snapshot} = Agent.start_link(fn -> %{running: [], retrying: [], idle: []} end)
+
+    on_exit(fn ->
+      if Process.alive?(current_store), do: GenServer.stop(current_store)
+      if Process.alive?(snapshot), do: Agent.stop(snapshot)
+      if pid = Process.whereis(reconciler_name), do: GenServer.stop(pid)
+      File.rm_rf!(dir)
+    end)
+
+    {:ok, reconciler} =
+      Reconciler.start_link(
+        name: reconciler_name,
+        snapshot_fun: fn -> Agent.get(snapshot, & &1) end,
+        observe_fun: fn identity, lifecycle ->
+          result = Store.observe(identity, lifecycle, server: current_store)
+          send(parent, {:observed, identity.provider_id, lifecycle, result})
+          result
+        end,
+        terminal_states_fun: &MapSet.new/0,
+        subscribe_fun: fn -> :ok end,
+        membership_subscribe_fun: fn -> :ok end,
+        reconciliation_fun: fn status ->
+          result = Store.mark_reconciled(status, current_store)
+          send(parent, {:reconciliation, status})
+          result
+        end,
+        reconcile_interval_ms: 10
+      )
+
+    Process.unlink(reconciler)
+    assert_receive {:reconciliation, :fresh}
+    assert %{run_id: "current-run", members: []} = Store.snapshot(server: current_store)
+
+    Agent.update(snapshot, fn _ -> %{running: [current_row], retrying: [], idle: []} end)
+
+    assert_receive {:observed, "I-current-generation", :running, {:ok, _}}, 250
+
+    assert %{members: [%{identity: %{provider_id: "I-current-generation"}}]} =
+             Store.snapshot(server: current_store)
   end
 
   test "an unavailable source marks reconciliation freshness unavailable" do

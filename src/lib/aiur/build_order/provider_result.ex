@@ -61,7 +61,7 @@ defmodule Aiur.BuildOrder.ProviderResult do
   defp rate_limit(opts) do
     opts
     |> Keyword.get(:rate_limit, %{})
-    |> Map.take([:remaining, :reset_at, :retry_after, :poll_interval])
+    |> Map.take([:cost, :limit, :remaining, :reset_at, :retry_after, :poll_interval])
   rescue
     _ -> %{}
   end

@@ -24,15 +24,35 @@ defmodule Aiur.Regression.CompileTimePathsTest do
   @lib_root Path.expand("../../../lib", __DIR__)
 
   # file (relative to src/lib) => trimmed matching lines: the currently
-  # legitimate sites, captured 2026-07-07 at these locations:
+  # legitimate sites, captured 2026-08-09 at these locations:
+  # aiur/agent_build_guard.ex:14,15; aiur/agent_github_guard.ex:14-23;
+  # aiur/github/budget.ex:17-18;
   # aiur/agent_skills.ex:13,16,45,58;
   # aiur/init/templates.ex:13,14,28,29,38,39,49,50,51,52;
   # aiur/prompt_builder.ex:9,10; aiur_web/static_assets.ex:4,9,10,11,12.
   @allowlist %{
+    # The wrapper is embedded into the release at compile time and installed
+    # from that embedded content; the source path is never read at runtime.
+    "aiur/agent_build_guard.ex" => [
+      "@script_path Path.expand(\"../../priv/build_gate_command_wrapper.bash\", __DIR__)",
+      "@external_resource @script_path"
+    ],
+    "aiur/agent_github_guard.ex" => [
+      "@gh_script_path Path.expand(\"../../priv/github_quota_guard.sh\", __DIR__)",
+      "@git_script_path Path.expand(\"../../priv/github_push_guard.sh\", __DIR__)",
+      "@broker_path Path.expand(\"../../priv/github_budget.py\", __DIR__)",
+      "@external_resource @gh_script_path",
+      "@external_resource @git_script_path",
+      "@external_resource @broker_path"
+    ],
+    "aiur/github/budget.ex" => [
+      "@broker_source_path Path.expand(\"../../../priv/github_budget.py\", __DIR__)",
+      "@external_resource @broker_source_path"
+    ],
     "aiur/agent_skills.ex" => [
       "The skill files are embedded at COMPILE time (via `@external_resource` +",
       "`priv/`, not the repo's `.claude` tree. (A runtime `__DIR__`-relative read",
-      "@skills_root Path.expand(\"../../../\#{@claude_skills_dir}\", __DIR__)",
+      "@skills_root Path.expand(\"../../../\#{@bundled_skills_dir}\", __DIR__)",
       "for path <- bundled_paths, do: @external_resource(path)"
     ],
     "aiur/init/templates.ex" => [
@@ -45,7 +65,9 @@ defmodule Aiur.Regression.CompileTimePathsTest do
       "@alerts_macos_example_path Path.expand(\"../../../../.aiur/examples/alerts.macos.example\", __DIR__)",
       "@alerts_linux_example_path Path.expand(\"../../../../.aiur/examples/alerts.linux.example\", __DIR__)",
       "@external_resource @alerts_macos_example_path",
-      "@external_resource @alerts_linux_example_path"
+      "@external_resource @alerts_linux_example_path",
+      "@executor_handoff_example_path Path.expand(\"../../../../.aiur/examples/executor-handoff.md.example\", __DIR__)",
+      "@external_resource @executor_handoff_example_path"
     ],
     "aiur/prompt_builder.ex" => [
       "@shared_prompt_path Path.expand(\"../../prompts/shared-agent-instructions.md\", __DIR__)",
@@ -62,6 +84,13 @@ defmodule Aiur.Regression.CompileTimePathsTest do
     ],
     "aiur_web/components/operator_control_center/build_order_epic_icon.ex" => [
       "@external_resource path"
+    ],
+    # The Stream Deck key-face contract is authored once in the npm package
+    # that the packaged deck ships from, and embedded into the web emulator at
+    # compile time via File.read!/1. Nothing reads @contract_path at runtime.
+    "aiur_web/streamdeck_key_face_contract.ex" => [
+      "@contract_path Path.expand(\"../../../packages/streamdeck/src/key-face-contract.json\", __DIR__)",
+      "@external_resource @contract_path"
     ]
   }
 

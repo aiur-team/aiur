@@ -69,6 +69,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         </div>
         <div><dt>Health</dt><dd>{@card.health.label}</dd></div>
         <div><dt>Freshness</dt><dd>{@card.freshness.label}</dd></div>
+        <div :if={@card.state in [:stale, :error] && @card.health.age_label}>
+          <dt>Observation age</dt>
+          <dd>{@card.health.age_label}</dd>
+        </div>
+        <div :if={@card.state == :partial && @card.health.failure_label}>
+          <dt>Last refresh</dt>
+          <dd>{@card.health.failure_label}</dd>
+        </div>
         <div :if={@card.observed_at}>
           <dt>Last observation</dt>
           <dd><.timestamp value={@card.observed_at} /></dd>
@@ -78,6 +86,15 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
       <p :if={@card.state == :loading} class="provider-meter-state empty-state">
         Loading account meters…
       </p>
+
+      <div :if={@card.state == :signed_out} class="provider-meter-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span>
+          <b>Not signed in.</b>
+          No OAuth token is available for this account. Sign in to Claude Code to
+          read its meters.
+        </span>
+      </div>
 
       <div :if={@card.state == :error} class="provider-meter-state error-card" role="alert">
         <h4>Provider meter error</h4>
@@ -97,6 +114,7 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         <span>
           <b>Stale meters.</b>
           Showing the last known-good values for this account.
+          <span :if={@card.health.age_label}>Observation is {@card.health.age_label}.</span>
           <span :if={@card.health.failure_label}>Last refresh {String.downcase(@card.health.failure_label)}.</span>
         </span>
       </div>
@@ -131,12 +149,14 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
         aria-valuemin={@window.meter.min}
         aria-valuemax={@window.meter.max}
         aria-valuenow={@window.meter.now}
-        aria-label={"#{@window.name} usage"}
+        aria-label={window_meter_aria_label(@window)}
       >
         <span class="provider-meter-track" aria-hidden="true">
           <span class="provider-meter-fill" style={"width: #{@window.meter.now}%"}></span>
         </span>
-        <span class="provider-meter-value">{@window.meter.now}% used</span>
+        <span class="provider-meter-value">
+          {@window.meter.now}% used<span :if={@window.freshness == :stale}> (stale observation)</span>
+        </span>
       </div>
 
       <p :if={@window.coverage == :unsupported} class="provider-meter-coverage">
@@ -180,6 +200,9 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMeters do
     </li>
     """
   end
+
+  defp window_meter_aria_label(%{name: name, freshness: :stale}), do: "#{name} usage, stale observation"
+  defp window_meter_aria_label(%{name: name}), do: "#{name} usage"
 
   attr(:value, :any, default: nil)
   attr(:class, :string, default: nil)

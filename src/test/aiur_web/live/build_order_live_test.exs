@@ -4,13 +4,15 @@ defmodule AiurWeb.BuildOrderLiveTest do
   import Phoenix.ConnTest
   import Phoenix.LiveViewTest
 
+  alias Aiur.{AgentPubSub, TrackerIdentity}
+  alias Aiur.TestSupport.AwaitingCommands
+
   alias Aiur.BuildOrder.AdHocSource.Snapshot, as: AdHocSnapshot
   alias Aiur.BuildOrder.{Catalog, Lifecycle, Member, ProviderHealth, RootSummary, SelectedRoot}
   alias Aiur.BuildOrder.GraphProjection.Snapshot
   alias Aiur.BuildOrder.TicketDetail.Snapshot, as: DetailSnapshot
   alias Aiur.BuildOrder.TicketDetail.State
   alias Aiur.BuildOrder.TicketHistory
-  alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.Runtime
   alias AiurWeb.Endpoint
 
@@ -28,9 +30,16 @@ defmodule AiurWeb.BuildOrderLiveTest do
     def put_selected(server, selected), do: GenServer.call(server, {:put_selected, selected})
 
     def subscribe_catalog(server), do: invoke(server, :subscribe_catalog, [])
-    def unsubscribe_catalog(server, repository), do: invoke(server, :unsubscribe_catalog, [repository])
+
+    def unsubscribe_catalog(server, repository),
+      do: invoke(server, :unsubscribe_catalog, [repository])
+
     def catalog(server), do: invoke(server, :catalog, [])
-    def subscribe_sources(server), do: invoke(server, :subscribe_sources, [])
+
+    def subscribe_sources(server) do
+      :ok = Aiur.AgentPubSub.subscribe_running()
+      invoke(server, :subscribe_sources, [])
+    end
 
     def load_sources(server) do
       loader = invoke(server, :load_sources, [])
@@ -38,12 +47,17 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
 
     def subscribe_selected(server, identity), do: invoke(server, :subscribe_selected, [identity])
-    def unsubscribe_selected(server, identity), do: invoke(server, :unsubscribe_selected, [identity])
+
+    def unsubscribe_selected(server, identity),
+      do: invoke(server, :unsubscribe_selected, [identity])
+
     def selected(server, identity), do: invoke(server, :selected, [identity])
     def demand(server, identity), do: invoke(server, :demand, [identity])
     def release(server, identity), do: invoke(server, :release, [identity])
     def subscribe_context(server, identity), do: invoke(server, :subscribe_context, [identity])
-    def unsubscribe_context(server, identity), do: invoke(server, :unsubscribe_context, [identity])
+
+    def unsubscribe_context(server, identity),
+      do: invoke(server, :unsubscribe_context, [identity])
 
     def load_context(server, identity) do
       loader = invoke(server, :load_context, [identity])
@@ -57,7 +71,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
          report: Keyword.fetch!(opts, :report),
          catalog: Keyword.fetch!(opts, :catalog),
          selected: Map.new(Keyword.get(opts, :selected, []), &{&1.scope, &1}),
-         sources: Keyword.get(opts, :sources, %{execution: %{running: [], retrying: [], idle: []}, activity: %{generation: 1, entries: []}}),
+         sources:
+           Keyword.get(opts, :sources, %{
+             execution: %{running: [], retrying: [], idle: []},
+             activity: %{generation: 1, entries: []}
+           }),
          sources_loader:
            Keyword.get(opts, :sources_loader, fn ->
              Keyword.get(opts, :sources, %{
@@ -75,7 +93,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     @impl true
     def handle_call(:calls, _from, state), do: {:reply, Enum.reverse(state.calls), state}
-    def handle_call({:put_catalog, catalog}, _from, state), do: {:reply, :ok, %{state | catalog: catalog}}
+
+    def handle_call({:put_catalog, catalog}, _from, state),
+      do: {:reply, :ok, %{state | catalog: catalog}}
 
     def handle_call({:put_selected, %Snapshot{scope: scope} = selected}, _from, state),
       do: {:reply, :ok, %{state | selected: Map.put(state.selected, scope, selected)}}
@@ -109,10 +129,16 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
   end
 
-  setup do
+  setup context do
     first = identity(42, "NODE-42")
     second = identity(43, "NODE-43")
-    catalog = catalog_snapshot([root(first, "Root forty-two"), root(second, "Root forty-three")], 1, :healthy)
+
+    catalog =
+      catalog_snapshot(
+        [root(first, "Root forty-two"), root(second, "Root forty-three")],
+        1,
+        :healthy
+      )
 
     source =
       start_supervised!(
@@ -139,6 +165,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
         dashboard_writable: false,
         dashboard_auth_required: false
       )
+      |> Keyword.merge(awaiting_commands_config(context))
 
     Application.put_env(:aiur, Endpoint, endpoint_config)
     start_supervised!({Endpoint, []})
@@ -155,7 +182,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
   test "mounts the catalog without demanding any selected root", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders")
 
-    assert Floki.parse_document!(html) |> Floki.find("h1#route-title") |> Floki.text() =~ "Build Order"
+    document = Floki.parse_document!(html)
+
+    assert route_title(document) == "Build Order"
+    assert Floki.find(document, "h1#route-title a") == []
+
     assert html =~ ~s(data-build-order-status="catalog")
     assert html =~ "bo-catalog-table"
     assert html =~ "Root forty-two"
@@ -165,6 +196,162 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert {:catalog, []} in calls
     assert {:subscribe_sources, []} in calls
     refute Enum.any?(calls, &match?({:demand, _}, &1))
+  end
+
+  # The regression this guards is not "a number appears". It is that four
+  # different truths about progress used to render as the same glyph, so the
+  # page could not report its own failure. Each pair below must differ.
+  test "an unresolved pack renders differently from an empty pack in the same table", %{source: source} do
+    entries = [
+      progress_root(identity(51, "NODE-51"), "Pack that cannot resolve",
+        progress: nil,
+        progress_resolution: :unresolved,
+        member_count: 35
+      ),
+      progress_root(identity(52, "NODE-52"), "Pack that is genuinely empty",
+        progress: 0,
+        progress_resolution: :resolved,
+        member_count: 0
+      ),
+      progress_root(identity(53, "NODE-53"), "Pack that is partly resolved",
+        progress: 97,
+        progress_resolution: :partial,
+        progress_resolved_count: 34,
+        member_count: 35
+      ),
+      progress_root(identity(54, "NODE-54"), "Pack with no resolution claim", progress: 91)
+    ]
+
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+
+    unresolved = progress_cell(document, "Pack that cannot resolve")
+    empty = progress_cell(document, "Pack that is genuinely empty")
+    partial = progress_cell(document, "Pack that is partly resolved")
+    unknown = progress_cell(document, "Pack with no resolution claim")
+
+    assert progress_state(unresolved) == "unresolved"
+    assert progress_state(empty) == "resolved"
+    assert progress_state(partial) == "partial"
+    assert progress_state(unknown) == "unknown"
+
+    # An operator reads the resolution failure, not a blank and not a zero.
+    assert Floki.text(unresolved) =~ "unresolved"
+    refute Floki.text(unresolved) =~ "0%"
+    refute Floki.text(unresolved) =~ "—"
+
+    # The empty pack is a real, resolved zero.
+    assert Floki.text(empty) =~ "0%"
+    refute Floki.text(empty) =~ "unknown"
+
+    # Partial resolution keeps the number but never hides its coverage.
+    assert Floki.text(partial) =~ "97%"
+    assert Floki.text(partial) =~ "34/35"
+
+    # Unknown makes no assertion that resolution failed and suppresses the
+    # legacy raw number because no source stands behind it.
+    assert Floki.text(unknown) =~ "unknown"
+    refute Floki.text(unknown) =~ "unresolved"
+    refute Floki.text(unknown) =~ "91%"
+
+    # Every rendering is distinguishable from every other one.
+    rendered = Enum.map([unresolved, empty, partial, unknown], &Floki.raw_html/1)
+    assert length(Enum.uniq(rendered)) == 4
+  end
+
+  test "catalog marks unresolved epic and wave counts without conflating resolved zero", %{source: source} do
+    entries = [
+      progress_root(identity(55, "NODE-55"), "Pack with unfetched dimensions",
+        member_count: 35,
+        epic_count: nil,
+        phase_count: nil
+      ),
+      progress_root(identity(56, "NODE-56"), "Pack with no members",
+        member_count: 0,
+        epic_count: 0,
+        phase_count: 0
+      )
+    ]
+
+    :ok = FakeDataSource.put_catalog(source, catalog_snapshot(entries, 1, :healthy))
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    document = Floki.parse_document!(html)
+
+    unresolved_counts = catalog_count_cells(document, "Pack with unfetched dimensions")
+    empty_counts = catalog_count_cells(document, "Pack with no members")
+
+    assert Enum.map(unresolved_counts, &catalog_count_text/1) == ["35", "Unresolved", "Unresolved"]
+    assert Enum.map(empty_counts, &catalog_count_text/1) == ["0", "0", "0"]
+
+    assert unresolved_counts
+           |> Enum.drop(1)
+           |> Enum.all?(
+             &(Floki.find(
+                 &1,
+                 ~s(.bo-catalog-progress-unresolved.bo-catalog-count-unresolved[data-count-state="unresolved"])
+               ) != [])
+           )
+
+    unresolved_markers =
+      unresolved_counts
+      |> Enum.drop(1)
+      |> Enum.flat_map(&Floki.find(&1, ".bo-catalog-count-unresolved"))
+
+    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "role")) == [["img"], ["img"]]
+
+    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "aria-label")) == [
+             ["Epics unresolved; count not fetched"],
+             ["Waves unresolved; count not fetched"]
+           ]
+
+    assert Enum.map(unresolved_markers, &Floki.attribute(&1, "title")) == [
+             ["Epics were not fetched for this catalog entry"],
+             ["Waves were not fetched for this catalog entry"]
+           ]
+
+    refute Floki.find(unresolved_counts, ".bo-catalog-invalid") != []
+    assert Enum.all?(empty_counts, &(Floki.find(&1, "[data-count-state]") == []))
+    refute Floki.raw_html(unresolved_counts) =~ "—"
+  end
+
+  defp progress_cell(document, title) do
+    document |> catalog_row(title) |> Floki.find("td.bo-catalog-progress-cell")
+  end
+
+  defp catalog_count_cells(document, title),
+    do: document |> catalog_row(title) |> Floki.find("td.bo-catalog-num")
+
+  defp catalog_count_text(cell), do: cell |> Floki.text() |> String.trim()
+
+  defp catalog_row(document, title) do
+    document
+    |> Floki.find(".bo-catalog-table tbody tr")
+    |> Enum.find(fn row -> Floki.text(row) =~ title end)
+    |> tap(&assert(&1, "no catalog row for #{inspect(title)}"))
+  end
+
+  defp progress_state(cell) do
+    cell
+    |> Floki.find("[data-progress-state]")
+    |> Floki.attribute("data-progress-state")
+    |> List.first()
+  end
+
+  defp progress_root(identity, title, attributes) do
+    RootSummary.new(
+      Map.merge(
+        %{
+          identity: identity,
+          title: title,
+          url: "https://github.com/#{identity.owner}/#{identity.repository}/issues/#{identity.identifier}",
+          state: "OPEN"
+        },
+        Map.new(attributes)
+      )
+    )
   end
 
   test "a UI-only tick re-derives from the display clock without polling providers" do
@@ -221,16 +408,39 @@ defmodule AiurWeb.BuildOrderLiveTest do
     empty = install_source(catalog: catalog_snapshot([], 2, :healthy))
     assert {:ok, _view, empty_html} = live(build_conn(), "/build-orders")
     assert empty_html =~ ~s(data-build-order-catalog-state="empty")
-    assert empty_html =~ "No Build Orders"
+    assert empty_html =~ "No Build Orders for this repository"
     assert Process.alive?(empty)
   end
 
-  test "deep links resolve through the catalog and subscribe before one demand", %{source: source, first: first} do
+  test "an empty catalog names the directories it searched" do
+    catalog = catalog_snapshot([], 1, :healthy)
+    catalog = put_in(catalog.data.search_paths, [".aiur/build_orders", "/var/lib/aiur/builds"])
+    _source = install_source(catalog: catalog)
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders")
+    assert html =~ "Searched:"
+    assert html =~ ".aiur/build_orders"
+    assert html =~ "/var/lib/aiur/builds"
+  end
+
+  test "deep links resolve through the catalog and subscribe before one demand", %{
+    source: source,
+    first: first
+  } do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
 
+    document = Floki.parse_document!(html)
+
+    assert route_title(document) == "Build Order #42"
+    assert length(Regex.scan(~r/#42/, Floki.text(document))) == 1
+    assert Floki.find(document, ".bo-page-header") == []
+
+    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert Floki.attribute(back_link, "href") == ["/build-orders"]
+
     assert html =~ ~s(data-build-order-root="42")
-    assert html =~ "Root forty-two"
     assert html =~ "Valid empty graph"
+    assert selected_lede(document) == "Root forty-two"
     refute html =~ ~s(data-layout-node)
 
     calls = FakeDataSource.calls(source)
@@ -243,7 +453,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
   end
 
   test "a healthy complete catalog distinguishes not-found from unavailable", %{first: first} do
-    source = install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy))
+    source =
+      install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy))
 
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/99")
     assert html =~ ~s(data-build-order-status="not_found")
@@ -253,18 +464,63 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
   test "malformed root parameters fail closed without a demand", %{source: source} do
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/01")
+    document = Floki.parse_document!(html)
 
     assert html =~ ~s(data-build-order-status="invalid_parameter")
     assert html =~ "Invalid Build Order URL"
+    assert route_title(document) == "Build Order"
+
+    assert [back_link] = Floki.find(document, ~s(h1#route-title a[aria-label="Back to all Build Orders"]))
+    assert Floki.attribute(back_link, "href") == ["/build-orders"]
+
     refute Enum.any?(FakeDataSource.calls(source), &match?({:demand, _}, &1))
   end
 
+  # The consolidated header states only "Build Order #<n>". Without this lede a
+  # bookmarked detail page never names the root, and the graph heading is
+  # sr-only boilerplate, so nothing on the surface identifies what you opened.
+  test "a resolved detail page names its root", %{first: first} do
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected_snapshot(first, "Release dashboard", 1, :healthy, members: [member(7)])]
+    )
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    document = Floki.parse_document!(html)
+
+    assert route_title(document) == "Build Order #42"
+    assert selected_lede(document) == "Release dashboard"
+  end
+
+  test "a leading BO: tag is dropped from the dashboard title lede", %{first: first} do
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected_snapshot(first, "BO: Stream Deck Parity", 1, :healthy, members: [member(7)])]
+    )
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert selected_lede(Floki.parse_document!(html)) == "Stream Deck Parity"
+  end
+
   test "marks a selected root unavailable when its initial demand fails", %{first: first} do
-    source = install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [])
+    source =
+      install_source(
+        catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+        selected: []
+      )
 
     assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
     assert html =~ ~s(data-build-order-status="selected_unavailable")
-    assert html =~ "Selected graph unavailable"
+    assert html =~ "Could not fetch planning graph"
+    assert html =~ "Investigate why Build Order #42&#39;s planning graph could not be fetched."
+    assert html =~ "`provider_unavailable`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Plan distribution"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    # #1792: an unresolved root has no name to state, and the collapsed failure
+    # card must not resurrect one.
+    assert Floki.parse_document!(html) |> selected_lede() == nil
     assert {:demand, [first]} in FakeDataSource.calls(source)
   end
 
@@ -274,8 +530,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
       breakdown_member(8, phase: 2, lane: "dashboard-ui", complexity: 4)
     ]
 
-    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected]
+    )
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
 
@@ -299,7 +565,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
     members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
 
     selected =
-      selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
 
     source =
       install_source(
@@ -318,7 +589,52 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert loads_after > loads_before
   end
 
-  test "projection reset rolls the catalog subscription to the replacement repository", %{source: source} do
+  test "patches a member from the live agent projection without a page refresh", %{first: first} do
+    member = breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)
+
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), [member], health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    sources =
+      start_supervised!({Agent, fn -> sources_for_member(member.identity, :working, nil, 30) end})
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected],
+      sources_loader: fn -> Agent.get(sources, & &1) end
+    )
+
+    assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="working"]), "agent live")
+    assert has_element?(view, ~s([data-bo-card="7"]), "30%")
+
+    Agent.update(sources, fn _sources ->
+      sources_for_member(member.identity, :paused, :operator_pause, 45)
+    end)
+
+    :ok = AgentPubSub.broadcast_running_change([])
+
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "Paused")
+    assert has_element?(view, ~s([data-bo-card="7"]), "45%")
+
+    Agent.update(sources, fn _sources -> sources_for_ci_wait_member(member.identity, 60) end)
+    :ok = AgentPubSub.broadcast_running_change([])
+
+    render_async(view, 2_000)
+    assert has_element?(view, ~s([data-bo-card="7"][data-bo-state="plain"]), "CI waiting")
+    assert has_element?(view, ~s([data-bo-card="7"]), "60%")
+  end
+
+  test "projection reset rolls the catalog subscription to the replacement repository", %{
+    source: source
+  } do
     assert {:ok, view, _html} = live(build_conn(), "/build-orders")
     replacement_repository = {"new-owner", "new-repo"}
     replacement = identity(52, "NEW-52", replacement_repository)
@@ -326,7 +642,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     :ok =
       FakeDataSource.put_catalog(
         source,
-        catalog_snapshot([root(replacement, "Replacement root")], 1, :healthy, replacement_repository, 2)
+        catalog_snapshot(
+          [root(replacement, "Replacement root")],
+          1,
+          :healthy,
+          replacement_repository,
+          2
+        )
       )
 
     send(view.pid, {:graph_projection_reset, 2})
@@ -340,7 +662,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert resubscribe_index < reload_index
 
     publication =
-      catalog_snapshot([root(replacement, "Replacement root updated")], 2, :healthy, replacement_repository, 2)
+      catalog_snapshot(
+        [root(replacement, "Replacement root updated")],
+        2,
+        :healthy,
+        replacement_repository,
+        2
+      )
 
     send(view.pid, {:graph_projection_generation, publication})
     assert render(view) =~ "Replacement root updated"
@@ -348,7 +676,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     :ok =
       FakeDataSource.put_catalog(
         source,
-        catalog_snapshot([root(replacement, "Restarted projection root")], 1, :healthy, replacement_repository, 3)
+        catalog_snapshot(
+          [root(replacement, "Restarted projection root")],
+          1,
+          :healthy,
+          replacement_repository,
+          3
+        )
       )
 
     send(view.pid, {:graph_projection_reset, 3})
@@ -360,25 +694,39 @@ defmodule AiurWeb.BuildOrderLiveTest do
     first: first
   } do
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
-    assert html =~ "Root forty-two"
+    assert html =~ "Build Order #42"
 
-    new_catalog = catalog_snapshot([root(first, "New-instance root")], 1, :healthy, repository(), 2)
-    new_selected = selected_snapshot(first, "New-instance generation one", 1, :healthy, authority_epoch: 2)
+    new_catalog =
+      catalog_snapshot([root(first, "New-instance root")], 1, :healthy, repository(), 2)
+
+    new_selected =
+      selected_snapshot(first, "New-instance generation one", 1, :healthy,
+        authority_epoch: 2,
+        members: [member(70)]
+      )
+
     :ok = FakeDataSource.put_catalog(source, new_catalog)
     :ok = FakeDataSource.put_selected(source, new_selected)
 
     send(view.pid, {:graph_projection_reset, 2})
-    assert render(view) =~ "New-instance generation one"
+    assert render(view) =~ "Ticket 70"
 
-    old_catalog = catalog_snapshot([root(first, "Queued old catalog")], 99, :healthy, repository(), 1)
-    old_selected = selected_snapshot(first, "Queued old selected root", 99, :healthy, authority_epoch: 1)
+    old_catalog =
+      catalog_snapshot([root(first, "Queued old catalog")], 99, :healthy, repository(), 1)
+
+    old_selected =
+      selected_snapshot(first, "Queued old selected root", 99, :healthy,
+        authority_epoch: 1,
+        members: [member(71)]
+      )
+
     send(view.pid, {:graph_projection_generation, old_catalog})
     send(view.pid, {:graph_projection_generation, old_selected})
 
     final_html = render(view)
-    assert final_html =~ "New-instance generation one"
+    assert final_html =~ "Ticket 70"
     refute final_html =~ "Queued old catalog"
-    refute final_html =~ "Queued old selected root"
+    refute final_html =~ "Ticket 71"
   end
 
   test "coalesces source invalidation bursts behind one in-flight cached read" do
@@ -391,7 +739,10 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
       receive do
         {:release_sources, ^call} ->
-          %{execution: %{running: [], retrying: [], idle: []}, activity: %{generation: call, entries: []}}
+          %{
+            execution: %{running: [], retrying: [], idle: []},
+            activity: %{generation: call, entries: []}
+          }
       end
     end
 
@@ -419,7 +770,7 @@ defmodule AiurWeb.BuildOrderLiveTest do
     html = render_patch(view, "/build-orders/43")
 
     assert html =~ ~s(data-build-order-root="43")
-    assert html =~ "Root forty-three"
+    assert html =~ "Build Order #43"
 
     calls = FakeDataSource.calls(source)
     release_index = call_index(calls, {:release, [first]})
@@ -432,35 +783,89 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert subscribe_index < demand_index
   end
 
-  test "selected publications reject the wrong root and accept one newer generation", %{first: first, second: second} do
+  test "selected publications reject the wrong root and accept one newer generation", %{
+    first: first,
+    second: second
+  } do
     {:ok, view, html} = live(build_conn(), "/build-orders/42")
-    assert html =~ "Root forty-two"
+    assert html =~ "Valid empty graph"
 
-    send(view.pid, {:graph_projection_generation, selected_snapshot(second, "Wrong delayed root", 99, :healthy)})
-    refute render(view) =~ "Wrong delayed root"
+    send(
+      view.pid,
+      {:graph_projection_generation, selected_snapshot(second, "Wrong delayed root", 99, :healthy, members: [member(98)])}
+    )
 
-    send(view.pid, {:graph_projection_generation, selected_snapshot(first, "Root forty-two updated", 2, :healthy)})
-    assert render(view) =~ "Root forty-two updated"
+    refute render(view) =~ "Ticket 98"
 
-    send(view.pid, {:graph_projection_health, selected_snapshot(first, nil, 2, :stale, refreshing?: true)})
+    send(
+      view.pid,
+      {:graph_projection_generation, selected_snapshot(first, "Root forty-two updated", 2, :healthy, members: [member(99)])}
+    )
+
+    assert render(view) =~ "Ticket 99"
+
+    send(
+      view.pid,
+      {:graph_projection_health, selected_snapshot(first, nil, 2, :stale, refreshing?: true)}
+    )
+
     health_html = render(view)
     assert health_html =~ ~s(data-build-order-status="selected_stale")
-    assert health_html =~ "Root forty-two updated"
+    assert health_html =~ "Ticket 99"
     # Degraded provider states surface as an explicit state card (the always-on
     # health badge was removed from the header).
     assert health_html =~ "Stale last-known-good graph"
   end
 
-  test "keeps structurally invalid selected data visible as an explicit diagnostic state", %{first: first} do
+  test "collapses structurally invalid selected data into one copyable page-level state", %{
+    first: first
+  } do
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
 
     invalid = SelectedRoot.new(RootSummary.new(%{}), [], health(2, :healthy))
     send(view.pid, {:graph_projection_generation, selected_snapshot(first, invalid, 2, :healthy)})
 
     html = render(view)
+    {:ok, document} = Floki.parse_document(html)
+
     assert html =~ ~s(data-build-order-status="selected_invalid")
-    assert html =~ "Structurally invalid graph"
-    assert html =~ "Root data is unavailable."
+    assert [_card] = Floki.find(document, ".bo-state-card")
+    assert html =~ "Fetched planning graph is malformed"
+    assert html =~ "Investigate why Build Order #42&#39;s fetched planning graph is malformed."
+    assert html =~ "`members: 0`"
+    assert html =~ "`invalid_root`"
+    refute html =~ "Build Order graph summary"
+    refute html =~ "Plan distribution is structurally invalid"
+    refute html =~ "Analytics unavailable"
+    refute html =~ "Usage and cost unavailable"
+    refute html =~ "Root data is unavailable."
+  end
+
+  # A producer that fails closed on a structural defect marks provider health
+  # failed too. Sourcing the reported fault from health rendered one confident
+  # card that blamed `rate_limited` for a malformed graph — a card count of 1 is
+  # no better than six if the one card names the wrong reason.
+  test "names the structural fault, not the fail-closed provider health failure", %{first: first} do
+    {:ok, view, _html} = live(build_conn(), "/build-orders/42")
+
+    invalid = SelectedRoot.new(root(first, "Malformed planning graph"), [:not_a_member], health(2, :unavailable, failure: :rate_limited))
+
+    send(
+      view.pid,
+      {:graph_projection_generation, selected_snapshot(first, invalid, 2, :unavailable, failure: :rate_limited)}
+    )
+
+    html = render(view)
+    {:ok, document} = Floki.parse_document(html)
+
+    assert [card] = Floki.find(document, ".bo-state-card")
+    card_text = Floki.text(card)
+
+    assert html =~ ~s(data-build-order-status="selected_invalid")
+    assert card_text =~ "Fetched planning graph is malformed"
+    assert card_text =~ "Reported fault: invalid_member"
+    assert html =~ "The selected-root provider reports `invalid_member`"
+    refute card_text =~ "rate_limited"
   end
 
   test "rejects a delayed context completion after close", %{first: first} do
@@ -475,7 +880,13 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
 
     selected = selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member(7)])
-    source = install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected], context_loader: loader)
+
+    source =
+      install_source(
+        catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+        selected: [selected],
+        context_loader: loader
+      )
 
     {:ok, view, _html} = live(build_conn(), "/build-orders/42")
     view |> element(~s([phx-click="open-ticket-context"])) |> render_click()
@@ -512,11 +923,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end
 
     first_snapshot = selected_snapshot(first, "Root forty-two", 1, :healthy, members: [member(7)])
-    second_snapshot = selected_snapshot(second, "Root forty-three", 1, :healthy, members: [member(8)])
+
+    second_snapshot =
+      selected_snapshot(second, "Root forty-three", 1, :healthy, members: [member(8)])
 
     source =
       install_source(
-        catalog: catalog_snapshot([root(first, "Root forty-two"), root(second, "Root forty-three")], 1, :healthy),
+        catalog:
+          catalog_snapshot(
+            [root(first, "Root forty-two"), root(second, "Root forty-three")],
+            1,
+            :healthy
+          ),
         selected: [first_snapshot, second_snapshot],
         context_loader: loader
       )
@@ -536,7 +954,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute has_element?(view, ~s([role="dialog"]))
   end
 
-  test "rotates context identity and coalesces an invalidation behind an in-flight read", %{first: first} do
+  test "rotates context identity and coalesces an invalidation behind an in-flight read", %{
+    first: first
+  } do
     parent = self()
     counter = start_supervised!({Agent, fn -> 0 end})
 
@@ -570,7 +990,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
     send(second_loader, {:release_context, 2})
     render_async(view, 2_000)
     assert render(view) =~ "Context version 2"
-    assert Enum.count(FakeDataSource.calls(source), &match?({:load_context, [^selected_identity]}, &1)) == 2
+
+    assert Enum.count(
+             FakeDataSource.calls(source),
+             &match?({:load_context, [^selected_identity]}, &1)
+           ) == 2
   end
 
   test "ignores cache publications for a different open identity", %{first: first} do
@@ -614,20 +1038,29 @@ defmodule AiurWeb.BuildOrderLiveTest do
   end
 
   defp call_index(calls, expected) do
-    Enum.find_index(calls, &(&1 == expected)) || flunk("missing source call #{inspect(expected)} in #{inspect(calls)}")
+    Enum.find_index(calls, &(&1 == expected)) ||
+      flunk("missing source call #{inspect(expected)} in #{inspect(calls)}")
   end
 
   defp call_index_after(calls, expected, index) do
     calls
     |> Enum.with_index()
-    |> Enum.find_value(fn {call, call_index} -> if call == expected and call_index > index, do: call_index end)
+    |> Enum.find_value(fn {call, call_index} ->
+      if call == expected and call_index > index, do: call_index
+    end)
     |> case do
       nil -> flunk("missing source call #{inspect(expected)} after #{index} in #{inspect(calls)}")
       call_index -> call_index
     end
   end
 
-  defp catalog_snapshot(entries, generation, state, snapshot_repository \\ repository(), authority_epoch \\ 1) do
+  defp catalog_snapshot(
+         entries,
+         generation,
+         state,
+         snapshot_repository \\ repository(),
+         authority_epoch \\ 1
+       ) do
     data = if is_list(entries), do: Catalog.new(entries, health(generation, state))
 
     %Snapshot{
@@ -656,7 +1089,12 @@ defmodule AiurWeb.BuildOrderLiveTest do
   defp selected_snapshot(identity, title, generation, state, opts) do
     data =
       if is_binary(title),
-        do: SelectedRoot.new(root(identity, title), Keyword.get(opts, :members, []), health(generation, state)),
+        do:
+          SelectedRoot.new(
+            root(identity, title),
+            Keyword.get(opts, :members, []),
+            health(generation, state)
+          ),
         else: nil
 
     %Snapshot{
@@ -711,7 +1149,69 @@ defmodule AiurWeb.BuildOrderLiveTest do
   end
 
   defp sources_with_adhoc(adhoc) do
-    %{execution: %{running: [], retrying: [], idle: []}, activity: %{generation: 1, entries: []}, adhoc: adhoc}
+    %{
+      execution: %{running: [], retrying: [], idle: []},
+      activity: %{generation: 1, entries: []},
+      adhoc: adhoc
+    }
+  end
+
+  defp sources_for_member(identity, work_state, pause_reason, progress) do
+    observed_at = ~U[2026-08-01 12:00:00Z]
+
+    %{
+      execution: %{
+        running: [
+          %{
+            tracker_identity: identity,
+            work_state: work_state,
+            pause_reason: pause_reason,
+            tracker_paused: work_state == :paused,
+            waiting_reason: :active,
+            started_at: observed_at
+          }
+        ],
+        retrying: [],
+        idle: []
+      },
+      activity: %{
+        generation: progress,
+        entries: [
+          %{
+            identity: identity,
+            status: :fresh,
+            active_stage: :work,
+            stage: %{
+              status: :known,
+              value: :work,
+              freshness: :fresh,
+              observed_at: observed_at,
+              event_id: progress
+            },
+            progress: %{
+              status: :known,
+              percent: progress,
+              source: :checkin,
+              freshness: :fresh,
+              occurred_at: observed_at,
+              observed_at: observed_at,
+              event_id: progress
+            },
+            observed_at: observed_at,
+            retention: :current
+          }
+        ]
+      },
+      adhoc: nil
+    }
+  end
+
+  defp sources_for_ci_wait_member(identity, progress) do
+    sources_for_member(identity, :idle, nil, progress)
+    |> put_in([:execution, :running], [])
+    |> put_in([:execution, :idle], [
+      %{tracker_identity: identity, waiting_reason: :waiting_for_ci}
+    ])
   end
 
   defp adhoc_source_snapshot do
@@ -798,7 +1298,10 @@ defmodule AiurWeb.BuildOrderLiveTest do
              selected: Keyword.get(opts, :selected, []),
              sources_loader:
                Keyword.get(opts, :sources_loader, fn ->
-                 %{execution: %{running: [], retrying: [], idle: []}, activity: %{generation: 1, entries: []}}
+                 %{
+                   execution: %{running: [], retrying: [], idle: []},
+                   activity: %{generation: 1, entries: []}
+                 }
                end),
              context_loader:
                Keyword.get(opts, :context_loader, fn _identity ->
@@ -816,30 +1319,55 @@ defmodule AiurWeb.BuildOrderLiveTest do
   defp restore_application_env(key, nil), do: Application.delete_env(:aiur, key)
   defp restore_application_env(key, value), do: Application.put_env(:aiur, key, value)
 
-  test "the Build Order analytics pane renders under the breakdown and names its scope", %{first: first} do
+  test "the Build Order analytics pane renders under the breakdown and names its scope", %{
+    first: first
+  } do
     put_telemetry_file(@telemetry_fixtures)
 
     members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
-    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected]
+    )
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
 
-    assert html =~ "Build Order analytics"
-    # The two surfaces must be unmistakable: this one is build-scoped, /analytics is session-scoped.
-    assert html =~ "this Build Order"
+    assert html =~ ">Analytics<"
+
     assert has_element?(view, ".bo-analytics")
     # The breakdown it sits under is still there.
     assert has_element?(view, "section.bo-breakdown")
   end
 
-  test "a Build Order whose members have never run says so instead of charting zeros", %{first: first} do
+  test "a Build Order whose members have never run says so instead of charting zeros", %{
+    first: first
+  } do
     put_telemetry_file(@telemetry_fixtures)
 
     # Ticket 7 has no telemetry; the stream itself is perfectly readable.
     members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
-    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected]
+    )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
     html = render_async(view)
@@ -849,7 +1377,9 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute html =~ "CPU burned"
   end
 
-  test "a Build Order whose members have run aggregates their telemetry across sessions", %{first: first} do
+  test "a Build Order whose members have run renders bounded current-session telemetry", %{
+    first: first
+  } do
     put_telemetry_file(@telemetry_fixtures)
 
     # 930 and 931 are the tickets in the two-session telemetry fixture.
@@ -858,8 +1388,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
       breakdown_member(931, phase: 2, lane: "dashboard-ui", complexity: 4)
     ]
 
-    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected]
+    )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
     html = render_async(view)
@@ -867,11 +1407,19 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ "Sessions"
     assert html =~ "CPU burned"
     assert html =~ "Member lifecycle"
+    assert html =~ "Usage and cost"
     assert html =~ "<svg"
+
+    analytics_html = view |> element(".bo-analytics") |> render()
+    assert analytics_html =~ ">#930<"
+    refute analytics_html =~ ">#931<"
+
     refute html =~ "No telemetry for this Build Order yet"
   end
 
-  test "the Build Order's active timeline accepts and resets a shared time domain", %{first: first} do
+  test "the Build Order's active timeline accepts and resets a shared time domain", %{
+    first: first
+  } do
     put_telemetry_file(@telemetry_fixtures)
 
     members = [
@@ -879,8 +1427,18 @@ defmodule AiurWeb.BuildOrderLiveTest do
       breakdown_member(931, phase: 2, lane: "dashboard-ui", complexity: 4)
     ]
 
-    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected]
+    )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
     html = render_async(view)
@@ -890,7 +1448,11 @@ defmodule AiurWeb.BuildOrderLiveTest do
     end_ms = String.to_integer(end_ms)
     span = end_ms - start_ms
 
-    zoomed = render_hook(view, "time-domain", %{"t0" => start_ms + div(span, 4), "t1" => end_ms - div(span, 4)})
+    zoomed =
+      render_hook(view, "time-domain", %{
+        "t0" => start_ms + div(span, 4),
+        "t1" => end_ms - div(span, 4)
+      })
 
     assert zoomed =~ ~s(class="an-zoombar")
     expected_start = start_ms + div(span, 4)
@@ -913,12 +1475,25 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute full_range =~ ~s(class="an-zoombar")
   end
 
-  test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{first: first} do
+  test "an unreadable telemetry stream leaves the rest of the Build Order page intact", %{
+    first: first
+  } do
     put_telemetry_file("/nonexistent/telemetry.ndjson")
 
     members = [breakdown_member(7, phase: 1, lane: "plan-graph", complexity: 3)]
-    selected = selected_snapshot(first, SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)), 1, :healthy)
-    install_source(catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy), selected: [selected])
+
+    selected =
+      selected_snapshot(
+        first,
+        SelectedRoot.new(root(first, "Root forty-two"), members, health(1, :healthy)),
+        1,
+        :healthy
+      )
+
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected]
+    )
 
     assert {:ok, view, _html} = live(build_conn(), "/build-orders/42")
     html = render_async(view)
@@ -927,6 +1502,17 @@ defmodule AiurWeb.BuildOrderLiveTest do
     refute render_hook(view, "time-domain", %{"t0" => 1, "t1" => 2}) =~ ~s(class="an-zoombar")
     assert has_element?(view, "#selected-build-order-graph")
     assert has_element?(view, "section.bo-breakdown")
+  end
+
+  defp route_title(document) do
+    document |> Floki.find("h1#route-title") |> Floki.text() |> String.trim()
+  end
+
+  defp selected_lede(document) do
+    case Floki.find(document, ".bo-selected-summary > p.bo-selected-lede") do
+      [] -> nil
+      found -> found |> Floki.text() |> String.trim()
+    end
   end
 
   defp put_telemetry_file(path) do
@@ -939,5 +1525,37 @@ defmodule AiurWeb.BuildOrderLiveTest do
         value -> Application.put_env(:aiur, :analytics_telemetry_file, value)
       end
     end)
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "carries the awaiting-Commands banner into Build Order" do
+    {:ok, _view, html} = live(build_conn(), "/build-orders")
+
+    assert html =~ "2 units awaiting commands"
+    assert html =~ ~s(href="/decisions")
+  end
+
+  @tag awaiting_commands: %{total: 4, open: 0, blocking: 0, deferred: 0, awaiting: 0, awaiting_blocking: 0}
+  test "omits the awaiting-Commands banner from Build Order when nothing is waiting" do
+    {:ok, _view, html} = live(build_conn(), "/build-orders")
+
+    refute html =~ "units awaiting commands"
+  end
+
+  @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}
+  test "survives every message the Command topic carries" do
+    {:ok, view, html} = live(build_conn(), "/build-orders")
+    assert html =~ "2 units awaiting commands"
+
+    assert AwaitingCommands.render_after_command_topic(view) =~ "2 units awaiting commands"
+  end
+
+  # --- awaiting-Commands banner ---------------------------------------------
+
+  defp awaiting_commands_config(context) do
+    case context[:awaiting_commands] do
+      nil -> []
+      counts -> [decision_store: AwaitingCommands.start(counts)]
+    end
   end
 end

@@ -4,7 +4,22 @@ defmodule Aiur.DecisionStoreTest do
   import ExUnit.CaptureLog
 
   alias Aiur.AgentRunner.EventsDigest
-  alias Aiur.{AlertFeed, Boot, DecisionEvent, DecisionHistory, DecisionLog, DecisionPubSub, DecisionStore}
+
+  alias Aiur.{
+    AlertFeed,
+    Boot,
+    Decision,
+    DecisionEvent,
+    DecisionHistory,
+    DecisionLog,
+    DecisionProjection,
+    DecisionPubSub,
+    DecisionStore,
+    ExecutorCommandAttention,
+    ExecutorCommandCLI
+  }
+
+  alias Aiur.DecisionEvent.Unrecognized
   alias Aiur.DecisionStore.RetainedSnapshot
   alias Aiur.Events.{Exchange, IdGenerator}
   alias AiurWeb.ControlCenterPresenter
@@ -33,10 +48,119 @@ defmodule Aiur.DecisionStoreTest do
     Application.put_env(:aiur, :decision_state_dir, dir)
 
     start_opts =
-      Keyword.merge([name: nil, filesystem_sync_fun: fn -> :ok end], opts)
+      Keyword.merge([name: nil, state_dir: dir, filesystem_sync_fun: fn -> :ok end], opts)
 
     {:ok, pid} = DecisionStore.start_link(start_opts)
     pid
+  end
+
+  test "unnamed stores require an explicit durable state directory" do
+    assert {:error, :unnamed_store_requires_state_dir} =
+             DecisionStore.start_link(filesystem_sync_fun: fn -> :ok end)
+  end
+
+  test "non-singleton stores require an explicit durable state directory" do
+    custom_name = Module.concat(__MODULE__, CustomStore)
+
+    result = DecisionStore.start_link(name: custom_name, filesystem_sync_fun: fn -> :ok end)
+
+    case result do
+      {:ok, pid} -> GenServer.stop(pid)
+      _ -> :ok
+    end
+
+    assert {:error, :non_singleton_store_requires_state_dir} = result
+  end
+
+  test "non-singleton stores reject invalid durable state directories" do
+    custom_name = Module.concat(__MODULE__, InvalidDirectoryStore)
+
+    for name <- [nil, custom_name, DecisionStore], state_dir <- [nil, "", :invalid] do
+      assert {:error, :invalid_state_dir} =
+               DecisionStore.start_link(name: name, state_dir: state_dir, filesystem_sync_fun: fn -> :ok end)
+    end
+  end
+
+  test "two unnamed stores isolate their durable state", %{dir: dir} do
+    first_dir = Path.join(dir, "first")
+    second_dir = Path.join(dir, "second")
+
+    if Process.whereis(IdGenerator) == nil do
+      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :decision_store_test_id_generator)
+    end
+
+    {:ok, first} =
+      start_supervised(
+        {
+          DecisionStore,
+          [
+            state_dir: first_dir,
+            filesystem_sync_fun: fn -> :ok end
+          ]
+        },
+        id: :first_unnamed_decision_store
+      )
+
+    {:ok, second} =
+      start_supervised(
+        {
+          DecisionStore,
+          [
+            state_dir: second_dir,
+            filesystem_sync_fun: fn -> :ok end
+          ]
+        },
+        id: :second_unnamed_decision_store
+      )
+
+    assert first != second
+
+    assert {:ok, %{decision: %{decision_id: first_id}}} =
+             request(first, %{"source_id" => "first-store", "question" => "First store", "blocking" => false})
+
+    assert {:ok, %{decision: %{decision_id: second_id}}} =
+             request(second, %{"source_id" => "second-store", "question" => "Second store", "blocking" => false})
+
+    refute first_id == second_id
+    assert File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "First store"
+    refute File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "Second store"
+    assert File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "Second store"
+    refute File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "First store"
+  end
+
+  test "custom-named stores isolate their durable state", %{dir: dir} do
+    first_dir = Path.join(dir, "named-first")
+    second_dir = Path.join(dir, "named-second")
+    first_name = Module.concat(__MODULE__, FirstCustomStore)
+    second_name = Module.concat(__MODULE__, SecondCustomStore)
+
+    if Process.whereis(IdGenerator) == nil do
+      start_supervised!({IdGenerator, path: Path.join(dir, "event_id")}, id: :custom_decision_store_test_id_generator)
+    end
+
+    {:ok, first} =
+      start_supervised(
+        {DecisionStore, [name: first_name, state_dir: first_dir, filesystem_sync_fun: fn -> :ok end]},
+        id: :first_custom_decision_store
+      )
+
+    {:ok, second} =
+      start_supervised(
+        {DecisionStore, [name: second_name, state_dir: second_dir, filesystem_sync_fun: fn -> :ok end]},
+        id: :second_custom_decision_store
+      )
+
+    assert {:ok, %{decision: %{decision_id: first_id}}} =
+             request(first, %{"source_id" => "first-custom-store", "question" => "First custom store", "blocking" => false})
+
+    assert {:ok, %{decision: %{decision_id: second_id}}} =
+             request(second, %{"source_id" => "second-custom-store", "question" => "Second custom store", "blocking" => false})
+
+    refute first_id == second_id
+    assert File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "First custom store"
+    refute File.read!(Path.join(first_dir, "decisions.ndjson")) =~ "Second custom store"
+    assert File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "Second custom store"
+    refute File.read!(Path.join(second_dir, "decisions.ndjson")) =~ "First custom store"
   end
 
   test "dashboard projections stay bounded with 10k stored decisions", %{dir: dir} do
@@ -181,10 +305,12 @@ defmodule Aiur.DecisionStoreTest do
   test "dismiss is durable, idempotent, historic, and write-gated", %{dir: dir} do
     pid = start_store!(dir)
 
+    # Non-blocking: dismissal closes a notice outright. A blocking Command is
+    # covered separately — dismissal cannot release its agent.
     assert {:ok, %{decision: decision}} =
              request(pid, %{
                "question" => "Use blue or green?",
-               "blocking" => true,
+               "blocking" => false,
                "options" => [
                  %{"id" => "blue", "label" => "Blue"},
                  %{"id" => "green", "label" => "Green"}
@@ -249,6 +375,53 @@ defmodule Aiur.DecisionStoreTest do
              })
 
     assert answerable.decision_status == :decided
+  end
+
+  test "operator dismissal closes a deferred legacy blocker durably", %{dir: dir} do
+    pid = start_store!(dir)
+
+    assert {:ok, %{decision: decision}} = project_attention(pid, minimal_attention("Still blocked?"))
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+    assert {:ok, %{status: :accepted, decision: dismissed}} = DecisionStore.dismiss(deferred.decision_id, opts, pid)
+    assert dismissed.decision_status == :dismissed
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir)
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, restarted)
+    assert durable.decision_status == :dismissed
+  end
+
+  test "dismissal is refused for a blocking Command it cannot release", %{dir: dir} do
+    pid = start_store!(dir)
+    opts = [actor: %{kind: :operator, id: "dashboard"}]
+
+    # Agent-filed: blocking, with no legacy attention to resolve alongside it.
+    # Dismissal delivers nothing to the agent, so closing it would hide a live
+    # block rather than clear it.
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Push or hold?", "blocking" => true})
+
+    assert {:error, {:conflict, :blocking_requires_answer}} =
+             DecisionStore.dismiss(decision.decision_id, opts, pid)
+
+    assert {:ok, still_open} = DecisionStore.get(decision.decision_id, pid)
+    assert still_open.decision_status == :open
+
+    # Deferring first must not open a back door to the same hidden close.
+    assert {:ok, %{decision: deferred}} = DecisionStore.defer(decision.decision_id, opts, pid)
+
+    assert {:error, {:conflict, :blocking_requires_answer}} =
+             DecisionStore.dismiss(deferred.decision_id, opts, pid)
+
+    # Answering is the path that actually releases the agent.
+    assert {:ok, %{decision: answered}} =
+             answer(pid, decision.decision_id, %{
+               "idempotency_key" => "blocking-answer",
+               "expected_version" => 1,
+               "custom_response" => "Hold the push"
+             })
+
+    assert answered.decision_status == :decided
   end
 
   test "expiration is durable, idempotent, historic, and auditable", %{dir: dir} do
@@ -519,6 +692,28 @@ defmodule Aiur.DecisionStoreTest do
 
       assert first.decision_id == second.decision_id
       assert {:ok, [^first]} = DecisionStore.history(first.decision_id, pid)
+    end
+
+    test "changed content re-arms a dismissed Command that is not a legacy attention", %{dir: dir} do
+      pid = start_store!(dir)
+      base = %{"question" => "Roll the index?", "blocking" => false, "source_id" => "rearm-1"}
+
+      assert {:ok, %{decision: v1}} = request(pid, base)
+      refute v1.legacy_attention
+
+      assert {:ok, %{decision: dismissed}} =
+               DecisionStore.dismiss(v1.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+
+      assert dismissed.decision_status == :dismissed
+
+      # The operator closed this against evidence that no longer exists, so the
+      # re-file must bring it back — the same guarantee a legacy attention gets.
+      assert {:ok, %{decision: rearmed}} =
+               request(pid, Map.merge(base, %{"question" => "Roll the index after the backfill?", "version" => 2}))
+
+      assert rearmed.decision_id == v1.decision_id
+      assert rearmed.decision_status == :open
+      assert rearmed.delivery_status == :not_dispatched
     end
 
     test "the next version with different content is accepted as an enrichment", %{dir: dir} do
@@ -1099,6 +1294,17 @@ defmodule Aiur.DecisionStoreTest do
       assert v3.options == v2.options
     end
 
+    test "changed legacy evidence re-arms an operator-dismissed attention", %{dir: dir} do
+      pid = start_store!(dir)
+      assert {:ok, %{decision: v1}} = project_attention(pid, minimal_attention("Original blocker evidence"))
+      assert {:ok, %{decision: dismissed}} = DecisionStore.dismiss(v1.decision_id, [actor: %{kind: :operator, id: "dashboard"}], pid)
+      assert dismissed.decision_status == :dismissed
+
+      assert {:ok, %{decision: rearmed}} = project_attention(pid, minimal_attention("New blocker evidence"))
+      assert rearmed.version == 2
+      assert rearmed.decision_status == :open
+    end
+
     test "a stale startup import cannot replace an enriched current question", %{dir: dir} do
       pid = start_store!(dir)
       assert {:ok, %{decision: v1}} = project_attention(pid, minimal_attention("Original alert question?"))
@@ -1393,6 +1599,282 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, replayed} = DecisionStore.get(accepted.decision_id, pid2)
       assert replayed.artifacts == accepted.artifacts
     end
+  end
+
+  test "accepts and replays an executor-attributed answer without supervisor policy evidence", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Reuse the established answer?",
+               "blocking" => true,
+               "authority" => "supervisor_allowed",
+               "reversibility" => "reversible",
+               "options" => [%{"id" => "yes", "label" => "Yes"}]
+             })
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-answer",
+                 "expected_version" => 1,
+                 "option_id" => "yes"
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+    assert answer.supervisor_basis == nil
+
+    assert {:ok, [_requested, %DecisionEvent{type: :answer_recorded, data: ^answer}]} =
+             DecisionStore.audit_history(decision.decision_id, pid)
+
+    GenServer.stop(pid)
+    replayed = start_store!(dir, dispatch_delay_ms: 60_000)
+    assert DecisionStore.health(replayed) == :writable
+    assert {:ok, durable} = DecisionStore.get(decision.decision_id, replayed)
+    assert durable.answer == answer
+  end
+
+  test "refuses an Executor answer for any Command the operator should see", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    delegable = %{
+      "blocking" => true,
+      "authority" => "supervisor_allowed",
+      "reversibility" => "reversible",
+      "options" => [%{"id" => "yes", "label" => "Yes"}]
+    }
+
+    refused = [
+      {"human_required authority", %{"authority" => "human_required"}, {:authority, :human_required}},
+      {"an irreversible outcome", %{"reversibility" => "irreversible"}, {:reversibility, :irreversible}},
+      {"a partially reversible outcome", %{"reversibility" => "partially_reversible"}, {:reversibility, :partially_reversible}}
+    ]
+
+    for {label, override, expected} <- refused do
+      payload = delegable |> Map.merge(override) |> Map.put("question", "Escalate #{label}?")
+      assert {:ok, %{decision: decision}} = request(pid, payload)
+
+      assert {:error, {:answer_invalid, {:executor_scope, ^expected}}} =
+               DecisionStore.answer(
+                 decision.decision_id,
+                 %{"idempotency_key" => "executor-#{label}", "expected_version" => 1, "option_id" => "yes"},
+                 [actor: %{kind: :executor, id: "executor-1"}],
+                 pid
+               )
+
+      # Refused, not recorded: the Command stays open for the operator.
+      assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
+
+      # The operator keeps the authority the Executor was just denied.
+      assert {:ok, %{status: :accepted}} =
+               answer(pid, decision.decision_id, %{
+                 "idempotency_key" => "operator-#{label}",
+                 "expected_version" => 1,
+                 "option_id" => "yes"
+               })
+    end
+  end
+
+  test "fails an Executor answer closed when the Command declares no delegable policy", %{dir: dir} do
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    # No authority or reversibility supplied: the request defaults are
+    # human_required/irreversible, so an absent declaration must refuse rather
+    # than fall through to the permissive branch.
+    assert {:ok, %{decision: decision}} = request(pid, %{"question" => "Undeclared policy?", "blocking" => true})
+    assert decision.authority == :human_required
+    assert decision.reversibility == :irreversible
+
+    assert {:error, {:answer_invalid, {:executor_scope, {:authority, :human_required}}}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "executor-undeclared",
+                 "expected_version" => 1,
+                 "custom_response" => "Looks obvious to me."
+               },
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+  end
+
+  test "an Executor answer never opens an operator attention", %{dir: dir} do
+    # `executor_attention_opener` is the store's only path to an operator
+    # alert for a Command, so flunking it is the real form of "answering
+    # directly does not page the operator".
+    opener = fn _decision, _executor_id, _reason -> flunk("a direct Executor answer must not alert the operator") end
+    pid = start_store!(dir, executor_attention_opener: opener, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Answer this without paging anyone?",
+               "blocking" => true,
+               "authority" => "supervisor_preferred",
+               "reversibility" => "reversible",
+               "options" => [%{"id" => "yes", "label" => "Yes"}]
+             })
+
+    assert {:ok, %{status: :accepted, action: answer}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{"idempotency_key" => "executor-quiet", "expected_version" => 1, "option_id" => "yes"},
+               [actor: %{kind: :executor, id: "executor-1"}],
+               pid
+             )
+
+    assert answer.actor == %{kind: :executor, id: "executor-1"}
+  end
+
+  test "records an Executor escalation durably, attributably, and idempotently", %{dir: dir} do
+    pid = start_store!(dir, executor_attention_opener: fn _d, _e, _r -> {:ok, :opened} end, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{"question" => "Rename the public API?", "blocking" => true})
+
+    assert {:ok, %{status: :opened}} =
+             DecisionStore.escalate_executor_command(
+               decision.decision_id,
+               %{expected_version: 1, executor_id: "executor-1", reason: "This changes a published contract."},
+               pid
+             )
+
+    assert {:ok, history} = DecisionStore.audit_history(decision.decision_id, pid)
+
+    assert [%DecisionEvent{type: :executor_escalated, decision_version: 1, data: data}] =
+             Enum.filter(history, &(&1.type == :executor_escalated))
+
+    assert data.actor == %{kind: :executor, id: "executor-1"}
+    assert data.detail == "This changes a published contract."
+
+    # Deferring to the operator must not consume the Command.
+    assert {:ok, %Decision{decision_status: :open, answer: nil}} = DecisionStore.get(decision.decision_id, pid)
+
+    # A repeated escalation of the same version is a no-op append.
+    assert {:ok, %{status: _status}} =
+             DecisionStore.escalate_executor_command(
+               decision.decision_id,
+               %{expected_version: 1, executor_id: "executor-1", reason: "Same reason, retried."},
+               pid
+             )
+
+    assert {:ok, replayed_history} = DecisionStore.audit_history(decision.decision_id, pid)
+    assert Enum.count(replayed_history, &(&1.type == :executor_escalated)) == 1
+
+    GenServer.stop(pid)
+    restarted = start_store!(dir, dispatch_delay_ms: 60_000)
+    assert DecisionStore.health(restarted) == :writable
+
+    assert {:ok, durable} = DecisionStore.audit_history(decision.decision_id, restarted)
+
+    assert [%DecisionEvent{type: :executor_escalated, data: durable_data}] =
+             Enum.filter(durable, &(&1.type == :executor_escalated))
+
+    assert durable_data == data
+    assert {:ok, %Decision{decision_status: :open}} = DecisionStore.get(decision.decision_id, restarted)
+  end
+
+  test "answering an escalated Command clears its operator attention", %{dir: dir} do
+    unless Process.whereis(IdGenerator) do
+      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-escalation-event-id.json"), batch_size: 50})
+    end
+
+    previous_log_file = Application.get_env(:aiur, :log_file)
+    log_root = Path.join(dir, "executor-escalation-log")
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if previous_log_file,
+        do: Application.put_env(:aiur, :log_file, previous_log_file),
+        else: Application.delete_env(:aiur, :log_file)
+    end)
+
+    pid = start_store!(dir, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{"question" => "Change the release scope?", "blocking" => true})
+
+    assert ExUnit.CaptureIO.capture_io(fn ->
+             assert ExecutorCommandCLI.escalate(
+                      [
+                        decision_id: decision.decision_id,
+                        expected_version: decision.version,
+                        reason: "This changes product scope."
+                      ],
+                      decision_store: pid
+                    ) == 0
+           end) =~ "escalated Command"
+
+    topic = ExecutorCommandAttention.topic(decision.decision_id, decision.ticket.identifier)
+    alert_opts = [roots: [], log_roots: [log_root]]
+    assert AlertFeed.active_ticket_attention?(topic, alert_opts)
+
+    assert {:ok, %{status: :accepted}} =
+             answer(pid, decision.decision_id, %{
+               "idempotency_key" => "operator-answer-after-escalation",
+               "expected_version" => decision.version,
+               "custom_response" => "Keep the existing scope."
+             })
+
+    refute AlertFeed.active_ticket_attention?(topic, alert_opts)
+  end
+
+  test "serializes Executor escalation before a concurrent answer", %{dir: dir} do
+    unless Process.whereis(IdGenerator) do
+      start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-serialize-event-id.json"), batch_size: 50})
+    end
+
+    parent = self()
+
+    opener = fn _decision, _executor_id, _reason ->
+      send(parent, {:attention_opening, self()})
+
+      receive do
+        :finish_attention -> {:ok, :opened}
+      end
+    end
+
+    pid = start_store!(dir, executor_attention_opener: opener, dispatch_delay_ms: 60_000)
+
+    assert {:ok, %{decision: decision}} =
+             request(pid, %{
+               "question" => "Serialize this escalation?",
+               "blocking" => true,
+               "options" => [%{"id" => "yes", "label" => "Yes"}]
+             })
+
+    spawn(fn ->
+      result =
+        DecisionStore.escalate_executor_command(
+          decision.decision_id,
+          %{expected_version: 1, executor_id: "executor-1", reason: "Needs operator judgment"},
+          pid
+        )
+
+      send(parent, {:escalation_result, result})
+    end)
+
+    assert_receive {:attention_opening, opener_pid}
+
+    spawn(fn ->
+      result =
+        answer(pid, decision.decision_id, %{
+          "idempotency_key" => "answer-after-escalation",
+          "expected_version" => 1,
+          "option_id" => "yes"
+        })
+
+      send(parent, {:answer_result, result})
+    end)
+
+    refute_receive {:answer_result, _result}, 100
+    send(opener_pid, :finish_attention)
+
+    assert_receive {:escalation_result, {:ok, %{status: :opened}}}
+    assert_receive {:answer_result, {:ok, %{status: :accepted}}}
   end
 
   describe "answer outbox" do
@@ -2104,6 +2586,114 @@ defmodule Aiur.DecisionStoreTest do
       assert {:error, {:store_unavailable, {:corrupt, 2, _reason}}} = request(pid2, payload)
     end
 
+    test "an unrecognised but well-formed event type replays writable and is not lost", %{dir: dir} do
+      pid1 = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      assert {:ok, %{decision: decision}} =
+               request(pid1, %{
+                 "question" => "Survive a rollback?",
+                 "blocking" => true,
+                 "options" => [%{"id" => "yes", "label" => "Yes"}]
+               })
+
+      GenServer.stop(pid1)
+
+      # Exactly the shape a newer binary writes: a complete envelope whose
+      # event_type this build has never heard of.
+      path = Path.join(dir, "decisions.ndjson")
+
+      future_event = %{
+        "schema_version" => 1,
+        "event_type" => "some_future_event",
+        "event_id" => "evt-from-a-newer-build",
+        "run_id" => "run-newer-build",
+        "decision_id" => decision.decision_id,
+        "decision_version" => decision.version,
+        "occurred_at" => DateTime.to_iso8601(DateTime.utc_now()),
+        "data" => %{"whatever" => "a shape this build cannot interpret"},
+        "content_hash" => "hash-this-build-cannot-recompute"
+      }
+
+      :ok = DecisionLog.append(path, future_event)
+
+      pid2 = start_store!(dir, dispatch_delay_ms: 60_000)
+
+      # Version skew is not corruption: the store stays writable, so the
+      # operator can still answer Commands.
+      assert DecisionStore.health(pid2) == :writable
+      assert {:ok, replayed} = DecisionStore.get(decision.decision_id, pid2)
+      assert replayed.decision_status == :open
+
+      assert {:ok, %{status: :accepted}} =
+               answer(pid2, decision.decision_id, %{
+                 "idempotency_key" => "operator-after-skew",
+                 "expected_version" => decision.version,
+                 "option_id" => "yes"
+               })
+
+      assert {:ok, %{status: :accepted}} =
+               request(pid2, %{"question" => "Still accepting new Commands?", "blocking" => false})
+
+      # The unrecognised record is skipped for projection but never dropped, so
+      # rolling forward again still sees it.
+      assert path |> File.read!() |> String.contains?("some_future_event")
+
+      GenServer.stop(pid2)
+      pid3 = start_store!(dir, dispatch_delay_ms: 60_000)
+      assert DecisionStore.health(pid3) == :writable
+
+      assert {:ok, records, nil} = DecisionLog.replay(path, &DecisionProjection.decode_record/1)
+
+      assert [%Unrecognized{event_type: "some_future_event", event_id: "evt-from-a-newer-build"} = retained] =
+               Enum.filter(records, &match?(%Unrecognized{}, &1))
+
+      assert retained.decision_id == decision.decision_id
+      assert retained.raw["data"] == %{"whatever" => "a shape this build cannot interpret"}
+    end
+
+    test "a malformed record stays fail-closed even when its event type is unrecognised", %{dir: dir} do
+      # Same unknown type, but the envelope this build *can* check is broken.
+      # Forward compatibility must not become a hole that swallows damage.
+      broken = [
+        {"a missing decision_id", %{"decision_id" => nil}},
+        {"a non-positive decision_version", %{"decision_version" => 0}},
+        {"an unparseable occurred_at", %{"occurred_at" => "not-a-timestamp"}},
+        {"a missing event_id", %{"event_id" => nil}},
+        {"a non-map data payload", %{"data" => "not a map"}},
+        {"a missing content_hash", %{"content_hash" => ""}},
+        {"a missing run_id", %{"run_id" => nil}}
+      ]
+
+      for {label, override} <- broken do
+        case_dir = Path.join(dir, "broken-#{System.unique_integer([:positive])}")
+        pid1 = start_store!(case_dir)
+        assert {:ok, %{decision: decision}} = request(pid1, %{"question" => "Reject #{label}?", "blocking" => true})
+        GenServer.stop(pid1)
+
+        record =
+          Map.merge(
+            %{
+              "schema_version" => 1,
+              "event_type" => "some_future_event",
+              "event_id" => "evt-broken",
+              "run_id" => "run-broken",
+              "decision_id" => decision.decision_id,
+              "decision_version" => decision.version,
+              "occurred_at" => DateTime.to_iso8601(DateTime.utc_now()),
+              "data" => %{},
+              "content_hash" => "hash"
+            },
+            override
+          )
+
+        :ok = DecisionLog.append(Path.join(case_dir, "decisions.ndjson"), record)
+
+        pid2 = start_store!(case_dir)
+        assert {:corrupt, 2, _reason} = DecisionStore.health(pid2), "#{label} must stay fail-closed"
+        GenServer.stop(pid2)
+      end
+    end
+
     test "a valid envelope with an illegal lifecycle transition makes replay read-only", %{dir: dir} do
       pid1 = start_store!(dir)
       assert {:ok, %{decision: decision}} = request(pid1, %{"question" => "Deploy now?", "blocking" => true})
@@ -2169,6 +2759,7 @@ defmodule Aiur.DecisionStoreTest do
          %{dir: dir} do
       pid = start_store!(dir)
       :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
+      :ok = Exchange.subscribe("executor.decision.requested")
       :ok = DecisionPubSub.subscribe()
 
       payload = %{"question" => "Deploy now?", "blocking" => true, "source_id" => "retry-1"}
@@ -2185,6 +2776,18 @@ defmodule Aiur.DecisionStoreTest do
 
       assert cursor_event_id > 0
       assert EventsDigest.render([request_event], "979") =~ "ticket.979.agent.decision.requested"
+
+      assert_receive {:event,
+                      %{
+                        topic: "executor.decision.requested",
+                        decision_id: decision_id,
+                        decision_version: 1,
+                        issue_identifier: "979",
+                        provenance: :decision_store
+                      }},
+                     500
+
+      assert decision_id == decision.decision_id
 
       [persisted] =
         dir
@@ -2204,8 +2807,51 @@ defmodule Aiur.DecisionStoreTest do
       assert {:ok, _} = request(pid, payload)
 
       :ok = Exchange.subscribe("ticket.979.agent.decision.requested")
+      :ok = Exchange.subscribe("executor.decision.requested")
       assert {:ok, %{status: :duplicate}} = request(pid, payload)
       refute_receive {:event, %{topic: "ticket.979.agent.decision.requested"}}, 200
+      refute_receive {:event, %{topic: "executor.decision.requested"}}, 200
+    end
+
+    test "retries a failed requested notification from the canonical Decision", %{dir: dir} do
+      unless Process.whereis(IdGenerator) do
+        start_supervised!({IdGenerator, name: IdGenerator, path: Path.join(dir, "executor-request-retry-event-id.json"), batch_size: 50})
+      end
+
+      parent = self()
+
+      publisher = fn decision ->
+        send(parent, {:publish_failed, decision.decision_id, decision.version})
+        {:error, :journal_unavailable}
+      end
+
+      reconciler = fn decision ->
+        send(parent, {:reconciled, decision.decision_id, decision.version})
+        {:ok, 1788, 1}
+      end
+
+      scheduler = fn server, message, _delay ->
+        send(parent, {:retry_scheduled, server, message})
+        make_ref()
+      end
+
+      pid =
+        start_store!(dir,
+          executor_request_publisher: publisher,
+          executor_request_reconciler: reconciler,
+          dispatch_scheduler: scheduler
+        )
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Recover this Command?", "blocking" => true})
+
+      assert_receive {:publish_failed, decision_id, 1}
+      assert decision_id == decision.decision_id
+
+      assert_receive {:retry_scheduled, ^pid, {:retry_executor_request_notification, ^decision_id, 1, 1} = retry_message}
+
+      send(pid, retry_message)
+      assert_receive {:reconciled, ^decision_id, 1}
     end
   end
 

@@ -1,7 +1,7 @@
 defmodule Aiur.AgentRunner.SessionLifecycleTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{AgentEvents, AgentPubSub, Config, Issue, LiveConversation, TrackerIdentity}
+  alias Aiur.{AgentEvents, AgentPubSub, CodingAgent, Issue, LiveConversation, TrackerIdentity}
   alias Aiur.AgentRunner.{MessageHandler, SessionLifecycle}
   alias Aiur.Claude.{DisplayTailer, HookEvents}
   alias Aiur.Workspace.Ownership
@@ -851,6 +851,25 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
       assert {:ok, %{phase: :released}} = Ownership.release_and_wait(lease)
     end
 
+    test "a malformed session still fails loudly through the teardown catch-all" do
+      # `stop_session_with_ownership/3` wraps the stop in `catch kind, reason`.
+      # It reraises today, so the malformed-backend refusal survives teardown —
+      # but nothing pinned that, and narrowing the catch-all to swallow would
+      # turn the loud failure back into a silent one on the cleanup path.
+      # Deliberately drives the real `CodingAgent.stop_session/1` default rather
+      # than an injected stop_fun, and takes no workspace lease, so the guard is
+      # proven end to end without the ownership registry.
+      for session <- [%{thread_id: "teardown-no-backend"}, %{backend: :claude, thread_id: "teardown-atom"}] do
+        error =
+          assert_raise ArgumentError, fn ->
+            SessionLifecycle.stop_session_with_ownership(session, nil)
+          end
+
+        assert error.message =~ inspect(session)
+        assert error.message =~ "expected a binary :backend"
+      end
+    end
+
     test "authoritative cleanup success overrides a transient identity probe" do
       ticket = "successful-session-cleanup-unknown-#{System.unique_integer([:positive])}"
       process_group_id = System.unique_integer([:positive])
@@ -885,13 +904,34 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
   end
 
   describe "session accessors" do
-    test "session_backend/1 defaults to configured agent kind" do
+    test "session accessors read what the session carries" do
       assert SessionLifecycle.session_workspace(%{workspace: "/ws"}) == "/ws"
       assert SessionLifecycle.session_workspace(%{}) == nil
       assert SessionLifecycle.session_worker_host(%{worker_host: "box"}) == "box"
       assert SessionLifecycle.session_worker_host(%{}) == nil
-      assert SessionLifecycle.session_backend(%{backend: "claude-repl"}) == "claude-repl"
-      assert SessionLifecycle.session_backend(%{}) == Config.agent_kind()
+      assert SessionLifecycle.session_backend!(%{backend: "claude-repl"}) == "claude-repl"
+      assert SessionLifecycle.session_backend_label(%{backend: "claude-repl"}) == "claude-repl"
+    end
+
+    test "session_backend!/1 raises rather than substituting the configured agent kind" do
+      for session <- [%{}, %{backend: nil}, %{backend: :claude}, %{thread_id: "t-1"}] do
+        error =
+          assert_raise ArgumentError, fn -> SessionLifecycle.session_backend!(session) end
+
+        assert error.message =~ inspect(session)
+        assert error.message =~ "expected a binary :backend"
+      end
+    end
+
+    test "session_backend_label/1 reports unknown rather than naming a backend it never observed" do
+      # `unknown` is not a registered backend, so a reporting surface can never
+      # mistake this label for a real provider the way the old configured
+      # default could.
+      refute "unknown" in CodingAgent.known_backends()
+
+      for session <- [%{}, %{backend: nil}, %{backend: :claude}, %{thread_id: "t-1"}] do
+        assert SessionLifecycle.session_backend_label(session) == "unknown"
+      end
     end
   end
 
@@ -901,7 +941,8 @@ defmodule Aiur.AgentRunner.SessionLifecycleTest do
             {"headless Claude", %{backend: "claude", metadata: %{claude_app_server_pid: "424242"}}, nil},
             {"Claude REPL", %{backend: "claude-repl", os_pid: 424_242}, nil},
             {"remote Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, "worker-a"},
-            {"local Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, nil}
+            {"local Codex", %{backend: "codex", metadata: %{codex_app_server_pid: "424242"}}, nil},
+            {"in-process OpenAI-compatible", %{backend: "deepseek", session_pid: self()}, nil}
           ] do
         ticket = "session-no-pgid-#{System.unique_integer([:positive])}"
         assert {:ok, lease} = Ownership.claim(ticket)

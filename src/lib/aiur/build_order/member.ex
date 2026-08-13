@@ -18,6 +18,10 @@ defmodule Aiur.BuildOrder.Member do
           connection_counts: %{blocked_by: non_neg_integer(), blocking: non_neg_integer()},
           dependencies: [Dependency.t()],
           document_url: String.t() | nil,
+          document_path: String.t() | nil,
+          draft_body: String.t() | nil,
+          icon: String.t() | nil,
+          draft?: boolean(),
           diagnostics: [Diagnostic.t()]
         }
 
@@ -25,6 +29,10 @@ defmodule Aiur.BuildOrder.Member do
             title: "Untitled ticket",
             url: nil,
             document_url: nil,
+            document_path: nil,
+            draft_body: nil,
+            icon: nil,
+            draft?: false,
             metadata: %Metadata{},
             lifecycle: %Lifecycle{},
             activity: %Activity{},
@@ -66,6 +74,10 @@ defmodule Aiur.BuildOrder.Member do
       connection_counts: connection_counts(Map.get(attributes, :connection_counts)),
       dependencies: dependencies,
       document_url: document_url(Map.get(attributes, :document_url)),
+      document_path: document_path(Map.get(attributes, :document_path)),
+      draft_body: draft_body(Map.get(attributes, :draft_body)),
+      icon: icon(Map.get(attributes, :icon)),
+      draft?: Map.get(attributes, :draft?) == true,
       diagnostics: diagnostics
     }
   end
@@ -75,30 +87,54 @@ defmodule Aiur.BuildOrder.Member do
   defp document_url(value) when is_binary(value) and byte_size(value) in 1..512, do: value
   defp document_url(_value), do: nil
 
+  defp document_path(value) when is_binary(value) and byte_size(value) in 1..512, do: value
+  defp document_path(_value), do: nil
+
+  defp draft_body(value) when is_binary(value) and byte_size(value) in 1..64_000, do: value
+  defp draft_body(_value), do: nil
+
+  defp icon(value) when is_binary(value) and byte_size(value) in 1..80, do: value
+  defp icon(_value), do: nil
+
+  # Codes that say the member record itself is unusable — its identity, title,
+  # URL, labels or dependency data could not be read or contradicts itself.
+  #
+  # `:unresolved_internal_dependency` is deliberately absent. It records a
+  # same-repository dependency whose target is not a member of *this* Build
+  # Order, which is an ordinary fact about a Build Order still in flight: a
+  # member acquires a blocker filed outside its own root all the time. The
+  # member's own data is intact, the edge is well formed, and the presenter
+  # already annotates such an edge as leaving the graph
+  # (`AiurWeb.BuildOrderPresenter.edge_input/4`). Treating it as a member defect
+  # cascaded into `SelectedRoot` `:invalid_member`, made the whole selected root
+  # structurally invalid, and failed the entire read — so a single cross-root
+  # blocker erased 27 members from the page (#1777).
+  @invalidating_codes [
+    :connection_overflow,
+    :duplicate_identity,
+    :invalid_identity,
+    :invalid_dependency,
+    :invalid_endpoint_locator,
+    :invalid_member,
+    :invalid_label_connection,
+    :invalid_lifecycle,
+    :invalid_title,
+    :invalid_url,
+    :incomplete_labels,
+    :labels_overflow
+  ]
+
+  @doc false
+  @spec invalidating_codes() :: [atom()]
+  def invalidating_codes, do: @invalidating_codes
+
   @spec structurally_valid?(term()) :: boolean()
   def structurally_valid?(%__MODULE__{identity: identity, diagnostics: diagnostics})
       when is_list(diagnostics) do
     TrackerIdentity.joinable?(identity) and
       Enum.all?(diagnostics, fn
-        %Diagnostic{code: code} ->
-          code not in [
-            :connection_overflow,
-            :duplicate_identity,
-            :invalid_identity,
-            :invalid_dependency,
-            :invalid_endpoint_locator,
-            :invalid_member,
-            :invalid_label_connection,
-            :invalid_lifecycle,
-            :invalid_title,
-            :invalid_url,
-            :incomplete_labels,
-            :labels_overflow,
-            :unresolved_internal_dependency
-          ]
-
-        _other ->
-          false
+        %Diagnostic{code: code} -> code not in @invalidating_codes
+        _other -> false
       end)
   end
 

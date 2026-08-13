@@ -1,7 +1,7 @@
 defmodule Aiur.RepoBase do
   @moduledoc """
-  Maintains one warm, pre-compiled base checkout of the target repo's base branch (`tracker.base_branch`, default `main`) at
-  `~/.aiur/repo/<owner>/<name>` so per-issue workspaces materialize from it
+  Maintains one warm, pre-compiled base checkout of the target repo's configured `tracker.base_branch` at
+  `~/.aiur/repo/<owner>/<name>/latest` so per-issue workspaces materialize from it
   (copy-on-write) instead of cold-cloning + recompiling on every dispatch.
 
   Builds run asynchronously in a spawned worker so the GenServer mailbox stays
@@ -22,9 +22,24 @@ defmodule Aiur.RepoBase do
 
   alias Aiur.AgentEnvironment
   alias Aiur.AgentPubSub
+  alias Aiur.Asks
   alias Aiur.Config
+  alias Aiur.Findings
+  alias Aiur.Fs
+  alias Exqlite.Basic
 
-  @built_marker ".aiur-base-built"
+  @base_record "base-record.json"
+  @legacy_built_marker ".aiur-base-built"
+  @cache_sidecars [".aiur-hex", ".aiur-mix", ".aiur-npm-cache"]
+  @state_entries ["builds", "analytics", "meta", "executor"]
+  @migration_lease_suffix ".migration-lock.sqlite3"
+  @findings_transfer_suffix ".migration-transfer"
+  @asks_transfer_suffix ".asks-migration-transfer"
+  # Cache sidecar migrations copy potentially gigabytes of hex/mix/npm cache
+  # under an exclusive transaction, so the busy-wait must outlast a slow copy
+  # on the second of two hosts sharing one state root.
+  @migration_lock_timeout_ms 300_000
+  @remote_probe_timeout_ms 30_000
 
   ## ---- Public API ----
 
@@ -36,15 +51,142 @@ defmodule Aiur.RepoBase do
   @doc "Absolute path of the warm base for `repo_url`."
   @spec base_path(String.t()) :: Path.t()
   def base_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "latest")
+
+  @doc "Absolute path of the per-repository state node for `repo_url`."
+  @spec repo_path(String.t()) :: Path.t()
+  def repo_path(repo_url) when is_binary(repo_url),
     do: Path.join(base_root(), slug(repo_url))
+
+  @doc "Path of the per-repository state node relative to its owning home directory."
+  @spec repo_relative_path(String.t()) :: Path.t()
+  def repo_relative_path(repo_url) when is_binary(repo_url),
+    do: Path.join([".aiur", "repo", slug(repo_url)])
+
+  @doc "Absolute path of the build-order store for `repo_url`."
+  @spec builds_path(String.t()) :: Path.t()
+  def builds_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "builds")
+
+  @doc "Absolute path of executor-authored repository metadata for `repo_url`."
+  @spec meta_path(String.t()) :: Path.t()
+  def meta_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "meta")
+
+  @doc "Absolute path of the append-only executor findings file for `repo_url`."
+  @spec findings_path(String.t()) :: Path.t()
+  def findings_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "findings.ndjson")
+
+  @doc "Absolute path of the append-only Executor-to-operator asks file for `repo_url`."
+  @spec asks_path(String.t()) :: Path.t()
+  def asks_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "asks.ndjson")
+
+  @doc "Absolute path of per-boot executor retrospectives for `repo_url`."
+  @spec retros_path(String.t()) :: Path.t()
+  def retros_path(repo_url) when is_binary(repo_url),
+    do: Path.join(meta_path(repo_url), "retros")
+
+  @doc "Absolute path of regenerable analytics outputs for `repo_url`."
+  @spec analytics_path(String.t()) :: Path.t()
+  def analytics_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "analytics")
+
+  @doc "Absolute path of replaceable Executor state for `repo_url`."
+  @spec executor_path(String.t()) :: Path.t()
+  def executor_path(repo_url) when is_binary(repo_url),
+    do: Path.join(repo_path(repo_url), "executor")
+
+  @doc "Absolute path of the current Executor handoff for `repo_url`."
+  @spec handoff_path(String.t()) :: Path.t()
+  def handoff_path(repo_url) when is_binary(repo_url),
+    do: Path.join(executor_path(repo_url), "handoff.md")
+
+  @doc "Creates the canonical repository state tree before any writer needs it."
+  @spec ensure_state_tree(String.t()) :: :ok | {:error, term()}
+  def ensure_state_tree(repo_url) when is_binary(repo_url) do
+    with :ok <- migrate_legacy_layout(base_path(repo_url)) do
+      ensure_state_tree_at(repo_path(repo_url))
+    end
+  end
+
+  defp ensure_state_tree_at(node) do
+    findings = Path.join([node, "meta", "findings.ndjson"])
+    asks = Path.join([node, "meta", "asks.ndjson"])
+
+    with :ok <- ensure_state_node_safe(node),
+         :ok <- File.mkdir_p(node),
+         :ok <- create_state_directories(node),
+         :ok <- ensure_state_path_safe(node, findings),
+         :ok <- ensure_state_path_safe(node, asks),
+         :ok <- File.touch(findings),
+         :ok <- File.touch(asks) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp ensure_state_node_safe(node) do
+    case File.lstat(node) do
+      {:error, :enoent} -> :ok
+      {:ok, %File.Stat{type: :directory}} -> :ok
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:repo_base_state_path_symlink, node}}
+      {:ok, _stat} -> {:error, {:repo_base_state_path_invalid_root, node}}
+      {:error, reason} -> {:error, {:repo_base_state_path_invalid_root, node, reason}}
+    end
+  end
+
+  defp create_state_directories(node) do
+    [
+      Path.join(node, "latest"),
+      Path.join(node, "builds"),
+      Path.join(node, "analytics"),
+      Path.join(node, "meta"),
+      Path.join([node, "meta", "retros"]),
+      Path.join(node, "executor")
+      | Enum.map(@cache_sidecars, &Path.join(node, &1))
+    ]
+    |> Enum.reduce_while(:ok, fn path, :ok ->
+      case ensure_state_path_safe(node, path) do
+        :ok ->
+          create_state_directory(path)
+
+        {:error, _reason} = error ->
+          {:halt, error}
+      end
+    end)
+  end
+
+  defp create_state_directory(path) do
+    case File.mkdir_p(path) do
+      :ok -> {:cont, :ok}
+      {:error, reason} -> {:halt, {:error, {:repo_state_tree_create_failed, path, reason}}}
+    end
+  end
+
+  @doc """
+  Creates the canonical repository state tree and imports the previous worktree
+  retrospective once when it exists. The source remains untouched: it belongs to
+  an old branch and this import is a durable machine-local copy.
+  """
+  @spec setup_state(String.t(), Path.t() | nil) :: :ok | {:error, term()}
+  def setup_state(repo_url, source_root \\ nil) when is_binary(repo_url) do
+    case ensure_state_tree(repo_url) do
+      :ok -> import_legacy_retrospective(repo_url, source_root)
+      {:error, _reason} = error -> error
+    end
+  end
 
   @doc """
   Current base status as `{phase, base_path | nil}`. Fast and non-blocking —
   the orchestrator gate and the loading UI read this. `phase` is `:idle`,
-  `:cloning`, `:fetching`, `:building`, `:ready`, or `{:error, reason}`.
+  `:cloning`, `:fetching`, `:building`, `:checking`, `:ready`, or
+  `{:error, reason}`.
   """
-  @spec status() :: {atom() | {:error, term()}, Path.t() | nil}
-  def status, do: GenServer.call(__MODULE__, :status)
+  @spec status(timeout()) :: {atom() | {:error, term()}, Path.t() | nil}
+  def status(timeout \\ 5_000), do: GenServer.call(__MODULE__, :status, timeout)
 
   @doc """
   Trigger an asynchronous refresh of the warm base toward the latest remote base branch.
@@ -55,9 +197,13 @@ defmodule Aiur.RepoBase do
   @spec refresh_async() :: :ok
   def refresh_async, do: GenServer.cast(__MODULE__, :refresh_async)
 
+  @doc false
+  @spec refresh_for_dispatch() :: atom() | {:error, term()}
+  def refresh_for_dispatch, do: GenServer.call(__MODULE__, :refresh_for_dispatch)
+
   @doc """
-  The branch the warm base tracks: `tracker.base_branch` from config, falling
-  back to `"main"` when unset, empty, or the config cannot be loaded.
+  The branch the warm base tracks. Missing or empty `tracker.base_branch`
+  configuration raises instead of guessing a destructive default.
   """
   @spec base_branch() :: String.t()
   def base_branch, do: Config.base_branch()
@@ -83,9 +229,12 @@ defmodule Aiur.RepoBase do
   end
 
   defp run_refresh_steps(base_path, repo_url, base_build) do
-    with :ok <- ensure_clone(base_path, repo_url),
+    with :ok <- remove_obsolete_aiur_node(repo_url),
+         :ok <- migrate_legacy_layout(base_path),
+         :ok <- ensure_state_tree_at(repo_node_path(base_path)),
+         :ok <- ensure_clone(base_path, repo_url),
          {:ok, changed?} <- fetch_and_reset(base_path) do
-      maybe_build(base_path, base_build, changed? or not built?(base_path))
+      maybe_build(base_path, base_build, changed? or not built?(base_path, base_build))
     end
   end
 
@@ -94,12 +243,17 @@ defmodule Aiur.RepoBase do
   @impl true
   def init(_opts) do
     schedule_poll()
-    {:ok, %{phase: :idle, base_path: nil, build: nil, probe: nil, ready_head: nil}}
+    {:ok, %{phase: :idle, base_path: nil, build: nil, probe: nil, ready_head: nil, freshness: :unknown}}
   end
 
   @impl true
   def handle_call(:status, _from, state) do
     {:reply, {state.phase, state.base_path}, state}
+  end
+
+  def handle_call(:refresh_for_dispatch, _from, state) do
+    state = do_refresh_for_dispatch(state)
+    {:reply, state.phase, state}
   end
 
   @impl true
@@ -115,7 +269,7 @@ defmodule Aiur.RepoBase do
   end
 
   # The build worker reports the head it locked in before the (expensive) build,
-  # so a later ls-remote probe can tell whether main advanced past it.
+  # so a later ls-remote probe can tell whether the base branch advanced past it.
   def handle_info({:build_head, pid, head}, %{build: %{pid: pid} = build} = state) do
     {:noreply, %{state | build: %{build | head: head}}}
   end
@@ -127,7 +281,7 @@ defmodule Aiur.RepoBase do
     state = %{state | build: nil}
 
     case result do
-      {:ok, base} -> {:noreply, %{state | phase: :ready, base_path: base, ready_head: head}}
+      {:ok, base} -> {:noreply, %{state | phase: :ready, base_path: base, ready_head: head, freshness: :unknown}}
       {:error, reason} -> {:noreply, %{state | phase: {:error, reason}}}
     end
   end
@@ -140,8 +294,18 @@ defmodule Aiur.RepoBase do
     {:noreply, %{state | build: nil, phase: {:error, {:build_crashed, reason}}}}
   end
 
-  def handle_info({:remote_head, head}, state) do
-    {:noreply, on_remote_head(%{state | probe: nil}, head)}
+  def handle_info({:DOWN, ref, :process, _pid, reason}, %{probe: %{ref: ref}} = state) do
+    {:noreply, state |> clear_probe() |> probe_failed({:probe_crashed, reason})}
+  end
+
+  def handle_info({:remote_head, pid, result}, %{probe: %{pid: pid}} = state) do
+    {:noreply, state |> clear_probe() |> on_remote_head(result)}
+  end
+
+  def handle_info({:probe_timeout, ref}, %{probe: %{ref: ref, pid: pid}} = state) do
+    Process.demonitor(ref, [:flush])
+    Process.exit(pid, :kill)
+    {:noreply, state |> clear_probe() |> probe_failed(:timeout)}
   end
 
   def handle_info(_msg, state), do: {:noreply, state}
@@ -158,38 +322,89 @@ defmodule Aiur.RepoBase do
 
         cond do
           state.build != nil -> ensure_probe(state, repo_url)
-          state.phase == :ready -> ensure_probe(state, repo_url)
+          state.phase == :checking -> state
+          state.phase == :ready -> probe_freshness(state, repo_url)
           true -> start_build(state, base, repo_url, command)
         end
     end
   end
 
-  # An ls-remote probe answers "did main advance?" without touching the base
+  # Dispatch must not race a ready base against an outstanding `ls-remote`.
+  # A confirmed probe grants one dispatch pass; the following pass starts the
+  # next probe and holds until it resolves. This keeps a remote advance from
+  # creating a workspace off the previous recorded clone head.
+  defp do_refresh_for_dispatch(state) do
+    case resolve() do
+      :disabled ->
+        %{state | phase: :idle}
+
+      {:ok, repo_url, base, command} ->
+        dispatch_refresh_state(%{state | base_path: base}, repo_url, base, command)
+    end
+  end
+
+  defp dispatch_refresh_state(state, repo_url, base, command) do
+    cond do
+      state.build != nil -> ensure_probe(state, repo_url)
+      state.phase == :checking -> state
+      match?({:error, _}, state.phase) -> state
+      state.phase == :ready and state.freshness == :fresh -> %{state | freshness: :unknown}
+      state.phase == :ready -> probe_freshness(state, repo_url)
+      true -> start_build(state, base, repo_url, command)
+    end
+  end
+
+  # An ls-remote probe answers "did the base branch advance?" without touching the base
   # working tree, so it is safe to run alongside an in-flight build.
   defp ensure_probe(%{probe: nil} = state, repo_url) do
     parent = self()
 
-    {pid, ref} = spawn_monitor(fn -> send(parent, {:remote_head, remote_head(repo_url)}) end)
+    {pid, ref} =
+      spawn_monitor(fn ->
+        send(parent, {:remote_head, self(), remote_head(repo_url)})
+      end)
 
-    %{state | probe: %{pid: pid, ref: ref}}
+    timer = Process.send_after(self(), {:probe_timeout, ref}, @remote_probe_timeout_ms)
+    %{state | probe: %{pid: pid, ref: ref, timer: timer}}
   end
 
   defp ensure_probe(state, _repo_url), do: state
 
-  # main advanced past what the base reflects -> preempt any in-flight build and
-  # rebuild fresh; otherwise stay put.
-  defp on_remote_head(state, head) do
-    if advanced?(state, head), do: trigger_build(state), else: state
+  defp probe_freshness(state, repo_url) do
+    state
+    |> ensure_probe(repo_url)
+    |> Map.put(:phase, :checking)
   end
+
+  # the base branch advanced past what the warm checkout reflects -> preempt any in-flight build and
+  # rebuild fresh; otherwise stay put.
+  defp on_remote_head(state, {:ok, head}) do
+    if advanced?(state, head), do: trigger_build(state), else: confirm_freshness(state)
+  end
+
+  defp on_remote_head(state, {:error, reason}), do: probe_failed(state, reason)
+
+  defp confirm_freshness(%{phase: :checking} = state), do: %{state | phase: :ready, freshness: :fresh}
+  defp confirm_freshness(state), do: state
+
+  # A failed probe must never certify a clone as current. Surface the failure so
+  # the dispatcher deliberately takes its cold-clone fallback for this tick;
+  # later scheduled refreshes can retry the probe/build without handing an
+  # unverified warm base to a workspace.
+  defp probe_failed(%{build: nil, phase: :checking} = state, reason) do
+    %{state | phase: {:error, {:repo_base_remote_probe_failed, reason}}, freshness: :unknown}
+  end
+
+  defp probe_failed(state, _reason), do: state
 
   # in-flight build is targeting an older head
   defp advanced?(%{build: %{head: build_head}}, head)
        when is_binary(build_head) and is_binary(head),
        do: head != build_head
 
-  # base is ready but main moved past it
-  defp advanced?(%{build: nil, phase: :ready, ready_head: ready_head}, head)
-       when is_binary(head),
+  # base is ready but the configured branch moved past it
+  defp advanced?(%{build: nil, phase: phase, ready_head: ready_head}, head)
+       when phase in [:ready, :checking] and is_binary(head),
        do: head != ready_head
 
   defp advanced?(_state, _head), do: false
@@ -207,7 +422,7 @@ defmodule Aiur.RepoBase do
 
     {pid, ref} = spawn_monitor(fn -> build_worker(parent, base, repo_url, command) end)
 
-    %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}}
+    %{state | phase: :building, base_path: base, build: %{pid: pid, ref: ref, head: nil}, freshness: :unknown}
   end
 
   defp kill_build(%{build: %{pid: pid, ref: ref}}) do
@@ -222,11 +437,14 @@ defmodule Aiur.RepoBase do
   # (so the GenServer can preempt) and the final result when done.
   defp build_worker(server, base, repo_url, command) do
     result =
-      with :ok <- ensure_clone(base, repo_url),
+      with :ok <- remove_obsolete_aiur_node(repo_url),
+           :ok <- migrate_legacy_layout(base),
+           :ok <- ensure_state_tree_at(repo_node_path(base)),
+           :ok <- ensure_clone(base, repo_url),
            {:ok, changed?} <- fetch_and_reset(base) do
         head = head_of(base)
         send(server, {:build_head, self(), head})
-        outcome = maybe_build(base, command, changed? or not built?(base))
+        outcome = maybe_build(base, command, changed? or not built?(base, command))
         send(server, {:build_done, self(), head, outcome})
         outcome
       else
@@ -287,8 +505,10 @@ defmodule Aiur.RepoBase do
 
     case run_base_build(base_path, base_build) do
       :ok ->
-        mark_built(base_path)
-        {:ok, base_path}
+        with :ok <- relocate_sidecars(base_path),
+             :ok <- write_base_record(base_path, base_build) do
+          {:ok, base_path}
+        end
 
       {:error, reason} ->
         {:error, reason}
@@ -302,14 +522,14 @@ defmodule Aiur.RepoBase do
     # Same execution shape as workspace hooks: scrub the Executor’s Erlang
     # distribution env at the shell level, then run in the base dir. `base_env/1`
     # trusts the base's mise.toml (MISE_TRUSTED_CONFIG_PATHS) so mise-provided
-    # tools run; the detected command still sets its own HEX_HOME/MIX_HOME so the
-    # base owns the caches workspaces copy.
+    # tools run. Cache homes point at the repository node, outside `latest`, so
+    # materialized workspaces inherit only the repository tree.
     scrubbed = AgentEnvironment.scrub_shell_command(command)
 
     {out, status} =
       System.cmd("sh", ["-lc", scrubbed],
         cd: base_path,
-        env: AgentEnvironment.base_env(base_path),
+        env: base_env(base_path),
         stderr_to_stdout: true
       )
 
@@ -364,13 +584,742 @@ defmodule Aiur.RepoBase do
 
   defp remote_head(repo_url) do
     case git(["ls-remote", repo_url, "refs/heads/#{base_branch()}"], nil) do
-      {out, 0} -> out |> String.split() |> List.first()
-      _ -> nil
+      {out, 0} ->
+        case out |> String.split() |> List.first() do
+          head when is_binary(head) and head != "" -> {:ok, head}
+          _ -> {:error, :empty_remote_head}
+        end
+
+      {out, status} ->
+        {:error, {:ls_remote_failed, status, out}}
     end
   end
 
-  defp built?(base_path), do: File.exists?(Path.join(base_path, @built_marker))
-  defp mark_built(base_path), do: File.write!(Path.join(base_path, @built_marker), "")
+  # A boolean marker made a moved clone indistinguishable from a freshly built
+  # one. Keep the record beside `latest`, where it cannot leak into a copied
+  # workspace, and require both inputs that define a valid build to match.
+  defp built?(base_path, base_build) do
+    with {:ok, record_body} <- File.read(base_record_path(base_path)),
+         {:ok, record} <- Jason.decode(record_body),
+         clone_head when is_binary(clone_head) <- Map.get(record, "clone_head"),
+         script_hash when is_binary(script_hash) <- Map.get(record, "prewarm_script_hash"),
+         true <- clone_head == head_of(base_path),
+         true <- script_hash == prewarm_script_hash(base_build) do
+      true
+    else
+      _ -> false
+    end
+  end
+
+  defp write_base_record(base_path, base_build) do
+    with head when is_binary(head) <- head_of(base_path),
+         :ok <- File.mkdir_p(repo_node_path(base_path)),
+         {:ok, body} <-
+           Jason.encode(%{
+             "clone_head" => head,
+             "prewarm_script_hash" => prewarm_script_hash(base_build),
+             "built_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+           }) do
+      target = base_record_path(base_path)
+      temporary = target <> ".tmp-" <> unique_suffix()
+
+      with :ok <- File.write(temporary, body),
+           :ok <- File.rename(temporary, target) do
+        :ok
+      else
+        {:error, reason} ->
+          File.rm(temporary)
+          {:error, {:repo_base_record_write_failed, reason}}
+      end
+    else
+      _ -> {:error, :repo_base_head_unavailable}
+    end
+  end
+
+  defp prewarm_script_hash(base_build) when is_binary(base_build),
+    do: :crypto.hash(:sha256, base_build) |> Base.encode16(case: :lower)
+
+  defp prewarm_script_hash(_base_build), do: :crypto.hash(:sha256, "") |> Base.encode16(case: :lower)
+
+  # The old layout made the repository node itself the clone. Moving a directory
+  # beneath itself is impossible, so temporarily rename it beside the node,
+  # recreate the node, lift state out, and finally move the clone to latest.
+  # Legacy build metadata is intentionally discarded: no record means one
+  # correct rebuild after migration writes the canonical node-level record.
+  defp migrate_legacy_layout(base_path) do
+    node = repo_node_path(base_path)
+
+    with :ok <- ensure_state_node_safe(node) do
+      if File.dir?(Path.join(base_path, ".git")) do
+        :ok
+      else
+        migrate_legacy_node(node, base_path)
+      end
+    end
+  end
+
+  defp migrate_legacy_node(node, base_path) do
+    if migration_required?(node) do
+      with_migration_lock(node, fn -> migrate_legacy_clone_if_needed(node, base_path) end)
+    else
+      :ok
+    end
+  end
+
+  defp migrate_legacy_clone_if_needed(node, base_path) do
+    with :ok <- recover_interrupted_migration(base_path) do
+      migrate_legacy_clone_if_present(node, base_path)
+    end
+  end
+
+  defp migrate_legacy_clone_if_present(node, base_path) do
+    if File.dir?(Path.join(node, ".git")), do: migrate_legacy_clone(node, base_path), else: :ok
+  end
+
+  # SQLite's exclusive transaction is a cross-process lock provided by an
+  # application dependency on every supported platform. The kernel releases it
+  # if the holding BEAM dies, avoiding both stale files and external flock.
+  defp with_migration_lock(node, migration) do
+    path = migration_lease_path(node)
+
+    case Basic.open(path) do
+      {:ok, connection} ->
+        with_migration_transaction(connection, path, migration)
+
+      {:error, error} ->
+        {:error, {:repo_base_migration_lock_open_failed, path, error}}
+    end
+  end
+
+  defp with_migration_transaction(connection, path, migration) do
+    # `after` has no implicit-function form, so the explicit resource boundary
+    # is required to commit and close this cross-process lease on every exit.
+    # credo:disable-for-next-line Credo.Check.Readability.PreferImplicitTry
+    try do
+      with :ok <- sqlite_exec(connection, "PRAGMA busy_timeout = #{@migration_lock_timeout_ms}", path),
+           :ok <- sqlite_exec(connection, "BEGIN EXCLUSIVE", path) do
+        migration.()
+      end
+    after
+      _ = Basic.exec(connection, "COMMIT")
+      Basic.close(connection)
+    end
+  end
+
+  defp migration_required?(node) do
+    File.dir?(Path.join(node, ".git")) or parked_migrations(node) != []
+  end
+
+  defp migration_lease_path(node), do: node <> @migration_lease_suffix
+
+  defp sqlite_exec(connection, sql, path) do
+    case Basic.exec(connection, sql) do
+      {:ok, _query, _result, _connection} -> :ok
+      {:error, error, _connection} -> {:error, {:repo_base_migration_lock_failed, path, error}}
+    end
+  end
+
+  defp migrate_legacy_clone(node, base_path) do
+    temporary = node <> ".migrating-" <> unique_suffix()
+
+    with :ok <- File.rename(node, temporary),
+         :ok <- finish_migration(temporary, node, base_path) do
+      :ok
+    else
+      {:error, reason} -> {:error, {:repo_base_migration_failed, reason}}
+    end
+  end
+
+  # If the process dies after parking the old node beside its destination but
+  # before renaming it to `latest`, finish that move on the next touch. The
+  # sidecars may already have been lifted into `node`; keeping that directory
+  # intact makes recovery safe at every point in the migration sequence.
+  defp recover_interrupted_migration(base_path) do
+    node = repo_node_path(base_path)
+
+    parked = parked_migrations(node)
+
+    cond do
+      File.dir?(Path.join(base_path, ".git")) ->
+        :ok
+
+      parked == [] ->
+        :ok
+
+      length(parked) == 1 ->
+        [temporary] = parked
+
+        case finish_migration(temporary, node, base_path) do
+          :ok -> :ok
+          {:error, reason} -> {:error, {:repo_base_migration_recovery_failed, reason}}
+        end
+
+      true ->
+        {:error, :repo_base_migration_recovery_ambiguous}
+    end
+  end
+
+  defp finish_migration(temporary, node, base_path) do
+    findings = Path.join([node, "meta", "findings.ndjson"])
+    legacy_findings = Path.join([temporary, "meta", "findings.ndjson"])
+    asks = Path.join([node, "meta", "asks.ndjson"])
+    legacy_asks = Path.join([temporary, "meta", "asks.ndjson"])
+
+    with :ok <- File.mkdir_p(node),
+         :ok <- move_sidecars(temporary, node),
+         :ok <- recover_ledger_transfer(findings, legacy_findings, :findings),
+         :ok <- recover_ledger_transfer(asks, legacy_asks, :asks),
+         :ok <- move_state_entries(temporary, node),
+         :ok <- discard_legacy_build_metadata(temporary) do
+      File.rename(temporary, base_path)
+    end
+  end
+
+  defp parked_migrations(node) do
+    node
+    |> Kernel.<>(".migrating-*")
+    |> Path.wildcard()
+    |> Enum.filter(&File.dir?(Path.join(&1, ".git")))
+  end
+
+  defp discard_legacy_build_metadata(path) do
+    [@legacy_built_marker, @base_record]
+    |> Enum.reduce_while(:ok, fn name, :ok ->
+      case File.rm_rf(Path.join(path, name)) do
+        {:ok, _removed} -> {:cont, :ok}
+        {:error, reason, _path} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp relocate_sidecars(base_path), do: move_sidecars(base_path, repo_node_path(base_path))
+
+  defp import_legacy_retrospective(_repo_url, nil), do: :ok
+
+  defp import_legacy_retrospective(repo_url, source_root) when is_binary(source_root) do
+    source = Path.join([source_root, "docs", "executor", "hourly-retrospectives.md"])
+
+    if File.regular?(source) do
+      case File.read(source) do
+        {:ok, contents} -> copy_legacy_retrospective(repo_url, source, contents)
+        {:error, reason} -> {:error, {:legacy_retrospective_read_failed, source, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp copy_legacy_retrospective(repo_url, source, contents) do
+    name = "legacy-" <> (:crypto.hash(:sha256, contents) |> Base.encode16(case: :lower) |> binary_part(0, 12)) <> ".md"
+    destination = Path.join(retros_path(repo_url), name)
+
+    case File.copy(source, destination) do
+      {:ok, _bytes} -> :ok
+      {:error, :eexist} -> :ok
+      {:error, reason} -> {:error, {:legacy_retrospective_import_failed, source, reason}}
+    end
+  end
+
+  # aiur's org transfer left exactly one known predecessor node. It is not a
+  # valid state node for the current tracker and can retain the old boolean
+  # marker forever, so clear it lazily when the renamed repository is touched.
+  defp remove_obsolete_aiur_node(repo_url) do
+    if slug(repo_url) == "aiur-team/aiur" do
+      case File.rm_rf(Path.join(base_root(), "its-everdred/aiur")) do
+        {:ok, _removed} -> :ok
+        {:error, reason, _path} -> {:error, {:repo_base_orphan_cleanup_failed, reason}}
+      end
+    else
+      :ok
+    end
+  end
+
+  defp move_sidecars(from, to) do
+    Enum.reduce_while(@cache_sidecars, :ok, fn sidecar, :ok ->
+      case move_sidecar(from, to, sidecar) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  # State directories can already exist in the destination after an interrupted
+  # migration or a concurrent initializer. Merge their contents rather than
+  # leaving the legacy copy beneath `latest`; append-only ledgers retain both
+  # histories, while any other file collision is preserved under a unique name.
+  # A state-shaped directory with any tracked descendant belongs to the
+  # application. Preserve the whole mixed directory in the clone: ignored and
+  # generated application files are not safe to reclassify as Aiur state.
+  defp move_state_entries(from, to) do
+    Enum.reduce_while(@state_entries, :ok, fn entry, :ok ->
+      source = Path.join(from, entry)
+      destination = Path.join(to, entry)
+
+      case migrate_state_entry(source, destination, from) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp migrate_state_entry(source, destination, clone_root) do
+    node = Path.dirname(destination)
+
+    with :ok <- ensure_state_path_safe(node, destination) do
+      case migration_entry_disposition(source) do
+        :missing ->
+          :ok
+
+        :preserve ->
+          :ok
+
+        :migrate ->
+          migrate_untracked_state_entry(source, destination, node, clone_root)
+
+        {:error, reason} ->
+          {:error, {:repo_base_migration_entry_inspection_failed, source, reason}}
+      end
+    end
+  end
+
+  defp migrate_untracked_state_entry(source, destination, node, clone_root) do
+    case tracked_state_entry?(clone_root, source) do
+      :tracked -> :ok
+      :untracked -> move_state_entry(source, destination, node)
+      {:error, reason} -> {:error, {:repo_base_migration_tracking_failed, source, reason}}
+    end
+  end
+
+  # A legacy clone can contain untracked application links beneath a path that
+  # happens to look like state. `File.dir?/1` follows those links, so migration
+  # would otherwise walk and move files outside the clone. Preserve an entire
+  # state-shaped entry if any boundary is a link; it remains application-owned
+  # in `latest`, while the canonical state tree is recreated beside it.
+  defp migration_entry_disposition(path) do
+    case File.lstat(path) do
+      {:error, :enoent} -> :missing
+      {:ok, %File.Stat{type: :symlink}} -> :preserve
+      {:ok, %File.Stat{type: :directory}} -> migration_directory_disposition(path)
+      {:ok, _stat} -> :migrate
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp migration_directory_disposition(path) do
+    with {:ok, entries} <- File.ls(path) do
+      Enum.reduce_while(entries, :migrate, &reduce_migration_entry(&1, &2, path))
+    end
+  end
+
+  defp reduce_migration_entry(entry, :migrate, path) do
+    case migration_entry_disposition(Path.join(path, entry)) do
+      :missing -> {:cont, :migrate}
+      :migrate -> {:cont, :migrate}
+      :preserve -> {:halt, :preserve}
+      {:error, reason} -> {:halt, {:error, reason}}
+    end
+  end
+
+  defp move_state_entry(source, destination, node) do
+    with :ok <- ensure_state_path_safe(node, destination) do
+      case File.lstat(source) do
+        {:error, :enoent} -> :ok
+        {:ok, %File.Stat{type: :symlink}} -> :ok
+        {:ok, %File.Stat{type: :directory}} -> merge_state_directory(source, destination, node)
+        {:ok, _stat} -> move_untracked_state_file(source, destination)
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
+
+  defp move_untracked_state_file(source, destination) do
+    if File.exists?(destination),
+      do: move_existing_state_file(source, destination),
+      else: File.rename(source, destination)
+  end
+
+  defp move_existing_state_file(source, destination) do
+    case {Path.basename(source), Path.basename(destination)} do
+      {"findings.ndjson", "findings.ndjson"} -> merge_findings(source, destination)
+      {"asks.ndjson", "asks.ndjson"} -> merge_asks(source, destination)
+      _ -> File.rename(source, destination <> ".migrated-" <> unique_suffix())
+    end
+  end
+
+  defp merge_state_directory(source, destination, node) do
+    with :ok <- File.mkdir_p(destination),
+         {:ok, entries} <- File.ls(source),
+         :ok <- move_state_directory_entries(entries, source, destination, node) do
+      remove_empty_directory(source)
+    end
+  end
+
+  defp move_state_directory_entries(entries, source, destination, node) do
+    Enum.reduce_while(entries, :ok, fn entry, :ok ->
+      case move_state_entry(Path.join(source, entry), Path.join(destination, entry), node) do
+        :ok -> {:cont, :ok}
+        {:error, reason} -> {:halt, {:error, reason}}
+      end
+    end)
+  end
+
+  defp remove_empty_directory(path) do
+    case File.rmdir(path) do
+      :ok -> :ok
+      {:error, :enotempty} -> :ok
+      {:error, :eexist} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp tracked_state_entry?(clone_root, path) do
+    case File.lstat(path) do
+      {:error, :enoent} -> :untracked
+      {:ok, _stat} -> tracked_state_entry_at_path?(clone_root, path)
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp tracked_state_entry_at_path?(clone_root, path) do
+    relative_path = Path.relative_to(path, clone_root)
+
+    case git(["ls-files", "--", relative_path], clone_root) do
+      {output, 0} when output in ["", "\n"] -> :untracked
+      {_output, 0} -> :tracked
+      {output, status} -> {:error, {status, output}}
+    end
+  end
+
+  defp merge_findings(source, destination), do: merge_ledger(source, destination, :findings)
+  defp merge_asks(source, destination), do: merge_ledger(source, destination, :asks)
+
+  defp merge_ledger(source, destination, ledger) do
+    with :ok <- ensure_ledger_paths_safe(destination, ledger),
+         :ok <- recover_ledger_transfer(destination, source, ledger) do
+      write_ledger_transfer(source, destination, ledger)
+    end
+  end
+
+  # A source ledger must be transferred exactly once. Appending then deleting
+  # loses that property if a process dies between the two operations, so stage
+  # an explicit checksum checkpoint and atomically replace the destination.
+  # Recovery can then distinguish a completed replacement from an unstarted
+  # one without treating repeated, legitimate observations as duplicates.
+  defp write_ledger_transfer(source, destination, ledger) do
+    with :ok <- ensure_regular_file(source),
+         {:ok, destination_contents} <- File.read(destination),
+         :ok <- validate_ledger(destination_contents, destination, ledger),
+         {:ok, source_contents} <- File.read(source),
+         :ok <- validate_ledger(source_contents, source, ledger),
+         merged_contents <- destination_contents <> merged_findings_suffix(destination_contents, source_contents),
+         :ok <- validate_ledger(merged_contents, destination, ledger),
+         :ok <- write_ledger_transfer_marker(source, destination, destination_contents, source_contents, merged_contents, ledger),
+         :ok <- replace_file(destination, merged_contents),
+         :ok <- File.rm(source),
+         :ok <- Fs.sync_filesystem(),
+         :ok <- File.rm(ledger_transfer_marker(destination, ledger)) do
+      :ok
+    else
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp recover_ledger_transfer(destination, expected_source, ledger) do
+    marker = ledger_transfer_marker(destination, ledger)
+
+    with :ok <- ensure_ledger_paths_safe(destination, ledger),
+         :ok <- ensure_transfer_source_safe(expected_source) do
+      case File.read(marker) do
+        {:error, :enoent} ->
+          :ok
+
+        {:ok, contents} ->
+          recover_ledger_transfer_contents(contents, destination, expected_source, marker, ledger)
+
+        {:error, reason} ->
+          {:error, {transfer_error_tag(ledger), destination, reason}}
+      end
+    end
+  end
+
+  defp ensure_transfer_source_safe(source) do
+    parked_clone = source |> Path.dirname() |> Path.dirname()
+    ensure_state_path_safe(parked_clone, source)
+  end
+
+  defp recover_ledger_transfer_contents(contents, destination, expected_source, marker, ledger) do
+    with {:ok, transfer} <- Jason.decode(contents),
+         :ok <- validate_ledger_transfer(transfer, destination, expected_source),
+         {:ok, destination_contents} <- File.read(destination) do
+      transfer
+      |> recover_ledger_transfer_state(destination, destination_contents, marker, ledger)
+      |> wrap_ledger_recovery_error(destination, ledger)
+    else
+      {:error, reason} -> {:error, {transfer_error_tag(ledger), destination, reason}}
+    end
+  end
+
+  defp recover_ledger_transfer_state(transfer, destination, contents, marker, ledger) do
+    source = transfer["source"]
+
+    cond do
+      digest(contents) == transfer["merged_hash"] ->
+        case remove_transfer_source(source, transfer["source_hash"]) do
+          :ok -> File.rm(marker)
+          {:error, _reason} = error -> error
+        end
+
+      digest(contents) == transfer["destination_hash"] and regular_file?(source) ->
+        File.rm(marker)
+
+      true ->
+        {:error, {transfer_inconsistent_tag(ledger), destination}}
+    end
+  end
+
+  defp wrap_ledger_recovery_error(:ok, _destination, _ledger), do: :ok
+
+  defp wrap_ledger_recovery_error({:error, reason}, destination, ledger),
+    do: {:error, {transfer_error_tag(ledger), destination, reason}}
+
+  defp validate_ledger_transfer(transfer, destination, expected_source) when is_map(transfer) do
+    required = ["source", "source_hash", "destination", "destination_hash", "merged_hash"]
+
+    cond do
+      transfer["destination"] != destination ->
+        {:error, :invalid_marker}
+
+      not Enum.all?(required, &(is_binary(transfer[&1]) and transfer[&1] != "")) ->
+        {:error, :invalid_marker}
+
+      Path.expand(transfer["source"]) != Path.expand(expected_source) ->
+        {:error, :invalid_source}
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_ledger_transfer(_transfer, _destination, _expected_source), do: {:error, :invalid_marker}
+
+  defp remove_transfer_source(source, source_hash) do
+    case File.lstat(source) do
+      {:error, :enoent} -> :ok
+      {:ok, %File.Stat{type: :regular}} -> remove_matching_transfer_source(source, source_hash)
+      {:ok, _stat} -> {:error, :source_changed}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp remove_matching_transfer_source(source, source_hash) do
+    with {:ok, contents} <- File.read(source) do
+      if digest(contents) == source_hash, do: File.rm(source), else: {:error, :source_changed}
+    end
+  end
+
+  defp regular_file?(path), do: match?({:ok, %File.Stat{type: :regular}}, File.lstat(path))
+
+  defp write_ledger_transfer_marker(source, destination, destination_contents, source_contents, merged_contents, ledger) do
+    marker_contents =
+      Jason.encode!(%{
+        "source" => source,
+        "source_hash" => digest(source_contents),
+        "destination" => destination,
+        "destination_hash" => digest(destination_contents),
+        "merged_hash" => digest(merged_contents)
+      })
+
+    case Fs.atomic_write(ledger_transfer_marker(destination, ledger), marker_contents, fsync: true) do
+      :ok -> Fs.sync_filesystem()
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ledger_transfer_marker(destination, :findings), do: destination <> @findings_transfer_suffix
+  defp ledger_transfer_marker(destination, :asks), do: destination <> @asks_transfer_suffix
+  defp transfer_error_tag(:findings), do: :findings_transfer_recovery_failed
+  defp transfer_error_tag(:asks), do: :asks_transfer_recovery_failed
+  defp transfer_inconsistent_tag(:findings), do: :findings_transfer_inconsistent
+  defp transfer_inconsistent_tag(:asks), do: :asks_transfer_inconsistent
+
+  defp replace_file(destination, contents) do
+    case Fs.atomic_write(destination, contents, fsync: true) do
+      :ok -> Fs.sync_filesystem()
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_ledger_paths_safe(destination, ledger) do
+    node = destination |> Path.dirname() |> Path.dirname()
+
+    case ensure_state_path_safe(node, destination) do
+      :ok -> ensure_state_path_safe(node, ledger_transfer_marker(destination, ledger))
+      {:error, _reason} = error -> error
+    end
+  end
+
+  defp ensure_state_path_safe(node, path) do
+    case File.lstat(node) do
+      {:ok, %File.Stat{type: :directory}} -> ensure_state_path_under_node(node, path)
+      {:ok, _stat} -> {:error, {:repo_base_state_path_invalid_root, node}}
+      {:error, reason} -> {:error, {:repo_base_state_path_invalid_root, node, reason}}
+    end
+  end
+
+  defp ensure_state_path_under_node(node, path) do
+    relative = Path.relative_to(path, node)
+
+    with :ok <- ensure_relative_state_path(relative) do
+      state_path_components_safe(node, Path.split(relative))
+    end
+  end
+
+  defp ensure_relative_state_path(relative) do
+    if relative == "." or relative == ".." or String.starts_with?(relative, "../") do
+      {:error, {:repo_base_state_path_outside_node, relative}}
+    else
+      :ok
+    end
+  end
+
+  defp state_path_components_safe(_path, []), do: :ok
+
+  defp state_path_components_safe(path, [component | rest]) do
+    next = Path.join(path, component)
+
+    case File.lstat(next) do
+      {:ok, %File.Stat{type: :symlink}} -> {:error, {:repo_base_state_path_symlink, next}}
+      {:ok, _stat} -> state_path_components_safe(next, rest)
+      {:error, :enoent} -> :ok
+      {:error, reason} -> {:error, {:repo_base_state_path_inspection_failed, next, reason}}
+    end
+  end
+
+  defp ensure_regular_file(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :regular}} -> :ok
+      {:ok, _stat} -> {:error, {:repo_base_findings_source_invalid, path}}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp digest(contents), do: :crypto.hash(:sha256, contents) |> Base.encode16(case: :lower)
+
+  # A valid final NDJSON record need not end in a newline. Canonicalize both
+  # sides before joining so a later O_APPEND writer cannot join two JSON objects
+  # at a record boundary. Invalid input remains in place for manual repair.
+  defp merged_findings_suffix(destination_contents, source_contents) do
+    normalized_source = normalize_ndjson(source_contents)
+
+    if destination_contents == "" or String.ends_with?(destination_contents, "\n") do
+      normalized_source
+    else
+      "\n" <> normalized_source
+    end
+  end
+
+  defp normalize_ndjson(""), do: ""
+  defp normalize_ndjson(contents), do: if(String.ends_with?(contents, "\n"), do: contents, else: contents <> "\n")
+
+  defp validate_findings_ledger(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while(:ok, fn {line, line_number}, :ok ->
+      case Jason.decode(line) do
+        {:ok, finding} when is_map(finding) -> validate_ledger_finding(finding, path, line_number)
+        _ -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
+      end
+    end)
+  end
+
+  defp validate_ledger(contents, path, :findings), do: validate_findings_ledger(contents, path)
+  defp validate_ledger(contents, path, :asks), do: validate_asks_ledger(contents, path)
+
+  defp validate_asks_ledger(contents, path) do
+    with {:ok, asks} <- decode_ask_ledger(contents, path) do
+      case Asks.validate_events(asks) do
+        :ok -> :ok
+        {:error, {line_number, _reason}} -> {:error, {:invalid_asks_ledger, path, line_number}}
+      end
+    end
+  end
+
+  defp decode_ask_ledger(contents, path) do
+    contents
+    |> String.split("\n", trim: true)
+    |> Enum.with_index(1)
+    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, asks} ->
+      case Jason.decode(line) do
+        {:ok, ask} when is_map(ask) -> {:cont, {:ok, [ask | asks]}}
+        _ -> {:halt, {:error, {:invalid_asks_ledger, path, line_number}}}
+      end
+    end)
+    |> case do
+      {:ok, asks} -> {:ok, Enum.reverse(asks)}
+      error -> error
+    end
+  end
+
+  defp validate_ledger_finding(finding, path, line_number) do
+    case Findings.validate(finding) do
+      :ok -> {:cont, :ok}
+      {:error, _reason} -> {:halt, {:error, {:invalid_findings_ledger, path, line_number}}}
+    end
+  end
+
+  defp move_sidecar(from, to, sidecar) do
+    source = Path.join(from, sidecar)
+    destination = Path.join(to, sidecar)
+
+    cond do
+      not File.exists?(source) -> :ok
+      File.exists?(destination) -> merge_sidecar(source, destination)
+      true -> File.rename(source, destination)
+    end
+  end
+
+  defp merge_sidecar(source, destination) do
+    with {:ok, _copied} <- File.cp_r(source, destination),
+         :ok <- remove_sidecar(source) do
+      :ok
+    else
+      {:error, reason, _path} -> {:error, reason}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp remove_sidecar(path) do
+    case File.rm_rf(path) do
+      {:ok, _removed} -> :ok
+      {:error, reason, _path} -> {:error, reason}
+    end
+  end
+
+  defp repo_node_path(base_path), do: Path.dirname(base_path)
+  defp base_record_path(base_path), do: Path.join(repo_node_path(base_path), @base_record)
+
+  defp clear_probe(%{probe: %{ref: ref, timer: timer}} = state) do
+    if is_reference(timer), do: Process.cancel_timer(timer)
+    Process.demonitor(ref, [:flush])
+    %{state | probe: nil}
+  end
+
+  defp unique_suffix do
+    :crypto.strong_rand_bytes(12)
+    |> Base.url_encode64(padding: false)
+  end
+
+  defp base_env(base_path) do
+    node = repo_node_path(base_path)
+
+    AgentEnvironment.base_env(base_path) ++
+      [
+        {"HEX_HOME", Path.join(node, ".aiur-hex")},
+        {"MIX_HOME", Path.join(node, ".aiur-mix")},
+        {"npm_config_cache", Path.join(node, ".aiur-npm-cache")}
+      ]
+  end
 
   ## ---- config / topology ----
 
@@ -408,15 +1357,26 @@ defmodule Aiur.RepoBase do
   end
 
   # Reduce a repo URL or local path to a stable `<owner>/<name>`-style slug for
-  # the base directory. Handles https/ssh URLs and bare local paths.
+  # the base directory. Handles https/ssh URLs and bare local paths. Rejects
+  # path-traversal components (`..`) so a malicious or malformed repo identity
+  # can never resolve outside the state root — defense in depth, since the CLI
+  # already validates the slug at its boundary.
   defp slug(repo_url) do
-    repo_url
-    |> String.trim_trailing("/")
-    |> String.replace_suffix(".git", "")
-    |> String.split(~r{[/:]})
-    |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
-    |> Enum.take(-2)
-    |> Enum.join("/")
+    slug =
+      repo_url
+      |> String.trim_trailing("/")
+      |> String.replace_suffix(".git", "")
+      |> String.split(~r{[/:]})
+      |> Enum.reject(&(&1 in ["", "https", "http", "ssh", "git", "github.com"]))
+      |> Enum.take(-2)
+      |> Enum.join("/")
+
+    if Enum.any?(Path.split(slug), &(&1 == "..")) do
+      raise ArgumentError,
+            "repo identity must not escape the state root (got: #{inspect(repo_url)})"
+    end
+
+    slug
   end
 
   defp emit(phase), do: AgentPubSub.broadcast_prewarm_phase(phase)

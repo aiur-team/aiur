@@ -5,6 +5,7 @@ defmodule Aiur.Init.Runtime do
 
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Codeowners
+  alias Aiur.Executor.Handoff
   alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Init.Alerts
   alias Aiur.Init.Format
@@ -31,6 +32,8 @@ defmodule Aiur.Init.Runtime do
           migrate_layout: (map() -> {:ok, map()} | {:error, term()}),
           read_example: (-> String.t()),
           detect_repo: (-> String.t() | nil),
+          detect_default_branch: (String.t() | nil -> String.t() | nil),
+          setup_repo_state: (map() -> :ok | {:error, term()}),
           detect_toolchain: (-> Detect.result()),
           prewarm_build: (String.t(), String.t() -> {:ok, Path.t()} | {:error, term()}),
           global_alerts_path: (-> Path.t()),
@@ -51,6 +54,7 @@ defmodule Aiur.Init.Runtime do
           github_login: (-> String.t() | nil),
           github_bot_account_default: (-> String.t() | nil),
           github_token: (-> String.t() | nil),
+          check_ci_readiness: (map() -> {:ok, Aiur.GitHub.CiReadiness.result()} | {:error, term()}),
           list_labels: (map() -> {:ok, [String.t()]} | {:error, term()}),
           create_labels: (map(), [String.t()] -> :ok | {:error, String.t()})
         }
@@ -85,6 +89,8 @@ defmodule Aiur.Init.Runtime do
       migrate_layout: &Migration.migrate_layout/1,
       read_example: fn -> Templates.config_example() end,
       detect_repo: &Aiur.Init.GitHub.detect_repo/0,
+      detect_default_branch: &Aiur.Init.GitHub.detect_default_branch/1,
+      setup_repo_state: &setup_repo_state/1,
       detect_toolchain: &detect_toolchain/0,
       prewarm_build: &run_first_prewarm/2,
       global_alerts_path: &Scaffold.global_alerts_path/0,
@@ -105,6 +111,7 @@ defmodule Aiur.Init.Runtime do
       github_login: &Aiur.Init.GitHub.detect_github_login/0,
       github_bot_account_default: &Aiur.Init.GitHub.detect_bot_account/0,
       github_token: &GitHubConfig.token/0,
+      check_ci_readiness: &Aiur.Init.GitHub.check_ci_readiness/1,
       list_labels: &Aiur.Init.GitHub.list_repo_labels/1,
       create_labels: &Aiur.Init.GitHub.create_labels/2
     }
@@ -134,4 +141,16 @@ defmodule Aiur.Init.Runtime do
   def run_first_prewarm(url, command) do
     RepoBase.refresh(RepoBase.base_path(url), url, command)
   end
+
+  @spec setup_repo_state(map()) :: :ok | {:error, term()}
+  def setup_repo_state(%{kind: "github", repo: repo}) when is_binary(repo) and repo != "" do
+    repo_url = "https://github.com/#{repo}.git"
+    source_root = Codeowners.repo_root(File.cwd!())
+
+    with :ok <- RepoBase.setup_state(repo_url, source_root) do
+      Handoff.ensure(repo_url, source_root)
+    end
+  end
+
+  def setup_repo_state(_tracker), do: :ok
 end

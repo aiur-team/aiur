@@ -2,7 +2,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
   use ExUnit.Case, async: true
 
   alias Aiur.{Orchestrator.WaitingReason, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsRow}
+  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresentation, UnitsRow}
 
   test "joins all sources by repository-qualified identity, not a display identifier" do
     alpha = identity("acme", "alpha", "NODE-alpha", "7")
@@ -83,6 +83,110 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
     assert row.latest_evidence == %{status: :unknown}
     assert row.field_sources.open_command_count == :unknown
     refute row.sources.status.available?
+  end
+
+  test "retains a declined resume reason on a paused dashboard row" do
+    ticket = identity("acme", "alpha", "NODE-declined-resume", "81")
+
+    row =
+      snapshot_row(ticket,
+        status:
+          status(ticket,
+            work_state: :paused,
+            waiting_reason: :paused,
+            pause_reason: :operator_pause,
+            control: %{
+              latest_control: %{action: :pause, request_id: 92, status: :requested},
+              latest_resume_control: %{
+                action: :resume,
+                request_id: 91,
+                status: :rejected,
+                rejection: %{
+                  class: :not_eligible,
+                  message: "target unit is not eligible for control",
+                  condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+                }
+              }
+            }
+          ),
+        decisions: %{entries: []}
+      )
+
+    assert row.reasons.resume == %{
+             outcome: :declined,
+             control_status: :paused,
+             pause_reason: :max_agent_duration,
+             current_pause_reason: :operator_pause,
+             detail: %{
+               class: :not_eligible,
+               message: "target unit is not eligible for control",
+               condition: %{control_status: :paused, pause_reason: :max_agent_duration}
+             }
+           }
+
+    assert UnitsPresentation.latest_text(row) ==
+             "Resume declined — maximum agent duration reached; target unit is not eligible for control"
+  end
+
+  test "distinguishes a dropped resume on a paused dashboard row" do
+    ticket = identity("acme", "alpha", "NODE-dropped-resume", "82")
+
+    row =
+      snapshot_row(ticket,
+        status:
+          status(ticket,
+            work_state: :paused,
+            waiting_reason: :paused,
+            pause_reason: :operator_pause,
+            control: %{
+              latest_resume_control: %{
+                action: :resume,
+                request_id: 93,
+                status: :expired,
+                expiry: %{reason: :worker_unavailable}
+              }
+            }
+          ),
+        decisions: %{entries: []}
+      )
+
+    assert row.reasons.resume == %{
+             outcome: :dropped,
+             control_status: :paused,
+             pause_reason: :operator_pause,
+             current_pause_reason: :operator_pause,
+             detail: %{reason: :worker_unavailable}
+           }
+
+    assert UnitsPresentation.latest_text(row) == "Resume dropped — operator pause; worker unavailable"
+  end
+
+  test "status-only rows preserve canonical lifecycle and terminal facts" do
+    paused = identity("acme", "alpha", "NODE-status-paused", "81")
+    waiting = identity("acme", "alpha", "NODE-status-waiting", "82")
+    allocated = identity("acme", "alpha", "NODE-status-allocated", "83")
+    completed = identity("acme", "alpha", "NODE-status-completed", "84")
+
+    snapshot =
+      UnitsRow.snapshot(%{
+        membership: membership([], :unavailable),
+        status: %{
+          health: :healthy,
+          freshness: %{status: :fresh},
+          running: [
+            status(paused, tracker_paused: true),
+            status(waiting, waiting_reason: :waiting_for_ci),
+            status(allocated, work_state: :allocated)
+          ],
+          retrying: [],
+          idle: [status(completed, lifecycle: :completed)]
+        }
+      })
+
+    assert {:ok, %{lifecycle: :paused, terminal?: false}} = UnitsRow.lookup(snapshot, paused)
+    assert {:ok, %{lifecycle: :waiting, terminal?: false}} = UnitsRow.lookup(snapshot, waiting)
+    assert {:ok, %{lifecycle: :allocated, terminal?: false}} = UnitsRow.lookup(snapshot, allocated)
+    assert {:ok, %{lifecycle: :completed, terminal?: true}} = UnitsRow.lookup(snapshot, completed)
   end
 
   test "keeps a completed awaiting-dispatch runtime row nonterminal and queued" do
@@ -434,9 +538,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRowTest do
       resolved_model: Keyword.get(attrs, :resolved_model),
       pause_reason: Keyword.get(attrs, :pause_reason),
       tracker_paused: Keyword.get(attrs, :tracker_paused, false),
+      lifecycle: Keyword.get(attrs, :lifecycle),
       open_decision_count: Keyword.get(attrs, :open_decision_count, 0),
       open_decision_count_health: Keyword.get(attrs, :open_decision_count_health, :available),
       live_conversation: Keyword.get(attrs, :live_conversation),
+      control: Keyword.get(attrs, :control, %{}),
       workspace_path: Keyword.get(attrs, :workspace_path),
       runtime_seconds: 15
     }
