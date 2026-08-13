@@ -35,7 +35,7 @@ Revisions append a new action rather than rewriting the original. If a target ca
 
 Progress events are estimates for the Executor’s fleet view; they do not advance tracker state. Attention events identify a concrete condition that needs review or action and should be resolved when that condition clears.
 
-Use events for cross-ticket coordination that another agent may consume. Use alerts for immediate Executor-facing notification. See [Executor Control Center](/guide/executor-control-center) for the browser projections of these facts.
+Use events for cross-ticket coordination that another agent may consume. Use alerts for immediate Executor-facing notification. See [Dashboard](/guide/executor-control-center) for the browser projections of these facts.
 
 ## GitHub listener automation
 

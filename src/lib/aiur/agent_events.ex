@@ -229,7 +229,7 @@ defmodule Aiur.AgentEvents do
       positive_integer?(Map.get(agent, :open_decision_count)) -> :alert
       Map.get(agent, :streamdeck_source) == :retrying -> :stuck
       work_state == :error -> :stuck
-      Map.get(agent, :waiting_reason) == :unresponsive -> :stuck
+      Map.get(agent, :waiting_reason) in [:tracker_unavailable, :unresponsive] -> :stuck
       Map.get(agent, :tracker_paused) == true -> :paused
       work_state in [:paused, :sleeping, :done, :deactivated, :completed] -> :paused
       Map.get(agent, :streamdeck_source) == :running -> :running

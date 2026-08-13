@@ -246,7 +246,7 @@ defmodule AiurEngineTest do
            ]
   end
 
-  test "run argv keeps dashboard suppression independent from headless mode" do
+  test "run argv leaves dashboard host resolution to config unless explicitly overridden" do
     script = """
     print_run_argv() {
       local mode="$1"
@@ -265,28 +265,58 @@ defmodule AiurEngineTest do
     [background, lean_background, foreground] = String.split(out, "\n", trim: true)
 
     assert background =~ "--headless|"
+    assert background =~ "--host|127.0.0.1|"
     refute background =~ "--no-dashboard|"
     assert lean_background =~ "--headless|"
     assert lean_background =~ "--no-dashboard|"
+    refute lean_background =~ "--host|"
     assert foreground =~ "--interactive|"
     assert foreground =~ "--no-dashboard|"
     refute foreground =~ "--headless|"
+    refute foreground =~ "--host|"
   end
 
-  test "background dashboard status reports a bound URL, explicit suppression, or listener refusal" do
+  test "dashboard startup status reports a bound URL, explicit suppression, or listener refusal" do
     script = """
-    probe_dashboard_url() { printf '%s' "$PROBE_URL"; }
-    print_background_dashboard_status 0 /tmp/boot.log
-    PROBE_URL=""
-    print_background_dashboard_status 1 /tmp/boot.log
-    print_background_dashboard_status 0 /tmp/boot.log
+    probe_dashboard_status() { printf '%s' "$PROBE_STATUS"; }
+    print_dashboard_status 0 /tmp/boot.log
+    PROBE_STATUS=""
+    print_dashboard_status 1 /tmp/boot.log
+    print_dashboard_status 0 /tmp/boot.log
     """
 
-    {out, 0} = run_sourced_engine(script, [{"PROBE_URL", "http://127.0.0.1:4567"}])
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"PROBE_STATUS", "Dashboard: http://127.0.0.1:4567 (bind host=0.0.0.0, port=4567)"}
+      ])
 
     assert out =~ "Dashboard: http://127.0.0.1:4567"
+    assert out =~ "bind host=0.0.0.0, port=4567"
     assert out =~ "Dashboard disabled by --no-dashboard."
     assert out =~ "dashboard listener unavailable; inspect /tmp/boot.log"
+  end
+
+  test "dashboard status probe is bounded by the control RPC timeout" do
+    script = """
+    run_release_rpc_with_timeout() {
+      AIUR_CONTROL_RPC_OUTPUT=""
+      AIUR_CONTROL_RPC_TIMED_OUT=1
+      return 124
+    }
+    test -z "$(probe_dashboard_status)" && echo BOUNDED
+    """
+
+    {out, 0} = run_sourced_engine(script, [])
+
+    assert out =~ "BOUNDED"
+  end
+
+  test "control readiness waits for full application startup before dashboard reporting" do
+    engine = File.read!(@engine)
+
+    assert engine =~ "Application.started_applications()"
+    assert engine =~ "app == :aiur"
+    assert engine =~ ~r/write_aiur_instance_record.*print_dashboard_status/s
   end
 
   test "--version is distribution-free so it never collides with a running node" do
@@ -528,9 +558,145 @@ defmodule AiurEngineTest do
     assert out =~ "RPC:Aiur.AgentControlCLI.commands([filter: :resolved, json: true, limit: 10, decision_id: Base.decode64!(\"ZGVjOjQy\")])"
   end
 
+  test "units routes page-visible filters through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --scope unfinished --condition queued,alert --json|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"dW5maW5pc2hlZA==\"), conditions: [Base.decode64!(\"cXVldWVk\"), Base.decode64!(\"YWxlcnQ=\")], json: true])"
+  end
+
+  test "units forwards the human layout format" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units --format records|,
+        []
+      )
+
+    assert out =~
+             "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\"), format: Base.decode64!(\"cmVjb3Jkcw==\")])"
+
+    {err, 64} = run_sourced_engine(~s|cmd_units --format|, [])
+    assert err =~ "units --format requires a value"
+  end
+
+  test "bare units invocation routes an empty condition list" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_units|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.units([scope: Base.decode64!(\"bGl2ZQ==\")])"
+  end
+
   test "commands reports missing option values as usage errors" do
     {out, 64} = run_sourced_engine(~s|cmd_commands --filter|, [])
     assert out =~ "commands --filter requires a value"
+  end
+
+  test "executor-answer safely routes one option answer through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_answer 'decision:42' --expected-version 3 --option rebase --rationale 'Known stale branch' --idempotency-key 'exec:42:v3' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_answer(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "expected_version: 3"
+    assert out =~ "option_id: Base.decode64!(\"cmViYXNl\")"
+    assert out =~ "rationale: Base.decode64!(\"S25vd24gc3RhbGUgYnJhbmNo\")"
+    assert out =~ "idempotency_key: Base.decode64!(\"ZXhlYzo0Mjp2Mw==\")"
+    assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "executor-answer requires one choice and all concurrency/audit fields" do
+    for {argv, message} <- [
+          {~s|'decision:42' --expected-version 3 --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
+          {~s|'decision:42' --expected-version 3 --option yes --custom-response yes --rationale why --idempotency-key key|, "exactly one of --option or --custom-response"},
+          {~s|'decision:42' --option yes --rationale why --idempotency-key key|, "--expected-version expects a positive integer"},
+          {~s|'decision:42' --expected-version 3 --option yes --idempotency-key key|, "--rationale is required"},
+          {~s|'decision:42' --expected-version 3 --option yes --rationale why|, "--idempotency-key is required"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_executor_answer #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "executor-escalate safely routes one explicit operator alert" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_executor_escalate 'decision:42' --expected-version 3 --reason 'Irreversible scope change' --executor-id codex-executor|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.executor_escalate(["
+    assert out =~ "decision_id: Base.decode64!(\"ZGVjaXNpb246NDI=\")"
+    assert out =~ "expected_version: 3"
+    assert out =~ "reason: Base.decode64!(\"SXJyZXZlcnNpYmxlIHNjb3BlIGNoYW5nZQ==\")"
+    assert out =~ "executor_id: Base.decode64!(\"Y29kZXgtZXhlY3V0b3I=\")"
+  end
+
+  test "executor-escalate requires a decision, version, and reason" do
+    for {argv, message} <- [
+          {~s|--expected-version 3 --reason why|, "expects exactly one decision ID"},
+          {~s|'decision:42' --reason why|, "--expected-version expects a positive integer"},
+          {~s|'decision:42' --expected-version 3|, "--reason is required"}
+        ] do
+      {out, 64} = run_sourced_engine("cmd_executor_escalate #{argv}", [])
+      assert out =~ message
+    end
+  end
+
+  test "executor mutation commands dispatch through the live control path" do
+    rel = fake_release()
+    env = [{"AIUR_RELEASE_DIR", rel}, {"AIUR_BG_STATE_DIR", tmp_state()}]
+
+    {answer, _code} =
+      run_engine_real(
+        [
+          "executor-answer",
+          "decision:42",
+          "--expected-version",
+          "3",
+          "--custom-response",
+          "Rebase it",
+          "--rationale",
+          "Known stale branch",
+          "--idempotency-key",
+          "exec:42:v3"
+        ],
+        env
+      )
+
+    {escalate, _code} =
+      run_engine_real(
+        ["executor-escalate", "decision:42", "--expected-version", "3", "--reason", "Irreversible"],
+        env
+      )
+
+    assert answer =~ "Aiur.AgentControlCLI.executor_answer(["
+    assert answer =~ "custom_response: Base.decode64!"
+    assert escalate =~ "Aiur.AgentControlCLI.executor_escalate(["
+  end
+
+  test "build-orders routes its selector and JSON mode through the control rpc" do
+    {out, 0} =
+      run_sourced_engine(
+        ~s|run_control_rpc() { echo "RPC:$1"; }\ncmd_build_orders 1363 --json|,
+        []
+      )
+
+    assert out =~ "RPC:Aiur.AgentControlCLI.build_orders([json: true, root: Base.decode64!(\"MTM2Mw==\")])"
+  end
+
+  test "build-orders rejects multiple roots" do
+    {out, 64} = run_sourced_engine(~s|cmd_build_orders 1363 1467|, [])
+    assert out =~ "build-orders accepts at most one root"
   end
 
   test "analytics routes an explicit window through the control rpc" do
@@ -584,6 +750,51 @@ defmodule AiurEngineTest do
       assert out =~ "queued"
       refute out =~ "returned no exit marker"
     end
+  end
+
+  test "control rpc reports timeouts and missing exit markers instead of silently succeeding" do
+    base = """
+    resolve_release() { release_bin="/bin/true"; release_dir="/tmp"; vsn_dir="/tmp"; RELEASE_NODE="aiur-test@127.0.0.1"; }
+    prepare_distribution() { :; }
+    resolve_control_identity_from_records() { :; }
+    probe_node_liveness() { printf up; }
+    """
+
+    timeout_script =
+      base <>
+        """
+        run_release_rpc_with_timeout() {
+          AIUR_CONTROL_RPC_OUTPUT=''
+          AIUR_CONTROL_RPC_TIMED_OUT=1
+          return 124
+        }
+        code=0
+        run_control_rpc "Aiur.AgentControlCLI.resume([\"44\"])" || code=$?
+        echo "CODE=$code"
+        """
+
+    {timeout_output, 0} = run_sourced_engine(timeout_script, [])
+    assert timeout_output =~ "control rpc to aiur-test@127.0.0.1 timed out after 10s; outcome is unknown"
+    refute timeout_output =~ "scheduler-saturated"
+    refute timeout_output =~ "aiurdev stop"
+    assert timeout_output =~ "CODE=124"
+
+    missing_marker_script =
+      base <>
+        """
+        run_release_rpc_with_timeout() {
+          AIUR_CONTROL_RPC_OUTPUT=''
+          AIUR_CONTROL_RPC_TIMED_OUT=0
+          return 0
+        }
+        code=0
+        run_control_rpc "Aiur.AgentControlCLI.resume([\"44\"])" || code=$?
+        echo "CODE=$code"
+        """
+
+    {missing_marker_output, 0} = run_sourced_engine(missing_marker_script, [])
+    assert missing_marker_output =~ "returned no exit marker; command output may be incomplete"
+    assert missing_marker_output =~ "CODE=1"
   end
 
   test "streaming control rpc reports a stopped daemon" do
@@ -1280,7 +1491,7 @@ defmodule AiurEngineTest do
       echo PROBE >> "$EVENTS"
       printf up
     }
-    probe_dashboard_url() { printf 'http://127.0.0.1:4567'; }
+    probe_dashboard_status() { printf 'Dashboard: http://127.0.0.1:4567 (bind host=127.0.0.1, port=4567)'; }
     start_beam_death_watchdog() {
       echo "WATCHDOG:$*" >> "$EVENTS"
       printf '424242\\n'
@@ -1331,7 +1542,7 @@ defmodule AiurEngineTest do
     script = """
     sleep() { :; }
     probe_control_liveness() { printf up; }
-    probe_dashboard_url() { :; }
+    probe_dashboard_status() { :; }
     start_beam_death_watchdog() { printf '424242\n'; }
     disown() { :; }
     aiur_engine_main --no-dashboard --bg
@@ -1394,6 +1605,7 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "CODE=7"
+    assert out =~ "Dashboard disabled by --no-dashboard."
     assert out =~ "real attach error"
     refute out =~ "[server exited]"
   end

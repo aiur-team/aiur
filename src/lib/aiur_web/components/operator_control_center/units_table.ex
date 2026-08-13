@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.BuildOrder.Bounded
   alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -24,6 +24,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     ~H"""
     <div class="units-results" aria-describedby="units-filter-note">
       <div :if={@status == :loading} class="units-state empty-state">Loading Units…</div>
+
+      <div :if={@status == :unavailable} class="units-state readonly-banner" role="status">
+        <span aria-hidden="true">◉</span>
+        <span><b>Units catalog unavailable.</b> {@message || "No last-known-good Units catalog is retained."}</span>
+      </div>
 
       <div :if={@status == :unavailable} class="units-table-wrap">
         <table class="units-table">
@@ -49,9 +54,8 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         {@message || "No units have been observed in this run."}
       </div>
 
-      <div :if={@status == :stale} class="units-state readonly-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span><b>Units may be stale.</b> {@message || "Showing the last-known catalog."}</span>
+      <div :if={catalog_empty?(@status, @rows, @view)} class="units-state empty-state">
+        No units have been observed in this run.
       </div>
 
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">
@@ -91,13 +95,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 phx-value-unit={token}
                 data-ticket-context-origin
               >
-                <span :if={row_tone(row)} class={["ut-alert", row_tone(row)]} aria-hidden="true">{icon(:warning)}</span>
+                <span :if={attention_emoji?(row)} class="ut-alert" aria-hidden="true">{icon(:warning)}</span>
                 <span class="ut-id-num mono num">{id_number(row.identity)}</span>
               </td>
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(agent_family(row))}</span>
+                  <span :if={present?(agent_label(row))} class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(row)}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
@@ -283,27 +287,35 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp conversation_handle(%{live_conversation: %{generation_handle: handle}}) when is_binary(handle), do: handle
   defp conversation_handle(_row), do: nil
 
-  defp runtime(%{runtime: %{runtime_seconds: seconds}}, _now) when is_integer(seconds) and seconds >= 0,
-    do: format_duration(seconds)
-
-  defp runtime(%{timestamps: %{started_at: started_at}}, %DateTime{} = now) when is_binary(started_at) do
-    case DateTime.from_iso8601(started_at) do
-      {:ok, datetime, _offset} -> format_duration(max(DateTime.diff(now, datetime, :second), 0))
-      _error -> "Unavailable"
-    end
-  end
-
-  defp runtime(_row, _now), do: "Unavailable"
-
-  defp format_duration(seconds) do
-    hours = div(seconds, 3_600)
-    minutes = div(rem(seconds, 3_600), 60)
-    if hours > 0, do: "#{hours}h #{minutes}m", else: "#{minutes}m"
-  end
+  defp runtime(row, now), do: UnitsPresentation.runtime_label(row, now)
 
   defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
-  defp row_tone(_row), do: nil
+  defp row_tone(row), do: row_state_tone(row)
+
+  # Active, queued, and paused are distinct non-red states. The aggressive red
+  # alert treatment (warning glyph + red left border + red background) is
+  # reserved for a row blocked awaiting a command/decision; every other state
+  # renders without it.
+  defp row_state_tone(row) do
+    cond do
+      UnitsPolicy.condition?(:paused, row) -> "is-paused"
+      UnitsPolicy.condition?(:queued, row) -> "is-queued"
+      true -> nil
+    end
+  end
+
+  # Only the two attention tones — blocked awaiting a command/decision and the
+  # open-command alert — carry the warning glyph; paused/queued/active never do.
+  defp attention_emoji?(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: true
+  defp attention_emoji?(%{reasons: %{alert: alert}}) when not is_nil(alert), do: true
+  defp attention_emoji?(_row), do: false
+
+  # A stale catalog with nothing retained must still say so, rather than
+  # silently rendering a blank area. `zero_result?` owns the "rows exist but the
+  # filter hides them" case, so it is excluded here.
+  defp catalog_empty?(:stale, [], view), do: view[:zero_result?] != true
+  defp catalog_empty?(_status, _rows, _view), do: false
 
   defp display_rows(view) do
     view
@@ -324,42 +336,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp id_number(_identity), do: "—"
 
-  defp agent_label(family) do
-    case CodingAgent.provider_descriptor(family) do
-      %{label: label} -> label
-      _ -> "Agent"
-    end
-  end
+  defp agent_label(row), do: UnitsPresentation.agent_label(row)
 
   # A row names its provider family via `:agent_family` (metering) or `:backend`
   # (control), preferring the former. Both are matched against the registry's
   # provider families rather than a hardcoded `[:claude, :codex]`, so a new
   # backend's rows classify with no edit here.
-  defp agent_family(row) when is_map(row) do
-    cond do
-      family = provider_or_nil(Map.get(row, :agent_family)) -> family
-      backend = provider_or_nil(Map.get(row, :backend)) -> backend
-      true -> nil
-    end
-  end
-
-  defp agent_family(_row), do: nil
-
-  defp provider_or_nil(value) when is_atom(value) do
-    case CodingAgent.provider_descriptor(value) do
-      %{provider: provider} -> provider
-      _ -> nil
-    end
-  end
-
-  defp provider_or_nil(value) when is_binary(value) do
-    case CodingAgent.provider_descriptor(value) do
-      %{provider: provider} -> provider
-      _ -> value |> CodingAgent.family_for() |> provider_or_nil()
-    end
-  end
-
-  defp provider_or_nil(_value), do: nil
+  defp agent_family(row), do: UnitsPresentation.agent_family(row)
 
   defp agent_class(family) do
     case CodingAgent.provider_descriptor(family) do
@@ -378,18 +361,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
     end
   end
 
-  defp model_label(%{resolved_model: model}) when is_binary(model) and model != "", do: model
-  defp model_label(%{requested_model: model}) when is_binary(model) and model != "", do: model
-  defp model_label(_row), do: nil
-
-  defp priority_label(row), do: elem(priority(row), 0)
-  defp priority_class(row), do: elem(priority(row), 1)
-
-  defp priority(%{effort: :deep}), do: {"HIGH", "is-high"}
-  defp priority(%{complexity: complexity}) when is_integer(complexity) and complexity >= 4, do: {"HIGH", "is-high"}
-  defp priority(%{complexity: 3}), do: {"MED", "is-med"}
-  defp priority(%{effort: :standard}), do: {"MED", "is-med"}
-  defp priority(_row), do: {"LOW", "is-low"}
+  defp model_label(row), do: UnitsPresentation.model_label(row)
+  defp priority_label(row), do: row |> UnitsPresentation.priority() |> elem(0)
+  defp priority_class(row), do: row |> UnitsPresentation.priority() |> elem(1)
 
   defp lane_class(lane) when is_binary(lane) and lane != "", do: "is-lane-#{lane}"
   defp lane_class(_lane), do: nil
@@ -404,8 +378,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp evidence_kind_emoji(:queue), do: "⏳"
   defp evidence_kind_emoji(_kind), do: "•"
 
-  defp latest_text(%{latest_evidence: %{status: :known, source: %{name: name}}}) when is_binary(name) and name != "", do: name
-  defp latest_text(_row), do: "No recent activity"
+  defp latest_text(row), do: UnitsPresentation.latest_text(row)
 
   defp progress_width(progress), do: known_percent(progress) || 0
 

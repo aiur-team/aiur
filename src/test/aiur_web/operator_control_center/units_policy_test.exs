@@ -81,6 +81,18 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
     refute UnitsPolicy.in_scope?(row, :unfinished)
   end
 
+  test "tracker-unavailable rows remain visible as queued and stuck" do
+    row =
+      queued_row(
+        runtime: %{bucket: :idle, work_state: :idle, waiting_reason: :tracker_unavailable},
+        reasons: %{waiting: :tracker_unavailable, stuck: :tracker_unavailable}
+      )
+
+    assert UnitsPolicy.in_scope?(row, :unfinished)
+    assert UnitsPolicy.condition?(:queued, row)
+    assert UnitsPolicy.condition?(:stuck, row)
+  end
+
   property "single-condition filtering and counts share the same predicate" do
     rows = [active_row(), queued_row(), finished_row(), unknown_row()]
 
@@ -112,6 +124,10 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPolicyTest do
 
       assert UnitsPolicy.filter(rows, selection) == expected
     end
+  end
+
+  test "lists exactly the page-visible condition chips" do
+    assert UnitsPolicy.visible_conditions() == [:active, :alert, :paused, :queued, :finished]
   end
 
   defp active_row(attrs \\ %{}) do

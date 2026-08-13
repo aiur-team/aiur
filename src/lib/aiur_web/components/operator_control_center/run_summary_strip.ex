@@ -15,9 +15,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # takes the position the Summary block used to occupy.
   @lead_provider :deepseek
 
+  # GitHub's two primary budgets, in the order they render. They are separate
+  # budgets billed in different units on windows that reset at different times,
+  # so every figure on the card belongs to exactly one of them.
+  @github_resources ~w(core graphql)
+
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
   attr(:meters, :map, required: true)
+  attr(:github_quota, :map, default: %{state: :unknown, windows: %{}, attribution: [], coverage: nil, backoffs: []})
   attr(:now, :any, required: true)
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
@@ -28,9 +34,62 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
 
     ~H"""
-    <section class="run-summary" aria-label="Provider usage">
-      <.vendor_card :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
+    <section class="run-summary" aria-label="Provider and GitHub usage">
+      <.github_quota_card quota={@github_quota} now={@now} />
+      <.models_card :if={@cards != []} cards={@cards} usage_ready?={@usage_ready?} now={@now} />
     </section>
+    """
+  end
+
+  attr(:quota, :map, required: true)
+  attr(:now, :any, required: true)
+
+  defp github_quota_card(assigns) do
+    assigns =
+      assigns
+      |> assign(:windows, github_windows(assigns.quota))
+      |> assign(:attribution, github_attribution(assigns.quota))
+      |> assign(:backoffs, github_backoffs(assigns.quota))
+
+    ~H"""
+    <div class="rs-block github-quota-card">
+      <div class="rs-group-head">
+        <span class="rs-group-title">APIS</span>
+        <span class="rs-group-count">1 API</span>
+      </div>
+      <div class="rs-head">
+        <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
+        <span class="rs-name">Github</span>
+        <div :if={@attribution} class="rs-head-stats">
+          <div class="rs-stat">
+            <span class="rs-stat-label">Window traffic</span>
+            <span class="rs-stat-val">{@attribution.reads}R / {@attribution.writes}W</span>
+          </div>
+        </div>
+      </div>
+      <div class="rs-limits">
+        <div :if={@windows == []} class="rs-limit">
+          <div class="rs-limit-top">
+            <span class="rs-limit-label">Quota</span>
+            <span class="rs-limit-meta">Awaiting GitHub response</span>
+          </div>
+          <div class="rs-meter"><i style="width:0%"></i></div>
+        </div>
+        <div :for={window <- @windows} class="rs-limit">
+          <div class="rs-limit-top">
+            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
+            <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
+          </div>
+          <div class="rs-meter">
+            <i class={meter_class(window.used_percent, 90)} style={"width:#{window.used_percent}%"}></i>
+          </div>
+        </div>
+        <div :for={backoff <- @backoffs} class="github-quota-backoff">
+          <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
+          <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
+        </div>
+      </div>
+    </div>
     """
   end
 
@@ -83,23 +142,53 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
+  attr(:cards, :list, required: true)
+  attr(:usage_ready?, :boolean, required: true)
+  attr(:now, :any, required: true)
+
+  defp models_card(assigns) do
+    ~H"""
+    <div class="rs-block rs-models" aria-label="Model providers">
+      <div class="rs-group-head">
+        <span class="rs-group-title">Models</span>
+        <span class="rs-group-count">{model_count_label(length(@cards))}</span>
+      </div>
+      <div class="rs-models-rows">
+        <.model_row :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
+      </div>
+    </div>
+    """
+  end
+
   attr(:card, :map, required: true)
   attr(:usage_ready?, :boolean, required: true)
   attr(:now, :any, required: true)
 
-  defp vendor_card(assigns) do
+  defp model_row(assigns) do
     assigns =
       assigns
       |> assign(:usage, provider_usage(assigns.card))
       |> assign(:windows, meter_windows(assigns.card))
       |> assign(:show_spend?, provider_spend?(assigns.card))
       |> assign(:token_count, token_count(assigns.usage_ready?, provider_usage(assigns.card)))
+      |> assign(:state, model_state(assigns.card))
 
     ~H"""
-    <div class="rs-block">
+    <div class="rs-model">
       <div class="rs-head">
+        <%!-- The spend figure leads an API-key provider row, left of the logo,
+              so the dollar amount is the first fact the eye meets. --%>
+        <div :if={@show_spend?} class="rs-stat rs-spend-lead">
+          <span class="rs-stat-label">Spend</span>
+          <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
+        </div>
         <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
+        <%!-- The state chip is the row's staleness signal. A row that lost it
+              would read a last-known-good or unavailable value as a live one
+              (the failure mode of issue #1564), so it renders for every model,
+              including the healthy ones. --%>
+        <span class={["rs-state", @state.class]}>{@state.label}</span>
         <div class="rs-head-stats">
           <div :if={@token_count} class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
@@ -114,10 +203,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
                 "Tokens N/A" row is noise. The token glyph remains, alone, at the
                 top right of the card at logo size, so the card keeps its shape. --%>
           <img :if={is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
-          <div :if={@show_spend?} class="rs-stat">
-            <span class="rs-stat-label">Spend</span>
-            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
-          </div>
         </div>
       </div>
       <div class="rs-limits">
@@ -138,13 +223,50 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <span class="rs-limit-meta">{window_meta(window, @now)}</span>
+            <span class="rs-limit-meta">{model_window_meta(window, @now)}</span>
           </div>
           <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
         </div>
       </div>
     </div>
     """
+  end
+
+  # --- helpers -------------------------------------------------------------
+
+  defp model_count_label(1), do: "1 model"
+  defp model_count_label(count), do: "#{count} models"
+
+  # A model whose only standing is the durable dispatch ledger is stale by
+  # construction, whatever its live state says.
+  defp model_state(card) do
+    case durable_record(card) do
+      nil -> state_chip(Map.get(card, :state), Map.get(card, :status_label))
+      _record -> %{label: "Stale", class: "is-stale"}
+    end
+  end
+
+  defp state_chip(:healthy, _label), do: %{label: "Healthy", class: "is-healthy"}
+  defp state_chip(:partial, _label), do: %{label: "Partial", class: "is-partial"}
+  defp state_chip(:stale, _label), do: %{label: "Stale", class: "is-stale"}
+  defp state_chip(:loading, _label), do: %{label: "Loading…", class: "is-nodata"}
+  defp state_chip(:unknown, _label), do: %{label: "No data", class: "is-nodata"}
+  defp state_chip(:error, _label), do: %{label: "Provider error", class: "is-unavailable"}
+  defp state_chip(:unavailable, _label), do: %{label: "Unavailable", class: "is-unavailable"}
+  defp state_chip(_state, label) when is_binary(label) and label != "", do: %{label: label, class: "is-nodata"}
+  defp state_chip(_state, _label), do: %{label: "N/A", class: "is-nodata"}
+
+  # `window_meta/2` already appends its own stale clause for a credit balance
+  # past its freshness horizon, so the probe-reported window freshness is only
+  # added when the meta does not already say it.
+  defp model_window_meta(window, now) do
+    meta = window_meta(window, now)
+
+    if Map.get(window, :freshness) == :stale and not String.contains?(meta, "stale") do
+      meta <> " (stale)"
+    else
+      meta
+    end
   end
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
@@ -165,6 +287,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     end)
     |> keyed_cards()
     |> order_cards()
+  end
+
+  defp github_windows(%{windows: windows}) when is_map(windows) do
+    @github_resources
+    |> Enum.map(&Map.get(windows, &1))
+    |> Enum.reject(&is_nil/1)
+  end
+
+  defp github_windows(_quota), do: []
+
+  defp github_backoffs(%{backoffs: backoffs}) when is_list(backoffs), do: backoffs
+  defp github_backoffs(_quota), do: []
+
+  defp github_attribution(%{attribution: attribution}) when is_list(attribution) and attribution != [] do
+    Enum.reduce(attribution, %{reads: 0, writes: 0}, fn entry, totals ->
+      %{reads: totals.reads + Map.get(entry, :reads, 0), writes: totals.writes + Map.get(entry, :writes, 0)}
+    end)
+  end
+
+  defp github_attribution(_quota), do: nil
+
+  defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
+
+  defp github_resource_label("graphql"), do: "GraphQL"
+  defp github_resource_label(resource), do: String.capitalize(resource)
+
+  # GitHub's two budgets bill in different units; the popover names what each
+  # window actually meters so "Core"/"GraphQL" are never read as the same thing.
+  defp github_window_explanation(%{resource: "core"}), do: "REST request budget"
+  defp github_window_explanation(%{resource: "graphql"}), do: "GraphQL point budget"
+  defp github_window_explanation(_window), do: nil
+
+  defp github_window_meta(window, now) do
+    "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
   end
 
   # A provider card only occupies strip space when the provider is actually
@@ -294,7 +450,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # something in flight to show.
   defp meter_windows(%{windows: windows} = card) when is_list(windows) do
     rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit and visible_rate_limit?(&1)))
-    credits = Enum.filter(windows, &(&1.kind == :credit))
+    credits = Enum.filter(windows, &(&1.kind == :credit and show_credit_window?(card, &1)))
 
     shown_rate_limits =
       case Enum.filter(rate_limits, &account_wide?(&1, Map.get(card, :provider))) do
@@ -306,6 +462,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp meter_windows(_card), do: []
+
+  # Codex reports `hasCredits`/`unlimited`/`rateLimitResetCredits` facts, not a
+  # prepaid dollar balance. Rendering them as a "Credits … balance" row with a
+  # meter implies a spendable balance that does not exist, so the codex card
+  # drops its credit windows entirely.
+  defp show_credit_window?(%{provider: :codex}, _window), do: false
+  defp show_credit_window?(_card, _window), do: true
 
   # The local-concurrency gauge is a measured in-flight window: it reads a
   # truthful "0%" at zero requests but is pure noise, so it only appears once
@@ -426,8 +589,14 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # A bar that is fully consumed reads as critical: the fill turns red so an
   # exhausted window is never mistaken for a healthy one. Credit percentages
   # arrive as floats (e.g. 100.0), so the guard accepts any number at/above 100.
-  defp meter_class(percent) when is_number(percent) and percent >= 100, do: "is-critical"
-  defp meter_class(_percent), do: ""
+  defp meter_class(percent, warning_threshold \\ nil)
+  defp meter_class(percent, _warning_threshold) when is_number(percent) and percent >= 100, do: "is-critical"
+
+  defp meter_class(percent, warning_threshold)
+       when is_number(percent) and is_number(warning_threshold) and percent >= warning_threshold,
+       do: "is-warning"
+
+  defp meter_class(_percent, _warning_threshold), do: ""
 
   # A credit window is a dollar balance. When a durable baseline exists the
   # window carries a measured `used_percent` and renders a real spend bar

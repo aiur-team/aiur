@@ -72,7 +72,10 @@ defmodule AiurWeb.StreamDeckGridTest do
       StreamDeckGrid.project(%{
         running: [agent("running"), agent("paused", work_state: :paused), agent("alert", open_decision_count: 1), agent("stuck", work_state: :error)],
         retrying: [],
-        idle: [agent("queued-blocked", waiting_reason: :waiting_for_dependency), agent("queued-ready")]
+        idle: [
+          agent("queued-blocked", blocked_by: [%{id: "missing-upstream"}]),
+          agent("queued-ready", blocked_by: [])
+        ]
       })
 
     assert Enum.map(payload.agents, & &1.identifier) == [
@@ -121,6 +124,55 @@ defmodule AiurWeb.StreamDeckGridTest do
            ]
   end
 
+  test "tracker-unavailable queued work is stuck rather than ready" do
+    payload =
+      StreamDeckGrid.project(%{
+        running: [],
+        retrying: [],
+        idle: [agent("tracker-held", waiting_reason: :tracker_unavailable)]
+      })
+
+    assert [%{identifier: "tracker-held", bucket: :stuck} = held] = payload.agents
+    refute Map.has_key?(held, :dependency_ready)
+  end
+
+  test "derives queued readiness from complete fleet dependencies" do
+    snapshot = %{
+      running: [
+        agent("open-upstream", progress_percent: 99),
+        agent("merged-upstream", control: "Merged"),
+        agent("complete-upstream", progress_percent: 100)
+      ],
+      retrying: [],
+      idle: [
+        agent("open-child", blocked_by: [%{id: "open-upstream"}]),
+        agent("merged-child", blocked_by: [%{id: "merged-upstream"}]),
+        agent("complete-child", blocked_by: [%{id: "complete-upstream"}]),
+        agent("unknown-child", blocked_by: [%{id: "absent-upstream"}]),
+        agent("independent-child", blocked_by: []),
+        agent("missing-data-child"),
+        agent("unresolved-child", blocked_by: nil)
+      ]
+    }
+
+    readiness =
+      snapshot
+      |> StreamDeckGrid.project()
+      |> Map.fetch!(:agents)
+      |> Enum.filter(&(&1.bucket == :queued))
+      |> Map.new(&{&1.identifier, &1.dependency_ready})
+
+    assert readiness == %{
+             "open-child" => false,
+             "merged-child" => true,
+             "complete-child" => true,
+             "unknown-child" => false,
+             "independent-child" => true,
+             "missing-data-child" => false,
+             "unresolved-child" => false
+           }
+  end
+
   property "renders agents in non-decreasing Stream Deck rank for any fleet" do
     check all(bucket_sequence <- list_of(member_of([:alert, :stuck, :running, :paused, :queued]), max_length: 40), max_runs: 30) do
       snapshot = snapshot_for(bucket_sequence)
@@ -149,7 +201,9 @@ defmodule AiurWeb.StreamDeckGridTest do
     assert agent == %{
              identifier: "123",
              title: "Ticket 123",
+             icon: :unassigned,
              vendor: "claude",
+             vendor_logo: "/provider-assets/claude-symbol.svg",
              bucket: :running,
              progress_percent: 60,
              priority: true
@@ -174,13 +228,40 @@ defmodule AiurWeb.StreamDeckGridTest do
       StreamDeckGrid.project(%{running: [agent("1439", backend: "fake")], retrying: [], idle: []}).agents
 
     assert agent.vendor == "fake"
+    assert agent.vendor_logo == "/provider-assets/codex-color.svg"
+  end
+
+  test "projects the Build Order lane icon and provider logo from source metadata" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("1439", backend: "deepseek", labels: ["build-lane:platform"])],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.icon == "platform"
+    assert agent.vendor == "deepseek"
+    assert agent.vendor_logo == "/provider-assets/deepseek.svg"
   end
 
   test "only flags positive priority ranks" do
-    [unprioritized, prioritized] = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
+    agents = StreamDeckGrid.project(%{running: [agent("1", priority: 0), agent("2", priority: 1)], retrying: [], idle: []}).agents
+    unprioritized = Enum.find(agents, &(&1.identifier == "1"))
+    prioritized = Enum.find(agents, &(&1.identifier == "2"))
 
     refute unprioritized.priority
     assert prioritized.priority
+  end
+
+  test "places prioritized agents first within their Stream Deck bucket" do
+    payload =
+      StreamDeckGrid.project(%{
+        running: [agent("normal"), agent("priority-two", priority: 2), agent("priority-one", priority: 1)],
+        retrying: [],
+        idle: []
+      })
+
+    assert Enum.map(payload.agents, & &1.identifier) == ["priority-one", "priority-two", "normal"]
   end
 
   defp agent(identifier, attrs \\ []) do

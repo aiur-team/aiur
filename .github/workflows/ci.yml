@@ -14,6 +14,12 @@ on:
       - develop
       - v2
 
+# Initial PR runs share a stable group; reruns and every non-PR event get a
+# unique group so they cannot replace another pending or in-progress run.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event_name == 'pull_request' && github.run_attempt == 1 && github.event.pull_request.number || github.run_id }}-${{ github.run_attempt }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' && github.run_attempt == 1 }}
+
 jobs:
   workflow-security:
     name: workflow security
@@ -29,8 +35,14 @@ jobs:
         run: bash scripts/test-human-only-merge-ruleset.sh
       - name: Test human-only merge ruleset drift check
         run: bash scripts/test-human-only-merge-ruleset-live.sh
+      - name: Test pull request merge-gate diagnostics
+        run: bash scripts/test-pr-merge-gate-diagnostic.sh
       - name: Test rename preflight
         run: make test-rename-preflight
+      - name: Test hourly retrospective visual check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-retrospective_test.sh
+      - name: Test hourly retrospective CLI check
+        run: bash .claude/skills/aiur-run/scripts/tests/executor-cli-check_test.sh
 
   merge-ruleset-drift:
     name: merge ruleset drift

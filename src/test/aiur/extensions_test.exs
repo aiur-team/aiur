@@ -217,7 +217,12 @@ defmodule Aiur.ExtensionsTest do
     assert :ok = ensure_workflow_store_running()
   end
 
-  test "workflow store falls back when it shuts down during a read" do
+  # Since #1731 a read never enters the store's mailbox, so there is no longer a
+  # "read in flight when the store dies" window to trace. The guarantee that
+  # test protected — a reader must get the config, not an exit — is now covered
+  # by the two properties below: a suspended store does not block a read at all,
+  # and a store that has gone away leaves no cache behind to serve.
+  test "a suspended store does not block a read" do
     ensure_workflow_store_running()
     store = Process.whereis(WorkflowStore)
 
@@ -227,13 +232,22 @@ defmodule Aiur.ExtensionsTest do
     end)
 
     :sys.suspend(store)
-    :erlang.trace(store, true, [:receive])
 
     reader = Task.Supervisor.async_nolink(Aiur.TaskSupervisor, fn -> WorkflowStore.current() end)
 
-    assert_receive {:trace, ^store, :receive, {:"$gen_call", _from, :current}}
+    assert {:ok, %{prompt: "You are an agent for this repository."}} = Task.await(reader, 1_000)
+    assert {:message_queue_len, 0} = Process.info(store, :message_queue_len)
+  end
+
+  test "workflow store falls back to the file when it has shut down" do
+    ensure_workflow_store_running()
+    on_exit(fn -> ensure_workflow_store_running() end)
+
     assert :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
-    assert {:ok, %{prompt: "You are an agent for this repository."}} = Task.await(reader)
+    refute Process.whereis(WorkflowStore)
+
+    assert {:ok, %{prompt: "You are an agent for this repository."}} = WorkflowStore.current()
+    assert {:ok, %{}, :unknown} = WorkflowStore.current_with_generation()
   end
 
   test "workflow store retries a transient parse failure during a config write" do
@@ -926,6 +940,7 @@ defmodule Aiur.ExtensionsTest do
     html = html_response(get(build_conn(), "/"), 200)
     assert html =~ "/dashboard.css"
     assert html =~ "/ticket-context-dialog-hook.js"
+    assert html =~ "/conversation-drawer-hook.js"
     assert html =~ "/time-brush-hook.js"
     assert html =~ "/aiur-dom-svg-layout-loader.js"
     assert html =~ "/vendor/phoenix_html/phoenix_html.js"
@@ -943,24 +958,45 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    provider_asset_conn = get(build_conn(), "/provider-assets/codex-color.svg")
-    assert response(provider_asset_conn, 200) =~ "<svg"
-    assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    provider_assets =
+      Aiur.CodingAgent.provider_descriptors()
+      |> Enum.flat_map(&[&1.logo, &1.token_icon])
+      |> Enum.map(&String.replace_prefix(&1, "/provider-assets/", ""))
+      |> Enum.uniq()
+      |> Enum.sort()
+
+    assert provider_assets == AiurWeb.StaticAssets.provider_asset_paths()
+
+    for provider_asset <- provider_assets do
+      provider_asset_conn = get(build_conn(), "/provider-assets/#{provider_asset}")
+      assert response(provider_asset_conn, 200) =~ "<svg"
+      assert Plug.Conn.get_resp_header(provider_asset_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
 
     dialog_hook_conn = get(build_conn(), "/ticket-context-dialog-hook.js")
     assert response(dialog_hook_conn, 200) =~ "AiurTicketContextDialogHook"
     assert Plug.Conn.get_resp_header(dialog_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
+    conversation_drawer_hook_conn = get(build_conn(), "/conversation-drawer-hook.js")
+    assert response(conversation_drawer_hook_conn, 200) =~ "AiurConversationDrawerHook"
+    assert Plug.Conn.get_resp_header(conversation_drawer_hook_conn, "content-type") == ["text/javascript"]
+
     time_brush_hook_conn = get(build_conn(), "/time-brush-hook.js")
     assert response(time_brush_hook_conn, 200) =~ "AiurTimeBrushHook"
     assert Plug.Conn.get_resp_header(time_brush_hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    for hook <- ["build-order-grid-hook.js", "streamdeck-emulator-hook.js"] do
+      hook_conn = get(build_conn(), "/#{hook}")
+      assert response(hook_conn, 200) != ""
+      assert Plug.Conn.get_resp_header(hook_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
+    end
 
     adapter_conn = get(build_conn(), "/aiur-dom-svg-layout-adapter.js")
     adapter = response(adapter_conn, 200)
     assert adapter =~ "createDomSvgLayoutHook"
     assert Plug.Conn.get_resp_header(adapter_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
-    for module <- ["lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
+    for module <- ["interaction-policy.js", "interaction.js", "lifecycle.js", "measurement.js", "protocol.js", "renderer.js"] do
       conn = get(build_conn(), "/aiur-dom-svg-layout/#{module}")
       assert response(conn, 200) != ""
       assert Plug.Conn.get_resp_header(conn, "cache-control") == ["private, max-age=0, must-revalidate"]
@@ -974,7 +1010,15 @@ defmodule Aiur.ExtensionsTest do
 
     logo = get(build_conn(), "/aiur-logo.png")
     assert response(logo, 200) == File.read!(Path.expand("../../../website/public/assets/aiur-logo.png", __DIR__))
-    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png; charset=utf-8"]
+    assert Plug.Conn.get_resp_header(logo, "content-type") == ["image/png"]
+
+    github_mark = get(build_conn(), "/images/github-mark.svg")
+    assert response(github_mark, 200) =~ "<svg"
+    assert Plug.Conn.get_resp_header(github_mark, "cache-control") == ["private, max-age=0, must-revalidate"]
+
+    bungee = get(build_conn(), "/bungee.woff2")
+    assert response(bungee, 200) != ""
+    assert Plug.Conn.get_resp_header(bungee, "content-type") == ["font/woff2"]
 
     phoenix_html_js = response(get(build_conn(), "/vendor/phoenix_html/phoenix_html.js"), 200)
     assert phoenix_html_js =~ "phoenix.link.click"
@@ -1305,8 +1349,9 @@ defmodule Aiur.ExtensionsTest do
     )
 
     {:ok, _view, html} = live(build_conn(), "/")
-    assert html =~ "Snapshot unavailable"
+    assert html =~ "Fleet snapshot unavailable"
     assert html =~ "orchestrator_unavailable"
+    refute html =~ "No fleet snapshot published yet"
   end
 
   test "http server serves embedded assets, accepts form posts, and rejects invalid hosts" do
@@ -1360,6 +1405,11 @@ defmodule Aiur.ExtensionsTest do
     unauthenticated_response = Req.get!("http://127.0.0.1:#{port}/api/v1/state")
     assert unauthenticated_response.status == 401
 
+    for asset_path <- ["/conversation-drawer-hook.js", "/provider-assets/codex-color.svg"] do
+      unauthenticated_asset = Req.get!("http://127.0.0.1:#{port}#{asset_path}")
+      assert unauthenticated_asset.status == 401
+    end
+
     response = Req.get!("http://127.0.0.1:#{port}/api/v1/state", headers: [authorization])
     assert response.status == 200
     assert response.body["counts"] == %{"running" => 1, "retrying" => 1, "idle" => 0}
@@ -1367,6 +1417,14 @@ defmodule Aiur.ExtensionsTest do
     dashboard_css = Req.get!("http://127.0.0.1:#{port}/dashboard.css", headers: [authorization])
     assert dashboard_css.status == 200
     assert dashboard_css.body =~ ":root {"
+
+    conversation_drawer_hook = Req.get!("http://127.0.0.1:#{port}/conversation-drawer-hook.js", headers: [authorization])
+    assert conversation_drawer_hook.status == 200
+    assert conversation_drawer_hook.body =~ "AiurConversationDrawerHook"
+
+    provider_asset = Req.get!("http://127.0.0.1:#{port}/provider-assets/codex-color.svg", headers: [authorization])
+    assert provider_asset.status == 200
+    assert provider_asset.body =~ "<svg"
 
     phoenix_js = Req.get!("http://127.0.0.1:#{port}/vendor/phoenix/phoenix.js", headers: [authorization])
     assert phoenix_js.status == 200
@@ -1636,7 +1694,8 @@ defmodule Aiur.ExtensionsTest do
       "recent_merges",
       "analytics",
       "capacity",
-      "capacity_hold"
+      "capacity_hold",
+      "dispatch_hold"
     ])
   end
 

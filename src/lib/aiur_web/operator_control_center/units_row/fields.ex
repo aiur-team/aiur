@@ -1,7 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
   @moduledoc false
 
-  alias AiurWeb.OperatorControlCenter.UnitsRow.Value
+  alias AiurWeb.OperatorControlCenter.UnitsRow.{ResumeReason, Value}
 
   @blocking_reasons [
     :waiting_for_human,
@@ -45,6 +45,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Fields do
       blocking: blocking_reason(status_row, waiting),
       alert: alert_reason(explicit_alert, open_command_count),
       pause: pause_reason(status_row, pause),
+      resume: ResumeReason.project(status_row, pause),
       stuck: stuck_reason(status_row, waiting)
     }
   end

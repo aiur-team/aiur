@@ -67,6 +67,27 @@ defmodule Aiur.DecisionHistoryTest do
     assert supervisor_entry.acknowledgement_result == "acknowledged"
   end
 
+  test "keeps executor provenance distinct from operator and supervisor provenance" do
+    executor_entry =
+      DecisionHistory.project_record(
+        record(%{
+          actor: %{kind: :executor, id: "executor-1"},
+          change_kind: :answered
+        })
+      )
+
+    operator_entry =
+      DecisionHistory.project_record(
+        record(%{
+          actor: %{kind: :operator, id: "operator-1"},
+          change_kind: :answered
+        })
+      )
+
+    assert executor_entry.actor == %{type: :executor, id: "executor-1", label: "Executor"}
+    assert operator_entry.actor == %{type: :human_operator, id: "operator-1", label: "Operator"}
+  end
+
   test "does not infer actor type from a source-agent name" do
     entry = DecisionHistory.project_record(record(%{source: %{agent_id: "supervisor"}}))
 
@@ -158,6 +179,25 @@ defmodule Aiur.DecisionHistoryTest do
 
     assert entry.supervisor_basis["confidence"] == 0
     assert entry.provenance["backend"] == "codex"
+  end
+
+  test "projects operator dismissal events with attribution" do
+    assert {:ok, event} =
+             DecisionEvent.new(
+               :decision_dismissed,
+               "dec-dismissed",
+               1,
+               %{actor: %{kind: :operator, id: "dashboard"}},
+               event_id: 901,
+               run_id: "run-dismissed",
+               now: ~U[2026-08-11 12:00:00Z]
+             )
+
+    entry = DecisionHistory.project_record(event)
+
+    assert entry.change == :dismissed
+    assert entry.actor == %{type: :human_operator, id: "dashboard", label: "Operator"}
+    assert entry.changed_at == "2026-08-11T12:00:00Z"
   end
 
   test "returns the full history by default" do

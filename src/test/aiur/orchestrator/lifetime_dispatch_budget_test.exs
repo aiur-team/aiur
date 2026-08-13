@@ -1,7 +1,7 @@
 defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
   use ExUnit.Case, async: false
 
-  alias Aiur.{AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
+  alias Aiur.{AgentPubSub, AlertFeed, Config, DispatchBudgetStore, Issue, Orchestrator}
   alias Aiur.Config.Paths
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
@@ -166,6 +166,54 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
   end
 
+  # #1756: a rework turn that finds nothing to rework produces no push, so the
+  # pull request head is unchanged at the next dispatch. Billing that turn walks
+  # the ticket to the terminal lifetime latch for doing nothing — #1583 climbed
+  # back to 43/40 twenty minutes after a reset entirely this way.
+  defp with_observed_head(state, head_sha) do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", state: "rework"}
+
+    %{
+      state
+      | last_polled_issues: Map.put(state.last_polled_issues, @issue_id, issue),
+        ci_lifecycle: Map.put(state.ci_lifecycle, :poll_cache, %{"repo#lifetime" => %{head_sha: head_sha, pr_number: 1667, decision: :passed}})
+    }
+  end
+
+  defp dispatch_at_head(state, head_sha, now_ms) do
+    {:ok, gated} = run(with_observed_head(state, head_sha), now_ms)
+    commit(gated)
+  end
+
+  @tag config: @enabled
+  test "a no-op rework turn does not bill a lifetime dispatch unit" do
+    state = dispatch_at_head(%Orchestrator.State{}, "aaa111", 1 * (@window_ms + 1))
+    assert {:ok, 1} = DispatchBudgetStore.lifetime(@issue_id)
+
+    # The turn ended without pushing: the head is still aaa111 on redispatch.
+    state = dispatch_at_head(state, "aaa111", 2 * (@window_ms + 1))
+    state = dispatch_at_head(state, "aaa111", 3 * (@window_ms + 1))
+
+    assert {:ok, 1} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 1} = thrash_budget(state)[@issue_id]
+
+    # A turn that actually pushed moves the head and bills normally again.
+    state = dispatch_at_head(state, "bbb222", 4 * (@window_ms + 1))
+    assert {:ok, 2} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 2} = thrash_budget(state)[@issue_id]
+  end
+
+  @tag config: @enabled
+  test "an unknown pull request head bills every dispatch as before" do
+    # No PR yet, an unreadable poll, or the REST fallback: without an observed
+    # head there is no evidence the turn was a no-op, so the latch still bounds
+    # the ticket exactly as it did pre-#1756.
+    state = dispatch_n(%Orchestrator.State{}, 3)
+
+    assert {:ok, 3} = DispatchBudgetStore.lifetime(@issue_id)
+    assert %{lifetime: 3} = thrash_budget(state)[@issue_id]
+  end
+
   @tag config: @enabled
   test "stays healthy below the lifetime budget" do
     state = dispatch_n(%Orchestrator.State{}, 8)
@@ -272,7 +320,15 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
   @tag config: @enabled
   test "resume against a latched idle ticket reports the latch instead of no-opping" do
-    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    issue = %Issue{
+      id: @issue_id,
+      identifier: "repo#lifetime",
+      title: "Latched",
+      state: "in-progress",
+      paused: true,
+      labels: ["agent:in-progress", "agent:paused"]
+    }
+
     :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
 
     state =
@@ -281,8 +337,11 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     # `resume_issue/2` routes a no-running-agent resume to the queued path,
     # which must name the latch (not a generic `:dispatch_failed`).
-    assert {{:error, :lifetime_dispatch_latch}, _state} =
+    assert {{:error, :lifetime_dispatch_latch}, next_state} =
              PauseResume.resume_issue(state, "repo#lifetime")
+
+    assert next_state.last_polled_issues[@issue_id].paused
+    assert "agent:paused" in next_state.last_polled_issues[@issue_id].labels
   end
 
   @tag config: @enabled
@@ -299,6 +358,57 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
 
     assert :none = Dispatcher.dispatch_latch_status(reset_state, @issue_id)
     assert {:ok, 0} = DispatchBudgetStore.lifetime(@issue_id)
+  end
+
+  @tag config: @enabled
+  test "public reset queues while the orchestrator mailbox is unresponsive" do
+    name = Module.concat(__MODULE__, :SuspendedResetOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: name, initial_poll?: false)
+    :sys.suspend(pid)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        try do
+          :sys.resume(pid)
+          Process.exit(pid, :normal)
+        catch
+          :exit, _reason -> :ok
+        end
+      end
+    end)
+
+    assert {:ok, :queued} = PauseResume.reset_dispatch_budget(name, "repo#lifetime")
+  end
+
+  @tag config: @enabled
+  test "queued reset processing emits completion and failure outcomes" do
+    issue = %Issue{id: @issue_id, identifier: "repo#lifetime", title: "Latched", state: "in-progress"}
+    :ok = DispatchBudgetStore.put_lifetime(@issue_id, 10)
+    :ok = AgentPubSub.subscribe_agent(@issue_id)
+
+    state =
+      %Orchestrator.State{last_polled_issues: %{@issue_id => issue}}
+      |> with_thrash_budget(%{@issue_id => %{window_start_ms: 0, count: 1, lifetime: 10}})
+
+    reset = PauseResume.reset_dispatch_budget_cast(state, issue.identifier)
+    assert :none = Dispatcher.dispatch_latch_status(reset, @issue_id)
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.issue-lifetime.agent.attention.dispatch-budget-reset.resolved",
+                      needs_attention: false
+                    }},
+                   2_000
+
+    :ok = AgentPubSub.subscribe_agent("missing")
+    _unchanged = PauseResume.reset_dispatch_budget_cast(reset, "missing")
+
+    assert_receive {:alert,
+                    %{
+                      name: "ticket.missing.agent.attention.dispatch-budget-reset",
+                      needs_attention: true
+                    }},
+                   2_000
   end
 
   @tag config: @enabled
@@ -462,6 +572,75 @@ defmodule Aiur.Orchestrator.LifetimeDispatchBudgetTest do
              AlertFeed.list(roots: [], log_roots: [Paths.log_root_dir()]),
              &(&1["topic"] == topic)
            )
+  end
+
+  # One poll cycle as the orchestrator runs it: consult dispatch eligibility, and
+  # only when it admits do the gate + commit that bill a lifetime unit. Both
+  # halves are the production functions (`should_dispatch_issue?/2` is the poll
+  # loop's per-issue gate in `Dispatcher.choose_issues/2`;
+  # `record_dispatch_committed/2` is the sole lifetime billing point), so removing
+  # the #1759 guard makes this helper bill and the assertions below fail.
+  defp poll_cycle(state, %Issue{} = issue, cycle) do
+    if DispatchPolicy.should_dispatch_issue?(issue, state) do
+      {:ok, gated} = Dispatcher.check_thrash_budget(state, issue.id, cycle * (@window_ms + 1))
+      Dispatcher.record_dispatch_committed(gated, issue.id)
+    else
+      state
+    end
+  end
+
+  defp parked_issue(id, state_name) do
+    %Issue{id: id, identifier: "repo##{id}", title: "Approved and queued", state: state_name}
+  end
+
+  @tag config: """
+       tracker:
+         kind: memory
+         active_states:
+           - todo
+           - in-progress
+           - rework
+           - merging
+           - ci-wait
+       agent:
+         kind: codex
+         max_dispatches_per_ticket: 10
+       """
+  test "a merging or ci-wait ticket holds a steady lifetime count across poll cycles" do
+    # #1759 acceptance: #1573 sat in `agent:merging` with PR #1607 approved and in
+    # the merge queue and still burned 48 lifetime dispatches in ~50 minutes,
+    # latching a ticket whose work was already finished and approved. The config
+    # above reproduces that operator config — `merging` listed as an active state.
+    for {id, state_name} <- [{"issue-merging", "merging"}, {"issue-ci-wait", "ci-wait"}] do
+      issue = parked_issue(id, state_name)
+      state = %Orchestrator.State{max_concurrent_agents: 5, last_polled_issues: %{id => issue}}
+
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(id)
+
+      state =
+        Enum.reduce(1..4, state, fn cycle, acc ->
+          acc = poll_cycle(acc, issue, cycle)
+          assert {:ok, 0} = DispatchBudgetStore.lifetime(id)
+          acc
+        end)
+
+      # Four poll cycles later the ticket is still nowhere near the latch, and no
+      # in-memory lifetime was accrued either.
+      assert {:ok, 0} = DispatchBudgetStore.lifetime(id)
+      assert :none = Dispatcher.dispatch_latch_status(state, id)
+      refute Map.has_key?(thrash_budget(state), id)
+    end
+
+    # Control: an otherwise identical ticket in a real work state does bill, so
+    # the steady counts above are the guard doing its job and not a harness that
+    # never bills anything.
+    working = parked_issue("issue-rework", "rework")
+    working_state = %Orchestrator.State{max_concurrent_agents: 5, last_polled_issues: %{"issue-rework" => working}}
+
+    working_state = Enum.reduce(1..4, working_state, &poll_cycle(&2, working, &1))
+
+    assert {:ok, 4} = DispatchBudgetStore.lifetime("issue-rework")
+    assert %{lifetime: 4} = thrash_budget(working_state)["issue-rework"]
   end
 
   @tag config: """

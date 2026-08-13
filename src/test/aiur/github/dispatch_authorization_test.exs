@@ -21,6 +21,32 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     assert authorized.dispatch_authorized?
   end
 
+  test "contradictory workflow state labels deny even a trusted creator and raise attention" do
+    :ok = AgentPubSub.subscribe_agent("42")
+
+    issue = issue(creator_login: "trusted", state: nil, state_labels: ["error", "todo"])
+
+    denied =
+      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
+        allowed_users: ["trusted"],
+        request_fun: fn _request -> flunk("a contradiction must fail before timeline authorization") end
+      )
+
+    refute denied.dispatch_authorized?
+
+    assert_receive {:alert,
+                    %{
+                      name: "github.dispatch_authorization.ambiguous",
+                      reason: reason,
+                      needs_attention: true
+                    }},
+                   2_000
+
+    assert reason =~ "contradictory_state_labels"
+    assert reason =~ "error"
+    assert reason =~ "todo"
+  end
+
   test "allows an outsider when the most recent trigger-label applier is trusted" do
     events = [
       labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z"),

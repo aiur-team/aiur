@@ -79,6 +79,10 @@ export interface CmdData {
 export interface LogsData {
   /** Chat lines, newest last; only the first two are shown. */
   readonly lines: readonly string[];
+  readonly chatHasPrevious?: boolean;
+  readonly chatHasNext?: boolean;
+  readonly eventHasPrevious?: boolean;
+  readonly eventHasNext?: boolean;
 }
 
 /** Discriminated per-mode data union passed to {@link composeStrip}. */
@@ -88,7 +92,7 @@ export type StripData =
   | { readonly mode: "logs"; readonly data: LogsData };
 
 const BACK_HINT: HintContent = { kind: "hint", label: "BACK", direction: "back" };
-const EVENTS_HINT: HintContent = { kind: "hint", label: "EVENTS", direction: "forward" };
+const hint = (label: string, direction: "back" | "forward"): HintContent => ({ kind: "hint", label, direction });
 
 function clampPercent(value: number): number {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
@@ -136,7 +140,9 @@ export function composeStrip(input: StripData): readonly [
     }
     case "logs": {
       const { lines } = input.data;
-      return [BACK_HINT, chatLine(lines, 0), chatLine(lines, 1), EVENTS_HINT];
+      const chatLabel = input.data.chatHasPrevious || input.data.chatHasNext ? "CHAT" : "BACK";
+      const eventLabel = input.data.eventHasPrevious && input.data.eventHasNext ? "EVENTS ↑↓" : input.data.eventHasPrevious ? "EVENTS ↑" : input.data.eventHasNext ? "EVENTS ↓" : "EVENTS";
+      return [hint(chatLabel, input.data.chatHasPrevious ? "back" : "forward"), chatLine(lines, 0), chatLine(lines, 1), hint(eventLabel, input.data.eventHasPrevious ? "back" : "forward")];
     }
   }
 }

@@ -41,6 +41,30 @@ When work genuinely needs operator direction, emit `decision.requested` with
 enough structure for the Commands dashboard to present the decision without
 reconstructing context from the transcript:
 
+**Assume the operator has zero context.** They may be answering several
+Commands in a row and should not have to open the linked ticket, transcript,
+file, test, or PR. A Command fails its purpose if the operator must reconstruct
+the problem before choosing.
+
+- The first line the operator reads is the `question`: ask for the decision,
+  not a history lesson. Put only choice-relevant background after it.
+- In every option's `description`, state what each option causes in the
+  operator's system. Name the user-visible or operational effect, the risk or
+  cost it accepts, and work it leaves for later; an implementation action alone
+  is not a consequence. Use `benefits` and `drawbacks` for supporting detail.
+- Name every referent on first use. A path, test, symbol, issue, or PR needs one
+  short clause saying what it does and why it matters to this choice.
+- Use `consequence_of_delay` to state the default explicitly. Start with
+  **“No answer:”** and say whether the agent waits, the ticket stalls, a timeout
+  chooses an option, or work continues with a named fallback. Never make the
+  operator infer urgency from `blocking` alone.
+- Keep the question, relevant context, options, recommendation, and no-answer
+  behavior readable in under a minute. Remove chronology and investigation
+  detail that do not change the choice.
+
+Before emitting, perform a cold-read check: could someone answer from these
+fields alone, without knowing the ticket title? If not, rewrite it.
+
 If the question has two to five bounded alternatives, you **must** encode them
 as `options` before emitting an `attention.*` or `pause.request` event. If you
 can phrase the question as “A or B?”, A and B belong in `options` so the
@@ -52,27 +76,27 @@ misleading.
 
 ```jsonc
 {
-  "question": "Which implementation shape should this use?",
+  "question": "Which outcome should the system use?",
   "blocking": true,
   "context": {
-    "short_summary": "A one-line explanation of the choice.",
-    "long_context_markdown": "The relevant constraints, tradeoffs, and scope."
+    "short_summary": "One sentence naming the system and why this choice exists.",
+    "long_context_markdown": "Only the observed facts and constraints that change the choice; define every file, test, PR, issue, or symbol mentioned."
   },
   "options": [
     {
       "id": "a",
-      "label": "First option",
-      "description": "What this option does.",
-      "benefits": "Why it may be preferable.",
-      "drawbacks": "What it costs.",
+      "label": "Outcome-oriented label",
+      "description": "What changes for the operator or system if this is chosen.",
+      "benefits": "What becomes safer, faster, simpler, or complete.",
+      "drawbacks": "What becomes riskier, slower, more complex, or deferred.",
       "risk": "low"
     },
     {
       "id": "b",
-      "label": "Second option",
-      "description": "What this option does.",
-      "benefits": "Why it may be preferable.",
-      "drawbacks": "What it costs.",
+      "label": "Alternative outcome",
+      "description": "The different system consequence this choice produces.",
+      "benefits": "What this preserves or improves.",
+      "drawbacks": "What this costs now or leaves for later.",
       "risk": "low"
     }
   ],
@@ -84,7 +108,7 @@ misleading.
   "urgency": "normal",
   "reversibility": "reversible",
   "kind": "product",
-  "consequence_of_delay": "What remains blocked while the decision is open."
+  "consequence_of_delay": "No answer: state exactly what waits, stalls, times out, or proceeds by default."
 }
 ```
 
@@ -95,10 +119,67 @@ the choice without opening the agent transcript: what triggered the decision,
 relevant constraints and observed facts, tradeoffs, and what each outcome
 changes. Avoid repeating the question or filling this field with generic prose.
 
-For example, an inherited-CI question should offer options such as “Proceed to
-human review” and “Remain held”, with the preferred option in
-`recommendation.option_id`, rather than emitting only “Should it proceed or
-remain held?” through an attention and pause.
+#### Before and after: a real Command from sandbox issue #101
+
+The repository's three-ticket event-flow sandbox asked its final agent how to
+square an upstream result. The original payload is a useful example of an
+internally clear Command that makes a cold operator reconstruct the ticket:
+
+> **Before**
+>
+> Square the result with `x * x` or `Integer.pow(x, 2)`?
+>
+> `function_c/0` squares `function_b/0`'s value. Either is correct.
+>
+> - `x * x` — Direct multiplication.
+> - `Integer.pow(x, 2)` — Standard-library power.
+>
+> Recommendation: `x * x`, because it is cheapest and clearest.
+
+It never says what the functions are for, what either option changes for Aiur,
+or what silence does. The same decision, rewritten for zero context, is:
+
+```jsonc
+{
+  "question": "Should Aiur's event-flow demo square 43 with direct multiplication or the integer-power helper?",
+  "blocking": true,
+  "context": {
+    "short_summary": "Choose the code style for the final step of Aiur's three-ticket event-delivery demo; both options return 1849.",
+    "long_context_markdown": "Sandbox issue #101 defines `function_c/0`, the demo's final function. It receives 43 from `function_b/0`, the preceding ticket's function, and squares it. This choice affects readability and ease of later generalization, not output or meaningful runtime performance."
+  },
+  "options": [
+    {
+      "id": "multiply",
+      "label": "Keep the square obvious",
+      "description": "Use `x * x`; the demo stays immediately readable, but supporting powers other than two later would require changing the expression.",
+      "benefits": "Smallest and clearest implementation for the only behavior the demo needs.",
+      "drawbacks": "Does not generalize to other exponents without another edit.",
+      "risk": "low"
+    },
+    {
+      "id": "power",
+      "label": "Make later powers easier",
+      "description": "Use `Integer.pow(x, 2)`; changing the demo to another integer exponent later becomes a one-argument edit, but today's single square is less direct to read.",
+      "benefits": "Generalizes to other integer powers with a smaller future edit.",
+      "drawbacks": "Adds abstraction with no current behavior or performance benefit.",
+      "risk": "low"
+    }
+  ],
+  "recommendation": {
+    "option_id": "multiply",
+    "reason": "The demo only needs a square, so direct multiplication communicates its behavior fastest."
+  },
+  "authority": "human_required",
+  "urgency": "normal",
+  "reversibility": "reversible",
+  "kind": "product",
+  "consequence_of_delay": "No answer: issue #101's agent remains paused and the three-ticket event-flow demo cannot finish; no timeout chooses automatically. If the Command is dismissed, the agent uses direct multiplication."
+}
+```
+
+This version is answerable cold: the decision is first, both option descriptions
+state their system consequence, every symbol is defined, and silence has an
+explicit outcome.
 
 If the Executor message says the decision was dismissed and instructs you to
 use your best judgement, proceed autonomously with the best supported option.
