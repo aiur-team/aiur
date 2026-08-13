@@ -548,7 +548,16 @@ defmodule Aiur.AiurAgentSkillTest do
         System.cmd(
           "/bin/sh",
           [Path.join(@repo_root, "src/priv/github_quota_guard.sh"), "issue", "create" | arguments],
-          env: [{"AIUR_REAL_GH", stub}, {"AIUR_REPO_STATE_PATH", Path.join(root, "state")}],
+          # This test asserts the dispatch disposition enforcement in
+          # isolation. The shared GitHub budget broker lives beside the
+          # installed wrapper, not beside the repo copy this test invokes, so
+          # disable it explicitly or the admission check exits 75 whenever the
+          # broker is absent (CI has no broker in `src/priv`).
+          env: [
+            {"AIUR_REAL_GH", stub},
+            {"AIUR_REPO_STATE_PATH", Path.join(root, "state")},
+            {"AIUR_GITHUB_BUDGET_ENABLED", "0"}
+          ],
           stderr_to_stdout: true
         )
 
