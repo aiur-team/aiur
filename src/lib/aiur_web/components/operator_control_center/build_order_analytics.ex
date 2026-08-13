@@ -27,6 +27,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
   attr(:loading, :boolean, default: false)
   attr(:time_domain, :any, default: nil)
 
+  slot(:inner_block)
+
   @spec build_order_analytics(map()) :: Phoenix.LiveView.Rendered.t()
   def build_order_analytics(assigns) do
     assigns =
@@ -41,10 +43,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
 
       <div class="an-controls">
         <div>
-          <h4 id="build-order-analytics-title" class="an-card-title">Build Order analytics</h4>
-          <p class="an-scope-note">{scope_note(@scope, @model)}</p>
+          <h4 id="build-order-analytics-title" class="an-card-title">Analytics</h4>
         </div>
-        <span class="an-scope">Scope: <b>this Build Order</b></span>
       </div>
 
       <div :if={!is_nil(@chart_model) and !is_nil(@time_domain)} class="an-zoombar" role="status">
@@ -126,6 +126,8 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
           <div id="build-order-burnup-chart" class="an-chart" phx-hook="TimeBrush">{Phoenix.HTML.raw(Charts.burnup(@chart_model))}</div>
         </section>
       </div>
+
+      {render_slot(@inner_block)}
     </section>
     """
   end
@@ -151,21 +153,6 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderAnalytics do
 
   defp member_word(%{total: total}) when total > 0, do: "these #{total} members"
   defp member_word(_scope), do: "this build"
-
-  defp scope_note(scope, model) do
-    base = "Current session, scoped to members of this Build Order."
-
-    case {scope, model} do
-      {%{rejected: rejected}, _model} when rejected > 0 ->
-        base <> " #{rejected} member(s) have no joinable identity and are excluded."
-
-      {_scope, %{kpis: %{sessions: sessions}}} when sessions > 0 ->
-        base <> " #{sessions} session(s) so far."
-
-      _no_detail ->
-        base
-    end
-  end
 
   # The one banner the pane can show, or `nil` when the charts speak for
   # themselves. A retained model wins over a loading flag so a background refresh

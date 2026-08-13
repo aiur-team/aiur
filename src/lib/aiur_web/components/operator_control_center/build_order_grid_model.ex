@@ -324,6 +324,12 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderGridModel do
 
   defp core_completion(true, _raw, _lifecycle), do: completion(100, :resolved, 1, 1)
   defp core_completion(false, raw, _lifecycle) when is_integer(raw) and raw in 0..100, do: completion(raw, :resolved, 1, 1)
+
+  # A known lifecycle (open or closed) with no observed progress is resolved at
+  # 0%: the completion is a known fact — an open ticket has made no observed
+  # progress, and a closed ticket that was not completed finished without
+  # completing its work. Either way a wave or epic of all-terminal (closed)
+  # members reports `:resolved`.
   defp core_completion(false, _raw, %{state: state}) when state in [:open, :closed], do: completion(0, :resolved, 1, 1)
   defp core_completion(_merged, _raw, _lifecycle), do: completion(nil, :unresolved, 0, 1)
 

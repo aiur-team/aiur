@@ -53,9 +53,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
     ~H"""
     <div class="rs-block github-quota-card">
+      <div class="rs-group-head">
+        <span class="rs-group-title">APIS</span>
+        <span class="rs-group-count">1 API</span>
+      </div>
       <div class="rs-head">
-        <span class="rs-logo rs-github-logo" aria-hidden="true">GH</span>
-        <span class="rs-name">GitHub API</span>
+        <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
+        <span class="rs-name">Github</span>
         <div :if={@attribution} class="rs-head-stats">
           <div class="rs-stat">
             <span class="rs-stat-label">Window traffic</span>
@@ -73,7 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         </div>
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
-            <span class="rs-limit-label">{github_window_label(window)}</span>
+            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
             <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
           </div>
           <div class="rs-meter">
@@ -172,6 +176,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     ~H"""
     <div class="rs-model">
       <div class="rs-head">
+        <%!-- The spend figure leads an API-key provider row, left of the logo,
+              so the dollar amount is the first fact the eye meets. --%>
+        <div :if={@show_spend?} class="rs-stat rs-spend-lead">
+          <span class="rs-stat-label">Spend</span>
+          <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
+        </div>
         <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
         <%!-- The state chip is the row's staleness signal. A row that lost it
@@ -193,10 +203,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
                 "Tokens N/A" row is noise. The token glyph remains, alone, at the
                 top right of the card at logo size, so the card keeps its shape. --%>
           <img :if={is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
-          <div :if={@show_spend?} class="rs-stat">
-            <span class="rs-stat-label">Spend</span>
-            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
-          </div>
         </div>
       </div>
       <div class="rs-limits">
@@ -306,6 +312,12 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_resource_label("graphql"), do: "GraphQL"
   defp github_resource_label(resource), do: String.capitalize(resource)
+
+  # GitHub's two budgets bill in different units; the popover names what each
+  # window actually meters so "Core"/"GraphQL" are never read as the same thing.
+  defp github_window_explanation(%{resource: "core"}), do: "REST request budget"
+  defp github_window_explanation(%{resource: "graphql"}), do: "GraphQL point budget"
+  defp github_window_explanation(_window), do: nil
 
   defp github_window_meta(window, now) do
     "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"

@@ -44,6 +44,7 @@ defmodule AiurWeb.StaticAssets do
     "/build-order-grid-hook.js" => {"application/javascript", "priv/static/build-order-grid-hook.js"},
     "/time-brush-hook.js" => {"application/javascript", "priv/static/time-brush-hook.js"},
     "/streamdeck-emulator-hook.js" => {"application/javascript", "priv/static/streamdeck-emulator-hook.js"},
+    "/images/github-mark.svg" => {"image/svg+xml", "priv/static/images/github-mark.svg"},
     "/bungee.woff2" => {"font/woff2", "priv/static/bungee.woff2"}
   }
 

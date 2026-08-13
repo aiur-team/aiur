@@ -13,7 +13,6 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
   use Phoenix.Component
 
   alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Styles}
-  alias Phoenix.LiveView.JS
 
   attr(:view, :map, required: true)
   attr(:announcement, :string, default: nil)
@@ -73,18 +72,9 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
       </div>
 
       <div :if={@state in [:ready, :partial, :stale]} class="usage-summary-body">
-        <p class="usage-summary-scope">
-          Scope: <b>{@view.scope.label}</b>
-          <span :if={@view.scope.rejected_tickets > 0} class="usage-summary-note">
-            ({@view.scope.rejected_tickets} non-joinable tickets excluded)
-          </span>
-        </p>
-
         <div class="usage-summary-grid">
           {models_chart_panel(assigns)}
         </div>
-
-        {drill_down_panel(assigns)}
       </div>
     </section>
     """
@@ -93,8 +83,6 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
   # --- tokens by model (chart) ----------------------------------------------
 
   defp models_chart_panel(assigns) do
-    assigns = assign(assigns, :legend, Charts.model_token_legend())
-
     ~H"""
     <section class="usage-summary-chart analytics-root" aria-labelledby="usage-models-title">
       {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
@@ -102,115 +90,17 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
         <div class="an-card-head">
           <div>
             <h3 id="usage-models-title" class="an-card-title">Tokens by model</h3>
-            <p class="an-card-sub">
-              Which models consumed how many tokens in this scope. Bars stack the additive
-              input and output dimensions; reasoning output is part of output.
-            </p>
           </div>
         </div>
 
         <p :if={not @view.models.any?} class="usage-summary-note">No tokens recorded.</p>
 
-        <div :if={@view.models.any?}>
-          <div class="an-chart">{Phoenix.HTML.raw(Charts.model_tokens(@view.models))}</div>
-          <div class="an-legend">
-            <div class="an-legend-head">
-              <span class="an-legend-title">Token dimensions</span>
-            </div>
-            <div class="an-chips">
-              <span :for={{dimension, label, color} <- @legend} class="an-chip on" title={Atom.to_string(dimension)}>
-                <i style={"background:#{color}"}></i>{label}
-              </span>
-            </div>
-          </div>
+        <div :if={@view.models.any?} class="usage-token-grid">
+          <div class="usage-token-line an-chart">{Phoenix.HTML.raw(Charts.model_tokens_timeline(@view.models))}</div>
+          <div class="usage-token-bars an-chart">{Phoenix.HTML.raw(Charts.token_destination(@view.tokens))}</div>
         </div>
       </div>
     </section>
     """
-  end
-
-  # --- drill-down ----------------------------------------------------------
-
-  @drill_dimensions [
-    {:by_provider, "Provider"},
-    {:by_ticket, "Ticket"},
-    {:by_agent_family, "Agent family"},
-    {:by_model, "Model"},
-    {:by_account_generation, "Account generation"}
-  ]
-
-  defp drill_down_panel(assigns) do
-    assigns = assign(assigns, :drill_dimensions, @drill_dimensions)
-
-    ~H"""
-    <section class="usage-summary-drill" aria-labelledby="usage-drill-title">
-      <h3 id="usage-drill-title">Drill down</h3>
-      <div class="usage-drill-controls" role="group" aria-label="Drill down by dimension">
-        <button
-          :for={{dimension, label} <- @drill_dimensions}
-          type="button"
-          class="usage-control"
-          id={"usage-drill-#{dimension}"}
-          phx-click="usage-drill-down"
-          phx-value-dimension={dimension}
-          aria-expanded={to_string(@drill_trigger == to_string(dimension))}
-          aria-controls="usage-drill-region"
-        >
-          {label}
-        </button>
-      </div>
-
-      <div id="usage-drill-region" class="usage-drill-region" :if={@drill_down}>
-        <div class="usage-drill-region-header">
-          <h4>{@drill_down.label} — {@drill_down.total} contributors</h4>
-          <button
-            type="button"
-            class="usage-control"
-            phx-click={JS.push("usage-drill-close") |> JS.focus(to: "#usage-drill-#{@drill_down.dimension}")}
-          >
-            Close
-          </button>
-        </div>
-
-        <table class="usage-summary-table">
-          <caption class="sr-only">Contributors by {@drill_down.label}</caption>
-          <thead>
-            <tr>
-              <th scope="col">{@drill_down.label}</th>
-              <th scope="col">Provider-reported</th>
-              <th scope="col">API-equivalent</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr :for={item <- @drill_down.items}>
-              <th scope="row">{item.key_label}</th>
-              <td>{money_cell(item.provider_reported)}</td>
-              <td>
-                {money_cell(item.api_equivalent)}
-                <span :if={Enum.any?(item.api_equivalent, & &1.subscription_marked?)} aria-hidden="true">*</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-        <button
-          :if={@drill_down.has_more}
-          type="button"
-          class="usage-control"
-          phx-click="usage-drill-more"
-          phx-value-dimension={@drill_down.dimension}
-          phx-value-cursor={@drill_down.next_cursor}
-        >
-          Load more ({@drill_down.total - length(@drill_down.items)} remaining)
-        </button>
-      </div>
-    </section>
-    """
-  end
-
-  defp money_cell([]), do: "—"
-
-  defp money_cell(entries) do
-    Enum.map_join(entries, ", ", fn entry -> "#{entry.amount} #{entry.currency}" end)
   end
 end

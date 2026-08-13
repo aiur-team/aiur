@@ -37,14 +37,19 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderBreakdown do
       |> assign(:degraded?, projection.status in @degraded_statuses)
 
     ~H"""
-    <section class="bo-breakdown" aria-label="Plan breakdown">
+    <section class="bo-breakdown" aria-label="Waves">
       <div :if={@degraded?} class="bo-state-card" role={degraded_role(@projection.status)}>
         <h4>{degraded_title(@projection.status)}</h4>
         <p>{degraded_message(@projection.status)}</p>
       </div>
 
-      <div :if={@ready?} class="bo-breakdown-tables">
+      <div :if={@ready?} class="bo-breakdown-pane">
         <.breakdown_list dimension="Waves" rows={@projection.phases} />
+      </div>
+    </section>
+
+    <section class="bo-breakdown" aria-label="Epics">
+      <div :if={@ready?} class="bo-breakdown-pane">
         <.breakdown_list dimension="Epics" rows={@projection.epics} icons />
       </div>
     </section>
