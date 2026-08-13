@@ -3368,9 +3368,9 @@ html[data-theme="light"] .toggle-icon .moon {
 }
 
 .u-prio.is-med {
-  color: #d98f5b;
-  border-color: rgba(217, 143, 91, 0.4);
-  background: rgba(217, 143, 91, 0.12);
+  color: #e29b63;
+  border-color: rgba(226, 155, 99, 0.4);
+  background: rgba(226, 155, 99, 0.12);
 }
 
 .u-prio.is-low {
@@ -4301,7 +4301,7 @@ html[data-theme="light"] .rs-github-mark {
 
 .units-row.has-alert .u-prio.is-med,
 .units-row.is-blocked .u-prio.is-med {
-  color: color-mix(in srgb, var(--fg) 30%, #d98f5b);
+  color: color-mix(in srgb, var(--fg) 30%, #e29b63);
 }
 
 .units-identity {

@@ -97,7 +97,7 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         </ul>
       </div>
 
-      <section :if={@show_panes? and @model.nodes != []} class="section-card bo-graph-pane" aria-label="Build Order graph">
+      <section :if={@show_panes? and @model.nodes != []} class="section-card bo-graph-pane">
         <BuildOrderGraph.build_order_graph
           id="selected-build-order-graph"
           root_id={RouteState.root_identifier(@route_state)}
@@ -108,11 +108,11 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         />
       </section>
 
-      <section :if={@show_panes? and @model.status != :empty} class="section-card bo-breakdown-pane" aria-label="Waves and Epics">
+      <section :if={@show_panes? and @model.status != :empty} class="section-card bo-breakdown-pane">
         <BuildOrderBreakdown.build_order_breakdown model={@model} adhoc={@adhoc} />
       </section>
 
-      <section :if={@show_panes? and @model.status != :empty} class="section-card bo-analytics-pane" aria-label="Analytics">
+      <section :if={@show_panes? and @model.status != :empty} class="section-card bo-analytics-pane">
         <BuildOrderAnalytics.build_order_analytics
           scope={@analytics_scope}
           model={@analytics_model}
