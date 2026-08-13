@@ -5,14 +5,14 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
 
   A denied connection renders only the value-free locked panel; no token,
   monetary, tier, coverage, or generation fact is ever emitted for it. When
-  authorized, the panel keeps the two monetary bases (provider-reported estimate
-  and API-equivalent estimate) in separate regions, marks subscription
-  API-equivalent totals with `*` behind a native keyboard/touch-accessible
-  disclosure, and offers bounded, server-paged drill-down.
+  authorized, the panel renders a tokens-by-model chart (which models consumed
+  how many tokens, as additive input/output dimensions) rather than the former
+  verbose token/cost tables, and offers bounded, server-paged drill-down.
   """
 
   use Phoenix.Component
 
+  alias AiurWeb.OperatorControlCenter.Analytics.{Charts, Styles}
   alias Phoenix.LiveView.JS
 
   attr(:view, :map, required: true)
@@ -81,11 +81,7 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
         </p>
 
         <div class="usage-summary-grid">
-          {tokens_panel(assigns)}
-          {api_equivalent_panel(assigns)}
-          {provider_reported_panel(assigns)}
-          {tier_panel(assigns)}
-          {coverage_panel(assigns)}
+          {models_chart_panel(assigns)}
         </div>
 
         {drill_down_panel(assigns)}
@@ -94,129 +90,41 @@ defmodule AiurWeb.OperatorControlCenter.UsageSummary do
     """
   end
 
-  # --- tokens --------------------------------------------------------------
+  # --- tokens by model (chart) ----------------------------------------------
 
-  defp tokens_panel(assigns) do
+  defp models_chart_panel(assigns) do
+    assigns = assign(assigns, :legend, Charts.model_token_legend())
+
     ~H"""
-    <section class="usage-summary-panel" aria-labelledby="usage-tokens-title">
-      <h3 id="usage-tokens-title">Tokens</h3>
-      <p :if={not @view.tokens.any?} class="usage-summary-note">No tokens recorded.</p>
-      <table :if={@view.tokens.any?} class="usage-summary-table">
-        <caption class="sr-only">Token counts by dimension</caption>
-        <thead>
-          <tr><th scope="col">Dimension</th><th scope="col">Tokens</th></tr>
-        </thead>
-        <tbody>
-          <tr :for={entry <- @view.tokens.entries}>
-            <th scope="row">{entry.label}</th>
-            <td>{entry.count}</td>
-          </tr>
-        </tbody>
-        <tfoot>
-          <tr><th scope="row">Total</th><td>{@view.tokens.total}</td></tr>
-        </tfoot>
-      </table>
-    </section>
-    """
-  end
-
-  # --- API-equivalent estimate ---------------------------------------------
-
-  defp api_equivalent_panel(assigns) do
-    ~H"""
-    <section class="usage-summary-panel" aria-labelledby="usage-api-title">
-      <h3 id="usage-api-title">API-equivalent estimate</h3>
-      <p class="usage-summary-note">An estimate priced at published per-token API rates — not billed spend.</p>
-
-      <p :if={not @view.api_equivalent.any?} class="usage-summary-note">
-        No priceable usage in scope.
-      </p>
-
-      <ul :if={@view.api_equivalent.any?} class="usage-summary-money">
-        <li :for={entry <- @view.api_equivalent.by_currency}>
-          <span class="usage-summary-amount">{entry.amount} {entry.currency}</span>
-          <span :if={entry.subscription_marked?} class="usage-summary-mark" aria-hidden="true">
-            {@view.disclosure.marker}
-          </span>
-          <span :if={entry.subscription_marked?} class="sr-only">(subscription estimate)</span>
-        </li>
-      </ul>
-
-      <p class="usage-summary-coverage">
-        Pricing coverage: {@view.api_equivalent.coverage.label}
-      </p>
-
-      <details :if={@view.disclosure.required?} class="usage-disclosure">
-        <summary class="usage-control">{@view.disclosure.marker} {@view.disclosure.title}</summary>
-        <p>{@view.disclosure.body}</p>
-      </details>
-    </section>
-    """
-  end
-
-  # --- provider-reported estimate ------------------------------------------
-
-  defp provider_reported_panel(assigns) do
-    ~H"""
-    <section class="usage-summary-panel" aria-labelledby="usage-provider-title">
-      <h3 id="usage-provider-title">Provider-reported estimate</h3>
-      <p class="usage-summary-note">As reported by the provider — a separate estimate, not billed spend.</p>
-      <p :if={not @view.provider_reported.any?} class="usage-summary-note">None reported.</p>
-      <ul :if={@view.provider_reported.any?} class="usage-summary-money">
-        <li :for={entry <- @view.provider_reported.by_currency}>
-          <span class="usage-summary-amount">{entry.amount} {entry.currency}</span>
-        </li>
-      </ul>
-    </section>
-    """
-  end
-
-  # --- tier ----------------------------------------------------------------
-
-  defp tier_panel(assigns) do
-    ~H"""
-    <section class="usage-summary-panel" aria-labelledby="usage-tier-title">
-      <h3 id="usage-tier-title">Plan tier</h3>
-      <p class="usage-summary-note">{@view.tier.note}</p>
-      <ul :if={@view.tier.entries != []} class="usage-summary-tiers">
-        <li :for={entry <- @view.tier.entries} class={"tier-#{entry.status}"}>
-          <span class="usage-summary-tier-provider">{entry.provider} / {entry.backend}</span>
-          <span class="usage-summary-tier-label">{entry.tier_label}</span>
-        </li>
-      </ul>
-    </section>
-    """
-  end
-
-  # --- coverage ------------------------------------------------------------
-
-  defp coverage_panel(assigns) do
-    ~H"""
-    <section class="usage-summary-panel" aria-labelledby="usage-coverage-title">
-      <h3 id="usage-coverage-title">Coverage</h3>
-      <dl class="usage-summary-facts">
-        <div class="usage-summary-fact">
-          <dt>Source coverage</dt>
-          <dd>{@view.coverage.source_label}</dd>
+    <section class="usage-summary-chart analytics-root" aria-labelledby="usage-models-title">
+      {Phoenix.HTML.raw("<style>" <> Styles.css() <> "</style>")}
+      <div class="an-card">
+        <div class="an-card-head">
+          <div>
+            <h3 id="usage-models-title" class="an-card-title">Tokens by model</h3>
+            <p class="an-card-sub">
+              Which models consumed how many tokens in this scope. Bars stack the additive
+              input and output dimensions; reasoning output is part of output.
+            </p>
+          </div>
         </div>
-        <div class="usage-summary-fact">
-          <dt>Retained interval</dt>
-          <dd>
-            <span :if={@view.retained_interval.earliest} class="usage-retained-bounds">
-              positions {@view.retained_interval.earliest}–{@view.retained_interval.latest}
-            </span>
-            <span>{@view.retained_interval.label}</span>
-          </dd>
+
+        <p :if={not @view.models.any?} class="usage-summary-note">No tokens recorded.</p>
+
+        <div :if={@view.models.any?}>
+          <div class="an-chart">{Phoenix.HTML.raw(Charts.model_tokens(@view.models))}</div>
+          <div class="an-legend">
+            <div class="an-legend-head">
+              <span class="an-legend-title">Token dimensions</span>
+            </div>
+            <div class="an-chips">
+              <span :for={{dimension, label, color} <- @legend} class="an-chip on" title={Atom.to_string(dimension)}>
+                <i style={"background:#{color}"}></i>{label}
+              </span>
+            </div>
+          </div>
         </div>
-        <div class="usage-summary-fact">
-          <dt>Totals reconcile</dt>
-          <dd>{if @view.reconciliation.reconciled?, do: "Yes", else: "No — contributors do not sum to the total"}</dd>
-        </div>
-        <div class="usage-summary-fact" :if={@view.coverage.unknown_contributors?}>
-          <dt>Unknown contributors</dt>
-          <dd>Some usage could not be attributed and is named unknown, not zero.</dd>
-        </div>
-      </dl>
+      </div>
     </section>
     """
   end

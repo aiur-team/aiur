@@ -68,7 +68,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
   test "renders the Stream Deck chassis, eight keys, strip, and knobs" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
-    segment_count = length(CodingAgent.provider_descriptors()) + 2
+    segment_count = length(configured_providers()) + 2
 
     assert html =~ "Streamdeck+"
     assert html =~ "Stream Deck + control surface"
@@ -84,19 +84,25 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "Claude"
     assert html =~ "Codex"
     assert html =~ "MORE AGENTS"
+    # A registered-but-undispatchable provider renders no segment.
+    refute html =~ ~s(data-provider="deepseek")
   end
 
-  test "opens and closes the Stream Deck installation modal without rendering credentials" do
+  test "the download control opens the setup modal and the install control is gone" do
     {:ok, view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ ~s(id="streamdeck-install-control")
+    # The single remaining control is a button that opens the setup modal; the
+    # Install + button is gone and no direct download href is emitted.
     assert html =~ ~s(id="streamdeck-download-control")
-    assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
+    assert html =~ ~s(phx-click="open-streamdeck-install")
+    refute html =~ ~s(id="streamdeck-install-control")
+    refute html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
     refute html =~ ~s(id="streamdeck-install-modal")
 
-    html = render_click(view, "open-streamdeck-install")
+    html = view |> element("#streamdeck-download-control") |> render_click()
 
     assert html =~ ~s(id="streamdeck-install-modal")
+    assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
     assert html =~ "Install on your Stream Deck +"
     assert html =~ "Linux with udev"
     assert html =~ "Pair it with your daemon"
@@ -1027,15 +1033,15 @@ defmodule AiurWeb.StreamdeckLiveTest do
     refute html =~ ~s(data-provider="claude" data-meter="session" data-percent="0")
   end
 
-  test "renders a segment for a registry provider that was never observed at all" do
-    # The meter fixture only carries claude and codex, so this provider has no
-    # reading of any kind. It must still get its own segment, and both of its
-    # meters must say so rather than showing an invented value.
+  test "renders a segment for a configured provider that was never observed at all" do
+    # The meter fixture only carries claude and codex, so this configured
+    # provider has no reading of any kind. It must still get its own segment,
+    # and both of its meters must say so rather than showing an invented value.
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
-    assert html =~ ~s(data-provider="deepseek" data-meter="session" data-observed="false" data-freshness="unknown")
-    assert html =~ ~s(data-provider="deepseek" data-meter="weekly" data-observed="false" data-freshness="unknown")
-    refute html =~ ~s(data-provider="deepseek" data-meter="session" data-percent=)
+    assert html =~ ~s(data-provider="kimi" data-meter="session" data-observed="false" data-freshness="unknown")
+    assert html =~ ~s(data-provider="kimi" data-meter="weekly" data-observed="false" data-freshness="unknown")
+    refute html =~ ~s(data-provider="kimi" data-meter="session" data-percent=)
   end
 
   test "marks retained stale readings instead of presenting them as current", %{meter_agent: meter_agent} do
@@ -1235,6 +1241,18 @@ defmodule AiurWeb.StreamdeckLiveTest do
         }
       }
     }
+  end
+
+  defp configured_providers do
+    families =
+      Aiur.Config.agent_backend_configs()
+      |> CodingAgent.dispatchable_backends()
+      |> Enum.map(&CodingAgent.family_for/1)
+      |> Enum.reject(&is_nil/1)
+      |> Enum.map(&String.to_atom/1)
+      |> MapSet.new()
+
+    Enum.filter(CodingAgent.provider_descriptors(), &MapSet.member?(families, &1.provider))
   end
 
   defp fixture_logs(_identifier), do: Enum.map(1..10, &feed_entry("event-#{&1}", "fixture-#{&1}"))

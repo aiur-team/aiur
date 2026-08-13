@@ -143,7 +143,9 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
       identity: identity,
       state: state
     } do
-      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 1, :unavailable))
+      {state, :generation} =
+        RouteState.put_selected(state, selected_snapshot(identity, nil, 1, :unavailable, failure: :provider_unavailable))
+
       assert RouteState.status(state) == :selected_unavailable
 
       {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 2, :stale))
@@ -151,6 +153,17 @@ defmodule AiurWeb.BuildOrder.RouteStateTest do
 
       {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 3, :structurally_invalid))
       assert RouteState.status(state) == :selected_invalid
+    end
+
+    test "treats an unfetched graph with no recorded failure as still loading", %{
+      identity: identity,
+      state: state
+    } do
+      # A nil-data unavailable snapshot with no recorded failure is the shape the
+      # initial demand returns while its async fetch is in flight, so it must
+      # read as loading — not as a provider outage.
+      {state, :generation} = RouteState.put_selected(state, selected_snapshot(identity, nil, 1, :unavailable))
+      assert RouteState.status(state) == :selected_loading
     end
 
     test "marks only the exact empty selected scope unavailable after demand failure", %{

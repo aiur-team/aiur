@@ -54,7 +54,18 @@ defmodule AiurWeb.OperatorControlCenter.BuildOrderSelected do
         </div>
       </div>
 
-      <div :if={is_nil(@graph_failure) and is_nil(@model)} class="bo-state-card" role={state_role(@status)}>
+      <div :if={is_nil(@graph_failure) and is_nil(@model) and @status == :selected_loading} class="bo-loading" role="status" aria-live="polite">
+        <span class="sr-only">Loading selected graph</span>
+        <div class="bo-shimmer bo-shimmer-lede" aria-hidden="true"></div>
+        <div class="bo-shimmer-metrics" aria-hidden="true">
+          <div :for={_metric <- 1..5} class="bo-shimmer bo-shimmer-metric"></div>
+        </div>
+        <div class="bo-shimmer-grid" aria-hidden="true">
+          <div :for={_card <- 1..8} class="bo-shimmer bo-shimmer-card"></div>
+        </div>
+      </div>
+
+      <div :if={is_nil(@graph_failure) and is_nil(@model) and @status != :selected_loading} class="bo-state-card" role={state_role(@status)}>
         <h3>{state_title(@status)}</h3>
         <p>{state_message(@status)}</p>
       </div>
