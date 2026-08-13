@@ -8095,6 +8095,23 @@ html[data-theme="light"] .rs-github-mark {
   overflow-wrap: anywhere;
 }
 
+.sd-install-modal pre {
+  margin: 0.45rem 0 0;
+  padding: 0.55rem 0.7rem;
+  border-radius: 8px;
+  background: var(--surface);
+  overflow-x: auto;
+}
+
+.sd-install-modal pre code {
+  display: block;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.76rem;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-wrap: normal;
+}
+
 .sd-install-modal .modal-meta {
   margin: 0;
   color: var(--muted);
@@ -9088,13 +9105,20 @@ html[data-theme="light"] .sd-device {
   opacity: 0.45;
 }
 
-/* Control feedback is screen-reader-only until there is something to report; a
-   failed control call is meant to be seen on the deck face, not just heard. */
-.sd-control-status {
-  margin: 0 0 0.4rem;
+/* Control feedback (a requested or failed control call) is rendered in a banner
+   outside the device, so the emulated deck's key/dial layout never shifts when a
+   status line appears or clears. */
+.streamdeck-status {
+  width: 100%;
+  max-width: 620px;
+  box-sizing: border-box;
+  padding: 0.55rem 0.85rem;
+  border: 1px solid var(--attention-line);
+  border-radius: 10px;
+  background: var(--attention-soft);
   color: var(--attention-ink);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.6rem;
+  font-size: 0.72rem;
   font-weight: 700;
   letter-spacing: 0.04em;
   text-align: center;
