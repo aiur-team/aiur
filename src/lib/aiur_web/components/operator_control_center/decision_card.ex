@@ -130,7 +130,10 @@ defmodule AiurWeb.OperatorControlCenter.DecisionCard do
   defp status_badge(%{decision_status: :expired}), do: %{label: "Expired", tone: "is-dismissed"}
   defp status_badge(%{decision_status: :decided}), do: %{label: "Answered", tone: "is-answered"}
   defp status_badge(%{decision_status: :acknowledged}), do: %{label: "Acknowledged", tone: "is-answered"}
-  defp status_badge(%{decision_status: :dismissed}), do: %{label: "Acknowledged", tone: "is-dismissed"}
+  # `:dismissed` is not `:acknowledged`. Both reach this badge, and labelling
+  # them alike made the durable record assert an acknowledgement the operator
+  # never gave. "Closed" is true of every route into `:dismissed`.
+  defp status_badge(%{decision_status: :dismissed}), do: %{label: "Closed", tone: "is-dismissed"}
   defp status_badge(%{decision_status: :resolved}), do: %{label: "Resolved", tone: "is-resolved"}
   defp status_badge(_decision), do: nil
 

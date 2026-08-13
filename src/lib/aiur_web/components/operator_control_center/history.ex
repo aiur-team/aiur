@@ -95,7 +95,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
   defp decision_status(%{decision_status: :decided}), do: "Answered"
   defp decision_status(%{decision_status: :acknowledged}), do: "Acknowledged"
   defp decision_status(%{decision_status: :resolved}), do: "Resolved"
-  defp decision_status(%{decision_status: :dismissed}), do: "Acknowledged"
+  defp decision_status(%{decision_status: :dismissed}), do: "Closed"
   defp decision_status(%{decision_status: :deferred}), do: "Deferred to Executor"
   defp decision_status(_decision), do: "Recorded"
 
@@ -109,7 +109,7 @@ defmodule AiurWeb.OperatorControlCenter.History do
 
   defp decision_choice(%{decision_status: :expired}), do: "Expired — agent is no longer running"
   defp decision_choice(%{decision_status: :deferred}), do: "Handed to the Executor"
-  defp decision_choice(%{decision_status: :dismissed, answer: nil}), do: "Acknowledged — closed without a recorded answer"
+  defp decision_choice(%{decision_status: :dismissed, answer: nil}), do: "Closed without a recorded answer"
   defp decision_choice(%{answer: %{custom_response: response}}) when is_binary(response), do: response
 
   defp decision_choice(%{answer: %{selected_option_id: option_id}, options: options}) when is_binary(option_id) do
