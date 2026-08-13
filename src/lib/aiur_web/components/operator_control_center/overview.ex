@@ -171,24 +171,36 @@ defmodule AiurWeb.OperatorControlCenter.Overview do
   defp error_tone("snapshot_unpublished"), do: "notice"
   defp error_tone(_code), do: nil
 
+  # A compact, logo-adjacent staleness label. The full explanation lives in the
+  # hover popover, so the header stays one line while the staleness stays named.
   attr(:freshness, :map, default: %{})
 
-  @spec stale_snapshot(map()) :: Phoenix.LiveView.Rendered.t()
-  def stale_snapshot(assigns) do
+  @spec stale_label(map()) :: Phoenix.LiveView.Rendered.t()
+  def stale_label(assigns) do
     ~H"""
-    <div :if={@freshness[:status] == :stale} class="readonly-banner stale-banner" role="status" aria-live="polite">
-      <span aria-hidden="true">◉</span>
-      <span>
-        <b>Stale fleet snapshot.</b>
-        Showing the last-known-good fleet view while refresh is degraded.
-        {stale_reason(@freshness[:reason])}
-      </span>
-      <span class="stale-age mono num" aria-label={"Fleet view observed #{age_label(@freshness[:age_seconds])} ago"}>
-        {age_label(@freshness[:age_seconds])} old
-      </span>
-    </div>
+    <span
+      :if={@freshness[:status] == :stale}
+      class="fleet-stale-label"
+      title={stale_label_title(@freshness)}
+      aria-label={stale_label_title(@freshness)}
+    >
+      Stale fleet
+    </span>
     """
   end
+
+  defp stale_label_title(freshness) do
+    ["Showing the last-known-good fleet view", stale_age_clause(freshness[:age_seconds]), stale_reason(freshness[:reason])]
+    |> Enum.reject(&(&1 in [nil, ""]))
+    |> Enum.join(". ")
+    |> String.trim_trailing(".")
+    |> Kernel.<>(".")
+  end
+
+  defp stale_age_clause(age_seconds) when is_integer(age_seconds) and age_seconds >= 0,
+    do: "#{age_label(age_seconds)} old"
+
+  defp stale_age_clause(_age_seconds), do: nil
 
   defp age_label(age_seconds), do: UnitsPresentation.age_label(age_seconds)
 

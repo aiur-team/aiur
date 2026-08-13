@@ -39,6 +39,21 @@ defmodule AiurWeb.BuildOrder.AnalyticsScopeTest do
       assert scope.rejected == 0
     end
 
+    # The scope must key on the bare issue-number string: the sampler writes
+    # actor `"ticket:<n>"` and `Lifecycle` writes the `ticket` attribute as the
+    # same bare number, so a repo-qualified or prefixed member identifier here
+    # would make the whole Build Order read as "no telemetry".
+    test "member identifiers are the bare numbers telemetry keys on" do
+      state = route_state(:selected, snapshot: selected_snapshot(identity(1, "NODE-1"), [member(10)]))
+
+      {:ready, scope, _key, :ready} = AnalyticsScope.decide(state)
+
+      assert MapSet.member?(scope.tickets, "10")
+      refute MapSet.member?(scope.tickets, "owner/repo#10")
+      refute MapSet.member?(scope.tickets, "#10")
+      refute MapSet.member?(scope.tickets, "NODE-1")
+    end
+
     test "membership is re-derived live, so a ticket that joins later contributes the telemetry it already wrote" do
       # There is no joined-at cutoff: the scope is the current member set, and
       # every record keyed to a current member is in scope regardless of when it

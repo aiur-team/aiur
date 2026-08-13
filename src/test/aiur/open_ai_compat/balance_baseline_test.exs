@@ -93,6 +93,23 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
     assert BalanceBaseline.persisted_baseline(:deepseek, dir) == nil
   end
 
+  test "a baseline write whose directory cannot be created degrades to dollar-only and never raises" do
+    # The path's intermediate directory cannot be created: its parent is an
+    # existing *file*, so `File.mkdir_p!/1` fails with ENOTDIR. This is the
+    # same failure shape as a read-only mount or full disk — `mkdir` itself
+    # fails, before the file write — and the probe must swallow it rather than
+    # propagate a raise up through the meter probe.
+    file = Path.join(System.tmp_dir!(), "aiur-baseline-mkdirfail-#{System.unique_integer([:positive])}")
+    File.write!(file, "not a directory")
+    on_exit(fn -> File.rm(file) end)
+
+    path = Path.join([file, "sub", "balance-baseline.json"])
+    opts = [path: path, backend_configs: %{}]
+
+    assert BalanceBaseline.resolve(:deepseek, 50.0, opts) == nil
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == nil
+  end
+
   test "concurrent resolve calls never raise and leave a valid single baseline" do
     path = baseline_path()
     opts = [path: path, backend_configs: %{}]

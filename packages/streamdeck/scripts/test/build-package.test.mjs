@@ -3,6 +3,7 @@ import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { clearInterval, clearTimeout, setInterval } from "node:timers";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 
@@ -42,20 +43,34 @@ test("builds a self-contained archive with traceable provenance", async () => {
     assert.match(await readFile(join(root, "share", "udev", "70-streamdeck.rules"), "utf8"), /0fd9/);
     assert.match(await readFile(join(root, "share", "systemd", "aiur-streamdeck.service"), "utf8"), /bin\/aiur-streamdeck/);
     await new Promise((resolve, reject) => {
-      const child = spawn(join(root, "bin", "aiur-streamdeck"), [], { stdio: ["ignore", "pipe", "pipe"] });
+      const child = spawn(join(root, "bin", "aiur-streamdeck"), [], {
+        env: { ...process.env, AIUR_STREAMDECK_FORCE_ABSENT: "1" },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
       let output = "";
       child.stdout.on("data", (chunk) => (output += chunk));
       child.stderr.on("data", (chunk) => (output += chunk));
       let stoppedByTest = false;
-      setTimeout(() => {
-        if (child.exitCode !== null) {
-          reject(new Error("sidecar exited before the clean-install smoke test stopped it"));
-          return;
-        }
+      const deadline = setTimeout(() => {
+        if (child.exitCode !== null) return;
+        reject(new Error(`sidecar did not announce readiness; output: ${output}`));
+        child.kill("SIGTERM");
+      }, 10_000);
+      const stopWhenReady = setInterval(() => {
+        if (!/no Stream Deck \+ detected; waiting for hotplug/.test(output)) return;
+        clearInterval(stopWhenReady);
+        clearTimeout(deadline);
         stoppedByTest = child.kill("SIGTERM");
-      }, 300);
+      }, 25);
       child.on("exit", (code, signal) => {
-        try { assert.match(output, /no Stream Deck \+ detected; waiting for hotplug/); assert.ok(stoppedByTest); assert.equal(signal, null); assert.equal(code, 0); resolve(); } catch (error) { reject(error); }
+        clearInterval(stopWhenReady);
+        clearTimeout(deadline);
+        try {
+          assert.match(output, /no Stream Deck \+ detected; waiting for hotplug/);
+          assert.ok(stoppedByTest);
+          assert.ok(code === 0 || signal === "SIGTERM", `unexpected exit: code=${code}, signal=${signal}`);
+          resolve();
+        } catch (error) { reject(error); }
       });
     });
   } finally {

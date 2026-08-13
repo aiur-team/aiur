@@ -19,7 +19,7 @@ defmodule AiurWeb.StreamdeckLive do
 
   use Phoenix.LiveView, layout: {AiurWeb.Layouts, :app}
 
-  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Orchestrator}
+  alias Aiur.{AgentChat, AgentEventFeed, AgentPubSub, CodingAgent, Config, Orchestrator}
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
 
   alias AiurWeb.{
@@ -96,7 +96,7 @@ defmodule AiurWeb.StreamdeckLive do
       |> assign(:logs, StreamdeckLogs.project([]))
       |> assign(:control_feedback, nil)
       |> assign(:install_modal?, false)
-      |> assign(:streamdeck_package, @streamdeck_package)
+      |> assign(:streamdeck_package, streamdeck_package())
       |> assign(:mic_held?, false)
       |> assign(:tracker_kind, kind(&Aiur.Config.tracker_kind/0, "tracker unavailable"))
       |> assign(:agent_kind, kind(&Aiur.Config.agent_kind/0, "agent unavailable"))
@@ -230,7 +230,7 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   def handle_info({:provider_meter_changed, _snapshot}, socket) do
-    {:noreply, refresh_grid(socket)}
+    {:noreply, refresh_meters(socket)}
   end
 
   def handle_info({:streamdeck_transcript, identifier, _event}, socket) when is_binary(identifier) do
@@ -290,6 +290,18 @@ defmodule AiurWeb.StreamdeckLive do
   def handle_info(_message, socket), do: {:noreply, socket}
 
   @impl true
+  def terminate(_reason, socket) do
+    # The transcript relay is `start_link`ed to this LiveView, so a normal exit
+    # does not kill it through the link alone. Stop it explicitly so focus
+    # changes across repeated visits do not leak one subscribed relay per visit.
+    if is_pid(socket.assigns[:transcript_relay]) do
+      _ = GenServer.stop(socket.assigns.transcript_relay, :normal)
+    end
+
+    :ok
+  end
+
+  @impl true
   def render(assigns) do
     ~H"""
     <DashboardShell.dashboard_shell
@@ -316,16 +328,13 @@ defmodule AiurWeb.StreamdeckLive do
             </svg>
             <span class="sd-brand-name">STREAM DECK</span>
             <div class="sd-package-controls">
-              <a
+              <button
                 id="streamdeck-download-control"
                 class="sd-install-control"
-                href={@streamdeck_package.url}
-                download
+                type="button"
+                phx-click="open-streamdeck-install"
               >
                 Download
-              </a>
-              <button id="streamdeck-install-control" class="sd-install-control" type="button" phx-click="open-streamdeck-install">
-                Install +
               </button>
             </div>
           </header>
@@ -564,10 +573,7 @@ defmodule AiurWeb.StreamdeckLive do
                   aria-valuenow={knob.value}
                   data-value={knob.value}
                 >
-                  <span class="sd-knob-marker" aria-hidden="true"></span>
-                  <span class="sd-knob-inner">{knob.value}</span>
                 </div>
-                <span :if={is_nil(knob.hint)} aria-hidden="true">{knob.label}</span>
                 <span :if={knob.hint} class="sd-dial-hint">
                   <span style={"visibility: " <> if(knob.hint.older?, do: "visible", else: "hidden")}>‹</span>{knob.hint.label}<span style={"visibility: " <> if(knob.hint.newer?, do: "visible", else: "hidden")}>›</span>
                 </span>
@@ -587,7 +593,7 @@ defmodule AiurWeb.StreamdeckLive do
           phx-click-away="close-streamdeck-install"
           phx-hook="TicketContextDialog"
           data-close-event="close-streamdeck-install"
-          data-origin-id="streamdeck-install-control"
+          data-origin-id="streamdeck-download-control"
         >
           <header class="modal-header">
             <div>
@@ -612,7 +618,8 @@ defmodule AiurWeb.StreamdeckLive do
           </section>
 
           <ol class="sd-install-steps">
-            <li><a href={@streamdeck_package.url} download><strong>Download the Stream Deck + package.</strong></a></li>
+            <li :if={package?(@streamdeck_package)}><a href={@streamdeck_package.url} download><strong>Download the Stream Deck + package.</strong></a></li>
+            <li :if={!package?(@streamdeck_package)}><strong>No package published for this release.</strong> Build the sidecar from source and continue with the steps below.</li>
             <li><strong>Create the sidecar directory:</strong> <code>install -dm755 ~/.local/share/aiur/streamdeck</code></li>
             <li><strong>Extract the archive:</strong> <code>tar -xzf /path/to/downloaded-archive.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></li>
             <li><strong>Create the pairing directory:</strong> <code>install -dm700 ~/.config/aiur</code></li>
@@ -631,11 +638,12 @@ defmodule AiurWeb.StreamdeckLive do
             <p>The deck shows your Aiur fleet. If it does not, first check <code>systemctl --user status aiur-streamdeck.service</code>.</p>
           </section>
 
-          <p class="modal-meta">
+          <p :if={package?(@streamdeck_package)} class="modal-meta">
             <a href={@streamdeck_package.url} download>Download package {@streamdeck_package.version}</a>
             <span aria-hidden="true"> · </span>
             Aiur commit <code>{@streamdeck_package.commit}</code>
           </p>
+          <p :if={!package?(@streamdeck_package)} class="modal-meta">No Stream Deck + package published for this release.</p>
         </section>
       </div>
     </DashboardShell.dashboard_shell>
@@ -656,6 +664,18 @@ defmodule AiurWeb.StreamdeckLive do
     else
       socket
     end
+  end
+
+  # A meter observation changes only the usage segments on the touch strip, so
+  # it must not re-read the fleet. Meter observations arrive far more often than
+  # fleet changes (once per rate-limit-bearing response), and `refresh_grid/1`
+  # pays a full grid load each time; scoping the update to the screen avoids
+  # re-projecting the fleet (and any Orchestrator read) on a topic that can fire
+  # every request.
+  defp refresh_meters(socket) do
+    usage = StreamdeckProjection.provider_meters()
+    screen = screen_descriptors(socket.assigns.grid, usage, socket.assigns.grid_page, mode_pager_focus(socket.assigns.sd_mode, socket.assigns.sd_active))
+    assign(socket, :screen, screen)
   end
 
   defp assign_grid(socket, grid, column_offset, usage, dial_value) do
@@ -754,11 +774,31 @@ defmodule AiurWeb.StreamdeckLive do
 
   defp screen_descriptors(grid, usage, current_page, focus) do
     live = live_count(grid)
+    families = configured_provider_families()
 
     [
       %{kind: :summary, label: "SUMMARY", logo: "/aiur-logo.png", observed?: grid.total > 0, live: live, remaining: max(grid.total - live, 0), meters: []}
-      | Enum.map(CodingAgent.provider_descriptors(), &provider_segment(&1, usage))
+      | CodingAgent.provider_descriptors()
+        |> Enum.filter(&MapSet.member?(families, &1.provider))
+        |> Enum.map(&provider_segment(&1, usage))
     ] ++ [pager_segment(grid, current_page, focus)]
+  end
+
+  # Provider segments reflect only the backends actually configured for this
+  # run (agent.priority / agent.backend_configs), matching the dispatchable
+  # set the Units page resolves. Unconfigured providers are hidden entirely.
+  defp configured_provider_families do
+    provider_families(CodingAgent.dispatchable_backends(Config.agent_backend_configs()))
+  rescue
+    _error -> provider_families(CodingAgent.dispatchable_backends())
+  end
+
+  defp provider_families(backends) do
+    backends
+    |> Enum.map(&CodingAgent.family_for/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&String.to_atom/1)
+    |> MapSet.new()
   end
 
   # A focused command takes the pager segment over: the dots give way to the
@@ -1272,15 +1312,21 @@ defmodule AiurWeb.StreamdeckLive do
   defp control_feedback(feedback), do: feedback
 
   defp load_grid do
-    snapshot_fun = endpoint_config(:streamdeck_snapshot_fun)
-
     snapshot =
-      case snapshot_fun do
+      case endpoint_config(:streamdeck_snapshot_fun) do
         fun when is_function(fun, 0) ->
           safe_call(fun, %{})
 
         _ ->
-          safe_call(fn -> Orchestrator.snapshot(orchestrator(), snapshot_timeout_ms()) end, %{})
+          # Read the lock-free, coalesced dashboard snapshot rather than asking
+          # the Orchestrator to build one synchronously. `refresh_grid/1` runs on
+          # every fleet/status event; a blocking `Orchestrator.snapshot/2` call
+          # there stalls the LiveView (and can wedge it under dispatch).
+          case safe_call(fn -> Orchestrator.dashboard_snapshot(orchestrator(), snapshot_timeout_ms()) end, %{}) do
+            {status, snapshot, _freshness} when status in [:current, :stale] and is_map(snapshot) -> snapshot
+            snapshot when is_map(snapshot) -> snapshot
+            _ -> %{}
+          end
       end
 
     case snapshot do
@@ -1300,6 +1346,19 @@ defmodule AiurWeb.StreamdeckLive do
       max_column_offset: 0
     }
   end
+
+  # The published package is resolved at runtime so a daemon without a release
+  # artifact (the normal state for an unreleased build) can still open the
+  # install modal and show the setup steps; only the download link is dropped.
+  defp streamdeck_package do
+    case endpoint_config(:streamdeck_package) do
+      package when is_map(package) -> package
+      _unpublished -> @streamdeck_package
+    end
+  end
+
+  defp package?(%{url: url}) when is_binary(url) and url != "", do: true
+  defp package?(_package), do: false
 
   defp orchestrator, do: endpoint_config(:orchestrator) || Orchestrator
   defp snapshot_timeout_ms, do: endpoint_config(:snapshot_timeout_ms) || 15_000

@@ -292,6 +292,7 @@
       this._bindKeys();
       this._bindCommandKeys();
       this._bindKnobs();
+      console.debug("StreamdeckEmulator mounted", { id: this.el.id, mode: this._mode });
     },
 
     beforeUpdate() {
@@ -366,6 +367,7 @@
     },
 
     destroyed() {
+      console.debug("StreamdeckEmulator destroyed", { id: this.el.id });
       this._destroyKnobs();
       this._unbindKeys();
       this._unbindCommandKeys();

@@ -492,6 +492,16 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert selected_lede(document) == "Release dashboard"
   end
 
+  test "a leading BO: tag is dropped from the dashboard title lede", %{first: first} do
+    install_source(
+      catalog: catalog_snapshot([root(first, "Root forty-two")], 1, :healthy),
+      selected: [selected_snapshot(first, "BO: Stream Deck Parity", 1, :healthy, members: [member(7)])]
+    )
+
+    assert {:ok, _view, html} = live(build_conn(), "/build-orders/42")
+    assert selected_lede(Floki.parse_document!(html)) == "Stream Deck Parity"
+  end
+
   test "marks a selected root unavailable when its initial demand fails", %{first: first} do
     source =
       install_source(
@@ -1331,10 +1341,8 @@ defmodule AiurWeb.BuildOrderLiveTest do
 
     assert {:ok, view, html} = live(build_conn(), "/build-orders/42")
 
-    assert html =~ "Build Order analytics"
+    assert html =~ ">Analytics<"
 
-    # The two surfaces must be unmistakable: this one is build-scoped, /analytics is session-scoped.
-    assert html =~ "this Build Order"
     assert has_element?(view, ".bo-analytics")
     # The breakdown it sits under is still there.
     assert has_element?(view, "section.bo-breakdown")
@@ -1399,7 +1407,6 @@ defmodule AiurWeb.BuildOrderLiveTest do
     assert html =~ "Sessions"
     assert html =~ "CPU burned"
     assert html =~ "Member lifecycle"
-    assert html =~ "Current session, scoped to members of this Build Order."
     assert html =~ "Usage and cost"
     assert html =~ "<svg"
 

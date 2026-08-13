@@ -12,6 +12,9 @@ defmodule Aiur.Claude.Repl.CommandTest do
       assert cmd =~ "AIUR_CI_READINESS_TOKEN"
       assert cmd =~ "*_API_KEY) unset "
       assert cmd =~ "export HEX_HOME"
+      assert cmd =~ "AIUR_BUILD_GATE_BIN='/ws/foo/.aiur-runtime/build-bin'"
+      assert cmd =~ "BASH_ENV="
+      assert cmd =~ "AIUR_BUILD_GATE_SLOTS='2'"
       assert cmd =~ " && exec claude"
 
       {scrub_pos, _len} = :binary.match(cmd, "unset ")

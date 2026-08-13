@@ -80,9 +80,18 @@ defmodule Aiur.DecisionStore do
 
   @type accept_result :: %{status: :accepted | :duplicate, decision: Decision.t()}
 
+  @doc """
+  Starts the store.
+
+  Only the application singleton may use the configured default state
+  directory. Every other instance must receive its own `:state_dir` so it
+  cannot contend with the application's durable decision audit stream.
+  """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name, __MODULE__))
+    with :ok <- validate_start_options(opts) do
+      GenServer.start_link(__MODULE__, opts, name: Keyword.get(opts, :name))
+    end
   end
 
   @doc """
@@ -343,7 +352,7 @@ defmodule Aiur.DecisionStore do
   @impl true
   def init(opts) do
     state =
-      case Config.Paths.decision_state_dir() do
+      case state_dir(opts) do
         {:ok, dir} -> boot(dir, Keyword.get(opts, :filesystem_sync_fun, &Aiur.Fs.sync_filesystem/0))
         {:error, reason} -> unavailable_state(nil, {:path_unresolved, reason})
       end
@@ -351,6 +360,27 @@ defmodule Aiur.DecisionStore do
       |> configure_dispatch(opts)
 
     {:ok, state, {:continue, :schedule_reconciliation}}
+  end
+
+  defp validate_start_options(opts) do
+    case Keyword.fetch(opts, :state_dir) do
+      :error -> validate_missing_state_dir(Keyword.get(opts, :name))
+      {:ok, state_dir} -> validate_state_dir(state_dir)
+    end
+  end
+
+  defp validate_missing_state_dir(__MODULE__), do: :ok
+  defp validate_missing_state_dir(nil), do: {:error, :unnamed_store_requires_state_dir}
+  defp validate_missing_state_dir(_name), do: {:error, :non_singleton_store_requires_state_dir}
+
+  defp validate_state_dir(state_dir) when is_binary(state_dir) and state_dir != "", do: :ok
+  defp validate_state_dir(_state_dir), do: {:error, :invalid_state_dir}
+
+  defp state_dir(opts) do
+    case Keyword.fetch(opts, :state_dir) do
+      {:ok, dir} -> {:ok, dir}
+      :error -> Config.Paths.decision_state_dir()
+    end
   end
 
   defp configure_dispatch(state, opts) do
@@ -1242,15 +1272,33 @@ defmodule Aiur.DecisionStore do
   defp handle_dismiss(decision_id, opts, state) do
     with {:ok, decision} <- fetch_decision(state, decision_id),
          {:ok, actor} <- fetch_actor(opts) do
-      case decision.decision_status do
-        :open -> persist_dismissal(decision, actor, state)
-        :dismissed -> {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
-        status -> {:reply, {:error, {:conflict, status}}, state}
+      cond do
+        decision.decision_status == :dismissed ->
+          {:reply, {:ok, %{status: :duplicate, decision: decision}}, state}
+
+        decision.decision_status not in [:open, :deferred] ->
+          {:reply, {:error, {:conflict, decision.decision_status}}, state}
+
+        unresolvable_block?(decision) ->
+          {:reply, {:error, {:conflict, :blocking_requires_answer}}, state}
+
+        true ->
+          persist_dismissal(decision, actor, state)
       end
     else
       {:error, reason} -> {:reply, {:error, reason}, state}
     end
   end
+
+  # Dismissal records a status and stops: it delivers nothing to the waiting
+  # agent. That is honest for a non-blocking notice, and honest for a legacy
+  # attention because the caller resolves the underlying attention alongside
+  # it. For an agent-filed blocking Command neither holds — the ticket stays
+  # blocked while the row leaves the operator's inbox, which turns a visible
+  # block into an invisible one. Refuse instead: the answer path (including a
+  # custom response) is what actually releases the agent.
+  defp unresolvable_block?(%Decision{blocking: true, legacy_attention: nil}), do: true
+  defp unresolvable_block?(_decision), do: false
 
   defp persist_dismissal(decision, actor, state) do
     case build_and_persist_event(:decision_dismissed, decision, %{actor: actor}, DateTime.utc_now(), state) do

@@ -21,6 +21,7 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
       opts
       |> Keyword.put(:backend, backend)
       |> Keyword.put(:live_conversation_recipient, recipient)
+      |> maybe_put_model(app_session)
 
     lifecycle_opts =
       live_opts
@@ -57,4 +58,14 @@ defmodule Aiur.AgentRunner.TurnCallbacks do
       live_opts: live_opts
     }
   end
+
+  # A session carries the resolved model on `:model`. Thread it into the
+  # headless usage context so per-model attribution (`resolved_model`) survives
+  # for every backend instead of only the OpenAI-compatible adapters that can
+  # recover it from the provider payload.
+  defp maybe_put_model(live_opts, %{model: model}) when is_binary(model) and model != "" do
+    Keyword.put_new(live_opts, :resolved_model, model)
+  end
+
+  defp maybe_put_model(live_opts, _session), do: live_opts
 end
