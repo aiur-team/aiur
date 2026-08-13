@@ -52,6 +52,11 @@ defmodule ScriptsAiurdevTest do
         "fi\n" <>
         ~S|[ -n "${AIUR_FAKE_ENGINE_EXIT:-}" ] && exit "$AIUR_FAKE_ENGINE_EXIT"| <>
         "\n" <>
+        ~S|if [ -n "${AIUR_FAKE_ENGINE_CHECK_NO_LOCK:-}" ] && [ -e "$AIUR_FAKE_ENGINE_CHECK_NO_LOCK" ]; then| <>
+        "\n" <>
+        "  echo \"FAIL: build lock still present at engine exec\"\n" <>
+        "  exit 1\n" <>
+        "fi\n" <>
         "echo \"ENGINE_ARGS: $*\"\n" <>
         "echo \"RELEASE_DIR: ${AIUR_RELEASE_DIR:-}\"\n" <>
         "echo \"RESTART_BUILD_CMD: ${AIUR_RESTART_BUILD_CMD:-}\"\n" <>
@@ -402,6 +407,9 @@ defmodule ScriptsAiurdevTest do
 
     assert length(release_starts) == 1
     assert File.exists?(Path.join([root, "src", "_build", "dev", "rel", "aiur", "releases", "0.0.3", "elixir"]))
+
+    refute File.exists?(Path.join([root, "src", "_build", ".aiurdev-build.lock"])),
+           "concurrent rebuilds must release the lock once all runners have exited"
   end
 
   test "stale-source control commands reuse a ready release without rebuilding" do
@@ -1751,5 +1759,175 @@ defmodule ScriptsAiurdevTest do
 
     refute File.exists?(lock_dir),
            "lock should still be released after the second run"
+  end
+
+  test "a successful locked rebuild releases the lock before exec'ing the engine" do
+    root = fake_repo()
+    mise = fake_mise()
+    lock = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+
+    # The fake engine fails if the build lock is still present when it is
+    # exec'd, so this distinguishes "released before exec" (correct) from
+    # "released by a trap that could never fire across exec" (the regression
+    # the review flagged).
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_ENGINE_CHECK_NO_LOCK", lock},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "rebuilding"
+    assert out =~ "ENGINE_ARGS: --bg"
+    refute out =~ "FAIL: build lock still present at engine exec"
+    refute File.exists?(lock)
+  end
+
+  test "a later invocation is not blocked by a successful locked rebuild" do
+    root = fake_repo()
+    mise = fake_mise()
+    lock = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+
+    {out, 0} =
+      run_shim(["--bg"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "rebuilding"
+    refute File.exists?(lock)
+
+    # Release is ready now; the second invocation must proceed without waiting
+    # on (or stealing) the lock the first run already released.
+    {out2, 0} =
+      run_shim(["status"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"TMUX", nil}
+      ])
+
+    assert out2 =~ "ENGINE_ARGS: status"
+    refute out2 =~ "waiting for aiurdev rebuild lock"
+  end
+
+  test "aiurdev build releases the lock when the rebuild itself fails" do
+    root = fake_repo()
+    mise = fake_mise()
+    lock = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+
+    {out, 9} =
+      run_shim(["build"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_FAIL_RELEASE", "1"},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "aiur release rebuild failed"
+    refute File.exists?(lock), "aiurdev build must release the lock after a failed rebuild"
+  end
+
+  test "SIGINT/SIGTERM during a locked rebuild releases the build lock" do
+    for signal <- ["INT", "TERM"] do
+      root = fake_repo()
+      mise = fake_mise()
+      lock = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+      {pid_file, wrapper} = spawn_shim_with_pid(root, ["--bg"])
+
+      task =
+        Task.async(fn ->
+          System.cmd("bash", [wrapper],
+            env: [
+              {"AIUR_REPO_ROOT", root},
+              {"AIUR_MISE_BIN", mise},
+              {"AIUR_FAKE_MISE_RELEASE_SLEEP", "1.0"},
+              {"AIUR_AGENT_WORKSPACE", nil},
+              {"TMUX", nil}
+            ],
+            stderr_to_stdout: true
+          )
+        end)
+
+      wait_until(fn -> File.exists?(Path.join(lock, "owner")) end, 10_000)
+
+      pid = pid_file |> File.read!() |> String.trim()
+      {_kill_out, _kill_code} = System.cmd("kill", ["-#{signal}", pid])
+
+      {_out, _code} = Task.await(task, 20_000)
+
+      refute File.exists?(lock), "SIG#{signal} during a locked rebuild should release the lock"
+    end
+  end
+
+  test "a stale-reclaim takeover is not deleted by the previous owner's cleanup" do
+    root = fake_repo()
+    mise = fake_mise()
+    lock = Path.join([root, "src", "_build", ".aiurdev-build.lock"])
+    {pid_file, wrapper} = spawn_shim_with_pid(root, ["--bg"])
+    # A live process that is NOT the shim: the BEAM running this test.
+    foreign_owner = "#{System.pid()}"
+
+    task =
+      Task.async(fn ->
+        System.cmd("bash", [wrapper],
+          env: [
+            {"AIUR_REPO_ROOT", root},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_FAKE_MISE_RELEASE_SLEEP", "1.0"},
+            {"AIUR_AGENT_WORKSPACE", nil},
+            {"TMUX", nil}
+          ],
+          stderr_to_stdout: true
+        )
+      end)
+
+    wait_until(fn -> File.exists?(Path.join(lock, "owner")) end, 10_000)
+
+    # A second invocation reclaimed the lock as stale and took it over, so the
+    # owner file now names a different live process than the original holder.
+    File.write!(Path.join(lock, "owner"), foreign_owner)
+
+    # Signal the original holder so its crash-net cleanup runs against the
+    # takeover lock: it must NOT delete a lock it no longer owns.
+    pid = pid_file |> File.read!() |> String.trim()
+    {_kill_out, _kill_code} = System.cmd("kill", ["-TERM", pid])
+    {_out, _code} = Task.await(task, 20_000)
+
+    assert File.exists?(lock), "the takeover lock must survive the old owner's cleanup"
+    assert File.read!(Path.join(lock, "owner")) == foreign_owner
+  end
+
+  # Spawns aiurdev under a wrapper that records its PID before exec'ing, so a
+  # test can signal the shim itself while it holds the rebuild lock.
+  defp spawn_shim_with_pid(root, args) do
+    pid_file = Path.join(root, "shim.pid")
+    wrapper = Path.join(root, "shim-wrapper.sh")
+
+    File.write!(wrapper, """
+    #!/usr/bin/env bash
+    echo $$ > #{pid_file}
+    exec bash #{@script} #{Enum.join(args, " ")}
+    """)
+
+    File.chmod!(wrapper, 0o755)
+    {pid_file, wrapper}
+  end
+
+  defp wait_until(fun, timeout_ms) do
+    deadline = System.monotonic_time(:millisecond) + timeout_ms
+    wait_until(fun, deadline, fun.())
+  end
+
+  defp wait_until(_fun, _deadline, true), do: :ok
+
+  defp wait_until(fun, deadline, false) do
+    if System.monotonic_time(:millisecond) >= deadline do
+      raise "timed out waiting for condition"
+    else
+      Process.sleep(20)
+      wait_until(fun, deadline, fun.())
+    end
   end
 end

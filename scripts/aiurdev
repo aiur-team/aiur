@@ -227,7 +227,7 @@ ensure_pinned_opencode() {
 
   if [ -z "$opencode_dir" ] || [ ! -x "$opencode_dir/opencode" ]; then
     echo "❌ pinned opencode is unavailable; run mise install in $repo_root" >&2
-    exit 64
+    return 64
   fi
 
   export PATH="$opencode_dir:$PATH"
@@ -345,9 +345,17 @@ release_ready() {
   [ "$epmd_found" -eq 1 ] || return 1
 }
 
+# Tracks whether THIS process acquired the lock, so the crash-net trap can only
+# ever remove a lock it actually owns. `release_build_lock` also re-verifies the
+# recorded owner before removing, so a stale-reclaim takeover by another
+# invocation (whose owner PID may look live in PID-isolated shells) is never
+# deleted out from under it.
+build_lock_held=0
+
 acquire_build_lock() {
   local owner_pid waited=0
 
+  build_lock_held=0
   mkdir -p "$elixir_dir/_build"
   until mkdir "$build_lock_dir" 2>/dev/null; do
     if [ "$waited" -eq 0 ]; then
@@ -367,10 +375,18 @@ acquire_build_lock() {
   done
 
   printf '%s %s\n' "$$" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >"$build_lock_dir/owner" 2>/dev/null || true
+  build_lock_held=1
 }
 
 release_build_lock() {
-  rm -rf "$build_lock_dir"
+  local owner_pid
+
+  [ "$build_lock_held" -eq 1 ] || return 0
+  owner_pid="$(awk '{print $1}' "$build_lock_dir/owner" 2>/dev/null || true)"
+  if [ "$owner_pid" = "$$" ]; then
+    rm -rf "$build_lock_dir"
+  fi
+  build_lock_held=0
 }
 
 build_aiur() {
@@ -458,9 +474,11 @@ ensure_built() {
 
   [ "${AIUR_SKIP_BUILD:-0}" = "1" ] && return 0
 
-  trap 'release_build_lock' EXIT
   acquire_build_lock
+  trap 'release_build_lock' EXIT INT TERM
   ensure_built_locked || status=$?
+  release_build_lock
+  trap - EXIT INT TERM
   return "$status"
 }
 
@@ -507,11 +525,13 @@ ensure_control_surface() {
   # must not wait behind that rebuild lock just to query or stop the daemon.
   release_ready && return 0
 
-  trap 'release_build_lock' EXIT
   acquire_build_lock
+  trap 'release_build_lock' EXIT INT TERM
   if ! release_ready; then
     ensure_built_locked || status=$?
   fi
+  release_build_lock
+  trap - EXIT INT TERM
   return "$status"
 }
 
@@ -623,8 +643,8 @@ fi
 
 # `aiurdev build` force-rebuilds; otherwise rebuild only when stale.
 if [ "${1:-}" = "build" ]; then
-  trap 'release_build_lock' EXIT
   acquire_build_lock
+  trap 'release_build_lock' EXIT INT TERM
   build_status=0
   if [ "${2:-}" = "--deps" ]; then
     echo "🔨 clean force-rebuild incl. deps (wiping _build/dev)" >&2
@@ -639,6 +659,8 @@ if [ "${1:-}" = "build" ]; then
   if [ "$build_status" -eq 0 ]; then
     build_aiur || build_status=$?
   fi
+  release_build_lock
+  trap - EXIT INT TERM
   exit "$build_status"
 fi
 
@@ -815,7 +837,7 @@ if builds_after_stop "${passthrough[0]:-}" && [ "${AIUR_SKIP_BUILD:-0}" != "1" ]
 fi
 
 if requires_pinned_opencode "${passthrough[0]:-}"; then
-  ensure_pinned_opencode
+  ensure_pinned_opencode || exit 64
 fi
 
 # ── Processor optimization: cap schedulers on agent-spawned Elixir BEAMs ──
@@ -857,11 +879,13 @@ if [ "${#passthrough[@]}" -gt 0 ]; then
       # for a dev release that became incomplete before its RPC launcher exec.
       rm -f "$control_retry_signal"
       echo "⏳ dev release changed during control command; waiting for rebuild and retrying" >&2
-      trap 'release_build_lock' EXIT
       acquire_build_lock
+      trap 'release_build_lock' EXIT INT TERM
       if ! release_ready; then
         ensure_built_locked
       fi
+      release_build_lock
+      trap - EXIT INT TERM
       export AIUR_CONTROL_RELEASE_RETRYABLE=0
       exec "$engine" "${passthrough[@]}"
     fi
