@@ -97,6 +97,9 @@ defmodule Aiur.Orchestrator.State do
           # automatic re-dispatch (#1453). Keyed by issue_id; see
           # `Aiur.Orchestrator.AutoResume`.
           auto_resume: %{String.t() => map()},
+          # Claims released after retry exhaustion, retained until a later
+          # dispatch successfully re-establishes ownership.
+          released_claims: %{String.t() => map()},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -192,6 +195,7 @@ defmodule Aiur.Orchestrator.State do
     # successor — see `Aiur.Orchestrator.CommentWake`.
     comment_rework_retries: %{},
     auto_resume: %{},
+    released_claims: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
