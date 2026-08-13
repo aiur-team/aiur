@@ -607,6 +607,18 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                {:skip, :already_running}
     end
 
+    test "dispatch decisions defer a released claim until its scheduled auto-resume" do
+      released = issue("rate-limited", [])
+
+      state = %State{
+        auto_resume: %{
+          released.id => %{attempt: 1, cause: :rate_limit, due_at_ms: System.monotonic_time(:millisecond) + 60_000}
+        }
+      }
+
+      assert DispatchPolicy.dispatch_decision(released, state) == {:skip, :auto_resume_pending}
+    end
+
     test "dispatch decisions distinguish a workspace ownership wait from an orphaned claim" do
       claimed = issue("workspace-wait", [])
 

@@ -277,4 +277,10 @@ defmodule Aiur.Orchestrator.WaitingReasonTest do
              ) == :paused_transient
     end
   end
+
+  describe "render/1" do
+    test "renders the released-claim classifier (#1475)" do
+      assert WaitingReason.render(:claim_released) == "claim_released"
+    end
+  end
 end

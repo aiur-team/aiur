@@ -195,6 +195,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :poll_interval_ms,
       :retry_attempts,
       :auto_resume,
+      :released_claims,
       :running,
       :session_max_concurrent_agents
     ])
@@ -553,6 +554,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     identifier = issue.identifier || issue.id
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     latch = Map.get(latch_statuses, issue.id, :none)
+    release = Map.get(state.released_claims, issue.id)
     idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
 
     %{
@@ -571,7 +573,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
-      waiting_reason: idle_evidence.waiting_reason,
+      waiting_reason: idle_evidence_waiting_reason(idle_evidence, release),
+      claim_released?: not is_nil(release),
+      claim_release_cause: release && release.cause,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
@@ -581,6 +585,15 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
     |> Map.merge(issue_execution_facts(issue))
   end
+
+  # A released claim is the one idle signal that must win over every other
+  # reason: ownership evaporated and the operator (or the automatic re-claim)
+  # has to act. Prefer the claim-release classifier so the row never reads as a
+  # plain awaiting-dispatch; the detailed cause and retry window stay in
+  # `reason` (`StatusReason.render`) and `claim_release_cause`.
+  defp idle_evidence_waiting_reason(_evidence, %{cause: cause}) when not is_nil(cause), do: :claim_released
+
+  defp idle_evidence_waiting_reason(%{waiting_reason: fallback}, _release), do: fallback
 
   defp issue_execution_facts(%Issue{} = issue) do
     backend = CodingAgent.backend_for(issue)
@@ -989,9 +1002,10 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     work_state = idle_issue_work_state(issue)
     pause_reason = idle_issue_pause_reason(issue)
+    release = Map.get(state.released_claims, Map.get(issue, :id))
 
     idle_evidence = idle_evidence(state, issue, latch_status, open_decision_count, System.monotonic_time(:millisecond))
-    waiting_reason = idle_evidence.waiting_reason
+    waiting_reason = idle_evidence_waiting_reason(idle_evidence, release)
 
     %{
       issue_id: Map.get(issue, :id),
@@ -1013,6 +1027,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
+      claim_released?: not is_nil(release),
+      claim_release_cause: release && release.cause,
       reason:
         idle_status_reason(
           work_state,
@@ -1020,7 +1036,9 @@ defmodule Aiur.Orchestrator.StatusReport do
           prewarm_blocked?,
           budget,
           max_dispatches,
-          latch_status
+          latch_status,
+          release && release.cause,
+          idle_evidence.auto_resume_retry_in_ms
         ),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
@@ -1132,7 +1150,22 @@ defmodule Aiur.Orchestrator.StatusReport do
          _prewarm_blocked?,
          _budget,
          _max_dispatches,
-         {:lifetime, lifetime, maximum}
+         _latch_status,
+         cause,
+         retry_in_ms
+       )
+       when not is_nil(cause),
+       do: StatusReason.for_claim_release(cause, retry_in_ms)
+
+  defp idle_status_reason(
+         _work_state,
+         _pause_reason,
+         _prewarm_blocked?,
+         _budget,
+         _max_dispatches,
+         {:lifetime, lifetime, maximum},
+         _cause,
+         _retry_in_ms
        ),
        do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
 
@@ -1142,7 +1175,9 @@ defmodule Aiur.Orchestrator.StatusReport do
          _prewarm_blocked?,
          _budget,
          _max_dispatches,
-         :none
+         :none,
+         _cause,
+         _retry_in_ms
        ),
        do: StatusReason.for_pause(pause_reason)
 
@@ -1152,7 +1187,9 @@ defmodule Aiur.Orchestrator.StatusReport do
          prewarm_blocked?,
          budget,
          max_dispatches,
-         :none
+         :none,
+         _cause,
+         _retry_in_ms
        ) do
     StatusReason.for_idle(
       prewarm_blocked?,

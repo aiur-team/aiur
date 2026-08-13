@@ -1976,7 +1976,8 @@ defmodule Aiur.Orchestrator.Dispatcher do
           state
           | running: running,
             claimed: MapSet.put(state.claimed, issue.id),
-            retry_attempts: Map.delete(state.retry_attempts, issue.id)
+            retry_attempts: Map.delete(state.retry_attempts, issue.id),
+            released_claims: Map.delete(state.released_claims, issue.id)
         }
 
       {:error, reason} ->
