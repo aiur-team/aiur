@@ -38,8 +38,10 @@ export interface AgentKeyFace {
   readonly icon: string;
   /** Which of the three key surfaces this slot belongs to. */
   readonly role: AgentKey["role"];
-  /** Secondary caption under a command key's label; empty for other roles. */
+  /** Command sub-label, or an event key's direction badge. */
   readonly subLabel: string;
+  /** Relative timestamp on an event key; empty for other roles. */
+  readonly timeLabel: string;
   readonly ticketNumber: string;
   /**
    * The untruncated title. {@link titleLines} is a deterministic, glyph-free
@@ -133,6 +135,7 @@ function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
     icon: agent.icon,
     role: agent.role,
     subLabel: agent.subLabel,
+    timeLabel: agent.timeLabel,
     ticketNumber: agent.identifier,
     title: agent.title,
     titleLines: wrapTitle(agent.title, lineChars),

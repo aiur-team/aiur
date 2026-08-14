@@ -5,6 +5,37 @@ import { agentIndexForKey } from "./keys.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
 
+/**
+ * One row of the log surface, kept structured all the way to the renderer.
+ *
+ * The daemon sends `{kind, badge, text, time}` per event key. Flattening that
+ * to a single display string on arrival threw away the direction badge and the
+ * relative timestamp, so every event key painted an identical grey `INFO` badge
+ * and no time at all.
+ */
+export interface EventKey {
+  /** `live` is the feed's sentinel first row, not an event. */
+  readonly kind: "live" | "event";
+  /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
+  readonly badge: string;
+  readonly text: string;
+  /** Relative timestamp such as "3m"; empty when the feed omits one. */
+  readonly time: string;
+}
+
+const asString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
+
+/** Normalises one server event-key payload into an {@link EventKey}. */
+const toEventKey = (event: Readonly<Record<string, unknown>>): EventKey =>
+  event.kind === "live"
+    ? { kind: "live", badge: "LIVE", text: asString(event.label, "LIVE"), time: "" }
+    : {
+        kind: "event",
+        badge: asString(event.badge, "INFO"),
+        text: asString(event.text, asString(event.label, "EVENT")),
+        time: asString(event.time),
+      };
+
 export interface ControllerState {
   readonly mode: ControllerMode;
   readonly focusedIdentifier: string | null;
@@ -12,7 +43,7 @@ export interface ControllerState {
   readonly eventOffset: number;
   readonly chatOffset: number;
   readonly transcriptLines: readonly string[];
-  readonly eventLines: readonly string[];
+  readonly eventLines: readonly EventKey[];
   readonly eventHasPrevious: boolean;
   readonly eventHasNext: boolean;
   readonly chatHasPrevious: boolean;
@@ -59,7 +90,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let dial3Value = 0;
   let chatDialValue = 0;
   let transcriptHistory: readonly string[] = [];
-  let eventHistory: readonly string[] = [];
+  let eventHistory: readonly EventKey[] = [];
   let eventMaxOffset = 0;
   let chatMaxOffset = 0;
 
@@ -118,8 +149,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const identifier = state.focusedIdentifier;
       if (identifier === null || agent === undefined) return;
       if (index === 0) {
-        const bucket = agent.bucket === "running" ? "pause" : agent.bucket === "paused" ? "resume" : null;
-        if (bucket !== null) options.channel()?.control(identifier, bucket);
+        // Anything not already paused can be paused. Restricting this to the
+        // `running` bucket left the key inert for an alert or stuck agent —
+        // exactly the states an operator most wants to halt.
+        options.channel()?.control(identifier, agent.bucket === "paused" ? "resume" : "pause");
       } else if (index === 1) {
         options.channel()?.control(identifier, agent.priority === true ? "deprioritize" : "prioritize");
       } else if (index === 2) {
@@ -190,7 +223,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       setLogsOffsets(state.eventOffset, offset);
     },
     setLogs: (logs: StreamDeckLogs): void => {
-      eventHistory = (logs.event_keys ?? logs.event_keys_visible ?? []).map((event) => typeof event.label === "string" ? event.label : typeof event.text === "string" ? event.text : "EVENT");
+      eventHistory = (logs.event_keys ?? logs.event_keys_visible ?? []).map(toEventKey);
       transcriptHistory = (logs.transcript ?? []).map((entry) => typeof entry.line === "string" ? entry.line : typeof entry.body === "string" ? entry.body : "[INFO]");
       eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
       chatMaxOffset = typeof logs.transcript_max_offset === "number" ? logs.transcript_max_offset : Math.max(0, transcriptHistory.length - 2);

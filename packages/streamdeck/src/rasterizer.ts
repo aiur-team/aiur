@@ -27,7 +27,7 @@ import type { SegmentContent } from "./touchStrip/stripLayout.js";
 import { KEY_IMAGE_SIZE } from "./keys/keyImage.js";
 import { SEGMENT_WIDTH, STRIP_HEIGHT as SEGMENT_HEIGHT } from "./touchStrip/geometry.js";
 import { createPaint } from "./art/gradient.js";
-import { commandFragment, drawIcon, iconFragment } from "./art/icons.js";
+import { commandFragment, commandIsFilled, drawIcon, iconFragment } from "./art/icons.js";
 import { KEY_FACE_CONTRACT } from "./key-face-contract.js";
 import { drawVendorMark } from "./art/vendorMark.js";
 import { drawSegmentContent } from "./art/segments.js";
@@ -315,7 +315,15 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   context.fill();
 
   const glyph = 38;
-  drawIcon(context, commandFragment(face.icon), (KEY_IMAGE_SIZE - glyph) / 2, 26, glyph, live ? "#eafff3" : "#ffffff");
+  drawIcon(
+    context,
+    commandFragment(face.icon),
+    (KEY_IMAGE_SIZE - glyph) / 2,
+    26,
+    glyph,
+    live ? "#eafff3" : "#ffffff",
+    commandIsFilled(face.icon),
+  );
 
   context.textAlign = "center";
   context.font = "700 15px sans-serif";
@@ -329,7 +337,37 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   context.textAlign = "left";
 };
 
-/** A log-surface key: direction badge over the event text. */
+/**
+ * The log feed's first row: a distinct live indicator, not an event. The mock
+ * gives it a green plate and a pulsing dot; a static JPEG keeps the plate and
+ * the dot without the pulse.
+ */
+const drawLiveKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
+  roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
+  context.fillStyle = createPaint(context, "linear-gradient(180deg,#227a4d,#17583a)", 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE);
+  context.fill();
+
+  const inner = KEY_IMAGE_SIZE - FACE_INSET * 2;
+  roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
+  context.fillStyle = createPaint(context, "linear-gradient(180deg,#132420,#0d1713)", FACE_INSET, FACE_INSET, inner, inner);
+  context.fill();
+
+  context.font = "800 22px sans-serif";
+  const label = face.title === "" ? "LIVE" : face.title;
+  const labelWidth = context.measureText(label).width;
+  const dot = 10;
+  const startX = (KEY_IMAGE_SIZE - (labelWidth + dot + 9)) / 2;
+
+  context.beginPath();
+  context.arc(startX + dot / 2, KEY_IMAGE_SIZE / 2 - 6, dot / 2, 0, Math.PI * 2);
+  context.fillStyle = "#4ade80";
+  context.fill();
+
+  context.fillStyle = "#8fe0a8";
+  context.fillText(label, startX + dot + 9, KEY_IMAGE_SIZE / 2 + 2);
+};
+
+/** A log-surface key: direction badge over the event text, timestamp bottom-right. */
 const drawEventKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
   context.fillStyle = "#15181d";
@@ -346,9 +384,20 @@ const drawEventKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
 
   context.font = "600 13px sans-serif";
   context.fillStyle = TEXT_TITLE;
-  wrapToWidth(context, face.title, KEY_IMAGE_SIZE - PAD_X * 2, 4).forEach((line, index) => {
+  // One line fewer when a timestamp occupies the bottom strip, so the text
+  // cannot run underneath it.
+  const textLines = face.timeLabel === "" ? 4 : 3;
+  wrapToWidth(context, face.title, KEY_IMAGE_SIZE - PAD_X * 2, textLines).forEach((line, index) => {
     context.fillText(line, PAD_X, 44 + index * 15);
   });
+
+  if (face.timeLabel !== "") {
+    context.font = "700 10px monospace";
+    context.fillStyle = "rgba(255,255,255,0.5)";
+    context.textAlign = "right";
+    context.fillText(face.timeLabel, KEY_IMAGE_SIZE - PAD_X, KEY_IMAGE_SIZE - 9);
+    context.textAlign = "left";
+  }
 };
 
 const drawKey = (canvas: Canvas, face: KeyFace): void => {
@@ -360,6 +409,10 @@ const drawKey = (canvas: Canvas, face: KeyFace): void => {
   }
   if (face.role === "command") {
     drawCommandKey(context, face);
+    return;
+  }
+  if (face.role === "live") {
+    drawLiveKey(context, face);
     return;
   }
   if (face.role === "event") {

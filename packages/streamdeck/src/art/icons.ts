@@ -1,11 +1,17 @@
 /**
  * The Build Order line-art icon set, drawn on canvas.
  *
- * The design mock renders each key's epic icon as an inline `<svg>` from
- * `BO_ICONS` (see `docs/design/streamdeck/README.md`). The shapes below are
- * those definitions **verbatim**, kept as their original SVG fragment strings
- * so a re-extraction from the mock is a copy-paste rather than a translation.
- * Every fragment is authored against a 24x24 viewBox and stroked, never filled.
+ * The design mock renders each key's epic icon as an inline `<svg>` built by
+ * its `boIcon(lane)` helper from a `BO_ICONS` table. The shapes below are those
+ * definitions **verbatim**, kept as their original SVG fragment strings so a
+ * re-extraction is a copy-paste rather than a translation. Every fragment is
+ * authored against a 24x24 viewBox.
+ *
+ * Provenance note: `BO_ICONS` is shared with the dashboard's Build Order view
+ * and lives in the full `Aiur Dashboard.html` mock, **not** in the three-file
+ * Stream Deck slice under `docs/design/streamdeck/`. The icons here therefore
+ * cannot be diffed against that checked-in slice; `docs/design/streamdeck/`
+ * remains the spec for everything else on the key.
  *
  * Only the four primitives the icon set actually uses are supported — `path`,
  * `circle`, `rect`, `ellipse`. A general SVG renderer would be far more code
@@ -89,11 +95,21 @@ const attribute = (element: string, name: string): number | undefined => {
 const ELEMENT_PATTERN = /<(path|circle|rect|ellipse)\b([^>]*)>/g;
 
 /** Traces one SVG element onto `context`'s current path. */
-const traceElement = (context: SKRSContext2D, kind: string, attrs: string): void => {
+const traceElement = (context: SKRSContext2D, kind: string, attrs: string, filled: boolean): void => {
+  const paint = (path?: Path2D): void => {
+    if (path === undefined) {
+      if (filled) context.fill();
+      else context.stroke();
+      return;
+    }
+    if (filled) context.fill(path);
+    else context.stroke(path);
+  };
+
   if (kind === "path") {
     const data = /\bd="([^"]+)"/.exec(attrs);
     if (data !== null) {
-      context.stroke(new Path2D(data[1]));
+      paint(new Path2D(data[1]));
     }
     return;
   }
@@ -115,8 +131,15 @@ const traceElement = (context: SKRSContext2D, kind: string, attrs: string): void
     const radius = attribute(attrs, "rx") ?? 0;
     context.roundRect(x, y, width, height, radius);
   }
-  context.stroke();
+  paint();
 };
+
+/**
+ * Icons the mock draws with `fill="currentColor" stroke="none"` rather than as
+ * line art. Stroking these paints a hollow outline — a play triangle with a
+ * hole in it — instead of the solid glyph.
+ */
+const FILLED_ICONS: ReadonlySet<string> = new Set(["pause", "play"]);
 
 /**
  * Draws `fragment` as a `size`-pixel square whose top-left corner is (`x`,
@@ -131,6 +154,7 @@ export const drawIcon = (
   y: number,
   size: number,
   color: string,
+  filled = false,
 ): void => {
   const scale = size / ICON_VIEWBOX;
   // save()/restore() covers the transform, but this canvas implementation does
@@ -138,21 +162,28 @@ export const drawIcon = (
   // Leaking a stroke colour here would silently retint whatever the caller
   // draws next.
   const previousStroke = context.strokeStyle;
+  const previousFill = context.fillStyle;
   const previousWidth = context.lineWidth;
 
   context.save();
   context.translate(x, y);
   context.scale(scale, scale);
   context.strokeStyle = color;
+  context.fillStyle = color;
   context.lineWidth = ICON_STROKE_WIDTH;
   context.lineCap = "round";
   context.lineJoin = "round";
 
   for (const [, kind, attrs] of fragment.matchAll(ELEMENT_PATTERN)) {
-    traceElement(context, kind, attrs);
+    traceElement(context, kind, attrs, filled);
   }
 
   context.restore();
   context.strokeStyle = previousStroke;
+  context.fillStyle = previousFill;
   context.lineWidth = previousWidth;
 };
+
+/** True when `command`'s glyph is a filled shape rather than line art. */
+export const commandIsFilled = (command: string | null | undefined): boolean =>
+  FILLED_ICONS.has(command ?? "");

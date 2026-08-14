@@ -146,7 +146,7 @@ describe("physical controller composition", () => {
     controller.handleReport(dialButton(3));
     controller.handleReport(dialButton(3, false));
     expect(controller.state().eventOffset).toBeGreaterThan(before.eventOffset);
-    expect(controller.state().eventLines).toContain("event-0");
+    expect(controller.state().eventLines.map((event) => event.text)).toContain("event-0");
     const eventOffset = controller.state().eventOffset;
     controller.handleReport(dialTurn(0, 1));
     expect(controller.state().chatOffset).toBeGreaterThan(0);
@@ -187,6 +187,31 @@ describe("physical controller composition", () => {
     controller.setLogs({ event_keys: Array.from({ length: 12 }, (_, index) => ({ label: `refresh-${index}` })), transcript: Array.from({ length: 6 }, (_, index) => ({ body: `refresh-${index}` })), events_max_offset: 4, transcript_max_offset: 4 });
     expect(controller.state().eventOffset).toBe(eventOffset);
     expect(controller.state().chatOffset).toBe(chatOffset);
+  });
+
+  // Flattening each event key to one display string discarded the direction
+  // badge and the relative timestamp, so every log key painted an identical
+  // grey INFO badge with no time.
+  it("keeps each event key's direction badge and timestamp", () => {
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+    controller.setLogs({
+      event_keys: [
+        { kind: "live", label: "LIVE" },
+        { kind: "event", badge: "EMIT", text: "Dependency cleared", time: "3m" },
+        { kind: "event", badge: "SYSTEM", text: "Daemon reloaded", time: "12m" },
+      ],
+    });
+    expect(controller.state().eventLines).toEqual([
+      { kind: "live", badge: "LIVE", text: "LIVE", time: "" },
+      { kind: "event", badge: "EMIT", text: "Dependency cleared", time: "3m" },
+      { kind: "event", badge: "SYSTEM", text: "Daemon reloaded", time: "12m" },
+    ]);
+  });
+
+  it("falls back to INFO for an event with no badge", () => {
+    const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+    controller.setLogs({ event_keys: [{ kind: "event", text: "no badge here" }] });
+    expect(controller.state().eventLines[0]).toEqual({ kind: "event", badge: "INFO", text: "no badge here", time: "" });
   });
 
   it("clears a held mic when Logs rises in the same report", () => {

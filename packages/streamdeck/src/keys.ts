@@ -15,7 +15,7 @@ export type Vendor = string;
  * per-agent commands, or a row in the event log. Without this the command and
  * log surfaces render as agent tiles with a command name in the title slot.
  */
-export type KeyRole = "agent" | "command" | "event";
+export type KeyRole = "agent" | "command" | "event" | "live";
 export interface BucketStyle {
   readonly accent: string;
   readonly glow: string;
@@ -47,8 +47,13 @@ export interface AgentKey {
   /** Build Order lane name selecting the key's line-art icon. */
   readonly icon: string;
   readonly role: KeyRole;
-  /** Secondary caption under a command key's label; empty for other roles. */
+  /**
+   * Secondary caption: a command key's sub-label, or an event key's direction
+   * badge. Empty when the role has neither.
+   */
   readonly subLabel: string;
+  /** Relative timestamp shown on an event key ("3m"); empty for other roles. */
+  readonly timeLabel: string;
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
@@ -74,6 +79,7 @@ export interface AgentInput {
   /** Defaults to `agent` so existing grid callers are unaffected. */
   readonly role?: KeyRole;
   readonly subLabel?: string | null;
+  readonly timeLabel?: string | null;
   readonly bucket: BucketId;
   readonly progress_percent: number;
   readonly priority: boolean;
@@ -150,6 +156,7 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     icon: agent.icon ?? "",
     role: agent.role ?? "agent",
     subLabel: agent.subLabel ?? "",
+    timeLabel: agent.timeLabel ?? "",
     priority: agent.priority,
     bucket: agent.bucket,
     style,

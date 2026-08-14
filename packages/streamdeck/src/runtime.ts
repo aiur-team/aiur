@@ -146,6 +146,13 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
     }
     if (outcome.type === "input") {
       env.onInput?.(outcome.data);
+      // Read again straight away rather than waiting out the interval. A
+      // backend may have several reports buffered, and pacing the drain at one
+      // per interval makes a fast dial spin keep scrolling long after the
+      // operator stopped. An idle read still blocks for the interval, so this
+      // cannot spin.
+      void poll();
+      return;
     }
     scheduledPoll();
   };

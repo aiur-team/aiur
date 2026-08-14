@@ -30,13 +30,14 @@ const command = (name, title, icon, subLabel) => ({
   dependency_ready: true,
 });
 
-const event = (index, direction, text) => ({
+const event = (index, direction, text, time = "3m") => ({
   identifier: `event-${index}`,
   title: text,
   vendor: "logs",
   icon: "",
-  role: "event",
+  role: direction === "LIVE" ? "live" : "event",
   subLabel: direction,
+  timeLabel: direction === "LIVE" ? "" : time,
   bucket: "queued",
   progress_percent: 0,
   priority: false,
@@ -51,10 +52,10 @@ const rows = [
     command("mic", "Mic", "mic", "LIVE"),
   ]),
   layoutPhysicalKeys([
-    event(0, "EMIT", "Dependency cleared for #1682"),
-    event(1, "CONSUME", "Picked up build order barrier"),
-    event(2, "SYSTEM", "Daemon reloaded workflow fixtures"),
-    event(3, "AGENT", "Opened PR #1904 for review"),
+    event(0, "LIVE", "LIVE"),
+    event(1, "EMIT", "Dependency cleared for #1682", "3m"),
+    event(2, "SYSTEM", "Daemon reloaded workflow fixtures", "12m"),
+    event(3, "AGENT", "Opened PR #1904 for review", "1h"),
   ]),
 ];
 

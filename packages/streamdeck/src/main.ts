@@ -49,6 +49,12 @@ const CONTROL_TIMEOUT_MS = 1000;
  * kernel rather than dropped between reads.
  */
 const POLL_TRANSFER_COUNT = 3;
+/**
+ * Cap on input reports buffered between reads. Deep enough to absorb a burst
+ * (a key chord, a fast dial spin) without dropping anything an operator would
+ * notice, shallow enough that a runaway stream cannot grow memory unbounded.
+ */
+const MAX_BUFFERED_REPORTS = 64;
 
 /** Tracer for the paths that otherwise produce no operator-visible output. */
 const debug = createDebugLog(debugEnabled(process.env.AIUR_STREAMDECK_DEBUG));
@@ -126,6 +132,12 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
       waiter({ timedOut: false, data });
       return;
     }
+    // Bound the backlog. A dial spun hard produces reports faster than the
+    // reader drains them, and an unbounded queue would both grow without limit
+    // and replay stale motion long after the operator stopped.
+    if (inbox.length >= MAX_BUFFERED_REPORTS) {
+      inbox.shift();
+    }
     inbox.push(data);
   };
 
@@ -137,24 +149,35 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
       debug("input.streamError", { error: String(error) });
       streamError = error;
       polling = false;
+      // Wake a waiter immediately instead of letting it idle out, so the
+      // runtime starts its close/reopen a poll interval sooner.
+      releaseWaiter();
     });
     inEndpoint.startPoll(POLL_TRANSFER_COUNT, INPUT_REPORT_LENGTH);
     debug("input.pollStarted", { transfers: POLL_TRANSFER_COUNT, size: INPUT_REPORT_LENGTH });
   };
 
-  const stopInput = (): void => {
-    if (!polling) return;
-    polling = false;
-    try {
-      inEndpoint.stopPoll();
-    } catch {
-      // Already stopped, or the device vanished; nothing to unwind.
+  /** Settles any waiter so a close does not leave a read hanging on a timer. */
+  const releaseWaiter = (): void => {
+    const waiter = pending;
+    if (waiter !== null) {
+      pending = null;
+      waiter({ timedOut: true });
     }
   };
 
   return {
     claim: async () => {
-      iface.claim();
+      // `claim()` throws on BUSY/ACCESS — a second sidecar, or a udev ACL that
+      // has not landed yet. That happens after this factory has returned, so
+      // nothing else would close the handle, and each retry would open another
+      // one while the process itself kept the device busy.
+      try {
+        iface.claim();
+      } catch (error) {
+        device.close();
+        throw error;
+      }
       startInput();
     },
     controlOut: (bmRequestType, bRequest, wValue, wIndex, data) =>
@@ -175,15 +198,18 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
       }),
     transferIn: () =>
       new Promise((resolve, reject) => {
+        // Drain buffered reports before surfacing a stream error: reports that
+        // arrived before the failure are real input the operator performed, and
+        // failing first would discard them along with the rest of the inbox.
+        const buffered = inbox.shift();
+        if (buffered !== undefined) {
+          resolve({ timedOut: false, data: buffered });
+          return;
+        }
         if (streamError !== null) {
           const error = streamError;
           streamError = null;
           reject(error);
-          return;
-        }
-        const buffered = inbox.shift();
-        if (buffered !== undefined) {
-          resolve({ timedOut: false, data: buffered });
           return;
         }
         // Nothing queued: report an idle interval so the runtime's poll loop
@@ -198,9 +224,16 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
         pending = settle;
       }),
     close: async () => {
-      stopInput();
-      inEndpoint.removeAllListeners();
+      polling = false;
+      releaseWaiter();
+      // Do NOT call stopPoll() here. `iface.release(true, cb)` already cancels
+      // the poll and waits for the endpoint's `end` event before releasing;
+      // stopping it first clears `pollActive`, so release skips that wait and
+      // `device.close()` runs while cancelled transfers still hold device refs
+      // — which throws "Can't close device with a pending request" and leaks
+      // the handle on every reconnect.
       await new Promise<void>((resolve) => iface.release(true, () => resolve()));
+      inEndpoint.removeAllListeners();
       device.close();
     },
   };

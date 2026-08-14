@@ -19,6 +19,7 @@ import type { SKRSContext2D } from "@napi-rs/canvas";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import type { ProviderSegmentModel } from "../touchStrip/providerSegment.js";
 import { progressBarColor } from "../key-face-contract.js";
+import { createPaint } from "./gradient.js";
 import { drawVendorMark } from "./vendorMark.js";
 
 const BG = "#0f1216";
@@ -41,6 +42,20 @@ const caption = (context: SKRSContext2D, text: string, x: number, y: number, col
   context.fillText(text.toUpperCase(), x, y);
 };
 
+/**
+ * Fill for the strip's mini-bars, matching the mock's `.sd-mini-bar > i`.
+ *
+ * Deliberately NOT the key's hue map. These bars show *consumption* — quota
+ * used, build completed — and hue-mapping them would paint a provider at 100%
+ * of its rate limit bright green, which reads as healthy when it means the
+ * opposite. The hue map belongs to agent progress, where more really is better.
+ */
+const MINI_BAR_FILL = "linear-gradient(90deg,#3f8bff,#8fbcff)";
+
+/** Builds the mini-bar gradient across the bar's own width. */
+const miniBarFill = (context: SKRSContext2D, x: number, width: number): string | CanvasGradient =>
+  createPaint(context, MINI_BAR_FILL, x, 0, width, METER_HEIGHT);
+
 /** A rounded meter with a filled portion; `fraction` is clamped to 0..1. */
 const meter = (
   context: SKRSContext2D,
@@ -48,7 +63,7 @@ const meter = (
   y: number,
   width: number,
   fraction: number,
-  color: string,
+  color: string | CanvasGradient,
 ): void => {
   const clamped = Math.max(0, Math.min(1, fraction));
   context.beginPath();
@@ -104,7 +119,7 @@ const drawSummary = (context: SKRSContext2D, model: SegmentContent & { kind: "su
     context.fillStyle = LABEL;
     context.fillText(eta, 200 - PAD - context.measureText(eta).width, 72);
   }
-  meter(context, PAD, 80, 200 - PAD * 2, build.fraction, progressBarColor(percent));
+  meter(context, PAD, 80, 200 - PAD * 2, build.fraction, miniBarFill(context, PAD, 200 - PAD * 2));
 };
 
 /** Segments 2-3 in grid mode: one provider, session and weekly meters. */
@@ -149,7 +164,7 @@ const drawProvider = (
     context.fillStyle = MUTED;
     context.fillText(right, 200 - PAD - context.measureText(right).width, top);
 
-    meter(context, PAD, top + 5, 200 - PAD * 2, percent / 100, progressBarColor(percent));
+    meter(context, PAD, top + 5, 200 - PAD * 2, percent / 100, miniBarFill(context, PAD, 200 - PAD * 2));
   });
 };
 

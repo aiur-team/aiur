@@ -47,7 +47,11 @@ describe("physical surface composition", () => {
     const surface = createPhysicalSurface();
     const backend = { write, sendFeatureReport } as never;
     const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
-    const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: ["event-a", "event-b", "event-c"], eventOffset: 0, transcriptLines: ["chat-a", "chat-b"], eventHasNext: true, chatHasNext: true };
+    const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: [
+      { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
+      { kind: "event" as const, badge: "CONSUME", text: "event-b", time: "2m" },
+      { kind: "event" as const, badge: "INFO", text: "event-c", time: "3m" },
+    ], eventOffset: 0, transcriptLines: ["chat-a", "chat-b"], eventHasNext: true, chatHasNext: true };
     await surface.repaint(backend, grid, {}, undefined, base);
     const first = write.mock.calls.length;
     await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1 });
