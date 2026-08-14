@@ -1,6 +1,8 @@
 defmodule Aiur.Config.BuildOrderTest do
   use ExUnit.Case, async: true
 
+  alias Aiur.BuildOrder.GraphProjection.Options
+  alias Aiur.Config
   alias Aiur.Config.Schema
 
   test "uses bounded projection and ticket-detail cache defaults" do
@@ -54,10 +56,10 @@ defmodule Aiur.Config.BuildOrderTest do
     # The setting is inert unless it reaches the projection's policy, so pin
     # both halves of the wiring: Config exports the key, and policy_options/1
     # maps it through rather than falling back to the default.
-    assert Keyword.has_key?(Aiur.Config.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
+    assert Keyword.has_key?(Config.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
 
     policy =
-      Aiur.BuildOrder.GraphProjection.Options.policy_options(
+      Options.policy_options(
         catalog_refresh_ms: 120_000,
         catalog_labels_refresh_ms: 900_000
       )
@@ -66,7 +68,7 @@ defmodule Aiur.Config.BuildOrderTest do
 
     # And no configuration can make the expensive read outrun the catalog poll.
     clamped =
-      Aiur.BuildOrder.GraphProjection.Options.policy_options(
+      Options.policy_options(
         catalog_refresh_ms: 120_000,
         catalog_labels_refresh_ms: 1_000
       )

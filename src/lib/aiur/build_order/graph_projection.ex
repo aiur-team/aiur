@@ -9,9 +9,9 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   use GenServer
 
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
   alias Aiur.BuildOrder.GitHubGraph.Settings
   alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
-  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
   alias Aiur.TrackerIdentity
 
   @reset_topic "build_order:graph:reset"
