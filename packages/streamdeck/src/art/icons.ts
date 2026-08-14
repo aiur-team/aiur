@@ -55,8 +55,27 @@ export const BUILD_ORDER_ICONS: Readonly<Record<string, string>> = Object.freeze
   bug: '<rect x="7" y="8" width="10" height="10" rx="5"/><path d="M12 3v3M7 11H3M21 11h-4M7 16l-3 2M17 16l3 2M9 6 7 4M15 6l2-2"/>',
 });
 
+/**
+ * Per-agent command icons, verbatim from the mock's `SD_CMD_IC`. These are the
+ * glyphs the four command keys show once an agent is focused; `pause`/`play`
+ * and `up`/`down` are the two toggling pairs.
+ */
+export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
+  back: '<path d="M15 6l-6 6 6 6"/>',
+  pause: '<rect x="6.5" y="5" width="3.6" height="14" rx="1"/><rect x="13.9" y="5" width="3.6" height="14" rx="1"/>',
+  play: '<path d="M8 5.5v13l11-6.5z"/>',
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
+  mic: '<rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0M12 17v4"/>',
+  logs: '<path d="M4 6h16M4 12h16M4 18h10"/>',
+});
+
 /** Icon the mock falls back to for an unknown lane. */
 export const DEFAULT_ICON = "list";
+
+/** Resolves a command name to its glyph, falling back to the logs bars. */
+export const commandFragment = (command: string | null | undefined): string =>
+  COMMAND_ICONS[command ?? ""] ?? COMMAND_ICONS.logs;
 
 /** Resolves a lane name to its fragment, mirroring the mock's `boIcon`. */
 export const iconFragment = (lane: string | null | undefined): string =>

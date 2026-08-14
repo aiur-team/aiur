@@ -8,6 +8,14 @@ import {
 export type { BucketId } from "./key-face-contract.js";
 export { progressBarColor };
 export type Vendor = string;
+
+/**
+ * What a key slot represents. The eight physical keys are reused across the
+ * three surfaces, and each draws differently: an agent tile, one of the four
+ * per-agent commands, or a row in the event log. Without this the command and
+ * log surfaces render as agent tiles with a command name in the title slot.
+ */
+export type KeyRole = "agent" | "command" | "event";
 export interface BucketStyle {
   readonly accent: string;
   readonly glow: string;
@@ -38,6 +46,9 @@ export interface AgentKey {
   readonly vendor: Vendor;
   /** Build Order lane name selecting the key's line-art icon. */
   readonly icon: string;
+  readonly role: KeyRole;
+  /** Secondary caption under a command key's label; empty for other roles. */
+  readonly subLabel: string;
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
@@ -60,6 +71,9 @@ export interface AgentInput {
    * resolve to the icon set's default rather than leaving the slot empty.
    */
   readonly icon?: string | null;
+  /** Defaults to `agent` so existing grid callers are unaffected. */
+  readonly role?: KeyRole;
+  readonly subLabel?: string | null;
   readonly bucket: BucketId;
   readonly progress_percent: number;
   readonly priority: boolean;
@@ -134,6 +148,8 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     title: agent.title ?? "",
     vendor: agent.vendor,
     icon: agent.icon ?? "",
+    role: agent.role ?? "agent",
+    subLabel: agent.subLabel ?? "",
     priority: agent.priority,
     bucket: agent.bucket,
     style,

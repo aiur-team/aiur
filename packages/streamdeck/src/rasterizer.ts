@@ -27,7 +27,8 @@ import type { SegmentContent } from "./touchStrip/stripLayout.js";
 import { KEY_IMAGE_SIZE } from "./keys/keyImage.js";
 import { SEGMENT_WIDTH, STRIP_HEIGHT as SEGMENT_HEIGHT } from "./touchStrip/geometry.js";
 import { createPaint } from "./art/gradient.js";
-import { drawIcon, iconFragment } from "./art/icons.js";
+import { commandFragment, drawIcon, iconFragment } from "./art/icons.js";
+import { KEY_FACE_CONTRACT } from "./key-face-contract.js";
 import { drawVendorMark } from "./art/vendorMark.js";
 import { drawSegmentContent } from "./art/segments.js";
 
@@ -73,6 +74,16 @@ const TAG_BLOCKED_FILL = "rgba(224,86,78,0.2)";
 const TAG_BLOCKED_TEXT = "#ff9a90";
 
 const quality = (value: number | undefined): number => Math.max(1, Math.min(100, Math.trunc(value ?? 90)));
+
+/**
+ * Badge colour for an event direction, from the shared contract's
+ * `direction_badges`, so the log surface and the dashboard agree. An unknown
+ * direction falls back to the neutral INFO colour.
+ */
+const directionColor = (direction: string): string => {
+  const badges = KEY_FACE_CONTRACT.direction_badges as Readonly<Record<string, { color: string }>>;
+  return (badges[direction.toUpperCase()] ?? badges.INFO).color;
+};
 
 /** Rounded rectangle path; `roundRect` is available on the napi context. */
 const roundedPath = (
@@ -278,11 +289,81 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   }
 };
 
+/**
+ * A per-agent command key: one large centred glyph over a label and caption.
+ * The mic key is the exception — while held it turns green, which is the only
+ * feedback the operator has that the hold registered.
+ */
+const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
+  const live = face.icon === "mic" && face.subLabel.toUpperCase() === "LIVE";
+  roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
+  context.fillStyle = live
+    ? createPaint(context, "linear-gradient(180deg,#37d97e,#1f9c56)", 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE)
+    : "#1b1e25";
+  context.fill();
+
+  const inner = KEY_IMAGE_SIZE - FACE_INSET * 2;
+  roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
+  context.fillStyle = createPaint(
+    context,
+    live ? "linear-gradient(180deg,#17402a,#0f1a13)" : "linear-gradient(180deg,#1a1d24,#111318)",
+    FACE_INSET,
+    FACE_INSET,
+    inner,
+    inner,
+  );
+  context.fill();
+
+  const glyph = 38;
+  drawIcon(context, commandFragment(face.icon), (KEY_IMAGE_SIZE - glyph) / 2, 26, glyph, live ? "#eafff3" : "#ffffff");
+
+  context.textAlign = "center";
+  context.font = "700 15px sans-serif";
+  context.fillStyle = live ? "#eafff3" : TEXT_PRIMARY;
+  context.fillText(face.title, KEY_IMAGE_SIZE / 2, 88);
+  if (face.subLabel !== "") {
+    context.font = "700 9px monospace";
+    context.fillStyle = live ? "rgba(234,255,243,0.85)" : "rgba(240,242,246,0.55)";
+    context.fillText(face.subLabel.toUpperCase(), KEY_IMAGE_SIZE / 2, 103);
+  }
+  context.textAlign = "left";
+};
+
+/** A log-surface key: direction badge over the event text. */
+const drawEventKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
+  roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
+  context.fillStyle = "#15181d";
+  context.fill();
+
+  const inner = KEY_IMAGE_SIZE - FACE_INSET * 2;
+  roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
+  context.fillStyle = createPaint(context, "linear-gradient(180deg,#171a20,#0f1216)", FACE_INSET, FACE_INSET, inner, inner);
+  context.fill();
+
+  context.font = "700 11px monospace";
+  context.fillStyle = directionColor(face.subLabel);
+  context.fillText(face.subLabel.toUpperCase(), PAD_X, 24);
+
+  context.font = "600 13px sans-serif";
+  context.fillStyle = TEXT_TITLE;
+  wrapToWidth(context, face.title, KEY_IMAGE_SIZE - PAD_X * 2, 4).forEach((line, index) => {
+    context.fillText(line, PAD_X, 44 + index * 15);
+  });
+};
+
 const drawKey = (canvas: Canvas, face: KeyFace): void => {
   const context = canvas.getContext("2d");
   if (face.kind === "empty") {
     context.fillStyle = EMPTY_FILL;
     context.fillRect(0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE);
+    return;
+  }
+  if (face.role === "command") {
+    drawCommandKey(context, face);
+    return;
+  }
+  if (face.role === "event") {
+    drawEventKey(context, face);
     return;
   }
   drawKeyPlate(context, face);

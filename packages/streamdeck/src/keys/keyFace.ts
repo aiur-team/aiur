@@ -36,6 +36,10 @@ export interface AgentKeyFace {
   readonly vendor: Vendor;
   /** Build Order lane selecting the key's line-art icon. */
   readonly icon: string;
+  /** Which of the three key surfaces this slot belongs to. */
+  readonly role: AgentKey["role"];
+  /** Secondary caption under a command key's label; empty for other roles. */
+  readonly subLabel: string;
   readonly ticketNumber: string;
   /**
    * The untruncated title. {@link titleLines} is a deterministic, glyph-free
@@ -127,6 +131,8 @@ function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
     pulseSeconds: agent.style.pulseSeconds ?? null,
     vendor: agent.vendor,
     icon: agent.icon,
+    role: agent.role,
+    subLabel: agent.subLabel,
     ticketNumber: agent.identifier,
     title: agent.title,
     titleLines: wrapTitle(agent.title, lineChars),

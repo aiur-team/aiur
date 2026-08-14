@@ -49,24 +49,53 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
   dependency_ready: agent.dependency_ready === true,
 }));
 
-const descriptorEvents = (lines: readonly string[], offset: number): AgentInput[] => lines.slice(offset, offset + 8).map((line, index) => ({
-  identifier: `event-${offset + index}`,
-  title: line,
-  vendor: "logs",
-  bucket: "queued",
-  progress_percent: 0,
-  priority: false,
-  dependency_ready: true,
-}));
+/** Leading `EMIT`/`CONSUME`/... token a durable event line carries, if any. */
+const DIRECTION_PATTERN = /^\[?(EMIT|CONSUME|INFO|AGENT|SYSTEM)\]?\s*/i;
 
+const descriptorEvents = (lines: readonly string[], offset: number): AgentInput[] => lines.slice(offset, offset + 8).map((line, index) => {
+  const match = DIRECTION_PATTERN.exec(line);
+  return {
+    identifier: `event-${offset + index}`,
+    // The direction badge is drawn separately, so strip it from the body text
+    // rather than printing it twice.
+    title: match === null ? line : line.slice(match[0].length),
+    vendor: "logs",
+    role: "event" as const,
+    subLabel: match === null ? "INFO" : match[1].toUpperCase(),
+    bucket: "queued" as const,
+    progress_percent: 0,
+    priority: false,
+    dependency_ready: true,
+  };
+});
+
+/**
+ * The four per-agent command keys, in the order the mock defines: pause/play,
+ * prioritise/deprioritise, logs, and the hold-to-talk mic. Each carries its own
+ * glyph and caption; the mic's caption is what tells the renderer to paint the
+ * held state.
+ */
 const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | undefined, micHeld: boolean): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
   const running = agent?.bucket === "running";
+  const prioritised = agent?.priority === true;
+  const command = (name: string, title: string, icon: string, subLabel: string): AgentInput => ({
+    identifier: `${identifier}:${name}`,
+    title,
+    vendor: "command",
+    icon,
+    role: "command",
+    subLabel,
+    bucket: "queued",
+    progress_percent: 0,
+    priority: false,
+    dependency_ready: true,
+  });
   const commands: AgentInput[] = [
-    { identifier: `${identifier}:pause`, title: running ? "Pause" : "Resume", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:priority`, title: agent?.priority === true ? "Deprioritize" : "Prioritize", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:logs`, title: "Logs", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:mic`, title: micHeld ? "Mic (LIVE)" : "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+    command("pause", running ? "Pause" : "Resume", running ? "pause" : "play", running ? "HOLD" : "RESUME"),
+    command("priority", prioritised ? "Deprioritize" : "Prioritize", prioritised ? "down" : "up", prioritised ? "LOWER" : "RAISE"),
+    command("logs", "Logs", "logs", "OPEN"),
+    command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
   ];
   return [...commands, undefined, undefined, undefined, undefined];
 };
