@@ -116,4 +116,60 @@ describe("createRasterizer key", () => {
     const rasterizer = createRasterizer();
     expect(await inkFraction(rasterizer.key(layoutKeys([], 0)[0]))).toBeLessThan(0.02);
   });
+
+  // The strip and the keys are tied both ways: pressing an event key scrolls
+  // the strip to it, and scrolling the strip highlights the key. The highlight
+  // is the only thing on the deck that shows the two agree, so it has to reach
+  // actual pixels.
+  it("paints a selected event key differently from an unselected one", () => {
+    const rasterizer = createRasterizer();
+    const event = (selected: boolean): AgentInput =>
+      agent({ role: "event", subLabel: "EMIT", timeLabel: "3m", title: "Dependency cleared", selected });
+    const plain = rasterizer.key(layoutKeys([event(false)], 0)[0]);
+    const highlighted = rasterizer.key(layoutKeys([event(true)], 0)[0]);
+    expect(Buffer.from(plain).equals(Buffer.from(highlighted))).toBe(false);
+  });
+
+  // LIVE is a jump to the newest entry, not an event, so it is never the key
+  // the strip is reading and must not react to the flag.
+  it("does not highlight the LIVE key", () => {
+    const rasterizer = createRasterizer();
+    const live = (selected: boolean): AgentInput => agent({ role: "live", title: "LIVE", selected });
+    expect(Buffer.from(rasterizer.key(layoutKeys([live(false)], 0)[0])).equals(Buffer.from(rasterizer.key(layoutKeys([live(true)], 0)[0])))).toBe(true);
+  });
+});
+
+describe("rasterizer.segment", () => {
+  const blank = { kind: "blank" } as const;
+
+  it("encodes a panel at the width it was asked for", async () => {
+    const rasterizer = createRasterizer();
+    for (const width of [200, 400, 800]) {
+      const image = await loadImage(Buffer.from(rasterizer.segment(blank, width)));
+      expect(image.width).toBe(width);
+      expect(image.height).toBe(100);
+    }
+  });
+
+  it("defaults to one 200-wide segment", async () => {
+    expect((await loadImage(Buffer.from(createRasterizer().segment(blank)))).width).toBe(200);
+  });
+
+  // Serving a cached 200-wide image for the 400-wide merged provider area would
+  // upload a JPEG that does not cover the region it was written to.
+  it("does not serve one width's image for another", () => {
+    const rasterizer = createRasterizer();
+    const narrow = rasterizer.segment(blank, 200);
+    expect(Buffer.from(narrow).equals(Buffer.from(rasterizer.segment(blank, 400)))).toBe(false);
+    expect(Buffer.from(narrow).equals(Buffer.from(rasterizer.segment(blank, 200)))).toBe(true);
+  });
+
+  // The strip's content is now unbounded — one distinct panel per scroll
+  // position of every transcript — so the cache has to evict rather than grow
+  // for the life of the process.
+  it("stays serviceable past its cache limit", () => {
+    const rasterizer = createRasterizer();
+    for (let width = 40; width < 800; width += 1) rasterizer.segment(blank, width);
+    expect(rasterizer.segment(blank, 200).length).toBeGreaterThan(0);
+  });
 });

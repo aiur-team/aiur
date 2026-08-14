@@ -114,6 +114,30 @@ defmodule Aiur.TicketActivityTest do
     assert {:error, :not_found} = TicketActivity.snapshot(ticket, server: restarted)
   end
 
+  # `Aiur.Orchestrator.StatusReport.activity_stage/2` reads exactly this shape
+  # and deliberately ignores the freshness, because a stage is a state with
+  # explicit transitions rather than a measurement that decays: the agent
+  # announces `phase.work.start` once and stays in that phase for as long as it
+  # takes. A projection change that renamed `:value`, or that dropped the stage
+  # once it went stale, would blank the Stream Deck's activity readout for most
+  # of every phase.
+  test "keeps a known stage after it goes stale, so a long phase stays readable", %{server: server} do
+    ticket = identity()
+    send(server, {:event, %{ticket_observation: phase_observation(ticket)}})
+
+    assert_receive {:ticket_activity_changed, %{identity: ^ticket}}, 500
+    assert {:ok, %{stage: %{status: :known, value: :work, freshness: :stale}}} = TicketActivity.snapshot(ticket, server: server)
+  end
+
+  defp phase_observation(ticket) do
+    %{
+      observation(ticket)
+      | source: %{kind: :agent_alert, name: "phase.work.start"},
+        event_id: 2,
+        attributes: %{stage: :work, transition: :start}
+    }
+  end
+
   defp observation(ticket) do
     %TicketObservation{
       status: :joinable,

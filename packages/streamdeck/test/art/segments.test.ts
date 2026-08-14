@@ -5,7 +5,9 @@ import { ageLabel, drawSegmentContent, resetLabel } from "../../src/art/segments
 import type { TranscriptRow } from "../../src/channel.js";
 import type { SegmentContent } from "../../src/touchStrip/stripLayout.js";
 import type { ProviderSegmentModel } from "../../src/touchStrip/providerSegment.js";
+import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
 import type { SummaryModel } from "../../src/touchStrip/summarySegment.js";
+import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
 
 const EMIT = "#9fd0ff";
 const AGENT = "#9fd0ff";
@@ -13,7 +15,8 @@ const SYSTEM = "#ffcf87";
 const INFO = "#c2c6cf";
 const ADD = "#88e0a6";
 const DEL = "#ff9a90";
-const MUTED = "rgba(240,242,246,0.72)";
+const LABEL = "rgba(255,255,255,0.55)";
+const ACCENT_LIVE = "#4ade80";
 
 interface Ink {
   readonly text: string;
@@ -22,7 +25,7 @@ interface Ink {
 
 const NOW = Date.parse("2026-08-13T03:00:00Z");
 
-/** The segment background; every other pixel counts as something painted. */
+/** The panel background; every other pixel counts as something painted. */
 const BACKGROUND: readonly [number, number, number] = [0x0f, 0x12, 0x16];
 
 interface Render {
@@ -30,29 +33,29 @@ interface Render {
   readonly ink: Ink[];
   /** Pixels that are not the flat background, i.e. proof something was drawn. */
   readonly inked: number;
-  /** The finished 200x100 region, for comparing two renders. */
+  /** The finished panel, for comparing two renders. */
   readonly pixels: Uint8ClampedArray;
 }
 
 /**
- * Paints one segment and records every string drawn with the colour it was
- * drawn in. The device only ever shows pixels, so the assertions have to run
- * against what the painter actually put on the canvas.
+ * Paints one panel and records every string drawn with the colour it was drawn
+ * in. The device only ever shows pixels, so the assertions have to run against
+ * what the painter actually put on the canvas.
  */
-const render = (content: SegmentContent, now = NOW): Render => {
-  const context = createCanvas(200, 100).getContext("2d");
+const render = (content: SegmentContent, width = 200, now = NOW): Render => {
+  const context = createCanvas(width, 100).getContext("2d");
   const ink: Ink[] = [];
   const original = context.fillText.bind(context) as SKRSContext2D["fillText"];
   context.fillText = ((text: string, x: number, y: number) => {
     ink.push({ text, fill: String(context.fillStyle) });
     return original(text, x, y);
   }) as SKRSContext2D["fillText"];
-  drawSegmentContent(context, content, now);
+  drawSegmentContent(context, content, width, now);
 
-  // The divider stroke on the right edge is painted for every segment, so the
+  // The divider stroke on the right edge is painted for every panel, so the
   // rightmost column is excluded from the ink count: it would otherwise report
-  // a segment that drew nothing at all as inked.
-  const { data } = context.getImageData(0, 0, 199, 100);
+  // a panel that drew nothing at all as inked.
+  const { data } = context.getImageData(0, 0, width - 1, 100);
   let inked = 0;
   for (let i = 0; i < data.length; i += 4) {
     if (data[i] !== BACKGROUND[0] || data[i + 1] !== BACKGROUND[1] || data[i + 2] !== BACKGROUND[2]) inked += 1;
@@ -60,7 +63,21 @@ const render = (content: SegmentContent, now = NOW): Render => {
   return { ink, inked, pixels: data };
 };
 
-const paint = (row: TranscriptRow | null, now = NOW): Ink[] => render({ kind: "chat", row }, now).ink;
+/** One transcript row, painted as the sole line of an 800-wide chat readout. */
+const chat = (row: TranscriptRow, width = 800): Ink[] => render(chatLog([row]), width).ink;
+
+const chatLog = (
+  rows: readonly TranscriptRow[],
+  bounds: Partial<Pick<SegmentContent & { kind: "chatLog" }, "chatHasPrevious" | "chatHasNext" | "eventHasPrevious" | "eventHasNext">> = {},
+): SegmentContent => ({
+  kind: "chatLog",
+  rows,
+  chatHasPrevious: false,
+  chatHasNext: false,
+  eventHasPrevious: false,
+  eventHasNext: false,
+  ...bounds,
+});
 
 const drew = (ink: Ink[], text: string): Ink | undefined => ink.find((entry) => entry.text === text);
 
@@ -69,10 +86,18 @@ const summary = (build: SummaryModel["build"]): SegmentContent => ({
   model: { live: 7, remaining: 25, build },
 });
 
+const providerRow = (label: string, model: Partial<ProviderSegmentModel>): ProviderPanelRow => ({
+  label,
+  model: { provider: label, session: null, weekly: null, freshness: "fresh", hasData: true, ...model },
+});
+
 const provider = (model: Partial<ProviderSegmentModel>): SegmentContent => ({
   kind: "provider",
-  label: "claude",
-  model: { provider: "claude", session: null, weekly: null, freshness: "fresh", hasData: true, ...model },
+  row: providerRow("claude", model),
+});
+
+const session = (usedPercent: number, resetsAt: string | null = null): Partial<ProviderSegmentModel> => ({
+  session: { usedPercent, resetsAt },
 });
 
 describe("ageLabel", () => {
@@ -90,84 +115,6 @@ describe("ageLabel", () => {
   });
 });
 
-describe("chat segment", () => {
-  it("paints an event header with its badge colour, body and age", () => {
-    const ink = paint({ kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T02:57:00Z" });
-    expect(drew(ink, "EMIT")?.fill).toBe(EMIT);
-    expect(drew(ink, "Dependency cleared")).toBeDefined();
-    expect(drew(ink, "3m")).toBeDefined();
-  });
-
-  it("falls back to the INFO colour for a badge outside the contract", () => {
-    const ink = paint({ kind: "event_header", badge: "SHOUT", body: "unknown badge", timestamp: null });
-    expect(drew(ink, "SHOUT")?.fill).toBe(INFO);
-  });
-
-  // A diff carries no body, so the old single-string rendering printed the
-  // literal "[INFO]" here and showed neither the path nor the counts.
-  it("paints a diff's path and tinted counts, never a placeholder", () => {
-    const ink = paint({ kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: null });
-    expect(drew(ink, "lib/a.ex")).toBeDefined();
-    expect(drew(ink, "+3")?.fill).toBe(ADD);
-    expect(drew(ink, "-1")?.fill).toBe(DEL);
-    expect(ink.some((entry) => entry.text.includes("[INFO]"))).toBe(false);
-  });
-
-  it("tints a diff line by its leading sign, leaving context lines neutral", () => {
-    expect(drew(paint({ kind: "diff", path: "a", additions: 1, deletions: 0, line: "+  added" }), "+  added")?.fill).toBe(ADD);
-    expect(drew(paint({ kind: "diff", path: "a", additions: 0, deletions: 1, line: "-  removed" }), "-  removed")?.fill).toBe(DEL);
-    expect(drew(paint({ kind: "diff", path: "a", additions: 0, deletions: 0, line: "   context" }), "   context")?.fill).toBe(MUTED);
-  });
-
-  it("paints a message's speaker in its contract colour", () => {
-    const ink = paint({ kind: "message", role: "assistant", body: "unblocking the refactor" });
-    expect(drew(ink, "ASSISTANT")?.fill).toBe(AGENT);
-    expect(drew(ink, "unblocking the refactor")).toBeDefined();
-  });
-
-  // SYSTEM is the only speaker colour that no other role maps to, so this is
-  // the case that actually proves the role table rather than a shared hex.
-  it("paints tool and system speakers in the SYSTEM colour", () => {
-    expect(drew(paint({ kind: "message", role: "tool", body: "x" }), "TOOL")?.fill).toBe(SYSTEM);
-    expect(drew(paint({ kind: "message", role: "system", body: "x" }), "SYSTEM")?.fill).toBe(SYSTEM);
-    expect(drew(paint({ kind: "message", role: "ci", body: "x" }), "CI")?.fill).toBe(ADD);
-  });
-
-  // The badge is a free string on the wire; a long one must not overprint the
-  // age, and a zero or negative budget must not fall back to a bare ellipsis.
-  it("clips an over-long badge instead of overprinting the age", () => {
-    const ink = paint({ kind: "event_header", badge: "E".repeat(80), body: "long badge", timestamp: "2026-08-13T02:57:00Z" });
-    expect(drew(ink, "3m")).toBeDefined();
-    const badge = ink.find((entry) => entry.text.startsWith("EEE"));
-    expect(badge?.text.endsWith("…")).toBe(true);
-  });
-
-  it("paints an unknown speaker in the INFO colour", () => {
-    expect(drew(paint({ kind: "message", role: "oracle", body: "hi" }), "ORACLE")?.fill).toBe(INFO);
-  });
-
-  it("draws no text at all for a slot past the end of the transcript", () => {
-    expect(paint(null)).toEqual([]);
-  });
-
-  it("ellipsizes text too wide for the region", () => {
-    const body = "a very long agent message that cannot possibly fit inside two hundred pixels";
-    const ink = paint({ kind: "message", role: "assistant", body });
-    const drawn = ink.find((entry) => entry.text.endsWith("…"));
-    expect(drawn).toBeDefined();
-    expect(drawn?.text.length).toBeLessThan(body.length);
-  });
-
-  // A diff whose counts are wider than the region leaves a negative width for
-  // the path. Drawing nothing is correct; drawing a bare "…" is not.
-  it("drops the path entirely when the counts leave it no room", () => {
-    const ink = paint({ kind: "diff", path: "src/lib/aiur/orchestrator.ex", additions: 123_456_789_012_345, deletions: 987_654_321_098_765, line: null });
-    expect(ink.some((entry) => entry.text.includes("orchestrator"))).toBe(false);
-    expect(ink.some((entry) => entry.text === "…")).toBe(false);
-    expect(drew(ink, "+123456789012345")).toBeDefined();
-  });
-});
-
 describe("resetLabel", () => {
   it("reads a future instant as a compact countdown", () => {
     expect(resetLabel("2026-08-13T03:22:00Z", NOW)).toBe("22m");
@@ -175,8 +122,8 @@ describe("resetLabel", () => {
     expect(resetLabel("2026-08-15T03:00:00Z", NOW)).toBe("2d");
   });
 
-  // A window whose reset has already passed still arrives from the daemon
-  // until the next poll; it must read as "now", not as a negative countdown.
+  // A window whose reset has already passed still arrives from the daemon until
+  // the next poll; it must read as "now", not as a negative countdown.
   it("reads an elapsed window as 'now'", () => {
     expect(resetLabel("2026-08-13T02:59:00Z", NOW)).toBe("now");
   });
@@ -187,7 +134,116 @@ describe("resetLabel", () => {
   });
 });
 
-describe("summary segment", () => {
+describe("chat readout", () => {
+  it("paints an event header with its badge colour, body and age", () => {
+    const ink = chat({ kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T02:57:00Z" });
+    expect(drew(ink, "EMIT")?.fill).toBe(EMIT);
+    expect(drew(ink, "Dependency cleared")).toBeDefined();
+    expect(drew(ink, "3m")).toBeDefined();
+  });
+
+  it("paints an event header with no timestamp at all", () => {
+    const ink = chat({ kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: null });
+    expect(drew(ink, "Dependency cleared")).toBeDefined();
+    expect(ink.some((entry) => entry.text === "3m")).toBe(false);
+  });
+
+  it("falls back to the INFO colour for a badge outside the contract", () => {
+    expect(drew(chat({ kind: "event_header", badge: "SHOUT", body: "unknown badge", timestamp: null }), "SHOUT")?.fill).toBe(INFO);
+  });
+
+  // A diff carries no body, so a single-string rendering printed the literal
+  // "[INFO]" here and showed neither the path nor the counts.
+  it("paints a diff's path and tinted counts, never a placeholder", () => {
+    const ink = chat({ kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: null });
+    expect(drew(ink, "lib/a.ex")).toBeDefined();
+    expect(drew(ink, "+3")?.fill).toBe(ADD);
+    expect(drew(ink, "-1")?.fill).toBe(DEL);
+    expect(ink.some((entry) => entry.text.includes("[INFO]"))).toBe(false);
+  });
+
+  it("tints a diff line by its leading sign, leaving context lines neutral", () => {
+    expect(drew(chat({ kind: "diff", path: "a", additions: 1, deletions: 0, line: "+  added" }), "+  added")?.fill).toBe(ADD);
+    expect(drew(chat({ kind: "diff", path: "a", additions: 0, deletions: 1, line: "-  removed" }), "-  removed")?.fill).toBe(DEL);
+    expect(drew(chat({ kind: "diff", path: "a", additions: 0, deletions: 0, line: "   context" }), "   context")?.fill).toBe(LABEL);
+  });
+
+  it("paints a message's speaker in its contract colour", () => {
+    const ink = chat({ kind: "message", role: "assistant", body: "unblocking the refactor" });
+    expect(drew(ink, "ASSISTANT")?.fill).toBe(AGENT);
+    expect(drew(ink, "unblocking the refactor")).toBeDefined();
+  });
+
+  // SYSTEM is the only speaker colour that no other role maps to, so this is the
+  // case that actually proves the role table rather than a shared hex.
+  it("paints tool and system speakers in the SYSTEM colour", () => {
+    expect(drew(chat({ kind: "message", role: "tool", body: "x" }), "TOOL")?.fill).toBe(SYSTEM);
+    expect(drew(chat({ kind: "message", role: "system", body: "x" }), "SYSTEM")?.fill).toBe(SYSTEM);
+    expect(drew(chat({ kind: "message", role: "ci", body: "x" }), "CI")?.fill).toBe(ADD);
+  });
+
+  it("paints an unknown speaker in the INFO colour", () => {
+    expect(drew(chat({ kind: "message", role: "oracle", body: "hi" }), "ORACLE")?.fill).toBe(INFO);
+  });
+
+  // The badge is a free string on the wire; a long one must not push the body
+  // out of its column.
+  it("clips an over-long badge into the speaker gutter", () => {
+    const ink = chat({ kind: "event_header", badge: "E".repeat(80), body: "long badge", timestamp: "2026-08-13T02:57:00Z" });
+    expect(drew(ink, "3m")).toBeDefined();
+    expect(drew(ink, "long badge")).toBeDefined();
+    expect(ink.find((entry) => entry.text.startsWith("EEE"))?.text.endsWith("…")).toBe(true);
+  });
+
+  it("shows several rows at once rather than a two-line peephole", () => {
+    const rows: TranscriptRow[] = [
+      { kind: "event_header", badge: "EMIT", body: "first", timestamp: null },
+      { kind: "message", role: "assistant", body: "second" },
+      { kind: "diff", path: "third.ex", additions: 1, deletions: 0, line: null },
+      { kind: "message", role: "ci", body: "fourth" },
+      { kind: "message", role: "system", body: "fifth" },
+    ];
+    const { ink } = render(chatLog(rows), 800);
+    for (const text of ["first", "second", "third.ex", "fourth", "fifth"]) {
+      expect(drew(ink, text)).toBeDefined();
+    }
+  });
+
+  it("says so when the agent has said nothing yet", () => {
+    expect(drew(render(chatLog([]), 800).ink, "No chat yet.")).toBeDefined();
+  });
+
+  it("ellipsizes a line too wide for the strip", () => {
+    const body = "a very long agent message ".repeat(20);
+    const drawn = chat({ kind: "message", role: "assistant", body }).find((entry) => entry.text.endsWith("…"));
+    expect(drawn).toBeDefined();
+    expect(drawn?.text.length).toBeLessThan(body.length);
+  });
+
+  // A diff whose counts are wider than the panel leaves a negative width for the
+  // path. Drawing nothing is correct; drawing a bare "…" is not.
+  it("drops the path entirely when the counts leave it no room", () => {
+    const ink = chat(
+      { kind: "diff", path: "src/lib/aiur/orchestrator.ex", additions: 123_456_789_012_345, deletions: 987_654_321_098_765, line: "+x" },
+      200,
+    );
+    expect(ink.some((entry) => entry.text.includes("orchestrator"))).toBe(false);
+    expect(ink.some((entry) => entry.text === "…")).toBe(false);
+    expect(drew(ink, "+123456789012345")).toBeDefined();
+  });
+
+  it("shows the dial hints, lit only where there is more to scroll to", () => {
+    const both = render(chatLog([], { chatHasNext: true, eventHasPrevious: true }), 800).ink;
+    expect(drew(both, "  CHAT ›")?.fill).toBe(ACCENT_LIVE);
+    expect(drew(both, "‹ EVENTS  ")?.fill).toBe(ACCENT_LIVE);
+
+    const neither = render(chatLog([]), 800).ink;
+    expect(drew(neither, "  CHAT  ")?.fill).toBe(LABEL);
+    expect(drew(neither, "  EVENTS  ")?.fill).toBe(LABEL);
+  });
+});
+
+describe("summary panel", () => {
   it("paints the live count and the build bar", () => {
     const { ink, inked } = render(summary({ completed: 13, total: 32, fraction: 0.4, etaLabel: "58m" }));
     expect(drew(ink, "Summary")).toBeDefined();
@@ -214,28 +270,26 @@ describe("summary segment", () => {
   });
 });
 
-describe("provider segment", () => {
+describe("provider panel (two providers)", () => {
   it("paints the provider name, its session percent and its reset", () => {
-    const { ink } = render(provider({ session: { usedPercent: 86, resetsAt: "2026-08-13T03:22:00Z" } }));
+    const { ink } = render(provider(session(86, "2026-08-13T03:22:00Z")));
     expect(drew(ink, "Claude")).toBeDefined();
     expect(drew(ink, "Session")).toBeDefined();
     expect(drew(ink, "86% · 22m")).toBeDefined();
   });
 
   it("shows the percent alone when the window reported no reset", () => {
-    const { ink } = render(provider({ session: { usedPercent: 86, resetsAt: null } }));
-    expect(drew(ink, "86%")).toBeDefined();
+    expect(drew(render(provider(session(86))).ink, "86%")).toBeDefined();
   });
 
   // "no reading yet" and "zero usage" are different states; rendering both as
-  // 0% is the parity bug this segment exists to avoid.
+  // 0% is the parity bug this panel exists to avoid.
   it("distinguishes a provider with no reading from one at zero", () => {
     const awaiting = render(provider({ hasData: false }));
     expect(drew(awaiting.ink, "Awaiting data")).toBeDefined();
     expect(awaiting.ink.some((entry) => entry.text.includes("0%"))).toBe(false);
 
-    const zero = render(provider({ session: { usedPercent: 0, resetsAt: null } }));
-    expect(drew(zero.ink, "0%")).toBeDefined();
+    expect(drew(render(provider(session(0))).ink, "0%")).toBeDefined();
   });
 
   it("says which window is missing when a reporting provider has no session", () => {
@@ -244,16 +298,67 @@ describe("provider segment", () => {
   });
 
   it("draws a lettered token for a provider with no bundled mark", () => {
-    const { inked } = render({
-      kind: "provider",
-      label: "zephyr",
-      model: { provider: "zephyr", session: null, weekly: null, freshness: "fresh", hasData: false },
-    });
-    expect(inked).toBeGreaterThan(0);
+    expect(render({ kind: "provider", row: providerRow("zephyr", { hasData: false }) }).inked).toBeGreaterThan(0);
   });
 });
 
-describe("pager segment", () => {
+describe("provider panel (three or more)", () => {
+  const wide = (rows: readonly ProviderPanelRow[], overflow = 0): SegmentContent => ({
+    kind: "providers",
+    model: { rows, overflow },
+  });
+
+  it("paints a row per provider, each keeping its session label, percent and reset", () => {
+    const { ink } = render(
+      wide([
+        providerRow("claude", session(86, "2026-08-13T03:22:00Z")),
+        providerRow("codex", session(19)),
+        providerRow("deepseek", session(55)),
+      ]),
+      400,
+    );
+    expect(drew(ink, "Claude")).toBeDefined();
+    expect(drew(ink, "Codex")).toBeDefined();
+    expect(drew(ink, "Deepseek")).toBeDefined();
+    expect(drew(ink, "Session 86% · 22m")).toBeDefined();
+    expect(drew(ink, "Session 19%")).toBeDefined();
+  });
+
+  it("keeps every row inside the panel as the provider count grows", () => {
+    const rows = Array.from({ length: 5 }, (_, index) => providerRow(`p${index}`, session(index * 10)));
+    const { pixels } = render(wide(rows), 400);
+    // The bottom two pixel rows must stay background: content that ran past the
+    // panel would be clipped by the canvas and the operator would never see it.
+    const bottom = pixels.subarray(400 * 4 * 98);
+    for (let i = 0; i < bottom.length; i += 4) {
+      expect([bottom[i], bottom[i + 1], bottom[i + 2]]).toEqual([...BACKGROUND]);
+    }
+  });
+
+  it("draws no bar for a provider that reported nothing, so no bar means no data", () => {
+    const withData = render(wide([providerRow("a", session(90)), providerRow("b", session(90)), providerRow("c", session(90))]), 400);
+    const without = render(wide([providerRow("a", session(90)), providerRow("b", session(90)), providerRow("c", { hasData: false })]), 400);
+    expect(drew(without.ink, "Awaiting data")).toBeDefined();
+    expect(without.inked).toBeLessThan(withData.inked);
+  });
+
+  it("says how many providers it could not fit", () => {
+    const rows = Array.from({ length: 4 }, (_, index) => providerRow(`p${index}`, session(index)));
+    expect(drew(render(wide(rows, 3), 400).ink, "+3 MORE PROVIDERS")).toBeDefined();
+    expect(render(wide(rows), 400).ink.some((entry) => entry.text.includes("MORE PROVIDERS"))).toBe(false);
+  });
+
+  it("clips a long provider name rather than running it under the reading", () => {
+    const rows = [
+      providerRow("a-very-long-provider-family-name-indeed-truly", session(50)),
+      providerRow("b", session(50)),
+      providerRow("c", session(50)),
+    ];
+    expect(render(wide(rows), 400).ink.some((entry) => entry.text.endsWith("…"))).toBe(true);
+  });
+});
+
+describe("pager panel", () => {
   it("paints the label and one dot per window", () => {
     const { ink, inked } = render({
       kind: "pager",
@@ -280,42 +385,86 @@ describe("pager segment", () => {
   });
 });
 
-describe("command-mode segments", () => {
-  it("paints the controlled ticket under its caption", () => {
-    const { ink } = render({ kind: "controlling", ticketId: "#401" });
-    expect(drew(ink, "CONTROLLING")).toBeDefined();
-    expect(drew(ink, "#401")).toBeDefined();
+describe("agent detail panel", () => {
+  const detail = (agent: Readonly<Record<string, unknown>>): SegmentContent => ({
+    kind: "agentDetail",
+    model: agentDetailModel(agent),
   });
 
-  it("paints the agent identity under its caption", () => {
-    const { ink } = render({ kind: "agentIdentity", identity: "claude · #401" });
-    expect(drew(ink, "AGENT")).toBeDefined();
-    expect(drew(ink, "claude · #401")).toBeDefined();
+  it("reads like the agent's key: ticket, full title, percent, bar and BACK", () => {
+    const { ink } = render(
+      detail({
+        identifier: "401",
+        title: "Auth refactor and session rotation",
+        icon: "key",
+        vendor: "claude",
+        bucket: "running",
+        progress_percent: 72,
+      }),
+      800,
+    );
+    expect(drew(ink, "401")).toBeDefined();
+    expect(drew(ink, "Auth refactor and session rotation")).toBeDefined();
+    expect(drew(ink, "72%")).toBeDefined();
+    expect(drew(ink, "RUNNING")).toBeDefined();
+    expect(drew(ink, "‹ BACK  ")).toBeDefined();
   });
 
-  it("paints the status, the rounded percent and a bar that grows with it", () => {
-    const low = render({ kind: "agentProgress", status: "working", percent: 71.6 });
-    expect(drew(low.ink, "WORKING")).toBeDefined();
-    expect(drew(low.ink, "72%")).toBeDefined();
+  it("shows the agent's activity and how long it has been at it", () => {
+    const withActivity = render(detail({ identifier: "401", bucket: "running", activity: "waiting_ci", runtime_seconds: 11_240 }), 800);
+    expect(drew(withActivity.ink, "Waiting on CI")).toBeDefined();
+    expect(drew(withActivity.ink, "ELAPSED")).toBeDefined();
+    expect(drew(withActivity.ink, "3h 07m")).toBeDefined();
 
-    const full = render({ kind: "agentProgress", status: "working", percent: 100 });
-    expect(full.inked).toBeGreaterThan(low.inked);
+    // The glyph is drawn, not merely resolved: the label alone would still read
+    // correctly with the icon call deleted.
+    const withoutGlyph = render(detail({ identifier: "401", bucket: "running", runtime_seconds: 11_240 }), 800);
+    expect(withActivity.inked).toBeGreaterThan(withoutGlyph.inked);
   });
 
-  // At 0% the bar must still show its track, but nothing may be filled — a
-  // minimum-width fill would read as work already done.
-  it("draws the track but no fill at zero percent", () => {
-    const empty = render({ kind: "agentProgress", status: "queued", percent: 0 });
-    const some = render({ kind: "agentProgress", status: "working", percent: 40 });
+  // The daemon sends no activity for an agent with no fresh stage and no
+  // actionable wait. Inventing one there would be a lie on a glanceable surface.
+  it("omits the activity and the elapsed time when the daemon sent neither", () => {
+    const { ink } = render(detail({ identifier: "401", bucket: "running" }), 800);
+    expect(ink.some((entry) => entry.text === "ELAPSED")).toBe(false);
+    expect(ink.some((entry) => entry.text.startsWith("Waiting"))).toBe(false);
+    expect(drew(ink, "RUNNING")).toBeDefined();
+  });
+
+  // The bucket crosses the wire as a free string. A state the contract has not
+  // learned yet must degrade to its own name, not take the repaint down.
+  it("survives a bucket the key-face contract does not define", () => {
+    expect(drew(render(detail({ identifier: "401", bucket: "hibernating" }), 800).ink, "HIBERNATING")).toBeDefined();
+  });
+
+  // The status is a free string off the wire and shares its baseline with the
+  // right-aligned elapsed reading, so it needs a real budget rather than the
+  // contract's short labels happening to fit.
+  it("clips an over-long status rather than overprinting the elapsed reading", () => {
+    const { ink } = render(detail({ identifier: "401", bucket: "h".repeat(200), runtime_seconds: 11_240 }), 800);
+    expect(drew(ink, "3h 07m")).toBeDefined();
+    expect(ink.find((entry) => entry.text.startsWith("HHH"))?.text.endsWith("…")).toBe(true);
+  });
+
+  it("grows the bar with the percentage and fills nothing at zero", () => {
+    const empty = render(detail({ identifier: "401", bucket: "queued", progress_percent: 0 }), 800);
+    const some = render(detail({ identifier: "401", bucket: "running", progress_percent: 60 }), 800);
     expect(drew(empty.ink, "0%")).toBeDefined();
     expect(empty.inked).toBeGreaterThan(0);
     expect(empty.inked).toBeLessThan(some.inked);
   });
+
+  it("clips an over-long title rather than running it under the percentage", () => {
+    const { ink } = render(detail({ identifier: "401", bucket: "running", title: "word ".repeat(60), progress_percent: 50 }), 800);
+    expect(drew(ink, "50%")).toBeDefined();
+    expect(ink.some((entry) => entry.text.endsWith("…"))).toBe(true);
+  });
 });
 
-describe("hint segment", () => {
-  it("points the arrow the way the hint leads", () => {
-    expect(drew(render({ kind: "hint", label: "BACK", direction: "back" }).ink, "← BACK")).toBeDefined();
-    expect(drew(render({ kind: "hint", label: "EVENTS ↓", direction: "forward" }).ink, "EVENTS ↓ →")).toBeDefined();
+describe("blank panel", () => {
+  // A provider slot with no provider configured for it. An "Awaiting data"
+  // label here would claim a provider that does not exist.
+  it("draws nothing at all", () => {
+    expect(render({ kind: "blank" }).ink).toEqual([]);
   });
 });

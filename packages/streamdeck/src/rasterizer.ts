@@ -318,6 +318,9 @@ const drawCommandKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
  */
 const drawLiveKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
+  // No selected variant: LIVE is a jump to the newest entry, not an event, so
+  // the strip is never "reading" it — the highlight lands on the newest event
+  // key instead (see `eventKeyAtOffset`).
   context.fillStyle = createPaint(context, "linear-gradient(180deg,#227a4d,#17583a)", 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE);
   context.fill();
 
@@ -341,19 +344,36 @@ const drawLiveKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
   context.fillText(label, startX + dot + 9, KEY_IMAGE_SIZE / 2 + 2);
 };
 
-/** A log-surface key: direction badge over the event text, timestamp bottom-right. */
+/**
+ * A log-surface key: direction badge over the event text, timestamp
+ * bottom-right.
+ *
+ * A selected key is lifted with the badge's own colour rather than a generic
+ * highlight: the operator arrives at the selection either by pressing this key
+ * or by scrolling the strip into this event, and in the second case the badge
+ * colour is the fastest way to confirm the strip and the key are showing the
+ * same thing.
+ */
 const drawEventKey = (context: SKRSContext2D, face: AgentKeyFace): void => {
+  const badge = directionColor(face.subLabel);
   roundedPath(context, 0, 0, KEY_IMAGE_SIZE, KEY_IMAGE_SIZE, KEY_RADIUS);
-  context.fillStyle = "#15181d";
+  context.fillStyle = face.selected ? badge : "#15181d";
   context.fill();
 
   const inner = KEY_IMAGE_SIZE - FACE_INSET * 2;
   roundedPath(context, FACE_INSET, FACE_INSET, inner, inner, FACE_RADIUS);
-  context.fillStyle = createPaint(context, "linear-gradient(180deg,#171a20,#0f1216)", FACE_INSET, FACE_INSET, inner, inner);
+  context.fillStyle = createPaint(
+    context,
+    face.selected ? "linear-gradient(180deg,#2b3341,#1b2029)" : "linear-gradient(180deg,#171a20,#0f1216)",
+    FACE_INSET,
+    FACE_INSET,
+    inner,
+    inner,
+  );
   context.fill();
 
   context.font = "700 11px monospace";
-  context.fillStyle = directionColor(face.subLabel);
+  context.fillStyle = badge;
   context.fillText(face.subLabel.toUpperCase(), PAD_X, 24);
 
   context.font = "600 13px sans-serif";
@@ -399,34 +419,75 @@ const drawKey = (canvas: Canvas, face: KeyFace): void => {
   drawKeyFooter(context, face);
 };
 
-const drawSegment = (canvas: Canvas, content: SegmentContent): void => {
-  drawSegmentContent(canvas.getContext("2d"), content);
+const drawSegment = (canvas: Canvas, content: SegmentContent, width: number): void => {
+  drawSegmentContent(canvas.getContext("2d"), content, width);
 };
+
+/**
+ * Cap on the encoded-image cache.
+ *
+ * The cache is keyed by content, and the strip's content is now unbounded: a
+ * full-width chat readout is a different image for every scroll position of
+ * every agent's transcript, at 800x100 rather than 200x100. Left uncapped, a
+ * long-running sidecar accumulates one JPEG per distinct window it has ever
+ * shown. Least-recently-used eviction keeps the working set — the current
+ * mode's panels and the visible keys — resident, which is where every hit
+ * comes from anyway.
+ */
+const IMAGE_CACHE_LIMIT = 512;
 
 export const createRasterizer = (options: RasterizerOptions = {}) => {
   const jpegQuality = quality(options.jpegQuality);
   const cache = new Map<string, Uint8Array>();
   const encode = (canvas: Canvas): Uint8Array => Uint8Array.from(canvas.toBuffer("image/jpeg", jpegQuality));
+
+  /** Cached bytes, promoted to most-recently-used, or undefined on a miss. */
+  const recall = (cacheKey: string): Uint8Array | undefined => {
+    const cached = cache.get(cacheKey);
+    if (cached === undefined) return undefined;
+    cache.delete(cacheKey);
+    cache.set(cacheKey, cached);
+    return cached;
+  };
+
+  const remember = (cacheKey: string, encoded: Uint8Array): Uint8Array => {
+    cache.set(cacheKey, encoded);
+    // Map iteration is insertion-ordered and `recall` re-inserts on a hit, so
+    // the first key is the least recently used.
+    while (cache.size > IMAGE_CACHE_LIMIT) cache.delete(cache.keys().next().value as string);
+    return encoded;
+  };
+
   return {
     key: (descriptor: KeyDescriptor): Uint8Array => {
       const cacheKey = `key:${JSON.stringify(descriptor)}`;
-      const cached = cache.get(cacheKey);
+      const cached = recall(cacheKey);
       if (cached !== undefined) return cached.slice();
       const canvas = createCanvas(KEY_IMAGE_SIZE, KEY_IMAGE_SIZE);
       drawKey(canvas, composeKeyFace(descriptor));
-      const encoded = encode(canvas);
-      cache.set(cacheKey, encoded);
-      return encoded.slice();
+      return remember(cacheKey, encode(canvas)).slice();
     },
-    segment: (content: SegmentContent): Uint8Array => {
-      const cacheKey = `segment:${JSON.stringify(content)}`;
-      const cached = cache.get(cacheKey);
+    /**
+     * Encodes one strip panel. `width` is the panel's own width — 200 for a
+     * grid-mode segment, 400 for the merged provider area, 800 for the cmd and
+     * logs readouts — and is part of the cache key, because the same content at
+     * a different width is a different image.
+     */
+    segment: (content: SegmentContent, width: number = SEGMENT_WIDTH): Uint8Array => {
+      // The minute is part of the identity. A panel's content can be unchanged
+      // while the pixels are not: `resetLabel` and `ageLabel` render relative
+      // times off `Date.now()`, so a cache keyed on content alone would freeze
+      // "3m" on the strip while the event key beside it ticked to "31m", and an
+      // eviction would silently re-encode the same content into different
+      // bytes — which is exactly what `StripRenderer` promises never happens.
+      // Both labels are minute-resolution, so a minute bucket is the finest
+      // grain that can change anything.
+      const cacheKey = `segment:${width}:${Math.floor(Date.now() / 60_000)}:${JSON.stringify(content)}`;
+      const cached = recall(cacheKey);
       if (cached !== undefined) return cached.slice();
-      const canvas = createCanvas(SEGMENT_WIDTH, SEGMENT_HEIGHT);
-      drawSegment(canvas, content);
-      const encoded = encode(canvas);
-      cache.set(cacheKey, encoded);
-      return encoded.slice();
+      const canvas = createCanvas(width, SEGMENT_HEIGHT);
+      drawSegment(canvas, content, width);
+      return remember(cacheKey, encode(canvas)).slice();
     },
   };
 };

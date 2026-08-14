@@ -56,3 +56,31 @@ export function segmentRegion(index: SegmentIndex): Region {
   }
   return SEGMENT_REGIONS[index];
 }
+
+/**
+ * The whole strip as one region.
+ *
+ * The four-region split above is what makes a provider tick cheap to repaint,
+ * but it is not a hardware boundary, and some content genuinely spans it — a
+ * ticket title, a chat line, a bar that reads as one bar. `0x0C` takes an
+ * arbitrary rectangle, so a wide panel is the same protocol at a different
+ * size, not a second write path.
+ */
+export const STRIP_REGION: Region = Object.freeze({ x: 0, y: 0, width: STRIP_WIDTH, height: STRIP_HEIGHT });
+
+/**
+ * The region covering `count` consecutive segments starting at `index` — e.g.
+ * `spanRegion(SegmentIndex.Second, 2)` is the centre 400x100 area. Throws
+ * rather than clamping when the span would run off the strip: a silently
+ * truncated region paints the wrong pixels, which is far harder to notice than
+ * a thrown layout bug.
+ */
+export function spanRegion(index: SegmentIndex, count: number): Region {
+  if (!Number.isInteger(count) || count < 1) {
+    throw new RangeError(`segment span must be a positive integer, got ${String(count)}`);
+  }
+  if (!Number.isInteger(index) || index < 0 || index + count > SEGMENT_COUNT) {
+    throw new RangeError(`segment span out of range: ${String(index)}+${String(count)}`);
+  }
+  return Object.freeze({ x: index * SEGMENT_WIDTH, y: 0, width: SEGMENT_WIDTH * count, height: STRIP_HEIGHT });
+}

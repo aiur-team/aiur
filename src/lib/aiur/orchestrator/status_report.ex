@@ -472,6 +472,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(metadata.issue, :priority),
       progress_percent: progress_percent(Issue.tracker_identity(metadata.issue), activity_by_identity),
+      activity_stage: activity_stage(Issue.tracker_identity(metadata.issue), activity_by_identity),
       ci_result: cached_ci_result(state, metadata.identifier)
     }
     |> Map.merge(running_execution_facts(metadata))
@@ -507,6 +508,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue || %{}, :priority) || Map.get(retry, :priority),
       progress_percent: progress_percent(tracker_identity, activity_by_identity),
+      activity_stage: activity_stage(tracker_identity, activity_by_identity),
       ci_result: cached_ci_result(state, identifier)
     }
     |> Map.merge(issue_execution_facts(issue))
@@ -581,6 +583,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       open_decision_count_health: open_decision_count_health,
       priority: Map.get(issue, :priority),
       progress_percent: progress_percent(Issue.tracker_identity(issue), activity_by_identity),
+      activity_stage: activity_stage(Issue.tracker_identity(issue), activity_by_identity),
       ci_result: cached_ci_result(state, identifier)
     }
     |> Map.merge(issue_execution_facts(issue))
@@ -693,6 +696,27 @@ defmodule Aiur.Orchestrator.StatusReport do
 
       _ ->
         0
+    end
+  end
+
+  # Sibling of `progress_percent/2` over the same joined TicketActivity entry:
+  # the agent's workflow stage (brainstorm/plan/work/review).
+  #
+  # Deliberately NOT gated on `:fresh`, where progress is. The two look alike
+  # and are not. Progress is a measurement that decays: an hour-old 40% may no
+  # longer be true, so a stale reading is discarded. A stage is a *state* with
+  # explicit transitions — it changes only when the agent emits
+  # `phase.<stage>.start|end`, and `observed_at` records that transition, not a
+  # confirmation that the state still holds. Requiring it to be recent asks the
+  # agent to keep re-announcing a phase it never left: with the default
+  # 60-second staleness window, a twenty-minute work phase would report its
+  # stage for the first minute and nothing for the other nineteen. The reducer
+  # already writes `value: nil` on a phase end, so a finished phase clears
+  # itself rather than lingering.
+  defp activity_stage(identity, activity_by_identity) do
+    case get_in(activity_by_identity, [TrackerIdentity.github_key(identity), :stage]) do
+      %{status: :known, value: stage} when is_atom(stage) and not is_nil(stage) -> stage
+      _ -> nil
     end
   end
 

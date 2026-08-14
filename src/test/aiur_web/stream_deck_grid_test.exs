@@ -206,8 +206,56 @@ defmodule AiurWeb.StreamDeckGridTest do
              vendor_logo: "/provider-assets/claude-symbol.svg",
              bucket: :running,
              progress_percent: 60,
-             priority: true
+             priority: true,
+             activity: nil,
+             runtime_seconds: nil
            }
+  end
+
+  test "projects the workflow stage as the agent's activity" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", activity_stage: :review, runtime_seconds: 4_320)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.activity == "review"
+    assert agent.runtime_seconds == 4_320
+  end
+
+  test "prefers an actionable wait over the stage it parked in" do
+    [agent] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", activity_stage: :work, waiting_reason: :waiting_for_ci)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    assert agent.activity == "waiting_ci"
+  end
+
+  test "omits activity for a wait the bucket already carries and for an unknown stage" do
+    [paused] =
+      StreamDeckGrid.project(%{
+        running: [agent("123", waiting_reason: :paused_operator, work_state: :paused)],
+        retrying: [],
+        idle: []
+      }).agents
+
+    [unknown] =
+      StreamDeckGrid.project(%{running: [agent("124", activity_stage: :sprinting)], retrying: [], idle: []}).agents
+
+    assert paused.activity == nil
+    assert unknown.activity == nil
+  end
+
+  test "reports an absent or zero runtime as unknown rather than as no time elapsed" do
+    [absent] = StreamDeckGrid.project(%{running: [agent("123")], retrying: [], idle: []}).agents
+    [zero] = StreamDeckGrid.project(%{running: [agent("124", runtime_seconds: 0)], retrying: [], idle: []}).agents
+
+    assert absent.runtime_seconds == nil
+    assert zero.runtime_seconds == nil
   end
 
   test "normalizes vendor and invalid activity values" do
