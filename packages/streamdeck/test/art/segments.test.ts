@@ -1,11 +1,12 @@
 import { createCanvas, type SKRSContext2D } from "@napi-rs/canvas";
 import { describe, expect, it } from "vitest";
 
-import { ageLabel, drawSegmentContent, resetLabel } from "../../src/art/segments.js";
+import { ageLabel, drawSegmentContent, PROVIDER_SCROLL_BAND_TOP, resetLabel } from "../../src/art/segments.js";
 import type { TranscriptRow } from "../../src/channel.js";
 import type { SegmentContent } from "../../src/touchStrip/stripLayout.js";
 import type { ProviderSegmentModel } from "../../src/touchStrip/providerSegment.js";
-import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
+import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelModel, type ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
+import { encoderCenterX, SEGMENT_WIDTH } from "../../src/touchStrip/geometry.js";
 import type { SummaryModel } from "../../src/touchStrip/summarySegment.js";
 import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
 
@@ -21,6 +22,9 @@ const ACCENT_LIVE = "#4ade80";
 interface Ink {
   readonly text: string;
   readonly fill: string;
+  /** Where the painter put it: a label that names a knob has to land over it. */
+  readonly x: number;
+  readonly y: number;
 }
 
 const NOW = Date.parse("2026-08-13T03:00:00Z");
@@ -47,7 +51,7 @@ const render = (content: SegmentContent, width = 200, now = NOW): Render => {
   const ink: Ink[] = [];
   const original = context.fillText.bind(context) as SKRSContext2D["fillText"];
   context.fillText = ((text: string, x: number, y: number) => {
-    ink.push({ text, fill: String(context.fillStyle) });
+    ink.push({ text, fill: String(context.fillStyle), x, y });
     return original(text, x, y);
   }) as SKRSContext2D["fillText"];
   drawSegmentContent(context, content, width, now);
@@ -61,6 +65,39 @@ const render = (content: SegmentContent, width = 200, now = NOW): Render => {
     if (data[i] !== BACKGROUND[0] || data[i + 1] !== BACKGROUND[1] || data[i + 2] !== BACKGROUND[2]) inked += 1;
   }
   return { ink, inked, pixels: data };
+};
+
+/** Columns carrying something other than background in `top`..`bottom`. */
+const inkedColumns = (pixels: Uint8ClampedArray, width: number, top: number, bottom: number): number[] => {
+  // `render` trims the divider column, so a row is one pixel narrower.
+  const stride = width - 1;
+  const columns: number[] = [];
+  for (let x = 0; x < stride; x += 1) {
+    for (let y = top; y < bottom; y += 1) {
+      const i = (y * stride + x) * 4;
+      if (pixels[i] !== BACKGROUND[0] || pixels[i + 1] !== BACKGROUND[1] || pixels[i + 2] !== BACKGROUND[2]) {
+        columns.push(x);
+        break;
+      }
+    }
+  }
+  return columns;
+};
+
+/** Columns in the scroll band painted in the lit colour, i.e. a live chevron. */
+const litColumns = (pixels: Uint8ClampedArray, width: number): number[] => {
+  const stride = width - 1;
+  const columns: number[] = [];
+  for (let x = 0; x < stride; x += 1) {
+    for (let y = PROVIDER_SCROLL_BAND_TOP; y < 100; y += 1) {
+      const i = (y * stride + x) * 4;
+      if (pixels[i] === 0xf1 && pixels[i + 1] === 0xf3 && pixels[i + 2] === 0xf6) {
+        columns.push(x);
+        break;
+      }
+    }
+  }
+  return columns;
 };
 
 /** One transcript row, painted as the sole line of an 800-wide chat readout. */
@@ -303,9 +340,17 @@ describe("provider panel (two providers)", () => {
 });
 
 describe("provider panel (three or more)", () => {
-  const wide = (rows: readonly ProviderPanelRow[], overflow = 0): SegmentContent => ({
+  /** The panel as the layout composes it: the centre two segments, so x=200. */
+  const PANEL_X = SEGMENT_WIDTH;
+
+  const wide = (
+    rows: readonly ProviderPanelRow[],
+    scroll: Partial<Pick<ProviderPanelModel, "total" | "hasAbove" | "hasBelow">> = {},
+    originX = PANEL_X,
+  ): SegmentContent => ({
     kind: "providers",
-    model: { rows, overflow },
+    model: { rows, total: rows.length, hasAbove: false, hasBelow: false, ...scroll },
+    originX,
   });
 
   it("paints a row per provider, each keeping its session label, percent and reset", () => {
@@ -324,15 +369,39 @@ describe("provider panel (three or more)", () => {
     expect(drew(ink, "Session 19%")).toBeDefined();
   });
 
-  it("keeps every row inside the panel as the provider count grows", () => {
-    const rows = Array.from({ length: 5 }, (_, index) => providerRow(`p${index}`, session(index * 10)));
-    const { pixels } = render(wide(rows), 400);
+  it("keeps every row and the scroll label inside the panel", () => {
+    const rows = Array.from({ length: VISIBLE_PROVIDER_ROWS }, (_, index) => providerRow(`p${index}`, session(index * 10)));
+    const { pixels } = render(wide(rows, { total: 9, hasAbove: true, hasBelow: true }), 400);
     // The bottom two pixel rows must stay background: content that ran past the
     // panel would be clipped by the canvas and the operator would never see it.
-    const bottom = pixels.subarray(400 * 4 * 98);
+    // Two rows rather than one because the chevrons are the lowest thing drawn.
+    const bottom = pixels.subarray(399 * 4 * 98);
     for (let i = 0; i < bottom.length; i += 4) {
       expect([bottom[i], bottom[i + 1], bottom[i + 2]]).toEqual([...BACKGROUND]);
     }
+  });
+
+  // The window size lives in providerPanel.ts and the pixel budget that has to
+  // hold it lives here. Raising one without retuning the other would clip a row
+  // against the canvas edge — a provider silently dropped, which is the exact
+  // failure the scroll replaced.
+  it("leaves the label band inside the panel for the configured window size", () => {
+    expect(PROVIDER_SCROLL_BAND_TOP).toBeLessThan(100);
+    // Room for a 10px label plus its chevrons under the last row.
+    expect(100 - PROVIDER_SCROLL_BAND_TOP).toBeGreaterThanOrEqual(12);
+  });
+
+  // The panel used to derive row height, type size and bar height from the row
+  // count, so configuring a fifth provider silently shrank every row to 8px.
+  // Rows are now one fixed size and the scroll label never eats into them.
+  it("draws the rows at the same size and place whether or not the list scrolls", () => {
+    const rows = [providerRow("a", session(10)), providerRow("b", session(20)), providerRow("c", session(30))];
+    const fixed = render(wide(rows), 400).pixels;
+    const scrolling = render(wide(rows, { total: 8, hasBelow: true }), 400).pixels;
+    // Everything above the label band is identical; only the band differs.
+    const band = 399 * 4 * PROVIDER_SCROLL_BAND_TOP;
+    expect(scrolling.subarray(0, band)).toEqual(fixed.subarray(0, band));
+    expect(scrolling.subarray(band)).not.toEqual(fixed.subarray(band));
   });
 
   it("draws no bar for a provider that reported nothing, so no bar means no data", () => {
@@ -342,10 +411,66 @@ describe("provider panel (three or more)", () => {
     expect(without.inked).toBeLessThan(withData.inked);
   });
 
-  it("says how many providers it could not fit", () => {
-    const rows = Array.from({ length: 4 }, (_, index) => providerRow(`p${index}`, session(index)));
-    expect(drew(render(wide(rows, 3), 400).ink, "+3 MORE PROVIDERS")).toBeDefined();
-    expect(render(wide(rows), 400).ink.some((entry) => entry.text.includes("MORE PROVIDERS"))).toBe(false);
+  it("says how many providers there are in total, not how many it is showing", () => {
+    const rows = [providerRow("a", session(1)), providerRow("b", session(2)), providerRow("c", session(3))];
+    expect(drew(render(wide(rows, { total: 5, hasBelow: true }), 400).ink, "5 MODELS")).toBeDefined();
+  });
+
+  // A chevron pair that cannot move is an instruction to turn a knob that does
+  // nothing, so a fleet that already fits gets no affordance at all.
+  it("draws no scroll affordance when every provider is already on screen", () => {
+    const rows = [providerRow("a", session(1)), providerRow("b", session(2)), providerRow("c", session(3))];
+    const { ink, pixels } = render(wide(rows), 400);
+    expect(ink.some((entry) => entry.text.includes("MODELS"))).toBe(false);
+    expect(inkedColumns(pixels, 400, PROVIDER_SCROLL_BAND_TOP, 100)).toEqual([]);
+  });
+
+  // The label names knob 2, so it has to sit over knob 2 — which is the strip's
+  // second quarter, not the middle of the panel the label lives in. Measured on
+  // the text itself, driven off the same constant the controller routes detents
+  // through, so the hint and the control cannot drift apart.
+  it("centres the scroll label over its own encoder, not over its panel", () => {
+    const rows = [providerRow("a", session(1)), providerRow("b", session(2)), providerRow("c", session(3))];
+    const { ink } = render(wide(rows, { total: 6, hasAbove: true, hasBelow: true }), 400);
+    const label = drew(ink, "6 MODELS");
+    expect(label).toBeDefined();
+
+    const context = createCanvas(400, 100).getContext("2d");
+    context.font = "700 10px monospace";
+    const centre = (label as Ink).x + context.measureText("6 MODELS").width / 2;
+    // Panel-local x of the encoder's centre: the panel starts at the strip's
+    // first quarter mark, so the panel's own centre would name no knob at all.
+    expect(Math.abs(centre - (encoderCenterX(PROVIDER_SCROLL_ENCODER) - PANEL_X))).toBeLessThan(1);
+    expect(centre).toBeLessThan(400 / 2);
+  });
+
+  // The painter is handed a width, never a position, so a panel drawn somewhere
+  // else has to take its label with it rather than aiming at a remembered x.
+  it("follows the panel when the layout puts it somewhere else", () => {
+    const rows = [providerRow("a", session(1)), providerRow("b", session(2)), providerRow("c", session(3))];
+    const moved = render(wide(rows, { total: 6, hasBelow: true }, 0), 400).ink;
+    const label = drew(moved, "6 MODELS");
+    const context = createCanvas(400, 100).getContext("2d");
+    context.font = "700 10px monospace";
+    const centre = (label as Ink).x + context.measureText("6 MODELS").width / 2;
+    expect(Math.abs(centre - encoderCenterX(PROVIDER_SCROLL_ENCODER))).toBeLessThan(1);
+  });
+
+  it("lights the chevron on the side that still has providers", () => {
+    const rows = [providerRow("a", session(1)), providerRow("b", session(2)), providerRow("c", session(3))];
+    const top = litColumns(render(wide(rows, { total: 6, hasBelow: true }), 400).pixels, 400);
+    const bottom = litColumns(render(wide(rows, { total: 6, hasAbove: true }), 400).pixels, 400);
+    const middle = litColumns(render(wide(rows, { total: 6, hasAbove: true, hasBelow: true }), 400).pixels, 400);
+
+    expect(top.length).toBeGreaterThan(0);
+    expect(bottom.length).toBeGreaterThan(0);
+    // At the top of the list only the "more below" chevron is lit, and it sits
+    // on the far side of the label from the "more above" one, so the two ends
+    // of the list cannot be confused for each other.
+    expect(Math.min(...top)).toBeGreaterThan(Math.max(...bottom));
+    // Mid-list both are lit, which is a third distinct state.
+    expect(middle.length).toBeGreaterThan(top.length);
+    expect(Math.min(...middle)).toBeLessThan(Math.min(...top));
   });
 
   it("clips a long provider name rather than running it under the reading", () => {

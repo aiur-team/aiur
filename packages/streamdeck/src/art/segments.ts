@@ -20,7 +20,8 @@ import type { SKRSContext2D } from "@napi-rs/canvas";
 
 import type { TranscriptRow } from "../channel.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
-import type { ProviderPanelModel, ProviderPanelRow } from "../touchStrip/providerPanel.js";
+import { encoderCenterX } from "../touchStrip/geometry.js";
+import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelRow } from "../touchStrip/providerPanel.js";
 import {
   BADGE_IDS,
   bucketContract,
@@ -268,49 +269,119 @@ const drawProvider = (context: SKRSContext2D, width: number, row: ProviderPanelR
   meter(context, PAD, BAR_TOP, width - PAD * 2, reading.fraction, miniBarFill(context, PAD, width - PAD * 2));
 };
 
+/*
+ * Fixed geometry for the merged provider panel. Every value is a constant
+ * rather than a fraction of the row count: deriving them shrank the whole panel
+ * as providers were configured, so the fleet that most needed reading was the
+ * one printed smallest. Three rows of 28px fit 100px with a band left over for
+ * the scroll label; see VISIBLE_PROVIDER_ROWS.
+ */
+const PROVIDER_ROW_TOP = 4;
+const PROVIDER_ROW_HEIGHT = 28;
+const PROVIDER_ROW_FONT = 13;
+const PROVIDER_ROW_BAR = 6;
+const PROVIDER_ROW_MARK = 20;
+/**
+ * Where the rows stop and the scroll label's band begins.
+ *
+ * Derived from the window size rather than written out, so raising
+ * {@link VISIBLE_PROVIDER_ROWS} shows up as a band that no longer fits inside
+ * the panel — a test asserts it does — instead of as a fourth row the canvas
+ * quietly clips, which is the silent drop this whole feature removes.
+ */
+export const PROVIDER_SCROLL_BAND_TOP = PROVIDER_ROW_TOP + VISIBLE_PROVIDER_ROWS * PROVIDER_ROW_HEIGHT;
+/** Baseline of the scroll label, in the bottom band nearest the knobs. */
+const PROVIDER_SCROLL_BASELINE = HEIGHT - 3;
+/** Half-width and height of one scroll chevron. */
+const CHEVRON = 4;
+/** Space between a chevron and the label between them. */
+const CHEVRON_GAP = 6;
+
+/**
+ * A solid triangle pointing up or down, centred on `x`.
+ *
+ * Drawn rather than typed: the strip renders through fontconfig on whatever
+ * host the sidecar runs on, and an arrow glyph that resolves to tofu there
+ * would turn the one control hint on this panel into a box.
+ */
+const chevron = (context: SKRSContext2D, x: number, y: number, up: boolean, color: string): void => {
+  const tip = up ? y - CHEVRON : y + CHEVRON;
+  context.beginPath();
+  context.moveTo(x, tip);
+  context.lineTo(x - CHEVRON, y + (up ? CHEVRON : -CHEVRON));
+  context.lineTo(x + CHEVRON, y + (up ? CHEVRON : -CHEVRON));
+  context.closePath();
+  context.fillStyle = color;
+  context.fill();
+};
+
+/**
+ * The scroll affordance: how many providers there are, and which way knob 2
+ * still has somewhere to go.
+ *
+ * Centred over knob 2 rather than over this panel, because the panel starts at
+ * the strip's quarter mark and its centre is the gap between knobs 2 and 3 —
+ * a hint centred there names neither knob. `originX` comes from the layout, so
+ * moving the panel moves the label with it. Each chevron is lit only while
+ * there are rows in that direction, so at the top of the list the label itself
+ * says the list is at its top.
+ *
+ * Lit is DOT_ON, the pager's own on/off pair, and deliberately not the live
+ * accent: green means "healthy" on this surface, and a green pip 4px under a
+ * column of quota meters reads as headroom — the same confusion
+ * {@link MINI_BAR_FILL} refuses the hue map for.
+ */
+const drawProviderScroll = (context: SKRSContext2D, content: SegmentContent & { kind: "providers" }): void => {
+  const { model } = content;
+  const label = `${model.total} MODELS`;
+  context.font = "700 10px monospace";
+  const blockWidth = context.measureText(label).width + (CHEVRON * 2 + CHEVRON_GAP) * 2;
+  const left = encoderCenterX(PROVIDER_SCROLL_ENCODER) - content.originX - blockWidth / 2;
+  const middle = (PROVIDER_SCROLL_BASELINE + PROVIDER_SCROLL_BAND_TOP) / 2;
+
+  chevron(context, left + CHEVRON, middle, true, model.hasAbove ? DOT_ON : DOT_OFF);
+  context.fillStyle = LABEL;
+  context.fillText(label, left + CHEVRON * 2 + CHEVRON_GAP, PROVIDER_SCROLL_BASELINE);
+  chevron(context, left + blockWidth - CHEVRON, middle, false, model.hasBelow ? DOT_ON : DOT_OFF);
+};
+
 /**
  * The merged 400x100 provider area, used from three providers up.
  *
- * One row per provider: its mark in a left column, its name and session reading
- * on a text line, and a bar spanning the rest of the area under both of the
- * segments this panel replaced. Row height, type size and bar height all fall
- * out of the row count, so three providers get a generous row and five get a
- * tight but complete one — the panel shrinks to fit rather than clipping.
+ * One row per visible provider: its mark in a left column, its name and session
+ * reading on a text line, and a bar spanning the rest of the area under both of
+ * the segments this panel replaced. The window is at most
+ * {@link VISIBLE_PROVIDER_ROWS} rows and every row is the same size whatever the
+ * fleet runs; when more providers are configured than that, knob 2 scrolls and
+ * the bottom band says so.
  */
-const drawProviders = (context: SKRSContext2D, width: number, model: ProviderPanelModel, now: number): void => {
-  const top = 5;
-  const usable = HEIGHT - top - 3;
-  const lines = model.rows.length + (model.overflow > 0 ? 1 : 0);
-  const rowHeight = usable / lines;
-  const fontSize = clamp(Math.round(rowHeight * 0.42), 8, 13);
-  const barHeight = clamp(Math.round(rowHeight * 0.22), 3, 8);
-  const markSize = clamp(Math.round(rowHeight) - 8, 10, 20);
-  const textX = PAD + markSize + 6;
+const drawProviders = (context: SKRSContext2D, width: number, content: SegmentContent & { kind: "providers" }, now: number): void => {
+  const { model } = content;
+  const textX = PAD + PROVIDER_ROW_MARK + 6;
   const right = width - PAD;
 
   model.rows.forEach((row, index) => {
-    const rowTop = top + index * rowHeight;
-    const baseline = rowTop + fontSize + 1;
-    drawVendorMark(context, row.label, PAD, rowTop + (rowHeight - barHeight - markSize) / 2, markSize);
+    const rowTop = PROVIDER_ROW_TOP + index * PROVIDER_ROW_HEIGHT;
+    const baseline = rowTop + PROVIDER_ROW_FONT + 1;
+    drawVendorMark(context, row.label, PAD, rowTop + (PROVIDER_ROW_HEIGHT - PROVIDER_ROW_BAR - PROVIDER_ROW_MARK) / 2, PROVIDER_ROW_MARK);
 
     const reading = sessionReading(row, now);
-    context.font = `700 ${fontSize}px sans-serif`;
+    context.font = `700 ${PROVIDER_ROW_FONT}px sans-serif`;
     const readingWidth = rightText(context, reading.text, right, baseline, reading.fraction === null ? LABEL : MUTED);
     context.fillStyle = TEXT;
     context.fillText(fit(context, providerTitle(row.label), right - textX - readingWidth - 8), textX, baseline);
 
-    const barTop = rowTop + rowHeight - barHeight - 2;
+    const barTop = rowTop + PROVIDER_ROW_HEIGHT - PROVIDER_ROW_BAR - 3;
     // A provider with no reading gets no bar at all. An empty track would read
     // as a real 0%, which is the exact confusion `hasData` exists to prevent.
     if (reading.fraction !== null) {
-      meter(context, textX, barTop, right - textX, reading.fraction, miniBarFill(context, textX, right - textX), barHeight);
+      meter(context, textX, barTop, right - textX, reading.fraction, miniBarFill(context, textX, right - textX), PROVIDER_ROW_BAR);
     }
   });
 
-  if (model.overflow > 0) {
-    const baseline = top + model.rows.length * rowHeight + fontSize + 1;
-    caption(context, `+${model.overflow} more providers`, textX, baseline);
-  }
+  // No affordance when the whole fleet is already on screen: a chevron pair
+  // that cannot move is an instruction to turn a knob that does nothing.
+  if (model.hasAbove || model.hasBelow) drawProviderScroll(context, content);
 };
 
 /**
@@ -563,7 +634,7 @@ export const drawSegmentContent = (
     case "provider":
       return drawProvider(context, width, content.row, now);
     case "providers":
-      return drawProviders(context, width, content.model, now);
+      return drawProviders(context, width, content, now);
     case "pager":
       return drawPager(context, width, content);
     case "agentDetail":

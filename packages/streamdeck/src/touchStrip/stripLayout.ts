@@ -20,7 +20,8 @@
  *     centre stays two 200-wide segments, which is the look this surface has
  *     always had. With three or more it becomes one 400x100 panel — the daemon
  *     emits a meter per configured provider family, and two fixed slots could
- *     only ever show two of them.
+ *     only ever show two of them — scrolled by knob 2 when more providers are
+ *     configured than the panel shows at once.
  *   - `cmd`:  one 800x100 panel reading like the agent's grid key: a summary
  *     column on the left, then the full title, a full-width bar, the
  *     percentage, elapsed time and the agent's activity.
@@ -45,7 +46,14 @@ export type StripMode = "grid" | "cmd" | "logs";
 export type SegmentContent =
   | { readonly kind: "summary"; readonly model: SummaryModel }
   | { readonly kind: "provider"; readonly row: ProviderPanelRow }
-  | { readonly kind: "providers"; readonly model: ProviderPanelModel }
+  /**
+   * `originX` is the panel's own left edge on the strip. A painter is handed
+   * its width only, and this panel has to place a label over one specific
+   * knob — which is a strip coordinate, not a panel one. Carrying it here keeps
+   * the painter position-agnostic: move the panel and the label follows,
+   * instead of the painter assuming where the layout put it.
+   */
+  | { readonly kind: "providers"; readonly model: ProviderPanelModel; readonly originX: number }
   | { readonly kind: "pager"; readonly title: string; readonly label: string; readonly model: PagerModel }
   | { readonly kind: "agentDetail"; readonly model: AgentDetailModel }
   | {
@@ -73,6 +81,8 @@ export interface GridData {
   readonly pager: PagerModel;
   /** Caption under the pager dots, e.g. a window range. */
   readonly pagerLabel: string;
+  /** First provider row the merged panel shows; knob 2 moves it. */
+  readonly providerOffset: number;
 }
 
 /** Data the `cmd` mode needs: the focused agent's whole readout. */
@@ -113,9 +123,14 @@ const WIDE_PROVIDER_REGION = spanRegion(SegmentIndex.Second, 2);
  * data" panel for a provider that is not configured at all — the operator would
  * have no way to tell that apart from a provider whose meter is late.
  */
-const providerPanels = (providers: readonly ProviderPanelRow[]): StripPanel[] => {
+const providerPanels = (providers: readonly ProviderPanelRow[], offset: number): StripPanel[] => {
   if (providers.length >= WIDE_PANEL_THRESHOLD) {
-    return [{ region: WIDE_PROVIDER_REGION, content: { kind: "providers", model: providerPanelModel(providers) } }];
+    return [
+      {
+        region: WIDE_PROVIDER_REGION,
+        content: { kind: "providers", model: providerPanelModel(providers, offset), originX: WIDE_PROVIDER_REGION.x },
+      },
+    ];
   }
   return [SegmentIndex.Second, SegmentIndex.Third].map((index, slot) => {
     const row = providers[slot];
@@ -133,10 +148,10 @@ const providerPanels = (providers: readonly ProviderPanelRow[]): StripPanel[] =>
 export function composeStrip(input: StripData): readonly StripPanel[] {
   switch (input.mode) {
     case "grid": {
-      const { summary, providers, pager, pagerLabel } = input.data;
+      const { summary, providers, pager, pagerLabel, providerOffset } = input.data;
       return [
         { region: segmentRegion(SegmentIndex.First), content: { kind: "summary", model: summary } },
-        ...providerPanels(providers),
+        ...providerPanels(providers, providerOffset),
         { region: segmentRegion(SegmentIndex.Fourth), content: { kind: "pager", title: "MORE AGENTS", label: pagerLabel, model: pager } },
       ];
     }

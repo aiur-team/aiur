@@ -5,7 +5,7 @@
  * before flashing the deck.
  *
  * Usage:
- *   npm run build && node scripts/render-demo.mjs [out.png] [columnOffset]
+ *   npm run build && node scripts/render-demo.mjs [out.png] [columnOffset] [mode] [providerOffset]
  */
 import { createCanvas, loadImage } from "@napi-rs/canvas";
 import { writeFileSync } from "node:fs";
@@ -25,6 +25,9 @@ const columnOffset = Number.parseInt(process.argv[3] ?? "0", 10);
 // Optional third argument renders the cmd or logs strip instead of the grid,
 // so a layout change to either can be eyeballed without flashing the deck.
 const mode = process.argv[4] ?? "grid";
+// Knob 2's scroll position, so the provider window and its chevrons can be
+// eyeballed at every offset without a device.
+const providerOffset = Number.parseInt(process.argv[5] ?? "0", 10);
 
 await preloadVendorMarks();
 const rasterizer = createRasterizer();
@@ -50,6 +53,7 @@ const gridStrip = {
   data: {
     summary: summaryModel(running, grid.total - running, grid.build),
     providers: providerRows(usage),
+    providerOffset,
     pager: pagerModel(grid.total, 8, Math.floor(columnOffset / 4)),
     pagerLabel: `${grid.total} Agents`,
   },
@@ -85,5 +89,5 @@ for (const panel of panels) {
 }
 
 writeFileSync(out, canvas.toBuffer("image/png"));
-console.log(`wrote ${out} (columnOffset=${columnOffset}, mode=${mode})`);
+console.log(`wrote ${out} (columnOffset=${columnOffset}, mode=${mode}, providerOffset=${providerOffset})`);
 process.exit(0);

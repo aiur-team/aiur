@@ -22,6 +22,8 @@ export interface PhysicalSurfaceState {
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   readonly columnOffset: number;
+  /** First provider row the merged provider panel shows; knob 2 moves it. */
+  readonly providerOffset?: number;
   readonly transcriptRows?: readonly TranscriptRow[];
   readonly eventLines?: readonly EventKey[];
   readonly eventOffset?: number;
@@ -198,6 +200,9 @@ export const createPhysicalSurface = () => {
           // slots: a fleet with a third configured provider had a real meter
           // that no pixel on the deck could show.
           providers: providerRows(usage),
+          // The panel clamps this itself, so a provider dropping out of the
+          // daemon's map cannot leave the strip parked past the last row.
+          providerOffset: state.providerOffset ?? 0,
           // `currentWindow` is the tested pager maths dial D itself uses. A
           // plain columnOffset/4 disagrees with it whenever the last window is
           // clamped by maxColumnOffset, lighting the wrong dot after a page.

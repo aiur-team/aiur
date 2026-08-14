@@ -16,16 +16,20 @@ const provider = (label: string, usedPercent = 10): ProviderPanelRow => ({
   model: providerSegmentModel({ provider: label, windows: { session: { used_percent: usedPercent, duration_minutes: 300 } } }),
 });
 
-const grid = (providers: readonly ProviderPanelRow[]) =>
+const grid = (providers: readonly ProviderPanelRow[], providerOffset = 0) =>
   composeStrip({
     mode: "grid",
     data: {
       summary: summaryModel(2, 3),
       providers,
+      providerOffset,
       pager: pagerModel(9, 4, 1),
       pagerLabel: "5-8",
     },
   });
+
+const providerLabels = (panel: StripPanel): readonly string[] =>
+  panel.content.kind === "providers" ? panel.content.model.rows.map((row) => row.label) : [];
 
 /** Panels must tile the strip exactly: no gap, no overlap, no overrun. */
 const tilesTheStrip = (panels: readonly StripPanel[]): boolean =>
@@ -61,6 +65,16 @@ describe("composeStrip", () => {
     ]);
     // The pager keeps its own segment either way.
     expect(panels[2].region).toMatchObject({ x: 600, width: 200 });
+  });
+
+  it("grid mode scrolls the merged panel by the provider offset, without moving the panel", () => {
+    const providers = ["a", "b", "c", "d", "e"].map((label) => provider(label));
+    expect(providerLabels(grid(providers, 0)[1])).toEqual(["a", "b", "c"]);
+    expect(providerLabels(grid(providers, 2)[1])).toEqual(["c", "d", "e"]);
+    // Scrolling is a content change only; the panel that owns the region does
+    // not move, so the renderer still diffs it against the same region.
+    expect(grid(providers, 2)[1].region).toEqual(grid(providers, 0)[1].region);
+    expect(tilesTheStrip(grid(providers, 2))).toBe(true);
   });
 
   it("grid mode leaves an unused provider segment blank rather than claiming a provider", () => {

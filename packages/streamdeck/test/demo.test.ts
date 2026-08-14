@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createPhysicalController } from "../src/controller.js";
 import { advanceDemoGrid, demoGrid, demoLogs, demoUsage } from "../src/demo.js";
+import { maxProviderOffset } from "../src/touchStrip/providerPanel.js";
 import { providerSegmentModel, type ProviderMeter } from "../src/touchStrip/providerSegment.js";
 import { keyReport } from "./support/deckReports.js";
 
@@ -95,6 +96,12 @@ describe("demoUsage fixture", () => {
   // so one provider deliberately reports no windows at all.
   it("includes a provider with no reading so that state is visible too", () => {
     expect(providerSegmentModel(usage.openrouter).hasData).toBe(false);
+  });
+
+  // Demo mode is where the provider scroll gets looked at without a fleet
+  // behind it, so the fixture has to hold more providers than the panel shows.
+  it("configures more providers than the strip shows at once, so the scroll is exercised", () => {
+    expect(maxProviderOffset(Object.keys(usage).length)).toBeGreaterThan(0);
   });
 
   it("spreads the meters so no two segments read alike", () => {

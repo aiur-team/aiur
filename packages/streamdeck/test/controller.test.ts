@@ -3,6 +3,7 @@ import { createPhysicalController } from "../src/controller.js";
 import type { StreamDeckGrid } from "../src/channel.js";
 import { dialButton, dialButtons, dialTurn, keyReport, keysReport } from "./support/deckReports.js";
 import { CHAT_WINDOW_ROWS } from "../src/touchStrip/chatLog.js";
+import { PROVIDER_SCROLL_ENCODER } from "../src/touchStrip/providerPanel.js";
 
 const grid = (count = 10): StreamDeckGrid => ({
   agents: Array.from({ length: count }, (_, index) => ({
@@ -87,7 +88,7 @@ describe("physical controller composition", () => {
     controller.handleReport(dialTurn(0, -1));
     expect(controller.state().chatOffset).toBe(0);
     controller.handleReport(dialTurn(0, 1));
-    controller.handleReport(dialTurn(1, 1));
+    controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 1));
     controller.handleReport(dialTurn(3, 1));
     controller.handleReport(dialButton(3));
     controller.handleReport(dialButton(3, false));
@@ -510,6 +511,33 @@ describe("physical controller composition", () => {
       expect(controller.state().mode).toBe("grid");
     });
 
+    // A turn and a press are different report kinds, so scrolling the provider
+    // list on knob 2 can never put the chord half down — and the chord must not
+    // move the list either.
+    it("coexists with the provider scroll on the same knob", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({
+        grid,
+        channel: () => null,
+        providerCount: () => 6,
+        stateChanged: vi.fn(),
+        toggleDemo,
+      });
+
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 2));
+      expect(controller.state().providerOffset).toBe(2);
+      expect(toggleDemo).not.toHaveBeenCalled();
+
+      controller.handleReport(dialButtons([1, 2]));
+      expect(toggleDemo).toHaveBeenCalledOnce();
+      expect(controller.state().providerOffset).toBe(2);
+
+      controller.handleReport(dialButtons([], false));
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, -1));
+      expect(controller.state().providerOffset).toBe(1);
+      expect(toggleDemo).toHaveBeenCalledOnce();
+    });
+
     it("leaves the back and window-cycle knobs working", () => {
       const toggleDemo = vi.fn();
       const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: vi.fn(), toggleDemo });
@@ -556,6 +584,99 @@ describe("physical controller composition", () => {
     expect(controller.state().columnOffset).toBe(6);
     controller.handleReport(dialTurn(3, -99));
     expect(controller.state().columnOffset).toBe(0);
+  });
+
+  describe("provider scroll on knob 2", () => {
+    const scrolling = (providerCount: number, stateChanged = vi.fn()) =>
+      createPhysicalController({ grid, channel: () => null, providerCount: () => providerCount, stateChanged });
+
+    // Same detent lesson as the grid columns: the offset steps from the report's
+    // own ticks, so one click is one provider rather than a fraction of one.
+    it("moves the list exactly one provider per detent", () => {
+      const controller = scrolling(6);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 1));
+      expect(controller.state().providerOffset).toBe(1);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 1));
+      expect(controller.state().providerOffset).toBe(2);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, -1));
+      expect(controller.state().providerOffset).toBe(1);
+    });
+
+    it("applies a multi-detent report in one step", () => {
+      const controller = scrolling(9);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 3));
+      expect(controller.state().providerOffset).toBe(3);
+    });
+
+    // Unclamped, a long spin would have to be unwound click for click before the
+    // list moved again.
+    it("clamps at both ends of the provider list", () => {
+      const controller = scrolling(5);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 99));
+      expect(controller.state().providerOffset).toBe(2);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, -99));
+      expect(controller.state().providerOffset).toBe(0);
+    });
+
+    it("does not move when every provider already fits", () => {
+      const controller = scrolling(3);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 2));
+      expect(controller.state().providerOffset).toBe(0);
+    });
+
+    // The provider panel belongs to the grid strip. Scrolling it from cmd or
+    // logs would move something the operator cannot see.
+    it("is inert outside the grid", () => {
+      const controller = scrolling(6);
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      expect(controller.state().mode).toBe("cmd");
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 2));
+      expect(controller.state().providerOffset).toBe(0);
+    });
+
+    it("cannot scroll on a host with no usage feed", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 2));
+      expect(controller.state().providerOffset).toBe(0);
+    });
+
+    // The strip only repaints on a state change, so a scroll that does not
+    // publish is a scroll the operator never sees.
+    it("publishes the new offset so the strip repaints", () => {
+      const changed = vi.fn();
+      const controller = scrolling(6, changed);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 1));
+      expect(changed).toHaveBeenCalledWith(expect.objectContaining({ providerOffset: 1 }));
+    });
+
+    // The panel clamps again when it paints, so a stale stored offset does not
+    // show a wrong window — it eats the next detent, and the knob looks dead at
+    // exactly the moment the fleet changed under the operator. The demo chord
+    // on this same knob swaps the provider set, so this is a normal path.
+    it("keeps moving on the first detent after the provider list shrinks", () => {
+      let providers = 9;
+      const controller = createPhysicalController({
+        grid,
+        channel: () => null,
+        providerCount: () => providers,
+        stateChanged: vi.fn(),
+      });
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 6));
+      expect(controller.state().providerOffset).toBe(6);
+
+      providers = 5;
+      // The painted window is now clamped to 2; one detent up must land on 1,
+      // not back on the row already showing.
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, -1));
+      expect(controller.state().providerOffset).toBe(1);
+    });
+
+    it("leaves the other knobs' offsets alone", () => {
+      const controller = scrolling(6);
+      controller.handleReport(dialTurn(PROVIDER_SCROLL_ENCODER, 2));
+      expect(controller.state()).toMatchObject({ columnOffset: 0, eventOffset: 0, chatOffset: 0 });
+    });
   });
 
   it("synchronizes dial D with the server-selected event offset when logs arrive", () => {
