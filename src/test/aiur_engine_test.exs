@@ -1973,4 +1973,94 @@ defmodule AiurEngineTest do
     assert out =~ "KEPT-NAN"
     refute out =~ "GONE"
   end
+
+  # `restart` is the one command whose whole value is an ordering: the release
+  # must be refreshed while the daemon is down. These stub the stop, the build,
+  # and the start so the sequence is asserted without touching a real daemon.
+  defp run_restart(args, opts) do
+    stop = Keyword.get(opts, :stop, "echo STOP")
+    env = Keyword.get(opts, :env, [])
+
+    run_sourced_engine(
+      """
+      cmd_stop() { #{stop}; }
+      dispatch_run() { echo "RUN: $*"; }
+      cmd_restart #{args}
+      """,
+      env
+    )
+  end
+
+  test "restart stops, refreshes the release, then starts detached — in that order" do
+    {out, 0} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}])
+
+    assert [_, stop, build, run] = Regex.run(~r/(STOP)\n(BUILD)\n(RUN: [^\n]*)/, out)
+    assert stop == "STOP"
+    assert build == "BUILD"
+    assert run == "RUN: --bg"
+  end
+
+  test "restart forwards run flags but consumes --no-build, which skips the refresh" do
+    {out, 0} =
+      run_restart("--no-build --interactive --port 4099",
+        env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}]
+      )
+
+    refute out =~ "BUILD"
+    assert out =~ "restarting on the release already on disk"
+    assert out =~ "RUN: --bg --interactive --port 4099"
+  end
+
+  test "a failed refresh aborts before the start and names the state it left behind" do
+    # The failure mode this command exists to prevent is a silent one: never
+    # start on a stale release, and never leave the operator thinking a daemon
+    # they can no longer see is still up.
+    {out, code} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BOOM >&2; exit 3"}])
+
+    assert code == 1
+    refute out =~ "RUN:"
+    assert out =~ "STOPPED and was NOT restarted"
+    assert out =~ "aiur restart --no-build"
+  end
+
+  test "restart with no build command wired in is a plain bounce" do
+    # The installed CLI runs a pinned platform release: there is nothing to
+    # build, so restart must still stop and start rather than fail.
+    {out, 0} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", nil}])
+
+    assert out =~ "STOP"
+    assert out =~ "RUN: --bg"
+  end
+
+  test "restart starts a fresh session when nothing was running" do
+    {out, 0} =
+      run_restart("",
+        stop: "return 1",
+        env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}]
+      )
+
+    assert out =~ "nothing was running"
+    assert out =~ "BUILD"
+    assert out =~ "RUN: --bg"
+  end
+
+  test "the restart dispatch arm drops the subcommand and forwards the rest" do
+    {out, 0} =
+      run_sourced_engine(
+        """
+        cmd_restart() { echo "RESTART: $*"; }
+        aiur_engine_main restart --no-build --interactive
+        """,
+        []
+      )
+
+    assert out =~ "RESTART: --no-build --interactive"
+  end
+
+  test "usage advertises restart" do
+    {out, 0} = run_sourced_engine("usage", [])
+
+    assert out =~ "aiur restart"
+    assert out =~ "--no-build"
+  end
 end

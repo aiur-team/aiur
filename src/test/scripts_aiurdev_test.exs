@@ -54,6 +54,7 @@ defmodule ScriptsAiurdevTest do
         "\n" <>
         "echo \"ENGINE_ARGS: $*\"\n" <>
         "echo \"RELEASE_DIR: ${AIUR_RELEASE_DIR:-}\"\n" <>
+        "echo \"RESTART_BUILD_CMD: ${AIUR_RESTART_BUILD_CMD:-}\"\n" <>
         "echo \"AIUR_DEBUG: ${AIUR_DEBUG:-}\"\n" <>
         "echo \"AIUR_AGENT_IR_SANDBOX: ${AIUR_AGENT_IR_SANDBOX:-}\"\n" <>
         "echo \"AIUR_BG_STATE_DIR: ${AIUR_BG_STATE_DIR:-}\"\n" <>
@@ -542,6 +543,96 @@ defmodule ScriptsAiurdevTest do
     assert code == 9
     assert out =~ "aiur release rebuild failed"
     refute File.exists?(Path.join([root, "src", "_build", "dev", "rel", "aiur"]))
+  end
+
+  test "restart hands the engine a rebuild command instead of rebuilding first" do
+    # The engine runs this command between its stop and its start. Rebuilding
+    # here instead would rewrite the release under the still-live BEAM — the
+    # exact ordering `restart` exists to avoid — so a stale tree must reach the
+    # engine unbuilt, with only a complete-enough release to issue the stop.
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([root, "src", "lib"]))
+    newer = Path.join([root, "src", "lib", "newer.ex"])
+    File.write!(newer, "# stale after release\n")
+    File.touch!(Path.join([root, "src", "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+    File.touch!(newer, {{2030, 1, 1}, {0, 0, 0}})
+
+    {out, 0} =
+      run_shim(["restart"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "ENGINE_ARGS: restart"
+    assert out =~ ~r/RESTART_BUILD_CMD: \S*aiurdev __ensure-build/
+    refute out =~ "rebuilding"
+    refute File.exists?(log), "restart must not rebuild before the engine stops the daemon"
+  end
+
+  test "the deferred rebuild entry point rebuilds a stale release without launching" do
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    seed_ready_release(root)
+    File.mkdir_p!(Path.join([root, "src", "lib"]))
+    newer = Path.join([root, "src", "lib", "newer.ex"])
+    File.write!(newer, "# stale after release\n")
+    File.touch!(Path.join([root, "src", "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+    File.touch!(newer, {{2030, 1, 1}, {0, 0, 0}})
+
+    {out, 0} =
+      run_shim(["__ensure-build"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+        {"TMUX", nil}
+      ])
+
+    assert out =~ "rebuilding"
+    assert File.exists?(log)
+    refute out =~ "ENGINE_ARGS:", "the rebuild step must not start a session itself"
+  end
+
+  test "the deferred rebuild is a no-op for a release the sources have not outrun" do
+    root = fake_repo()
+    mise = fake_mise()
+    log = Path.join(root, "release.log")
+
+    seed_ready_release(root)
+
+    {out, 0} =
+      run_shim(["__ensure-build"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+        {"TMUX", nil}
+      ])
+
+    refute out =~ "rebuilding"
+    refute File.exists?(log)
+  end
+
+  test "the deferred rebuild reports failure so restart can refuse to start" do
+    root = fake_repo()
+    mise = fake_mise()
+
+    {out, code} =
+      run_shim(["__ensure-build"], [
+        {"AIUR_REPO_ROOT", root},
+        {"AIUR_MISE_BIN", mise},
+        {"AIUR_FAKE_MISE_FAIL_RELEASE", "1"},
+        {"TMUX", nil}
+      ])
+
+    assert code == 9
+    assert out =~ "aiur release rebuild failed"
   end
 
   test "--debug sets AIUR_DEBUG and is consumed, not forwarded to the engine" do

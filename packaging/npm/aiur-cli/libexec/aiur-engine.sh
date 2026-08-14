@@ -314,6 +314,7 @@ Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--log
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
        aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
+       aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status           show agent status
        aiur agents           show each agent's state + current activity
        aiur commands [<decision-id>] [--filter all|open|blocking|resolved] [--blocking] [--ticket <id>] [--search <text>] [--cursor <cursor>] [--limit <n>] [--json]
@@ -2718,6 +2719,55 @@ cmd_stop() {
   warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
 }
 
+# Stop, refresh the release, start again — `aiur restart`.
+#
+# The refresh deliberately runs BETWEEN the stop and the start. A dev rebuild
+# rewrites the release directory in place, and a BEAM booted from that directory
+# is exactly what the control-retry path (EX_TEMPFAIL) exists to survive; doing
+# it while the daemon is down means the new daemon boots from a release nothing
+# else is holding half-written.
+#
+# The engine itself never knows how to build: the installed CLI runs a pinned
+# platform release with no source tree beside it, so its restart is a plain
+# bounce. The dev shim supplies its build-if-stale step through
+# AIUR_RESTART_BUILD_CMD, a shell command line run via `bash -c` so the wrapper
+# (not this parser) owns quoting.
+cmd_restart() {
+  local skip_build=0 arg
+  local run_args=()
+
+  for arg in "$@"; do
+    case "$arg" in
+      --no-build) skip_build=1 ;;
+      *) run_args+=("$arg") ;;
+    esac
+  done
+
+  # Restarting something that is already down is a start, not an error: the
+  # operator asked for a running daemon on current code, and that is what they
+  # get. cmd_stop's only soft failure is "nothing was running" — every harder
+  # failure exits the process from inside cmd_stop.
+  cmd_stop || echo "aiur: nothing was running; restart will start a fresh session" >&2
+
+  if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
+    if ! bash -c "$AIUR_RESTART_BUILD_CMD"; then
+      # Never leave the operator guessing which half of the restart happened.
+      echo "aiur: the daemon is STOPPED and was NOT restarted — the build failed" >&2
+      echo "aiur: fix the build, then run 'aiur restart' again (or 'aiur restart --no-build' to" >&2
+      echo "      start on whatever release is currently on disk)" >&2
+      die "restart aborted before start: rebuild failed"
+    fi
+  elif [ "$skip_build" -eq 1 ]; then
+    echo "aiur: --no-build — restarting on the release already on disk" >&2
+  fi
+
+  # Always detached: the daemon this stopped was itself detached, and a restart
+  # that captured the terminal would be a surprise. `--interactive` still opts
+  # into the attachable session (`aiur --bg --interactive`), and a purely
+  # foreground restart remains `aiur stop && aiur run`.
+  dispatch_run --bg "${run_args[@]+"${run_args[@]}"}"
+}
+
 # --- dispatch ----------------------------------------------------------------
 
 dispatch_run() {
@@ -2861,6 +2911,10 @@ aiur_engine_main() {
       ;;
     stop)
       cmd_stop
+      ;;
+    restart)
+      shift
+      cmd_restart "$@"
       ;;
     "")
       dispatch_run

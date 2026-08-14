@@ -38,6 +38,7 @@ Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before the default w
 | `aiur pause <ids…>` / `aiur pause --all` | Cooperatively pause agents by issue id. |
 | `aiur resume <ids…>` / `aiur resume --all` | Resume paused agents by issue id. |
 | `aiur stop` | Stop this instance's session (BEAM + tmux). |
+| `aiur restart` | Stop the session, refresh the release, and start it again detached. Add `--no-build` to bounce on the release already on disk. |
 | `aiur --max-agents <n>` | Override the concurrent-agent cap at launch. |
 | `aiur set max-agents <n>` | Change the concurrent-agent cap while the run is active. |
 | `aiur message <id> "<text>"` | Send an Executor message through the agent’s native queue. |
