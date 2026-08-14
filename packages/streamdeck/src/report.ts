@@ -10,8 +10,9 @@
  * the most common source of off-by-one bugs in this layer.
  *
  * **This sidecar keeps the report ID at byte 0 on every buffer, both
- * directions.** An input report is therefore `READ_LENGTH` (14) bytes with the
- * report ID at `payload[0]` and the event body starting at `payload[1]`. Every
+ * directions.** An input report is therefore {@link INPUT_REPORT_LENGTH} bytes
+ * with the report ID at `payload[0]` and the event body starting at
+ * `payload[1]`. Every
  * output and feature report we build below places its report ID at index 0 and
  * the caller passes the whole buffer, ID included, to the backend. Backends
  * that strip the ID must re-add it; ours ({@link file://./hidraw-backend.ts})
@@ -28,10 +29,30 @@ export const VENDOR_ID = 0x0fd9;
 export const PRODUCT_ID = 0x0084;
 
 /**
- * Input report length including the report ID at byte 0. Per Elgato's
- * published HID docs a Stream Deck + input report is 14 bytes.
+ * Input report length including the report ID at byte 0, and therefore the
+ * exact host buffer size an interrupt-IN read must request.
+ *
+ * This is 512, not 14. Elgato's HID docs describe a 14-byte *meaningful*
+ * payload, but the device's own HID report descriptor declares input report
+ * `0x01` as Report Size 8 x Report Count 511, plus the report ID — a 512-byte
+ * report, matching the interrupt-IN endpoint's `wMaxPacketSize` of 512. The
+ * device pads every event out to that length.
+ *
+ * Requesting fewer bytes than the device sends is not a harmless truncation:
+ * libusb fails the transfer with `LIBUSB_ERROR_OVERFLOW`, so a short request
+ * turns every key press and dial turn into a read error instead of an input
+ * event. Read the full report and let {@link file://./input.ts} decode the
+ * leading bytes it cares about.
  */
-export const READ_LENGTH = 14;
+export const INPUT_REPORT_LENGTH = 512;
+
+/**
+ * Smallest input report {@link file://./input.ts} can decode: report ID,
+ * command, and enough body for the first control byte. Anything shorter is a
+ * runt the kernel handed back for an interval with no pending event, and is
+ * classified idle rather than dropped as malformed.
+ */
+export const MIN_INPUT_REPORT_LENGTH = 5;
 
 /**
  * Recommended input polling interval in milliseconds. A read that returns no

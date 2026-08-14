@@ -2,10 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import {
   FEATURE_REPORT,
+  INPUT_REPORT_LENGTH,
   KEY_STREAM_RESET_LENGTH,
+  MIN_INPUT_REPORT_LENGTH,
   POLL_INTERVAL_MS,
   PRODUCT_ID,
-  READ_LENGTH,
   VENDOR_ID,
   keyStreamReset,
   setBrightness,
@@ -16,8 +17,17 @@ describe("device facts", () => {
   it("matches the published Stream Deck + identifiers", () => {
     expect(VENDOR_ID).toBe(0x0fd9);
     expect(PRODUCT_ID).toBe(0x0084);
-    expect(READ_LENGTH).toBe(14);
     expect(POLL_INTERVAL_MS).toBe(50);
+  });
+
+  // Read from the device's own HID report descriptor: input report 0x01 is
+  // Report Size 8 x Report Count 511 plus the report ID, and the interrupt-IN
+  // endpoint's wMaxPacketSize is 512. Requesting the 14 bytes Elgato's docs
+  // describe as the meaningful payload makes libusb fail every transfer with
+  // LIBUSB_ERROR_OVERFLOW, which is why no key press ever reached the app.
+  it("requests the full 512-byte input report the device actually sends", () => {
+    expect(INPUT_REPORT_LENGTH).toBe(512);
+    expect(MIN_INPUT_REPORT_LENGTH).toBeLessThan(INPUT_REPORT_LENGTH);
   });
 });
 
