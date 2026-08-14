@@ -162,12 +162,20 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
   # evidence yet (remaining == baseline), so it stays dollar-only; subsequent
   # observations attach `used% = (baseline - remaining) / baseline`, clamped to
   # 0..100 so a top-up above the baseline never renders a negative percentage.
+  #
+  # The clamp bounds are floats on purpose. `max/2` and `min/2` return whichever
+  # argument wins, so an integer bound is handed straight back when the clamp
+  # engages: a balance topped up above the baseline makes the raw percent
+  # negative, `max(percent, 0)` returns the integer `0`, and `Float.round/2`
+  # raises on it. The probe's blanket rescue turned that raise into a generic
+  # `:probe_failed`, so a topped-up account rendered the whole provider
+  # "Unavailable" while its API was answering perfectly.
   defp balance_used_percent(:deepseek, balance, opts) do
     case BalanceBaseline.resolve(:deepseek, balance, opts) do
       {baseline, false} when baseline > 0 ->
         ((baseline - balance) / baseline * 100)
-        |> max(0)
-        |> min(100)
+        |> max(0.0)
+        |> min(100.0)
         |> Float.round(1)
 
       _other ->

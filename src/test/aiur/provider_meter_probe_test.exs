@@ -337,6 +337,55 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert_in_delta snapshot.windows["prepaid-balance-usd"].used_percent, 20.0, 0.01
   end
 
+  # A top-up puts the balance above the recorded baseline, so the raw spend
+  # percentage goes negative and the lower clamp engages. That clamp used to
+  # hand an integer to `Float.round/2`, which raised into the probe's rescue and
+  # reported `:probe_failed` — the whole provider then rendered "Unavailable"
+  # while its API was answering perfectly.
+  test "a balance topped up above the baseline reads 0% instead of failing the probe" do
+    :ok = Events.subscribe_observed()
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{"deepseek" => %{"balance_baseline" => 1.43}},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: baseline_path(),
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: fn _request ->
+                 {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "8.55"}]}}}
+               end
+             )
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.windows["prepaid-balance-usd"].used_percent == 0.0
+    assert snapshot.windows["prepaid-balance-usd"].credits.amount == 8.55
+  end
+
+  # The companion bound, pinned rather than regressed: an emptied account is the
+  # only way to reach the upper clamp (`balance >= 0` caps the raw percentage at
+  # 100), and this asserts it still lands on a rounded float. Widening the clamp
+  # inputs must not turn the cap into an integer the way the lower bound did.
+  test "an exhausted balance reads 100% as a float" do
+    :ok = Events.subscribe_observed()
+
+    assert [%{observed?: true, reason: nil}] =
+             ProviderMeterProbe.observe(:deepseek,
+               backend_configs: %{"deepseek" => %{"balance_baseline" => 40.0}},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: baseline_path(),
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: fn _request ->
+                 {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "0.00"}]}}}
+               end
+             )
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.windows["prepaid-balance-usd"].used_percent == 100.0
+    assert snapshot.windows["prepaid-balance-usd"].credits.status == :exhausted
+  end
+
   test "OpenRouter probe uses the management key and subtracts usage from credits" do
     :ok = Events.subscribe_observed()
     parent = self()
