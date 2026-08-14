@@ -104,10 +104,21 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="streamdeck-install-modal")
     assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
     assert html =~ "Install on your Stream Deck +"
-    assert html =~ "Download the package, then copy the prompt below into your coding agent"
+    # Two steps: one download, then one copyable prompt. The old eyebrow, the
+    # "download the package, then…" lede and the trailing release-metadata line
+    # are gone — the steps say all of it, without the clutter.
+    assert html =~ "Step 1: Download the package"
+    assert html =~ "Step 2: Paste this into your agent chat"
+    assert html =~ ~s(data-copy-source)
+    assert html =~ ~s(data-copy-trigger)
+    refute html =~ ~s(class="section-eyebrow")
+    refute html =~ "Download the package, then copy the prompt below into your coding agent"
+    # Exactly one download affordance in the dialog, and no release-metadata
+    # line trailing it.
+    assert html |> String.split(~s( download)) |> length() == 2
+    refute html =~ ~s(class="modal-meta")
     assert html =~ "Walk me through installing the Aiur Stream Deck + sidecar on Linux"
     assert html =~ "packages/streamdeck/README.md"
-    assert html =~ "0.0.0-dev.0098e3ac86a2"
     refute html =~ "Aiur commit"
     refute html =~ "AIUR_PHOENIX_URL"
     refute html =~ "AIUR_DASHBOARD_PASSWORD="
@@ -131,7 +142,7 @@ defmodule AiurWeb.StreamdeckLiveTest do
       # download link and release metadata step aside.
       assert html =~ ~s(id="streamdeck-install-modal")
       assert html =~ "Install on your Stream Deck +"
-      assert html =~ "No package is published for this release"
+      assert html =~ "No Stream Deck + package is published for this release"
       assert html =~ "Walk me through installing the Aiur Stream Deck + sidecar on Linux"
       assert html =~ "packages/streamdeck/README.md"
       refute html =~ "Download the Stream Deck + package"

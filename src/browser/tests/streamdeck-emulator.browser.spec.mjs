@@ -84,11 +84,45 @@ test('installation modal renders its steps and closes by backdrop or Escape at m
     await page.getByRole('button', { name: 'Download' }).click()
     let dialog = page.getByRole('dialog', { name: 'Install on your Stream Deck +' })
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByText('Download the package, then copy the prompt below into your coding agent')).toBeVisible()
+
+    // Two steps, and step 1 offers exactly one download — the modal is the only
+    // place a package download starts.
+    await expect(dialog.getByRole('heading', { name: 'Step 1: Download the package' })).toBeVisible()
+    await expect(dialog.getByRole('heading', { name: 'Step 2: Paste this into your agent chat' })).toBeVisible()
+    await expect(dialog.locator('a[download]')).toHaveCount(1)
+    await expect(dialog.getByRole('link', { name: 'Download the package' })).toHaveAttribute('href', packageUrl)
+
     await expect(dialog.getByText(/Walk me through installing the Aiur Stream Deck \+ sidecar on Linux/)).toBeVisible()
     await expect(dialog.getByText('packages/streamdeck/README.md')).toBeVisible()
-    await expect(dialog.getByRole('link', { name: 'Download package 0.0.0-dev.0098e3ac86a2' })).toHaveAttribute('href', packageUrl)
     await expect(dialog).not.toContainText('0098e3ac86a2e49e685e8e6ff67248373de43f1d')
+
+    // The prompt wraps over as many rows as it needs: no sideways scroll, no
+    // clipped tail, at the narrowest supported width.
+    const prompt = dialog.locator('#streamdeck-install-prompt')
+    const promptBox = await prompt.evaluate((el) => {
+      const panel = el.closest('.modal-panel')
+      const box = el.getBoundingClientRect()
+      const panelBox = panel.getBoundingClientRect()
+
+      return {
+        clippedHorizontally: el.scrollWidth > el.clientWidth + 1,
+        // The panel is the scroll container, so "nothing clipped" means the
+        // whole block sits inside the panel's own scrollable extent.
+        insidePanel: box.right <= panelBox.right + 1 && box.bottom <= panelBox.top + panel.scrollHeight + 1,
+        lines: Math.round(box.height / Number.parseFloat(getComputedStyle(el).lineHeight))
+      }
+    })
+    expect(promptBox.clippedHorizontally, 'prompt never scrolls sideways').toBe(false)
+    expect(promptBox.insidePanel, 'the whole prompt is inside the dialog').toBe(true)
+    expect(promptBox.lines, 'prompt wraps onto multiple rows at 375px').toBeGreaterThan(1)
+
+    // The copy button puts the prompt on the clipboard.
+    await context.grantPermissions(['clipboard-read', 'clipboard-write'])
+    await dialog.getByRole('button', { name: 'Copy prompt' }).click()
+    await expect(dialog.locator('[data-copy-status]')).toHaveText('Copied')
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toContain(
+      'Walk me through installing the Aiur Stream Deck + sidecar on Linux'
+    )
     await expect(dialog.locator('input[type="password"], [value*="password" i]')).toHaveCount(0)
     await expect(dialog).not.toContainText(dashboardCredentials.username)
     await expect(dialog).not.toContainText(dashboardCredentials.password)
@@ -1184,4 +1218,13 @@ test('Stream Deck emulator passes automated accessibility checks', async ({ page
 
   const accessibility = await new AxeBuilder({ page }).analyze()
   expect(accessibility.violations).toEqual([])
+
+  // The install dialog is a whole second surface — its own heading order, list
+  // semantics, contrast and control names — and none of it is reachable by the
+  // scan above while the modal is closed.
+  await page.getByRole('button', { name: 'Download' }).click()
+  await expect(page.locator('#streamdeck-install-modal')).toBeVisible()
+
+  const dialogAccessibility = await new AxeBuilder({ page }).analyze()
+  expect(dialogAccessibility.violations).toEqual([])
 })

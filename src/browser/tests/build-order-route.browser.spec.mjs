@@ -62,8 +62,8 @@ test('production Build Order route keeps catalog, graph truth, context, and URL 
 
     // The catalog is a table: every healthy root is a navigable link, an
     // unqualified root stays visible but is not linkable.
-    await expect(page.locator('.bo-catalog-table tbody tr')).toHaveCount(5)
-    await expect(page.locator('.bo-catalog-link')).toHaveCount(4)
+    await expect(page.locator('.bo-catalog-table tbody tr')).toHaveCount(6)
+    await expect(page.locator('.bo-catalog-link')).toHaveCount(5)
     await expect(page.locator('.bo-catalog-invalid', { hasText: 'Untitled Build Order' })).toBeVisible()
     await expect(page.getByRole('link', { name: 'Release dashboard' })).toHaveAttribute('href', '/build-orders/42')
 
@@ -372,3 +372,76 @@ test('copying the debug prompt falls back when the Clipboard API rejects', async
     await context.close()
   }
 })
+
+// The production `.bo-page`/`.bo-surface` chain had no narrow-width coverage at
+// all — the responsive suite exercises the harness `/fixture` page, whose own
+// wrapper CSS is why the overflow below survived. Both real routes must stay
+// inside the viewport at the narrowest supported widths.
+for (const width of [320, 390, 768]) {
+  test(`production Build Order routes stay inside a ${width}px viewport`, async ({ browser }) => {
+    const context = await browser.newContext({ httpCredentials: dashboardCredentials, viewport: { width, height: 800 } })
+    const page = await context.newPage()
+
+    try {
+      await page.goto('/build-orders')
+      await expect(page.locator('#build-order-page')).toHaveAttribute('data-build-order-catalog-state', 'ready')
+      await assertNoDocumentOverflow(page)
+
+      await page.goto('/build-orders/44')
+      await expect(page.locator('#selected-build-order-graph [data-bo-card]').first()).toBeVisible()
+      await assertNoDocumentOverflow(page)
+    } finally {
+      await context.close()
+    }
+  })
+}
+
+// A Build Order with many epics sizes the spatial graph's stage one column per
+// epic, far wider than the content pane. That width has to stay inside the
+// graph's own `[data-bo-grid-viewport]` scroller: before this guard, the graph
+// pane's grid track sized itself to the stage, stretching every sibling pane in
+// the same track past the right edge of the page, so the panes above the graph
+// were cut off. The document must never gain a horizontal scrollbar.
+for (const width of [1440, 1100, 900]) {
+  test(`a wide many-epic Build Order scrolls inside the graph, not the page, at ${width}px`, async ({ browser }) => {
+    const context = await browser.newContext({ httpCredentials: dashboardCredentials, viewport: { width, height: 900 } })
+    const page = await context.newPage()
+
+    try {
+      await page.goto('/build-orders/44')
+      const graph = page.locator('#selected-build-order-graph')
+      await expect(graph.locator('[data-bo-card]').first()).toBeVisible()
+      await expect(graph.locator('.bo-epic')).toHaveCount(14)
+
+      await assertNoDocumentOverflow(page)
+
+      // The panes sharing the graph's track stay inside the content column
+      // rather than being dragged out to the stage's width.
+      const contained = await page.evaluate(() => {
+        const limit = document.querySelector('.shell-content').getBoundingClientRect().right
+        return ['.bo-selected-summary', '.bo-graph-pane'].every(
+          (selector) => document.querySelector(selector).getBoundingClientRect().right <= limit + 1
+        )
+      })
+      expect(contained, 'summary and graph panes stay inside the content column').toBe(true)
+
+      // Zooming past the fitted scale overflows the graph's own viewport, which
+      // is where that overflow belongs. Each click waits for the level to move
+      // so the loop cannot outrun the hook, and stops once the graph overflows.
+      const zoomLevel = graph.locator('[data-bo-zoom-level]')
+      const viewport = graph.locator('[data-bo-grid-viewport]')
+
+      for (let step = 0; step < 8; step += 1) {
+        if (await viewport.evaluate((vp) => vp.scrollWidth > vp.clientWidth)) break
+        const before = await zoomLevel.textContent()
+        await graph.locator('[data-bo-zoom="in"]').click()
+        await expect(zoomLevel).not.toHaveText(before)
+      }
+
+      await expect.poll(() => viewport.evaluate((vp) => vp.scrollWidth > vp.clientWidth)).toBe(true)
+      await assertNoDocumentOverflow(page)
+    } finally {
+      await context.close()
+    }
+  })
+}

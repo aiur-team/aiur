@@ -204,6 +204,11 @@ The planning graph projection owns provider polling independently of connected
 browsers. Its public settings and inclusive bounds are:
 
 - `graph_catalog_refresh_ms`: default `60000`, range `1..3600000`.
+- `graph_catalog_labels_refresh_ms`: default `600000`, range `1..3600000`.
+  Epic and wave counts are label-derived, and the per-member label read costs
+  roughly 26 GraphQL points against the 5000-points/hour budget versus 1
+  without it, so it runs on this slower cadence. Resolved counts carry forward
+  across the cheaper polls only while a root is provably unchanged.
 - `graph_selected_refresh_ms`: default `15000`, range `1..300000`, while a
   selected root has active demand.
 - `graph_demand_refresh_ms`: default `5000`, range `1..300000`; it must not

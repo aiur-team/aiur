@@ -1,5 +1,10 @@
 defmodule Aiur.BuildOrder.Catalog do
-  @moduledoc "A bounded root catalog that never lets one invalid entry hide its siblings."
+  @moduledoc """
+  A bounded root catalog that never lets one invalid entry hide its siblings.
+
+  It also owns the rule for carrying label-derived counts across the cheaper
+  catalog polls that cannot resolve them — see `carry_forward_counts/2`.
+  """
 
   alias Aiur.{BuildOrder.Diagnostic, BuildOrder.ProviderHealth, BuildOrder.RootSummary, TrackerIdentity}
 
@@ -44,6 +49,81 @@ defmodule Aiur.BuildOrder.Catalog do
       diagnostics: [Diagnostic.new(:catalog_overflow)],
       search_paths: search_paths(opts)
     }
+
+  # Most catalog polls deliberately skip the per-member `labels` connection
+  # (#1766), so they cannot resolve `epic_count`/`phase_count` and report nil.
+  # Without this, the two columns would flap to "Unresolved" between the slow
+  # labelled reads.
+  #
+  # The fingerprint is deliberately conservative but it is *not* proof that the
+  # counts are still right, and this comment will not claim that it is. Both
+  # counts are derived from the members' `build-lane:`/`phase:` labels, and
+  # GitHub does not bump a parent issue's `updatedAt` when a sub-issue is
+  # relabelled. So a member moving from `phase:1` to `phase:2` — the most common
+  # way one of these counts goes stale — matches the fingerprint exactly and is
+  # carried. What the fingerprint does rule out is the coarser drift: a root
+  # replaced by another, a member added or removed, or the root itself edited.
+  # The residual staleness window is one labelled-read cadence, and the caller
+  # bounds it further by refusing to carry once that cadence stops succeeding.
+  #
+  # Everything else fails closed: a differing member count or timestamp, an
+  # unreadable identity, or a missing timestamp all leave the count nil so the
+  # column honestly reads "Unresolved" instead of showing a number from a root
+  # we cannot match. A freshly resolved count always wins; this only fills a nil.
+  @spec carry_forward_counts(t(), term()) :: t()
+  def carry_forward_counts(%__MODULE__{} = fresh, %__MODULE__{} = previous) do
+    resolved = resolved_counts_by_key(previous.entries)
+
+    if resolved == %{} do
+      fresh
+    else
+      %{fresh | entries: Enum.map(fresh.entries, &carry_entry(&1, resolved))}
+    end
+  end
+
+  def carry_forward_counts(%__MODULE__{} = fresh, _previous), do: fresh
+
+  defp resolved_counts_by_key(entries) do
+    for %RootSummary{} = entry <- entries,
+        key = carry_key(entry),
+        not is_nil(key),
+        is_integer(entry.epic_count) or is_integer(entry.phase_count),
+        into: %{},
+        do: {key, {entry.epic_count, entry.phase_count}}
+  end
+
+  defp carry_entry(%RootSummary{epic_count: epics, phase_count: phases} = entry, _resolved)
+       when is_integer(epics) and is_integer(phases),
+       do: entry
+
+  defp carry_entry(%RootSummary{} = entry, resolved) do
+    case Map.get(resolved, carry_key(entry)) do
+      {epic_count, phase_count} ->
+        %{entry | epic_count: fill(entry.epic_count, epic_count), phase_count: fill(entry.phase_count, phase_count)}
+
+      nil ->
+        entry
+    end
+  end
+
+  defp carry_entry(entry, _resolved), do: entry
+
+  # The key *is* the fingerprint: an entry only matches a previous entry when
+  # its identity, member count, and update timestamp all agree, so a lookup hit
+  # means the root itself and the size of its membership did not move. See the
+  # note on `carry_forward_counts/2` for what that does and does not establish.
+  defp carry_key(%RootSummary{identity: %TrackerIdentity{} = identity, member_count: members, updated_at: %DateTime{} = updated_at})
+       when is_integer(members) do
+    case TrackerIdentity.github_key(identity) do
+      {:github, _owner, _repository, _id} = key -> {key, members, DateTime.to_unix(updated_at, :microsecond)}
+      _key -> nil
+    end
+  end
+
+  defp carry_key(_entry), do: nil
+
+  defp fill(nil, carried) when is_integer(carried) and carried >= 0, do: carried
+  defp fill(current, _carried), do: current
 
   @spec select(t(), term()) :: selection()
   def select(%__MODULE__{} = catalog, identity) do

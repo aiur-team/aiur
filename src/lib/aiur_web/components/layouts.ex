@@ -188,7 +188,7 @@ defmodule AiurWeb.Layouts do
 
                     if (navigator.clipboard?.writeText) {
                       try {
-                        await navigator.clipboard.writeText(this.source.value);
+                        await navigator.clipboard.writeText(this.sourceText());
                         copied = true;
                       } catch (_error) {}
                     }
@@ -211,10 +211,31 @@ defmodule AiurWeb.Layouts do
               destroyed: function () {
                 this.trigger?.removeEventListener("click", this.onCopy);
               },
+              // A copy source is either a form control (`value`) or a plain
+              // block that renders the text itself. The block form exists so a
+              // long prompt can lay out over as many wrapped rows as it needs:
+              // a textarea has a fixed row count and would clip the tail.
+              sourceText: function () {
+                return "value" in this.source ? this.source.value : this.source.textContent;
+              },
               selectSource: function () {
-                this.source.focus();
-                this.source.select();
-                this.source.setSelectionRange(0, this.source.value.length);
+                if (typeof this.source.select === "function") {
+                  this.source.focus();
+                  this.source.select();
+                  this.source.setSelectionRange(0, this.source.value.length);
+                  return;
+                }
+
+                // `selectSource` runs from the failure handler too, so it must
+                // not throw: a null selection here would escape that handler
+                // and leave the button dead with no status message.
+                var selection = window.getSelection();
+                if (!selection) return;
+
+                var range = document.createRange();
+                range.selectNodeContents(this.source);
+                selection.removeAllRanges();
+                selection.addRange(range);
               }
             };
 

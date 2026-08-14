@@ -9,12 +9,18 @@ defmodule Aiur.BuildOrder.GraphProjection do
 
   use GenServer
 
+  alias Aiur.BuildOrder.{Catalog, ProviderHealth}
   alias Aiur.BuildOrder.GitHubGraph.Settings
   alias Aiur.BuildOrder.GraphProjection.{Configuration, Failure, Options, Policy, Snapshot, TaskLifecycle}
-  alias Aiur.BuildOrder.ProviderHealth
   alias Aiur.TrackerIdentity
 
   @reset_topic "build_order:graph:reset"
+
+  # How many labelled-read intervals a carried epic/wave count may survive
+  # before the columns fall back to "Unresolved". Two gives one missed labelled
+  # read of slack without letting a broken labelled cadence publish a number of
+  # unbounded age.
+  @carry_grace_intervals 2
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -282,6 +288,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
     state = %{
       state
       | catalog: Policy.unavailable_entry(:catalog, now_ms),
+        # A new authority discards the catalog entirely, so the counts it
+        # carried are gone too. Clearing the stamp makes the first read under
+        # the new authority a labelled one.
+        catalog_labels_read_ms: nil,
+        catalog_labels_ok_ms: nil,
+        catalog_labels_failures: 0,
+        catalog_labels_penalty_ms: 0,
         selected: %{},
         pending: MapSet.new(),
         active_repository: snapshot.repository,
@@ -549,7 +562,8 @@ defmodule Aiur.BuildOrder.GraphProjection do
     now = now(state)
     entry = Policy.refreshing(entry, now)
     attempt = state.next_attempt
-    reader_options = reader_options(state)
+    member_labels? = catalog_labels_due?(state, scope)
+    reader_options = reader_options(state, member_labels?)
 
     case TaskLifecycle.start(state, scope, reader_options) do
       {:ok, task} ->
@@ -562,6 +576,7 @@ defmodule Aiur.BuildOrder.GraphProjection do
           timeout_ref: timeout_ref,
           scope: scope,
           attempt: attempt,
+          member_labels?: member_labels?,
           authority_generation: state.authority_generation,
           configuration_generation: state.active_configuration_generation
         }
@@ -610,8 +625,13 @@ defmodule Aiur.BuildOrder.GraphProjection do
       when ref == inflight.ref and inflight.authority_generation == state.authority_generation and
              inflight.configuration_generation == state.active_configuration_generation ->
         case Policy.complete_candidate(result, scope, state.active_repository) do
-          {:ok, candidate} -> complete_success(state, entry, scope, candidate)
-          {:error, failure, provider_result} -> complete_failure(state, entry, scope, failure, provider_result)
+          {:ok, candidate} ->
+            complete_success(state, entry, scope, candidate, inflight)
+
+          {:error, failure, provider_result} ->
+            state
+            |> record_catalog_labels_failure(scope, inflight)
+            |> complete_failure(entry, scope, failure, provider_result)
         end
 
       _entry ->
@@ -631,12 +651,89 @@ defmodule Aiur.BuildOrder.GraphProjection do
     end
   end
 
-  defp complete_success(state, entry, scope, candidate) do
+  defp complete_success(state, entry, scope, candidate, inflight) do
     generation = state.next_generation
+    candidate = carry_catalog_counts(state, candidate, entry, scope, inflight)
     entry = Policy.apply_success(entry, candidate, generation, now(state), now_ms(state))
-    state = state |> put_scope_entry(entry, scope) |> Map.put(:next_generation, generation + 1)
+
+    state =
+      state
+      |> put_scope_entry(entry, scope)
+      |> Map.put(:next_generation, generation + 1)
+      |> record_catalog_labels_read(scope, inflight)
+
     state = schedule_after_completion(state, scope, state |> scope_interval(scope))
     {state, [{:generation, snapshot_for_entry(scope_entry(state, scope), state)}]}
+  end
+
+  # An unlabelled catalog poll cannot resolve epic/wave counts, so it inherits
+  # the previous generation's — but only for roots `Catalog.carry_forward_counts/2`
+  # can match, and only while the labelled cadence is actually keeping up.
+  #
+  # A *labelled* read is authoritative: if it read the member labels and still
+  # could not resolve a count, the honest answer is "Unresolved", not the number
+  # from before. Inheriting there would let one stale count survive every
+  # expensive refresh that was supposed to correct it.
+  defp carry_catalog_counts(state, %Catalog{} = candidate, %{data: %Catalog{} = previous}, :catalog, inflight) do
+    if labelled_read?(inflight) or carry_expired?(state) do
+      candidate
+    else
+      Catalog.carry_forward_counts(candidate, previous)
+    end
+  end
+
+  defp carry_catalog_counts(_state, candidate, _entry, _scope, _inflight), do: candidate
+
+  defp labelled_read?(%{member_labels?: true}), do: true
+  defp labelled_read?(_inflight), do: false
+
+  # Carrying is a bridge between labelled reads, not a substitute for them. If
+  # the labelled read has been failing for longer than the grace window, the
+  # counts are no longer a number we can stand behind, so the columns fall back
+  # to "Unresolved" rather than asserting an unbounded-age figure.
+  defp carry_expired?(%{catalog_labels_ok_ms: nil}), do: false
+
+  defp carry_expired?(%{catalog_labels_ok_ms: ok_ms} = state),
+    do: now_ms(state) - ok_ms > state.policy.catalog_labels_refresh_ms * @carry_grace_intervals
+
+  # The cadence is stamped on success, not on dispatch: a labelled read that
+  # failed bought nothing, so it must not push the next one out by a full
+  # interval. It must not retry immediately either — a labelled read that fails
+  # deterministically (a timeout on the much larger response, a node-limit
+  # rejection, point exhaustion) would otherwise make *every* catalog poll buy
+  # the expensive query, which is exactly the budget burn #1766 is about. So a
+  # failed labelled read backs off geometrically, and the cheap reads in between
+  # keep the catalog publishing.
+  defp record_catalog_labels_read(state, :catalog, %{member_labels?: true}) do
+    now_ms = now_ms(state)
+
+    %{
+      state
+      | catalog_labels_read_ms: now_ms,
+        catalog_labels_ok_ms: now_ms,
+        catalog_labels_penalty_ms: 0,
+        catalog_labels_failures: 0
+    }
+  end
+
+  defp record_catalog_labels_read(state, _scope, _inflight), do: state
+
+  defp record_catalog_labels_failure(state, :catalog, %{member_labels?: true}) do
+    failures = state.catalog_labels_failures + 1
+
+    %{
+      state
+      | catalog_labels_read_ms: now_ms(state),
+        catalog_labels_failures: failures,
+        catalog_labels_penalty_ms: labels_penalty_ms(state, failures)
+    }
+  end
+
+  defp record_catalog_labels_failure(state, _scope, _inflight), do: state
+
+  defp labels_penalty_ms(state, failures) do
+    backoff = state.policy.catalog_refresh_ms * Integer.pow(2, min(failures - 1, 16))
+    min(backoff, state.policy.catalog_labels_refresh_ms)
   end
 
   defp complete_failure(state, entry, scope, failure, provider_result) do
@@ -772,14 +869,32 @@ defmodule Aiur.BuildOrder.GraphProjection do
   defp snapshot_for_entry(%{scope: :catalog}, state), do: catalog_snapshot(state)
   defp snapshot_for_entry(%{scope: {:selected, identity}}, state), do: selected_snapshot(state, identity)
 
-  defp reader_options(state) do
+  defp reader_options(state, member_labels?) do
     [
       repository: state.active_repository,
       root_limit: state.root_limit,
       page_budget: state.page_budget,
-      call_budget: state.call_budget
+      call_budget: state.call_budget,
+      member_labels: member_labels?
     ]
   end
+
+  # Only the catalog has a labelled variant, and it is bought on its own slow
+  # cadence because the per-member `labels` connection costs ~26 GraphQL points
+  # against a 5,000-points/hour budget versus ~1 without it (#1766). The first
+  # read under an authority is always labelled so the page resolves promptly;
+  # after that the cheap reads carry the resolved counts forward.
+  defp catalog_labels_due?(_state, {:selected, _identity}), do: false
+  defp catalog_labels_due?(%{catalog_labels_read_ms: nil}, :catalog), do: true
+
+  defp catalog_labels_due?(%{catalog_labels_read_ms: last_ms} = state, :catalog),
+    do: now_ms(state) - last_ms >= labels_interval_ms(state)
+
+  # After a failed labelled read the gate is the backoff penalty, not the full
+  # cadence, so a transient failure costs one poll rather than ten minutes of
+  # unresolved counts — while a persistent one still backs off to the cadence.
+  defp labels_interval_ms(%{catalog_labels_penalty_ms: penalty}) when is_integer(penalty) and penalty > 0, do: penalty
+  defp labels_interval_ms(state), do: state.policy.catalog_labels_refresh_ms
 
   defp cancel_all_tasks(state) do
     Enum.each(state.inflight_by_ref, fn {ref, inflight} ->
