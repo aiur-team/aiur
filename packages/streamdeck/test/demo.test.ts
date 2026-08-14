@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { createPhysicalController } from "../src/controller.js";
-import { demoGrid, demoLogs } from "../src/demo.js";
+import { advanceDemoGrid, demoGrid, demoLogs, demoUsage } from "../src/demo.js";
+import { providerSegmentModel, type ProviderMeter } from "../src/touchStrip/providerSegment.js";
 import { keyReport } from "./support/deckReports.js";
 
 describe("demo logs fixture", () => {
@@ -49,5 +50,85 @@ describe("demo logs fixture", () => {
     controller.handleReport(keyReport(2, true));
     controller.handleReport(keyReport(2, false));
     expect(controller.state().transcriptRows[0]).toMatchObject({ kind: "event_header", body: eventKeys[2].text });
+  });
+});
+
+describe("demo grid fixture", () => {
+  // The fixture exists because a real fleet is often all one colour; if it did
+  // not cover every bucket it could not prove the state colours work at all.
+  it("covers every key state, both footer shapes and several providers", () => {
+    const grid = demoGrid();
+    const buckets = new Set(grid.agents.map((agent) => agent.bucket));
+    expect([...buckets].sort()).toEqual(["alert", "paused", "queued", "running", "stuck"]);
+    expect(grid.agents.some((agent) => agent.priority === true)).toBe(true);
+    expect(grid.agents.some((agent) => agent.dependency_ready === false)).toBe(true);
+    expect(new Set(grid.agents.map((agent) => agent.vendor)).size).toBeGreaterThan(2);
+  });
+
+  it("reports a total and paging bounds that match its own agent list", () => {
+    const grid = demoGrid();
+    expect(grid.total).toBe(grid.agents.length);
+    expect(grid.max_column_offset).toBe(Math.max(0, Math.ceil(grid.agents.length / 2) - 4));
+  });
+
+  it("carries a build order in progress so the summary shows its bar", () => {
+    const grid = demoGrid() as unknown as { build: { completed: number; total: number; etaSeconds: number } };
+    expect(grid.build.completed).toBeGreaterThan(0);
+    expect(grid.build.completed).toBeLessThan(grid.build.total);
+    expect(grid.build.etaSeconds).toBeGreaterThan(0);
+  });
+});
+
+describe("demoUsage fixture", () => {
+  const now = Date.parse("2026-08-13T03:00:00Z");
+  const usage = demoUsage(now) as Readonly<Record<string, ProviderMeter>>;
+
+  it("projects to real session and weekly windows resetting in the future", () => {
+    const claude = providerSegmentModel(usage.claude);
+    expect(claude.hasData).toBe(true);
+    expect(claude.session?.usedPercent).toBe(86);
+    expect(Date.parse(String(claude.session?.resetsAt))).toBeGreaterThan(now);
+    expect(Date.parse(String(claude.weekly?.resetsAt))).toBeGreaterThan(now);
+  });
+
+  // "Awaiting data" is a state the operator has to be able to see on-device,
+  // so one provider deliberately reports no windows at all.
+  it("includes a provider with no reading so that state is visible too", () => {
+    expect(providerSegmentModel(usage.openrouter).hasData).toBe(false);
+  });
+
+  it("spreads the meters so no two segments read alike", () => {
+    const percents = Object.values(usage)
+      .map((meter) => providerSegmentModel(meter).session?.usedPercent)
+      .filter((percent): percent is number => percent !== undefined);
+    expect(new Set(percents).size).toBe(percents.length);
+  });
+});
+
+describe("advanceDemoGrid", () => {
+  it("advances running agents only, leaving every other bucket alone", () => {
+    const before = demoGrid();
+    const after = advanceDemoGrid(before, 5);
+    after.agents.forEach((agent, index) => {
+      const previous = before.agents[index];
+      const expected =
+        previous.bucket === "running" ? ((previous.progress_percent as number) + 5) % 101 : previous.progress_percent;
+      expect(agent.progress_percent, `agent ${String(previous.identifier)}`).toBe(expected);
+    });
+  });
+
+  // A tick that walked past 100 would drive the progress bar off the key and
+  // the percent label into nonsense, so it has to wrap.
+  it("wraps a running agent's progress at 100", () => {
+    const grid = { ...demoGrid(), agents: [{ identifier: "1", bucket: "running", progress_percent: 99 }] };
+    expect(advanceDemoGrid(grid, 5).agents[0].progress_percent).toBe(3);
+  });
+
+  it("leaves the rest of the payload untouched", () => {
+    const before = demoGrid();
+    const after = advanceDemoGrid(before, 7);
+    expect(after.total).toBe(before.total);
+    expect(after.max_column_offset).toBe(before.max_column_offset);
+    expect(after.agents).toHaveLength(before.agents.length);
   });
 });

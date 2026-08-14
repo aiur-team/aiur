@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createDebugLog, debugEnabled, hexPreview } from "../src/debug.js";
 
@@ -33,6 +33,33 @@ describe("createDebugLog", () => {
     const lines: string[] = [];
     createDebugLog(true, (line) => lines.push(line))("input.pollStarted");
     expect(lines).toEqual(["[streamdeck:debug] input.pollStarted"]);
+  });
+
+  // A structured detail is the whole point of the trace; `[object Object]`
+  // would hide exactly the payload an operator is reading the trace for.
+  it("renders a structured detail as JSON and other values as themselves", () => {
+    const lines: string[] = [];
+    createDebugLog(true, (line) => lines.push(line))("channel.payload", {
+      keys: [1, 2],
+      mode: { strip: "logs" },
+      offset: null,
+      dirty: true,
+    });
+    expect(lines).toEqual([
+      '[streamdeck:debug] channel.payload keys=[1,2] mode={"strip":"logs"} offset=null dirty=true',
+    ]);
+  });
+
+  // The sidecar runs headless under systemd, so an unconfigured tracer has to
+  // reach the journal on its own rather than write nowhere.
+  it("writes to console.debug when no sink is given", () => {
+    const debug = vi.spyOn(console, "debug").mockImplementation(() => undefined);
+    try {
+      createDebugLog(true)("input.report", { length: 512 });
+      expect(debug).toHaveBeenCalledWith("[streamdeck:debug] input.report length=512");
+    } finally {
+      debug.mockRestore();
+    }
   });
 });
 

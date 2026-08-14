@@ -16,6 +16,13 @@ describe("parseGradient", () => {
     expect(parseGradient("#9fd0ff")).toBeNull();
   });
 
+  // A gradient whose stop list is empty parses structurally but paints nothing,
+  // so it must be reported as unparsed and fall back to a solid colour rather
+  // than produce a CanvasGradient with no stops — which renders transparent.
+  it("returns null for a gradient with no colour stops", () => {
+    expect(parseGradient("linear-gradient(180deg, , )")).toBeNull();
+  });
+
   // Every bucket in the shared contract must be paintable; a token this module
   // cannot parse would silently render as a black key on the device.
   it("parses every glow and face token in the key-face contract", () => {
@@ -52,6 +59,16 @@ describe("createPaint", () => {
   // Assigning a raw `linear-gradient(...)` string to fillStyle is ignored by
   // canvas, leaving the previous fill in place. Painting the real gradient is
   // what stops every key rendering black.
+  // Dividing by a zero span would put the single stop at NaN, which canvas
+  // rejects; a one-stop gradient has to become a flat fill of that colour.
+  it("places a single stop at the start of the axis", () => {
+    const gradient = createPaint(context, "linear-gradient(180deg,#3f8bff)", 0, 0, 120, 120);
+    expect(typeof gradient).not.toBe("string");
+    context.fillStyle = "#000000";
+    context.fillStyle = gradient as CanvasGradient;
+    expect(context.fillStyle).not.toBe("#000000");
+  });
+
   it("produces a fillStyle canvas actually accepts", () => {
     const gradient = createPaint(context, "linear-gradient(180deg,#3f8bff,#7b4bf5)", 0, 0, 120, 120);
     context.fillStyle = "#000000";
