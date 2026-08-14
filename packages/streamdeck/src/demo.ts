@@ -17,7 +17,7 @@
  * here is used unless the demo flag is set.
  */
 
-import type { StreamDeckGrid, StreamDeckLogs } from "./channel.js";
+import type { StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 
 /** One synthetic agent, in the daemon's grid payload shape. */
 type DemoAgent = Readonly<Record<string, unknown>>;
@@ -57,21 +57,76 @@ const AGENTS: readonly DemoAgent[] = [
   { identifier: "933", title: "Fixture server hardening", vendor: "claude", icon: "shield", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: false },
 ];
 
-const BADGES = ["EMIT", "CONSUME", "AGENT", "SYSTEM", "INFO"] as const;
+/** One synthetic event: the key face, plus the chat that event published. */
+interface DemoEvent {
+  readonly badge: string;
+  readonly text: string;
+  /** Minutes ago, which drives both the key's age and the header timestamp. */
+  readonly minutesAgo: number;
+  readonly entries: readonly TranscriptRow[];
+}
 
-const EVENT_TEXT: readonly string[] = [
-  "Dependency cleared for #401",
-  "Picked up build order barrier",
-  "Daemon reloaded workflow fixtures",
-  "Opened PR #1904 for review",
-  "Retry budget exhausted on #333",
-  "Merge gate approved #412",
-  "Worker claimed ticket #530",
-  "Provider meter refreshed",
-  "Workspace lock released",
-  "Nightly run scheduled",
-  "Ticket #718 needs operator input",
-  "Branch pushed for #520",
+const message = (role: string, body: string): TranscriptRow => ({ kind: "message", role, body });
+const diff = (path: string, additions: number, deletions: number, line: string | null = null): TranscriptRow =>
+  ({ kind: "diff", path, additions, deletions, line });
+
+/**
+ * The demo feed, newest event first.
+ *
+ * Each event carries the chat it published, so the fixture exercises the
+ * behaviour the logs surface exists for: pressing an event key scrolls the
+ * strip to that event's header and the messages that followed it. A flat list
+ * of pre-rendered lines cannot show that, because there are no headers to jump
+ * to. The first four events are deliberately dense, so the jump lands somewhere
+ * visibly different each time.
+ */
+const EVENTS: readonly DemoEvent[] = [
+  {
+    badge: "EMIT",
+    text: "Dependency cleared for #401",
+    minutesAgo: 0,
+    entries: [
+      message("assistant", "Dependency on #388 is merged; unblocking the auth refactor."),
+      message("tool", "gh pr view 388 --json state -> MERGED"),
+      diff("src/lib/aiur/agent/dependencies.ex", 18, 4, "+  defp cleared?(ticket), do: ticket.blockers == []"),
+    ],
+  },
+  {
+    badge: "AGENT",
+    text: "Rebased onto origin/main",
+    minutesAgo: 3,
+    entries: [
+      message("assistant", "Rebasing before the test run so CI builds the merge ref."),
+      diff("src/lib/aiur/orchestrator.ex", 6, 6, "-    Process.send_after(self(), :wake, 5_000)"),
+      message("ci", "12 files changed, 340 insertions, 96 deletions"),
+    ],
+  },
+  {
+    badge: "SYSTEM",
+    text: "Daemon reloaded workflow fixtures",
+    minutesAgo: 9,
+    entries: [
+      message("system", "Workflow fixtures changed on disk; reloading the agent registry."),
+      diff("src/examples/workflows/github-claude.aiurconfig", 3, 1),
+    ],
+  },
+  {
+    badge: "CONSUME",
+    text: "Merge gate approved #412",
+    minutesAgo: 14,
+    entries: [
+      message("assistant", "Human merge gate satisfied; queueing the merge."),
+      message("ci", "All checks passed on the head SHA."),
+    ],
+  },
+  { badge: "INFO", text: "Retry budget exhausted on #333", minutesAgo: 21, entries: [message("system", "Retry budget exhausted after 5 attempts; the agent is stuck.")] },
+  { badge: "EMIT", text: "Opened PR #1904 for review", minutesAgo: 28, entries: [message("assistant", "Opened PR #1904 and requested review.")] },
+  { badge: "AGENT", text: "Worker claimed ticket #530", minutesAgo: 36, entries: [message("assistant", "Claimed #530 and started the state management rewrite.")] },
+  { badge: "SYSTEM", text: "Provider meter refreshed", minutesAgo: 44, entries: [message("system", "Claude session window is at 86%.")] },
+  { badge: "INFO", text: "Workspace lock released", minutesAgo: 52, entries: [message("system", "Workspace lock for #810 released after 4m of contention.")] },
+  { badge: "CONSUME", text: "Nightly run scheduled", minutesAgo: 61, entries: [message("system", "Nightly integration run scheduled for 02:00.")] },
+  { badge: "SYSTEM", text: "Ticket #718 needs operator input", minutesAgo: 70, entries: [message("alert", "Merge gate audit needs a decision before it can continue.")] },
+  { badge: "EMIT", text: "Branch pushed for #520", minutesAgo: 83, entries: [message("assistant", "Pushed feat/navigation-shell.")] },
 ];
 
 /**
@@ -120,34 +175,44 @@ export const demoUsage = (now: number): Readonly<Record<string, unknown>> => {
   };
 };
 
-/** Event keys (with a LIVE row) and a transcript, in the daemon's log shape. */
-export const demoLogs = (): StreamDeckLogs => ({
-  event_keys: [
-    { kind: "live", id: "live", index: 0, label: "LIVE" },
-    ...EVENT_TEXT.map((text, index) => ({
-      kind: "event",
-      id: `demo-${index}`,
-      index: index + 1,
-      badge: BADGES[index % BADGES.length],
-      text,
-      time: index === 0 ? "now" : `${index * 3}m`,
-    })),
-  ],
-  events_offset: 0,
-  events_max_offset: Math.max(0, EVENT_TEXT.length + 1 - 8),
-  transcript: [
-    { line: "[EMIT] Dependency cleared for #401" },
-    { line: "Rebasing onto origin/main" },
-    { line: "Running the focused test suite" },
-    { line: "12 files changed, 340 insertions" },
-    { line: "[SYSTEM] Daemon reloaded workflow fixtures" },
-    { line: "Waiting on the merge queue" },
-    { line: "Opened PR #1904 for review" },
-    { line: "CI green on the head SHA" },
-  ],
-  transcript_offset: 0,
-  transcript_max_offset: 6,
-});
+/**
+ * Event keys (with a LIVE row) and the flattened transcript, in the daemon's
+ * log shape.
+ *
+ * Both sides are derived from the one {@link EVENTS} list, in the daemon's own
+ * order — newest event first, each header immediately followed by its own
+ * entries — so the key at slot `n` and the header the jump lands on cannot
+ * drift apart in the fixture.
+ */
+export const demoLogs = (now: number = Date.now()): StreamDeckLogs => {
+  const transcript = EVENTS.flatMap((event) => [
+    {
+      kind: "event_header",
+      badge: event.badge,
+      body: event.text,
+      timestamp: new Date(now - event.minutesAgo * 60_000).toISOString(),
+    },
+    ...event.entries,
+  ]);
+  return {
+    event_keys: [
+      { kind: "live", id: "live", index: 0, label: "LIVE" },
+      ...EVENTS.map((event, index) => ({
+        kind: "event",
+        id: `demo-${index}`,
+        index: index + 1,
+        badge: event.badge,
+        text: event.text,
+        time: event.minutesAgo === 0 ? "now" : `${event.minutesAgo}m`,
+      })),
+    ],
+    events_offset: 0,
+    events_max_offset: Math.max(0, EVENTS.length + 1 - 8),
+    transcript,
+    transcript_offset: 0,
+    transcript_max_offset: Math.max(0, transcript.length - 2),
+  };
+};
 
 /**
  * Advances the fixture so the deck visibly ticks: running agents gain progress

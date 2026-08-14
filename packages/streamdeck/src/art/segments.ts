@@ -16,9 +16,10 @@
  */
 import type { SKRSContext2D } from "@napi-rs/canvas";
 
+import type { TranscriptRow } from "../channel.js";
 import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import type { ProviderSegmentModel } from "../touchStrip/providerSegment.js";
-import { progressBarColor } from "../key-face-contract.js";
+import { BADGE_IDS, bucketContract, directionBadgeColor, progressBarColor, type DirectionBadge } from "../key-face-contract.js";
 import { createPaint } from "./gradient.js";
 import { drawBrandMark, drawVendorMark } from "./vendorMark.js";
 
@@ -225,6 +226,121 @@ const drawPager = (context: SKRSContext2D, content: SegmentContent & { kind: "pa
   });
 };
 
+/**
+ * "3m" style age from a past ISO instant, relative to `now`.
+ *
+ * The key faces carry a relative age computed by the daemon, but a transcript
+ * header carries the raw timestamp, so the strip derives its own. Mirrors
+ * {@link resetLabel}, which faces the other way in time.
+ */
+export const ageLabel = (timestamp: string | null, now: number): string | null => {
+  if (timestamp === null) return null;
+  const at = Date.parse(timestamp);
+  if (Number.isNaN(at)) return null;
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 60) return "now";
+  if (seconds < 3600) return `${Math.floor(seconds / 60)}m`;
+  if (seconds < 86_400) return `${Math.floor(seconds / 3600)}h`;
+  return `${Math.floor(seconds / 86_400)}d`;
+};
+
+/**
+ * Shortens `text` with an ellipsis until it fits `maxWidth` at the current font.
+ *
+ * Measured and clipped rather than left to a canvas clip region, because the
+ * strip's segments are cached by their rendered bytes: a clipped glyph still
+ * changes the JPEG, so two rows that read the same would repaint each other.
+ */
+const fit = (context: SKRSContext2D, text: string, maxWidth: number): string => {
+  // A caller can hand this a negative budget when a long right-aligned run eats
+  // the region; nothing fits, so draw nothing rather than the bare ellipsis.
+  if (maxWidth <= 0) return "";
+  if (context.measureText(text).width <= maxWidth) return text;
+  let clipped = text;
+  while (clipped.length > 1 && context.measureText(`${clipped}…`).width > maxWidth) clipped = clipped.slice(0, -1);
+  return `${clipped}…`;
+};
+
+const isBadge = (badge: string): badge is DirectionBadge => (BADGE_IDS as readonly string[]).includes(badge);
+
+/**
+ * Contract colour for a badge the daemon sent.
+ *
+ * The badge crosses the wire as a free string, so an unrecognised one falls
+ * back to INFO — the neutral badge — rather than throwing and taking the whole
+ * strip repaint with it.
+ */
+const badgeColour = (badge: string): string => directionBadgeColor(isBadge(badge) ? badge : "INFO");
+
+/**
+ * Speaker colours, expressed as the direction badge each role reads as.
+ *
+ * The mock keeps a separate `whoC` table for chat roles, but every colour in it
+ * is already a direction-badge colour, so the roles are mapped onto the badges
+ * instead of copying the hexes into a second table that could drift from the
+ * key faces.
+ */
+const ROLE_BADGES: Readonly<Record<string, DirectionBadge>> = {
+  assistant: "AGENT",
+  agent: "AGENT",
+  reasoning: "AGENT",
+  tool: "SYSTEM",
+  command: "SYSTEM",
+  alert: "SYSTEM",
+  system: "SYSTEM",
+  ci: "CONSUME",
+};
+
+/** Additions reuse the CONSUME badge; deletions the `stuck` accent — the mock's own two diff colours. */
+const DIFF_ADD = directionBadgeColor("CONSUME");
+const DIFF_DEL = bucketContract("stuck").accent;
+
+/** One transcript row in a 200x100 region: header, diff, or message. */
+const drawChat = (context: SKRSContext2D, row: TranscriptRow, now: number): void => {
+  const width = 200 - PAD * 2;
+  if (row.kind === "event_header") {
+    const age = ageLabel(row.timestamp, now);
+    context.font = "700 10px monospace";
+    const ageWidth = age === null ? 0 : context.measureText(age).width + 8;
+    // The badge is whatever string the feed sent, so it is clipped to the space
+    // the age is not using; an over-long badge otherwise overprints the age.
+    caption(context, fit(context, row.badge.toUpperCase(), width - ageWidth), PAD, 30, badgeColour(row.badge));
+    if (age !== null) {
+      context.font = "700 10px monospace";
+      context.fillStyle = LABEL;
+      context.fillText(age, 200 - PAD - context.measureText(age).width, 30);
+    }
+    context.font = "700 12px sans-serif";
+    context.fillStyle = TEXT;
+    context.fillText(fit(context, row.body, width), PAD, 56);
+    return;
+  }
+  if (row.kind === "diff") {
+    const counts = `+${row.additions} -${row.deletions}`;
+    context.font = "700 10px monospace";
+    const countsWidth = context.measureText(counts).width;
+    context.fillStyle = LABEL;
+    context.fillText(fit(context, row.path, width - countsWidth - 8), PAD, 30);
+    // The two counts are painted as one right-aligned run so they cannot
+    // collide with a long path, and each keeps its own tint.
+    const additions = `+${row.additions}`;
+    context.fillStyle = DIFF_ADD;
+    context.fillText(additions, 200 - PAD - countsWidth, 30);
+    context.fillStyle = DIFF_DEL;
+    context.fillText(`-${row.deletions}`, 200 - PAD - countsWidth + context.measureText(`${additions} `).width, 30);
+    if (row.line !== null) {
+      context.font = "600 11px monospace";
+      context.fillStyle = row.line.startsWith("+") ? DIFF_ADD : row.line.startsWith("-") ? DIFF_DEL : MUTED;
+      context.fillText(fit(context, row.line, width), PAD, 56);
+    }
+    return;
+  }
+  caption(context, row.role, PAD, 30, directionBadgeColor(ROLE_BADGES[row.role] ?? "INFO"));
+  context.font = "600 12px sans-serif";
+  context.fillStyle = MUTED;
+  context.fillText(fit(context, row.body, width), PAD, 56);
+};
+
 /** Renders one segment's content onto a 200x100 context. */
 export const drawSegmentContent = (
   context: SKRSContext2D,
@@ -272,9 +388,9 @@ export const drawSegmentContent = (
       return;
     }
     case "chat":
-      context.font = "600 12px sans-serif";
-      context.fillStyle = MUTED;
-      context.fillText(content.line, PAD, 56);
+      // A null row is a slot past the end of the transcript: it paints the
+      // background only, rather than an empty label the operator has to read.
+      if (content.row !== null) drawChat(context, content.row, now);
       return;
     case "hint": {
       const arrow = content.direction === "back" ? "←" : "→";

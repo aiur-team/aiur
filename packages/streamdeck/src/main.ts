@@ -230,6 +230,9 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
         }
         // Nothing queued: report an idle interval so the runtime's poll loop
         // keeps ticking instead of blocking on an event that may never come.
+        // Declared before `settle`, which clears it, and assigned after —
+        // so it cannot be a const even though it is only written once.
+        // eslint-disable-next-line prefer-const
         let timer: ReturnType<typeof setTimeout>;
         const settle = (result: UsbInResult): void => {
           clearTimeout(timer);
@@ -269,7 +272,6 @@ export const main = async (): Promise<void> => {
   // What the surface actually renders.
   let latestGrid: StreamDeckGrid = liveGrid;
   let latestUsage: Readonly<Record<string, unknown>> = liveUsage;
-  let transcriptFeed: string[] = [];
   let logsFeed: StreamDeckLogs = {};
   let activeBackend: HidBackend | null = null;
   let channel: Awaited<ReturnType<typeof connectStreamDeckChannel>> | null = null;
@@ -292,12 +294,16 @@ export const main = async (): Promise<void> => {
   let demoActive = false;
   let demoGridState = demoGrid();
   let demoTick = 0;
+  // The fixture's event timestamps are frozen at the moment the demo starts.
+  // Deriving them from `Date.now()` on every tick changed the payload even when
+  // nothing had happened, which repainted the whole strip a few times a minute.
+  let demoLogsState = demoLogs();
 
   const applySource = (): void => {
     if (demoActive) {
       latestGrid = demoGridState;
       latestUsage = demoUsage(Date.now());
-      controller.setLogs(demoLogs());
+      controller.setLogs(demoLogsState);
     } else {
       latestGrid = liveGrid;
       latestUsage = liveUsage;
@@ -310,7 +316,10 @@ export const main = async (): Promise<void> => {
     demoActive = !demoActive;
     console.info(`[streamdeck] demo mode ${demoActive ? "on" : "off"}`);
     debug("demo.toggle", { active: demoActive });
-    if (demoActive) demoGridState = demoGrid();
+    if (demoActive) {
+      demoGridState = demoGrid();
+      demoLogsState = demoLogs();
+    }
     applySource();
   };
 
@@ -322,7 +331,7 @@ export const main = async (): Promise<void> => {
     demoGridState = advanceDemoGrid(demoGridState, 3);
     latestGrid = demoGridState;
     latestUsage = demoUsage(Date.now());
-    if (demoTick % 5 === 0) controller.setLogs(demoLogs());
+    if (demoTick % 5 === 0) controller.setLogs(demoLogsState);
     if (activeBackend !== null) repaintDetached(activeBackend);
   }, 2000).unref();
 
@@ -365,7 +374,7 @@ export const main = async (): Promise<void> => {
       focusedIdentifier: current.focusedIdentifier,
       micHeld: current.micHeld,
       columnOffset: current.columnOffset,
-      transcriptLines: current.transcriptLines,
+      transcriptRows: current.transcriptRows,
       eventLines: current.eventLines,
       eventOffset: current.eventOffset,
       eventHasPrevious: current.eventHasPrevious,
@@ -425,7 +434,13 @@ export const main = async (): Promise<void> => {
           fleet: () => undefined,
           grid: (grid) => { liveGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
           usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
-          transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; if (!demoActive) controller.setTranscript(transcriptFeed); },
+          // Deliberately not fed to the strip. The daemon pushes `transcript`
+          // and `logs` together for the same event, and the `logs` frame
+          // carries the whole flattened transcript with its event headers.
+          // Pushing the message-only feed as well re-derived the scroll bounds
+          // from a shorter array, which clamped the operator's jump back to the
+          // top within a flush — the feature worked until the agent next spoke.
+          transcript: () => undefined,
           logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
           closed: (error) => {

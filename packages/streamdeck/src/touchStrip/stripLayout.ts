@@ -17,14 +17,17 @@
  *   - `grid`: [Summary, Claude usage, Codex usage, Pager]
  *   - `cmd`:  [agent identity, status+percent+bar, BACK hint, "CONTROLLING" +
  *             active ticket] — the pager region becomes the controlling label.
- *   - `logs`: [BACK hint, chat line 1, chat line 2, EVENTS hint] — the two-line
- *             chat window (#1351) flanked by the two hint arrows.
+ *   - `logs`: [BACK hint, chat row 1, chat row 2, EVENTS hint] — the two-row
+ *             transcript window (#1351) flanked by the two hint arrows. A row
+ *             is an event header, a diff, or a message, and stays structured
+ *             so the painter can tell the three apart.
  *
  * Content is a structured descriptor, not pixels: the encoder (device/render
  * path in #1354/#1355, or OpenDeck's layout system per #1342) turns each
  * descriptor into a segment JPEG. Keeping it structured makes both the layout
  * choices and the per-segment diffing testable without a canvas.
  */
+import type { TranscriptRow } from "../channel.js";
 import type { PagerModel } from "./pagerSegment.js";
 import type { ProviderSegmentModel } from "./providerSegment.js";
 import type { SummaryModel } from "./summarySegment.js";
@@ -53,7 +56,7 @@ export type SegmentContent =
       /** Progress percent, 0..100. */
       readonly percent: number;
     }
-  | { readonly kind: "chat"; readonly line: string }
+  | { readonly kind: "chat"; readonly row: TranscriptRow | null }
   | HintContent;
 
 /** Data the `grid` mode needs. Every field is a real projection, not invented. */
@@ -77,8 +80,12 @@ export interface CmdData {
 
 /** Data the `logs` mode needs: the two-line chat window (#1351). */
 export interface LogsData {
-  /** Chat lines, newest last; only the first two are shown. */
-  readonly lines: readonly string[];
+  /**
+   * The transcript window, structured rather than pre-rendered: the segment
+   * painter needs the badge, the role and the diff counts to tell the three
+   * row shapes apart.
+   */
+  readonly rows: readonly TranscriptRow[];
   readonly chatHasPrevious?: boolean;
   readonly chatHasNext?: boolean;
   readonly eventHasPrevious?: boolean;
@@ -101,9 +108,8 @@ function clampPercent(value: number): number {
   return value;
 }
 
-function chatLine(lines: readonly string[], index: number): SegmentContent {
-  const line = typeof lines[index] === "string" ? lines[index] : "";
-  return { kind: "chat", line };
+function chatRow(rows: readonly TranscriptRow[], index: number): SegmentContent {
+  return { kind: "chat", row: rows[index] ?? null };
 }
 
 /**
@@ -139,10 +145,10 @@ export function composeStrip(input: StripData): readonly [
       ];
     }
     case "logs": {
-      const { lines } = input.data;
+      const { rows } = input.data;
       const chatLabel = input.data.chatHasPrevious || input.data.chatHasNext ? "CHAT" : "BACK";
       const eventLabel = input.data.eventHasPrevious && input.data.eventHasNext ? "EVENTS ↑↓" : input.data.eventHasPrevious ? "EVENTS ↑" : input.data.eventHasNext ? "EVENTS ↓" : "EVENTS";
-      return [hint(chatLabel, input.data.chatHasPrevious ? "back" : "forward"), chatLine(lines, 0), chatLine(lines, 1), hint(eventLabel, input.data.eventHasPrevious ? "back" : "forward")];
+      return [hint(chatLabel, input.data.chatHasPrevious ? "back" : "forward"), chatRow(rows, 0), chatRow(rows, 1), hint(eventLabel, input.data.eventHasPrevious ? "back" : "forward")];
     }
   }
 }

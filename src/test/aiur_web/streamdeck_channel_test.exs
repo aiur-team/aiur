@@ -260,6 +260,30 @@ defmodule AiurWeb.StreamdeckChannelTest do
              frame |> IO.iodata_to_binary() |> Jason.decode!()
   end
 
+  # The transcript on the logs surface is what the event keys jump into, so it
+  # has to follow focus. Only the `transcript` frame was covered before, which
+  # would still pass if the logs frame kept projecting the first agent's feed.
+  test "the logs frame re-scopes to the newly focused agent" do
+    first = write_transcript("streamdeck-focus-a", "first agent body", "turn-a")
+    second = write_transcript("streamdeck-focus-b", "second agent body", "turn-b")
+
+    socket = joined_socket()
+
+    assert_reply(push(socket, "focus", %{"identifier" => first}), :ok, %{"focused" => ^first})
+    assert_push("logs", first_payload)
+    assert Enum.any?(first_payload["transcript"], &(&1["body"] == "first agent body"))
+
+    assert_reply(push(socket, "focus", %{"identifier" => second}), :ok, %{"focused" => ^second})
+    assert_push("logs", second_payload)
+    assert Enum.any?(second_payload["transcript"], &(&1["body"] == "second agent body"))
+    refute Enum.any?(second_payload["transcript"], &(&1["body"] == "first agent body"))
+
+    # The headers are what the device derives its jump targets from, so a
+    # transcript that carried only message rows would still fail the operator.
+    assert Enum.any?(second_payload["transcript"], &(&1["kind"] == "event_header"))
+    refute Enum.any?(second_payload["event_keys"], &(&1["id"] == "turn:turn-a"))
+  end
+
   test "focus validates identifiers and unfocus stops the focused subscription" do
     socket = joined_socket()
 
@@ -430,6 +454,28 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
   defp snapshot do
     %{agents: [AgentEvents.agent_summary("AIUR-1", :running, 0, %{title: "Channel tests"})]}
+  end
+
+  defp write_transcript(prefix, body, turn_id) do
+    identifier = "#{prefix}-#{System.unique_integer([:positive])}"
+    path = IssueLog.transcript_path(identifier)
+    File.mkdir_p!(Path.dirname(path))
+    on_exit(fn -> File.rm(path) end)
+
+    File.write!(
+      path,
+      Jason.encode!(%{
+        "role" => "assistant",
+        "body" => body,
+        "timestamp" => "2026-07-30T00:00:00Z",
+        "msg_id" => "#{turn_id}-message",
+        "sequence" => 1,
+        "turn_id" => turn_id,
+        "payload" => nil
+      }) <> "\n"
+    )
+
+    identifier
   end
 
   defp restore_env(key, nil), do: System.delete_env(key)

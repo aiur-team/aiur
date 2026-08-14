@@ -13,7 +13,7 @@ import { pagerModel } from "./touchStrip/pagerSegment.js";
 import { currentWindow } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
-import type { StreamDeckGrid } from "./channel.js";
+import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
 
 export type PhysicalMode = "grid" | "cmd" | "logs";
 export interface PhysicalSurfaceState {
@@ -21,7 +21,7 @@ export interface PhysicalSurfaceState {
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   readonly columnOffset: number;
-  readonly transcriptLines?: readonly string[];
+  readonly transcriptRows?: readonly TranscriptRow[];
   readonly eventLines?: readonly EventKey[];
   readonly eventOffset?: number;
   readonly eventHasPrevious?: boolean;
@@ -158,7 +158,7 @@ export const createPhysicalSurface = () => {
       } : state.mode === "logs" ? {
         mode: "logs",
         data: {
-          lines: state.transcriptLines ?? [],
+          rows: state.transcriptRows ?? [],
           chatHasPrevious: state.chatHasPrevious,
           chatHasNext: state.chatHasNext,
           eventHasPrevious: state.eventHasPrevious,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPhysicalController } from "../src/controller.js";
 import type { StreamDeckGrid } from "../src/channel.js";
+import { dialButton, dialButtons, dialTurn, keyReport, keysReport } from "./support/deckReports.js";
 
 const grid = (count = 10): StreamDeckGrid => ({
   agents: Array.from({ length: count }, (_, index) => ({
@@ -14,48 +15,6 @@ const grid = (count = 10): StreamDeckGrid => ({
   windows: Math.ceil(count / 8),
   max_column_offset: Math.max(0, Math.ceil(count / 2) - 4),
 });
-
-const keyReport = (index: number, pressed: boolean): Uint8Array => {
-  const report = new Uint8Array(12);
-  report[0] = 1;
-  report[4 + index] = pressed ? 1 : 0;
-  return report;
-};
-
-const keysReport = (indices: number[], pressed: boolean): Uint8Array => {
-  const report = new Uint8Array(12);
-  report[0] = 1;
-  for (const index of indices) report[4 + index] = pressed ? 1 : 0;
-  return report;
-};
-
-/** An encoder-button report with several knobs held down at once. */
-const dialButtons = (indices: number[], pressed = true): Uint8Array => {
-  const report = new Uint8Array(10);
-  report[0] = 1;
-  report[1] = 3;
-  report[4] = 0;
-  for (const index of indices) report[5 + index] = pressed ? 1 : 0;
-  return report;
-};
-
-const dialButton = (index: number, pressed = true): Uint8Array => {
-  const report = new Uint8Array(10);
-  report[0] = 1;
-  report[1] = 3;
-  report[4] = 0;
-  report[5 + index] = pressed ? 1 : 0;
-  return report;
-};
-
-const dialTurn = (index: number, ticks: number): Uint8Array => {
-  const report = new Uint8Array(10);
-  report[0] = 1;
-  report[1] = 3;
-  report[4] = 1;
-  report[5 + index] = ticks;
-  return report;
-};
 
 describe("physical controller composition", () => {
   it("focuses the pressed grid agent and controls that same agent in cmd mode", () => {
@@ -115,7 +74,10 @@ describe("physical controller composition", () => {
   it("pages, enters logs, scrolls chat, and backs out through the physical controls", () => {
     const changed = vi.fn();
     const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: changed });
-    controller.setTranscript(["one", "two", "three", "four"]);
+    controller.setLogs({
+      transcript: ["one", "two", "three", "four"].map((body) => ({ kind: "message", role: "assistant", body })),
+      transcript_max_offset: 2,
+    });
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
     controller.handleReport(dialButton(3));
@@ -216,6 +178,161 @@ describe("physical controller composition", () => {
       { kind: "event", badge: "EMIT", text: "Dependency cleared", time: "3m" },
       { kind: "event", badge: "SYSTEM", text: "Daemon reloaded", time: "12m" },
     ]);
+  });
+
+  describe("jump to the transcript position an event was published at", () => {
+    // Three events, flattened the way the daemon flattens them: newest event
+    // first, each header immediately followed by that event's own entries.
+    const transcript = [
+      { kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T03:00:00Z" },
+      { kind: "message", role: "assistant", body: "unblocking" },
+      { kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: "+  ok" },
+      { kind: "event_header", badge: "AGENT", body: "Rebased", timestamp: "2026-08-13T02:57:00Z" },
+      { kind: "message", role: "assistant", body: "rebasing" },
+      { kind: "event_header", badge: "SYSTEM", body: "Fixtures reloaded", timestamp: "2026-08-13T02:51:00Z" },
+      { kind: "message", role: "system", body: "reloaded" },
+      { kind: "message", role: "system", body: "done" },
+    ];
+    const eventKeys = [
+      { kind: "live", label: "LIVE" },
+      { kind: "event", badge: "EMIT", text: "Dependency cleared", time: "now" },
+      { kind: "event", badge: "AGENT", text: "Rebased", time: "3m" },
+      { kind: "event", badge: "SYSTEM", text: "Fixtures reloaded", time: "9m" },
+    ];
+
+    /** A controller sitting on the logs surface with the fixture feed loaded. */
+    const inLogs = (logs: Parameters<ReturnType<typeof createPhysicalController>["setLogs"]>[0] = { event_keys: eventKeys, transcript }) => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.setLogs(logs);
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      expect(controller.state().mode).toBe("logs");
+      return controller;
+    };
+
+    it("scrolls the transcript to each event's header", () => {
+      const controller = inLogs();
+      for (const [key, start] of [[1, 0], [2, 3], [3, 5]] as const) {
+        controller.handleReport(keyReport(key, true));
+        controller.handleReport(keyReport(key, false));
+        expect(controller.state().chatOffset).toBe(start);
+        expect(controller.state().transcriptRows[0]).toMatchObject({ kind: "event_header" });
+      }
+    });
+
+    // LIVE is the feed's sentinel row rather than an event, and the daemon
+    // flattens newest-first, so it lands on the head of the transcript.
+    it("jumps to the newest entry from the LIVE key", () => {
+      const controller = inLogs();
+      controller.handleReport(keyReport(3, true));
+      controller.handleReport(keyReport(3, false));
+      expect(controller.state().chatOffset).toBe(5);
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      expect(controller.state().chatOffset).toBe(0);
+      expect(controller.state().transcriptRows[0]).toMatchObject({ kind: "event_header", badge: "EMIT" });
+    });
+
+    // The key window and the event list are different index spaces; reading the
+    // press as a bare key index jumps to the wrong event after a page.
+    it("jumps to the event under the key after the window is paged", () => {
+      const controller = inLogs({ event_keys: eventKeys, transcript, events_max_offset: 2 });
+      controller.handleReport(dialTurn(3, 1));
+      expect(controller.state().eventOffset).toBe(1);
+      controller.handleReport(keyReport(1, true));
+      controller.handleReport(keyReport(1, false));
+      expect(controller.state().chatOffset).toBe(3);
+    });
+
+    it("keeps dial A scrolling from wherever the jump landed", () => {
+      const controller = inLogs();
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      controller.handleReport(dialTurn(0, 1));
+      expect(controller.state().chatOffset).toBe(4);
+      controller.handleReport(dialTurn(0, -1));
+      expect(controller.state().chatOffset).toBe(3);
+    });
+
+    it("ignores a press on a slot with no event", () => {
+      const controller = inLogs();
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      const before = controller.state().chatOffset;
+      controller.handleReport(keyReport(7, true));
+      controller.handleReport(keyReport(7, false));
+      expect(controller.state().chatOffset).toBe(before);
+    });
+
+    // A diff carries no `line` and no `body`; collapsing rows to one display
+    // string printed the literal "[INFO]" for every one of them.
+    it("keeps each transcript row's shape", () => {
+      const controller = inLogs();
+      controller.handleReport(keyReport(1, true));
+      controller.handleReport(keyReport(1, false));
+      controller.handleReport(dialTurn(0, 2));
+      expect(controller.state().transcriptRows[0]).toEqual({ kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: "+  ok" });
+    });
+
+    // The LIVE key and a header-less event key must not share a fallback, or
+    // the LIVE branch could be deleted without a single test noticing.
+    it("ignores an event key whose event has no header in the transcript", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.setLogs({ event_keys: eventKeys, transcript: transcript.slice(3), transcript_offset: 2 });
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      // Two headers under three event keys: key 2 lands on the second header,
+      // key 3 addresses nothing and must leave the position alone.
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      const before = controller.state().chatOffset;
+      expect(before).toBe(2);
+      controller.handleReport(keyReport(3, true));
+      controller.handleReport(keyReport(3, false));
+      expect(controller.state().chatOffset).toBe(before);
+    });
+
+    it("opens the surface on the newest entry when the server sends no offset", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.setLogs({ event_keys: eventKeys, transcript });
+      expect(controller.state().chatOffset).toBe(0);
+    });
+
+    it("repaints the transcript window when logs is re-entered", () => {
+      const controller = inLogs();
+      controller.handleReport(dialButton(0));
+      controller.handleReport(dialButton(0, false));
+      expect(controller.state()).toMatchObject({ mode: "cmd", transcriptRows: [] });
+      controller.handleReport(dialButton(3));
+      controller.handleReport(dialButton(3, false));
+      expect(controller.state().mode).toBe("logs");
+      expect(controller.state().transcriptRows).toHaveLength(2);
+    });
+
+    it("keeps an event header's badge, body and timestamp", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.setLogs({ transcript: [transcript[0], { kind: "event_header", timestamp: "" }] });
+      expect(controller.state().transcriptRows).toEqual([
+        { kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T03:00:00Z" },
+        { kind: "event_header", badge: "INFO", body: "", timestamp: null },
+      ]);
+    });
+
+    it("normalises a diff with no line and an unknown row shape", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.setLogs({
+        transcript: [{ kind: "diff", path: "lib/b.ex" }, { kind: "mystery", body: "hello" }, { body: "no kind" }],
+        transcript_offset: 0,
+      });
+      expect(controller.state().transcriptRows).toEqual([
+        { kind: "diff", path: "lib/b.ex", additions: 0, deletions: 0, line: null },
+        { kind: "message", role: "system", body: "hello" },
+      ]);
+    });
   });
 
   it("falls back to INFO for an event with no badge", () => {

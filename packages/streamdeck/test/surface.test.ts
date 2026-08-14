@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { createPhysicalSurface, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
+import type { TranscriptRow } from "../src/channel.js";
+
+const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body });
 
 describe("physical surface composition", () => {
   it("places command faces on the exact keys their controller handles", () => {
@@ -51,12 +54,12 @@ describe("physical surface composition", () => {
       { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
       { kind: "event" as const, badge: "CONSUME", text: "event-b", time: "2m" },
       { kind: "event" as const, badge: "INFO", text: "event-c", time: "3m" },
-    ], eventOffset: 0, transcriptLines: ["chat-a", "chat-b"], eventHasNext: true, chatHasNext: true };
+    ], eventOffset: 0, transcriptRows: [message("chat-a"), message("chat-b")], eventHasNext: true, chatHasNext: true };
     await surface.repaint(backend, grid, {}, undefined, base);
     const first = write.mock.calls.length;
     await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1 });
     const afterEvent = write.mock.calls.length;
-    await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1, transcriptLines: ["chat-b", "chat-c"] });
+    await surface.repaint(backend, grid, {}, undefined, { ...base, eventOffset: 1, transcriptRows: [message("chat-b"), message("chat-c")] });
     expect(afterEvent).toBeGreaterThan(first);
     expect(write.mock.calls.length).toBeGreaterThan(afterEvent);
   });

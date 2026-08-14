@@ -5,6 +5,9 @@ import { pagerModel } from "../../src/touchStrip/pagerSegment.js";
 import { providerSegmentModel } from "../../src/touchStrip/providerSegment.js";
 import { summaryModel } from "../../src/touchStrip/summarySegment.js";
 import { composeStrip } from "../../src/touchStrip/stripLayout.js";
+import type { TranscriptRow } from "../../src/channel.js";
+
+const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body });
 
 const grid = () =>
   composeStrip({
@@ -28,7 +31,7 @@ describe("composeStrip", () => {
       }),
     ).toHaveLength(SEGMENT_COUNT);
     expect(
-      composeStrip({ mode: "logs", data: { lines: ["a", "b"] } }),
+      composeStrip({ mode: "logs", data: { rows: [message("a"), message("b")] } }),
     ).toHaveLength(SEGMENT_COUNT);
   });
 
@@ -66,35 +69,45 @@ describe("composeStrip", () => {
     expect(negative).toMatchObject({ kind: "agentProgress", percent: 0 });
   });
 
-  it("logs mode: BACK / chat line 1 / chat line 2 / EVENTS", () => {
+  it("logs mode: BACK / chat row 1 / chat row 2 / EVENTS", () => {
     const [s0, s1, s2, s3] = composeStrip({
       mode: "logs",
-      data: { lines: ["first", "second", "ignored-third"] },
+      data: { rows: [message("first"), message("second"), message("ignored-third")] },
     });
     expect(s0).toMatchObject({ kind: "hint", label: "BACK" });
-    expect(s1).toMatchObject({ kind: "chat", line: "first" });
-    expect(s2).toMatchObject({ kind: "chat", line: "second" });
+    expect(s1).toMatchObject({ kind: "chat", row: message("first") });
+    expect(s2).toMatchObject({ kind: "chat", row: message("second") });
     expect(s3).toMatchObject({ kind: "hint", label: "EVENTS" });
   });
 
-  it("logs mode fills missing chat lines with empty strings", () => {
-    const [, s1, s2] = composeStrip({ mode: "logs", data: { lines: [] } });
-    expect(s1).toMatchObject({ kind: "chat", line: "" });
-    expect(s2).toMatchObject({ kind: "chat", line: "" });
+  // A slot past the end of the transcript carries no row at all, so the painter
+  // can leave it blank instead of rendering an empty message.
+  it("logs mode leaves missing chat rows null", () => {
+    const [, s1, s2] = composeStrip({ mode: "logs", data: { rows: [] } });
+    expect(s1).toMatchObject({ kind: "chat", row: null });
+    expect(s2).toMatchObject({ kind: "chat", row: null });
+  });
+
+  it("logs mode carries each row shape through to the painter", () => {
+    const header: TranscriptRow = { kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T03:00:00Z" };
+    const diff: TranscriptRow = { kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: null };
+    const [, s1, s2] = composeStrip({ mode: "logs", data: { rows: [header, diff] } });
+    expect(s1).toMatchObject({ kind: "chat", row: header });
+    expect(s2).toMatchObject({ kind: "chat", row: diff });
   });
 
   it("logs mode exposes independent chat and event bounds", () => {
     const [back, , , events] = composeStrip({
       mode: "logs",
-      data: { lines: ["chat"], chatHasNext: true, eventHasPrevious: true, eventHasNext: true },
+      data: { rows: [message("chat")], chatHasNext: true, eventHasPrevious: true, eventHasNext: true },
     });
     expect(back).toMatchObject({ kind: "hint", label: "CHAT", direction: "forward" });
     expect(events).toMatchObject({ kind: "hint", label: "EVENTS ↑↓", direction: "back" });
   });
 
   it("renders one-sided event and chat bounds", () => {
-    expect(composeStrip({ mode: "logs", data: { lines: [], eventHasPrevious: true } })[3]).toMatchObject({ label: "EVENTS ↑" });
-    expect(composeStrip({ mode: "logs", data: { lines: [], eventHasNext: true } })[3]).toMatchObject({ label: "EVENTS ↓" });
-    expect(composeStrip({ mode: "logs", data: { lines: [], chatHasPrevious: true } })[0]).toMatchObject({ label: "CHAT" });
+    expect(composeStrip({ mode: "logs", data: { rows: [], eventHasPrevious: true } })[3]).toMatchObject({ label: "EVENTS ↑" });
+    expect(composeStrip({ mode: "logs", data: { rows: [], eventHasNext: true } })[3]).toMatchObject({ label: "EVENTS ↓" });
+    expect(composeStrip({ mode: "logs", data: { rows: [], chatHasPrevious: true } })[0]).toMatchObject({ label: "CHAT" });
   });
 });
