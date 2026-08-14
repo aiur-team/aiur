@@ -18,6 +18,7 @@ defmodule AiurWeb.DashboardLive do
   alias Aiur.DecisionPubSub
   alias Aiur.GitHub.Quota, as: GitHubQuota
   alias Aiur.LiveConversation
+  alias Aiur.OpenTicketSource
   alias Aiur.Orchestrator.GlobalPause
   alias Aiur.Orchestrator.Slots
   alias Aiur.ProviderMeterRefresh
@@ -33,7 +34,9 @@ defmodule AiurWeb.DashboardLive do
   alias AiurWeb.ObservabilityPubSub
 
   alias AiurWeb.OperatorControlCenter.{
+    AddAgentModal,
     AgentLogModal,
+    AgentRoutingPreview,
     CapacityPresenter,
     ConversationDrawer,
     CurrentRunOutcomesPresenter,
@@ -51,6 +54,9 @@ defmodule AiurWeb.DashboardLive do
     RunSummaryPresenter,
     RunSummaryStrip,
     TicketContext,
+    TicketDetailModal,
+    TicketsPanel,
+    TicketsPresenter,
     UnitsControlPolicy,
     UnitsFilters,
     UnitsPresenter,
@@ -89,6 +95,7 @@ defmodule AiurWeb.DashboardLive do
       :ok = CurrentRunSummary.subscribe()
       :ok = CurrentRunOutcomeSnapshot.subscribe()
       :ok = TicketActivity.subscribe()
+      :ok = OpenTicketSource.subscribe()
       :ok = subscribe_ticket_context_resets()
     end
 
@@ -122,6 +129,8 @@ defmodule AiurWeb.DashboardLive do
       |> assign_initial_provider_meters(connected)
       |> assign_initial_current_run_outcomes(connected)
       |> assign_initial_usage_summary(connected)
+      |> assign(:ticket_detail, nil)
+      |> assign(:add_agent_modal, nil)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
       |> assign(:ticket_context_history, nil)
@@ -237,6 +246,10 @@ defmodule AiurWeb.DashboardLive do
 
   def handle_info({:ticket_activity_changed, payload}, socket) do
     {:noreply, PayloadLoader.schedule(socket, {:event, {:activity, Map.get(payload, :generation)}})}
+  end
+
+  def handle_info({:open_tickets_updated, snapshot}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:open_tickets, Map.get(snapshot, :generation)}})}
   end
 
   def handle_info({:ticket_detail_updated, %TicketDetailState{} = detail}, socket) do
@@ -369,6 +382,43 @@ defmodule AiurWeb.DashboardLive do
   end
 
   def handle_event("request-unit-control", _params, socket), do: {:noreply, socket}
+
+  def handle_event("inspect-ticket", %{"ticket" => token}, socket) when is_binary(token) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :ticket_detail, row)}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("inspect-ticket", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-ticket-detail", _params, socket), do: {:noreply, assign(socket, :ticket_detail, nil)}
+
+  def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("open-add-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("close-add-agent", _params, socket), do: {:noreply, assign(socket, :add_agent_modal, nil)}
+
+  def handle_event("change-add-agent", params, %{assigns: %{add_agent_modal: %{} = modal}} = socket) do
+    {:noreply, assign(socket, :add_agent_modal, change_add_agent(modal, params))}
+  end
+
+  def handle_event("change-add-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("confirm-add-agent", _params, %{assigns: %{add_agent_modal: %{} = modal}} = socket) do
+    handle_writable_event(socket, fn ->
+      modal = confirm_add_agent(modal)
+      {:noreply, socket |> refresh_open_tickets(modal.result) |> assign(:add_agent_modal, modal)}
+    end)
+  end
+
+  def handle_event("confirm-add-agent", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-ticket-context", _params, socket) do
     {:noreply,
@@ -677,6 +727,10 @@ defmodule AiurWeb.DashboardLive do
         UnitsPresenter.project(Map.get(assigns.payload, :units, %{}), Map.get(assigns, :units_selection, UnitsURL.default_selection()))
       )
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
+      |> then(&Map.put_new(&1, :units_count_label, units_count_label(&1.units_view)))
+      |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
+      |> Map.put_new(:ticket_detail, nil)
+      |> Map.put_new(:add_agent_modal, nil)
       |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
       |> Map.put_new(:capacity_input, "")
       |> Map.put_new(:capacity_feedback, nil)
@@ -783,6 +837,10 @@ defmodule AiurWeb.DashboardLive do
             meters={@provider_meters_view}
             now={@now}
           />
+          <div class="rs-group-head units-group-head">
+            <span class="rs-group-title" id="units-agents-title">Agents</span>
+            <span class="rs-group-count">{@units_count_label}</span>
+          </div>
           <UnitsFilters.units_filters
             selection={@units_selection}
             counts={@units_view[:counts] || %{}}
@@ -791,6 +849,7 @@ defmodule AiurWeb.DashboardLive do
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
 
+        <TicketsPanel.tickets_panel view={@tickets_view} />
       </div>
 
       <AgentLogModal.agent_log_modal
@@ -800,6 +859,8 @@ defmodule AiurWeb.DashboardLive do
         drafts={@drafts}
         errors={@chat_errors}
       />
+      <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
+      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={@writable} />
       <TicketContext.ticket_context
         :if={@ticket_context}
         id="units-ticket-context"
@@ -964,10 +1025,155 @@ defmodule AiurWeb.DashboardLive do
   defp assign_units_view(socket) do
     catalog = socket.assigns.payload |> Map.get(:units, %{})
     view = UnitsPresenter.project(catalog, socket.assigns.units_selection)
+    tickets_view = socket.assigns.payload |> Map.get(:tickets) |> TicketsPresenter.normalize()
 
     socket
     |> assign(:units_view, view)
     |> assign(:units_announcement, UnitsPresenter.announcement(view))
+    |> assign(:units_count_label, units_count_label(view))
+    |> assign(:tickets_view, tickets_view)
+  end
+
+  # The modal opens on the routing the dispatcher would have applied, so the
+  # operator confirms a prediction rather than filling in a blank form.
+  defp add_agent_modal(row) do
+    routing = row.routing
+
+    selection = %{
+      backend: routing.backend,
+      model: routing.model,
+      effort: routing.effort,
+      complexity: routing.complexity
+    }
+
+    build_add_agent_modal(row, selection)
+  end
+
+  defp change_add_agent(modal, params) do
+    backend = blank_to_nil(params["backend"]) || modal.selection.backend
+
+    # A new backend invalidates the model and effort vocabularies, so a stale
+    # selection is dropped rather than carried onto a backend that rejects it.
+    # `normalize_selection/1` then clamps every field to what the daemon can
+    # honour, because all four arrive from the browser.
+    carry_over? = backend == modal.selection.backend
+
+    selection = %{
+      backend: backend,
+      model: carry_over? && blank_to_nil(params["model"]),
+      effort: carry_over? && blank_to_nil(params["effort"]),
+      complexity: parse_complexity(params["complexity"])
+    }
+
+    build_add_agent_modal(modal, selection)
+  end
+
+  defp build_add_agent_modal(row, selection) do
+    selection = AgentRoutingPreview.normalize_selection(selection)
+    labels = Map.get(row, :labels, [])
+
+    %{
+      token: row.token,
+      identifier: row.identifier,
+      title: row.title,
+      identity: Map.get(row, :identity),
+      routing: Map.get(row, :routing, %{available?: false}),
+      selection: selection,
+      options: AgentRoutingPreview.options(selection.backend),
+      labels: labels,
+      plan: AgentRoutingPreview.plan(selection, labels),
+      result: nil
+    }
+  end
+
+  defp confirm_add_agent(modal) do
+    Map.put(modal, :result, apply_label_plan(modal.identifier, modal.plan))
+  end
+
+  defp apply_label_plan(_identifier, %{add: [], remove: []}), do: {:error, :no_labels}
+
+  # Removals run first so a replaced `complexity:`/`model:` label cannot outrank
+  # the new one, and every applied change is reported even when a later call
+  # fails — the operator has to know the ticket is half-labelled.
+  defp apply_label_plan(identifier, %{add: add, remove: remove}) do
+    with {:ok, removed} <- apply_labels(identifier, remove, :remove_label),
+         {:ok, added} <- apply_labels(identifier, add, :add_label) do
+      {:ok, added ++ removed}
+    else
+      {:error, applied, reason} -> {:partial, applied, reason}
+    end
+  end
+
+  defp apply_labels(identifier, labels, action) do
+    fun = Endpoint.config(:add_agent_fun) || (&apply(Aiur.Tracker, &3, [&1, &2]))
+
+    Enum.reduce_while(labels, {:ok, []}, fn label, {:ok, applied} ->
+      case safe_label_call(fun, identifier, label, action) do
+        :ok -> {:cont, {:ok, [label | applied]}}
+        {:ok, _result} -> {:cont, {:ok, [label | applied]}}
+        {:error, reason} -> {:halt, {:error, applied, reason}}
+        other -> {:halt, {:error, applied, other}}
+      end
+    end)
+  end
+
+  defp safe_label_call(fun, identifier, label, action) do
+    cond do
+      is_function(fun, 3) -> fun.(identifier, label, action)
+      is_function(fun, 2) -> fun.(identifier, label)
+      true -> {:error, :unavailable}
+    end
+  rescue
+    _error -> {:error, :unavailable}
+  catch
+    _kind, _reason -> {:error, :unavailable}
+  end
+
+  # Confirming changed the tracker, so the panel's labels and its routing
+  # prediction are both stale until the poller catches up. Ask it to re-read now.
+  defp refresh_open_tickets(socket, result) when elem(result, 0) in [:ok, :partial] do
+    OpenTicketSource.refresh()
+    reload_after_action(socket)
+  rescue
+    _error -> socket
+  catch
+    _kind, _reason -> socket
+  end
+
+  defp refresh_open_tickets(socket, _result), do: socket
+
+  defp parse_complexity(value) do
+    case blank_to_nil(value) do
+      nil ->
+        nil
+
+      value ->
+        case Integer.parse(value) do
+          {complexity, ""} when complexity in 1..5 -> complexity
+          _other -> nil
+        end
+    end
+  end
+
+  defp blank_to_nil(value) when is_binary(value), do: if(String.trim(value) == "", do: nil, else: String.trim(value))
+  defp blank_to_nil(_value), do: nil
+
+  # The Agents panel counts what the panel actually shows, so a filtered view
+  # never claims a fleet size the table below it does not contain. A partial
+  # catalog is qualified rather than rounded down to a confident number.
+  defp units_count_label(view) do
+    case Map.get(view, :count_status, :unavailable) do
+      :unavailable -> "agents unavailable"
+      :partial -> "at least #{agent_phrase(view)}"
+      _exact -> agent_phrase(view)
+    end
+  end
+
+  defp agent_phrase(view) do
+    case view |> Map.get(:rows, []) |> length() do
+      1 -> "1 agent"
+      count -> "#{count} agents"
+    end
   end
 
   # Read the current DASH-014 snapshot on mount/reconnect. On the dead first

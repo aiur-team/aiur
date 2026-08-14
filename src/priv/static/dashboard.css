@@ -9289,3 +9289,149 @@ html[data-theme="light"] .sd-device {
   color: var(--sd-log-badge);
   font-weight: 800;
 }
+
+/* ---- Agents panel header ----
+   The same title/count pair the APIs and Models panels use, so the three panel
+   headers read as one system. It sits above the filter row, not inside it. */
+.units-group-head {
+  margin-bottom: 0.85rem;
+}
+
+/* ---- Tickets panel ----
+   Every open ticket on the repository, including the ones no agent has been
+   routed to yet. Shares the Units table's full-bleed geometry and row tones. */
+.tickets-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.tickets-card .units-table-wrap {
+  margin-top: 0.85rem;
+}
+
+.tickets-table th.tk-col-id {
+  width: 62px;
+}
+
+.tickets-table th.tk-col-labels {
+  width: 220px;
+}
+
+.tickets-table th.tk-col-agent {
+  width: 190px;
+}
+
+.tickets-table th.tk-col-action {
+  width: 68px;
+}
+
+.tickets-table td {
+  vertical-align: middle;
+}
+
+.tk-muted {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.u-label {
+  color: var(--muted);
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.u-label.is-more {
+  color: var(--faint);
+}
+
+.tk-action-cell {
+  text-align: right;
+}
+
+/* ---- Ticket detail modal ---- */
+.ticket-detail-body {
+  display: grid;
+  gap: 1rem;
+  overflow-y: auto;
+}
+
+.ticket-detail-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  margin: 0;
+}
+
+.ticket-detail-facts dt {
+  color: var(--faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.ticket-detail-facts dd {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+}
+
+/* ---- Add-agent modal ---- */
+.add-agent-modal {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  width: min(520px, 100%);
+}
+
+.add-agent-form {
+  display: grid;
+  gap: 0.85rem;
+  overflow-y: auto;
+}
+
+.add-agent-field {
+  display: grid;
+  gap: 0.3rem;
+}
+
+.add-agent-field > span {
+  color: var(--faint);
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.add-agent-field select {
+  min-height: 2.4rem;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+
+.add-agent-preview {
+  display: grid;
+  gap: 0.4rem;
+}
+
+.add-agent-note {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--muted);
+}
+
+.add-agent-note.is-applied {
+  color: var(--ack);
+}
+
+.add-agent-note.is-error {
+  color: var(--attention);
+}
+
+.add-agent-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}

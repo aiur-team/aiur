@@ -7,12 +7,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   """
 
   alias Aiur.{CurrentRunMembership, TicketActivity, TrackerIdentity}
-  alias AiurWeb.OperatorControlCenter.{UnitsPolicy, UnitsPresentation, UnitsRow}
+  alias AiurWeb.OperatorControlCenter.{RowToken, UnitsPolicy, UnitsPresentation, UnitsRow}
+  alias AiurWeb.OperatorControlCenter.UnitsRow.Sources
 
   # A fleet view only counts as "stale" once it is genuinely old; a snapshot
   # marked stale a few seconds after its last publish is still effectively
-  # current and must not demote the catalog to last-known-good.
-  @fleet_stale_after_seconds 300
+  # current and must not demote the catalog to last-known-good. The row
+  # projection admits rows on the same window, so the catalog's status and its
+  # contents can never disagree about which fleet views still count.
+  @fleet_stale_after_seconds Sources.fleet_stale_after_seconds()
 
   @type catalog_status :: :ready | :empty | :stale | :unavailable
 
@@ -120,13 +123,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   def select_no_filters, do: UnitsPolicy.normalize_selection(%{scope: :none, conditions: []})
 
   @spec row_token(map()) :: String.t() | nil
-  def row_token(%{identity: %TrackerIdentity{} = identity}) do
-    case TrackerIdentity.github_key(identity) do
-      nil -> nil
-      key -> key |> :erlang.term_to_binary() |> then(&:crypto.hash(:sha256, &1)) |> Base.url_encode64(padding: false)
-    end
-  end
-
+  def row_token(%{identity: %TrackerIdentity{} = identity}), do: RowToken.for(identity)
   def row_token(_row), do: nil
 
   @spec lookup(map(), String.t()) :: {:ok, map()} | {:error, :not_found}
@@ -298,10 +295,14 @@ defmodule AiurWeb.OperatorControlCenter.UnitsPresenter do
   end
 
   # A `:stale` freshness is only a degradation once the view is actually old;
-  # `:unknown`/`:unavailable` have no age to compare and stay degraded.
+  # `:unknown`/`:unavailable` have no age to compare and stay degraded. A stale
+  # view with no age at all cannot be judged against the window, and the row
+  # projection drops it for exactly that reason — so the catalog must not then
+  # call itself ready over the rows that disappeared.
   defp fleet_freshness_degraded?(snapshot) do
     case {fleet_freshness_status(snapshot), fleet_age_seconds(snapshot)} do
-      {:stale, age_seconds} when is_integer(age_seconds) and age_seconds >= @fleet_stale_after_seconds -> true
+      {:stale, age_seconds} when is_integer(age_seconds) -> age_seconds >= @fleet_stale_after_seconds
+      {:stale, _no_age} -> true
       {status, _age_seconds} when status in [:unknown, :unavailable] -> true
       _freshness -> false
     end

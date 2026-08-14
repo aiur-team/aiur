@@ -23,6 +23,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
   alias Aiur.Events.{Exchange, SubscriptionStore}
 
+  alias Aiur.OpenTicketSource.Snapshot, as: OpenTicketSnapshot
   alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{OperatorMessages, SnapshotStore, StatusReport}
   alias Aiur.RecentMerge
@@ -4502,6 +4503,131 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ ~s(aria-label="Count unavailable")
     refute html =~ "0 observed"
     refute html =~ "0 in selected scope"
+  end
+
+  test "the Agents panel titles and counts itself above the filter row" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :AgentsHeaderOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot([]) end
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    # The same title/count pair the APIs and Models panels use.
+    assert html =~ ~s(<span class="rs-group-title" id="units-agents-title">Agents</span>)
+    assert html =~ ~s(<span class="rs-group-count">1 agent</span>)
+
+    [_before, after_header] = String.split(html, "units-agents-title", parts: 2)
+    assert after_header =~ "units-filter-list"
+  end
+
+  test "the Tickets panel lists open tickets and opens detail and add-agent modals" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsPanelOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+    test_pid = self()
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2101", ["complexity:5"])]) end,
+      add_agent_fun: fn identifier, label, action ->
+        send(test_pid, {action, identifier, label})
+        :ok
+      end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert html =~ "Tickets"
+    assert html =~ "Unrouted backlog ticket"
+    refute html =~ "ticket-detail-modal"
+
+    view |> element(~s(td.tk-title-cell[phx-click="inspect-ticket"])) |> render_click()
+    assert render(view) =~ "ticket-detail-modal"
+
+    view |> element(~s(#ticket-detail-modal button[phx-click="close-ticket-detail"])) |> render_click()
+    refute render(view) =~ "ticket-detail-modal"
+
+    view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
+    add_agent = render(view)
+
+    # Prefilled from the routing table plus the ticket's own complexity tag.
+    assert add_agent =~ "add-agent-modal"
+    assert add_agent =~ "complexity:5"
+
+    # Change the prefilled complexity before confirming, as an operator would.
+    view |> element(~s(#add-agent-modal form)) |> render_change(%{"complexity" => "3"})
+    view |> element(~s(#add-agent-modal form)) |> render_submit(%{})
+
+    # The active-state label is what makes the ticket dispatchable at all, and the
+    # complexity tag it replaces is removed rather than left to outrank it.
+    assert_received {:add_label, "2101", "agent:todo"}
+    assert_received {:add_label, "2101", "complexity:3"}
+    assert_received {:remove_label, "2101", "complexity:5"}
+    assert render(view) =~ "Applied"
+  end
+
+  test "an unavailable ticket listing is named rather than shown as zero tickets" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsUnavailableOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> raise "tracker unavailable" end
+    )
+
+    {:ok, _view, html} = live(build_conn(), "/")
+
+    assert html =~ "Open tickets are unavailable."
+    assert html =~ "tickets unavailable"
+    refute html =~ "0 tickets"
+  end
+
+  defp open_ticket_snapshot(tickets) do
+    %OpenTicketSnapshot{
+      status: :available,
+      generation: 1,
+      observed_at: ~U[2026-07-17 12:00:00Z],
+      tickets: tickets
+    }
+  end
+
+  defp open_ticket(identifier, labels) do
+    %{
+      identity: units_identity(provider_id: "NODE-#{identifier}", database_id: nil, identifier: identifier),
+      identifier: identifier,
+      title: "Unrouted backlog ticket",
+      url: "https://github.com/its-everdred/aiur/issues/#{identifier}",
+      state: "Todo",
+      labels: labels,
+      assignee: nil,
+      created_at: ~U[2026-07-16 12:00:00Z],
+      updated_at: ~U[2026-07-17 11:00:00Z]
+    }
   end
 
   defp units_identity(overrides \\ []) do
