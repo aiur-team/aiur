@@ -46,9 +46,15 @@
   --super-line: rgba(198, 155, 255, 0.34);
   --ack: #4fd6c4;
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  /* Between the hairline `sm` and the modal-scale `lg`: for a control that
+     hovers over the surface behind it and has to read as detached from it. */
+  --shadow-md: 0 4px 12px -2px rgba(0, 0, 0, 0.55);
   --shadow-lg: 0 40px 90px -40px rgba(0, 0, 0, 0.7);
   --radius: 16px;
   --radius-lg: 24px;
+  /* The page's reading width — what the content column is capped at once the
+     shell itself runs the full width of the window. */
+  --shell-measure: 75rem;
 }
 
 html[data-theme="light"] {
@@ -90,6 +96,7 @@ html[data-theme="light"] {
   --super-line: rgba(138, 79, 208, 0.3);
   --ack: #0e9e8e;
   --shadow-sm: 0 1px 2px rgba(58, 44, 18, 0.1);
+  --shadow-md: 0 4px 12px -2px rgba(58, 44, 18, 0.22);
   --shadow-lg: 0 44px 80px -40px rgba(58, 44, 18, 0.3);
 }
 
@@ -192,10 +199,16 @@ textarea:focus-visible,
 .shell-body {
   display: grid;
   min-width: 0;
-  gap: 1.25rem;
+  /* Named so the wide-screen centring can derive the sidebar rail from the
+     real layout rather than restating the same number. */
+  --shell-gap: 1.25rem;
+  gap: var(--shell-gap);
 }
 
+/* Positioning context for the collapse toggle, which is laid over the first
+   route rather than taking a row of its own. */
 .shell-sidebar {
+  position: relative;
   display: grid;
   align-self: start;
   align-content: start;
@@ -251,6 +264,22 @@ textarea:focus-visible,
 .shell-nav-item.is-unavailable {
   cursor: not-allowed;
   color: var(--faint);
+}
+
+/* The sidebar sits hard against the browser's left edge, so its hover and
+   selected states are square on that side and rounded only on the right: a
+   rounded left corner reads as a gap between the state and the window edge.
+   The mobile nav pill is a floating island, so it keeps rounding all round. */
+.shell-nav-sidebar .shell-nav-item {
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+}
+
+/* The collapse toggle is laid over the right end of the first route, so that
+   route reserves the overhang: Units is also the route that carries a live
+   count, and the badge is right-aligned straight into the button otherwise. */
+.shell-nav-sidebar .shell-nav-item:first-child {
+  padding-inline-end: 1.8rem;
 }
 
 .shell-nav-icon {
@@ -314,8 +343,8 @@ textarea:focus-visible,
   display: none;
 }
 
+/* Leads the content column, above the banner and the page's own panes. */
 .route-context {
-  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1802,12 +1831,29 @@ textarea:focus-visible,
   overflow: hidden;
 }
 
-.brand-row #global-pause-toggle {
-  margin-left: 0.1rem;
+/* Laid on top of the sidebar's first route, overhanging its right edge, with a
+   drop shadow so it reads as a separate control rather than another nav row.
+   The fill is opaque and qualified by `.tool-btn`: the shared pill background
+   is a 4%-alpha wash declared later in this file, so at equal specificity the
+   nav item underneath would show through the overhang. */
+.tool-btn.shell-nav-toggle {
+  position: absolute;
+  top: 0.28rem;
+  right: -1rem;
+  z-index: 5;
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
 }
 
-.brand-row #nav-toggle {
-  margin-left: -0.15rem;
+.tool-btn.shell-nav-toggle:hover {
+  background: var(--surface-2);
+}
+
+/* Collapsed, the sidebar is a bare rail, so the overhang would push the button
+   into the content; it sits in the rail instead, where the nav will reappear. */
+.dashboard-shell[data-nav-collapsed="true"] .shell-nav-toggle {
+  right: auto;
+  left: 0.28rem;
 }
 
 /* The compact fleet-staleness label rides beside the brand logo. The full
@@ -1913,15 +1959,19 @@ html[data-theme="light"] .toggle-icon .moon {
   line-height: 1;
 }
 
-/* Collapsed navigation: hide the route list; the topbar (brand + toggle)
-   stays, and the sidebar collapses to reclaim space for content. */
-.dashboard-shell[data-nav-collapsed="true"] .shell-sidebar {
+/* Collapsed navigation: hide the route list and let the sidebar column shrink
+   to nothing, reclaiming the space for content. The `<aside>` itself stays in
+   flow at zero width so the collapse toggle it hosts is still on screen to
+   reopen the nav. */
+.dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
   display: none;
 }
 
 @media (min-width: 960px) {
+  /* A rail just wide enough for the toggle, so the reopen control keeps its own
+     gutter instead of overlapping the content column. */
   .dashboard-shell[data-nav-collapsed="true"] .shell-body {
-    grid-template-columns: minmax(0, 1fr);
+    grid-template-columns: var(--shell-nav-w) minmax(0, 1fr);
   }
 }
 
@@ -1934,10 +1984,11 @@ html[data-theme="light"] .toggle-icon .moon {
   margin-left: auto;
 }
 
-/* The one and only theme toggle, at every resolution. */
+/* The run-wide controls — pause and theme — at every resolution. */
 .topbar-controls {
   display: inline-flex;
   align-items: center;
+  gap: 0.45rem;
 }
 
 .status-badge,
@@ -3757,7 +3808,8 @@ html[data-theme="light"] .rs-github-mark {
 }
 
 /* An unknown token count keeps only the provider's token glyph, top right at
-   logo size, so the card keeps its footprint without a "Tokens N/A" row. */
+   logo size, so the card keeps its footprint without a "Tokens N/A" row. Only
+   Claude and Codex carry that glyph, so only their rows use this. */
 .rs-token-na {
   align-self: flex-start;
 }
@@ -3973,48 +4025,8 @@ html[data-theme="light"] .rs-github-mark {
   background: none;
 }
 
-/* The freshness chip. Every row carries one, so a stale or unavailable reading
-   can never be mistaken for a healthy zero — the distinction the compressed
-   row exists to preserve. */
-.rs-state {
-  justify-self: end;
-  padding: 0.14rem 0.5rem;
-  border: 1px solid transparent;
-  border-radius: 999px;
-  font-family: "JetBrains Mono", "SFMono-Regular", monospace;
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-
-.rs-state.is-healthy {
-  border-color: color-mix(in srgb, var(--good-ink) 30%, transparent);
-  background: color-mix(in srgb, var(--good-ink) 10%, transparent);
-  color: var(--good-ink);
-}
-
-.rs-state.is-partial,
-.rs-state.is-stale {
-  border-color: color-mix(in srgb, var(--warning, #d08a2a) 35%, transparent);
-  background: color-mix(in srgb, var(--warning, #d08a2a) 12%, transparent);
-  color: var(--warning, #d08a2a);
-}
-
-.rs-state.is-unavailable {
-  border-color: color-mix(in srgb, var(--blocking) 30%, transparent);
-  background: color-mix(in srgb, var(--blocking) 10%, transparent);
-  color: var(--blocking);
-}
-
-.rs-state.is-nodata {
-  border-color: var(--line);
-  background: var(--surface-3);
-  color: var(--muted);
-}
-
-/* Narrow widths: the identity column stops being a fixed track and the state
-   chip moves under the meters, so the row wraps rather than scrolling. */
+/* Narrow widths: the identity column stops being a fixed track, so the row
+   wraps rather than scrolling. */
 @media (max-width: 720px) {
   .rs-row {
     grid-template-columns: minmax(0, 1fr) auto;
@@ -5832,16 +5844,45 @@ html[data-theme="light"] .rs-github-mark {
 
 @media (min-width: 960px) {
   .shell-body {
-    grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
+    grid-template-columns: minmax(12rem, var(--shell-nav-w)) minmax(0, 1fr);
+    /* The chrome the content column is offset by: the sidebar track plus the
+       body's gap. Derived rather than written out, so changing the track or the
+       gap cannot silently desync the centring below from the actual layout. */
+    --shell-nav-w: 15rem;
+    --shell-rail: calc(var(--shell-nav-w) + var(--shell-gap));
   }
 
-  /* The sidebar and topbar run edge-to-edge: drop .app-shell's outer gutter and
-     re-add the inline gutter inside the content column. */
+  /* Collapsed, the track is the bare toggle rail. */
+  .dashboard-shell[data-nav-collapsed="true"] .shell-body {
+    --shell-nav-w: 2.6rem;
+  }
+
+  /* The nav bar and sidebar are browser chrome, not page content: they run the
+     full width of the window, pinned to the top and the far left, so the shell
+     drops its centred 1440px cap and its outer gutter here. The page itself
+     stays centred and capped inside the content column below. */
   .app-shell {
+    max-width: none;
     padding: 0;
   }
 
+  /* Centred in the window, not merely in the space left over beside the
+     sidebar: mirroring the rail as a trailing margin puts the content column's
+     midpoint back on the window's. There is only room for the full mirror once
+     the window is wider than rail + measure + rail, so the margin grows into it
+     and the page slides back to true centre instead of jumping there.
+     `100vw` counts a classic scrollbar the content cannot use, which biases the
+     result a scrollbar-width to the left; the error is a few pixels and always
+     in the safe direction (a smaller margin, never overflow). */
+  .shell-main {
+    margin-inline-end: clamp(0px, calc(100vw - var(--shell-rail, 0px) - var(--shell-measure)), var(--shell-rail, 0px));
+  }
+
   .shell-content {
+    /* Roughly the reading width the old 1440px shell gave the content column,
+       so a page does not stretch to the full width of an ultrawide display. */
+    max-width: var(--shell-measure);
+    margin-inline: auto;
     padding-inline: 1.15rem;
     padding-block-end: 1rem;
   }
@@ -5942,16 +5983,11 @@ html[data-theme="light"] .rs-github-mark {
     height: 1.9rem;
   }
 
-  /* Sit on the title's line, not on a line of its own: no wrapping, and the
-     title takes the slack so the toggle stays pinned to the right. */
+  /* Brand and controls share one line, never two: the brand takes the slack so
+     the controls stay pinned to the right. */
   .topbar {
     flex-wrap: nowrap;
     align-items: center;
-  }
-
-  .topbar .route-context {
-    min-width: 0;
-    flex: 1 1 auto;
   }
 
   .topbar .toolbar {
@@ -5968,8 +6004,9 @@ html[data-theme="light"] .rs-github-mark {
     gap: 0.6rem;
   }
 
-  /* Was `width: 100%` to give the clock its own line. The clock is gone and the
-     only occupant is now the theme toggle, which belongs on the title's line. */
+  /* Was `width: 100%` to give the clock its own line. The clock is gone and
+     what is left is the pause and theme pair, which belongs beside the brand
+     rather than on a row of its own. */
   .toolbar {
     width: auto;
     justify-content: flex-end;

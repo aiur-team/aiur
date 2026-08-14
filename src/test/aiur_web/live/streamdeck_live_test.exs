@@ -1248,15 +1248,28 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ "is-live"
   end
 
-  test "the nav icon is a 2x2 key grid" do
+  # The bezel is what tells this glyph apart from the Units four-square at nav
+  # size, so it is locked in alongside the keys — and the keys have to stay
+  # smaller than the frame they sit in.
+  test "the nav icon is a 2x2 key grid inside a bezel" do
     {:ok, _view, html} = live(build_conn(), "/streamdeck")
 
     [svg] =
-      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="4" y="4".*?</svg>}s, html) ||
+      Regex.run(~r{<svg[^>]*>(?:(?!</svg>).)*?x="2" y="2" width="20" height="20".*?</svg>}s, html) ||
         flunk("the Stream Deck nav icon svg was not rendered")
 
-    assert length(Regex.scan(~r/<rect /, svg)) == 4,
-           "the Stream Deck nav icon must show 4 keys in a 2x2 grid"
+    widths = svg |> then(&Regex.scan(~r/<rect [^>]*width="(\d+)"/, &1)) |> Enum.map(&(&1 |> List.last() |> String.to_integer()))
+
+    assert length(widths) == 5,
+           "the Stream Deck nav icon must show a bezel plus 4 keys in a 2x2 grid"
+
+    # Measured rather than hardcoded: an 8-unit key inside a 20-unit bezel would
+    # satisfy a literal width assertion while losing the visual distinction the
+    # bezel exists to draw.
+    [bezel | keys] = widths
+
+    assert Enum.max(keys) * 2 < bezel,
+           "each key must stay well inside the bezel around them"
   end
 
   test "mounts even when Aiur.Config raises, exercising the kind/2 rescue" do
