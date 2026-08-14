@@ -16,6 +16,10 @@ import { createRasterizer } from "../dist/rasterizer.js";
 import { layoutKeys } from "../dist/keys.js";
 import { preloadVendorMarks } from "../dist/art/vendorMark.js";
 import { composeStrip } from "../dist/touchStrip/stripLayout.js";
+import { demoGrid, demoUsage } from "../dist/demo.js";
+import { summaryModel } from "../dist/touchStrip/summarySegment.js";
+import { providerSegmentModel } from "../dist/touchStrip/providerSegment.js";
+import { pagerModel } from "../dist/touchStrip/pagerSegment.js";
 
 const out = process.argv[2] ?? "preview.png";
 

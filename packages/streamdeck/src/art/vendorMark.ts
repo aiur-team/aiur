@@ -76,9 +76,36 @@ export const loadVendorMark = async (vendor: string): Promise<Image | null> => {
   }
 };
 
+/** Cache key for the Aiur brand mark, which is not a provider. */
+const BRAND_KEY = "__aiur__";
+
+/** Loads the Aiur brand mark used on the summary segment. */
+export const loadBrandMark = async (): Promise<Image | null> => {
+  const cached = cache.get(BRAND_KEY);
+  if (cached !== undefined) {
+    return cached;
+  }
+  try {
+    const image = await loadImage(new URL("../../assets/aiur-logo.png", import.meta.url));
+    cache.set(BRAND_KEY, image);
+    return image;
+  } catch {
+    cache.set(BRAND_KEY, null);
+    return null;
+  }
+};
+
+/** Draws the Aiur brand mark, or nothing when the asset is unavailable. */
+export const drawBrandMark = (context: SKRSContext2D, x: number, y: number, size: number): void => {
+  const mark = cache.get(BRAND_KEY) ?? null;
+  if (mark !== null) {
+    context.drawImage(mark, x, y, size, size);
+  }
+};
+
 /** Preloads every bundled mark so the first repaint draws them synchronously. */
 export const preloadVendorMarks = async (): Promise<void> => {
-  await Promise.all(Object.keys(VENDOR_ASSETS).map((vendor) => loadVendorMark(vendor)));
+  await Promise.all([...Object.keys(VENDOR_ASSETS).map((vendor) => loadVendorMark(vendor)), loadBrandMark()]);
 };
 
 /** The already-loaded mark for `vendor`, or `null` if it is absent or pending. */

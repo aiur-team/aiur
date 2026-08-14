@@ -29,6 +29,16 @@ const keysReport = (indices: number[], pressed: boolean): Uint8Array => {
   return report;
 };
 
+/** An encoder-button report with several knobs held down at once. */
+const dialButtons = (indices: number[], pressed = true): Uint8Array => {
+  const report = new Uint8Array(10);
+  report[0] = 1;
+  report[1] = 3;
+  report[4] = 0;
+  for (const index of indices) report[5 + index] = pressed ? 1 : 0;
+  return report;
+};
+
 const dialButton = (index: number, pressed = true): Uint8Array => {
   const report = new Uint8Array(10);
   report[0] = 1;
@@ -214,6 +224,70 @@ describe("physical controller composition", () => {
     expect(controller.state().eventLines[0]).toEqual({ kind: "event", badge: "INFO", text: "no badge here", time: "" });
   });
 
+  describe("demo chord", () => {
+    it("toggles when the two chord keys are held together", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn(), toggleDemo });
+      controller.handleReport(dialButtons([1, 2]));
+      expect(toggleDemo).toHaveBeenCalledOnce();
+    });
+
+    // Holding the pair must not retrigger on every poll.
+    it("fires once while the chord stays held", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn(), toggleDemo });
+      controller.handleReport(dialButtons([1, 2]));
+      controller.handleReport(dialButtons([1, 2]));
+      controller.handleReport(dialButtons([1, 2]));
+      expect(toggleDemo).toHaveBeenCalledOnce();
+    });
+
+    it("fires again after the chord is released and re-held", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn(), toggleDemo });
+      controller.handleReport(dialButtons([1, 2]));
+      controller.handleReport(dialButtons([], false));
+      controller.handleReport(dialButtons([1, 2]));
+      expect(toggleDemo).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not disturb the surface when fired from the grid", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn(), toggleDemo });
+      controller.handleReport(dialButtons([1, 2]));
+      expect(controller.state().mode).toBe("grid");
+      expect(controller.state().focusedIdentifier).toBeNull();
+    });
+
+    it("returns to the grid when the chord is hit from the command surface", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn(), toggleDemo });
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      expect(controller.state().mode).toBe("cmd");
+      controller.handleReport(dialButtons([1, 2]));
+      expect(controller.state().mode).toBe("grid");
+      expect(toggleDemo).toHaveBeenCalledOnce();
+    });
+
+    // The middle two knob presses carry no action of their own, so with no demo
+    // host wired the chord is simply inert — it cannot shadow anything.
+    it("is inert when no demo host is wired", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.handleReport(dialButtons([1, 2]));
+      expect(controller.state().mode).toBe("grid");
+    });
+
+    it("leaves the back and window-cycle knobs working", () => {
+      const toggleDemo = vi.fn();
+      const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: vi.fn(), toggleDemo });
+      controller.handleReport(dialButton(3));
+      controller.handleReport(dialButton(3, false));
+      expect(toggleDemo).not.toHaveBeenCalled();
+      expect(controller.state().columnOffset).toBeGreaterThan(0);
+    });
+  });
+
   it("clears a held mic when Logs rises in the same report", () => {
     const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
     controller.handleReport(keyReport(0, true));
@@ -224,14 +298,32 @@ describe("physical controller composition", () => {
     expect(controller.state()).toMatchObject({ mode: "logs", micHeld: false });
   });
 
-  it("accumulates dial detents before converting short ranges to offsets", () => {
+  // Routing a detent through the mock's 0-100 knob value made one click worth a
+  // fraction of a column, so the operator had to click two or three times for
+  // every step. A detent is one position.
+  it("moves the grid exactly one column per dial detent", () => {
     const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: vi.fn() });
     controller.handleReport(dialTurn(3, 1));
-    expect(controller.state().columnOffset).toBe(0);
-    controller.handleReport(dialTurn(3, 1));
-    expect(controller.state().columnOffset).toBe(0);
-    controller.handleReport(dialTurn(3, 1));
     expect(controller.state().columnOffset).toBe(1);
+    controller.handleReport(dialTurn(3, 1));
+    expect(controller.state().columnOffset).toBe(2);
+    controller.handleReport(dialTurn(3, -1));
+    expect(controller.state().columnOffset).toBe(1);
+  });
+
+  it("applies a multi-detent report in one step", () => {
+    const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: vi.fn() });
+    controller.handleReport(dialTurn(3, 3));
+    expect(controller.state().columnOffset).toBe(3);
+  });
+
+  it("clamps at both ends of the column range", () => {
+    // 20 agents -> ceil(20/2) - 4 = 6 columns of travel.
+    const controller = createPhysicalController({ grid: () => grid(20), channel: () => null, stateChanged: vi.fn() });
+    controller.handleReport(dialTurn(3, 99));
+    expect(controller.state().columnOffset).toBe(6);
+    controller.handleReport(dialTurn(3, -99));
+    expect(controller.state().columnOffset).toBe(0);
   });
 
   it("synchronizes dial D with the server-selected event offset when logs arrive", () => {

@@ -15,28 +15,33 @@
  */
 
 import { spawnLineSource, type LineSubscription, type SpawnLike } from "./line-source.js";
-import { hidId } from "./device-path.js";
-import { PRODUCT_ID, VENDOR_ID } from "./report.js";
+import { VENDOR_ID } from "./report.js";
 
 /** Vendor ID as udev reports it: lowercase hex, no `0x`. */
 const VENDOR_HEX = VENDOR_ID.toString(16).padStart(4, "0");
 
-/**
- * The vendor:product token as it appears inside a `hidraw` event's `HID_ID`
- * (e.g. `HID_ID=0003:00000FD9:00000084`). `usb`-subsystem events expose
- * `ID_VENDOR_ID`, but `hidraw`-subsystem events generally do **not** — they
- * carry `HID_ID` instead — so matching only `ID_VENDOR_ID` silently drops every
- * hidraw add/remove and breaks replug recovery. We accept either.
- */
-const HID_ID_TOKEN = hidId(VENDOR_ID, PRODUCT_ID);
-
 export const UDEV_MONITOR_COMMAND = "udevadm";
+/**
+ * Only the `usb` subsystem is monitored, and only `usb_device` events count.
+ *
+ * Subscribing to `hidraw` as well looks like it buys extra replug coverage. It
+ * does the opposite: this sidecar opens the deck through libusb with
+ * auto-detach-kernel-driver, so **we** unbind hidraw on every open and the
+ * kernel rebinds it on every close. Those rebinds emit hidraw `add`/`remove`
+ * with our vendor on them, indistinguishable from a real hotplug — so a single
+ * close fed itself an "add", which reopened, which emitted a "remove", and the
+ * sidecar span at roughly eight open/close cycles a second, discarding every
+ * buffered input report as it went.
+ *
+ * A genuine plug or unplug always emits a `usb`/`usb_device` event carrying
+ * `ID_VENDOR_ID`, so replug recovery is unaffected. Driver binding is not
+ * hotplug and must not be treated as such.
+ */
 export const UDEV_MONITOR_ARGS: readonly string[] = [
   "monitor",
   "--udev",
   "--property",
   "--subsystem-match=usb",
-  "--subsystem-match=hidraw",
 ];
 
 export interface UdevHandlers {
@@ -61,9 +66,12 @@ export const parseUdevBlock = (lines: readonly string[]): "device-added" | "devi
     }
   }
 
-  const vendorMatches = props.get("ID_VENDOR_ID")?.toLowerCase() === VENDOR_HEX;
-  const hidMatches = props.get("HID_ID")?.toUpperCase().includes(HID_ID_TOKEN) ?? false;
-  if (!vendorMatches && !hidMatches) {
+  // The whole-device event only. An interface-level event (`usb_interface`) or
+  // a driver bind is churn we cause ourselves, not a hotplug.
+  if (props.get("DEVTYPE") !== "usb_device") {
+    return null;
+  }
+  if (props.get("ID_VENDOR_ID")?.toLowerCase() !== VENDOR_HEX) {
     return null;
   }
 

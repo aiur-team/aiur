@@ -102,11 +102,14 @@ describe("createRasterizer key", () => {
     expect(Buffer.from(ready).equals(Buffer.from(blocked))).toBe(false);
   });
 
-  it("shows the priority star only when the agent is prioritised", () => {
+  // The mock marks a prioritised ticket with a gold star. It is omitted by
+  // operator request — on a 120px key it read as an unexplained decoration —
+  // so priority must not change the painted key at all.
+  it("does not mark a prioritised agent on the key face", () => {
     const rasterizer = createRasterizer();
     const plain = rasterizer.key(layoutKeys([agent({ priority: false })], 0)[0]);
-    const starred = rasterizer.key(layoutKeys([agent({ priority: true })], 0)[0]);
-    expect(Buffer.from(plain).equals(Buffer.from(starred))).toBe(false);
+    const prioritised = rasterizer.key(layoutKeys([agent({ priority: true })], 0)[0]);
+    expect(Buffer.from(plain).equals(Buffer.from(prioritised))).toBe(true);
   });
 
   it("paints an empty key as a flat blackout", async () => {

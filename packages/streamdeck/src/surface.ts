@@ -167,14 +167,21 @@ export const createPhysicalSurface = () => {
       } : {
         mode: "grid",
         data: {
-          summary: summaryModel(grid.agents.filter((agent) => agent.bucket === "running").length, grid.total - grid.agents.filter((agent) => agent.bucket === "running").length),
+          // `build` comes straight from the projection when present. Omitting
+          // it left the summary segment permanently reading "No build order"
+          // even while a build order was running.
+          summary: summaryModel(
+            grid.agents.filter((agent) => agent.bucket === "running").length,
+            grid.total - grid.agents.filter((agent) => agent.bucket === "running").length,
+            (grid as { build?: unknown }).build as Parameters<typeof summaryModel>[2],
+          ),
           claude: providerSegmentModel((usage.claude ?? null) as ProviderMeter | null),
           codex: providerSegmentModel((usage.codex ?? null) as ProviderMeter | null),
           // `currentWindow` is the tested pager maths dial D itself uses. A
           // plain columnOffset/4 disagrees with it whenever the last window is
           // clamped by maxColumnOffset, lighting the wrong dot after a page.
           pager: pagerModel(grid.total, 8, currentWindow(state.columnOffset, grid.total)),
-          pagerLabel: `${grid.total} agents`,
+          pagerLabel: `${grid.total} Agents`,
         },
       };
       try {

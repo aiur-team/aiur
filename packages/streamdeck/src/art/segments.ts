@@ -20,7 +20,7 @@ import type { SegmentContent } from "../touchStrip/stripLayout.js";
 import type { ProviderSegmentModel } from "../touchStrip/providerSegment.js";
 import { progressBarColor } from "../key-face-contract.js";
 import { createPaint } from "./gradient.js";
-import { drawVendorMark } from "./vendorMark.js";
+import { drawBrandMark, drawVendorMark } from "./vendorMark.js";
 
 const BG = "#0f1216";
 const DIVIDER = "rgba(255,255,255,0.10)";
@@ -33,7 +33,23 @@ const DOT_ON = "#f1f3f6";
 const DOT_OFF = "rgba(255,255,255,0.28)";
 
 const PAD = 12;
-const METER_HEIGHT = 5;
+const METER_HEIGHT = 8;
+
+/*
+ * Shared vertical grid. All four segments are read as one strip, so the title,
+ * the value row and the bar must land on the same baselines with the same
+ * bottom margin — otherwise the bars visibly stagger across the strip.
+ */
+/** Title baseline: "SUMMARY", "Claude", "Codex", "MORE AGENTS". */
+const TITLE_BASELINE = 30;
+/** Font shared by every segment title. */
+const TITLE_FONT = "700 18px sans-serif";
+/** Baseline for the label/value row above the bar. */
+const VALUE_BASELINE = 68;
+/** Top of the bar; 100 - BAR_TOP - METER_HEIGHT is the bottom margin. */
+const BAR_TOP = 76;
+/** Width of every bar. */
+const BAR_WIDTH = 200 - PAD * 2;
 
 /** Small uppercase caption used for segment headings. */
 const caption = (context: SKRSContext2D, text: string, x: number, y: number, color = LABEL): void => {
@@ -93,98 +109,117 @@ export const resetLabel = (resetsAt: string | null, now: number): string | null 
 
 /** Segment 1 in grid mode: live/left counts plus the build mini-bar. */
 const drawSummary = (context: SKRSContext2D, model: SegmentContent & { kind: "summary" }): void => {
-  caption(context, "summary", PAD, 22);
-
-  context.font = "700 22px sans-serif";
+  const mark = 20;
+  drawBrandMark(context, PAD, TITLE_BASELINE - mark + 4, mark);
+  context.font = TITLE_FONT;
   context.fillStyle = TEXT;
-  context.fillText(`${model.model.live}`, PAD, 50);
-  const liveWidth = context.measureText(`${model.model.live}`).width;
-  context.font = "600 12px sans-serif";
-  context.fillStyle = MUTED;
-  context.fillText(`live · ${model.model.remaining} left`, PAD + liveWidth + 6, 50);
+  const titleEnd = PAD + mark + 7 + context.measureText("Summary").width;
+  context.fillText("Summary", PAD + mark + 7, TITLE_BASELINE);
+
+  // Live count only, with its dot. The fleet total belongs to the pager
+  // segment, which is where an operator looks to page through it.
+  void titleEnd;
+  const live = `${model.model.live}`;
+  context.font = "700 18px sans-serif";
+  const liveWidth = context.measureText(live).width;
+  context.fillStyle = TEXT;
+  context.fillText(live, 200 - PAD - liveWidth, TITLE_BASELINE);
+  context.beginPath();
+  context.arc(200 - PAD - liveWidth - 11, TITLE_BASELINE - 6, 4.5, 0, Math.PI * 2);
+  context.fillStyle = ACCENT_LIVE;
+  context.fill();
 
   const build = model.model.build;
   if (build === null) {
-    context.font = "600 11px sans-serif";
+    context.font = "700 13px sans-serif";
     context.fillStyle = LABEL;
-    context.fillText("No build order", PAD, 76);
+    context.fillText("No build order", PAD, VALUE_BASELINE);
     return;
   }
-  context.font = "600 11px sans-serif";
-  context.fillStyle = MUTED;
   const percent = Math.round(build.fraction * 100);
-  context.fillText(`Build ${percent}%`, PAD, 72);
+  context.font = "700 13px sans-serif";
+  context.fillStyle = MUTED;
+  context.fillText(`Build ${percent}%`, PAD, VALUE_BASELINE);
   if (build.etaLabel !== null) {
     const eta = `ETA ${build.etaLabel}`;
     context.fillStyle = LABEL;
-    context.fillText(eta, 200 - PAD - context.measureText(eta).width, 72);
+    context.fillText(eta, 200 - PAD - context.measureText(eta).width, VALUE_BASELINE);
   }
-  meter(context, PAD, 80, 200 - PAD * 2, build.fraction, miniBarFill(context, PAD, 200 - PAD * 2));
+  meter(context, PAD, BAR_TOP, BAR_WIDTH, build.fraction, miniBarFill(context, PAD, BAR_WIDTH));
 };
 
-/** Segments 2-3 in grid mode: one provider, session and weekly meters. */
+/**
+ * Segments 2-3 in grid mode: one provider's session meter.
+ *
+ * The mock stacks a session and a weekly meter here. At 200x100 on a device
+ * read from arm's length that made six lines of sub-11px type, so by operator
+ * decision this shows the session window only, at roughly double the type size.
+ * Weekly is still projected and available if it earns its space back.
+ */
 const drawProvider = (
   context: SKRSContext2D,
   label: string,
   model: ProviderSegmentModel,
   now: number,
 ): void => {
-  drawVendorMark(context, label, PAD, 12, 14);
-  context.font = "700 12px sans-serif";
+  const mark = 22;
+  drawVendorMark(context, label, PAD, TITLE_BASELINE - mark + 4, mark);
+  context.font = TITLE_FONT;
   context.fillStyle = TEXT;
-  context.fillText(label.charAt(0).toUpperCase() + label.slice(1), PAD + 20, 23);
+  context.fillText(label.charAt(0).toUpperCase() + label.slice(1), PAD + mark + 8, TITLE_BASELINE);
 
   if (!model.hasData) {
-    context.font = "600 11px sans-serif";
+    context.font = "700 13px sans-serif";
     context.fillStyle = LABEL;
-    context.fillText("Awaiting data", PAD, 52);
+    context.fillText("Awaiting data", PAD, VALUE_BASELINE);
     return;
   }
 
-  const rows: readonly [string, typeof model.session][] = [
-    ["Session", model.session],
-    ["Weekly", model.weekly],
-  ];
-  rows.forEach(([name, window], index) => {
-    const top = 38 + index * 30;
-    context.font = "600 10px sans-serif";
+  const window = model.session;
+  if (window === null) {
+    context.font = "700 13px sans-serif";
     context.fillStyle = LABEL;
-    context.fillText(name, PAD, top);
+    context.fillText("No session window", PAD, VALUE_BASELINE);
+    return;
+  }
 
-    if (window === null) {
-      context.fillStyle = LABEL;
-      context.fillText("—", 200 - PAD - 8, top);
-      return;
-    }
+  const percent = Math.round(window.usedPercent);
+  const reset = resetLabel(window.resetsAt, now);
 
-    const percent = Math.round(window.usedPercent);
-    const reset = resetLabel(window.resetsAt, now);
-    const right = reset === null ? `${percent}%` : `${percent}% · ${reset}`;
-    context.font = "700 10px sans-serif";
-    context.fillStyle = MUTED;
-    context.fillText(right, 200 - PAD - context.measureText(right).width, top);
+  context.font = "700 13px sans-serif";
+  context.fillStyle = LABEL;
+  context.fillText("Session", PAD, VALUE_BASELINE);
 
-    meter(context, PAD, top + 5, 200 - PAD * 2, percent / 100, miniBarFill(context, PAD, 200 - PAD * 2));
-  });
+  const right = reset === null ? `${percent}%` : `${percent}% · ${reset}`;
+  context.fillStyle = MUTED;
+  context.fillText(right, 200 - PAD - context.measureText(right).width, VALUE_BASELINE);
+
+  meter(context, PAD, BAR_TOP, BAR_WIDTH, percent / 100, miniBarFill(context, PAD, BAR_WIDTH));
 };
 
-/** Segment 4 in grid mode: window pager dots. */
+/**
+ * Segment 4 in grid mode: the window pager.
+ *
+ * The agent count lives on the summary segment, so it is not repeated here.
+ * The title carries the same weight as the other three so the strip reads as
+ * one row, and the dots sit on the shared bar line.
+ */
 const drawPager = (context: SKRSContext2D, content: SegmentContent & { kind: "pager" }): void => {
-  context.font = "700 11px monospace";
-  context.fillStyle = TEXT;
-  const title = content.title.toUpperCase();
-  context.fillText(title, (200 - context.measureText(title).width) / 2, 40);
+  const centre = (text: string): number => (200 - context.measureText(text).width) / 2;
 
-  context.font = "600 10px sans-serif";
-  context.fillStyle = LABEL;
-  context.fillText(content.label, (200 - context.measureText(content.label).width) / 2, 58);
+  // The fleet total is the heading. "MORE AGENTS" over "32 Agents" said the
+  // same thing twice, and the count is the part an operator reads when deciding
+  // whether to page.
+  context.font = TITLE_FONT;
+  context.fillStyle = TEXT;
+  context.fillText(content.label, centre(content.label), TITLE_BASELINE);
 
   const dots = content.model.dots;
-  const spacing = 14;
+  const spacing = 16;
   const startX = (200 - (dots.length - 1) * spacing) / 2;
   dots.forEach((filled, index) => {
     context.beginPath();
-    context.arc(startX + index * spacing, 74, 3.5, 0, Math.PI * 2);
+    context.arc(startX + index * spacing, BAR_TOP + METER_HEIGHT / 2, 4.5, 0, Math.PI * 2);
     context.fillStyle = filled ? DOT_ON : DOT_OFF;
     context.fill();
   });

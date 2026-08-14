@@ -45,7 +45,6 @@ const TOP_Y = 10;
 const ICON_CHIP = 26;
 const ICON_GLYPH = 17;
 const VENDOR_SIZE = 18;
-const PRIORITY_SIZE = 12;
 /**
  * Title type size. The mock's 1.08rem scales to ~15px on a 120px key, but at 15
  * a common word like "Orchestrator" is fractionally too wide for the 102px text
@@ -64,7 +63,6 @@ const TAG_HEIGHT = 13;
 const EMPTY_FILL = "#0a0b0d";
 const TEXT_PRIMARY = "#f1f3f6";
 const TEXT_TITLE = "rgba(240,242,246,0.92)";
-const PRIORITY_COLOR = "#ffd166";
 const CHIP_FILL = "rgba(255,255,255,0.08)";
 const CHIP_BORDER = "rgba(255,255,255,0.12)";
 const BAR_TRACK = "rgba(255,255,255,0.14)";
@@ -191,42 +189,18 @@ const drawKeyHeader = (context: SKRSContext2D, face: AgentKeyFace): void => {
     VENDOR_SIZE,
   );
 
-  // Ticket number is right-aligned; the priority star sits just left of it.
+  // Ticket number, right-aligned.
+  //
+  // The mock puts a gold star here for a prioritised ticket. It is omitted by
+  // operator request: on a 120px key it reads as an unexplained decoration, and
+  // priority is already expressed by the agent's position in the ranked order.
+  // `priority` stays on the descriptor — the server sorts by it.
   context.font = `700 17px monospace`;
   context.textAlign = "right";
   context.fillStyle = TEXT_PRIMARY;
   const numberY = TOP_Y + ICON_CHIP / 2 + 6;
-  const label = `${face.ticketNumber}`;
-  context.fillText(label, KEY_IMAGE_SIZE - PAD_X, numberY);
-
-  if (face.priority) {
-    const starX = KEY_IMAGE_SIZE - PAD_X - context.measureText(label).width - PRIORITY_SIZE - 3;
-    drawPriorityStar(context, starX, numberY - PRIORITY_SIZE + 1, PRIORITY_SIZE);
-  }
+  context.fillText(`${face.ticketNumber}`, KEY_IMAGE_SIZE - PAD_X, numberY);
   context.textAlign = "left";
-};
-
-/** The mock's five-point priority star, filled. */
-const drawPriorityStar = (context: SKRSContext2D, x: number, y: number, size: number): void => {
-  const scale = size / 24;
-  context.save();
-  context.translate(x, y);
-  context.scale(scale, scale);
-  context.beginPath();
-  context.moveTo(12, 3);
-  context.lineTo(14.6, 8.7);
-  context.lineTo(20.8, 9.3);
-  context.lineTo(16.1, 13.5);
-  context.lineTo(17.5, 19.6);
-  context.lineTo(12, 17);
-  context.lineTo(6.5, 19.6);
-  context.lineTo(7.9, 13.5);
-  context.lineTo(3.2, 9.3);
-  context.lineTo(9.4, 8.7);
-  context.closePath();
-  context.fillStyle = PRIORITY_COLOR;
-  context.fill();
-  context.restore();
 };
 
 /**

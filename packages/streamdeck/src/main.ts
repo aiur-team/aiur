@@ -31,6 +31,7 @@ import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDe
 import type { HidBackend } from "./backend.js";
 import { preloadVendorMarks } from "./art/vendorMark.js";
 import { createDebugLog, debugEnabled, hexPreview } from "./debug.js";
+import { advanceDemoGrid, demoGrid, demoLogs, demoUsage } from "./demo.js";
 import { decodeInputReport } from "./input.js";
 import { INPUT_REPORT_LENGTH, POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
@@ -58,6 +59,21 @@ const MAX_BUFFERED_REPORTS = 64;
 
 /** Tracer for the paths that otherwise produce no operator-visible output. */
 const debug = createDebugLog(debugEnabled(process.env.AIUR_STREAMDECK_DEBUG));
+
+/**
+ * Bucket histogram for the trace. Key colour is derived entirely from the
+ * bucket, so "every key looks grey" is only diagnosable if the trace says
+ * whether the fleet is genuinely all queued/paused (both grey by contract) or
+ * whether the bucket is failing to arrive.
+ */
+const bucketCounts = (grid: StreamDeckGrid): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const agent of grid.agents) {
+    const bucket = typeof agent.bucket === "string" ? agent.bucket : "(missing)";
+    counts[bucket] = (counts[bucket] ?? 0) + 1;
+  }
+  return counts;
+};
 
 /** True when a matching Stream Deck + is present on the USB bus right now. */
 const deviceIsPresent = (): boolean => findByIds(VENDOR_ID, PRODUCT_ID) !== undefined;
@@ -245,8 +261,14 @@ export const main = async (): Promise<void> => {
   await preloadVendorMarks();
   const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
   const presentAtStart = process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1" ? false : deviceIsPresent();
-  let latestGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
-  let latestUsage: Readonly<Record<string, unknown>> = {};
+  // Live data from the daemon, kept updated even while the demo is showing, so
+  // toggling back is instant and does not need a reconnect.
+  let liveGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
+  let liveUsage: Readonly<Record<string, unknown>> = {};
+  let liveLogs: StreamDeckLogs = {};
+  // What the surface actually renders.
+  let latestGrid: StreamDeckGrid = liveGrid;
+  let latestUsage: Readonly<Record<string, unknown>> = liveUsage;
   let transcriptFeed: string[] = [];
   let logsFeed: StreamDeckLogs = {};
   let activeBackend: HidBackend | null = null;
@@ -255,9 +277,59 @@ export const main = async (): Promise<void> => {
   let repaintChain: Promise<void> = Promise.resolve();
   const surface = createPhysicalSurface();
 
+  /**
+   * Demo mode swaps the daemon's data for fixtures covering every bucket,
+   * footer, badge and meter.
+   *
+   * The sidecar always boots into real data: the demo exists to answer "is the
+   * renderer wrong, or is the fleet just uniform?" while standing at the deck —
+   * a real fleet is frequently all one state, and every agent paused paints
+   * every key grey. It is reachable only by the hidden key chord, never by
+   * configuration, so no unit file or stale environment variable can leave an
+   * operator looking at fixtures and believing they are live. The daemon
+   * channel stays connected throughout, so switching back is immediate.
+   */
+  let demoActive = false;
+  let demoGridState = demoGrid();
+  let demoTick = 0;
+
+  const applySource = (): void => {
+    if (demoActive) {
+      latestGrid = demoGridState;
+      latestUsage = demoUsage(Date.now());
+      controller.setLogs(demoLogs());
+    } else {
+      latestGrid = liveGrid;
+      latestUsage = liveUsage;
+      controller.setLogs(liveLogs);
+    }
+    if (activeBackend !== null) repaintDetached(activeBackend);
+  };
+
+  const toggleDemo = (): void => {
+    demoActive = !demoActive;
+    console.info(`[streamdeck] demo mode ${demoActive ? "on" : "off"}`);
+    debug("demo.toggle", { active: demoActive });
+    if (demoActive) demoGridState = demoGrid();
+    applySource();
+  };
+
+  // Ticks the fixture so the deck visibly animates; a frozen screen cannot show
+  // that repaints are still landing. Idle when the demo is off.
+  setInterval(() => {
+    if (!demoActive) return;
+    demoTick += 1;
+    demoGridState = advanceDemoGrid(demoGridState, 3);
+    latestGrid = demoGridState;
+    latestUsage = demoUsage(Date.now());
+    if (demoTick % 5 === 0) controller.setLogs(demoLogs());
+    if (activeBackend !== null) repaintDetached(activeBackend);
+  }, 2000).unref();
+
   const controller = createPhysicalController({
     grid: () => latestGrid,
     channel: () => channel,
+    toggleDemo,
     stateChanged: (state) => {
       debug("controller.state", {
         mode: state.mode,
@@ -346,12 +418,15 @@ export const main = async (): Promise<void> => {
         fetch: defaultFetch,
         websocket: defaultWebSocket,
         events: {
-          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) latestGrid = snapshot.grid; latestUsage = snapshot.usage; debug("channel.snapshot", { agents: latestGrid.agents.length, total: latestGrid.total, usage: Object.keys(latestUsage) }); if (activeBackend !== null) repaintDetached(activeBackend); },
+          // Live payloads always land in the live copy; they only reach the
+          // screen when the demo is off, so a toggle back shows current state
+          // rather than whatever was last on the wire before the demo started.
+          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
           fleet: () => undefined,
-          grid: (grid) => { latestGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total }); if (activeBackend !== null) repaintDetached(activeBackend); },
-          usage: (usage) => { latestUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (activeBackend !== null) repaintDetached(activeBackend); },
-          transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; controller.setTranscript(transcriptFeed); },
-          logs: (logs) => { logsFeed = logs; controller.setLogs(logsFeed); },
+          grid: (grid) => { liveGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
+          usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
+          transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; if (!demoActive) controller.setTranscript(transcriptFeed); },
+          logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
           closed: (error) => {
             console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
