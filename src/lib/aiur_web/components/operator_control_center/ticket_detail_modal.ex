@@ -74,8 +74,8 @@ defmodule AiurWeb.OperatorControlCenter.TicketDetailModal do
   defp timestamp(_at), do: "Unknown"
 
   defp routing_sentence(%{available?: true, backend: backend} = routing) when is_binary(backend) do
-    [backend, routing.resolved_model, routing.effort, routing.remote? && "remote"]
-    |> Enum.reject(&(&1 in [nil, false, ""]))
+    [backend, routing.resolved_model, routing.effort, if(routing.remote?, do: "remote")]
+    |> Enum.reject(&(is_nil(&1) or &1 == ""))
     |> Enum.uniq()
     |> Enum.join(" · ")
   end

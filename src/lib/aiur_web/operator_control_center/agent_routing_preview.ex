@@ -101,8 +101,8 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
 
     %{
       backend: backend,
-      model: backend && member(Map.get(selection, :model), backend_options.models),
-      effort: backend && member(Map.get(selection, :effort), backend_options.efforts),
+      model: if(backend, do: member(Map.get(selection, :model), backend_options.models)),
+      effort: if(backend, do: member(Map.get(selection, :effort), backend_options.efforts)),
       complexity: complexity(Map.get(selection, :complexity))
     }
   end

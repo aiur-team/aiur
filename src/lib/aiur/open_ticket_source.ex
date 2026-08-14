@@ -263,7 +263,7 @@ defmodule Aiur.OpenTicketSource do
   # such source. Reporting that as an outage would present a configuration fact
   # as a fault the operator could fix by retrying.
   defp github_tracker? do
-    Aiur.Config.tracker_kind() in [:github, "github"]
+    Aiur.Config.tracker_kind() == "github"
   rescue
     _error -> false
   catch
