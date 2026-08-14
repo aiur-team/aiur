@@ -3499,6 +3499,202 @@ defmodule AiurWeb.DashboardLiveTest do
     assert row |> Floki.text() =~ "Answered"
   end
 
+  test "expands a history row in place and quotes the answer the operator recorded" do
+    orchestrator_name = Module.concat(__MODULE__, :HistoryAccordionOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :HistoryAccordionDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 510}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    answered = request_dashboard_decision(store, "history-accordion")
+
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.answer(
+               answered.decision_id,
+               %{
+                 "idempotency_key" => "history-accordion-answer",
+                 "expected_version" => answered.version,
+                 "custom_response" => "it is the executor's job to review"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{answered.decision_id}")
+    assert row |> Floki.text() =~ "“it is the executor's job to review”"
+    assert row |> Floki.find("button.history-row-toggle") |> Floki.attribute("aria-expanded") == ["false"]
+    refute has_element?(view, "#history-detail-history-#{answered.decision_id}")
+
+    # Clicking the row is what opens it; the Command's own context arrives
+    # inline, and no card is hoisted to the top of the page.
+    view |> element("#history-#{answered.decision_id}") |> render_click()
+
+    assert has_element?(view, "#history-detail-history-#{answered.decision_id}")
+    assert has_element?(view, "#history-#{answered.decision_id} button[aria-expanded='true']")
+    assert has_element?(view, "#history-detail-history-#{answered.decision_id} #decision-detail-#{answered.decision_id}")
+    refute has_element?(view, ".decision-list #decision-#{answered.decision_id}")
+
+    view |> element("#history-#{answered.decision_id}") |> render_click()
+    refute has_element?(view, "#history-detail-history-#{answered.decision_id}")
+  end
+
+  test "refreshes a history row in place when the store revises the Command behind it" do
+    orchestrator_name = Module.concat(__MODULE__, :HistoryRefreshOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :HistoryRefreshDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 512}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    decision = request_dashboard_decision(store, "history-refresh")
+
+    assert {:ok, %{status: :accepted, action: original}} =
+             DecisionStore.answer(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "history-refresh-original",
+                 "expected_version" => decision.version,
+                 "custom_response" => "ship the original answer"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    assert render(view) =~ "“ship the original answer”"
+
+    # Somebody else revises the Command while the row is already on screen. The
+    # loaded row must not keep asserting the answer it was loaded with.
+    assert {:ok, %{status: :accepted}} =
+             DecisionStore.revise(
+               decision.decision_id,
+               %{
+                 "idempotency_key" => "history-refresh-revision",
+                 "expected_version" => decision.version,
+                 "expected_action_id" => original.action_id,
+                 "expected_revision_sequence" => 0,
+                 "custom_response" => "no, the executor reviews it",
+                 "rationale" => "The first answer was wrong"
+               },
+               [actor: %{kind: :operator, id: "operator"}],
+               store
+             )
+
+    assert eventually(fn -> render(view) =~ "“no, the executor reviews it”" end, 100)
+    refute render(view) =~ "“ship the original answer”"
+    assert history_row_count(view) == 1
+  end
+
+  test "keeps a deep-linked Command readable when history has not loaded its page" do
+    orchestrator_name = Module.concat(__MODULE__, :DeepLinkHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :DeepLinkHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 513}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+
+    # One page of history plus one older Command: the deep-linked row sits
+    # beyond the ten rows the first page loads.
+    answered =
+      for index <- 1..11 do
+        decision = request_dashboard_decision(store, "deep-link-#{index}")
+
+        assert {:ok, %{status: :accepted}} =
+                 DecisionStore.answer(
+                   decision.decision_id,
+                   %{
+                     "idempotency_key" => "deep-link-answer-#{index}",
+                     "expected_version" => decision.version,
+                     "option_id" => "ship"
+                   },
+                   [actor: %{kind: :operator, id: "operator"}],
+                   store
+                 )
+
+        decision
+      end
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+    assert history_row_count(view) == 10
+
+    unloaded =
+      Enum.find(answered, fn decision ->
+        not has_element?(view, "#history-#{decision.decision_id}")
+      end)
+
+    refute is_nil(unloaded), "expected one answered Command outside the first history page"
+
+    {:ok, deep_linked, _html} = live(build_conn(), "/decisions/#{unloaded.decision_id}")
+
+    # No row to expand, so the card is still the only way to read it.
+    refute has_element?(deep_linked, "#history-detail-history-#{unloaded.decision_id}")
+    assert has_element?(deep_linked, "#decision-#{unloaded.decision_id}")
+    refute render(deep_linked) =~ "Command not found"
+  end
+
+  test "reports an expired Command as having no decision at all" do
+    orchestrator_name = Module.concat(__MODULE__, :ExpiredHistoryOrchestrator)
+    decision_store_name = Module.concat(__MODULE__, :ExpiredHistoryDecisionStore)
+
+    store =
+      start_decision_store(decision_store_name, fn _decision, _opts ->
+        {:ok, %{status: :accepted, item: %{id: 511}}}
+      end)
+
+    start_counting_orchestrator(orchestrator_name)
+    expired = request_dashboard_decision(store, "history-expired", "reversible", blocking: false)
+
+    assert {:ok, _expired} =
+             DecisionStore.expire(expired.decision_id, "agent_not_running", [], store)
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      decision_store: decision_store_name
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/decisions")
+
+    row = view |> render() |> Floki.parse_document!() |> Floki.find("#history-#{expired.decision_id}")
+
+    assert row |> Floki.find("td.history-decision") |> Floki.text() == "N/A"
+    assert row |> Floki.text() =~ "Expired"
+  end
+
   test "notifying the Executor moves the Command to history without flattening it into an answer" do
     orchestrator_name = Module.concat(__MODULE__, :DeferToHistoryOrchestrator)
     decision_store_name = Module.concat(__MODULE__, :DeferToHistoryDecisionStore)
@@ -3534,7 +3730,7 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   defp history_row_count(view) do
-    view |> render() |> Floki.parse_document!() |> Floki.find("#command-history-rows tr") |> length()
+    view |> render() |> Floki.parse_document!() |> Floki.find("#command-history-rows tr.history-row") |> length()
   end
 
   test "round-trips validated Units URL state and exposes a named zero-result reset" do

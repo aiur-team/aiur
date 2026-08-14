@@ -70,7 +70,10 @@ html[data-theme="light"] {
   --accent-soft: rgba(31, 87, 196, 0.11);
   --accent-line: rgba(31, 87, 196, 0.3);
   --attention: #b8821a;
-  --attention-ink: #8a6210;
+  /* Darkened from #8a6210, which reached only 4.11:1 against its own soft
+     background in the light theme — an "Expired" chip is a state the operator
+     has to be able to read. */
+  --attention-ink: #7d590e;
   --attention-soft: rgba(184, 130, 26, 0.13);
   --attention-line: rgba(184, 130, 26, 0.32);
   --blocking: #d23b32;
@@ -4765,7 +4768,15 @@ html[data-theme="light"] .rs-github-mark {
   font-size: 0.72rem;
 }
 
+/* The card is a grid item, which defaults to `min-width: auto` and sizes to the
+   widest cell. Without this the table would widen the whole page instead of
+   scrolling inside its own wrapper — visible at 200% text size. */
+.command-history {
+  min-width: 0;
+}
+
 .history-table-wrap {
+  max-width: 100%;
   margin-top: 0.75rem;
   overflow-x: auto;
 }
@@ -4788,8 +4799,17 @@ html[data-theme="light"] .rs-github-mark {
   white-space: nowrap;
 }
 
-.history-table tbody tr {
+.history-table tbody tr.history-row {
   border-bottom: 1px solid var(--hairline);
+  cursor: pointer;
+}
+
+.history-table tbody tr.history-row:hover {
+  background: var(--bg-2);
+}
+
+.history-table tbody tr.history-row.is-expanded {
+  background: var(--bg-2);
 }
 
 .history-table tbody tr[data-severity="good"] {
@@ -4819,9 +4839,34 @@ html[data-theme="light"] .rs-github-mark {
   color: var(--fg);
 }
 
-.history-outcome {
+.history-decision {
   max-width: 34ch;
   color: var(--muted);
+}
+
+/* The row is the click target, so the control inside it is a bare button: it
+   exists to carry the accessible name, aria-expanded and the focus ring, not a
+   second visual affordance. */
+.history-row-toggle {
+  display: block;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.history-detail-row > td {
+  padding: 0;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.history-row.is-expanded .expand-chevron {
+  transform: rotate(180deg);
 }
 
 .history-result {
@@ -4832,15 +4877,15 @@ html[data-theme="light"] .rs-github-mark {
 }
 
 .history-when {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.6rem;
   color: var(--muted);
   font-size: 0.72rem;
   white-space: nowrap;
 }
 
-.history-open {
-  text-align: right;
-  white-space: nowrap;
-}
 
 .history-more {
   display: flex;

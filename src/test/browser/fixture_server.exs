@@ -111,13 +111,14 @@ end
 defmodule Aiur.BrowserHarness.RouteShellLive do
   use Phoenix.LiveView, layout: {Aiur.BrowserHarness.FixtureLayout, :app}
 
-  alias AiurWeb.OperatorControlCenter.{DashboardShell, NavState, RouteRegistry}
+  alias AiurWeb.OperatorControlCenter.{DashboardShell, History, NavState, RouteRegistry}
 
   @impl true
   def mount(_params, _session, socket) do
     {:ok,
      socket
      |> assign(:analytics, analytics(%{}))
+     |> assign(:selected_decision_id, nil)
      |> NavState.assign_nav()
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
@@ -127,6 +128,7 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
     {:noreply,
      socket
      |> assign(:analytics, analytics(params))
+     |> assign(:selected_decision_id, params["decision_id"])
      |> assign(:current_route, RouteRegistry.current_route(socket.assigns.live_action))}
   end
 
@@ -149,9 +151,78 @@ defmodule Aiur.BrowserHarness.RouteShellLive do
           <p>This authenticated LiveView fixture verifies the shared route shell without inventing operational data.</p>
           <button id="route-shell-action" type="button">Reachable action</button>
         </section>
+        <%!-- Command history is an accordion whose rows patch to the Command's
+              own URL, so it can only be exercised on the real `/decisions` and
+              `/decisions/:decision_id` routes the shell fixture already owns. --%>
+        <History.history
+          :if={@live_action in [:decisions, :decision]}
+          rows={history_decisions()}
+          loaded={3}
+          total={3}
+          expanded_id={@selected_decision_id}
+          expanded_decision={Enum.find(history_decisions(), &(&1.decision_id == @selected_decision_id))}
+          writable={false}
+        />
       </DashboardShell.dashboard_shell>
     </main>
     """
+  end
+
+  defp history_decisions do
+    [
+      history_decision("answered-command",
+        question: "Who reviews the merge queue backlog?",
+        decision_status: :decided,
+        answer: %{
+          action_id: "act-answered",
+          decision_version: 1,
+          selected_option_id: nil,
+          custom_response: "it is the executor's job to review",
+          rationale: nil,
+          actor: %{kind: :operator, id: "operator"},
+          accepted_at: ~U[2026-07-18 11:05:00Z]
+        }
+      ),
+      history_decision("expired-command",
+        question: "Should the release wait for the flaky suite?",
+        decision_status: :expired
+      ),
+      history_decision("deferred-command",
+        question: "Which migration order is safe?",
+        decision_status: :deferred
+      )
+    ]
+  end
+
+  defp history_decision(decision_id, attrs) do
+    Map.merge(
+      %{
+        decision_id: decision_id,
+        version: 1,
+        ticket: %{identifier: "AIUR-#{:erlang.phash2(decision_id, 900) + 100}", title: "Fixture ticket"},
+        source: %{agent_id: "agent-1"},
+        kind: "architecture",
+        authority: :human_required,
+        urgency: :normal,
+        blocking: false,
+        reversibility: :reversible,
+        context: %{short: "Fixture context summary", long_markdown: "The retained Command context lives here."},
+        options: [%{id: "ship", label: "Ship it", description: "Proceed", risk: "low"}],
+        recommendation: nil,
+        consequence_of_delay: nil,
+        artifacts: [],
+        created_at: ~U[2026-07-18 11:00:00Z],
+        delivery_status: :delivered,
+        answer: nil,
+        retryable: false,
+        failure_reason: nil,
+        superseded?: false,
+        revisions: [],
+        revision_sequence: 0,
+        lifecycle: :resolved
+      },
+      Map.new(attrs)
+    )
   end
 
   defp analytics(%{"analytics" => "unavailable"}) do

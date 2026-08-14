@@ -471,15 +471,78 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     refute html =~ ~s(class="decision-card)
   end
 
-  test "renders expired Commands as non-actionable history" do
+  test "renders expired Commands as non-actionable history with no decision to report" do
     expired = inbox_decision("dec-history-expired", decision_status: :expired)
 
     html = render_history([expired])
 
     assert html =~ "Expired"
-    assert html =~ "agent is no longer running"
+    assert html =~ ~s(<td class="history-decision">N/A</td>)
     assert html =~ ~s(data-severity="attn")
     refute html =~ ~s(class="decision-card)
+  end
+
+  test "quotes the answer the operator actually recorded in the Decision column" do
+    custom =
+      inbox_decision("dec-history-custom",
+        decision_status: :decided,
+        answer: action_answer(:operator, custom_response: "it is the executor's job to review", selected_option_id: nil)
+      )
+
+    chosen = inbox_decision("dec-history-option", decision_status: :decided, answer: action_answer(:operator))
+
+    html = render_history([custom, chosen])
+
+    assert html =~ "<th scope=\"col\">Decision</th>"
+    refute html =~ "<th scope=\"col\">Outcome</th>"
+    assert html =~ "“it is the executor&#39;s job to review”"
+    assert html =~ "“Ship it”"
+  end
+
+  test "quotes only what somebody actually said, never a status sentence or a blank answer" do
+    deferred = inbox_decision("dec-quote-deferred", decision_status: :deferred)
+    dismissed = inbox_decision("dec-quote-dismissed", decision_status: :dismissed)
+    expired = inbox_decision("dec-quote-expired", decision_status: :expired)
+
+    blank =
+      inbox_decision("dec-quote-blank",
+        decision_status: :decided,
+        answer: action_answer(:operator, custom_response: "   ", selected_option_id: nil)
+      )
+
+    html = render_history([deferred, dismissed, expired, blank])
+
+    # These are the component describing a lifecycle, not repeating an answer,
+    # so none of them may wear quotation marks.
+    assert html =~ ~s(<td class="history-decision">Handed to the Executor</td>)
+    assert html =~ ~s(<td class="history-decision">Closed without a recorded answer</td>)
+    assert html =~ ~s(<td class="history-decision">N/A</td>)
+    assert html =~ ~s(<td class="history-decision">—</td>)
+    refute html =~ "“”"
+  end
+
+  test "opens a history row as an accordion in place instead of a top-of-page panel" do
+    answered =
+      inbox_decision("dec-history-open",
+        decision_status: :decided,
+        answer: action_answer(:operator),
+        context: %{short: "Reviewer capacity", long_markdown: "The queue is full."}
+      )
+
+    collapsed = render_history([answered])
+    expanded = render_history([answered], expanded_id: "dec-history-open")
+
+    # The whole row is the click target, and the control inside it is a real
+    # button carrying aria-expanded — not a link that only a mouse can reach.
+    assert collapsed =~ ~s(phx-click)
+    assert collapsed =~ ~s(class="history-row-toggle" aria-expanded="false")
+    refute collapsed =~ ">Open</a>"
+    refute collapsed =~ "history-detail-row"
+
+    assert expanded =~ ~s(aria-expanded="true")
+    assert expanded =~ ~s(<tr id="history-detail-history-dec-history-open" class="history-detail-row">)
+    assert expanded =~ "The queue is full."
+    assert expanded =~ "Event timeline"
   end
 
   test "keeps deferred, expired and answered outcomes visually distinct in history" do
@@ -1163,8 +1226,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     Map.merge(defaults, Map.new(attrs))
   end
 
-  defp action_answer(kind) do
-    %{
+  defp action_answer(kind, attrs \\ []) do
+    defaults = %{
       action_id: "act-#{kind}",
       decision_version: 1,
       selected_option_id: "ship",
@@ -1173,6 +1236,8 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
       actor: %{kind: kind, id: Atom.to_string(kind)},
       accepted_at: ~U[2026-07-12 13:00:00Z]
     }
+
+    Map.merge(defaults, Map.new(attrs))
   end
 
   defp inbox_decision(decision_id, attrs \\ []) do
@@ -1207,11 +1272,13 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
 
   defp render_history(decisions, opts \\ []) do
     render_component(&History.history/1, %{
-      rows: Enum.map(decisions, &{"history-#{&1.decision_id}", &1}),
+      rows: decisions,
       loaded: length(decisions),
       total: Keyword.get(opts, :total),
       has_more: Keyword.get(opts, :has_more, false),
-      provider_health: :ok
+      provider_health: :ok,
+      expanded_id: Keyword.get(opts, :expanded_id),
+      writable: Keyword.get(opts, :writable, false)
     })
   end
 
