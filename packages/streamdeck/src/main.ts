@@ -265,7 +265,7 @@ export const main = async (): Promise<void> => {
         columnOffset: state.columnOffset,
         micHeld: state.micHeld,
       });
-      if (activeBackend !== null) void repaint(activeBackend);
+      if (activeBackend !== null) repaintDetached(activeBackend);
     },
   });
 
@@ -306,6 +306,23 @@ export const main = async (): Promise<void> => {
     await next;
   };
 
+  /**
+   * Repaint without letting a device write take the process down.
+   *
+   * Every caller below fires a repaint from an event handler, so the promise is
+   * unawaited: a rejected write (an unplug mid-frame, a handle invalidated by a
+   * suspend) surfaced as an unhandled rejection and killed the sidecar, which
+   * systemd then restarted into the same failure. A write failure is exactly
+   * what the runtime's close/reopen recovery exists to handle, so hand it there
+   * and keep running.
+   */
+  const repaintDetached = (backend: HidBackend): void => {
+    void repaint(backend).catch((error: unknown) => {
+      console.warn("[streamdeck] repaint failed; recovering the device", error);
+      runtime?.notifyWriteFailure(error);
+    });
+  };
+
   const baseUrl = process.env.AIUR_PHOENIX_URL;
   if (baseUrl && process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD) {
     let reconnectAttempt = 0;
@@ -329,10 +346,10 @@ export const main = async (): Promise<void> => {
         fetch: defaultFetch,
         websocket: defaultWebSocket,
         events: {
-          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) latestGrid = snapshot.grid; latestUsage = snapshot.usage; debug("channel.snapshot", { agents: latestGrid.agents.length, total: latestGrid.total, usage: Object.keys(latestUsage) }); if (activeBackend !== null) void repaint(activeBackend); },
+          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) latestGrid = snapshot.grid; latestUsage = snapshot.usage; debug("channel.snapshot", { agents: latestGrid.agents.length, total: latestGrid.total, usage: Object.keys(latestUsage) }); if (activeBackend !== null) repaintDetached(activeBackend); },
           fleet: () => undefined,
-          grid: (grid) => { latestGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total }); if (activeBackend !== null) void repaint(activeBackend); },
-          usage: (usage) => { latestUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (activeBackend !== null) void repaint(activeBackend); },
+          grid: (grid) => { latestGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total }); if (activeBackend !== null) repaintDetached(activeBackend); },
+          usage: (usage) => { latestUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (activeBackend !== null) repaintDetached(activeBackend); },
           transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; controller.setTranscript(transcriptFeed); },
           logs: (logs) => { logsFeed = logs; controller.setLogs(logsFeed); },
           control: () => undefined,
