@@ -395,9 +395,7 @@ defmodule Aiur.Orchestrator.IssueSync do
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
           blocker = previous_blockers[blocker_id]
-          AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker)
-
-          enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
+          unsubscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker)
         end)
 
       Enum.reduce(shared_blocker_ids, state, fn blocker_id, state_acc ->
@@ -481,6 +479,24 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       true ->
         state
+    end
+  end
+
+  defp unsubscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
+    case AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker) do
+      :ok ->
+        enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
+
+      {:error, reason} ->
+        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+
+        Logger.warning(
+          "IssueSync: unsubscription failed for dependency_removed " <>
+            "(#{issue.identifier} unblocked by #{blocker_id}): " <>
+            "#{inspect(reason)}; event will emit on next reconcile"
+        )
+
+        state_acc
     end
   end
 

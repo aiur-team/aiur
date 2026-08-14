@@ -289,7 +289,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       assert SubscriptionStore.snapshot(id).last_seen_event_id == nil
     end
 
-    test "a later successful event cannot leapfrog a failed event", %{identifier: id} do
+    test "a later event is held behind a stalled event (no leapfrog, no loss)", %{identifier: id} do
       test_pid = self()
       on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
 
@@ -298,23 +298,72 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       :ok = SubscriptionStore.advance_cursor(id, 99)
       [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
 
-      # Event 100 fails enqueue.
+      # Event 100 fails enqueue → stall forms, cursor held at 99.
       SubscriptionStore.set_enqueue_fn(fn _id, _ev -> {:error, :timeout} end)
       send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
       _ = SubscriptionStore.snapshot(id)
 
-      # Event 101 succeeds enqueue.
+      # Event 101 would succeed, but must NOT be delivered past the stall:
+      # it is buffered, so a restart during the stall replays it exactly once.
       SubscriptionStore.set_enqueue_fn(fn _id, ev ->
         send(test_pid, {:enqueued, ev})
         :ok
       end)
 
       send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
-      assert_receive {:enqueued, %{id: 101}}, 500
       _ = SubscriptionStore.snapshot(id)
+      refute_receive {:enqueued, %{id: 101}}, 100
 
       # Cursor must not have advanced past the stalled event 100.
       assert SubscriptionStore.snapshot(id).last_seen_event_id == 99
+
+      # Once the stall resolves, event 100 delivers first, then 101 in order.
+      send(pid, {:retry_stalled})
+      assert_receive {:enqueued, %{id: 100}}, 500
+      assert_receive {:enqueued, %{id: 101}}, 500
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 101
+    end
+
+    test "buffered events survive repeated stall retries and are not dropped", %{identifier: id} do
+      test_pid = self()
+      on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
+
+      {:ok, counter} = Agent.start(fn -> 0 end)
+      on_exit(fn -> Agent.stop(counter) end)
+
+      # Event 100 fails twice (attempt 1 + retry 1), then succeeds.
+      # Event 101 arrives during the stall and is buffered, never enqueued
+      # until 100 has been delivered.
+      SubscriptionStore.set_enqueue_fn(fn _id, ev ->
+        n = Agent.get_and_update(counter, fn n -> {n + 1, n + 1} end)
+
+        if n <= 2,
+          do: {:error, :timeout},
+          else: send(test_pid, {:enqueued, ev}) && :ok
+      end)
+
+      :ok = SubscriptionStore.attach(id)
+      :ok = SubscriptionStore.add_subscription(id, "ticket.42.#", "test")
+      :ok = SubscriptionStore.advance_cursor(id, 99)
+      [{pid, _}] = Registry.lookup(Aiur.Events.SubscriptionStoreRegistry, id)
+
+      send(pid, {:event, %{id: 100, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+
+      # 101 arrives while 100 is still stalled → buffered, not enqueued.
+      send(pid, {:event, %{id: 101, topic: "ticket.42.branch.push"}})
+      _ = SubscriptionStore.snapshot(id)
+      refute_receive {:enqueued, %{id: 101}}, 100
+
+      # Retry 1 fails again (n=2); retry 2 succeeds → both events delivered
+      # in order, and neither is lost.
+      send(pid, {:retry_stalled})
+      send(pid, {:retry_stalled})
+      assert_receive {:enqueued, %{id: 100}}, 500
+      assert_receive {:enqueued, %{id: 101}}, 500
+      _ = SubscriptionStore.snapshot(id)
+      assert SubscriptionStore.snapshot(id).last_seen_event_id == 101
     end
   end
 
@@ -323,7 +372,7 @@ defmodule Aiur.Events.SubscriptionStoreTest do
       test_pid = self()
       on_exit(fn -> SubscriptionStore.set_enqueue_fn(nil) end)
 
-      {:ok, counter} = Agent.start_link(fn -> 0 end)
+      {:ok, counter} = Agent.start(fn -> 0 end)
       on_exit(fn -> Agent.stop(counter) end)
 
       SubscriptionStore.set_enqueue_fn(fn _id, ev ->

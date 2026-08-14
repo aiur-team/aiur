@@ -40,3 +40,8 @@ packages/streamdeck/coverage/
 packages/streamdeck/dist/
 /packages/streamdeck/**/*.streamDeckPlugin
 .aiur-design-import/
+
+# Per-workspace build-gate/cache artifacts generated inside the sandbox.
+/.aiur-base-built
+/.cache/
+/.local/
