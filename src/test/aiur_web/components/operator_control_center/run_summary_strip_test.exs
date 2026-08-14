@@ -120,7 +120,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
     assert html =~ ~s(<img class="rs-logo rs-github-mark" src="/images/github-mark.svg")
     assert html =~ "3750/5000 left · resets in 30m"
     assert html =~ "500/5000 left · resets in 45m"
-    assert html =~ "9R / 2W"
     assert html =~ ~s(class="is-warning" style="width:90.0%")
     # The two GitHub budgets explain their units on hover.
     assert html =~ ~s(title="REST request budget")

@@ -32,7 +32,7 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
   def dashboard_shell(assigns) do
     ~H"""
     <section class="dashboard-shell" data-nav-collapsed={to_string(@nav_collapsed)}>
-      <aside class="shell-sidebar" aria-label="Aiur navigation">
+      <header class="topbar">
         <div class="brand-row">
           <img class="brand-mini-logo" src="/aiur-logo.png" alt="Aiur" />
           <span class="brand-wordmark"><b>aiur</b></span>
@@ -64,47 +64,47 @@ defmodule AiurWeb.OperatorControlCenter.DashboardShell do
             </span>
           </button>
         </div>
-        <.navigation
-          routes={@routes}
-          current_route={@route}
-          nav_counts={@nav_counts}
-          class="shell-nav shell-nav-sidebar"
-          label="Aiur sidebar routes"
-        />
-      </aside>
-
-      <div class="shell-main">
-        <%!-- Above the route heading, not below it: an alert that needs acting
-              on should be the first thing read, not something found after the
-              title it interrupts. --%>
-        {render_slot(@banner)}
-
-        <header class="topbar">
-          <div class="route-context">
-            <%!-- The same glyph the nav uses for this route, so the heading and
-                  the nav item read as the same thing. Decorative: the heading
-                  text already names the route. --%>
-            <h1 id="route-title" aria-label={@title || @route.label}>
-              <.link :if={@back_path} patch={@back_path} class="route-title-icon route-title-back" aria-label={@back_label}>
-                <span aria-hidden="true">{nav_icon(@route.id)}</span>
-              </.link>
-              <span :if={is_nil(@back_path)} class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
-              <span>{@title || @route.label}</span>
-            </h1>
-            <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
+        <div class="route-context">
+          <%!-- The same glyph the nav uses for this route, so the heading and
+                the nav item read as the same thing. Decorative: the heading
+                text already names the route. --%>
+          <h1 id="route-title" aria-label={@title || @route.label}>
+            <.link :if={@back_path} patch={@back_path} class="route-title-icon route-title-back" aria-label={@back_label}>
+              <span aria-hidden="true">{nav_icon(@route.id)}</span>
+            </.link>
+            <span :if={is_nil(@back_path)} class="route-title-icon" aria-hidden="true">{nav_icon(@route.id)}</span>
+            <span>{@title || @route.label}</span>
+          </h1>
+          <p :if={@route.description not in [nil, ""]}>{@route.description}</p>
+        </div>
+        <div class="toolbar">
+          <%!-- The single theme toggle, at every resolution: top right,
+                inline with the route title. --%>
+          <div class="topbar-controls">
+            <.theme_button id="theme-toggle" />
           </div>
-          <div class="toolbar">
-            <%!-- The single theme toggle, at every resolution: top right,
-                  inline with the route title. The nav pill is reserved for
-                  routes plus the global pause switch. --%>
-            <div class="topbar-controls">
-              <.theme_button id="theme-toggle" />
-            </div>
-          </div>
-        </header>
+        </div>
+      </header>
 
-        <div class="shell-content" aria-labelledby="route-title">
-          {render_slot(@inner_block)}
+      <div class="shell-body">
+        <aside class="shell-sidebar" aria-label="Aiur navigation">
+          <.navigation
+            routes={@routes}
+            current_route={@route}
+            nav_counts={@nav_counts}
+            class="shell-nav shell-nav-sidebar"
+            label="Aiur sidebar routes"
+          />
+        </aside>
+
+        <div class="shell-main">
+          <div class="shell-content" aria-labelledby="route-title">
+            <%!-- Below the route heading: an alert that needs acting on should
+                  still be read before the page it interrupts, but it now sits in
+                  the standard content column at the standard pane width. --%>
+            {render_slot(@banner)}
+            {render_slot(@inner_block)}
+          </div>
         </div>
       </div>
 
