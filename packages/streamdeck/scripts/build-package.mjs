@@ -64,6 +64,11 @@ try {
   await writeFile(bundledNode, await readFile(nodeBinary), { mode: 0o755 });
   await chmod(bundledNode, 0o755);
   await cp(join(packageRoot, "dist"), join(root, "app", "dist"), { recursive: true });
+  // Provider marks live beside `dist`, not inside it: the renderer resolves them
+  // as `../../assets/vendor` from `app/dist/art`, which is the same relative
+  // path that reaches `packages/streamdeck/assets` from both `src/art` under
+  // test and `dist/art` after a local build.
+  await cp(join(packageRoot, "assets"), join(root, "app", "assets"), { recursive: true });
   const nodeModulesSource = join(packageRoot, "node_modules");
   await cp(nodeModulesSource, join(root, "app", "node_modules"), {
     recursive: true,

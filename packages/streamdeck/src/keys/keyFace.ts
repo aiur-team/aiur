@@ -34,7 +34,16 @@ export interface AgentKeyFace {
   /** Pulse period in seconds, or `null` for a steady (non-pulsing) key. */
   readonly pulseSeconds: number | null;
   readonly vendor: Vendor;
+  /** Build Order lane selecting the key's line-art icon. */
+  readonly icon: string;
   readonly ticketNumber: string;
+  /**
+   * The untruncated title. {@link titleLines} is a deterministic, glyph-free
+   * split that keeps the render cache honest; a renderer with real font metrics
+   * should re-wrap from this instead, which is how the canvas path fits three
+   * proportional lines where the character heuristic fits two.
+   */
+  readonly title: string;
   readonly titleLines: TitleLines;
   readonly priority: boolean;
   readonly footer: FooterFace;
@@ -117,7 +126,9 @@ function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
     glow: agent.style.glow,
     pulseSeconds: agent.style.pulseSeconds ?? null,
     vendor: agent.vendor,
+    icon: agent.icon,
     ticketNumber: agent.identifier,
+    title: agent.title,
     titleLines: wrapTitle(agent.title, lineChars),
     priority: agent.priority,
     footer: agent.footer,

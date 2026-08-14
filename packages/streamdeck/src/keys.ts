@@ -36,6 +36,8 @@ export interface AgentKey {
   readonly identifier: string;
   readonly title: string;
   readonly vendor: Vendor;
+  /** Build Order lane name selecting the key's line-art icon. */
+  readonly icon: string;
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
@@ -53,6 +55,11 @@ export interface AgentInput {
   readonly identifier: string;
   readonly title?: string | null;
   readonly vendor: Vendor;
+  /**
+   * Build Order lane the daemon reports as `icon`. Absent or unknown lanes
+   * resolve to the icon set's default rather than leaving the slot empty.
+   */
+  readonly icon?: string | null;
   readonly bucket: BucketId;
   readonly progress_percent: number;
   readonly priority: boolean;
@@ -126,6 +133,7 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     identifier: agent.identifier,
     title: agent.title ?? "",
     vendor: agent.vendor,
+    icon: agent.icon ?? "",
     priority: agent.priority,
     bucket: agent.bucket,
     style,

@@ -42,6 +42,7 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
   identifier: String(agent.identifier ?? ""),
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
+  icon: typeof agent.icon === "string" ? agent.icon : "",
   bucket: (typeof agent.bucket === "string" ? agent.bucket : "queued") as AgentInput["bucket"],
   progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : 0,
   priority: agent.priority === true,

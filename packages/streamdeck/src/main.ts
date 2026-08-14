@@ -29,6 +29,7 @@ import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint } f
 import { parseBrightness } from "./device-path.js";
 import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs } from "./channel.js";
 import type { HidBackend } from "./backend.js";
+import { preloadVendorMarks } from "./art/vendorMark.js";
 import { createDebugLog, debugEnabled, hexPreview } from "./debug.js";
 import { decodeInputReport } from "./input.js";
 import { INPUT_REPORT_LENGTH, POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
@@ -206,6 +207,9 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
 };
 
 export const main = async (): Promise<void> => {
+  // Decode the provider marks once up front so the first repaint draws them
+  // rather than falling back to lettered tokens on a cold cache.
+  await preloadVendorMarks();
   const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
   const presentAtStart = process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1" ? false : deviceIsPresent();
   let latestGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
