@@ -15,7 +15,8 @@
  *   - **exactly two providers** — one row each, drawn in the two 200-wide
  *     segments, which is today's look and stays today's look;
  *   - **three or more** — the centre two segments merge into one 400x100 area
- *     with one row per provider.
+ *     showing a fixed-size window of {@link VISIBLE_PROVIDER_ROWS} rows that
+ *     knob 2 scrolls through.
  *
  * Ordering is alphabetical by provider key rather than the map's own order. The
  * daemon's map is JSON-encoded from an Elixir map, whose iteration order is an
@@ -30,28 +31,52 @@ export interface ProviderPanelRow {
   readonly model: ProviderSegmentModel;
 }
 
-/** The wide panel's content: the rows to draw and how many were left out. */
+/** The wide panel's content: the visible window, and where it sits in the list. */
 export interface ProviderPanelModel {
+  /** The rows to draw: at most {@link VISIBLE_PROVIDER_ROWS} of them. */
   readonly rows: readonly ProviderPanelRow[];
-  /** Providers not given a row; 0 when every provider is shown. */
-  readonly overflow: number;
+  /** Providers configured in total, shown so the panel can say how many. */
+  readonly total: number;
+  /** True when rows sit before the window — scrolling up reveals more. */
+  readonly hasAbove: boolean;
+  /** True when rows sit after the window — scrolling down reveals more. */
+  readonly hasBelow: boolean;
 }
 
 /**
- * Most rows the 400x100 area can carry and stay legible at arm's length.
+ * Rows the 400x100 area shows at once, at a fixed size.
  *
- * At five rows the type is already down to 8px; a sixth would put glyph
- * descenders through the bar above it. Beyond this the panel drops rows rather
- * than shrinking further, which is the one failure mode that stays honest —
- * unreadable rows look like data but are not.
+ * Fixed, not derived from the provider count. Deriving it is what this panel
+ * did first: row height, type size and bar height all fell out of how many
+ * providers were configured, so a fifth provider silently took every row down
+ * to 8px type — a size the two-provider segments had already been widened away
+ * from because it could not be read at arm's length. Three rows in 100px leave
+ * ~28px each, which is a 20px vendor mark, 13px type and a real bar. Providers
+ * past the third are reached by scrolling (knob 2), not by shrinking.
  */
-export const MAX_PROVIDER_ROWS = 5;
+export const VISIBLE_PROVIDER_ROWS = 3;
 
 /** Below this many providers the strip keeps the two fixed 200-wide segments. */
 export const WIDE_PANEL_THRESHOLD = 3;
 
-/** Session usage, or -1 for a provider that reported nothing. */
-const constraint = (row: ProviderPanelRow): number => row.model.session?.usedPercent ?? -1;
+/**
+ * The encoder that scrolls the provider list: knob 2, the second of four.
+ *
+ * Shared by the controller, which turns it into an offset, and the painter,
+ * which puts the label over the right knob — a binding those two disagreeing
+ * about is a hint pointing at the wrong control, which is worse than no hint.
+ * Knob 2 turns are unclaimed in every mode; its *press* is half the demo chord,
+ * which is a separate control path (see `DEMO_CHORD`).
+ */
+export const PROVIDER_SCROLL_ENCODER = 1;
+
+/**
+ * Largest first-row index that still fills the panel, and 0 whenever every
+ * provider already fits. Scrolling is clamped to it at both ends so a long spin
+ * of the encoder does not have to be unwound click for click before the list
+ * moves again.
+ */
+export const maxProviderOffset = (total: number): number => Math.max(0, total - VISIBLE_PROVIDER_ROWS);
 
 /**
  * Reduce the projected `usage` map to one row per provider, alphabetically.
@@ -73,21 +98,29 @@ export const providerRows = (usage: Readonly<Record<string, unknown>>): readonly
     }));
 
 /**
- * Choose the rows the wide panel draws.
+ * The window of rows the wide panel draws, starting at `offset`.
  *
- * When more providers are configured than fit, the ones kept are those closest
- * to their session limit — a provider at 4% is the one an operator can afford
- * not to see — but they are drawn back in the caller's order, so a usage tick
- * never reshuffles the panel under the operator's eyes. The dropped count is
- * reported so the panel can say so instead of silently under-reporting the
- * fleet's exposure.
+ * The panel used to keep the providers closest to their session limit and print
+ * `+N MORE PROVIDERS` for the rest. That ranking moved with every usage tick and
+ * the dropped providers were unreachable: an operator who wanted the one at 4%
+ * had no control that would show it. Every provider is now reachable by
+ * scrolling, so the order stays the caller's alphabetical one and nothing is
+ * dropped.
+ *
+ * `offset` is normalised and clamped rather than trusted: the provider list is
+ * the daemon's, and a provider disappearing between two pushes must not leave
+ * the panel showing an empty window. A non-finite offset is treated as the top
+ * of the list, because `Math.min`/`Math.max` propagate NaN and `slice(NaN, NaN)`
+ * returns nothing — a configured fleet would render as a blank 400x100 area,
+ * which is the most misleading thing this panel can show.
  */
-export const providerPanelModel = (rows: readonly ProviderPanelRow[]): ProviderPanelModel => {
-  if (rows.length <= MAX_PROVIDER_ROWS) return { rows, overflow: 0 };
-  const kept = new Set(
-    [...rows]
-      .sort((left, right) => constraint(right) - constraint(left))
-      .slice(0, MAX_PROVIDER_ROWS - 1),
-  );
-  return { rows: rows.filter((row) => kept.has(row)), overflow: rows.length - (MAX_PROVIDER_ROWS - 1) };
+export const providerPanelModel = (rows: readonly ProviderPanelRow[], offset: number): ProviderPanelModel => {
+  const requested = Number.isFinite(offset) ? Math.trunc(offset) : 0;
+  const start = Math.max(0, Math.min(requested, maxProviderOffset(rows.length)));
+  return {
+    rows: rows.slice(start, start + VISIBLE_PROVIDER_ROWS),
+    total: rows.length,
+    hasAbove: start > 0,
+    hasBelow: start + VISIBLE_PROVIDER_ROWS < rows.length,
+  };
 };

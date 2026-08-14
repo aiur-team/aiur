@@ -3,6 +3,7 @@ import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
 import { CHAT_WINDOW_ROWS, ensureEventVisible, eventKeyAtOffset } from "./touchStrip/chatLog.js";
+import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/providerPanel.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
 
@@ -72,6 +73,8 @@ export interface ControllerState {
   readonly mode: ControllerMode;
   readonly focusedIdentifier: string | null;
   readonly columnOffset: number;
+  /** First provider row the grid strip's merged provider panel shows. */
+  readonly providerOffset: number;
   readonly eventOffset: number;
   readonly chatOffset: number;
   readonly transcriptRows: readonly TranscriptRow[];
@@ -88,6 +91,11 @@ export interface ControllerState {
 export interface PhysicalControllerOptions {
   grid(): StreamDeckGrid;
   channel(): Pick<StreamDeckChannel, "focus" | "control"> | null;
+  /**
+   * Providers the daemon currently reports, which is what bounds the provider
+   * scroll. Absent for hosts with no usage feed, where the list cannot scroll.
+   */
+  providerCount?(): number;
   stateChanged(state: ControllerState): void;
   /** Invoked when the demo chord is held; absent when the host has no demo. */
   toggleDemo?(): void;
@@ -101,6 +109,8 @@ export interface PhysicalControllerOptions {
  * the only controls on the deck with no meaning of their own — dial A presses
  * for back and dial D cycles the window, while B and C are free. So the chord
  * cannot shadow a real action in any mode, and cannot be hit while paging.
+ * Knob B turning the provider list does not change that: a turn and a press are
+ * separate report kinds, so scrolling never puts the chord halfway down.
  * Holding it also returns the surface to the grid: swapping the data source
  * underneath a focused agent would leave the command screen describing a ticket
  * that is no longer in the fleet being shown.
@@ -111,6 +121,7 @@ const initialState: ControllerState = {
   mode: "grid",
   focusedIdentifier: null,
   columnOffset: 0,
+  providerOffset: 0,
   eventOffset: 0,
   chatOffset: 0,
   transcriptRows: [],
@@ -303,6 +314,18 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     } else if (input.index === 3) {
       const next = clamp(state.columnOffset + steps, maxColumnOffset(grid.total));
       setGridOffset(next);
+    } else if (input.index === PROVIDER_SCROLL_ENCODER && state.mode === "grid") {
+      // Grid only: the provider panel is part of the grid strip, so scrolling
+      // it from cmd or logs would move something the operator cannot see.
+      //
+      // The stored offset is clamped *before* the step, not just after. The
+      // panel clamps independently when it paints, so a provider leaving the
+      // daemon's map — which the demo chord on this very knob does — leaves the
+      // stored offset above the window actually on screen. Stepping from the
+      // stale value then lands back on the row already showing, and the first
+      // click after a fleet change does nothing at all.
+      const max = maxProviderOffset(options.providerCount?.() ?? 0);
+      publish({ ...state, providerOffset: clamp(clamp(state.providerOffset, max) + steps, max) });
     }
   };
 

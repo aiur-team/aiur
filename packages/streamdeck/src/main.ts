@@ -338,6 +338,9 @@ export const main = async (): Promise<void> => {
   const controller = createPhysicalController({
     grid: () => latestGrid,
     channel: () => channel,
+    // Read live rather than captured: the usage map is replaced on every push,
+    // and it is what bounds the provider scroll.
+    providerCount: () => Object.keys(latestUsage).length,
     toggleDemo,
     stateChanged: (state) => {
       debug("controller.state", {
@@ -374,6 +377,7 @@ export const main = async (): Promise<void> => {
       focusedIdentifier: current.focusedIdentifier,
       micHeld: current.micHeld,
       columnOffset: current.columnOffset,
+      providerOffset: current.providerOffset,
       transcriptRows: current.transcriptRows,
       eventLines: current.eventLines,
       eventOffset: current.eventOffset,

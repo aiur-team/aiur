@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { buildRegionReports } from "../../src/imageWriter/headerGenerator.js";
 import {
+  ENCODER_COUNT,
+  encoderCenterX,
   SEGMENT_COUNT,
   SEGMENT_REGIONS,
   SEGMENT_WIDTH,
@@ -72,6 +74,24 @@ describe("touch-strip segment geometry", () => {
     expect(spanRegion(SegmentIndex.Second, 2)).toEqual({ x: 200, y: 0, width: 400, height: STRIP_HEIGHT });
     expect(spanRegion(SegmentIndex.First, SEGMENT_COUNT)).toEqual({ x: 0, y: 0, width: STRIP_WIDTH, height: STRIP_HEIGHT });
     expect(Object.isFrozen(spanRegion(SegmentIndex.First, 1))).toBe(true);
+  });
+
+  // A label naming a knob has to sit over that knob. Only knob 1's band starts
+  // at the strip's left edge, so the centres are quarter marks, not multiples.
+  it("centres each encoder's band on its own quarter of the strip", () => {
+    expect([0, 1, 2, 3].map(encoderCenterX)).toEqual([100, 300, 500, 700]);
+    // Each centre sits inside its own quarter and no other.
+    for (let index = 0; index < ENCODER_COUNT; index += 1) {
+      const band = (STRIP_WIDTH / ENCODER_COUNT) * index;
+      expect(encoderCenterX(index)).toBeGreaterThan(band);
+      expect(encoderCenterX(index)).toBeLessThan(band + STRIP_WIDTH / ENCODER_COUNT);
+    }
+  });
+
+  it("rejects an out-of-range encoder index", () => {
+    expect(() => encoderCenterX(-1)).toThrow(RangeError);
+    expect(() => encoderCenterX(ENCODER_COUNT)).toThrow(RangeError);
+    expect(() => encoderCenterX(1.5)).toThrow(RangeError);
   });
 
   // A span that ran off the strip would silently paint the wrong pixels, which

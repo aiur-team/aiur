@@ -92,6 +92,32 @@ describe("physical surface composition", () => {
     expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
   });
 
+  // Knob 2 is only worth turning if its offset reaches the pixels: the scroll
+  // has to survive controller state -> grid data -> a partial-region upload of
+  // the merged provider panel alone.
+  it("repaints the merged provider panel, and only it, when the provider scroll moves", async () => {
+    const write = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const surface = createPhysicalSurface();
+    const backend = { write, sendFeatureReport } as never;
+    const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
+    const meter = (used: number) => ({ provider: "p", windows: { session: { used_percent: used, duration_minutes: 300 } } });
+    const usage = { a: meter(10), b: meter(20), c: meter(30), d: meter(40) };
+    const base = { mode: "grid" as const, focusedIdentifier: null, columnOffset: 0, providerOffset: 0 };
+
+    await surface.repaint(backend, grid, usage, undefined, base);
+    const painted = write.mock.calls.length;
+    await surface.repaint(backend, grid, usage, undefined, { ...base, providerOffset: 1 });
+
+    const regions = write.mock.calls
+      .slice(painted)
+      .map(([report]) => Buffer.from(report as Uint8Array))
+      .filter((report) => report[1] === 0x0c)
+      .map((report) => ({ x: report.readUInt16LE(2), width: report.readUInt16LE(6) }));
+    expect(regions.length).toBeGreaterThan(0);
+    for (const region of regions) expect(region).toEqual({ x: 200, width: 400 });
+  });
+
   // Falling through to the grid strip put the fleet summary under the four
   // agent command keys, so the strip and the keys disagreed about the mode.
   it("keeps a cmd-mode strip when the focused agent leaves the projection", async () => {

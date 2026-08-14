@@ -30,6 +30,7 @@ const gridData = (overrides: Partial<GridData> = {}): { mode: "grid"; data: Grid
   data: {
     summary: summaryModel(2, 3),
     providers: [provider("claude"), provider("codex")],
+    providerOffset: 0,
     pager: pagerModel(9, 4, 1),
     pagerLabel: "5-8",
     ...overrides,
