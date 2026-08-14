@@ -612,7 +612,9 @@ defmodule Aiur.OrchestratorStatusTest do
 
     assert snapshot_input.github_comment_issue_updated_at == %{}
     assert snapshot_input.queue_store == AgentQueueStore.new()
-    assert snapshot_input.ci_lifecycle == %State{}.ci_lifecycle
+    # `parked_ready_alerts` is not part of the minimal dashboard projection,
+    # so the projected lifecycle is the default shape minus that field.
+    assert snapshot_input.ci_lifecycle == Map.delete(%State{}.ci_lifecycle, :parked_ready_alerts)
     assert snapshot_input.control_lifecycle == %Aiur.Orchestrator.ControlLifecycle{}
     assert :erts_debug.size(snapshot_input) < 1_000
     assert :erts_debug.size(snapshot_input) * 100 < :erts_debug.size(state)
