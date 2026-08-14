@@ -436,9 +436,12 @@ defmodule Aiur.Orchestrator.IssueSync do
       state =
         Enum.reduce(removed_blocker_ids, state, fn blocker_id, state_acc ->
           blocker = previous_blockers[blocker_id]
-          AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker)
-
-          enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
+          # The resume stays outside the gating helper on purpose. #1821 made a
+          # cleared dependency wake its blockee; putting that behind a failed
+          # unsubscribe RPC would reintroduce exactly the stall it fixed. Only
+          # the derived event is deferred to the next reconcile.
+          state_acc
+          |> unsubscribe_and_maybe_enqueue_dependency(issue, blocker)
           |> PushRouting.maybe_resume_blockee_on_cleared_dependency(issue, blocker, :removed)
         end)
 
@@ -754,6 +757,24 @@ defmodule Aiur.Orchestrator.IssueSync do
 
       true ->
         state
+    end
+  end
+
+  defp unsubscribe_and_maybe_enqueue_dependency(state_acc, issue, blocker) do
+    case AutoSubscriptions.auto_unsubscribe_for_dependency(issue, blocker) do
+      :ok ->
+        enqueue_dependency_event(state_acc, issue, blocker, :dependency_removed)
+
+      {:error, reason} ->
+        blocker_id = blocker["identifier"] || Map.get(blocker, :identifier)
+
+        Logger.warning(
+          "IssueSync: unsubscription failed for dependency_removed " <>
+            "(#{issue.identifier} unblocked by #{blocker_id}): " <>
+            "#{inspect(reason)}; event will emit on next reconcile"
+        )
+
+        state_acc
     end
   end
 

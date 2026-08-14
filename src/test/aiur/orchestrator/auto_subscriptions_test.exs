@@ -1,5 +1,6 @@
 defmodule Aiur.Orchestrator.AutoSubscriptionsTest do
-  use ExUnit.Case, async: true
+  # async: false — set_add_subscription_fn writes to node-global persistent_term
+  use ExUnit.Case, async: false
 
   alias Aiur.Events.SubscriptionStore
   alias Aiur.Issue
@@ -76,6 +77,52 @@ defmodule Aiur.Orchestrator.AutoSubscriptionsTest do
 
       blockee_topics = blockee_id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to)
       assert blockee_topics == []
+    end
+  end
+
+  describe "auto_unsubscribe_for_dependency failure injection" do
+    setup do
+      on_exit(fn -> AutoSubscriptions.set_remove_subscription_fn(nil) end)
+      :ok
+    end
+
+    test "returns {:error, _} when remove_subscription fails" do
+      blockee_id = "blockee-#{System.unique_integer([:positive])}"
+      blocker_id = "blocker-#{System.unique_integer([:positive])}"
+      blockee = %Issue{identifier: blockee_id}
+      blocker = %{"identifier" => blocker_id}
+
+      :ok = AutoSubscriptions.auto_subscribe_for_dependency(blockee, blocker)
+      on_exit(fn -> SubscriptionStore.stop(blockee_id) end)
+      on_exit(fn -> SubscriptionStore.stop(blocker_id) end)
+
+      AutoSubscriptions.set_remove_subscription_fn(fn _id, _topic, _reason ->
+        {:error, :simulated_remove_failure}
+      end)
+
+      assert {:error, _} = AutoSubscriptions.auto_unsubscribe_for_dependency(blockee, blocker)
+    end
+
+    test "subscriptions remain when remove_subscription fails" do
+      blockee_id = "blockee-#{System.unique_integer([:positive])}"
+      blocker_id = "blocker-#{System.unique_integer([:positive])}"
+      blockee = %Issue{identifier: blockee_id}
+      blocker = %{"identifier" => blocker_id}
+
+      :ok = AutoSubscriptions.auto_subscribe_for_dependency(blockee, blocker)
+      on_exit(fn -> SubscriptionStore.stop(blockee_id) end)
+      on_exit(fn -> SubscriptionStore.stop(blocker_id) end)
+
+      AutoSubscriptions.set_remove_subscription_fn(fn _id, _topic, _reason ->
+        {:error, :simulated_remove_failure}
+      end)
+
+      {:error, _} = AutoSubscriptions.auto_unsubscribe_for_dependency(blockee, blocker)
+
+      blockee_topics =
+        blockee_id |> SubscriptionStore.snapshot() |> Map.fetch!(:subscribed_to) |> Enum.map(& &1["topic"])
+
+      assert "ticket.#{blocker_id}.agent.unblocked" in blockee_topics
     end
   end
 

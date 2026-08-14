@@ -75,33 +75,43 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
              blockee_str,
              default_blockee_subscriptions(blocker_str),
              "blocker:auto"
+           ),
+         :ok <-
+           attach_and_subscribe(
+             blocker_str,
+             default_blocker_subscriptions(blockee_str),
+             "blockee:auto"
            ) do
-      attach_and_subscribe(
-        blocker_str,
-        default_blocker_subscriptions(blockee_str),
-        "blockee:auto"
-      )
+      :ok
+    else
+      {:error, _} = err ->
+        Logger.warning("subscribe_for_declared_blocker(#{blockee_str}, #{blocker_str}) failed: #{inspect(err)}")
+
+        err
     end
   end
 
-  @spec auto_unsubscribe_for_dependency(term(), term()) :: :ok
+  @spec auto_unsubscribe_for_dependency(term(), term()) :: :ok | {:error, term()}
   def auto_unsubscribe_for_dependency(blockee, blocker) when is_map(blocker) do
     with blockee_identifier when is_binary(blockee_identifier) <- blockee_identifier_for(blockee),
-         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker) do
-      remove_auto_subscriptions(
-        blockee_identifier,
-        default_blockee_subscriptions(blocker_identifier),
-        "blocker:auto"
-      )
-
-      remove_auto_subscriptions(
-        blocker_identifier,
-        default_blocker_subscriptions(blockee_identifier),
-        "blockee:auto"
-      )
+         blocker_identifier when is_binary(blocker_identifier) <- blocker_identifier_for(blocker),
+         :ok <-
+           remove_auto_subscriptions(
+             blockee_identifier,
+             default_blockee_subscriptions(blocker_identifier),
+             "blocker:auto"
+           ),
+         :ok <-
+           remove_auto_subscriptions(
+             blocker_identifier,
+             default_blocker_subscriptions(blockee_identifier),
+             "blockee:auto"
+           ) do
+      :ok
+    else
+      nil -> :ok
+      {:error, _} = err -> err
     end
-
-    :ok
   end
 
   def auto_unsubscribe_for_dependency(_blockee, _blocker), do: :ok
@@ -121,9 +131,20 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
     :persistent_term.put({__MODULE__, :add_subscription_fn}, fun)
   end
 
+  @doc false
+  @spec set_remove_subscription_fn((String.t(), String.t(), String.t() -> :ok | {:error, term()}) | nil) :: :ok
+  def set_remove_subscription_fn(fun) when is_function(fun, 3) or is_nil(fun) do
+    :persistent_term.put({__MODULE__, :remove_subscription_fn}, fun)
+  end
+
   defp add_subscription_fn do
     :persistent_term.get({__MODULE__, :add_subscription_fn}, nil) ||
       (&SubscriptionStore.add_subscription/3)
+  end
+
+  defp remove_subscription_fn do
+    :persistent_term.get({__MODULE__, :remove_subscription_fn}, nil) ||
+      (&SubscriptionStore.remove_subscription/3)
   end
 
   defp attach_and_subscribe(identifier, topics, reason) do
@@ -147,13 +168,21 @@ defmodule Aiur.Orchestrator.AutoSubscriptions do
   end
 
   defp remove_auto_subscriptions(identifier, topics, expected_reason) do
-    Enum.each(topics, fn topic ->
+    remove_fn = remove_subscription_fn()
+
+    Enum.reduce_while(topics, :ok, fn topic, :ok ->
       try do
-        _ = SubscriptionStore.remove_subscription(identifier, topic, expected_reason)
+        case remove_fn.(identifier, topic, expected_reason) do
+          :ok -> {:cont, :ok}
+          {:error, _} = err -> {:halt, {:error, {:remove_subscription_failed, topic, err}}}
+        end
       catch
-        :exit, _ -> :ok
+        :exit, exit_reason ->
+          {:halt, {:error, {:remove_subscription_failed, topic, exit_reason}}}
       end
     end)
+  catch
+    :exit, reason -> {:error, {:exit, reason}}
   end
 
   defp default_blockee_subscriptions(blocker_identifier) when is_binary(blocker_identifier) do

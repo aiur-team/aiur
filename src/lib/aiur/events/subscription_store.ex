@@ -236,7 +236,8 @@ defmodule Aiur.Events.SubscriptionStore do
       subscribed_to: [],
       last_seen_event_id: nil,
       open_attentions: [],
-      stall: nil
+      stall: nil,
+      stalled_buffer: []
     }
 
     # Synchronous load + re-register bindings during init so attach/1
@@ -349,17 +350,26 @@ defmodule Aiur.Events.SubscriptionStore do
     event_id = Map.get(event, :id) || Map.get(event, "id")
     cursor = state.last_seen_event_id || 0
 
-    if is_integer(event_id) and event_id <= cursor do
-      {:noreply, state}
-    else
-      {:noreply, process_new_event(state, event, event_id, cursor)}
+    cond do
+      not is_integer(event_id) or event_id <= cursor ->
+        # Stale redelivery or malformed event — drop.
+        {:noreply, state}
+
+      state.stall != nil ->
+        # Ordering: while an earlier event is stalled, hold later events in a
+        # buffer instead of delivering them past the stall. They are not
+        # enqueued or recorded yet, so a restart during the stall replays
+        # them (and the stalled event) exactly once from the publisher log —
+        # no loss, and no duplicate delivery past a held cursor.
+        {:noreply, buffer_event(state, event_id, event)}
+
+      true ->
+        {:noreply, process_new_event(state, event, event_id, cursor)}
     end
   end
 
-  @impl true
   def handle_info({:retry_stalled}, %{stall: nil} = state), do: {:noreply, state}
 
-  @impl true
   def handle_info({:retry_stalled}, state) do
     %{event: event, event_id: event_id, attempt: attempt} = state.stall
     topic = Map.get(event, :topic) || Map.get(event, "topic") || "(unknown)"
@@ -369,12 +379,12 @@ defmodule Aiur.Events.SubscriptionStore do
         :ok ->
           Aiur.IssueLog.record_event(state.identifier, :consumed, event)
           DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
-          advance_cursor_inline(%{state | stall: nil}, event_id)
+          resolve_stall(state, event_id)
 
         {:error, reason} ->
           if attempt >= @max_stall_attempts or error_kind(reason) == :permanent do
             emit_dead_letter_alert(state.identifier, event_id, topic, reason, attempt)
-            advance_cursor_inline(%{state | stall: nil}, event_id)
+            resolve_stall(state, event_id)
           else
             next_attempt = attempt + 1
             Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms * next_attempt)
@@ -385,7 +395,6 @@ defmodule Aiur.Events.SubscriptionStore do
     {:noreply, new_state}
   end
 
-  @impl true
   def handle_info(_other, state), do: {:noreply, state}
 
   defp process_new_event(state, event, event_id, cursor) do
@@ -395,9 +404,7 @@ defmodule Aiur.Events.SubscriptionStore do
       :ok ->
         Aiur.IssueLog.record_event(state.identifier, :consumed, event)
         DebugLog.broadcast(:receive, topic, id: event_id, identifier: state.identifier, body: event)
-        # Advance only when no earlier event is stalled — leapfrogging a
-        # failed event would make it permanently unrecoverable on restart.
-        advance_if_unstalled(state, event_id)
+        advance_cursor_inline(state, event_id)
 
       {:error, reason} ->
         case error_kind(reason) do
@@ -411,24 +418,38 @@ defmodule Aiur.Events.SubscriptionStore do
                 "on topic #{topic}: #{inspect(reason)}; cursor held at #{cursor}, scheduling retry"
             )
 
-            if state.stall == nil do
-              Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms)
-              %{state | stall: %{event: event, event_id: event_id, attempt: 1}}
-            else
-              state
-            end
+            Process.send_after(self(), {:retry_stalled}, @stall_base_retry_ms)
+            %{state | stall: %{event: event, event_id: event_id, attempt: 1}}
         end
     end
   end
 
-  defp advance_if_unstalled(%{stall: nil} = state, event_id),
-    do: advance_cursor_inline(state, event_id)
+  # Buffer an event received while an earlier event is stalled. We do not
+  # enqueue or record it yet — the cursor is deliberately held, so a restart
+  # during the stall replays it exactly once. `resolve_stall/2` re-delivers
+  # buffered events through the normal path, in order, once the stall lifts.
+  defp buffer_event(state, event_id, event) do
+    %{state | stalled_buffer: state.stalled_buffer ++ [{event_id, event}]}
+  end
 
-  defp advance_if_unstalled(state, _event_id), do: state
+  # Clear the stall, advance the cursor past the stalled event, and hand the
+  # events held behind the stall back to the normal delivery path. They are
+  # re-sent to this process's own FIFO mailbox in order, so ordering is
+  # preserved; if one fails enqueue again, a fresh stall forms and the rest
+  # are buffered behind it.
+  defp resolve_stall(state, event_id) do
+    new_state = advance_cursor_inline(%{state | stall: nil, stalled_buffer: []}, event_id)
+
+    for {_buffered_id, buffered_event} <- state.stalled_buffer do
+      send(self(), {:event, buffered_event})
+    end
+
+    new_state
+  end
 
   defp error_kind(:no_orchestrator), do: :transient
   defp error_kind({:exit, {:timeout, _}}), do: :transient
-  defp error_kind({:exit, _}), do: :permanent
+  defp error_kind({:exit, _}), do: :transient
   defp error_kind({:raised, _}), do: :permanent
   defp error_kind(_), do: :transient
 
@@ -465,15 +486,13 @@ defmodule Aiur.Events.SubscriptionStore do
   end
 
   defp call_enqueue_fn(fun, identifier, event) do
-    try do
-      case fun.(identifier, event) do
-        :ok -> :ok
-        {:error, _} = err -> err
-        other -> {:error, {:unexpected_return, other}}
-      end
-    rescue
-      e -> {:error, {:raised, e}}
+    case fun.(identifier, event) do
+      :ok -> :ok
+      {:error, _} = err -> err
+      other -> {:error, {:unexpected_return, other}}
     end
+  rescue
+    e -> {:error, {:raised, e}}
   end
 
   defp call_orchestrator_enqueue(identifier, event) do
