@@ -27,7 +27,7 @@ defmodule Aiur.AiurAgentSkillTest do
   # `aiur-meta` is an Executor meta-check driven by `aiur-run`'s timer. It audits
   # operator surfaces and files tickets; issue workers never run it, so it stays
   # Claude-only and is deliberately not symlinked into `.codex/skills/`.
-  @claude_executor_only_skills ~w(aiur-meta release)
+  @claude_executor_only_skills ~w(aiur-handoff aiur-meta release)
 
   test "Claude backend surface: canonical skill dir exists with a SKILL.md" do
     assert File.dir?(@claude_skill)
