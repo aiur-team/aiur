@@ -2,6 +2,7 @@ import { cycleEventPage, cycleWindow, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
+import { CHAT_WINDOW_ROWS, ensureEventVisible, eventKeyAtOffset } from "./touchStrip/chatLog.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
 
@@ -79,6 +80,8 @@ export interface ControllerState {
   readonly eventHasNext: boolean;
   readonly chatHasPrevious: boolean;
   readonly chatHasNext: boolean;
+  /** Position in `eventLines` the transcript is currently showing, or null. */
+  readonly selectedEvent: number | null;
   readonly micHeld: boolean;
 }
 
@@ -116,6 +119,7 @@ const initialState: ControllerState = {
   eventHasNext: false,
   chatHasPrevious: false,
   chatHasNext: false,
+  selectedEvent: null,
   micHeld: false,
 };
 
@@ -165,20 +169,38 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     publish({ ...state, columnOffset: offset });
   };
 
-  const setLogsOffsets = (eventOffset: number, chatOffset: number): void => {
+  /**
+   * Publishes both logs offsets, the visible transcript window, and which event
+   * that window is sitting in.
+   *
+   * The selection is derived from the chat offset rather than remembered from
+   * the last key press, which is what makes the highlight bidirectional: a
+   * press moves the offset and the selection follows, and so does a scroll.
+   *
+   * `follow` decides whether the event key window chases that selection. It
+   * must be off whenever the operator is moving the event window *itself* —
+   * knob 3 and its press — or the chase immediately drags the window back to
+   * the selected key and the knob does nothing at all. It is on for the chat
+   * scroll and the event-key jumps, where a highlight on a key the operator
+   * cannot see would look like the highlight is broken.
+   */
+  const setLogsOffsets = (eventOffset: number, chatOffset: number, follow = true): void => {
     const maxChat = chatMaxOffset;
-    const boundedEvent = Math.max(0, Math.min(eventOffset, eventMaxOffset));
     const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
+    const selectedEvent = eventKeyAtOffset(eventStarts, boundedChat);
+    const requested = Math.max(0, Math.min(eventOffset, eventMaxOffset));
+    const boundedEvent = follow && selectedEvent !== null ? ensureEventVisible(requested, selectedEvent, eventMaxOffset) : requested;
     publish({
       ...state,
       eventOffset: boundedEvent,
       chatOffset: boundedChat,
       eventLines: eventHistory,
-      transcriptRows: transcriptHistory.slice(boundedChat, boundedChat + 2),
+      transcriptRows: transcriptHistory.slice(boundedChat, boundedChat + CHAT_WINDOW_ROWS),
       eventHasPrevious: boundedEvent > 0,
       eventHasNext: boundedEvent < eventMaxOffset,
       chatHasPrevious: boundedChat > 0,
       chatHasNext: boundedChat < maxChat,
+      selectedEvent,
     });
   };
 
@@ -209,6 +231,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const entry = eventHistory[position];
       if (entry === undefined) return;
       if (entry.kind === "live") {
+        // LIVE is a jump to the newest entry, not an event. The highlight that
+        // follows lands on the newest *event* key, because that is the event
+        // the transcript is now showing — LIVE itself is never "the event the
+        // strip is reading".
         setLogsOffsets(state.eventOffset, 0);
         return;
       }
@@ -273,7 +299,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       setLogsOffsets(state.eventOffset, next);
     } else if (input.index === 3 && state.mode === "logs") {
       const next = clamp(state.eventOffset + steps, eventMaxOffset);
-      setLogsOffsets(next, state.chatOffset);
+      setLogsOffsets(next, state.chatOffset, false);
     } else if (input.index === 3) {
       const next = clamp(state.columnOffset + steps, maxColumnOffset(grid.total));
       setGridOffset(next);
@@ -285,7 +311,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (index !== 3) return;
     if (state.mode === "logs") {
       const next = cycleEventPage(state.eventOffset, eventMaxOffset + 8);
-      return setLogsOffsets(next.eventOffset, state.chatOffset);
+      return setLogsOffsets(next.eventOffset, state.chatOffset, false);
     }
     if (state.mode === "cmd") {
       return enterLogs();
@@ -345,7 +371,18 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
         return starts;
       }, []);
       eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
-      chatMaxOffset = typeof logs.transcript_max_offset === "number" ? logs.transcript_max_offset : Math.max(0, transcriptHistory.length - 2);
+      // Every row must be reachable as a window *start*, not just visible in
+      // some window. The daemon flattens newest event first, so the oldest
+      // event's header is usually within the last few rows; capping the offset
+      // at `length - CHAT_WINDOW_ROWS` made those headers impossible to scroll
+      // to, and a jump to one landed short — mid-message, with the highlight on
+      // a different key than the one pressed. The last few windows therefore
+      // run off the end of the transcript and paint fewer than
+      // CHAT_WINDOW_ROWS rows, which is what a scroll view is supposed to do.
+      //
+      // Never taken from the server's `transcript_max_offset`: how many rows
+      // fit is a client render decision the server cannot know.
+      chatMaxOffset = Math.max(0, transcriptHistory.length - 1);
       // A live logs push is a refresh, not a navigation command. Preserve the
       // operator's two independent positions while the logs surface is open;
       // the server offsets are only the initial position when entering logs.

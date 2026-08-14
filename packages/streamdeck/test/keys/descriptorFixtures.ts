@@ -44,6 +44,7 @@ export function agentKey(overrides: AgentKeyOverrides = {}): AgentKey {
     role: "agent",
     subLabel: "",
     timeLabel: "",
+    selected: false,
     priority: overrides.priority ?? false,
     bucket,
     style: BUCKET_STYLES[bucket],

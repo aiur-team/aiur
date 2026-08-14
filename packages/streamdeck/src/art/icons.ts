@@ -79,6 +79,31 @@ export const COMMAND_ICONS: Readonly<Record<string, string>> = Object.freeze({
 /** Icon the mock falls back to for an unknown lane. */
 export const DEFAULT_ICON = "list";
 
+/**
+ * Glyphs for the agent's current activity, drawn on the cmd-mode strip.
+ *
+ * The TUI shows the same four workflow stages as emoji (🧠/📋/🔨/🔍, see
+ * `Aiur.AgentList.Renderer.Markers`); these are line-art equivalents in the
+ * same 24x24 viewBox as the rest of the set, because the strip renders through
+ * a canvas whose emoji coverage depends on the host's installed fonts — and its
+ * repaint diffing is byte identity on the rendered JPEG, so a font substitution
+ * would be invisible here and a blank box on the device.
+ *
+ * `waiting` is one clock shared by all four wait states; the label beside it
+ * says which. Four near-identical clock variants would be four shapes to learn
+ * for a distinction the words already make.
+ */
+export const ACTIVITY_ICONS: Readonly<Record<string, string>> = Object.freeze({
+  brainstorm: '<path d="M12 3a6 6 0 0 0-3.5 10.9V16h7v-2.1A6 6 0 0 0 12 3z"/><path d="M9.5 19h5M10.5 21.5h3"/>',
+  plan: '<rect x="5" y="3.5" width="14" height="17" rx="2"/><path d="m8.5 9.5 1.8 1.8 3.7-3.7"/><path d="M8.5 15.5h7"/>',
+  work: '<path d="M14.5 3.5 20.5 9.5l-2.5 2.5-6-6z"/><path d="m11 7-7.5 7.5v6h6L17 13"/>',
+  review: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m20.5 20.5-5.4-5.4"/>',
+  waiting: '<circle cx="12" cy="12" r="8.5"/><path d="M12 6.5V12l3.8 2.3"/>',
+});
+
+/** Resolves an activity glyph name to its fragment; unknown names draw nothing. */
+export const activityFragment = (glyph: string | null | undefined): string => ACTIVITY_ICONS[glyph ?? ""] ?? "";
+
 /** Resolves a command name to its glyph, falling back to the logs bars. */
 export const commandFragment = (command: string | null | undefined): string =>
   COMMAND_ICONS[command ?? ""] ?? COMMAND_ICONS.logs;

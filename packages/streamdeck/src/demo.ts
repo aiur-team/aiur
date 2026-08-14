@@ -22,12 +22,18 @@ import type { StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js
 /** One synthetic agent, in the daemon's grid payload shape. */
 type DemoAgent = Readonly<Record<string, unknown>>;
 
+/*
+ * The first few agents carry an `activity` and a `runtime_seconds` so the
+ * cmd-mode strip's activity readout and elapsed time are exercised — including
+ * an agent with neither, which is what the daemon sends for a ticket with no
+ * fresh workflow stage and no actionable wait.
+ */
 const AGENTS: readonly DemoAgent[] = [
-  { identifier: "401", title: "Auth refactor and session rotation", vendor: "claude", icon: "key", bucket: "running", progress_percent: 72, priority: false, dependency_ready: true },
-  { identifier: "333", title: "Fleet-wide retry storm", vendor: "codex", icon: "retry", bucket: "stuck", progress_percent: 34, priority: true, dependency_ready: true },
-  { identifier: "640", title: "Tutorials — draft", vendor: "claude", icon: "book", bucket: "running", progress_percent: 18, priority: false, dependency_ready: true },
-  { identifier: "540", title: "UI polish and theming", vendor: "deepseek", icon: "palette", bucket: "alert", progress_percent: 55, priority: false, dependency_ready: true },
-  { identifier: "412", title: "Restore retry statistics", vendor: "codex", icon: "database", bucket: "running", progress_percent: 91, priority: false, dependency_ready: true },
+  { identifier: "401", title: "Auth refactor and session rotation", vendor: "claude", icon: "key", bucket: "running", progress_percent: 72, priority: false, dependency_ready: true, activity: "waiting_ci", runtime_seconds: 11_240 },
+  { identifier: "333", title: "Fleet-wide retry storm", vendor: "codex", icon: "retry", bucket: "stuck", progress_percent: 34, priority: true, dependency_ready: true, activity: "work", runtime_seconds: 2_700 },
+  { identifier: "640", title: "Tutorials — draft", vendor: "claude", icon: "book", bucket: "running", progress_percent: 18, priority: false, dependency_ready: true, activity: "brainstorm", runtime_seconds: 320 },
+  { identifier: "540", title: "UI polish and theming", vendor: "deepseek", icon: "palette", bucket: "alert", progress_percent: 55, priority: false, dependency_ready: true, activity: "waiting_review", runtime_seconds: 47 },
+  { identifier: "412", title: "Restore retry statistics", vendor: "codex", icon: "database", bucket: "running", progress_percent: 91, priority: false, dependency_ready: true, activity: "review", runtime_seconds: 18_900 },
   { identifier: "620", title: "Docs site integration", vendor: "claude", icon: "globe", bucket: "paused", progress_percent: 45, priority: false, dependency_ready: true },
   { identifier: "530", title: "State management rewrite", vendor: "kimi", icon: "flow", bucket: "running", progress_percent: 63, priority: false, dependency_ready: true },
   { identifier: "520", title: "Navigation shell", vendor: "codex", icon: "components", bucket: "running", progress_percent: 27, priority: false, dependency_ready: true },

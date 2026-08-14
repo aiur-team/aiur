@@ -8,7 +8,8 @@ import type { Runtime } from "./runtime.js";
 import { createRasterizer } from "./rasterizer.js";
 import { StripRenderer } from "./touchStrip/stripRenderer.js";
 import { summaryModel } from "./touchStrip/summarySegment.js";
-import { providerSegmentModel, type ProviderMeter } from "./touchStrip/providerSegment.js";
+import { providerRows } from "./touchStrip/providerPanel.js";
+import { agentDetailModel } from "./touchStrip/agentDetail.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
 import { currentWindow } from "./dial.js";
 import type { EventKey } from "./controller.js";
@@ -28,6 +29,12 @@ export interface PhysicalSurfaceState {
   readonly eventHasNext?: boolean;
   readonly chatHasPrevious?: boolean;
   readonly chatHasNext?: boolean;
+  /**
+   * Position in `eventLines` the strip is currently reading, or null. Drives
+   * the highlight on the event key, in both directions: a press sets it, and so
+   * does scrolling the transcript past that event's header.
+   */
+  readonly selectedEvent?: number | null;
 }
 
 const faceColours: Readonly<Record<string, RgbColor>> = {
@@ -51,7 +58,7 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
   dependency_ready: agent.dependency_ready === true,
 }));
 
-const descriptorEvents = (events: readonly EventKey[], offset: number): AgentInput[] =>
+const descriptorEvents = (events: readonly EventKey[], offset: number, selected: number | null): AgentInput[] =>
   events.slice(offset, offset + 8).map((event, index) => ({
     identifier: `event-${offset + index}`,
     title: event.text,
@@ -61,6 +68,7 @@ const descriptorEvents = (events: readonly EventKey[], offset: number): AgentInp
     role: event.kind === "live" ? ("live" as const) : ("event" as const),
     subLabel: event.badge,
     timeLabel: event.time,
+    selected: offset + index === selected,
     bucket: "queued" as const,
     progress_percent: 0,
     priority: false,
@@ -123,7 +131,7 @@ export const createPhysicalSurface = () => {
   const renderer = new KeyRenderer((descriptor: KeyDescriptor) =>
     descriptor.kind === "empty" ? { kind: "fill", color: BLACK } : { kind: "image", jpeg: rasterizer.key(descriptor) },
   );
-  const stripRenderer = new StripRenderer((content) => rasterizer.segment(content));
+  const stripRenderer = new StripRenderer((content, region) => rasterizer.segment(content, region.width));
   let keyQueue: KeyWriteQueue | null = null;
   let queueBackend: HidBackend | null = null;
   let lastSignature: string | null = null;
@@ -136,7 +144,12 @@ export const createPhysicalSurface = () => {
         stripRenderer.invalidate();
         keyQueue = new KeyWriteQueue(createKeyReportWriter(backend, runtime ?? { notifyWriteFailure: () => undefined }));
       }
-      const signature = JSON.stringify({ grid, usage, state });
+      // Bucketed by the minute for the same reason the rasterizer's cache is:
+      // the strip renders relative times, so identical inputs can still owe the
+      // device new pixels once a minute. The panel-level byte diff still filters
+      // the panels whose labels did not actually change, so this costs a
+      // re-encode, not a write.
+      const signature = JSON.stringify({ grid, usage, state, minute: Math.floor(Date.now() / 60_000) });
       if (signature === lastSignature) return;
       lastSignature = signature;
       const focused = state.focusedIdentifier === null ? null : grid.agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
@@ -144,7 +157,7 @@ export const createPhysicalSurface = () => {
       // which is right for the agent grid (paging moves through columns) but
       // would interleave a sequential event window across the two rows.
       const visibleGrid = state.mode === "logs"
-        ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0))
+        ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0, state.selectedEvent ?? null))
         : state.mode === "cmd"
         ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true))
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
@@ -152,9 +165,15 @@ export const createPhysicalSurface = () => {
       for (const paint of paints) {
         await keyQueue?.enqueue(paint);
       }
-      const strip: StripData = state.mode === "cmd" && focused !== undefined && focused !== null ? {
+      // A cmd-mode strip is built even when the focused agent has left the
+      // projection — merged, or paged out. Falling through to the grid strip
+      // put the fleet summary under the four agent command keys, so the strip
+      // and the keys disagreed about which mode the deck was in. With only the
+      // identifier, the panel shows the ticket and an unknown status, which is
+      // the truth.
+      const strip: StripData = state.mode === "cmd" ? {
         mode: "cmd",
-        data: { identity: String(focused.identifier), status: String(focused.bucket ?? "unknown"), percent: Number(focused.progress_percent ?? 0), ticketId: String(focused.identifier) },
+        data: { detail: agentDetailModel(focused ?? { identifier: state.focusedIdentifier }) },
       } : state.mode === "logs" ? {
         mode: "logs",
         data: {
@@ -175,8 +194,10 @@ export const createPhysicalSurface = () => {
             grid.total - grid.agents.filter((agent) => agent.bucket === "running").length,
             (grid as { build?: unknown }).build as Parameters<typeof summaryModel>[2],
           ),
-          claude: providerSegmentModel((usage.claude ?? null) as ProviderMeter | null),
-          codex: providerSegmentModel((usage.codex ?? null) as ProviderMeter | null),
+          // One row per provider family the daemon reported, not two fixed
+          // slots: a fleet with a third configured provider had a real meter
+          // that no pixel on the deck could show.
+          providers: providerRows(usage),
           // `currentWindow` is the tested pager maths dial D itself uses. A
           // plain columnOffset/4 disagrees with it whenever the last window is
           // clamped by maxColumnOffset, lighting the wrong dot after a page.

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createPhysicalController } from "../src/controller.js";
 import type { StreamDeckGrid } from "../src/channel.js";
 import { dialButton, dialButtons, dialTurn, keyReport, keysReport } from "./support/deckReports.js";
+import { CHAT_WINDOW_ROWS } from "../src/touchStrip/chatLog.js";
 
 const grid = (count = 10): StreamDeckGrid => ({
   agents: Array.from({ length: count }, (_, index) => ({
@@ -106,7 +107,7 @@ describe("physical controller composition", () => {
     controller.setLogs({
       event_keys: Array.from({ length: 12 }, (_, index) => ({ label: `event-${index}` })),
       events_max_offset: 4,
-      transcript: [{ body: "chat-a" }, { body: "chat-b" }, { body: "chat-c" }, { body: "chat-d" }],
+      transcript: Array.from({ length: 8 }, (_, index) => ({ body: `chat-${index}` })),
       transcript_max_offset: 2,
     });
     controller.handleReport(keyReport(0, true));
@@ -192,6 +193,8 @@ describe("physical controller composition", () => {
       { kind: "event_header", badge: "SYSTEM", body: "Fixtures reloaded", timestamp: "2026-08-13T02:51:00Z" },
       { kind: "message", role: "system", body: "reloaded" },
       { kind: "message", role: "system", body: "done" },
+      { kind: "message", role: "system", body: "settled" },
+      { kind: "message", role: "system", body: "idle" },
     ];
     const eventKeys = [
       { kind: "live", label: "LIVE" },
@@ -296,6 +299,117 @@ describe("physical controller composition", () => {
       expect(controller.state().chatOffset).toBe(before);
     });
 
+    it("highlights the event key that was pressed", () => {
+      const controller = inLogs();
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      expect(controller.state().selectedEvent).toBe(2);
+    });
+
+    // The other direction of the same tie: scrolling the transcript with dial A
+    // moves the highlight to whichever event the reader has scrolled into,
+    // without the operator touching a key.
+    it("highlights the event the transcript has been scrolled into", () => {
+      const controller = inLogs();
+      expect(controller.state().selectedEvent).toBe(1);
+      controller.handleReport(dialTurn(0, 3));
+      expect(controller.state().chatOffset).toBe(3);
+      expect(controller.state().selectedEvent).toBe(2);
+      controller.handleReport(dialTurn(0, 2));
+      expect(controller.state().selectedEvent).toBe(3);
+      controller.handleReport(dialTurn(0, -5));
+      expect(controller.state().selectedEvent).toBe(1);
+    });
+
+    // A highlight on a key the operator has paged away from looks like the
+    // highlight is broken, so the key window follows the selection.
+    it("pages the event keys so the highlighted key stays on screen", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      const events = Array.from({ length: 14 }, (_, index) => ({ kind: "event", badge: "INFO", text: `event-${index}` }));
+      // One header per transcript row, so every row is its own event.
+      controller.setLogs({
+        event_keys: [{ kind: "live", label: "LIVE" }, ...events],
+        transcript: events.map((_event, index) => ({ kind: "event_header", badge: "INFO", body: `header-${index}`, timestamp: null })),
+        events_max_offset: 7,
+      });
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      expect(controller.state().eventOffset).toBe(0);
+      controller.handleReport(dialTurn(0, 9));
+      expect(controller.state().selectedEvent).toBe(10);
+      expect(controller.state().eventOffset).toBe(3);
+      // Scrolling back moves the window only as far as it must: the selection
+      // becomes key 1, so the window stops there rather than snapping to 0.
+      controller.handleReport(dialTurn(0, -9));
+      expect(controller.state()).toMatchObject({ selectedEvent: 1, eventOffset: 1 });
+    });
+
+    // The event window and the chat are two independent navigations. Chasing
+    // the selection on a dial-3 move pinned the window to the selected key, so
+    // every detent past the first did nothing and the far end of a long feed
+    // was unreachable.
+    it("lets dial 3 page the event window away from the highlighted key", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      const events = Array.from({ length: 30 }, (_, index) => ({ kind: "event", badge: "INFO", text: `event-${index}` }));
+      controller.setLogs({
+        event_keys: [{ kind: "live", label: "LIVE" }, ...events],
+        transcript: events.flatMap((_event, index) => [
+          { kind: "event_header", badge: "INFO", body: `header-${index}`, timestamp: null },
+          { kind: "message", role: "system", body: `entry-${index}` },
+        ]),
+        events_max_offset: 23,
+      });
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      expect(controller.state().selectedEvent).toBe(1);
+
+      controller.handleReport(dialTurn(3, 5));
+      expect(controller.state()).toMatchObject({ eventOffset: 5, chatOffset: 0, selectedEvent: 1 });
+      // The press pages a whole window, again without the chat dragging it back
+      // to the neighbourhood of the selected key.
+      controller.handleReport(dialButton(3));
+      controller.handleReport(dialButton(3, false));
+      expect(controller.state().eventOffset).toBeGreaterThan(8);
+      expect(controller.state().selectedEvent).toBe(1);
+    });
+
+    // Newest-first flattening puts the oldest event's header within a window of
+    // the end, so a window that must start at least CHAT_WINDOW_ROWS from the
+    // end could not reach it: the jump landed short, mid-message, and lit a
+    // different key than the one pressed.
+    it("reaches a header in the last rows of the transcript", () => {
+      const controller = inLogs();
+      const last = transcript.length - 1;
+      controller.handleReport(keyReport(3, true));
+      controller.handleReport(keyReport(3, false));
+      expect(controller.state().chatOffset).toBe(5);
+      expect(controller.state().selectedEvent).toBe(3);
+      controller.handleReport(dialTurn(0, 99));
+      expect(controller.state().chatOffset).toBe(last);
+      expect(controller.state().transcriptRows).toEqual([transcript[last]]);
+    });
+
+    // Entries can arrive before the header they belong to. Highlighting nothing
+    // is honest; the event window must then stay where the operator left it.
+    it("highlights nothing above the first header and leaves the key window alone", () => {
+      const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
+      controller.setLogs({
+        event_keys: eventKeys,
+        transcript: [{ kind: "message", role: "system", body: "orphan" }, ...transcript],
+        events_max_offset: 2,
+      });
+      controller.handleReport(keyReport(0, true));
+      controller.handleReport(keyReport(0, false));
+      controller.handleReport(keyReport(2, true));
+      controller.handleReport(keyReport(2, false));
+      controller.handleReport(dialTurn(3, 1));
+      expect(controller.state()).toMatchObject({ selectedEvent: null, eventOffset: 1 });
+    });
+
     it("opens the surface on the newest entry when the server sends no offset", () => {
       const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
       controller.setLogs({ event_keys: eventKeys, transcript });
@@ -310,7 +424,7 @@ describe("physical controller composition", () => {
       controller.handleReport(dialButton(3));
       controller.handleReport(dialButton(3, false));
       expect(controller.state().mode).toBe("logs");
-      expect(controller.state().transcriptRows).toHaveLength(2);
+      expect(controller.state().transcriptRows).toHaveLength(CHAT_WINDOW_ROWS);
     });
 
     it("keeps an event header's badge, body and timestamp", () => {
@@ -331,6 +445,7 @@ describe("physical controller composition", () => {
       expect(controller.state().transcriptRows).toEqual([
         { kind: "diff", path: "lib/b.ex", additions: 0, deletions: 0, line: null },
         { kind: "message", role: "system", body: "hello" },
+        { kind: "message", role: "system", body: "no kind" },
       ]);
     });
   });

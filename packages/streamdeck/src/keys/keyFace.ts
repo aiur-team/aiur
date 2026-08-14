@@ -42,6 +42,8 @@ export interface AgentKeyFace {
   readonly subLabel: string;
   /** Relative timestamp on an event key; empty for other roles. */
   readonly timeLabel: string;
+  /** True when this is the event key the strip is currently reading. */
+  readonly selected: boolean;
   readonly ticketNumber: string;
   /**
    * The untruncated title. {@link titleLines} is a deterministic, glyph-free
@@ -136,6 +138,7 @@ function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
     role: agent.role,
     subLabel: agent.subLabel,
     timeLabel: agent.timeLabel,
+    selected: agent.selected,
     ticketNumber: agent.identifier,
     title: agent.title,
     titleLines: wrapTitle(agent.title, lineChars),

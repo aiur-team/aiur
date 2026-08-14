@@ -63,4 +63,48 @@ describe("physical surface composition", () => {
     expect(afterEvent).toBeGreaterThan(first);
     expect(write.mock.calls.length).toBeGreaterThan(afterEvent);
   });
+
+  // The highlight is the only thing on the deck showing that the strip and the
+  // keys are describing the same event, so it has to survive the whole path
+  // from controller state to a key upload.
+  it("uploads a new key face when the event selection moves", async () => {
+    const write = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const surface = createPhysicalSurface();
+    const backend = { write, sendFeatureReport } as never;
+    const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
+    const base = {
+      mode: "logs" as const,
+      focusedIdentifier: null,
+      columnOffset: 0,
+      eventLines: [
+        { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
+        { kind: "event" as const, badge: "EMIT", text: "event-b", time: "2m" },
+      ],
+      eventOffset: 0,
+      transcriptRows: [],
+      selectedEvent: null as number | null,
+    };
+    await surface.repaint(backend, grid, {}, undefined, base);
+    const painted = write.mock.calls.length;
+    // Only the selection changes; nothing else about the surface moves.
+    await surface.repaint(backend, grid, {}, undefined, { ...base, selectedEvent: 1 });
+    expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
+  });
+
+  // Falling through to the grid strip put the fleet summary under the four
+  // agent command keys, so the strip and the keys disagreed about the mode.
+  it("keeps a cmd-mode strip when the focused agent leaves the projection", async () => {
+    const write = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const surface = createPhysicalSurface();
+    const backend = { write, sendFeatureReport } as never;
+    const state = { mode: "cmd" as const, focusedIdentifier: "1358", columnOffset: 0 };
+    await surface.repaint(backend, { agents: [], total: 0, windows: 1, max_column_offset: 0 }, {}, undefined, state);
+    // One 800-wide region write, not four 200-wide ones: every report carries
+    // the full-strip geometry.
+    const strip = write.mock.calls.map(([report]) => report as Uint8Array).filter((report) => report[1] === 0x0c);
+    expect(strip.length).toBeGreaterThan(0);
+    for (const report of strip) expect(Buffer.from(report).readUInt16LE(6)).toBe(800);
+  });
 });

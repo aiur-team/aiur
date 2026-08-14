@@ -5,6 +5,8 @@ import {
   BUILD_ORDER_ICONS,
   COMMAND_ICONS,
   DEFAULT_ICON,
+  ACTIVITY_ICONS,
+  activityFragment,
   commandFragment,
   commandIsFilled,
   drawIcon,
@@ -127,6 +129,23 @@ describe("drawIcon", () => {
     // A radius-less circle with an explicit centre still traces nothing
     // visible, but a sized rect with no rx must draw.
     expect(inkedPixels((context) => drawIcon(context, '<rect x="2" y="2" width="20" height="20"/>', 0, 0, 24, "#fff"))).toBeGreaterThan(0);
+  });
+});
+
+describe("activityFragment", () => {
+  it("resolves each activity glyph", () => {
+    for (const glyph of ["brainstorm", "plan", "work", "review", "waiting"]) {
+      expect(activityFragment(glyph)).toBe(ACTIVITY_ICONS[glyph]);
+      expect(ACTIVITY_ICONS[glyph].length).toBeGreaterThan(0);
+    }
+  });
+
+  // Unlike a lane or a command, there is no sensible default activity: drawing
+  // one would claim the agent is doing something the daemon never said.
+  it("draws nothing for an absent or unknown activity", () => {
+    expect(activityFragment("napping")).toBe("");
+    expect(activityFragment(null)).toBe("");
+    expect(activityFragment(undefined)).toBe("");
   });
 });
 

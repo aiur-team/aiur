@@ -1,113 +1,133 @@
 import { describe, expect, it } from "vitest";
 
-import { SEGMENT_COUNT } from "../../src/touchStrip/geometry.js";
+import { STRIP_WIDTH } from "../../src/touchStrip/geometry.js";
 import { pagerModel } from "../../src/touchStrip/pagerSegment.js";
 import { providerSegmentModel } from "../../src/touchStrip/providerSegment.js";
 import { summaryModel } from "../../src/touchStrip/summarySegment.js";
-import { composeStrip } from "../../src/touchStrip/stripLayout.js";
+import { composeStrip, type StripPanel } from "../../src/touchStrip/stripLayout.js";
+import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
+import type { ProviderPanelRow } from "../../src/touchStrip/providerPanel.js";
 import type { TranscriptRow } from "../../src/channel.js";
 
 const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body });
 
-const grid = () =>
+const provider = (label: string, usedPercent = 10): ProviderPanelRow => ({
+  label,
+  model: providerSegmentModel({ provider: label, windows: { session: { used_percent: usedPercent, duration_minutes: 300 } } }),
+});
+
+const grid = (providers: readonly ProviderPanelRow[]) =>
   composeStrip({
     mode: "grid",
     data: {
       summary: summaryModel(2, 3),
-      claude: providerSegmentModel(null),
-      codex: providerSegmentModel(null),
+      providers,
       pager: pagerModel(9, 4, 1),
       pagerLabel: "5-8",
     },
   });
 
+/** Panels must tile the strip exactly: no gap, no overlap, no overrun. */
+const tilesTheStrip = (panels: readonly StripPanel[]): boolean =>
+  panels.reduce((next, panel) => (next === panel.region.x ? next + panel.region.width : Number.NaN), 0) === STRIP_WIDTH;
+
 describe("composeStrip", () => {
-  it("always yields exactly SEGMENT_COUNT segments", () => {
-    expect(grid()).toHaveLength(SEGMENT_COUNT);
-    expect(
-      composeStrip({
-        mode: "cmd",
-        data: { identity: "agent-7", status: "working", percent: 40, ticketId: "1356" },
-      }),
-    ).toHaveLength(SEGMENT_COUNT);
-    expect(
-      composeStrip({ mode: "logs", data: { rows: [message("a"), message("b")] } }),
-    ).toHaveLength(SEGMENT_COUNT);
+  it("tiles the whole strip in every mode", () => {
+    expect(tilesTheStrip(grid([provider("claude"), provider("codex")]))).toBe(true);
+    expect(tilesTheStrip(grid([provider("claude"), provider("codex"), provider("kimi")]))).toBe(true);
+    expect(tilesTheStrip(grid([]))).toBe(true);
+    expect(tilesTheStrip(composeStrip({ mode: "cmd", data: { detail: agentDetailModel({ identifier: "1356" }) } }))).toBe(true);
+    expect(tilesTheStrip(composeStrip({ mode: "logs", data: { rows: [message("a")] } }))).toBe(true);
   });
 
-  it("grid mode: [summary, Claude, Codex, pager] in order", () => {
-    const [s0, s1, s2, s3] = grid();
-    expect(s0.kind).toBe("summary");
-    expect(s1).toMatchObject({ kind: "provider", label: "Claude" });
-    expect(s2).toMatchObject({ kind: "provider", label: "Codex" });
-    expect(s3).toMatchObject({ kind: "pager", title: "MORE AGENTS", label: "5-8" });
+  it("grid mode with two providers keeps the four 200-wide segments", () => {
+    const panels = grid([provider("claude"), provider("codex")]);
+    expect(panels.map((panel) => panel.region.width)).toEqual([200, 200, 200, 200]);
+    expect(panels[0].content.kind).toBe("summary");
+    expect(panels[1].content).toMatchObject({ kind: "provider", row: { label: "claude" } });
+    expect(panels[2].content).toMatchObject({ kind: "provider", row: { label: "codex" } });
+    expect(panels[3].content).toMatchObject({ kind: "pager", title: "MORE AGENTS", label: "5-8" });
   });
 
-  it("cmd mode: pager region becomes the controlling ticket and a BACK hint appears", () => {
-    const [s0, s1, s2, s3] = composeStrip({
+  it("grid mode with three providers merges the centre two segments into one 400-wide panel", () => {
+    const panels = grid([provider("claude"), provider("codex"), provider("deepseek")]);
+    expect(panels).toHaveLength(3);
+    expect(panels[1].region).toMatchObject({ x: 200, width: 400, height: 100 });
+    expect(panels[1].content).toMatchObject({ kind: "providers" });
+    expect(panels[1].content.kind === "providers" && panels[1].content.model.rows.map((row) => row.label)).toEqual([
+      "claude",
+      "codex",
+      "deepseek",
+    ]);
+    // The pager keeps its own segment either way.
+    expect(panels[2].region).toMatchObject({ x: 600, width: 200 });
+  });
+
+  it("grid mode leaves an unused provider segment blank rather than claiming a provider", () => {
+    const panels = grid([provider("claude")]);
+    expect(panels[1].content).toMatchObject({ kind: "provider", row: { label: "claude" } });
+    expect(panels[2].content).toEqual({ kind: "blank" });
+    expect(grid([])[1].content).toEqual({ kind: "blank" });
+  });
+
+  it("cmd mode is one full-width panel carrying the whole agent readout", () => {
+    const panels = composeStrip({
       mode: "cmd",
-      data: { identity: "agent-7", status: "working", percent: 140, ticketId: "1356" },
+      data: {
+        detail: agentDetailModel({
+          identifier: "1356",
+          title: "Restore retry statistics",
+          bucket: "running",
+          progress_percent: 40,
+          activity: "review",
+          runtime_seconds: 3_600,
+        }),
+      },
     });
-    expect(s0).toMatchObject({ kind: "agentIdentity", identity: "agent-7" });
-    // percent is clamped into 0..100.
-    expect(s1).toMatchObject({ kind: "agentProgress", status: "working", percent: 100 });
-    expect(s2).toMatchObject({ kind: "hint", label: "BACK" });
-    expect(s3).toMatchObject({ kind: "controlling", ticketId: "1356" });
+    expect(panels).toHaveLength(1);
+    expect(panels[0].region).toMatchObject({ x: 0, y: 0, width: 800, height: 100 });
+    expect(panels[0].content).toMatchObject({
+      kind: "agentDetail",
+      model: { ticketId: "1356", title: "Restore retry statistics", percent: 40, elapsedLabel: "1h 00m" },
+    });
   });
 
-  it("cmd mode: out-of-range percents clamp into 0..100", () => {
-    const [, nan] = composeStrip({
-      mode: "cmd",
-      data: { identity: "agent-7", status: "idle", percent: Number.NaN, ticketId: "1356" },
-    });
-    expect(nan).toMatchObject({ kind: "agentProgress", percent: 0 });
-
-    const [, negative] = composeStrip({
-      mode: "cmd",
-      data: { identity: "agent-7", status: "idle", percent: -10, ticketId: "1356" },
-    });
-    expect(negative).toMatchObject({ kind: "agentProgress", percent: 0 });
-  });
-
-  it("logs mode: BACK / chat row 1 / chat row 2 / EVENTS", () => {
-    const [s0, s1, s2, s3] = composeStrip({
-      mode: "logs",
-      data: { rows: [message("first"), message("second"), message("ignored-third")] },
-    });
-    expect(s0).toMatchObject({ kind: "hint", label: "BACK" });
-    expect(s1).toMatchObject({ kind: "chat", row: message("first") });
-    expect(s2).toMatchObject({ kind: "chat", row: message("second") });
-    expect(s3).toMatchObject({ kind: "hint", label: "EVENTS" });
-  });
-
-  // A slot past the end of the transcript carries no row at all, so the painter
-  // can leave it blank instead of rendering an empty message.
-  it("logs mode leaves missing chat rows null", () => {
-    const [, s1, s2] = composeStrip({ mode: "logs", data: { rows: [] } });
-    expect(s1).toMatchObject({ kind: "chat", row: null });
-    expect(s2).toMatchObject({ kind: "chat", row: null });
+  it("logs mode is one full-width panel carrying every row it was given", () => {
+    const rows = [message("first"), message("second"), message("third")];
+    const panels = composeStrip({ mode: "logs", data: { rows } });
+    expect(panels).toHaveLength(1);
+    expect(panels[0].region.width).toBe(800);
+    expect(panels[0].content).toMatchObject({ kind: "chatLog", rows });
   });
 
   it("logs mode carries each row shape through to the painter", () => {
     const header: TranscriptRow = { kind: "event_header", badge: "EMIT", body: "Dependency cleared", timestamp: "2026-08-13T03:00:00Z" };
     const diff: TranscriptRow = { kind: "diff", path: "lib/a.ex", additions: 3, deletions: 1, line: null };
-    const [, s1, s2] = composeStrip({ mode: "logs", data: { rows: [header, diff] } });
-    expect(s1).toMatchObject({ kind: "chat", row: header });
-    expect(s2).toMatchObject({ kind: "chat", row: diff });
+    const [panel] = composeStrip({ mode: "logs", data: { rows: [header, diff] } });
+    expect(panel.content).toMatchObject({ kind: "chatLog", rows: [header, diff] });
   });
 
-  it("logs mode exposes independent chat and event bounds", () => {
-    const [back, , , events] = composeStrip({
+  it("logs mode normalises the four independent scroll bounds", () => {
+    const [both] = composeStrip({
       mode: "logs",
       data: { rows: [message("chat")], chatHasNext: true, eventHasPrevious: true, eventHasNext: true },
     });
-    expect(back).toMatchObject({ kind: "hint", label: "CHAT", direction: "forward" });
-    expect(events).toMatchObject({ kind: "hint", label: "EVENTS ↑↓", direction: "back" });
-  });
+    expect(both.content).toMatchObject({
+      chatHasPrevious: false,
+      chatHasNext: true,
+      eventHasPrevious: true,
+      eventHasNext: true,
+    });
 
-  it("renders one-sided event and chat bounds", () => {
-    expect(composeStrip({ mode: "logs", data: { rows: [], eventHasPrevious: true } })[3]).toMatchObject({ label: "EVENTS ↑" });
-    expect(composeStrip({ mode: "logs", data: { rows: [], eventHasNext: true } })[3]).toMatchObject({ label: "EVENTS ↓" });
-    expect(composeStrip({ mode: "logs", data: { rows: [], chatHasPrevious: true } })[0]).toMatchObject({ label: "CHAT" });
+    const [none] = composeStrip({ mode: "logs", data: { rows: [] } });
+    expect(none.content).toMatchObject({
+      chatHasPrevious: false,
+      chatHasNext: false,
+      eventHasPrevious: false,
+      eventHasNext: false,
+    });
+
+    const [previous] = composeStrip({ mode: "logs", data: { rows: [], chatHasPrevious: true } });
+    expect(previous.content).toMatchObject({ chatHasPrevious: true, chatHasNext: false });
   });
 });

@@ -87,8 +87,47 @@ defmodule AiurWeb.StreamDeckGrid do
       vendor_logo: provider.logo,
       bucket: bucket,
       progress_percent: progress_percent(entry),
-      priority: priority?(entry)
+      priority: priority?(entry),
+      activity: activity(entry),
+      runtime_seconds: runtime_seconds(entry)
     }
+  end
+
+  # What the agent is *doing*, as distinct from the lifecycle bucket. Two
+  # server-side axes answer that, and they answer different halves of it: the
+  # workflow stage (`TicketActivity`) says which part of the turn is running,
+  # while `waiting_reason` says the turn is parked on something external. A
+  # parked agent's stage is still whatever it was before it parked, so the wait
+  # wins — "waiting on CI" is the useful reading, "work" is not.
+  #
+  # Only the four waits an operator can act on are surfaced. `:active` and the
+  # pause/dispatch reasons are already carried by the bucket, and repeating
+  # them here would put the same fact on the strip twice.
+  @waiting_activities %{
+    waiting_for_ci: "waiting_ci",
+    waiting_for_review: "waiting_review",
+    waiting_for_human: "waiting_human",
+    waiting_for_dependency: "waiting_dependency"
+  }
+
+  defp activity(entry) do
+    case Map.get(@waiting_activities, Map.get(entry, :waiting_reason)) do
+      nil -> stage_activity(Map.get(entry, :activity_stage))
+      waiting -> waiting
+    end
+  end
+
+  defp stage_activity(stage) when stage in [:brainstorm, :plan, :work, :review], do: Atom.to_string(stage)
+  defp stage_activity(_stage), do: nil
+
+  # Retry rows hard-code `runtime_seconds: 0` and idle rows carry none at all,
+  # so a missing value is projected as nil rather than a confident zero: the
+  # deck renders "no elapsed time known" differently from "just started".
+  defp runtime_seconds(entry) do
+    case Map.get(entry, :runtime_seconds) do
+      seconds when is_integer(seconds) and seconds > 0 -> seconds
+      _ -> nil
+    end
   end
 
   defp maybe_put_dependency_ready(payload, entry, :queued, dependency_ready?),

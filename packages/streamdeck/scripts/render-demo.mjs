@@ -15,12 +15,16 @@ import { layoutKeys } from "../dist/keys.js";
 import { preloadVendorMarks } from "../dist/art/vendorMark.js";
 import { composeStrip } from "../dist/touchStrip/stripLayout.js";
 import { summaryModel } from "../dist/touchStrip/summarySegment.js";
-import { providerSegmentModel } from "../dist/touchStrip/providerSegment.js";
+import { providerRows } from "../dist/touchStrip/providerPanel.js";
 import { pagerModel } from "../dist/touchStrip/pagerSegment.js";
-import { demoGrid, demoUsage } from "../dist/demo.js";
+import { agentDetailModel } from "../dist/touchStrip/agentDetail.js";
+import { demoGrid, demoUsage, demoLogs } from "../dist/demo.js";
 
 const out = process.argv[2] ?? "demo.png";
 const columnOffset = Number.parseInt(process.argv[3] ?? "0", 10);
+// Optional third argument renders the cmd or logs strip instead of the grid,
+// so a layout change to either can be eyeballed without flashing the deck.
+const mode = process.argv[4] ?? "grid";
 
 await preloadVendorMarks();
 const rasterizer = createRasterizer();
@@ -41,16 +45,21 @@ const agents = grid.agents.map((agent) => ({
 }));
 const running = grid.agents.filter((a) => a.bucket === "running").length;
 
-const contents = composeStrip({
+const gridStrip = {
   mode: "grid",
   data: {
     summary: summaryModel(running, grid.total - running, grid.build),
-    claude: providerSegmentModel(usage.claude ?? null),
-    codex: providerSegmentModel(usage.codex ?? null),
+    providers: providerRows(usage),
     pager: pagerModel(grid.total, 8, Math.floor(columnOffset / 4)),
     pagerLabel: `${grid.total} Agents`,
   },
-});
+};
+const cmdStrip = {
+  mode: "cmd",
+  data: { detail: agentDetailModel({ ...grid.agents[0], runtime_seconds: 11_240, activity: "waiting_ci" }) },
+};
+const logsStrip = { mode: "logs", data: { rows: demoLogs().transcript.slice(0, 5), chatHasNext: true, eventHasNext: true } };
+const panels = composeStrip(mode === "cmd" ? cmdStrip : mode === "logs" ? logsStrip : gridStrip);
 
 const KEY = 120;
 const GAP = 10;
@@ -68,12 +77,13 @@ for (let i = 0; i < 8; i += 1) {
 }
 
 const stripY = GAP + KEY * 2 + GAP;
-const scaled = (width - GAP * 2) / 4;
-for (let i = 0; i < contents.length; i += 1) {
-  const image = await loadImage(Buffer.from(rasterizer.segment(contents[i])));
-  ctx.drawImage(image, GAP + i * scaled, stripY, scaled, 100 * (scaled / 200));
+// The strip is 800px wide on the device; scale the whole thing to the preview.
+const scale = (width - GAP * 2) / 800;
+for (const panel of panels) {
+  const image = await loadImage(Buffer.from(rasterizer.segment(panel.content, panel.region.width)));
+  ctx.drawImage(image, GAP + panel.region.x * scale, stripY, panel.region.width * scale, 100 * scale);
 }
 
 writeFileSync(out, canvas.toBuffer("image/png"));
-console.log(`wrote ${out} (columnOffset=${columnOffset})`);
+console.log(`wrote ${out} (columnOffset=${columnOffset}, mode=${mode})`);
 process.exit(0);

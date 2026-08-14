@@ -381,6 +381,7 @@ export const main = async (): Promise<void> => {
       eventHasNext: current.eventHasNext,
       chatHasPrevious: current.chatHasPrevious,
       chatHasNext: current.chatHasNext,
+      selectedEvent: current.selectedEvent,
     };
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);

@@ -54,6 +54,11 @@ export interface AgentKey {
   readonly subLabel: string;
   /** Relative timestamp shown on an event key ("3m"); empty for other roles. */
   readonly timeLabel: string;
+  /**
+   * True when this is the event key the strip is currently reading. Only the
+   * log surface sets it; every other role is always false.
+   */
+  readonly selected: boolean;
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
@@ -80,6 +85,8 @@ export interface AgentInput {
   readonly role?: KeyRole;
   readonly subLabel?: string | null;
   readonly timeLabel?: string | null;
+  /** Set by the log surface on the event key the strip is reading. */
+  readonly selected?: boolean;
   readonly bucket: BucketId;
   readonly progress_percent: number;
   readonly priority: boolean;
@@ -157,6 +164,7 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     role: agent.role ?? "agent",
     subLabel: agent.subLabel ?? "",
     timeLabel: agent.timeLabel ?? "",
+    selected: agent.selected === true,
     priority: agent.priority,
     bucket: agent.bucket,
     style,
