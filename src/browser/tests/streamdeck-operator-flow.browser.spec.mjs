@@ -32,6 +32,20 @@ function dial(page, index) {
 }
 
 async function dragDial(page, knob, angles) {
+  // `page.mouse` takes viewport coordinates and does no scrolling of its own,
+  // unlike `hover()`/`click()`. The deck sits below the route heading, so
+  // without this the drag is dispatched off-screen and the dial never moves.
+  // The nudge clears the sticky topbar, which the minimal scroll can otherwise
+  // leave the dial flush underneath.
+  await knob.scrollIntoViewIfNeeded()
+  await knob.evaluate((element) => {
+    const topbar = document.querySelector('.topbar')
+    if (!topbar) return
+
+    const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+    if (overlap > 0) window.scrollBy(0, -overlap - 8)
+  })
+
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2

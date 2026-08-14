@@ -164,32 +164,32 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       |> assign(:windows, meter_windows(assigns.card))
       |> assign(:show_spend?, provider_spend?(assigns.card))
       |> assign(:token_count, token_count(assigns.usage_ready?, provider_usage(assigns.card)))
-      |> assign(:state, model_state(assigns.card))
+      |> assign(:token_glyph?, token_glyph?(assigns.card.provider))
+      |> assign(:standing, model_standing(assigns.card))
 
     ~H"""
     <div class="rs-model">
       <div class="rs-head">
+        <%!-- One logo per row, on the far left, so every row starts with the same landmark. Decorative: the name beside it already identifies the provider. --%>
+        <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
-        <%!-- The state chip is the row's staleness signal: a row that lost it would read a last-known-good or unavailable value as live (issue #1564), so it renders for every model, including the healthy ones. --%>
-        <span class={["rs-state", @state.class]}>{@state.label}</span>
         <div class="rs-head-stats">
           <div :if={@token_count} class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
             <span class="rs-stat-val">
               {@token_count}
               <%!-- The per-provider token glyph sits to the right of the count. Decorative: the label already says Tokens. --%>
-              <img class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
+              <img :if={@token_glyph?} class="rs-token-ic" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
             </span>
           </div>
-          <%!-- An unknown token count hides its label and the "N/A" text: the glyph remains, alone, at the right of the card, so the card keeps its shape. --%>
-          <img :if={is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
+          <%!-- An unknown token count hides its label and the "N/A" text. On the two rows that carry a token glyph it remains, alone, so the card keeps its shape; the rest simply lose the stat. --%>
+          <img :if={@token_glyph? and is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
         </div>
-        <%!-- The spend figure sits at the right of the row, immediately left of the right-aligned provider logo. --%>
+        <%!-- The spend figure closes the row on the right. --%>
         <div :if={@show_spend?} class="rs-stat rs-spend">
           <span class="rs-stat-label">Spend</span>
           <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
         </div>
-        <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
       </div>
       <div class="rs-limits">
         <div :if={@windows == [] and durable_record(@card)} class="rs-limit">
@@ -209,7 +209,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <span class="rs-limit-meta">{model_window_meta(window, @now)}</span>
+            <span class="rs-limit-meta">{model_window_meta(window, @now, @standing)}</span>
           </div>
           <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
         </div>
@@ -223,36 +223,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp model_count_label(1), do: "1 model"
   defp model_count_label(count), do: "#{count} models"
 
-  # A model whose only standing is the durable dispatch ledger is stale by
-  # construction, whatever its live state says.
-  defp model_state(card) do
-    case durable_record(card) do
-      nil -> state_chip(Map.get(card, :state), Map.get(card, :status_label))
-      _record -> %{label: "Stale", class: "is-stale"}
-    end
-  end
+  # A deliberate two-name list, not a registry lookup. Every provider descriptor
+  # defines a token icon, so deriving this would put a second mark on every row
+  # — which is the thing the far-left logo was meant to stop. Claude and Codex
+  # are the pair the operator actually meters token-by-token, so their glyph
+  # earns the right-hand slot; a new provider joins this list by decision, not
+  # by shipping an asset.
+  @token_glyph_providers [:claude, :codex]
 
-  defp state_chip(:healthy, _label), do: %{label: "Healthy", class: "is-healthy"}
-  defp state_chip(:partial, _label), do: %{label: "Partial", class: "is-partial"}
-  defp state_chip(:stale, _label), do: %{label: "Stale", class: "is-stale"}
-  defp state_chip(:loading, _label), do: %{label: "Loading…", class: "is-nodata"}
-  defp state_chip(:unknown, _label), do: %{label: "No data", class: "is-nodata"}
-  defp state_chip(:error, _label), do: %{label: "Provider error", class: "is-unavailable"}
-  defp state_chip(:unavailable, _label), do: %{label: "Unavailable", class: "is-unavailable"}
-  defp state_chip(_state, label) when is_binary(label) and label != "", do: %{label: label, class: "is-nodata"}
-  defp state_chip(_state, _label), do: %{label: "N/A", class: "is-nodata"}
+  defp token_glyph?(provider), do: provider in @token_glyph_providers
+
+  # A card can stand at :stale or :partial while its retained windows are still
+  # stamped fresh — an adapter failure, or repeated probe failures over the last
+  # known-good values (`ProviderMeterProjection.health_state/3`). The row's head
+  # chip used to name that; with the chip gone the qualifier has to ride on the
+  # meta line, or those readings render as live ones — the confusion issue #1564
+  # exists to prevent.
+  defp model_standing(%{state: :stale}), do: "stale"
+  defp model_standing(%{state: :partial}), do: "partial"
+  defp model_standing(_card), do: nil
 
   # `window_meta/2` already appends its own stale clause for a credit balance
-  # past its freshness horizon, so the probe-reported window freshness is only
-  # added when the meta does not already say it.
-  defp model_window_meta(window, now) do
+  # past its freshness horizon, and a stale-stamped window says so itself, so
+  # neither qualifier is added when the meta already carries the word.
+  defp model_window_meta(window, now, standing) do
     meta = window_meta(window, now)
 
-    if Map.get(window, :freshness) == :stale and not String.contains?(meta, "stale") do
-      meta <> " (stale)"
-    else
-      meta
-    end
+    meta =
+      if Map.get(window, :freshness) == :stale and not String.contains?(meta, "stale") do
+        meta <> " (stale)"
+      else
+        meta
+      end
+
+    if standing && not String.contains?(meta, standing), do: meta <> " (#{standing})", else: meta
   end
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
@@ -639,9 +643,11 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   # A durable observation renders the last-known standing from the dispatch
   # ledger with an explicit staleness label, so a value that is not a fresh
-  # probe is never mistaken for one.
+  # probe is never mistaken for one. The row's head chip used to carry that
+  # word; the label now has to say it here, because the meta line is the only
+  # place left that qualifies the number it sits beside (issue #1564).
   defp durable_meta(%{percent: percent, observed_at: observed_at}, _now) do
-    "#{percent}% used · as of #{clock_label(observed_at)}"
+    "#{percent}% used · as of #{clock_label(observed_at)} (stale)"
   end
 
   defp durable_percent(%{percent: percent}), do: percent

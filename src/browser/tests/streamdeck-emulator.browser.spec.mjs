@@ -14,6 +14,25 @@ async function openStreamdeck(page, mode = 'read_only') {
   await page.goto('/streamdeck')
   await expect(page.locator('#streamdeck-page')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  await anchor(page.locator('.sd-device'))
+}
+
+// `page.mouse` takes viewport coordinates and does no scrolling of its own,
+// unlike `hover()`/`click()`. The deck sits below the route heading, so a
+// gesture read from an unanchored bounding box lands off-screen. Playwright's
+// own scroll is used rather than a raw `scrollIntoView`, because it waits for
+// the element to settle first — a box read mid-scroll aims the drag at stale
+// coordinates. It scrolls minimally, so clear the sticky topbar afterwards or
+// the gesture lands on the topbar instead of the dial.
+async function anchor(locator) {
+  await locator.scrollIntoViewIfNeeded()
+  await locator.evaluate((element) => {
+    const topbar = document.querySelector('.topbar')
+    if (!topbar) return
+
+    const overlap = topbar.getBoundingClientRect().bottom - element.getBoundingClientRect().top
+    if (overlap > 0) window.scrollBy(0, -overlap - 8)
+  })
 }
 
 async function openUnits(page) {
@@ -24,6 +43,9 @@ async function openUnits(page) {
 }
 
 async function dragDialThroughAngles(page, dial, angles) {
+  // Re-anchor before every drag: a mode change re-lays the deck out.
+  await anchor(dial)
+
   const box = await dial.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -51,6 +73,7 @@ test('dial drag rotates the knob and updates aria-valuenow', async ({ page }) =>
 
   // Drag a wide clockwise arc that accumulates well over 8° (press threshold)
   // and sweeps enough angle to guarantee an increase, even from a high initial.
+  await anchor(knob)
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -162,6 +185,7 @@ test('brief dial tap (< 8 degrees) triggers a press flash on dial 0', async ({ p
 
   // Dial 0 is the first knob (Focus); a press should trigger the .press class.
   const knob = page.locator('.sd-knob').first()
+  await anchor(knob)
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -364,6 +388,7 @@ test('command mic deactivates on pointerleave (not stuck on drag-exit)', async (
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
   const micKey = page.locator('.sd-mic-key')
+  await anchor(micKey)
   const box = await micKey.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -483,6 +508,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
 
   // Dial 3 press (cycle-window) → logs mode.
   const dial3 = page.locator('.sd-knob').nth(3)
+  await anchor(dial3)
   const d3box = await dial3.boundingBox()
   const d3cx = d3box.x + d3box.width / 2
   const d3cy = d3box.y + d3box.height / 2
@@ -496,6 +522,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
 
   // Dial 0 press (back) → cmd mode.
   const dial0 = page.locator('.sd-knob').first()
+  await anchor(dial0)
   const d0box = await dial0.boundingBox()
   const d0cx = d0box.x + d0box.width / 2
   const d0cy = d0box.y + d0box.height / 2
@@ -507,6 +534,7 @@ test('mode transitions: grid → cmd (key click) → logs (cycle-window) → bac
   // Dial 0 press (back) again → grid mode.
   // Re-fetch bounding box: the layout reflowed when keys became hidden (cmd mode),
   // so cached coordinates from the logs-mode capture may miss the knob.
+  await anchor(dial0)
   const d0box2 = await dial0.boundingBox()
   const d0cx2 = d0box2.x + d0box2.width / 2
   const d0cy2 = d0box2.y + d0box2.height / 2
@@ -593,6 +621,7 @@ test('dial drag + mode transition both work in the same session', async ({ page 
 
   // First rotate dial 0 to change its value.
   const knob = page.locator('.sd-knob').first()
+  await anchor(knob)
   const box = await knob.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -653,6 +682,7 @@ test('an active dial drag commits its final value after a LiveView patch', async
     }
   })
   const eventCountBeforeDrag = await page.evaluate(() => window.__streamdeckGridEvents.length)
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -690,6 +720,7 @@ test('a cancelled dial drag emits no release commit', async ({ page }) => {
     }
   })
 
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -723,6 +754,7 @@ test('destroying a dial without drag preservation emits no release commit', asyn
     }
   })
 
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   const cx = box.x + box.width / 2
   const cy = box.y + box.height / 2
@@ -747,6 +779,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
 
   const dialD = page.locator('.sd-knob').nth(3)
   await dialD.hover()
+  await anchor(dialD)
   const dialBox = await dialD.boundingBox()
   const cx = dialBox.x + dialBox.width / 2
   const cy = dialBox.y + dialBox.height / 2
@@ -792,6 +825,7 @@ test('dial D pages live fleet keys and pager dots', async ({ page }) => {
   const angleAfterKey = parseFloat(await dialD.evaluate((element) => element.style.getPropertyValue('--a')))
   expect(angleAfterKey).toBeLessThan(angleAfterWheel)
 
+  await anchor(dialD)
   const dragBox = await dialD.boundingBox()
   const dragCx = dragBox.x + dragBox.width / 2
   const dragCy = dragBox.y + dragBox.height / 2
@@ -867,6 +901,7 @@ test('clicking a logs event key positions the flattened transcript at that event
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
   const dialD = page.locator('.sd-knob').nth(3)
+  await anchor(dialD)
   const box = await dialD.boundingBox()
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2)
   await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
