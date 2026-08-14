@@ -30,7 +30,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
-| **Units** | `/` — live fleet and its filters; the table below describes this surface. | `aiur units` |
+| **Units** | `/` — the Agents fleet table and its filters, plus the Tickets panel of every open ticket; the tables below describe this surface. | `aiur units` |
 | **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
 | **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
@@ -79,9 +79,15 @@ The stepper is a compact view over two canonical axes: decision state and delive
 
 ## Units (fleet table)
 
-The fleet combines running, retrying, and idle tracker-active tickets. Each row exposes work and waiting state, latest activity, elapsed time, decision count, CI/review facts, and safe links to the ticket, decision, or agent conversation. The filters are cumulative and the table becomes a card list at narrow widths.
+The Agents panel combines running, retrying, and idle tracker-active tickets. Each row exposes work and waiting state, latest activity, elapsed time, decision count, CI/review facts, and safe links to the ticket, decision, or agent conversation. The filters are cumulative and the table becomes a card list at narrow widths.
 
 <img src="/images/dashboard/fleet-dark.png" alt="Desktop fleet table with synthetic active, blocked, retrying, and review tickets">
+
+## Tickets
+
+The Tickets panel lists every open ticket on the repository, including the ones no agent has been routed to yet — the fleet table only ever shows tickets carrying an active `agent:*` label. Each row shows its identifier, title, labels, and which agent the current routing configuration would send it to. A row opens the ticket's detail; the robot action opens an add-agent dialog prefilled with that prediction.
+
+Confirming the dialog is a writable control. It applies the configured first active-state label — which is what makes a ticket dispatchable at all — plus the selected `complexity:` tag and `model:` overrides, and removes the labels those replace. A tracker other than GitHub reports the panel as unsupported rather than unavailable.
 
 ## Decision history
 
@@ -103,7 +109,7 @@ Recent outcomes come from the durable merge store, not a fresh GitHub poll on ev
 
 ## Writable controls
 
-Dashboard mutations are enabled by default. Disable them when the dashboard is an observation-only surface:
+Dashboard mutations are enabled by default. They cover pausing and resuming a unit, answering and revising decisions, adjusting capacity, and applying routing labels from the Tickets panel. Disable them when the dashboard is an observation-only surface:
 
 ```yaml
 observability:

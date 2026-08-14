@@ -831,10 +831,17 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   alias Aiur.TrackerIdentity
   alias AiurWeb.BuildOrder.TicketContextPresenter.{Capability, View}
 
+  alias Aiur.OpenTicketSource.Snapshot, as: OpenTicketSnapshot
+
   alias AiurWeb.OperatorControlCenter.{
+    AddAgentModal,
+    AgentRoutingPreview,
     ConversationDrawer,
     DecisionPath,
     TicketContext,
+    TicketDetailModal,
+    TicketsPanel,
+    TicketsPresenter,
     UnitsFilters,
     UnitsPresenter,
     UnitsTable,
@@ -855,6 +862,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:context, nil)
      |> assign(:conversation_drawer, nil)
      |> assign(:selected_row, nil)
+     |> assign(:tickets_view, tickets_view())
+     |> assign(:ticket_detail, nil)
+     |> assign(:add_agent_modal, nil)
      |> assign(:generation, 1)}
   end
 
@@ -892,6 +902,28 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       {:error, :not_found} -> {:noreply, socket}
     end
   end
+
+  def handle_event("inspect-ticket", %{"ticket" => token}, socket) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :ticket_detail, row)}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-ticket-detail", _params, socket), do: {:noreply, assign(socket, :ticket_detail, nil)}
+
+  def handle_event("open-add-agent", %{"ticket" => token}, socket) do
+    case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
+      {:ok, row} -> {:noreply, assign(socket, :add_agent_modal, add_agent_modal(row))}
+      {:error, :not_found} -> {:noreply, socket}
+    end
+  end
+
+  def handle_event("close-add-agent", _params, socket), do: {:noreply, assign(socket, :add_agent_modal, nil)}
+
+  def handle_event("change-add-agent", _params, socket), do: {:noreply, socket}
+
+  def handle_event("confirm-add-agent", _params, socket), do: {:noreply, socket}
 
   def handle_event("show-agent-log", _params, socket), do: {:noreply, socket}
 
@@ -980,6 +1012,11 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         <UnitsTable.units_table view={@view} now={@now} />
       </section>
 
+      <TicketsPanel.tickets_panel view={@tickets_view} />
+
+      <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
+      <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={true} />
+
       <div class="controls" aria-label="Units fixture updates">
         <button id="same-identity-update" type="button" phx-click="same-identity-update">Update same Unit</button>
         <button id="remove-selected-unit" type="button" phx-click="remove-selected-unit">Remove selected Unit</button>
@@ -1003,6 +1040,63 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       />
     </main>
     """
+  end
+
+  defp tickets_view do
+    TicketsPresenter.project(%OpenTicketSnapshot{
+      status: :available,
+      generation: 1,
+      observed_at: @now,
+      tickets: [
+        ticket("2101", "Unrouted backlog ticket", ["complexity:3"]),
+        ticket("2102", "Documentation refresh", [])
+      ]
+    })
+  end
+
+  defp ticket(identifier, title, labels) do
+    %{
+      identity: %TrackerIdentity{
+        status: :joinable,
+        kind: :github,
+        owner: "acme",
+        repository: "aiur",
+        provider_id: "NODE-#{identifier}",
+        identifier: identifier,
+        reason: nil
+      },
+      identifier: identifier,
+      title: title,
+      url: "https://github.com/acme/aiur/issues/#{identifier}",
+      state: "Todo",
+      labels: labels,
+      assignee: nil,
+      created_at: ~U[2026-07-16 12:00:00Z],
+      updated_at: ~U[2026-07-17 11:00:00Z]
+    }
+  end
+
+  defp add_agent_modal(row) do
+    selection =
+      AgentRoutingPreview.normalize_selection(%{
+        backend: row.routing.backend,
+        model: row.routing.model,
+        effort: row.routing.effort,
+        complexity: row.routing.complexity
+      })
+
+    %{
+      token: row.token,
+      identifier: row.identifier,
+      title: row.title,
+      identity: row.identity,
+      routing: row.routing,
+      selection: selection,
+      options: AgentRoutingPreview.options(selection.backend),
+      labels: row.labels,
+      plan: AgentRoutingPreview.plan(selection, row.labels),
+      result: nil
+    }
   end
 
   defp catalog(rows) do

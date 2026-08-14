@@ -4,7 +4,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
   import Phoenix.Component, only: [assign: 3]
 
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, Endpoint}
-  alias AiurWeb.OperatorControlCenter.{DecisionProvider, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{DecisionProvider, TicketsPresenter, UnitsPresenter}
 
   @reload_debounce_ms 50
   @reload_min_interval_ms 400
@@ -149,6 +149,7 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     |> Map.put(:retained_counts, retained_counts)
     |> update_in([:provider_health], &Map.put(&1, :retained_counts, retained_counts.health.status))
     |> then(&Map.put(&1, :units, UnitsPresenter.load(&1, units_options())))
+    |> Map.put(:tickets, TicketsPresenter.load(tickets_options()))
   end
 
   defp providers do
@@ -175,6 +176,10 @@ defmodule AiurWeb.OperatorControlCenter.PayloadLoader do
     []
     |> maybe_put_option(:membership_fun, Endpoint.config(:units_membership_fun))
     |> maybe_put_option(:activity_fun, Endpoint.config(:units_activity_fun))
+  end
+
+  defp tickets_options do
+    maybe_put_option([], :tickets_fun, Endpoint.config(:open_tickets_fun))
   end
 
   defp maybe_put_option(opts, _key, nil), do: opts
