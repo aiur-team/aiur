@@ -104,18 +104,12 @@ defmodule AiurWeb.StreamdeckLiveTest do
     assert html =~ ~s(id="streamdeck-install-modal")
     assert html =~ "aiur-streamdeck-0.0.0-dev.0098e3ac86a2-linux-x64-c6d1f373b30d8f038538becd746acb43ea2d4364501dc7ced4e65819e9bc76c3.tar.gz"
     assert html =~ "Install on your Stream Deck +"
-    assert html =~ "Download the Stream Deck + package"
-    assert html =~ "Extract the sidecar"
-    assert html =~ "--strip-components=1"
-    assert html =~ "Configure the sidecar"
-    assert html =~ "AIUR_PHOENIX_URL"
-    assert html =~ "Install and start"
-    assert html =~ "systemctl --user enable --now aiur-streamdeck.service"
-    assert html =~ "What success looks like"
+    assert html =~ "Download the package, then copy the prompt below into your coding agent"
+    assert html =~ "Walk me through installing the Aiur Stream Deck + sidecar on Linux"
+    assert html =~ "packages/streamdeck/README.md"
     assert html =~ "0.0.0-dev.0098e3ac86a2"
     refute html =~ "Aiur commit"
-    refute html =~ "Pair with your daemon"
-    refute html =~ "Linux with udev"
+    refute html =~ "AIUR_PHOENIX_URL"
     refute html =~ "AIUR_DASHBOARD_PASSWORD="
     refute html =~ "streamdeck-password"
     refute html =~ "browser_fixture_password"
@@ -133,15 +127,13 @@ defmodule AiurWeb.StreamdeckLiveTest do
 
       html = view |> element("#streamdeck-download-control") |> render_click()
 
-      # The setup steps render regardless of package availability; only the
+      # The prompt block renders regardless of package availability; only the
       # download link and release metadata step aside.
       assert html =~ ~s(id="streamdeck-install-modal")
       assert html =~ "Install on your Stream Deck +"
-      assert html =~ "No package published for this release"
-      assert html =~ "Extract the sidecar"
-      assert html =~ "Configure the sidecar"
-      assert html =~ "Install and start"
-      assert html =~ "What success looks like"
+      assert html =~ "No package is published for this release"
+      assert html =~ "Walk me through installing the Aiur Stream Deck + sidecar on Linux"
+      assert html =~ "packages/streamdeck/README.md"
       refute html =~ "Download the Stream Deck + package"
       refute html =~ "aiur-streamdeck-"
       refute html =~ "Aiur commit"

@@ -48,7 +48,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     assigns =
       assigns
       |> assign(:windows, github_windows(assigns.quota))
-      |> assign(:attribution, github_attribution(assigns.quota))
       |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
@@ -60,12 +59,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       <div class="rs-head">
         <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
         <span class="rs-name">Github</span>
-        <div :if={@attribution} class="rs-head-stats">
-          <div class="rs-stat">
-            <span class="rs-stat-label">Window traffic</span>
-            <span class="rs-stat-val">{@attribution.reads}R / {@attribution.writes}W</span>
-          </div>
-        </div>
       </div>
       <div class="rs-limits">
         <div :if={@windows == []} class="rs-limit">
@@ -292,14 +285,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_backoffs(%{backoffs: backoffs}) when is_list(backoffs), do: backoffs
   defp github_backoffs(_quota), do: []
-
-  defp github_attribution(%{attribution: attribution}) when is_list(attribution) and attribution != [] do
-    Enum.reduce(attribution, %{reads: 0, writes: 0}, fn entry, totals ->
-      %{reads: totals.reads + Map.get(entry, :reads, 0), writes: totals.writes + Map.get(entry, :writes, 0)}
-    end)
-  end
-
-  defp github_attribution(_quota), do: nil
 
   defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
 

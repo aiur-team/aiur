@@ -601,54 +601,14 @@ defmodule AiurWeb.StreamdeckLive do
             <button type="button" class="tool-btn" phx-click="close-streamdeck-install">Close</button>
           </header>
 
-          <p :if={@os == :windows} class="sd-install-intro">
-            Windows isn't fully supported yet. Run the sidecar under WSL2, or drive the fleet from the dashboard.
+          <p class="sd-install-intro">
+            <span :if={package?(@streamdeck_package)}>Download the package, then copy the prompt below into your coding agent:</span>
+            <span :if={!package?(@streamdeck_package)}>No package is published for this release. Copy the prompt below into your coding agent to build and install the sidecar from source:</span>
           </p>
 
-          <p :if={@os != :windows} class="sd-install-intro">
-            Download the sidecar, point it at your daemon, then install and start it.
-          </p>
+          <pre class="sd-install-prompt" tabindex="0"><code>Walk me through installing the Aiur Stream Deck + sidecar on {os_label(@os)}. Follow packages/streamdeck/README.md exactly and give me copy-pasteable commands for each step.</code></pre>
 
-          <ol :if={@os == :linux} class="sd-install-steps">
-            <li :if={package?(@streamdeck_package)}><strong><a href={@streamdeck_package.url} download>Download the Stream Deck + package.</a></strong></li>
-            <li :if={!package?(@streamdeck_package)}><strong>No package published for this release.</strong> Build the sidecar from source and continue with the steps below.</li>
-            <li><strong>Extract the sidecar.</strong>
-              <pre><code>mkdir -p ~/.local/share/aiur/streamdeck
-    tar -xzf ~/Downloads/*streamdeck*.tar.gz -C ~/.local/share/aiur/streamdeck --strip-components=1</code></pre>
-            </li>
-            <li><strong>Configure the sidecar.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
-              <pre><code>AIUR_PHOENIX_URL
-    AIUR_DASHBOARD_USERNAME
-    AIUR_DASHBOARD_PASSWORD</code></pre>
-            </li>
-            <li><strong>Install and start.</strong>
-              <pre><code>sudo install -Dm644 ~/.local/share/aiur/streamdeck/share/udev/70-streamdeck.rules /etc/udev/rules.d/
-    install -Dm644 ~/.local/share/aiur/streamdeck/share/systemd/aiur-streamdeck.service ~/.config/systemd/user/
-    systemctl --user enable --now aiur-streamdeck.service</code></pre>
-            </li>
-          </ol>
-
-          <ol :if={@os == :mac} class="sd-install-steps">
-            <li :if={package?(@streamdeck_package)}><strong><a href={@streamdeck_package.url} download>Download the Stream Deck + package.</a></strong></li>
-            <li :if={!package?(@streamdeck_package)}><strong>No package published for this release.</strong> Build the sidecar from source and continue with the steps below.</li>
-            <li><strong>Extract the sidecar.</strong>
-              <pre><code>mkdir -p "$HOME/Library/Application Support/aiur/streamdeck"
-    tar -xzf ~/Downloads/*streamdeck*.tar.gz -C "$HOME/Library/Application Support/aiur/streamdeck" --strip-components=1</code></pre>
-            </li>
-            <li><strong>Configure the sidecar.</strong> Put the daemon address and dashboard credentials in <code>~/.config/aiur/streamdeck.env</code>:
-              <pre><code>AIUR_PHOENIX_URL
-    AIUR_DASHBOARD_USERNAME
-    AIUR_DASHBOARD_PASSWORD</code></pre>
-            </li>
-            <li><strong>Run the sidecar.</strong>
-              <pre><code>"$HOME/Library/Application Support/aiur/streamdeck/aiur-streamdeck"</code></pre>
-            </li>
-          </ol>
-
-          <section :if={@os != :windows} class="sd-install-result" aria-labelledby="streamdeck-success-title">
-            <h3 id="streamdeck-success-title">What success looks like</h3>
-            <p>The deck shows your Aiur fleet. If it does not, first check <code>systemctl --user status aiur-streamdeck.service</code>.</p>
-          </section>
+          <p :if={@os == :windows} class="sd-install-note">Windows isn't fully supported yet; the README documents the Linux and macOS paths.</p>
 
           <p :if={package?(@streamdeck_package)} class="modal-meta">
             <a href={@streamdeck_package.url} download>Download package {@streamdeck_package.version}</a>
@@ -1343,6 +1303,10 @@ defmodule AiurWeb.StreamdeckLive do
   end
 
   defp detect_os(_user_agent), do: :linux
+
+  defp os_label(:windows), do: "Windows"
+  defp os_label(:mac), do: "macOS"
+  defp os_label(_linux), do: "Linux"
 
   defp load_grid do
     snapshot =

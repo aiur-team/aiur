@@ -130,8 +130,8 @@ for (const { width, isMobile } of routeShellViewports) {
 
         expect(reservedSpace.padding).toBeGreaterThanOrEqual(reservedSpace.navigation)
       } else {
-        const sidebar = page.locator('.shell-sidebar')
-        const initialTop = (await sidebar.boundingBox()).y
+        const topbar = page.locator('.topbar')
+        const initialTop = (await topbar.boundingBox()).y
 
         await page.evaluate(() => {
           const spacer = document.createElement('div')
@@ -142,7 +142,7 @@ for (const { width, isMobile } of routeShellViewports) {
         })
         await nextPaint(page)
 
-        expect((await sidebar.boundingBox()).y).toBeCloseTo(initialTop, 0)
+        expect((await topbar.boundingBox()).y).toBeCloseTo(initialTop, 0)
       }
 
       const accessibility = await new AxeBuilder({ page }).analyze()

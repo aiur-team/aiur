@@ -186,6 +186,12 @@ textarea:focus-visible,
   gap: 1.25rem;
 }
 
+.shell-body {
+  display: grid;
+  min-width: 0;
+  gap: 1.25rem;
+}
+
 .shell-sidebar {
   display: grid;
   align-self: start;
@@ -306,6 +312,7 @@ textarea:focus-visible,
 }
 
 .route-context {
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -1715,7 +1722,7 @@ textarea:focus-visible,
   z-index: 30;
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 1rem;
   flex-wrap: wrap;
   padding: 0.5rem 1.15rem;
@@ -1767,7 +1774,8 @@ textarea:focus-visible,
   flex-wrap: wrap;
   gap: 0.55rem;
   min-width: 0;
-  padding: 0.35rem 0.2rem 0.6rem 0.35rem;
+  flex: none;
+  padding: 0;
 }
 
 .brand-row .brand-live {
@@ -1781,7 +1789,7 @@ textarea:focus-visible,
 }
 
 .brand-row #global-pause-toggle {
-  margin-left: auto;
+  margin-left: 0.1rem;
 }
 
 .brand-row #nav-toggle {
@@ -1891,26 +1899,15 @@ html[data-theme="light"] .toggle-icon .moon {
   line-height: 1;
 }
 
-/* Collapsed navigation: hide the route list; the brand row (with the toggle to
-   reopen) stays, and the sidebar shrinks to reclaim space for content. */
-.dashboard-shell[data-nav-collapsed="true"] .shell-nav-sidebar {
+/* Collapsed navigation: hide the route list; the topbar (brand + toggle)
+   stays, and the sidebar collapses to reclaim space for content. */
+.dashboard-shell[data-nav-collapsed="true"] .shell-sidebar {
   display: none;
-}
-
-.dashboard-shell[data-nav-collapsed="true"] .brand-mini-logo,
-.dashboard-shell[data-nav-collapsed="true"] .brand-wordmark,
-.dashboard-shell[data-nav-collapsed="true"] .brand-live,
-.dashboard-shell[data-nav-collapsed="true"] .nav-hide-icon {
-  display: none;
-}
-
-.dashboard-shell[data-nav-collapsed="true"] .nav-show-icon {
-  display: block;
 }
 
 @media (min-width: 960px) {
-  .dashboard-shell[data-nav-collapsed="true"] {
-    grid-template-columns: auto minmax(0, 1fr);
+  .dashboard-shell[data-nav-collapsed="true"] .shell-body {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -1920,6 +1917,7 @@ html[data-theme="light"] .toggle-icon .moon {
   justify-content: flex-end;
   gap: 0.45rem;
   flex-wrap: wrap;
+  margin-left: auto;
 }
 
 /* The one and only theme toggle, at every resolution. */
@@ -5777,7 +5775,7 @@ html[data-theme="light"] .rs-github-mark {
 }
 
 @media (min-width: 960px) {
-  .dashboard-shell {
+  .shell-body {
     grid-template-columns: minmax(12rem, 15rem) minmax(0, 1fr);
   }
 
@@ -5793,10 +5791,7 @@ html[data-theme="light"] .rs-github-mark {
   }
 
   .shell-sidebar {
-    position: sticky;
-    /* The resting offset is now 0 (no .app-shell block padding), so the sticky
-       top matches it and the sidebar does not jump when it pins. */
-    top: 0;
+    align-self: start;
   }
 }
 
@@ -8058,6 +8053,30 @@ html[data-theme="light"] .rs-github-mark {
 .sd-install-modal {
   width: min(680px, 100%);
   overflow: auto;
+}
+
+.sd-install-prompt {
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface-2);
+}
+
+.sd-install-prompt code {
+  display: block;
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sd-install-note {
+  margin: 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--muted);
 }
 
 .sd-install-intro,

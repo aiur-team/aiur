@@ -615,8 +615,8 @@ defmodule AiurWeb.DashboardLiveTest do
       assert Floki.find(mobile_nav, "#global-pause-toggle-mobile") != [],
              "the mobile nav must carry its own global pause toggle"
 
-      assert Floki.find(doc, "aside.shell-sidebar #global-pause-toggle") != [],
-             "the sidebar keeps the desktop pause toggle"
+      assert Floki.find(doc, ".topbar .brand-row #global-pause-toggle") != [],
+             "the topbar brand row keeps the desktop pause toggle"
 
       assert Floki.find(doc, ".topbar .toolbar .topbar-controls #theme-toggle") != [],
              "the theme toggle lives in the topbar, inline with the route title"
