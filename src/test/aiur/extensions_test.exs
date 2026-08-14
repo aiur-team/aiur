@@ -954,7 +954,7 @@ defmodule Aiur.ExtensionsTest do
     assert dashboard_css =~ ":root {"
     refute dashboard_css =~ ".status-badge-live"
     assert dashboard_css =~ "[data-phx-main].phx-connected .status-badge-offline"
-    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .nav-show-icon"
+    assert dashboard_css =~ ".dashboard-shell[data-nav-collapsed=\"true\"] .shell-sidebar"
     assert dashboard_css =~ ".live-button[data-live=\"false\"]"
     assert Plug.Conn.get_resp_header(dashboard_css_conn, "cache-control") == ["private, max-age=0, must-revalidate"]
 
