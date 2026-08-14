@@ -57,7 +57,7 @@ requires_pinned_opencode() {
   # an Aiur session need OpenCode. Control and utility commands must remain
   # usable against an existing daemon when the local tool install is missing.
   case "$cmd" in
-    "" | run | --bg) return 0 ;;
+    "" | run | restart | --bg) return 0 ;;
     help | -h | -help | --h | --help | --version | --todo | --only | init | findings | guard-pr-deletions) return 1 ;;
     agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget) return 1 ;;
     -*) return 0 ;;
@@ -195,6 +195,15 @@ pure_control_command() {
   esac
 }
 
+# `restart` owns its own rebuild, which the engine runs AFTER the stop (see
+# AIUR_RESTART_BUILD_CMD). Rebuilding here as well would put the rebuild back on
+# the wrong side of the stop — in-place over the release the live BEAM is booted
+# from — so the pre-dispatch step must only guarantee a release complete enough
+# to issue that stop, never a fresh one.
+builds_after_stop() {
+  [ "${1:-}" = "restart" ]
+}
+
 ensure_control_surface() {
   local status=0
 
@@ -281,6 +290,27 @@ apply_agent_ir_xdg_env() {
     export XDG_STATE_HOME="${AIUR_AGENT_IR_XDG_STATE_HOME:?}"
   fi
 }
+
+# Internal entry point for the rebuild `aiur restart` runs between its stop and
+# its start (the engine invokes it through AIUR_RESTART_BUILD_CMD). It is a
+# separate process so it takes the build lock in its own right, and it applies
+# the same build-if-stale rule as any other dev launch: a release the sources
+# have not outrun is already the latest build, and a forced rebuild of an
+# unchanged tree would only lengthen the window where no daemon is running. Use
+# `aiurdev build` when you want the unconditional force-rebuild.
+#
+# It sits ABOVE the tmux guard on purpose. It starts no session, so the guard
+# does not apply — and an inherited $TMUX would otherwise make a rebuild that
+# never ran look like a failed one, with the daemon already stopped.
+if [ "${1:-}" = "__ensure-build" ]; then
+  # The fleet is down for the whole of this step, including any wait for a
+  # rebuild another shell is holding the lock for. Say so, so a long wait reads
+  # as an outage the operator can act on rather than an idle prompt.
+  echo "🔁 refreshing the release; the daemon is stopped until this finishes" >&2
+  ensure_build_status=0
+  ensure_built || ensure_build_status=$?
+  exit "$ensure_build_status"
+fi
 
 # aiur spawns its own tmux on a dedicated socket and does not nest cleanly.
 if [ -n "${TMUX:-}" ]; then
@@ -375,7 +405,14 @@ if [ -n "$agent_workspace_marker" ]; then
   enable_agent_ir_sandbox "$agent_workspace_marker" 0
 fi
 
-if pure_control_command "${passthrough[0]:-}"; then
+if builds_after_stop "${passthrough[0]:-}"; then
+  # Normally a no-op: a complete release is already there and the real rebuild
+  # waits until the daemon is down. When there is no complete release, the stop
+  # itself cannot run without one, so the repair build necessarily lands before
+  # the stop — announce that inversion instead of performing it silently.
+  release_ready || echo "⚠️  no complete release; building one BEFORE the stop (this rewrites the release the running daemon booted from)" >&2
+  ensure_control_surface
+elif pure_control_command "${passthrough[0]:-}"; then
   ensure_control_surface
 else
   ensure_built
@@ -448,6 +485,16 @@ if [ "$test3_mode" -eq 1 ]; then
 fi
 
 export AIUR_RELEASE_DIR="$release_dir"
+
+# The dev half of `aiur restart`: the engine owns the stop/build/start ordering,
+# this shim owns what "build" means here. %q keeps a repo path with spaces intact
+# through the engine's `bash -c`. Exported only for the command that consumes it,
+# so no daemon or agent process inherits a rebuild bound to this checkout.
+if builds_after_stop "${passthrough[0]:-}"; then
+  printf -v AIUR_RESTART_BUILD_CMD '%q %q' "$script_dir/$(basename "$src")" "__ensure-build"
+  export AIUR_RESTART_BUILD_CMD
+fi
+
 if requires_pinned_opencode "${passthrough[0]:-}"; then
   ensure_pinned_opencode
 fi
