@@ -110,7 +110,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:decision_filter, :all)
       |> assign(:decision_page, empty_decision_page())
       |> assign(:decision_query, %{})
-      |> init_history_stream()
+      |> init_history_rows()
       |> assign(:units_selection, UnitsURL.default_selection())
       |> assign(:unit_controls, %{})
       |> assign(:unit_control_subscriptions, MapSet.new())
@@ -662,7 +662,7 @@ defmodule AiurWeb.DashboardLive do
       |> Map.put_new(:retained_counts, Map.get(assigns.payload, :retained_counts, unavailable_retained_counts()))
       |> Map.put_new(:decision_page, fallback_decision_page(assigns.payload))
       |> Map.put_new(:decision_query, %{})
-      |> Map.put_new(:streams, %{command_history: []})
+      |> Map.put_new(:history_rows, [])
       |> Map.put_new(:history_ids, MapSet.new())
       |> Map.put_new(:history_total, nil)
       |> Map.put_new(:history_has_more, false)
@@ -730,7 +730,7 @@ defmodule AiurWeb.DashboardLive do
         </div>
         <DecisionInbox.decision_inbox
           decisions={Enum.reject(@decision_page.decisions, &(&1.decision_id == @selected_decision_id))}
-          selected_decision={@selected_decision}
+          selected_decision={inbox_selected_decision(@selected_decision, @history_rows)}
           selected_decision_id={@selected_decision_id}
           filter={@decision_filter}
           now={@now}
@@ -744,11 +744,18 @@ defmodule AiurWeb.DashboardLive do
           history_total={@history_total}
         />
         <History.history
-          rows={@streams.command_history}
+          rows={@history_rows}
           loaded={MapSet.size(@history_ids)}
           total={@history_total}
           has_more={@history_has_more}
           provider_health={@history_health}
+          expanded_id={history_expanded_id(@selected_decision, @history_rows)}
+          expanded_decision={@selected_decision}
+          history={@payload.history}
+          action_state={history_action_state(@decision_actions, @selected_decision_id)}
+          writable={@writable}
+          filter={@decision_filter}
+          query={@decision_query}
         />
       </div>
 
@@ -1890,15 +1897,19 @@ defmodule AiurWeb.DashboardLive do
 
   # --- Command history -------------------------------------------------------
   #
-  # History is a stream so "Load more" appends one page and re-renders nothing
-  # that is already on screen. Rows are always read back from the retained
-  # store: a Command reaches history because the store says it left the queue,
-  # never because a click hid a card.
+  # History is an ordered list of rows the operator has loaded, so "Load more"
+  # appends one page to what is already on screen. Rows are always read back
+  # from the retained store: a Command reaches history because the store says it
+  # left the queue, never because a click hid a card.
+  #
+  # A stream would be the cheaper structure for an append-only table, but a row
+  # is now an accordion: expanding one has to re-render that row, and a stream
+  # item only re-renders when it is re-inserted — which would also move it to a
+  # new position in the list.
 
-  defp init_history_stream(socket) do
+  defp init_history_rows(socket) do
     socket
-    |> stream_configure(:command_history, dom_id: &"history-#{&1.decision_id}")
-    |> stream(:command_history, [])
+    |> assign(:history_rows, [])
     |> assign(:history_ids, MapSet.new())
     |> assign(:history_cursor, nil)
     |> assign(:history_total, nil)
@@ -1953,7 +1964,7 @@ defmodule AiurWeb.DashboardLive do
 
   defp reset_history_with(page, socket) do
     socket
-    |> stream(:command_history, page.decisions, reset: true)
+    |> assign(:history_rows, page.decisions)
     |> assign(:history_ids, MapSet.new(page.decisions, & &1.decision_id))
     |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
     |> assign(:history_total, get_in(page, [:pagination, :total]))
@@ -1965,7 +1976,7 @@ defmodule AiurWeb.DashboardLive do
     new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
 
     socket
-    |> stream_rows(new_rows, [])
+    |> append_history_rows(new_rows)
     |> assign(:history_cursor, get_in(page, [:pagination, :next_cursor]))
     |> assign(:history_total, get_in(page, [:pagination, :total]))
     |> assign(:history_has_more, not is_nil(get_in(page, [:pagination, :next_cursor])))
@@ -1976,10 +1987,12 @@ defmodule AiurWeb.DashboardLive do
     if MapSet.size(socket.assigns.history_ids) == 0 do
       reset_history_with(page, socket)
     else
-      new_rows = Enum.reject(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
+      {known_rows, new_rows} =
+        Enum.split_with(page.decisions, &MapSet.member?(socket.assigns.history_ids, &1.decision_id))
 
       socket
-      |> stream_rows(Enum.reverse(new_rows), at: 0)
+      |> refresh_history_rows(known_rows)
+      |> prepend_history_rows(new_rows)
       |> assign(:history_total, get_in(page, [:pagination, :total]))
       |> assign(:history_health, history_health(page))
     end
@@ -1994,18 +2007,76 @@ defmodule AiurWeb.DashboardLive do
          true <- decision.decision_status in @history_statuses do
       # The total stays whatever the store reported for the whole history set;
       # it is never incremented locally, so it cannot drift from the rows.
-      stream_rows(socket, [decision], at: 0)
+      #
+      # A Command already in the table is refreshed where it sits. Only a
+      # Command arriving in history for the first time joins at the head —
+      # answering from inside an open row must not make that row jump out from
+      # under the operator who is reading it.
+      if MapSet.member?(socket.assigns.history_ids, decision_id) do
+        refresh_history_rows(socket, [decision])
+      else
+        prepend_history_rows(socket, [decision])
+      end
     else
       _other -> socket
     end
   end
 
-  defp stream_rows(socket, rows, opts) do
-    Enum.reduce(rows, socket, fn row, socket ->
-      socket
-      |> stream_insert(:command_history, row, opts)
-      |> assign(:history_ids, MapSet.put(socket.assigns.history_ids, row.decision_id))
-    end)
+  # A finished Command is read where it lives: expanded inside its own history
+  # row. The inbox only ever hoists a Command the operator can still act on from
+  # the queue, so a history selection is not promoted to the top of the page.
+  #
+  # The one exception is a Command that history has not loaded — a deep link
+  # past the pages on screen. There is no row to expand, so the card is still
+  # the only way to see it.
+  defp inbox_selected_decision(selected, history_rows) do
+    if history_expanded_id(selected, history_rows), do: nil, else: selected
+  end
+
+  defp history_expanded_id(%{decision_id: decision_id, decision_status: status}, history_rows)
+       when status in @history_statuses do
+    if Enum.any?(history_rows, &(&1.decision_id == decision_id)), do: decision_id
+  end
+
+  defp history_expanded_id(_selected, _history_rows), do: nil
+
+  defp history_action_state(decision_actions, decision_id) when is_binary(decision_id),
+    do: Map.get(decision_actions, decision_id, %{})
+
+  defp history_action_state(_decision_actions, _decision_id), do: %{}
+
+  # A row already on screen is replaced in place with the freshly read copy,
+  # never skipped. A Command can be revised after it reached history, and a row
+  # holding its original answer would contradict the panel that expands out of
+  # it — showing fresh facts while open and stale ones the moment it closes.
+  # Position is preserved: this is a refresh, not a re-ordering.
+  defp refresh_history_rows(socket, []), do: socket
+
+  defp refresh_history_rows(socket, rows) do
+    fresh = Map.new(rows, &{&1.decision_id, &1})
+
+    assign(socket, :history_rows, Enum.map(socket.assigns.history_rows, &Map.get(fresh, &1.decision_id, &1)))
+  end
+
+  defp append_history_rows(socket, rows) do
+    socket
+    |> assign(:history_rows, socket.assigns.history_rows ++ rows)
+    |> track_history_ids(rows)
+  end
+
+  # Prepending re-reads a Command the operator just acted on, so any older copy
+  # of the same row is dropped rather than left behind as a stale duplicate.
+  defp prepend_history_rows(socket, rows) do
+    ids = MapSet.new(rows, & &1.decision_id)
+    kept = Enum.reject(socket.assigns.history_rows, &MapSet.member?(ids, &1.decision_id))
+
+    socket
+    |> assign(:history_rows, rows ++ kept)
+    |> track_history_ids(rows)
+  end
+
+  defp track_history_ids(socket, rows) do
+    assign(socket, :history_ids, Enum.reduce(rows, socket.assigns.history_ids, &MapSet.put(&2, &1.decision_id)))
   end
 
   defp history_page(cursor) do
