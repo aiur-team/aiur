@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { FeatureReportsUnsupportedError, HIDRAW_OPEN_FLAGS, openHidrawBackend, type FileHandleLike, type FsLike } from "../src/hidraw-backend.js";
-import { READ_LENGTH } from "../src/report.js";
+import { INPUT_REPORT_LENGTH } from "../src/report.js";
 
 const fakeFs = (handle: Partial<FileHandleLike>): { fs: FsLike; open: ReturnType<typeof vi.fn> } => {
   const full: FileHandleLike = {
@@ -30,7 +30,7 @@ describe("openHidrawBackend", () => {
     const { fs } = fakeFs({
       read: vi.fn(async (buffer: Uint8Array) => {
         buffer[0] = 7;
-        return { bytesRead: READ_LENGTH };
+        return { bytesRead: INPUT_REPORT_LENGTH };
       }),
     });
     const backend = await openHidrawBackend(fs, "/dev/hidraw9");

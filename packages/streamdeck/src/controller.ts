@@ -1,9 +1,71 @@
-import { applyStep, columnOffsetFromDial, cycleEventPage, cycleWindow, dial3ValueFromEventOffset, maxColumnOffset } from "./dial.js";
+import { cycleEventPage, cycleWindow, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
-import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs } from "./channel.js";
+import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
+
+/**
+ * One row of the log surface, kept structured all the way to the renderer.
+ *
+ * The daemon sends `{kind, badge, text, time}` per event key. Flattening that
+ * to a single display string on arrival threw away the direction badge and the
+ * relative timestamp, so every event key painted an identical grey `INFO` badge
+ * and no time at all.
+ */
+export interface EventKey {
+  /** `live` is the feed's sentinel first row, not an event. */
+  readonly kind: "live" | "event";
+  /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
+  readonly badge: string;
+  readonly text: string;
+  /** Relative timestamp such as "3m"; empty when the feed omits one. */
+  readonly time: string;
+}
+
+const asString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
+const asNumber = (value: unknown): number => (typeof value === "number" && Number.isFinite(value) ? value : 0);
+/** Empty strings are absent values here: the daemon omits, rather than blanks, a missing diff line. */
+const asText = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
+
+/** Normalises one server transcript row into a {@link TranscriptRow}. */
+const toTranscriptRow = (entry: Readonly<Record<string, unknown>>): TranscriptRow => {
+  if (entry.kind === "event_header") {
+    return {
+      kind: "event_header",
+      badge: asString(entry.badge, "INFO"),
+      body: asString(entry.body),
+      timestamp: asText(entry.timestamp),
+    };
+  }
+  if (entry.kind === "diff") {
+    return {
+      kind: "diff",
+      path: asString(entry.path, "changed file"),
+      additions: asNumber(entry.additions),
+      deletions: asNumber(entry.deletions),
+      line: asText(entry.line),
+    };
+  }
+  // Anything else is treated as a message rather than dropped: a row the
+  // renderer cannot classify still has to hold its position, because every
+  // position after it is a jump target the log keys address by index.
+  // `system` rather than `agent`: it is the daemon's own default for an entry
+  // with no role, and painting an unattributed row in the agent's colour claims
+  // the agent said something it did not.
+  return { kind: "message", role: asString(entry.role, "system"), body: asString(entry.body, asString(entry.line)) };
+};
+
+/** Normalises one server event-key payload into an {@link EventKey}. */
+const toEventKey = (event: Readonly<Record<string, unknown>>): EventKey =>
+  event.kind === "live"
+    ? { kind: "live", badge: "LIVE", text: asString(event.label, "LIVE"), time: "" }
+    : {
+        kind: "event",
+        badge: asString(event.badge, "INFO"),
+        text: asString(event.text, asString(event.label, "EVENT")),
+        time: asString(event.time),
+      };
 
 export interface ControllerState {
   readonly mode: ControllerMode;
@@ -11,8 +73,8 @@ export interface ControllerState {
   readonly columnOffset: number;
   readonly eventOffset: number;
   readonly chatOffset: number;
-  readonly transcriptLines: readonly string[];
-  readonly eventLines: readonly string[];
+  readonly transcriptRows: readonly TranscriptRow[];
+  readonly eventLines: readonly EventKey[];
   readonly eventHasPrevious: boolean;
   readonly eventHasNext: boolean;
   readonly chatHasPrevious: boolean;
@@ -24,7 +86,23 @@ export interface PhysicalControllerOptions {
   grid(): StreamDeckGrid;
   channel(): Pick<StreamDeckChannel, "focus" | "control"> | null;
   stateChanged(state: ControllerState): void;
+  /** Invoked when the demo chord is held; absent when the host has no demo. */
+  toggleDemo?(): void;
 }
+
+/**
+ * Encoder buttons that toggle demo mode when pressed together: the middle two
+ * knobs.
+ *
+ * Knobs rather than keys, and specifically these two, because their presses are
+ * the only controls on the deck with no meaning of their own — dial A presses
+ * for back and dial D cycles the window, while B and C are free. So the chord
+ * cannot shadow a real action in any mode, and cannot be hit while paging.
+ * Holding it also returns the surface to the grid: swapping the data source
+ * underneath a focused agent would leave the command screen describing a ticket
+ * that is no longer in the fleet being shown.
+ */
+export const DEMO_CHORD: readonly number[] = [1, 2];
 
 const initialState: ControllerState = {
   mode: "grid",
@@ -32,7 +110,7 @@ const initialState: ControllerState = {
   columnOffset: 0,
   eventOffset: 0,
   chatOffset: 0,
-  transcriptLines: [],
+  transcriptRows: [],
   eventLines: [],
   eventHasPrevious: false,
   eventHasNext: false,
@@ -56,10 +134,19 @@ const identifierOf = (agent: Readonly<Record<string, unknown>> | undefined): str
 export const createPhysicalController = (options: PhysicalControllerOptions) => {
   let state = initialState;
   let pressed = new Set<string>();
-  let dial3Value = 0;
-  let chatDialValue = 0;
-  let transcriptHistory: readonly string[] = [];
-  let eventHistory: readonly string[] = [];
+  let chordActive = false;
+  let transcriptHistory: readonly TranscriptRow[] = [];
+  /**
+   * Index in the flattened transcript where each event's entries begin.
+   *
+   * The daemon flattens the transcript as an `event_header` followed by that
+   * event's chat entries, newest event first, so the header positions are the
+   * jump targets for the log keys — no extra wire message is needed to find
+   * them. Position `n` here belongs to event key `n + 1`, because key 0 is the
+   * LIVE row rather than an event.
+   */
+  let eventStarts: readonly number[] = [];
+  let eventHistory: readonly EventKey[] = [];
   let eventMaxOffset = 0;
   let chatMaxOffset = 0;
 
@@ -82,15 +169,12 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     const maxChat = chatMaxOffset;
     const boundedEvent = Math.max(0, Math.min(eventOffset, eventMaxOffset));
     const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
-    if (state.mode !== "logs") {
-      chatDialValue = maxChat === 0 ? 0 : (boundedChat / maxChat) * 100;
-    }
     publish({
       ...state,
       eventOffset: boundedEvent,
       chatOffset: boundedChat,
       eventLines: eventHistory,
-      transcriptLines: transcriptHistory.slice(boundedChat, boundedChat + 2),
+      transcriptRows: transcriptHistory.slice(boundedChat, boundedChat + 2),
       eventHasPrevious: boundedEvent > 0,
       eventHasNext: boundedEvent < eventMaxOffset,
       chatHasPrevious: boundedChat > 0,
@@ -98,13 +182,44 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     });
   };
 
+  /**
+   * Opens the logs surface and repaints its transcript window.
+   *
+   * Leaving logs clears the visible rows, so re-entering has to rebuild the
+   * window from the retained history; without it the strip stayed blank until
+   * the daemon happened to push again.
+   */
+  const enterLogs = (): void => {
+    publish({ ...state, mode: "logs", micHeld: false });
+    setLogsOffsets(state.eventOffset, state.chatOffset);
+  };
+
   const back = (): void => {
-    if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptLines: [], micHeld: false });
+    if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptRows: [], micHeld: false });
     else if (state.mode === "cmd") publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false });
   };
 
   const pressKey = (index: number): void => {
     const grid = options.grid();
+    if (state.mode === "logs") {
+      // Pressing an event key scrolls the transcript to where that event
+      // begins; the LIVE row jumps to the newest entry. Dial A still scrolls
+      // freely from wherever the jump landed.
+      const position = state.eventOffset + index;
+      const entry = eventHistory[position];
+      if (entry === undefined) return;
+      if (entry.kind === "live") {
+        setLogsOffsets(state.eventOffset, 0);
+        return;
+      }
+      // An event with no header in the transcript has nowhere to scroll to, so
+      // the press is inert rather than silently jumping to the newest entry —
+      // which is the LIVE key's job and would look like the wrong key fired.
+      const target = eventStarts[position - 1];
+      if (target === undefined) return;
+      setLogsOffsets(state.eventOffset, target);
+      return;
+    }
     if (state.mode === "grid") {
       const identifier = identifierOf(agentAt(grid, state.columnOffset, index));
       if (identifier !== null) {
@@ -118,12 +233,14 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const identifier = state.focusedIdentifier;
       if (identifier === null || agent === undefined) return;
       if (index === 0) {
-        const bucket = agent.bucket === "running" ? "pause" : agent.bucket === "paused" ? "resume" : null;
-        if (bucket !== null) options.channel()?.control(identifier, bucket);
+        // Anything not already paused can be paused. Restricting this to the
+        // `running` bucket left the key inert for an alert or stuck agent —
+        // exactly the states an operator most wants to halt.
+        options.channel()?.control(identifier, agent.bucket === "paused" ? "resume" : "pause");
       } else if (index === 1) {
         options.channel()?.control(identifier, agent.priority === true ? "deprioritize" : "prioritize");
       } else if (index === 2) {
-        publish({ ...state, mode: "logs", micHeld: false });
+        enterLogs();
       } else if (index === 3) {
         publish({ ...state, micHeld: true });
       }
@@ -134,19 +251,32 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (state.micHeld) publish({ ...state, micHeld: false });
   };
 
+  /**
+   * One detent moves the list exactly one position.
+   *
+   * This used to route a turn through the mock's 0-100 knob value: a detent
+   * added DIAL_STEP (4) to that value, and the offset was derived as
+   * `round(value/100 * maxOffset)`. With 32 agents (max offset 12) one detent
+   * worked out to 0.48 columns, which rounds to no movement at all — so the
+   * operator had to click twice for every column. The 0-100 value is a rotary
+   * artifact of the on-screen knob; a physical encoder reports detents, so step
+   * the offset directly and back-compute the knob value for display.
+   */
   const turn = (input: Extract<DeckInput, { type: "encoder-turn" }>): void => {
     const grid = options.grid();
+    const steps = input.ticks;
+    if (steps === 0) return;
+    const clamp = (value: number, max: number): number => Math.max(0, Math.min(max, value));
+
     if (input.index === 0 && state.mode === "logs") {
-      const next = applyStep(chatDialValue, input.ticks > 0 ? 1 : -1);
-      setLogsOffsets(state.eventOffset, Math.round((next / 100) * chatMaxOffset));
+      const next = clamp(state.chatOffset + steps, chatMaxOffset);
+      setLogsOffsets(state.eventOffset, next);
     } else if (input.index === 3 && state.mode === "logs") {
-      const next = applyStep(dial3Value, input.ticks > 0 ? 1 : -1);
-      setLogsOffsets(Math.round((next / 100) * eventMaxOffset), state.chatOffset);
-      dial3Value = next;
+      const next = clamp(state.eventOffset + steps, eventMaxOffset);
+      setLogsOffsets(next, state.chatOffset);
     } else if (input.index === 3) {
-      const next = applyStep(dial3Value, input.ticks > 0 ? 1 : -1);
-      setGridOffset(columnOffsetFromDial(next, grid.total));
-      dial3Value = next;
+      const next = clamp(state.columnOffset + steps, maxColumnOffset(grid.total));
+      setGridOffset(next);
     }
   };
 
@@ -155,14 +285,12 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (index !== 3) return;
     if (state.mode === "logs") {
       const next = cycleEventPage(state.eventOffset, eventMaxOffset + 8);
-      dial3Value = next.dial3Value;
       return setLogsOffsets(next.eventOffset, state.chatOffset);
     }
     if (state.mode === "cmd") {
-      return publish({ ...state, mode: "logs", micHeld: false });
+      return enterLogs();
     }
     const next = cycleWindow(state.columnOffset, options.grid().total);
-    dial3Value = next.dial3Value;
     setGridOffset(next.columnOffset);
   };
 
@@ -174,6 +302,26 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     }
     const edges = risingEdges(decoded, pressed);
     pressed = new Set(edges.pressed);
+
+    // Checked against the report's own encoder state, not the rising edges: the
+    // two knobs rarely go down in the same report, so an edge-only check would
+    // almost never see both at once.
+    const chordHeld =
+      options.toggleDemo !== undefined &&
+      DEMO_CHORD.every((index) =>
+        decoded.some((input) => input.type === "encoder-button" && input.index === index && input.pressed),
+      );
+    if (chordHeld) {
+      // Latch, or holding the pair would toggle once per poll.
+      if (!chordActive) {
+        chordActive = true;
+        if (state.mode !== "grid") publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false });
+        options.toggleDemo?.();
+      }
+      return;
+    }
+    chordActive = false;
+
     for (const input of edges.events) {
       if (input.type === "key") pressKey(input.index);
       else if (input.type === "encoder-button") pressDial(input.index);
@@ -183,26 +331,31 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   return {
     state: (): ControllerState => state,
     handleReport,
-    setTranscript: (lines: readonly string[]): void => {
-      chatMaxOffset = Math.max(0, lines.length - 2);
-      const offset = Math.min(state.chatOffset, chatMaxOffset);
-      transcriptHistory = [...lines];
-      setLogsOffsets(state.eventOffset, offset);
-    },
     setLogs: (logs: StreamDeckLogs): void => {
-      eventHistory = (logs.event_keys ?? logs.event_keys_visible ?? []).map((event) => typeof event.label === "string" ? event.label : typeof event.text === "string" ? event.text : "EVENT");
-      transcriptHistory = (logs.transcript ?? []).map((entry) => typeof entry.line === "string" ? entry.line : typeof entry.body === "string" ? entry.body : "[INFO]");
+      // Deliberately not falling back to `event_keys_visible`: that is the
+      // server's own eight-key slice, already offset and padded with empty
+      // slots. Paging a pre-sliced list adds the client's offset a second time,
+      // so a press addressed the wrong event, and each padding slot normalised
+      // into a pressable key that jumped nowhere.
+      eventHistory = (logs.event_keys ?? []).map(toEventKey);
+      const transcript = logs.transcript ?? [];
+      transcriptHistory = transcript.map(toTranscriptRow);
+      eventStarts = transcript.reduce<number[]>((starts, entry, index) => {
+        if (entry.kind === "event_header") starts.push(index);
+        return starts;
+      }, []);
       eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
       chatMaxOffset = typeof logs.transcript_max_offset === "number" ? logs.transcript_max_offset : Math.max(0, transcriptHistory.length - 2);
       // A live logs push is a refresh, not a navigation command. Preserve the
       // operator's two independent positions while the logs surface is open;
       // the server offsets are only the initial position when entering logs.
       const eventOffset = state.mode === "logs" ? state.eventOffset : logs.events_offset ?? 0;
-      const transcriptOffset = state.mode === "logs" ? state.chatOffset : logs.transcript_offset ?? Math.max(0, transcriptHistory.length - 2);
+      // Entering logs opens on the newest entry, which is offset 0: the daemon
+      // flattens newest event first. Defaulting to the end of the list is the
+      // mock's convention, where the flat list runs oldest-first, and it opened
+      // the surface on the agent's oldest event instead of what it just said.
+      const transcriptOffset = state.mode === "logs" ? state.chatOffset : logs.transcript_offset ?? 0;
       setLogsOffsets(eventOffset, transcriptOffset);
-      if (state.mode !== "logs") {
-        dial3Value = eventMaxOffset === 0 ? 0 : dial3ValueFromEventOffset(eventOffset, eventMaxOffset + 8);
-      }
     },
     cancel: (): void => {
       pressed = new Set();

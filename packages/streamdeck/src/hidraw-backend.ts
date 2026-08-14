@@ -20,7 +20,7 @@
 
 import type { HidBackend } from "./backend.js";
 import type { RawRead } from "./read.js";
-import { READ_LENGTH } from "./report.js";
+import { INPUT_REPORT_LENGTH } from "./report.js";
 
 /** `O_RDWR | O_NONBLOCK` — the flags the backend opens the node with. */
 export const HIDRAW_OPEN_FLAGS = 0x0002 | 0x0800;
@@ -73,9 +73,9 @@ export const openHidrawBackend = async (fs: FsLike, path: string): Promise<HidBa
     },
 
     read: async (): Promise<RawRead> => {
-      const buffer = new Uint8Array(READ_LENGTH);
+      const buffer = new Uint8Array(INPUT_REPORT_LENGTH);
       try {
-        const { bytesRead } = await handle.read(buffer, 0, READ_LENGTH, null);
+        const { bytesRead } = await handle.read(buffer, 0, INPUT_REPORT_LENGTH, null);
         if (bytesRead === 0) {
           return { kind: "timeout" };
         }

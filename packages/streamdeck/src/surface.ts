@@ -10,8 +10,10 @@ import { StripRenderer } from "./touchStrip/stripRenderer.js";
 import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerSegmentModel, type ProviderMeter } from "./touchStrip/providerSegment.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
+import { currentWindow } from "./dial.js";
+import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
-import type { StreamDeckGrid } from "./channel.js";
+import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
 
 export type PhysicalMode = "grid" | "cmd" | "logs";
 export interface PhysicalSurfaceState {
@@ -19,8 +21,8 @@ export interface PhysicalSurfaceState {
   readonly focusedIdentifier: string | null;
   readonly micHeld?: boolean;
   readonly columnOffset: number;
-  readonly transcriptLines?: readonly string[];
-  readonly eventLines?: readonly string[];
+  readonly transcriptRows?: readonly TranscriptRow[];
+  readonly eventLines?: readonly EventKey[];
   readonly eventOffset?: number;
   readonly eventHasPrevious?: boolean;
   readonly eventHasNext?: boolean;
@@ -42,30 +44,59 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
   identifier: String(agent.identifier ?? ""),
   title: typeof agent.title === "string" ? agent.title : "",
   vendor: typeof agent.vendor === "string" ? agent.vendor : "unknown",
+  icon: typeof agent.icon === "string" ? agent.icon : "",
   bucket: (typeof agent.bucket === "string" ? agent.bucket : "queued") as AgentInput["bucket"],
   progress_percent: typeof agent.progress_percent === "number" ? agent.progress_percent : 0,
   priority: agent.priority === true,
   dependency_ready: agent.dependency_ready === true,
 }));
 
-const descriptorEvents = (lines: readonly string[], offset: number): AgentInput[] => lines.slice(offset, offset + 8).map((line, index) => ({
-  identifier: `event-${offset + index}`,
-  title: line,
-  vendor: "logs",
-  bucket: "queued",
-  progress_percent: 0,
-  priority: false,
-  dependency_ready: true,
-}));
+const descriptorEvents = (events: readonly EventKey[], offset: number): AgentInput[] =>
+  events.slice(offset, offset + 8).map((event, index) => ({
+    identifier: `event-${offset + index}`,
+    title: event.text,
+    vendor: "logs",
+    // The feed's first row is a live indicator, not an event, and the mock
+    // paints it as its own distinct key.
+    role: event.kind === "live" ? ("live" as const) : ("event" as const),
+    subLabel: event.badge,
+    timeLabel: event.time,
+    bucket: "queued" as const,
+    progress_percent: 0,
+    priority: false,
+    dependency_ready: true,
+  }));
 
+/**
+ * The four per-agent command keys, in the order the mock defines: pause/play,
+ * prioritise/deprioritise, logs, and the hold-to-talk mic. Each carries its own
+ * glyph and caption; the mic's caption is what tells the renderer to paint the
+ * held state.
+ */
 const descriptorCommands = (agent: Readonly<Record<string, unknown>> | null | undefined, micHeld: boolean): (AgentInput | undefined)[] => {
   const identifier = String(agent?.identifier ?? "focused");
-  const running = agent?.bucket === "running";
+  // Only a paused agent offers Resume. Keying this off `bucket === "running"`
+  // instead made every alert/stuck/queued agent show a Resume key that the
+  // controller then had no action for, so pressing it did nothing at all.
+  const paused = agent?.bucket === "paused";
+  const prioritised = agent?.priority === true;
+  const command = (name: string, title: string, icon: string, subLabel: string): AgentInput => ({
+    identifier: `${identifier}:${name}`,
+    title,
+    vendor: "command",
+    icon,
+    role: "command",
+    subLabel,
+    bucket: "queued",
+    progress_percent: 0,
+    priority: false,
+    dependency_ready: true,
+  });
   const commands: AgentInput[] = [
-    { identifier: `${identifier}:pause`, title: running ? "Pause" : "Resume", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:priority`, title: agent?.priority === true ? "Deprioritize" : "Prioritize", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:logs`, title: "Logs", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
-    { identifier: `${identifier}:mic`, title: micHeld ? "Mic (LIVE)" : "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: true },
+    command("pause", paused ? "Resume" : "Pause", paused ? "play" : "pause", paused ? "RESUME" : "HOLD"),
+    command("priority", prioritised ? "Deprioritize" : "Prioritize", prioritised ? "down" : "up", prioritised ? "LOWER" : "RAISE"),
+    command("logs", "Logs", "logs", "OPEN"),
+    command("mic", "Mic", "mic", micHeld ? "LIVE" : "HOLD"),
   ];
   return [...commands, undefined, undefined, undefined, undefined];
 };
@@ -109,8 +140,11 @@ export const createPhysicalSurface = () => {
       if (signature === lastSignature) return;
       lastSignature = signature;
       const focused = state.focusedIdentifier === null ? null : grid.agents.find((agent) => String(agent.identifier) === state.focusedIdentifier);
+      // Events fill the keys in reading order. `layoutKeys` is column-major,
+      // which is right for the agent grid (paging moves through columns) but
+      // would interleave a sequential event window across the two rows.
       const visibleGrid = state.mode === "logs"
-        ? layoutKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0), 0)
+        ? layoutPhysicalKeys(descriptorEvents(state.eventLines ?? [], state.eventOffset ?? 0))
         : state.mode === "cmd"
         ? layoutPhysicalKeys(descriptorCommands(focused, state.micHeld === true))
         : layoutKeys(descriptorAgents(grid), state.columnOffset);
@@ -124,7 +158,7 @@ export const createPhysicalSurface = () => {
       } : state.mode === "logs" ? {
         mode: "logs",
         data: {
-          lines: state.transcriptLines ?? [],
+          rows: state.transcriptRows ?? [],
           chatHasPrevious: state.chatHasPrevious,
           chatHasNext: state.chatHasNext,
           eventHasPrevious: state.eventHasPrevious,
@@ -133,11 +167,21 @@ export const createPhysicalSurface = () => {
       } : {
         mode: "grid",
         data: {
-          summary: summaryModel(grid.agents.filter((agent) => agent.bucket === "running").length, grid.total - grid.agents.filter((agent) => agent.bucket === "running").length),
+          // `build` comes straight from the projection when present. Omitting
+          // it left the summary segment permanently reading "No build order"
+          // even while a build order was running.
+          summary: summaryModel(
+            grid.agents.filter((agent) => agent.bucket === "running").length,
+            grid.total - grid.agents.filter((agent) => agent.bucket === "running").length,
+            (grid as { build?: unknown }).build as Parameters<typeof summaryModel>[2],
+          ),
           claude: providerSegmentModel((usage.claude ?? null) as ProviderMeter | null),
           codex: providerSegmentModel((usage.codex ?? null) as ProviderMeter | null),
-          pager: pagerModel(grid.total, 8, Math.floor(state.columnOffset / 4)),
-          pagerLabel: `${grid.total} agents`,
+          // `currentWindow` is the tested pager maths dial D itself uses. A
+          // plain columnOffset/4 disagrees with it whenever the last window is
+          // clamped by maxColumnOffset, lighting the wrong dot after a page.
+          pager: pagerModel(grid.total, 8, currentWindow(state.columnOffset, grid.total)),
+          pagerLabel: `${grid.total} Agents`,
         },
       };
       try {

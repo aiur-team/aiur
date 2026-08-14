@@ -57,6 +57,13 @@ export type LifecycleEvent =
   | { type: "device-removed" }
   /** A backend open attempt succeeded. */
   | { type: "device-opened" }
+  /**
+   * The link carried a full repaint without a write failure. This is what
+   * clears the reconnect backoff — opening alone does not prove the handle
+   * works, and a deck that opens but rejects every write would otherwise
+   * reconnect forever at the base delay.
+   */
+  | { type: "link-healthy" }
   /** A backend open attempt failed. */
   | { type: "open-failed"; error: unknown }
   /** A genuine read failure (never a timeout — see read.ts). */
@@ -159,7 +166,15 @@ export const transitionLifecycle = (state: LifecycleState, event: LifecycleEvent
     case "opening":
       switch (event.type) {
         case "device-opened":
-          return to("open", [{ type: "send-key-stream-reset" }, { type: "apply-brightness" }, { type: "repaint" }]);
+          // Carry the attempt count through. A successful open is not proof of
+          // a working link: a wedged deck accepts opens and fails every write,
+          // and zeroing the counter here made that cycle spin at the base delay
+          // instead of backing off. `link-healthy` clears it.
+          return to(
+            "open",
+            [{ type: "send-key-stream-reset" }, { type: "apply-brightness" }, { type: "repaint" }],
+            state.attempt,
+          );
         case "open-failed":
           return reconnect(state.attempt, "open-failed", event.error, []);
         case "device-removed":
@@ -174,6 +189,10 @@ export const transitionLifecycle = (state: LifecycleState, event: LifecycleEvent
 
     case "open":
       switch (event.type) {
+        case "link-healthy":
+          // A repaint landed in full, so the handle genuinely works: clear the
+          // backoff that a preceding failure had grown.
+          return state.attempt === 0 ? { state, effects: [] } : to("open", [], 0);
         case "device-removed":
           return to("absent", [{ type: "close-device" }]);
         case "read-error":

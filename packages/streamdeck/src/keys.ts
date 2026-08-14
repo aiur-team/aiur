@@ -8,6 +8,14 @@ import {
 export type { BucketId } from "./key-face-contract.js";
 export { progressBarColor };
 export type Vendor = string;
+
+/**
+ * What a key slot represents. The eight physical keys are reused across the
+ * three surfaces, and each draws differently: an agent tile, one of the four
+ * per-agent commands, or a row in the event log. Without this the command and
+ * log surfaces render as agent tiles with a command name in the title slot.
+ */
+export type KeyRole = "agent" | "command" | "event" | "live";
 export interface BucketStyle {
   readonly accent: string;
   readonly glow: string;
@@ -36,6 +44,16 @@ export interface AgentKey {
   readonly identifier: string;
   readonly title: string;
   readonly vendor: Vendor;
+  /** Build Order lane name selecting the key's line-art icon. */
+  readonly icon: string;
+  readonly role: KeyRole;
+  /**
+   * Secondary caption: a command key's sub-label, or an event key's direction
+   * badge. Empty when the role has neither.
+   */
+  readonly subLabel: string;
+  /** Relative timestamp shown on an event key ("3m"); empty for other roles. */
+  readonly timeLabel: string;
   readonly priority: boolean;
   readonly bucket: BucketId;
   readonly style: BucketStyle;
@@ -53,6 +71,15 @@ export interface AgentInput {
   readonly identifier: string;
   readonly title?: string | null;
   readonly vendor: Vendor;
+  /**
+   * Build Order lane the daemon reports as `icon`. Absent or unknown lanes
+   * resolve to the icon set's default rather than leaving the slot empty.
+   */
+  readonly icon?: string | null;
+  /** Defaults to `agent` so existing grid callers are unaffected. */
+  readonly role?: KeyRole;
+  readonly subLabel?: string | null;
+  readonly timeLabel?: string | null;
   readonly bucket: BucketId;
   readonly progress_percent: number;
   readonly priority: boolean;
@@ -126,6 +153,10 @@ function buildAgentKey(agent: AgentInput): AgentKey {
     identifier: agent.identifier,
     title: agent.title ?? "",
     vendor: agent.vendor,
+    icon: agent.icon ?? "",
+    role: agent.role ?? "agent",
+    subLabel: agent.subLabel ?? "",
+    timeLabel: agent.timeLabel ?? "",
     priority: agent.priority,
     bucket: agent.bucket,
     style,

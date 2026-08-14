@@ -124,11 +124,11 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
     }
   };
 
-  const scheduledPoll = (): void => {
+  const scheduledPoll = (delayMs: number = POLL_INTERVAL_MS): void => {
     pollTimer = env.setTimer(() => {
       pollTimer = null;
       void poll();
-    }, POLL_INTERVAL_MS);
+    }, delayMs);
   };
 
   const poll = async (): Promise<void> => {
@@ -146,6 +146,14 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
     }
     if (outcome.type === "input") {
       env.onInput?.(outcome.data);
+      // Read again immediately rather than waiting out the interval: a backend
+      // may have several reports buffered, and draining one per interval makes
+      // a fast dial spin keep scrolling long after the operator stopped. Going
+      // through a zero-delay timer rather than recursing keeps the loop
+      // interruptible and bounded — an idle read still blocks for a full
+      // interval, so a quiet device costs nothing extra.
+      scheduledPoll(0);
+      return;
     }
     scheduledPoll();
   };
@@ -200,6 +208,10 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
         // repaint is only ever emitted immediately after a successful open
         // (device-opened), so the handle is non-null here by construction.
         await env.repaint?.(backend as HidBackend);
+        // Writes reached the device: the link is proven, so the reconnect
+        // backoff can reset. A throw here skips this and leaves the backoff
+        // growing, which is what stops a wedged deck reconnecting forever.
+        dispatch({ type: "link-healthy" });
         return;
       case "show-logo":
         return sendFeature(showLogo(), "show-logo");

@@ -24,30 +24,74 @@ import { spawn } from "node:child_process";
 import net from "node:net";
 import process from "node:process";
 
-import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint, usb } from "usb";
+import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint } from "usb";
 
 import { parseBrightness } from "./device-path.js";
 import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDeckGrid, type StreamDeckLogs } from "./channel.js";
 import type { HidBackend } from "./backend.js";
-import { POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
+import { preloadVendorMarks } from "./art/vendorMark.js";
+import { createDebugLog, debugEnabled, hexPreview } from "./debug.js";
+import { advanceDemoGrid, demoGrid, demoLogs, demoUsage } from "./demo.js";
+import { decodeInputReport } from "./input.js";
+import { INPUT_REPORT_LENGTH, POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
 import type { Runtime } from "./runtime.js";
 import { createPhysicalSurface, type PhysicalSurfaceState } from "./surface.js";
-import { openUsbBackend, type UsbDeviceLike } from "./usb-backend.js";
+import { openUsbBackend, type UsbDeviceLike, type UsbInResult } from "./usb-backend.js";
 import { createPhysicalController } from "./controller.js";
 
 /** HID interface number on the Stream Deck +. */
 const HID_INTERFACE = 0;
 /** Timeout for feature-report control transfers. */
 const CONTROL_TIMEOUT_MS = 1000;
+/**
+ * Interrupt-IN transfers node-usb keeps queued in the kernel. Several in flight
+ * means a burst of events (a dial spun quickly, a key chord) is buffered by the
+ * kernel rather than dropped between reads.
+ */
+const POLL_TRANSFER_COUNT = 3;
+/**
+ * Cap on input reports buffered between reads. Deep enough to absorb a burst
+ * (a key chord, a fast dial spin) without dropping anything an operator would
+ * notice, shallow enough that a runaway stream cannot grow memory unbounded.
+ */
+const MAX_BUFFERED_REPORTS = 64;
+
+/** Tracer for the paths that otherwise produce no operator-visible output. */
+const debug = createDebugLog(debugEnabled(process.env.AIUR_STREAMDECK_DEBUG));
+
+/**
+ * Bucket histogram for the trace. Key colour is derived entirely from the
+ * bucket, so "every key looks grey" is only diagnosable if the trace says
+ * whether the fleet is genuinely all queued/paused (both grey by contract) or
+ * whether the bucket is failing to arrive.
+ */
+const bucketCounts = (grid: StreamDeckGrid): Record<string, number> => {
+  const counts: Record<string, number> = {};
+  for (const agent of grid.agents) {
+    const bucket = typeof agent.bucket === "string" ? agent.bucket : "(missing)";
+    counts[bucket] = (counts[bucket] ?? 0) + 1;
+  }
+  return counts;
+};
 
 /** True when a matching Stream Deck + is present on the USB bus right now. */
 const deviceIsPresent = (): boolean => findByIds(VENDOR_ID, PRODUCT_ID) !== undefined;
 
 /**
  * Opens the Stream Deck + over libusb and adapts it to {@link UsbDeviceLike}.
- * Wraps the callback-based `usb` primitives as promises and maps a libusb
- * timeout on the interrupt-IN endpoint to a poll `timeout` rather than an error.
+ * Wraps the callback-based `usb` primitives as promises and reports an idle
+ * input interval as a poll `timeout` rather than an error.
+ *
+ * **Input is a push stream, not a pull.** node-usb's one-shot
+ * `InEndpoint.transfer()` never invokes its callback on this device — verified
+ * against real hardware, it does not fire even after `endpoint.timeout`
+ * elapses — so a read loop built on it submits one transfer and then stalls
+ * forever. `startPoll` is the supported streaming API: it keeps several
+ * correctly-sized transfers queued in the kernel and emits `data` as reports
+ * arrive. This adapter buffers those reports and hands them to the runtime's
+ * pull-shaped `read()`, synthesising the idle `timeout` with a Node timer, so
+ * the tested lifecycle contract in {@link file://./runtime.ts} is unchanged.
  */
 const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
   const device = findByIds(VENDOR_ID, PRODUCT_ID);
@@ -74,8 +118,6 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
     }
     inEndpoint = foundIn;
     outEndpoint = foundOut;
-    // A read timeout means "no event pending", so bound the poll to the interval.
-    inEndpoint.timeout = POLL_INTERVAL_MS;
     // Bulk OUT (the 1024-byte key-stream reset, image chunks) can legitimately
     // take longer than the control timeout; use no timeout so a slow-but-healthy
     // write is not misread as a failure.
@@ -85,9 +127,74 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
     throw error;
   }
 
+  debug("device.open", {
+    inMaxPacket: inEndpoint.descriptor.wMaxPacketSize,
+    requesting: INPUT_REPORT_LENGTH,
+  });
+
+  // Reports delivered by the poll stream but not yet claimed by a read().
+  const inbox: Uint8Array[] = [];
+  let pending: ((result: UsbInResult) => void) | null = null;
+  // A stream error stops node-usb's polling, so latch it and fail the next
+  // read: that is what drives the runtime's close/reopen recovery.
+  let streamError: unknown = null;
+  let polling = false;
+
+  const deliver = (data: Uint8Array): void => {
+    debug("input.report", { length: data.length, bytes: hexPreview(data) });
+    const waiter = pending;
+    if (waiter !== null) {
+      pending = null;
+      waiter({ timedOut: false, data });
+      return;
+    }
+    // Bound the backlog. A dial spun hard produces reports faster than the
+    // reader drains them, and an unbounded queue would both grow without limit
+    // and replay stale motion long after the operator stopped.
+    if (inbox.length >= MAX_BUFFERED_REPORTS) {
+      inbox.shift();
+    }
+    inbox.push(data);
+  };
+
+  const startInput = (): void => {
+    if (polling) return;
+    polling = true;
+    inEndpoint.on("data", (data: Buffer) => deliver(Uint8Array.from(data)));
+    inEndpoint.on("error", (error: unknown) => {
+      debug("input.streamError", { error: String(error) });
+      streamError = error;
+      polling = false;
+      // Wake a waiter immediately instead of letting it idle out, so the
+      // runtime starts its close/reopen a poll interval sooner.
+      releaseWaiter();
+    });
+    inEndpoint.startPoll(POLL_TRANSFER_COUNT, INPUT_REPORT_LENGTH);
+    debug("input.pollStarted", { transfers: POLL_TRANSFER_COUNT, size: INPUT_REPORT_LENGTH });
+  };
+
+  /** Settles any waiter so a close does not leave a read hanging on a timer. */
+  const releaseWaiter = (): void => {
+    const waiter = pending;
+    if (waiter !== null) {
+      pending = null;
+      waiter({ timedOut: true });
+    }
+  };
+
   return {
     claim: async () => {
-      iface.claim();
+      // `claim()` throws on BUSY/ACCESS — a second sidecar, or a udev ACL that
+      // has not landed yet. That happens after this factory has returned, so
+      // nothing else would close the handle, and each retry would open another
+      // one while the process itself kept the device busy.
+      try {
+        iface.claim();
+      } catch (error) {
+        device.close();
+        throw error;
+      }
+      startInput();
     },
     controlOut: (bmRequestType, bRequest, wValue, wIndex, data) =>
       new Promise<void>((resolve, reject) => {
@@ -105,33 +212,66 @@ const openStreamDeckDevice = async (): Promise<UsbDeviceLike> => {
       new Promise<void>((resolve, reject) => {
         outEndpoint.transfer(Buffer.from(data), (error?: LibUSBException) => (error ? reject(error) : resolve()));
       }),
-    transferIn: (length) =>
+    transferIn: () =>
       new Promise((resolve, reject) => {
-        inEndpoint.transfer(length, (error: LibUSBException | undefined, data?: Buffer) => {
-          if (error) {
-            if (error.errno === usb.LIBUSB_ERROR_TIMEOUT) {
-              resolve({ timedOut: true });
-              return;
-            }
-            reject(error);
-            return;
-          }
-          resolve({ timedOut: false, data: Uint8Array.from(data ?? Buffer.alloc(0)) });
-        });
+        // Drain buffered reports before surfacing a stream error: reports that
+        // arrived before the failure are real input the operator performed, and
+        // failing first would discard them along with the rest of the inbox.
+        const buffered = inbox.shift();
+        if (buffered !== undefined) {
+          resolve({ timedOut: false, data: buffered });
+          return;
+        }
+        if (streamError !== null) {
+          const error = streamError;
+          streamError = null;
+          reject(error);
+          return;
+        }
+        // Nothing queued: report an idle interval so the runtime's poll loop
+        // keeps ticking instead of blocking on an event that may never come.
+        // Declared before `settle`, which clears it, and assigned after —
+        // so it cannot be a const even though it is only written once.
+        // eslint-disable-next-line prefer-const
+        let timer: ReturnType<typeof setTimeout>;
+        const settle = (result: UsbInResult): void => {
+          clearTimeout(timer);
+          pending = null;
+          resolve(result);
+        };
+        timer = setTimeout(() => settle({ timedOut: true }), POLL_INTERVAL_MS);
+        pending = settle;
       }),
     close: async () => {
+      polling = false;
+      releaseWaiter();
+      // Do NOT call stopPoll() here. `iface.release(true, cb)` already cancels
+      // the poll and waits for the endpoint's `end` event before releasing;
+      // stopping it first clears `pollActive`, so release skips that wait and
+      // `device.close()` runs while cancelled transfers still hold device refs
+      // — which throws "Can't close device with a pending request" and leaks
+      // the handle on every reconnect.
       await new Promise<void>((resolve) => iface.release(true, () => resolve()));
+      inEndpoint.removeAllListeners();
       device.close();
     },
   };
 };
 
 export const main = async (): Promise<void> => {
+  // Decode the provider marks once up front so the first repaint draws them
+  // rather than falling back to lettered tokens on a cold cache.
+  await preloadVendorMarks();
   const brightness = parseBrightness(process.env.STREAMDECK_BRIGHTNESS);
   const presentAtStart = process.env.AIUR_STREAMDECK_FORCE_ABSENT === "1" ? false : deviceIsPresent();
-  let latestGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
-  let latestUsage: Readonly<Record<string, unknown>> = {};
-  let transcriptFeed: string[] = [];
+  // Live data from the daemon, kept updated even while the demo is showing, so
+  // toggling back is instant and does not need a reconnect.
+  let liveGrid: StreamDeckGrid = { agents: [], total: 0, windows: 0, max_column_offset: 0 };
+  let liveUsage: Readonly<Record<string, unknown>> = {};
+  let liveLogs: StreamDeckLogs = {};
+  // What the surface actually renders.
+  let latestGrid: StreamDeckGrid = liveGrid;
+  let latestUsage: Readonly<Record<string, unknown>> = liveUsage;
   let logsFeed: StreamDeckLogs = {};
   let activeBackend: HidBackend | null = null;
   let channel: Awaited<ReturnType<typeof connectStreamDeckChannel>> | null = null;
@@ -139,13 +279,92 @@ export const main = async (): Promise<void> => {
   let repaintChain: Promise<void> = Promise.resolve();
   const surface = createPhysicalSurface();
 
+  /**
+   * Demo mode swaps the daemon's data for fixtures covering every bucket,
+   * footer, badge and meter.
+   *
+   * The sidecar always boots into real data: the demo exists to answer "is the
+   * renderer wrong, or is the fleet just uniform?" while standing at the deck —
+   * a real fleet is frequently all one state, and every agent paused paints
+   * every key grey. It is reachable only by the hidden key chord, never by
+   * configuration, so no unit file or stale environment variable can leave an
+   * operator looking at fixtures and believing they are live. The daemon
+   * channel stays connected throughout, so switching back is immediate.
+   */
+  let demoActive = false;
+  let demoGridState = demoGrid();
+  let demoTick = 0;
+  // The fixture's event timestamps are frozen at the moment the demo starts.
+  // Deriving them from `Date.now()` on every tick changed the payload even when
+  // nothing had happened, which repainted the whole strip a few times a minute.
+  let demoLogsState = demoLogs();
+
+  const applySource = (): void => {
+    if (demoActive) {
+      latestGrid = demoGridState;
+      latestUsage = demoUsage(Date.now());
+      controller.setLogs(demoLogsState);
+    } else {
+      latestGrid = liveGrid;
+      latestUsage = liveUsage;
+      controller.setLogs(liveLogs);
+    }
+    if (activeBackend !== null) repaintDetached(activeBackend);
+  };
+
+  const toggleDemo = (): void => {
+    demoActive = !demoActive;
+    console.info(`[streamdeck] demo mode ${demoActive ? "on" : "off"}`);
+    debug("demo.toggle", { active: demoActive });
+    if (demoActive) {
+      demoGridState = demoGrid();
+      demoLogsState = demoLogs();
+    }
+    applySource();
+  };
+
+  // Ticks the fixture so the deck visibly animates; a frozen screen cannot show
+  // that repaints are still landing. Idle when the demo is off.
+  setInterval(() => {
+    if (!demoActive) return;
+    demoTick += 1;
+    demoGridState = advanceDemoGrid(demoGridState, 3);
+    latestGrid = demoGridState;
+    latestUsage = demoUsage(Date.now());
+    if (demoTick % 5 === 0) controller.setLogs(demoLogsState);
+    if (activeBackend !== null) repaintDetached(activeBackend);
+  }, 2000).unref();
+
   const controller = createPhysicalController({
     grid: () => latestGrid,
     channel: () => channel,
-    stateChanged: () => {
-      if (activeBackend !== null) void repaint(activeBackend);
+    toggleDemo,
+    stateChanged: (state) => {
+      debug("controller.state", {
+        mode: state.mode,
+        focused: state.focusedIdentifier ?? "none",
+        columnOffset: state.columnOffset,
+        micHeld: state.micHeld,
+      });
+      if (activeBackend !== null) repaintDetached(activeBackend);
     },
   });
+
+  /** Traces each report's decoded controls before the controller consumes it. */
+  const handleInput = (data: Uint8Array): void => {
+    if (debugEnabled(process.env.AIUR_STREAMDECK_DEBUG)) {
+      const decoded = decodeInputReport(data);
+      debug("input.decoded", {
+        count: decoded.length,
+        controls: decoded.map((input) =>
+          input.type === "encoder-turn"
+            ? `turn${input.index}:${input.ticks}`
+            : `${input.type === "key" ? "key" : "dial"}${input.index}:${input.pressed ? "down" : "up"}`,
+        ),
+      });
+    }
+    controller.handleReport(data);
+  };
 
   const repaint = async (backend: HidBackend): Promise<void> => {
     activeBackend = backend;
@@ -155,7 +374,7 @@ export const main = async (): Promise<void> => {
       focusedIdentifier: current.focusedIdentifier,
       micHeld: current.micHeld,
       columnOffset: current.columnOffset,
-      transcriptLines: current.transcriptLines,
+      transcriptRows: current.transcriptRows,
       eventLines: current.eventLines,
       eventOffset: current.eventOffset,
       eventHasPrevious: current.eventHasPrevious,
@@ -166,6 +385,23 @@ export const main = async (): Promise<void> => {
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
     await next;
+  };
+
+  /**
+   * Repaint without letting a device write take the process down.
+   *
+   * Every caller below fires a repaint from an event handler, so the promise is
+   * unawaited: a rejected write (an unplug mid-frame, a handle invalidated by a
+   * suspend) surfaced as an unhandled rejection and killed the sidecar, which
+   * systemd then restarted into the same failure. A write failure is exactly
+   * what the runtime's close/reopen recovery exists to handle, so hand it there
+   * and keep running.
+   */
+  const repaintDetached = (backend: HidBackend): void => {
+    void repaint(backend).catch((error: unknown) => {
+      console.warn("[streamdeck] repaint failed; recovering the device", error);
+      runtime?.notifyWriteFailure(error);
+    });
   };
 
   const baseUrl = process.env.AIUR_PHOENIX_URL;
@@ -191,12 +427,21 @@ export const main = async (): Promise<void> => {
         fetch: defaultFetch,
         websocket: defaultWebSocket,
         events: {
-          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) latestGrid = snapshot.grid; latestUsage = snapshot.usage; if (activeBackend !== null) void repaint(activeBackend); },
+          // Live payloads always land in the live copy; they only reach the
+          // screen when the demo is off, so a toggle back shows current state
+          // rather than whatever was last on the wire before the demo started.
+          snapshot: (snapshot) => { reconnectAttempt = 0; if (snapshot.grid !== undefined) liveGrid = snapshot.grid; liveUsage = snapshot.usage; debug("channel.snapshot", { agents: liveGrid.agents.length, total: liveGrid.total, usage: Object.keys(liveUsage), demo: demoActive }); if (!demoActive) applySource(); },
           fleet: () => undefined,
-          grid: (grid) => { latestGrid = grid; if (activeBackend !== null) void repaint(activeBackend); },
-          usage: (usage) => { latestUsage = usage; if (activeBackend !== null) void repaint(activeBackend); },
-          transcript: (line) => { transcriptFeed = [...transcriptFeed.slice(-99), line]; controller.setTranscript(transcriptFeed); },
-          logs: (logs) => { logsFeed = logs; controller.setLogs(logsFeed); },
+          grid: (grid) => { liveGrid = grid; debug("channel.grid", { agents: grid.agents.length, total: grid.total, buckets: bucketCounts(grid), demo: demoActive }); if (!demoActive) applySource(); },
+          usage: (usage) => { liveUsage = usage; debug("channel.usage", { providers: Object.keys(usage) }); if (!demoActive) applySource(); },
+          // Deliberately not fed to the strip. The daemon pushes `transcript`
+          // and `logs` together for the same event, and the `logs` frame
+          // carries the whole flattened transcript with its event headers.
+          // Pushing the message-only feed as well re-derived the scroll bounds
+          // from a shorter array, which clamped the operator's jump back to the
+          // top within a flush — the feature worked until the agent next spoke.
+          transcript: () => undefined,
+          logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
           closed: (error) => {
             console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
@@ -242,7 +487,7 @@ export const main = async (): Promise<void> => {
         throw error;
       }
     },
-    onInput: controller.handleReport,
+    onInput: handleInput,
     repaint,
     onBackendClosed: (backend) => {
       if (backend !== null && activeBackend === backend) activeBackend = null;
