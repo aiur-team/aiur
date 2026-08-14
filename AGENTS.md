@@ -47,7 +47,10 @@ forming a verdict; the feature list does not imply them.
   sources are newer than the binary before run/start paths. Pure control
   commands (`agents`, `status`, `set`, `pause`, `resume`, `message`, `stop`) use
   the existing release when it is complete, because they control the already
-  running node and a rebuild would not update it. The shim then execs the shared
+  running node and a rebuild would not update it. `restart` does the same for
+  the opposite reason: it runs its own rebuild *between* its stop and its start
+  (through `AIUR_RESTART_BUILD_CMD`), so rebuilding before dispatch would put
+  that rewrite back underneath the still-live BEAM. The shim then execs the shared
   launcher engine (`packaging/npm/aiur-cli/libexec/aiur-engine.sh`) with
   `AIUR_RELEASE_DIR` pointed at `src/_build/dev/rel/aiur`. The npm-installed
   product command `aiur` runs the *same* engine against the platform release —
@@ -70,6 +73,7 @@ aiurdev --bg --no-dashboard   # lean detached run with no panes or dashboard lis
 aiurdev --no-dashboard        # foreground terminal UI without the dashboard listener
 aiurdev --max-agents <n>      # override agent.max_concurrent_agents at launch
 aiurdev stop                  # stop the session (BEAM + tmux)
+aiurdev restart [--no-build]  # stop, rebuild if sources are newer, start again detached
 aiurdev status                # report the running session
 aiurdev agents                # one line per agent: state + current activity (headless dashboard equivalent)
 aiurdev set max-agents <n>    # change the concurrent-agent cap at runtime (no config edit)

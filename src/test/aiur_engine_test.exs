@@ -1803,6 +1803,7 @@ defmodule AiurEngineTest do
     code=$?
     set -e
     echo "CODE=$code"
+    echo "FOUND_NOTHING=$AIUR_STOP_FOUND_NOTHING"
     cat "$EVENTS"
     [ -e "$(aiur_stop_sentinel_path)" ] && echo "SENTINEL_WRITTEN" || echo "NO_SENTINEL"
     """
@@ -1822,6 +1823,9 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "CODE=1"
+    # The flag restart reads to tell this benign nonzero apart from a real
+    # stop failure; `aiur stop`'s own exit code is unchanged.
+    assert out =~ "FOUND_NOTHING=1"
     assert out =~ "nothing stopped"
     refute out =~ "global-config control identity is keyed by cwd"
     assert out =~ "NO_SENTINEL"
@@ -1994,10 +1998,12 @@ defmodule AiurEngineTest do
   test "restart stops, refreshes the release, then starts detached — in that order" do
     {out, 0} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}])
 
-    assert [_, stop, build, run] = Regex.run(~r/(STOP)\n(BUILD)\n(RUN: [^\n]*)/, out)
-    assert stop == "STOP"
-    assert build == "BUILD"
-    assert run == "RUN: --bg"
+    markers =
+      ~r/^(STOP|BUILD|RUN: .*)$/m
+      |> Regex.scan(out)
+      |> Enum.map(&List.last/1)
+
+    assert markers == ["STOP", "BUILD", "RUN: --bg"]
   end
 
   test "restart forwards run flags but consumes --no-build, which skips the refresh" do
@@ -2011,16 +2017,81 @@ defmodule AiurEngineTest do
     assert out =~ "RUN: --bg --interactive --port 4099"
   end
 
-  test "a failed refresh aborts before the start and names the state it left behind" do
+  test "a failed refresh aborts before the start, keeps the builder's exit code, and names the state" do
     # The failure mode this command exists to prevent is a silent one: never
     # start on a stale release, and never leave the operator thinking a daemon
     # they can no longer see is still up.
-    {out, code} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BOOM >&2; exit 3"}])
+    rel = fake_release()
 
-    assert code == 1
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", "echo BOOM >&2; exit 3"},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert code == 3
     refute out =~ "RUN:"
     assert out =~ "STOPPED and was NOT restarted"
+    # The release survived this build, so the fast-bounce escape hatch is real.
     assert out =~ "aiur restart --no-build"
+  end
+
+  test "a failed refresh that destroyed the release does not advertise --no-build" do
+    # The dev builder deletes an incomplete release. Offering `--no-build` then
+    # would send the operator into a second failed cycle with the fleet down.
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", "exit 9"},
+          {"AIUR_RELEASE_DIR", Path.join(System.tmp_dir!(), "aiur-engine-no-such-release")}
+        ]
+      )
+
+    assert code == 9
+    assert out =~ "STOPPED and was NOT restarted"
+    assert out =~ "no complete release is left on disk"
+    refute out =~ "restart --no-build"
+  end
+
+  test "a start that fails after the stop still reports the stopped fleet" do
+    # Every failure after the stop — not just the rebuild — must say the daemon
+    # is down, or "failed to start" reads as "nothing changed".
+    {out, code} =
+      run_sourced_engine(
+        """
+        cmd_stop() { echo STOP; }
+        dispatch_run() { echo "start blew up" >&2; exit 1; }
+        cmd_restart
+        """,
+        [{"AIUR_RESTART_BUILD_CMD", nil}]
+      )
+
+    assert code == 1
+    assert out =~ "STOPPED and was NOT restarted"
+  end
+
+  test "a completed restart says nothing about a stopped daemon" do
+    {out, 0} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}])
+
+    refute out =~ "STOPPED"
+  end
+
+  test "restart refuses to build or start when the stop itself failed" do
+    # Only "nothing was running" is tolerable. Any other stop failure may have
+    # left the BEAM alive, and rebuilding under it is the hazard the ordering
+    # exists to avoid.
+    {out, code} =
+      run_restart("",
+        stop: "echo 'stop exploded' >&2; return 7",
+        env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}]
+      )
+
+    assert code == 1
+    refute out =~ "BUILD"
+    refute out =~ "RUN:"
+    assert out =~ "stop failed (exit 7)"
   end
 
   test "restart with no build command wired in is a plain bounce" do
@@ -2035,13 +2106,34 @@ defmodule AiurEngineTest do
   test "restart starts a fresh session when nothing was running" do
     {out, 0} =
       run_restart("",
-        stop: "return 1",
+        stop: "AIUR_STOP_FOUND_NOTHING=1; return 1",
         env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}]
       )
 
     assert out =~ "nothing was running"
     assert out =~ "BUILD"
     assert out =~ "RUN: --bg"
+  end
+
+  test "restart refuses to rebuild or start when the stopped session still answers" do
+    # cmd_stop's tmux teardown is best-effort, so a "successful" stop can leave
+    # the daemon alive. Rebuilding then would rewrite the release under a live
+    # BEAM, and the start would no-op into "already running" with exit 0.
+    {out, code} =
+      run_sourced_engine(
+        """
+        cmd_stop() { release_bin=/nonexistent-release-bin; echo STOP; }
+        probe_control_liveness() { printf up; }
+        dispatch_run() { echo "RUN: $*"; }
+        cmd_restart
+        """,
+        [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}]
+      )
+
+    assert code == 1
+    refute out =~ "BUILD"
+    refute out =~ "RUN:"
+    assert out =~ "still answers after the stop"
   end
 
   test "the restart dispatch arm drops the subcommand and forwards the rest" do

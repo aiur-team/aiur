@@ -2638,8 +2638,14 @@ warn_other_aiur_daemons() {
   done
 }
 
+# Set when cmd_stop returns nonzero only because there was nothing to stop. It
+# lets a caller (cmd_restart) tell that benign outcome apart from a stop that
+# failed for a real reason, without changing `aiur stop`'s own exit code.
+AIUR_STOP_FOUND_NOTHING=0
+
 # Stop the running session: kill this instance's tmux + BEAM, then sweep.
 cmd_stop() {
+  AIUR_STOP_FOUND_NOTHING=0
   resolve_release
   aiur_resolve_identity
   RELEASE_NODE="$AIUR_RELEASE_NODE"
@@ -2668,6 +2674,7 @@ cmd_stop() {
     echo "aiur: no running aiur node at ${AIUR_RELEASE_NODE}; nothing stopped" >&2
     warn_other_aiur_daemons "$AIUR_RELEASE_NODE"
     print_global_config_control_hint
+    AIUR_STOP_FOUND_NOTHING=1
     return 1
   fi
 
@@ -2732,6 +2739,33 @@ cmd_stop() {
 # bounce. The dev shim supplies its build-if-stale step through
 # AIUR_RESTART_BUILD_CMD, a shell command line run via `bash -c` so the wrapper
 # (not this parser) owns quoting.
+aiur_restart_daemon_state="untouched"
+
+# Everything between the stop and a confirmed start runs with this armed, so the
+# operator hears about a fleet that is down no matter which step failed — a
+# rebuild, a missing tmux, a BEAM that would not boot, or a Ctrl-C during the
+# minutes-long rebuild. Naming only the step that failed would let "aiur failed
+# to start" read as "nothing changed", which is the silently stopped fleet.
+aiur_restart_report_state() {
+  [ "$aiur_restart_daemon_state" = "stopped" ] || return 0
+
+  # release_dir is resolved by the stop; fall back to the caller's declared dir
+  # for the paths that fail before that.
+  local dir="${release_dir:-${AIUR_RELEASE_DIR:-}}"
+
+  echo "aiur: the daemon is STOPPED and was NOT restarted" >&2
+  if [ -n "$dir" ] && [ -x "$dir/bin/aiur" ]; then
+    echo "aiur: fix the cause and run 'aiur restart' again, or 'aiur restart --no-build' to start" >&2
+    echo "      on the release already on disk" >&2
+  else
+    # The dev builder removes an incomplete release, so after a failed rebuild
+    # there is nothing for --no-build to start. Advertising it anyway would cost
+    # the operator a second failed cycle while the fleet stays down.
+    echo "aiur: no complete release is left on disk, so --no-build has nothing to start —" >&2
+    echo "      fix the build and run 'aiur restart' again" >&2
+  fi
+}
+
 cmd_restart() {
   local skip_build=0 arg
   local run_args=()
@@ -2745,17 +2779,40 @@ cmd_restart() {
 
   # Restarting something that is already down is a start, not an error: the
   # operator asked for a running daemon on current code, and that is what they
-  # get. cmd_stop's only soft failure is "nothing was running" — every harder
-  # failure exits the process from inside cmd_stop.
-  cmd_stop || echo "aiur: nothing was running; restart will start a fresh session" >&2
+  # get. Any OTHER stop failure is fatal — building and starting on top of a
+  # half-stopped instance is the in-place rewrite this ordering exists to avoid.
+  local stop_status=0
+  cmd_stop || stop_status=$?
+  if [ "$stop_status" -ne 0 ]; then
+    if [ "${AIUR_STOP_FOUND_NOTHING:-0}" -eq 1 ]; then
+      echo "aiur: nothing was running; restart will start a fresh session" >&2
+    else
+      die "restart aborted: stop failed (exit $stop_status); the daemon may still be running"
+    fi
+  fi
+
+  # cmd_stop's tmux teardown is best-effort (`|| true`), so a stop can report
+  # success while the session survives. Starting from there would rebuild the
+  # release under a live BEAM and then hit run_session's idempotent "already
+  # running" return — exit 0, stale release, no bounce. Refuse instead.
+  # release_bin is unset only when the stop was stubbed out, i.e. in tests.
+  if [ -n "${release_bin:-}" ] && [ "$(probe_control_liveness)" = "up" ]; then
+    die "restart aborted: the previous session still answers after the stop; nothing was rebuilt or restarted"
+  fi
+
+  aiur_restart_daemon_state="stopped"
+  trap aiur_restart_report_state EXIT INT TERM
 
   if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
-    if ! bash -c "$AIUR_RESTART_BUILD_CMD"; then
-      # Never leave the operator guessing which half of the restart happened.
-      echo "aiur: the daemon is STOPPED and was NOT restarted — the build failed" >&2
-      echo "aiur: fix the build, then run 'aiur restart' again (or 'aiur restart --no-build' to" >&2
-      echo "      start on whatever release is currently on disk)" >&2
-      die "restart aborted before start: rebuild failed"
+    local build_status=0
+    bash -c "$AIUR_RESTART_BUILD_CMD" || build_status=$?
+    if [ "$build_status" -ne 0 ]; then
+      # Exit with the builder's own status rather than a flat 1, so a caller can
+      # still tell a failed rebuild from any other abort.
+      echo "❌ restart aborted before start: the rebuild failed" >&2
+      aiur_restart_report_state
+      trap - EXIT INT TERM
+      exit "$build_status"
     fi
   elif [ "$skip_build" -eq 1 ]; then
     echo "aiur: --no-build — restarting on the release already on disk" >&2
@@ -2766,6 +2823,9 @@ cmd_restart() {
   # into the attachable session (`aiur --bg --interactive`), and a purely
   # foreground restart remains `aiur stop && aiur run`.
   dispatch_run --bg "${run_args[@]+"${run_args[@]}"}"
+
+  aiur_restart_daemon_state="running"
+  trap - EXIT INT TERM
 }
 
 # --- dispatch ----------------------------------------------------------------
