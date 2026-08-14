@@ -70,9 +70,24 @@ describe("opening", () => {
     expect(types(result.effects)).toEqual(["send-key-stream-reset", "apply-brightness", "repaint"]);
   });
 
-  it("clears the failure count on a successful open", () => {
+  // Opening proves nothing on its own: a wedged deck accepts opens and fails
+  // every write. Clearing the count here made that cycle reconnect forever at
+  // the base delay instead of backing off.
+  it("keeps the failure count across a successful open", () => {
     const result = run(from("opening", 4), { type: "device-opened" });
-    expect(result.attempt).toBe(0);
+    expect(result.attempt).toBe(4);
+  });
+
+  it("clears the failure count only once a repaint has landed", () => {
+    const opened = run(from("opening", 4), { type: "device-opened" });
+    expect(run(opened, { type: "link-healthy" }).attempt).toBe(0);
+  });
+
+  it("backs off further each time writes keep failing on an open link", () => {
+    const first = run(from("open", 0), { type: "write-failed", error: new Error("zombie") });
+    const reopened = run({ ...first, link: "opening" } as typeof first, { type: "device-opened" });
+    const second = run(reopened, { type: "write-failed", error: new Error("zombie") });
+    expect(second.attempt).toBeGreaterThan(first.attempt);
   });
 
   it("reconnects with backoff on the first open failure", () => {

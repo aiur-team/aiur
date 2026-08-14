@@ -207,6 +207,10 @@ export const startRuntime = async (env: RuntimeEnv): Promise<Runtime> => {
         // repaint is only ever emitted immediately after a successful open
         // (device-opened), so the handle is non-null here by construction.
         await env.repaint?.(backend as HidBackend);
+        // Writes reached the device: the link is proven, so the reconnect
+        // backoff can reset. A throw here skips this and leaves the backoff
+        // growing, which is what stops a wedged deck reconnecting forever.
+        dispatch({ type: "link-healthy" });
         return;
       case "show-logo":
         return sendFeature(showLogo(), "show-logo");
