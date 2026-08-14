@@ -1342,7 +1342,8 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
       RootSummary.new(%{}),
       root(43, "Stale planning lane"),
       root(1567, "Unavailable planning graph"),
-      root(1568, "Malformed planning graph")
+      root(1568, "Malformed planning graph"),
+      root(44, "Wide planning graph")
     ]
 
     %Snapshot{
@@ -1460,7 +1461,43 @@ defmodule Aiur.BrowserHarness.BuildOrderDataSource do
     {:ok, snapshot}
   end
 
+  # A deliberately wide graph. The spatial view sizes one grid column per epic,
+  # so a Build Order with many epics renders a stage far wider than the content
+  # pane. That width must stay inside the graph's own scroll container: the
+  # document itself must never scroll horizontally (#1849).
+  defp selected_snapshot(%TrackerIdentity{identifier: "44"} = identity) do
+    snapshot = %Snapshot{
+      scope: {:selected, identity},
+      repository: @repository,
+      authority_epoch: 1,
+      generation: 11,
+      data: SelectedRoot.new(root(44, "Wide planning graph"), wide_graph_members(), health(11, :healthy)),
+      health: health(11, :healthy)
+    }
+
+    {:ok, snapshot}
+  end
+
   defp selected_snapshot(_identity), do: {:error, :unavailable}
+
+  @wide_lane_count 14
+  @wide_wave_count 4
+
+  defp wide_graph_members do
+    for wave <- 1..@wide_wave_count, lane <- 1..@wide_lane_count do
+      number = 200 + (wave - 1) * @wide_lane_count + lane
+
+      Member.new(%{
+        identity: identity(number),
+        title: "Wide member #{number}",
+        url: issue_url(number),
+        state: "OPEN",
+        state_reason: nil,
+        dependencies: [],
+        labels: ["complexity:2", "phase:#{wave}", "build-lane:wide-epic-#{lane}"]
+      })
+    end
+  end
 
   defp activity(identity) do
     %{

@@ -3,6 +3,7 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
 
   alias Aiur.{BuildOrder.Catalog, BuildOrder.ProviderResult, BuildOrder.SelectedRoot, GitHub.Client, TrackerIdentity}
   alias Aiur.BuildOrder.GitHubGraph, as: ProductionGraph
+  alias Aiur.BuildOrder.GitHubGraph.Queries
   alias Aiur.BuildOrder.GitHubGraph.TestAdapter, as: GitHubGraph
 
   @repository {"owner", "repo"}
@@ -42,6 +43,55 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
     # labels. Unreported, not zero, and not a dropped progress figure.
     assert is_nil(entry.epic_count)
     assert is_nil(entry.phase_count)
+  end
+
+  # The other half of the contract above: when a read *does* buy the per-member
+  # labels, the same normalizer resolves both counts to real integers. This is
+  # what makes the catalog page show numbers instead of "Unresolved".
+  test "resolves catalog epic and wave counts when the read buys per-member labels" do
+    members = [
+      labelled_catalog_member(2, ["phase:1", "build-lane:runtime"]),
+      labelled_catalog_member(3, ["phase:1", "build-lane:ui"]),
+      labelled_catalog_member(4, ["phase:2", "build-lane:ui"])
+    ]
+
+    root = Map.put(root(1), "subIssues", connection(members, 3, []))
+
+    assert {:ok, %{candidate: %{entries: [entry]}}} =
+             GitHubGraph.fetch_catalog(base_opts(catalog_response([root], 1), member_labels: true))
+
+    assert entry.member_count == 3
+    assert entry.epic_count == 2
+    assert entry.phase_count == 2
+
+    # Progress is lifecycle-derived and must be untouched by the extra labels.
+    assert entry.progress_resolution == :resolved
+  end
+
+  # Cost guard for #1766. A nested `labels` connection under the catalog's
+  # `subIssues` bills once per *parent*, so it costs 25 roots x 100 sub-issues =
+  # 2,500 request-units — measured at 26 GraphQL points per page against a
+  # 5,000-points/hour budget, versus 1 point without it. It is opt-in precisely
+  # so the recurring catalog poll never pays it. If this test starts failing
+  # because the default variant grew a member `labels` selection, the fix is not
+  # to update the assertion.
+  test "keeps per-member labels off the default catalog query and on the opt-in variant" do
+    default = Queries.catalog()
+    labelled = Queries.catalog(member_labels?: true)
+
+    assert default == Queries.catalog(member_labels?: false)
+    assert default == Queries.catalog([])
+
+    assert catalog_sub_issues_selection(default) =~ "state stateReason"
+    refute catalog_sub_issues_selection(default) =~ "labels"
+
+    assert catalog_sub_issues_selection(labelled) =~ "labels(first: 100)"
+    assert catalog_sub_issues_selection(labelled) =~ "nodes { name }"
+
+    # Only the member selection differs; the labelled variant is otherwise the
+    # same query, including the root-level `labels` the catalog has always had.
+    assert String.replace(labelled, catalog_sub_issues_selection(labelled), catalog_sub_issues_selection(default)) ==
+             default
   end
 
   # A response's headers report the balance left in the GraphQL points budget
@@ -1442,6 +1492,86 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
                  request_fun: configured_request
                )
     end
+
+    # The opt-in labelled read must work through the PRODUCTION entry point, not
+    # only the test adapter — the adapter carries its own copy of the wiring, so
+    # an adapter-only test would still pass if `fetch_catalog/1` stopped honoring
+    # the option and the catalog silently fell back to the cheap query forever.
+    test "the production catalog read buys per-member labels only when asked" do
+      members = [
+        labelled_catalog_member(2, ["phase:1", "build-lane:runtime"]),
+        labelled_catalog_member(3, ["phase:2", "build-lane:runtime"])
+      ]
+
+      root = Map.put(root(1, "test-org", "test-repo"), "subIssues", connection(members, 2, []))
+
+      labelled_request = fn %{body: %{"query" => query, "variables" => variables}} ->
+        assert catalog_sub_issues_selection(query) =~ "labels(first: 100)"
+
+        # The labelled variant caps its own page size so its node estimate stays
+        # inside GitHub's per-request ceiling (roots x 100 members x 100 labels).
+        assert variables["pageSize"] <= 25
+
+        catalog_response([root], 1)
+      end
+
+      assert {:ok, %{candidate: %{entries: [entry]}}} =
+               ProductionGraph.fetch_catalog(
+                 repository: {"test-org", "test-repo"},
+                 root_limit: 100,
+                 page_budget: 4,
+                 call_budget: 4,
+                 member_labels: true,
+                 request_fun: labelled_request
+               )
+
+      assert entry.epic_count == 1
+      assert entry.phase_count == 2
+
+      # The cheap query returns members without labels, so the fixture must not
+      # hand the normalizer labels the real response would never carry.
+      cheap_root = Map.put(root(1, "test-org", "test-repo"), "subIssues", connection([catalog_member(2), catalog_member(3)], 2, []))
+
+      cheap_request = fn %{body: %{"query" => query}} ->
+        refute catalog_sub_issues_selection(query) =~ "labels"
+        catalog_response([cheap_root], 1)
+      end
+
+      assert {:ok, %{candidate: %{entries: [cheap_entry]}}} =
+               ProductionGraph.fetch_catalog(
+                 repository: {"test-org", "test-repo"},
+                 root_limit: 100,
+                 page_budget: 4,
+                 call_budget: 4,
+                 request_fun: cheap_request
+               )
+
+      assert is_nil(cheap_entry.epic_count)
+      assert is_nil(cheap_entry.phase_count)
+    end
+
+    # Node-limit guard for the labelled variant. `planning_page_budget: 1` makes
+    # the budget-derived page size 100, which for the labelled query is roughly
+    # 1.02M nodes — over GitHub's 500,000 per-request ceiling, which rejects the
+    # whole read and would take the catalog down with it.
+    test "caps the labelled catalog page size regardless of the paging budget" do
+      for {page_budget, call_budget} <- [{1, 1}, {2, 2}, {4, 4}] do
+        labelled = fn %{body: %{"variables" => variables}} ->
+          assert variables["pageSize"] <= 25
+          catalog_response([], 0)
+        end
+
+        assert {:ok, _result} =
+                 GitHubGraph.fetch_catalog(
+                   base_opts(labelled,
+                     member_labels: true,
+                     root_limit: 100,
+                     page_budget: page_budget,
+                     call_budget: call_budget
+                   )
+                 )
+      end
+    end
   end
 
   defp base_opts(response_or_request_fun, overrides \\ []) do
@@ -1538,6 +1668,24 @@ defmodule Aiur.BuildOrder.GitHubGraphTest do
   # so fixtures must not hand the normalizer labels the real query never gets.
   defp catalog_member(number) do
     number |> issue_node() |> Map.take(["state", "stateReason"])
+  end
+
+  # The `subIssues` node shape of the opt-in labelled catalog read: lifecycle
+  # plus the per-member `labels` connection that resolves lane and phase.
+  defp labelled_catalog_member(number, label_names) do
+    number |> catalog_member() |> Map.put("labels", labels(label_names))
+  end
+
+  # The `nodes { ... }` line inside the catalog query's `subIssues` block — the
+  # only place the expensive per-member connection can appear.
+  defp catalog_sub_issues_selection(query) do
+    lines = String.split(query, "\n")
+    start = Enum.find_index(lines, &String.contains?(&1, "subIssues(first: 100)"))
+
+    lines
+    |> Enum.drop(start)
+    |> Enum.find(&String.contains?(&1, "nodes {"))
+    |> String.trim()
   end
 
   defp member(number, root, opts \\ []) do

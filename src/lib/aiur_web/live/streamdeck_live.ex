@@ -594,26 +594,38 @@ defmodule AiurWeb.StreamdeckLive do
           data-origin-id="streamdeck-download-control"
         >
           <header class="modal-header">
-            <div>
-              <p class="section-eyebrow">Stream Deck + sidecar</p>
-              <h2 id="streamdeck-install-title" tabindex="-1" data-dialog-heading>Install on your Stream Deck +</h2>
-            </div>
+            <h2 id="streamdeck-install-title" class="sd-install-title" tabindex="-1" data-dialog-heading>Install on your Stream Deck +</h2>
             <button type="button" class="tool-btn" phx-click="close-streamdeck-install">Close</button>
           </header>
 
-          <p class="sd-install-intro">
-            <span :if={package?(@streamdeck_package)}>Download the package, then copy the prompt below into your coding agent:</span>
-            <span :if={!package?(@streamdeck_package)}>No package is published for this release. Copy the prompt below into your coding agent to build and install the sidecar from source:</span>
-          </p>
+    <!-- `list-style: none` plus `display: grid` drops list semantics in some
+               screen readers; the explicit roles put them back. -->
+          <ol class="sd-install-steps" role="list">
+            <li class="sd-install-step" role="listitem">
+              <h3 class="sd-install-step-title">Step 1: Download the package</h3>
+              <a :if={package?(@streamdeck_package)} class="sd-install-download" href={@streamdeck_package.url} download>
+                Download the package
+              </a>
+              <p :if={!package?(@streamdeck_package)} class="sd-install-note">
+                No Stream Deck + package is published for this release. Step 2 builds and installs the sidecar from source instead.
+              </p>
+            </li>
 
-          <pre class="sd-install-prompt" tabindex="0"><code>Walk me through installing the Aiur Stream Deck + sidecar on {os_label(@os)}. Follow packages/streamdeck/README.md exactly and give me copy-pasteable commands for each step.</code></pre>
+            <li class="sd-install-step" role="listitem">
+              <h3 class="sd-install-step-title">Step 2: Paste this into your agent chat</h3>
+              <div id="streamdeck-install-prompt-copy" class="sd-install-prompt" phx-hook="CopyToClipboard">
+                <%!-- No `tabindex`: the block wraps rather than scrolls, so a tab stop here
+                      would be an unnamed stop inside the dialog's focus trap. --%>
+                <pre id="streamdeck-install-prompt" class="sd-install-prompt-text" data-copy-source>{install_prompt(@os)}</pre>
+                <div class="sd-install-prompt-actions">
+                  <button type="button" class="sd-install-copy-button" data-copy-trigger>Copy prompt</button>
+                  <span id="streamdeck-install-prompt-status" role="status" aria-live="polite" data-copy-status></span>
+                </div>
+              </div>
+            </li>
+          </ol>
 
           <p :if={@os == :windows} class="sd-install-note">Windows isn't fully supported yet; the README documents the Linux and macOS paths.</p>
-
-          <p :if={package?(@streamdeck_package)} class="modal-meta">
-            <a href={@streamdeck_package.url} download>Download package {@streamdeck_package.version}</a>
-          </p>
-          <p :if={!package?(@streamdeck_package)} class="modal-meta">No Stream Deck + package published for this release.</p>
         </section>
       </div>
     </DashboardShell.dashboard_shell>
@@ -1307,6 +1319,14 @@ defmodule AiurWeb.StreamdeckLive do
   defp os_label(:windows), do: "Windows"
   defp os_label(:mac), do: "macOS"
   defp os_label(_linux), do: "Linux"
+
+  # Step 2's payload. It renders in a soft-wrapping block rather than a fixed-row
+  # textarea so the whole prompt is visible over as many wrapped rows as it
+  # needs, at every width, instead of running off the right edge of the dialog.
+  defp install_prompt(os) do
+    "Walk me through installing the Aiur Stream Deck + sidecar on #{os_label(os)}. " <>
+      "Follow packages/streamdeck/README.md exactly and give me copy-pasteable commands for each step."
+  end
 
   defp load_grid do
     snapshot =

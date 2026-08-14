@@ -509,6 +509,7 @@ defmodule Aiur.Config do
 
     [
       catalog_refresh_ms: build_order.graph_catalog_refresh_ms,
+      catalog_labels_refresh_ms: build_order.graph_catalog_labels_refresh_ms,
       selected_refresh_ms: build_order.graph_selected_refresh_ms,
       demand_refresh_ms: build_order.graph_demand_refresh_ms,
       refresh_timeout_ms: build_order.graph_refresh_timeout_ms,

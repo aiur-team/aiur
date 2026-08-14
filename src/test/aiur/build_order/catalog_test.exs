@@ -257,6 +257,111 @@ defmodule Aiur.BuildOrder.CatalogTest do
     assert SelectedRoot.status(SelectedRoot.new(root, [], ProviderHealth.new(1, :stale, true))) == :provider_stale
   end
 
+  # Most catalog polls skip the per-member `labels` connection they cannot
+  # afford (#1766), so they report nil epic/wave counts. Carrying the previous
+  # counts forward is what stops the page flapping to "Unresolved" every poll.
+  test "carries resolved catalog counts forward across a poll that could not resolve them" do
+    previous = catalog([counted_root(1, member_count: 3, epic_count: 2, phase_count: 4)])
+    fresh = catalog([counted_root(1, member_count: 3)])
+
+    assert [carried] = Catalog.carry_forward_counts(fresh, previous).entries
+    assert carried.epic_count == 2
+    assert carried.phase_count == 4
+
+    # Everything else still comes from the fresh read.
+    assert carried.member_count == 3
+  end
+
+  # A carried count is an assertion about a root this poll did not fully read,
+  # so it is only made when the root is provably unchanged. A different member
+  # count or a newer `updated_at` means the members may have moved underneath
+  # the old number, and "Unresolved" is the honest answer.
+  test "drops carried catalog counts when the root is not provably unchanged" do
+    previous = catalog([counted_root(1, member_count: 3, epic_count: 2, phase_count: 4)])
+
+    changed_members = catalog([counted_root(1, member_count: 4)])
+    assert [entry] = Catalog.carry_forward_counts(changed_members, previous).entries
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+
+    touched = catalog([counted_root(1, member_count: 3, updated_at: ~U[2026-08-13 12:00:01Z])])
+    assert [entry] = Catalog.carry_forward_counts(touched, previous).entries
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+
+    # A root the previous catalog never carried has nothing to inherit.
+    assert [entry] = Catalog.carry_forward_counts(catalog([counted_root(2, member_count: 3)]), previous).entries
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+  end
+
+  test "never lets a carried catalog count overwrite one the fresh read resolved" do
+    previous = catalog([counted_root(1, member_count: 3, epic_count: 2, phase_count: 4)])
+    fresh = catalog([counted_root(1, member_count: 3, epic_count: 9, phase_count: 0)])
+
+    assert [entry] = Catalog.carry_forward_counts(fresh, previous).entries
+    assert entry.epic_count == 9
+
+    # A resolved zero is a real answer, not a missing one.
+    assert entry.phase_count == 0
+  end
+
+  # A root with no readable identity or no timestamp cannot be fingerprinted, so
+  # it can never match — the carry-forward has no way to say it is unchanged.
+  test "carries nothing forward for a root that cannot be fingerprinted" do
+    unfingerprintable = RootSummary.new(%{identity: identity(1), title: "Root 1", url: issue_url(1), member_count: 3})
+
+    previous = catalog([counted_root(1, member_count: 3, epic_count: 2, phase_count: 4)])
+
+    assert [entry] = Catalog.carry_forward_counts(catalog([unfingerprintable]), previous).entries
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+
+    # And a previous entry with no fingerprint offers nothing to a fresh one.
+    assert [entry] =
+             Catalog.carry_forward_counts(
+               catalog([counted_root(1, member_count: 3)]),
+               catalog([%{unfingerprintable | epic_count: 2, phase_count: 4}])
+             ).entries
+
+    assert is_nil(entry.epic_count)
+    assert is_nil(entry.phase_count)
+  end
+
+  # A root can resolve one dimension and not the other, and the two are filled
+  # independently — carrying the missing one must not disturb the resolved one.
+  test "fills only the catalog count the fresh read left unresolved" do
+    previous = catalog([counted_root(1, member_count: 3, epic_count: 2, phase_count: 4)])
+
+    assert [entry] = Catalog.carry_forward_counts(catalog([counted_root(1, member_count: 3, epic_count: 9)]), previous).entries
+    assert entry.epic_count == 9
+    assert entry.phase_count == 4
+
+    assert [entry] = Catalog.carry_forward_counts(catalog([counted_root(1, member_count: 3, phase_count: 0)]), previous).entries
+    assert entry.epic_count == 2
+    assert entry.phase_count == 0
+  end
+
+  # Counts must survive every cheap poll between labelled reads, not just the
+  # first one — each generation carries from the already-carried previous one.
+  test "carries catalog counts across a chain of polls that could not resolve them" do
+    resolved = catalog([counted_root(1, member_count: 3, epic_count: 2, phase_count: 4)])
+
+    chained =
+      Enum.reduce(1..5, resolved, fn _poll, previous ->
+        Catalog.carry_forward_counts(catalog([counted_root(1, member_count: 3)]), previous)
+      end)
+
+    assert [%RootSummary{epic_count: 2, phase_count: 4}] = chained.entries
+  end
+
+  test "leaves a catalog untouched when there is no previous catalog to carry from" do
+    fresh = catalog([counted_root(1, member_count: 3)])
+
+    assert Catalog.carry_forward_counts(fresh, nil) == fresh
+    assert Catalog.carry_forward_counts(fresh, catalog([])) == fresh
+  end
+
   defp root(number),
     do:
       RootSummary.new(%{
@@ -264,6 +369,20 @@ defmodule Aiur.BuildOrder.CatalogTest do
         title: "Root #{number}",
         url: issue_url(number)
       })
+
+  defp counted_root(number, opts) do
+    RootSummary.new(%{
+      identity: identity(number),
+      title: "Root #{number}",
+      url: issue_url(number),
+      member_count: Keyword.get(opts, :member_count, 3),
+      epic_count: Keyword.get(opts, :epic_count),
+      phase_count: Keyword.get(opts, :phase_count),
+      updated_at: Keyword.get(opts, :updated_at, ~U[2026-08-13 12:00:00Z])
+    })
+  end
+
+  defp catalog(entries), do: Catalog.new(entries, ProviderHealth.new(1, :healthy, true))
 
   defp identity(number) do
     {:ok, identity} =

@@ -400,6 +400,17 @@ textarea:focus-visible,
   box-shadow: var(--shadow-sm);
 }
 
+/* Grid items keep `min-width: auto`, so a track sizes itself to the widest
+   descendant's min-content — and the spatial graph's stage grows by one column
+   per epic. A Build Order with many epics therefore stretched the graph pane,
+   and with it every sibling pane in the same track, past the right edge of the
+   page instead of scrolling inside the graph's own viewport. The viewport is
+   already an `overflow: auto` scroller; zeroing the items' automatic minimum is
+   what lets it actually scroll. */
+.bo-surface > * {
+  min-width: 0;
+}
+
 .bo-state-card h3,
 .bo-state-card p,
 .bo-catalog-entry h3,
@@ -8055,21 +8066,116 @@ html[data-theme="light"] .rs-github-mark {
   overflow: auto;
 }
 
+/* The dialog title carries the eyebrow's mono/uppercase treatment: the modal
+   now leads with the instruction itself, so the separate eyebrow line above it
+   was one label too many. The `.modal-header h2` qualifier is load-bearing —
+   `.modal-header h2` sets its own `font-size`, and a bare class selector loses
+   to it on specificity regardless of source order. */
+.modal-header h2.sd-install-title {
+  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+/* `.modal-panel` sizes its third row `minmax(0, 1fr)`, which was written for a
+   panel whose third child is the scrollable body. This dialog's children are
+   header, steps, and an optional note, so that row would land on the note and
+   let it collapse to nothing on a short viewport — silently hiding the Windows
+   warning. Every row here sizes to its content; the panel itself scrolls. */
+.sd-install-modal {
+  grid-template-rows: none;
+}
+
+.sd-install-step-title {
+  margin: 0 0 0.45rem;
+  font-size: 0.86rem;
+}
+
+.sd-install-download {
+  display: inline-block;
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--accent-ink);
+  border-radius: 8px;
+  color: var(--accent-ink);
+  font-size: 0.85rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.sd-install-download:hover {
+  background: var(--accent-soft);
+}
+
+.sd-install-download:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+/* A plain container: the prompt block below carries the box, so bordering this
+   too would frame the same content twice. */
 .sd-install-prompt {
+  display: grid;
+  gap: 0.6rem;
+  margin: 0;
+  min-width: 0;
+}
+
+/* The prompt block grows to whatever height the wrapped text needs, at every
+   width: it must never scroll sideways and never clip its tail. */
+.sd-install-prompt-text {
+  display: block;
+  width: 100%;
+  min-width: 0;
   margin: 0;
   padding: 0.7rem 0.8rem;
   border: 1px solid var(--line-strong);
   border-radius: 8px;
   background: var(--surface-2);
-}
-
-.sd-install-prompt code {
-  display: block;
+  color: var(--fg);
   font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
   font-size: 0.8rem;
   line-height: 1.5;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+.sd-install-prompt-text:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 2px;
+}
+
+.sd-install-prompt-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.sd-install-copy-button {
+  padding: 0.45rem 0.8rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+
+.sd-install-copy-button:hover {
+  background: var(--surface-3);
+}
+
+.sd-install-copy-button:focus-visible {
+  outline: 2px solid var(--accent-ink);
+  outline-offset: 3px;
+}
+
+.sd-install-prompt [data-copy-status] {
+  font-size: 0.78rem;
+  color: var(--muted);
 }
 
 .sd-install-note {
@@ -8079,7 +8185,6 @@ html[data-theme="light"] .rs-github-mark {
   color: var(--muted);
 }
 
-.sd-install-intro,
 .sd-install-pairing p,
 .sd-install-result p {
   margin: 0;
@@ -8101,41 +8206,19 @@ html[data-theme="light"] .rs-github-mark {
   font-size: 0.86rem;
 }
 
+/* The step titles number themselves, so the list markers would say it twice. */
 .sd-install-steps {
   display: grid;
-  gap: 0.65rem;
+  gap: 1rem;
   margin: 0;
-  padding-left: 1.4rem;
+  padding-left: 0;
+  list-style: none;
   font-size: 0.85rem;
   line-height: 1.5;
 }
 
-.sd-install-modal code {
-  overflow-wrap: anywhere;
-}
-
-.sd-install-modal pre {
-  margin: 0.45rem 0 0;
-  padding: 0.55rem 0.7rem;
-  border-radius: 8px;
-  background: var(--surface);
-  overflow-x: auto;
-}
-
-.sd-install-modal pre code {
-  display: block;
-  font-family: "JetBrains Mono", "SFMono-Regular", Consolas, monospace;
-  font-size: 0.76rem;
-  line-height: 1.5;
-  white-space: pre;
-  overflow-wrap: normal;
-}
-
-.sd-install-modal .modal-meta {
-  margin: 0;
-  color: var(--muted);
-  font-size: 0.78rem;
-  overflow-wrap: anywhere;
+.sd-install-step {
+  min-width: 0;
 }
 
 .sd-brand-logo {

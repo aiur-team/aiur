@@ -326,6 +326,7 @@ When `server.host` is absent, a normal `aiur` launch uses the machine's Tailscal
 | `build_order.ticket_history_max_identities` | integer | 100 | Maximum distinct ticket identities retained in history. |
 | `build_order.ticket_history_stale_after_ms` | integer | 60000 | Age after which ticket history is stale. |
 | `build_order.graph_catalog_refresh_ms` | integer | 60000 | Catalog refresh cadence. |
+| `build_order.graph_catalog_labels_refresh_ms` | integer | 600000 | Cadence for the costlier catalog read that resolves epic and wave counts. |
 | `build_order.graph_selected_refresh_ms` | integer | 15000 | Selected Build Order refresh cadence. |
 | `build_order.graph_demand_refresh_ms` | integer | 5000 | Demand-driven selected-graph refresh cadence. |
 | `build_order.graph_refresh_timeout_ms` | integer | 30000 | Maximum graph-refresh request duration. |

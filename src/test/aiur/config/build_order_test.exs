@@ -13,6 +13,7 @@ defmodule Aiur.Config.BuildOrderTest do
     assert settings.build_order.ticket_history_max_identities == 100
     assert settings.build_order.ticket_history_stale_after_ms == 60_000
     assert settings.build_order.graph_catalog_refresh_ms == 60_000
+    assert settings.build_order.graph_catalog_labels_refresh_ms == 600_000
     assert settings.build_order.graph_selected_refresh_ms == 15_000
     assert settings.build_order.graph_demand_refresh_ms == 5_000
     assert settings.build_order.graph_refresh_timeout_ms == 30_000
@@ -31,6 +32,7 @@ defmodule Aiur.Config.BuildOrderTest do
                  "ticket_history_max_identities" => 24,
                  "ticket_history_stale_after_ms" => 120_000,
                  "graph_catalog_refresh_ms" => 120_000,
+                 "graph_catalog_labels_refresh_ms" => 900_000,
                  "graph_selected_refresh_ms" => 30_000,
                  "graph_demand_refresh_ms" => 10_000,
                  "graph_refresh_timeout_ms" => 20_000,
@@ -46,7 +48,30 @@ defmodule Aiur.Config.BuildOrderTest do
     assert settings.build_order.ticket_history_max_identities == 24
     assert settings.build_order.ticket_history_stale_after_ms == 120_000
     assert settings.build_order.graph_catalog_refresh_ms == 120_000
+    assert settings.build_order.graph_catalog_labels_refresh_ms == 900_000
     assert settings.build_order.graph_selected_refresh_ms == 30_000
+
+    # The setting is inert unless it reaches the projection's policy, so pin
+    # both halves of the wiring: Config exports the key, and policy_options/1
+    # maps it through rather than falling back to the default.
+    assert Keyword.has_key?(Aiur.Config.build_order_graph_projection_options(), :catalog_labels_refresh_ms)
+
+    policy =
+      Aiur.BuildOrder.GraphProjection.Options.policy_options(
+        catalog_refresh_ms: 120_000,
+        catalog_labels_refresh_ms: 900_000
+      )
+
+    assert policy.catalog_labels_refresh_ms == 900_000
+
+    # And no configuration can make the expensive read outrun the catalog poll.
+    clamped =
+      Aiur.BuildOrder.GraphProjection.Options.policy_options(
+        catalog_refresh_ms: 120_000,
+        catalog_labels_refresh_ms: 1_000
+      )
+
+    assert clamped.catalog_labels_refresh_ms == 120_000
     assert settings.build_order.graph_demand_refresh_ms == 10_000
     assert settings.build_order.graph_refresh_timeout_ms == 20_000
     assert settings.build_order.graph_max_selected_roots == 12
@@ -72,6 +97,10 @@ defmodule Aiur.Config.BuildOrderTest do
   test "rejects invalid projection bounds and demand intervals beyond the selected interval" do
     for attrs <- [
           %{"graph_catalog_refresh_ms" => 3_600_001},
+          %{"graph_catalog_labels_refresh_ms" => 3_600_001},
+          # A labels cadence faster than the catalog poll would make every poll
+          # buy the ~26-point query — the regression #1766 exists to prevent.
+          %{"graph_catalog_refresh_ms" => 60_000, "graph_catalog_labels_refresh_ms" => 59_999},
           %{"graph_selected_refresh_ms" => 300_001},
           %{"graph_demand_refresh_ms" => 0},
           %{"graph_refresh_timeout_ms" => 120_001},
