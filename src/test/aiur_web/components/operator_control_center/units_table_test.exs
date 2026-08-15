@@ -112,8 +112,9 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute unavailable =~ ~r{<tbody id="units-rows">\s*<tr}
     assert unavailable =~ "Units catalog unavailable"
     assert unavailable =~ "membership failed"
-    # Every zero-unit catalog reads the same sentence; the per-status detail
-    # stays in the sr-only announcement rather than the empty-state box.
+    # Every zero-unit catalog reads the same sentence. The per-status detail is
+    # not lost: `UnitsPresenter.announcement/1` derives its own copy from the
+    # status, so the box no longer needs to paint `@message` as well.
     assert empty =~ "No live units."
     refute empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
@@ -167,6 +168,20 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # dashed-border `empty-state` surface.
     assert html =~ ~s(class="units-state empty-state")
     assert html =~ "No live units."
+  end
+
+  test "withholds the zero-unit sentence from the statuses that already account for themselves" do
+    # `:loading` has not finished answering the question yet, and `:unavailable`
+    # names its own fault twice over — a banner and an in-table row. Either one
+    # would read as a contradiction beside "No live units.", so the guard in
+    # `no_units?/3` excludes them and this pins both sides of that exclusion.
+    loading = render(%{status: :loading, message: nil, rows: [], zero_result?: false})
+    assert loading =~ "Loading Units"
+    refute loading =~ "No live units."
+
+    unavailable = render(%{status: :unavailable, message: "membership failed", rows: [], zero_result?: false})
+    assert unavailable =~ "No active agents"
+    refute unavailable =~ "No live units."
   end
 
   test "renders a named, reachable pause control for a running unit when writable" do

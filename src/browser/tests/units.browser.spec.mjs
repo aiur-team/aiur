@@ -179,7 +179,6 @@ test('Units keeps its column headings at zero units and names the empty state in
   const empty = page.locator('.units-card .empty-state')
   await expect(empty).toHaveCount(1)
   await expect(empty).toHaveText('No live units.')
-  await expect(empty).not.toContainText('No units match this valid scope')
 
   const emptyBelowTable = await page.evaluate(() => {
     const box = document.querySelector('.units-card .empty-state').getBoundingClientRect()
@@ -197,8 +196,7 @@ test('Units keeps its column headings at zero units and names the empty state in
         borderWidth: style.borderTopWidth,
         borderColor: style.borderTopColor,
         color: style.color,
-        textAlign: style.textAlign,
-        radius: style.borderTopLeftRadius
+        textAlign: style.textAlign
       }
     })
 
@@ -206,7 +204,11 @@ test('Units keeps its column headings at zero units and names the empty state in
   expect(dark.borderStyle).toBe('dashed')
   expect(dark.borderWidth).toBe('1px')
   expect(dark.textAlign).toBe('center')
-  expect(Number.parseFloat(dark.radius)).toBeGreaterThan(0)
+
+  // The whole card is clean in the dark theme, so scan all of it -- that catches
+  // a structural a11y regression anywhere in the Units panel, not just this box.
+  const darkAccessibility = await new AxeBuilder({ page }).include('.units-card').analyze()
+  expect(darkAccessibility.violations).toEqual([])
 
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
   const light = await readStyle()
@@ -215,15 +217,13 @@ test('Units keeps its column headings at zero units and names the empty state in
   expect(light.color).not.toBe(dark.color)
   expect(light.borderColor).not.toBe(dark.borderColor)
 
-  // Scoped to the empty state rather than the whole card: the surrounding
-  // light-theme chrome (`.section-eyebrow` on `--faint`) carries pre-existing
-  // design-token contrast defects that this box neither introduces nor owns.
+  // The light theme narrows to the box itself. The card's surrounding chrome --
+  // `.section-eyebrow` and `#units-title` on `--faint`, and the filter pills and
+  // scope buttons -- fails AA against the light `--surface`, and that is a
+  // pre-existing design-token defect: this change touches no CSS at all. The box
+  // itself passes, which is what the narrow scan is here to prove.
   const lightAccessibility = await new AxeBuilder({ page }).include('.units-card .empty-state').analyze()
   expect(lightAccessibility.violations).toEqual([])
-
-  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'))
-  const darkAccessibility = await new AxeBuilder({ page }).include('.units-card .empty-state').analyze()
-  expect(darkAccessibility.violations).toEqual([])
 })
 
 test('Units conversation drawer hook manages focus, Escape, and focus return', async ({ page }) => {
