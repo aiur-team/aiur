@@ -21,7 +21,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.BuildOrder.Lifecycle
   alias Aiur.DecisionMetrics.Canonical, as: DecisionMetricsCanonical
   alias Aiur.DecisionMetrics.Event, as: DecisionMetricsEvent
-  alias Aiur.Events.{Exchange, SubscriptionStore}
+  alias Aiur.Events.Exchange
 
   alias Aiur.OpenTicketSource.Snapshot, as: OpenTicketSnapshot
   alias Aiur.Orchestrator
@@ -4171,7 +4171,6 @@ defmodule AiurWeb.DashboardLiveTest do
     )
 
     {:ok, view, _html} = live(build_conn(), "/")
-    token = UnitsPresenter.row_token(%{identity: identity})
 
     html = view |> element(~s(button[phx-click="read-conversation"])) |> render_click()
 
@@ -5123,112 +5122,6 @@ defmodule AiurWeb.DashboardLiveTest do
     }
   end
 
-  defp start_run_summary_dashboard do
-    test_process = self()
-
-    start_run_summary_dashboard(fn destination, message, delay_ms ->
-      send(test_process, {:run_summary_flush_scheduled, destination, message, delay_ms})
-      make_ref()
-    end)
-  end
-
-  defp start_run_summary_dashboard(flush_timer) when is_function(flush_timer, 3) do
-    orchestrator_name = Module.concat(__MODULE__, :RunSummaryOrchestrator)
-
-    start_supervised!(
-      {CountingOrchestrator,
-       name: orchestrator_name,
-       snapshot: %{
-         running: [],
-         retrying: [],
-         idle: [],
-         agent_totals: %{input_tokens: 0, output_tokens: 0, total_tokens: 0, seconds_running: 0},
-         rate_limits: nil
-       }},
-      id: orchestrator_name
-    )
-
-    start_test_endpoint(
-      orchestrator: orchestrator_name,
-      snapshot_timeout_ms: 100,
-      run_summary_flush_timer: flush_timer
-    )
-
-    {:ok, view, _html} = live(build_conn(), "/")
-    view
-  end
-
-  # Deterministically apply one pushed snapshot: process the update (which
-  # schedules but defers the coalesced flush), then run the flush and render.
-  defp push_summary(view, snapshot) do
-    send(view.pid, {:current_run_summary_changed, snapshot})
-    :sys.get_state(view.pid)
-    send(view.pid, :flush_run_summary)
-    render(view)
-  end
-
-  defp healthy_summary_snapshot(opts \\ []) do
-    live = Keyword.get(opts, :live, 3)
-    {num, den} = Keyword.get(opts, :exact, {3, 5})
-
-    %{
-      version: 1,
-      generation: Keyword.get(opts, :generation, 1),
-      run: %{
-        id: Keyword.get(opts, :run_id, "run-1"),
-        started_at: ~U[2026-07-17 10:00:00Z],
-        observed_at: ~U[2026-07-17 10:20:00Z],
-        elapsed_wall_ms: 1_200_000,
-        elapsed_wall_seconds: 1200,
-        valid?: true
-      },
-      counts: %{live: live, remaining: 2, successful_terminal: 1, non_work_terminal: 0, unknown_state: 0, total: live + 3},
-      weights: %{
-        eligible: 10,
-        successful_terminal: 4,
-        remaining: 6,
-        excluded: 0,
-        excluded_count: 0,
-        defaulted: 0,
-        defaulted_count: 0,
-        known_progress: 10,
-        unknown_progress: 0
-      },
-      progress: %{
-        scale: 100,
-        weighted_numerator: %{value: 600, scale: 100},
-        denominator_weight: 10,
-        known_weight: 10,
-        unknown_weight: 0,
-        lower_bound: %{numerator: num, denominator: den},
-        coverage: %{numerator: 1, denominator: 1},
-        exact: %{numerator: num, denominator: den}
-      },
-      eta: %{
-        status: :available,
-        reason: nil,
-        confidence: :evidence_based,
-        formula_version: "completed_weight_rate_v1",
-        sample_count: 2,
-        duration_seconds: %{numerator: 480, denominator: 1},
-        throughput_weight_per_second: %{numerator: 1, denominator: 300},
-        completed_weight: 4,
-        remaining_weight: 6,
-        denominator_generation: 1,
-        observed_at: ~U[2026-07-17 10:20:00Z]
-      },
-      health: %{status: :healthy, reasons: []},
-      freshness: %{status: :fresh, sources: %{}}
-    }
-  end
-
-  defp unavailable_same_run_snapshot do
-    healthy_summary_snapshot()
-    |> Map.put(:generation, 2)
-    |> Map.put(:health, %{status: :unavailable, reasons: [:unhealthy_membership]})
-    |> Map.put(:freshness, %{status: :unavailable, sources: %{}})
-  end
-
   defp start_outcomes_dashboard do
     test_process = self()
 
@@ -5293,14 +5186,6 @@ defmodule AiurWeb.DashboardLiveTest do
       freshness: %{status: :fresh},
       sources: %{}
     }
-  end
-
-  defp unavailable_same_run_outcomes_snapshot(run_id) do
-    healthy_outcomes_snapshot(numbers: [], run_id: run_id)
-    |> Map.put(:state, :unavailable)
-    |> Map.put(:generation, 5)
-    |> Map.put(:health, %{status: :unavailable, reasons: [:merge_source_unavailable]})
-    |> Map.put(:freshness, %{status: :unavailable})
   end
 
   defp outcome_fixture(number) do
@@ -5371,40 +5256,6 @@ defmodule AiurWeb.DashboardLiveTest do
     :sys.replace_state(orchestrator, &Map.put(&1, :snapshot, snapshot))
     {:registered_name, name} = Process.info(orchestrator, :registered_name)
     :ok = SnapshotStore.publish(name, snapshot)
-  end
-
-  defp configure_provider_meter_stub(config) do
-    Application.put_env(:aiur, :provider_meter_source_stub, config)
-    on_exit(fn -> Application.delete_env(:aiur, :provider_meter_source_stub) end)
-  end
-
-  defp healthy_codex_snapshot do
-    observed = ~U[2026-07-18 11:30:00Z]
-
-    %Aiur.ProviderMeterSnapshot{
-      provider: :codex,
-      backend: :app_server,
-      provider_account_generation: "gen-codex",
-      auth_mode: :subscription,
-      plan: %{tier: :pro, source: :provider, observed_at: observed, freshness: :fresh},
-      observed_at: observed,
-      ingested_at: observed,
-      freshness: :fresh,
-      health: %{state: :healthy, failure: nil, last_observed_at: observed, last_source_version: 1},
-      windows: %{
-        "primary" => %{
-          kind: :rate_limit,
-          name: "Primary",
-          standing: :allowed,
-          used_percent: 40,
-          remaining_percent: 60,
-          coverage: :supported,
-          freshness: :fresh,
-          resets_at: ~U[2026-07-18 12:00:00Z],
-          source: :codex_app_server
-        }
-      }
-    }
   end
 
   defp start_queue_orchestrator(name, identifier, tracker_identity \\ nil) do
