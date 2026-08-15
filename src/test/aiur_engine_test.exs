@@ -1995,8 +1995,35 @@ defmodule AiurEngineTest do
     )
   end
 
+  # A stand-in for the dev shim's rebuild: it stamps the release and leaves the
+  # receipt the engine checks, which is what makes an "it built" claim provable
+  # rather than assumed. Tests that want the unverifiable cases distort exactly
+  # one of the three facts.
+  defp fake_build_cmd(release_dir, opts \\ []) do
+    sha = Keyword.get(opts, :sha, "cafebabe")
+    stamped_sha = Keyword.get(opts, :stamped_sha, sha)
+    receipt_dir = Keyword.get(opts, :receipt_dir, release_dir)
+    stamp = Keyword.get(opts, :stamp, true)
+
+    stamp_step =
+      if stamp do
+        ~s|printf 'repo_root=/fake\\nsource_sha=#{stamped_sha}\\n' > "#{release_dir}/AIUR_BUILD_STAMP"; |
+      else
+        ""
+      end
+
+    "echo BUILD; " <>
+      stamp_step <>
+      ~s|printf 'release_dir=#{receipt_dir}\\nrepo_root=/fake\\nsource_sha=#{sha}\\n' > "$AIUR_RESTART_BUILD_RECEIPT"|
+  end
+
   test "restart stops, refreshes the release, then starts detached — in that order" do
-    {out, 0} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}])
+    rel = fake_release()
+
+    {out, 0} =
+      run_restart("",
+        env: [{"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel)}, {"AIUR_RELEASE_DIR", rel}]
+      )
 
     markers =
       ~r/^(STOP|BUILD|RUN: .*)$/m
@@ -2004,6 +2031,96 @@ defmodule AiurEngineTest do
       |> Enum.map(&List.last/1)
 
     assert markers == ["STOP", "BUILD", "RUN: --bg"]
+  end
+
+  test "restart confirms the release it is about to boot is the one just built" do
+    # The command's whole promise is that a bounce cannot ship a stale release.
+    # A rebuild that exits 0 does not establish that on its own, so the claim is
+    # checked against the release on disk and reported.
+    rel = fake_release()
+
+    {out, 0} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel, sha: "abc123")},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert out =~ "verified release #{rel} built from abc123"
+    assert out =~ "RUN: --bg"
+  end
+
+  test "restart refuses to start when the rebuild leaves no receipt" do
+    rel = fake_release()
+
+    {out, code} =
+      run_restart("",
+        env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}, {"AIUR_RELEASE_DIR", rel}]
+      )
+
+    assert code == 70
+    refute out =~ "RUN:"
+    assert out =~ "left no build receipt"
+    assert out =~ "could not be verified"
+    assert out =~ "STOPPED and was NOT restarted"
+  end
+
+  test "restart refuses to start when the rebuild targeted a different release" do
+    # The defect this exists for: a globally symlinked wrapper rebuilds one
+    # checkout while the daemon boots from another, and every step exits 0.
+    rel = fake_release()
+    other = fake_release()
+
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel, receipt_dir: other)},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert code == 70
+    refute out =~ "RUN:"
+    assert out =~ "targeted a different release"
+    assert out =~ "rebuilt : #{other}"
+    assert out =~ "booting : #{rel}"
+  end
+
+  test "restart refuses to start when the release carries no build stamp" do
+    rel = fake_release()
+
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel, stamp: false)},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert code == 70
+    refute out =~ "RUN:"
+    assert out =~ "carries no build stamp"
+  end
+
+  test "restart refuses to start when the release on disk is from another commit" do
+    # A concurrent build landing between the rebuild and the start would leave a
+    # release nobody vouched for; the stamp catches that the boot target moved.
+    rel = fake_release()
+
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel, sha: "abc123", stamped_sha: "def456")},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert code == 70
+    refute out =~ "RUN:"
+    assert out =~ "not built from the commit the rebuild reported"
+    assert out =~ "rebuild reported : abc123"
+    assert out =~ "release stamped  : def456"
   end
 
   test "restart forwards run flags but consumes --no-build, which skips the refresh" do
@@ -2073,7 +2190,12 @@ defmodule AiurEngineTest do
   end
 
   test "a completed restart says nothing about a stopped daemon" do
-    {out, 0} = run_restart("", env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}])
+    rel = fake_release()
+
+    {out, 0} =
+      run_restart("",
+        env: [{"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel)}, {"AIUR_RELEASE_DIR", rel}]
+      )
 
     refute out =~ "STOPPED"
   end
@@ -2104,10 +2226,12 @@ defmodule AiurEngineTest do
   end
 
   test "restart starts a fresh session when nothing was running" do
+    rel = fake_release()
+
     {out, 0} =
       run_restart("",
         stop: "AIUR_STOP_FOUND_NOTHING=1; return 1",
-        env: [{"AIUR_RESTART_BUILD_CMD", "echo BUILD"}]
+        env: [{"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel)}, {"AIUR_RELEASE_DIR", rel}]
       )
 
     assert out =~ "nothing was running"

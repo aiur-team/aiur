@@ -2766,6 +2766,56 @@ aiur_restart_report_state() {
   fi
 }
 
+# The rebuild runs in a process this command cannot see into, so "the builder
+# exited 0" is not the same claim as "the release I am about to boot is the one
+# it just built" — a wrapper pointed at another checkout satisfies the first and
+# not the second, which is exactly how a bounce ships a stale release while every
+# step reports success. The builder leaves a receipt naming the release dir it
+# vouches for and the commit it built from; this checks both against the release
+# on disk. Anything unverifiable is reported as unverifiable, never as success.
+verify_restart_build() {
+  local receipt="$1"
+  local built_dir built_sha stamped_sha stamp target_dir
+
+  if [ ! -s "$receipt" ]; then
+    echo "aiur: the rebuild left no build receipt, so restart cannot confirm which" >&2
+    echo "      release it produced" >&2
+    return 1
+  fi
+
+  built_dir="$(sed -n 's/^release_dir=//p' "$receipt" | head -n 1)"
+  built_sha="$(sed -n 's/^source_sha=//p' "$receipt" | head -n 1)"
+
+  # Compare canonical paths: the builder and this engine can reach the same
+  # release through different symlinked parents.
+  built_dir="$(cd -P "$built_dir" 2>/dev/null && pwd || printf '%s' "$built_dir")"
+  target_dir="$(cd -P "${AIUR_RELEASE_DIR:-}" 2>/dev/null && pwd || printf '%s' "${AIUR_RELEASE_DIR:-}")"
+
+  if [ "$built_dir" != "$target_dir" ]; then
+    echo "aiur: the rebuild targeted a different release than the one about to boot" >&2
+    echo "      rebuilt : $built_dir" >&2
+    echo "      booting : $target_dir" >&2
+    return 1
+  fi
+
+  stamp="$target_dir/AIUR_BUILD_STAMP"
+  if [ ! -r "$stamp" ]; then
+    echo "aiur: the release carries no build stamp, so restart cannot confirm it is" >&2
+    echo "      the one just built ($stamp)" >&2
+    return 1
+  fi
+
+  stamped_sha="$(sed -n 's/^source_sha=//p' "$stamp" | head -n 1)"
+  if [ "$stamped_sha" != "$built_sha" ]; then
+    echo "aiur: the release on disk was not built from the commit the rebuild reported" >&2
+    echo "      rebuild reported : $built_sha" >&2
+    echo "      release stamped  : $stamped_sha" >&2
+    return 1
+  fi
+
+  echo "aiur: verified release $target_dir built from $stamped_sha" >&2
+}
+
 cmd_restart() {
   local skip_build=0 arg
   local run_args=()
@@ -2804,15 +2854,32 @@ cmd_restart() {
   trap aiur_restart_report_state EXIT INT TERM
 
   if [ -n "${AIUR_RESTART_BUILD_CMD:-}" ] && [ "$skip_build" -eq 0 ]; then
-    local build_status=0
-    bash -c "$AIUR_RESTART_BUILD_CMD" || build_status=$?
+    local build_status=0 receipt
+    receipt="$(mktemp "${TMPDIR:-/tmp}/aiur-restart-receipt.XXXXXX")"
+    AIUR_RESTART_BUILD_RECEIPT="$receipt" bash -c "$AIUR_RESTART_BUILD_CMD" || build_status=$?
     if [ "$build_status" -ne 0 ]; then
       # Exit with the builder's own status rather than a flat 1, so a caller can
       # still tell a failed rebuild from any other abort.
+      rm -f "$receipt"
       echo "❌ restart aborted before start: the rebuild failed" >&2
       aiur_restart_report_state
       trap - EXIT INT TERM
       exit "$build_status"
+    fi
+
+    # An unverifiable rebuild is not a lesser success. Starting anyway would
+    # hand back the stale-release outcome this whole ordering exists to prevent,
+    # with a "restarted" line on top of it.
+    local verify_status=0
+    verify_restart_build "$receipt" || verify_status=$?
+    rm -f "$receipt"
+    if [ "$verify_status" -ne 0 ]; then
+      echo "❌ restart aborted before start: the rebuild could not be verified" >&2
+      echo "   Rebuild from the checkout you mean and retry, or 'aiur restart --no-build'" >&2
+      echo "   to start the release on disk without the guarantee." >&2
+      aiur_restart_report_state
+      trap - EXIT INT TERM
+      exit 70
     fi
   elif [ "$skip_build" -eq 1 ]; then
     echo "aiur: --no-build — restarting on the release already on disk" >&2
