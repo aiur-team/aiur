@@ -758,7 +758,11 @@ defmodule AiurWeb.DashboardLiveTest do
 
     start_test_endpoint(orchestrator: orchestrator_name, snapshot_timeout_ms: 5, control_center_cache: false)
     {:ok, view, initial_html} = live(build_conn(), "/")
-    assert initial_html =~ "No fleet snapshot published yet"
+    # Before the first snapshot the fleet area degrades to its ordinary empty
+    # state, which names the missing fleet view rather than claiming the run is
+    # empty. No notice, no error card.
+    assert initial_html =~ "No last-known-good Units catalog is retained while the fleet snapshot is unavailable."
+    refute initial_html =~ "snapshot_unpublished"
     refute initial_html =~ "Fleet snapshot unavailable"
 
     :ok = ObservabilityPubSub.subscribe()
@@ -767,27 +771,23 @@ defmodule AiurWeb.DashboardLiveTest do
 
     refute_receive {:observability_updated, _event_id}, 20
     assert_receive {:observability_updated, _event_id}, 1_000
-    assert eventually(fn -> not String.contains?(render(view), "No fleet snapshot published yet") end, 100)
+    assert eventually(fn -> not String.contains?(render(view), "while the fleet snapshot is unavailable") end, 100)
   end
 
-  test "an unpublished snapshot and an unreachable orchestrator read differently" do
+  test "an unpublished snapshot raises no notice while an unreachable orchestrator does" do
+    # The post-restart moment before the first snapshot is expected, and the
+    # Units catalog underneath already reports the missing fleet view, so the
+    # notice is pure noise. A genuine fault still gets its card.
     unpublished =
       render_component(&Overview.error/1, error: %{code: "snapshot_unpublished", message: "No fleet snapshot published yet"})
 
     unavailable =
       render_component(&Overview.error/1, error: %{code: "orchestrator_unavailable", message: "Orchestrator is unavailable"})
 
-    assert unpublished =~ "No fleet snapshot published yet"
-    assert unpublished =~ "expected for a short time after a restart"
-    refute unpublished =~ "Fleet snapshot unavailable"
+    assert String.trim(unpublished) == ""
 
     assert unavailable =~ "Fleet snapshot unavailable"
     assert unavailable =~ "no last-known-good fleet view is retained"
-
-    # The expected post-restart moment must not wear incident colour either;
-    # `role="status"` alone only fixes the screen-reader reading.
-    assert unpublished =~ ~s(class="error-card notice")
-    refute unavailable =~ "notice"
   end
 
   test "a read-model fault never claims the orchestrator is unreachable" do

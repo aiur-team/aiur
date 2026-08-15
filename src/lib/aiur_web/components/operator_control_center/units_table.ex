@@ -54,8 +54,11 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         {@message || "No units have been observed in this run."}
       </div>
 
+      <%!-- A stale catalog with nothing retained knows why it is empty, so it
+            says that instead of asserting a fleet-wide emptiness it never
+            observed. The presenter already composes the reason. --%>
       <div :if={catalog_empty?(@status, @rows, @view)} class="units-state empty-state">
-        No units have been observed in this run.
+        {@message || "No units have been observed in this run."}
       </div>
 
       <div :if={@view[:truncated?]} class="units-state readonly-banner" role="status">

@@ -121,11 +121,17 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert stale =~ "Responsive Units interface"
 
     # A stale catalog with nothing retained must still account for the empty
-    # table rather than rendering a blank area.
+    # table rather than rendering a blank area, and it says why it is empty
+    # instead of claiming a fleet-wide emptiness it never observed.
     stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
     refute stale_empty =~ "Stale Units catalog"
-    assert stale_empty =~ "No units have been observed in this run."
+    assert stale_empty =~ "No last-known-good Units catalog is retained."
+    refute stale_empty =~ "No units have been observed in this run."
     refute stale_empty =~ "units-table"
+
+    # With no reason composed, the ordinary empty-state sentence still stands in.
+    stale_empty_unexplained = render(%{status: :stale, message: nil, rows: [], zero_result?: false})
+    assert stale_empty_unexplained =~ "No units have been observed in this run."
 
     # The filter-hides-everything case still belongs to zero_result?, not to the
     # catalog-empty message.
