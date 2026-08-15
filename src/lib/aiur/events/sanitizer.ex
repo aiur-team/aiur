@@ -57,6 +57,12 @@ defmodule Aiur.Events.Sanitizer do
   @commit_subject_max 200
   @comment_body_max 500
   @pr_review_body_max 500
+  # An issue title/body is the agent's actual task statement, so the caps are
+  # far higher than a digest line's: truncating a real ticket to 500 characters
+  # would break ordinary work. They are still caps — an attacker must not be
+  # able to spend an unbounded share of the agent's context window on prose.
+  @issue_title_max 300
+  @issue_body_max 16_000
   @invisible_unicode ~r/[\x{00AD}\x{034F}\x{061C}\x{180E}\x{200B}-\x{200F}\x{202A}-\x{202E}\x{2060}-\x{206F}\x{FE00}-\x{FE0F}\x{FEFF}\x{E0001}-\x{E007F}\x{E0100}-\x{E01EF}]/u
   @html_comment ~r/<!--.*?(?:-->|$)/s
   @large_base64_candidate ~r/(?:[A-Za-z0-9+\/_-]{4}[\r\n]*){32,}(?:[A-Za-z0-9+\/_-]{2,3}|==|=)?/
@@ -90,6 +96,25 @@ defmodule Aiur.Events.Sanitizer do
   @spec strip_untrusted_text(term()) :: term()
   def strip_untrusted_text(text) when is_binary(text), do: strip_instruction_carriers(text)
   def strip_untrusted_text(other), do: other
+
+  @doc """
+  Run the full per-string pipeline (strip instruction carriers → redact
+  secrets → truncate → HTML-escape) over one free-text field that came from
+  outside the trust boundary.
+
+  This is the same `clean/2` the payload scrubbers use, exposed so surfaces
+  that render untrusted text outside an event payload — notably the agent
+  prompt built from an issue title/body — cannot grow a second, drifting
+  sanitizer. Callers are expected to wrap the result in `<external-content>`
+  (see `Aiur.ExternalContent`); the HTML escape is what makes that wrapper
+  unbreakable.
+  """
+  @spec clean_untrusted(String.t(), :commit_subject | :comment_body | :pr_review_body | :issue_title | :issue_body) ::
+          String.t()
+  def clean_untrusted(text, field)
+      when is_binary(text) and field in [:commit_subject, :comment_body, :pr_review_body, :issue_title, :issue_body] do
+    clean(text, field)
+  end
 
   @doc """
   Prepare a GitHub-sourced payload for `Aiur.Events.Publisher.publish/3`.
@@ -228,17 +253,41 @@ defmodule Aiur.Events.Sanitizer do
     end
   end
 
-  # Single per-string pipeline: strip known hidden-instruction carriers,
-  # redact secrets, truncate to the field's
+  # Single per-string pipeline: coerce to valid UTF-8, strip known
+  # hidden-instruction carriers, redact secrets, truncate to the field's
   # cap at a codepoint boundary, then HTML-escape so the rendered digest
   # can safely embed the content inside `<external-content>…</external-content>`
   # without an attacker breaking out via `</external-content>`.
   defp clean(text, field) when is_binary(text) do
     text
+    |> ensure_utf8()
     |> strip_instruction_carriers()
     |> redact()
     |> truncate(field)
     |> html_escape()
+  end
+
+  # SECURITY INVARIANT — this must stay FIRST in the pipeline.
+  #
+  # Every stage below it is a regex or `String` operation, and `:re` raises
+  # `ArgumentError` on a binary that is not valid UTF-8. An issue title, issue
+  # body, or comment carrying a stray `<<255>>` would therefore crash prompt and
+  # digest construction for that ticket — a denial of service anyone able to
+  # open an issue could trigger, and a way to stop a ticket being worked at all.
+  #
+  # Coercing here rather than at each call site is deliberate: `clean/2` is the
+  # one funnel every untrusted string passes through, so no future caller can
+  # forget it. Invalid bytes are reinterpreted as latin1 rather than dropped, so
+  # the agent still sees the text and the sanitizer still gets to inspect it.
+  defp ensure_utf8(text) do
+    if String.valid?(text) do
+      text
+    else
+      case :unicode.characters_to_binary(text, :latin1, :utf8) do
+        converted when is_binary(converted) -> converted
+        _uncoercible -> String.replace_invalid(text)
+      end
+    end
   end
 
   defp redact(text) when is_binary(text), do: SecretRedactor.redact(text)
@@ -286,6 +335,8 @@ defmodule Aiur.Events.Sanitizer do
   defp truncate(text, :commit_subject), do: codepoint_truncate(text, @commit_subject_max)
   defp truncate(text, :comment_body), do: codepoint_truncate(text, @comment_body_max)
   defp truncate(text, :pr_review_body), do: codepoint_truncate(text, @pr_review_body_max)
+  defp truncate(text, :issue_title), do: codepoint_truncate(text, @issue_title_max)
+  defp truncate(text, :issue_body), do: codepoint_truncate(text, @issue_body_max)
 
   defp codepoint_truncate(text, max) do
     if String.length(text) > max do

@@ -4,6 +4,7 @@ defmodule Aiur.Codeowners do
   """
 
   alias Aiur.GitHub
+  alias Aiur.GitHub.CodeOwners
   alias Aiur.GitHub.Transport
 
   @type owner_entry :: %{
@@ -58,8 +59,8 @@ defmodule Aiur.Codeowners do
 
   Team owners are expanded to member usernames when a token and request
   function are available. If no CODEOWNERS file exists or no rule matches,
-  this returns an empty list; use `authoritative?/2` when the compatibility
-  fallback matters.
+  this returns an empty list, and `authoritative?/2` then trusts nobody —
+  see the fail-closed invariant there.
   """
   @spec owners_for_path(String.t(), keyword()) :: [String.t()]
   def owners_for_path(path, opts \\ []) when is_binary(path) do
@@ -107,8 +108,25 @@ defmodule Aiur.Codeowners do
       agent_login?(commenter, Map.get(context, :agent_logins, [])) ->
         false
 
+      # SECURITY INVARIANT — never trust everyone. This used to return `true`,
+      # which made EVERY commenter authoritative in any repository without a
+      # CODEOWNERS file: an outsider's comment on a public repo was accepted as
+      # a trusted instruction to the agent.
+      #
+      # Degraded mode has exactly one owner, `Aiur.GitHub.CodeOwners`, which
+      # resolves `bot_account` + `trusted_accounts` (falling back to the repo
+      # owner when neither is configured) and alerts the Executor. Delegating
+      # there rather than answering `false` outright matters: a flat `false`
+      # would silently drop every comment — including the operator's own — from
+      # the agent digest and make review threads permanently unresolvable, so
+      # the fail-closed gate would present as a hang with no alert.
+      #
+      # When that process is not running (test harnesses, early boot) there is
+      # no trust source to consult, and the answer is `false`. Do not
+      # reintroduce a local fallback here: two modules disagreeing about who is
+      # trusted is how this became exploitable in the first place.
       Map.get(context, :codeowners_present) == false ->
-        true
+        degraded_mode_trusted?(commenter, Map.get(context, :trust_server, CodeOwners))
 
       true ->
         normalized_member?(commenter, Map.get(context, :owners, []))
@@ -205,6 +223,19 @@ defmodule Aiur.Codeowners do
   end
 
   defp context_from_opts(opts) do
+    opts
+    |> base_context_from_opts()
+    |> put_trust_server(opts)
+  end
+
+  defp put_trust_server(context, opts) do
+    case Keyword.get(opts, :trust_server) do
+      nil -> context
+      server -> Map.put(context, :trust_server, server)
+    end
+  end
+
+  defp base_context_from_opts(opts) do
     cond do
       Keyword.has_key?(opts, :owners) ->
         %{
@@ -231,10 +262,31 @@ defmodule Aiur.Codeowners do
     end
   end
 
+  # Defers to the one module that owns degraded-mode trust. Mirrors
+  # `Aiur.Events.Sanitizer.author_trusted?/1`: absent process means no trust
+  # source, which means no trust.
+  defp degraded_mode_trusted?(commenter, server) do
+    if is_pid(server) or Process.whereis(server) do
+      CodeOwners.allowed?(commenter, server)
+    else
+      false
+    end
+  catch
+    :exit, _reason -> false
+  end
+
+  # A file that parses to no rules — most commonly the comments-only placeholder
+  # `aiur init` writes when the operator declines to name an owner — grants
+  # ownership to nobody. Treating it as "present" would fail closed while
+  # reporting "author is not a CODEOWNER for the relevant paths", which sends
+  # the next reader hunting for a rule that does not exist. It is the degraded
+  # case, so say so.
   defp read_codeowners(opts) do
-    case file_path(opts) do
-      nil -> %{present?: false, rules: []}
-      full_path -> %{present?: true, rules: parse_file!(full_path)}
+    with full_path when is_binary(full_path) <- file_path(opts),
+         [_ | _] = rules <- parse_file!(full_path) do
+      %{present?: true, rules: rules}
+    else
+      _absent_or_empty -> %{present?: false, rules: []}
     end
   end
 
@@ -493,7 +545,7 @@ defmodule Aiur.Codeowners do
   end
 
   defp authority_reason(_author, %{codeowners_present: false}, true) do
-    "No CODEOWNERS file found; using compatibility fallback."
+    "No CODEOWNERS rules found; author is an explicitly configured trusted account."
   end
 
   defp authority_reason(author, context, true) do
@@ -514,7 +566,7 @@ defmodule Aiur.Codeowners do
         "Author is not a CODEOWNER for the relevant paths."
 
       true ->
-        "No authoritative author could be determined."
+        "No CODEOWNERS rules found; only explicitly configured trusted accounts are authoritative."
     end
   end
 

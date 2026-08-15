@@ -11,10 +11,12 @@ defmodule Aiur.IssueContext do
   is locally available.
   """
 
-  alias Aiur.{Issue, Tracker}
+  alias Aiur.Events.Sanitizer
+  alias Aiur.{ExternalContent, Issue, Tracker}
 
   @type summary :: %{
           identifier: String.t(),
+          author: String.t() | nil,
           title: String.t() | nil,
           description: String.t() | nil,
           url: String.t() | nil,
@@ -45,7 +47,7 @@ defmodule Aiur.IssueContext do
       url_line(summary[:url]),
       labels_line(summary[:labels]),
       blockers_line(summary[:blocked_by]),
-      description_block(summary[:description])
+      description_block(summary[:description], summary[:author])
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join("\n")
@@ -66,10 +68,15 @@ defmodule Aiur.IssueContext do
     end
   end
 
+  # SECURITY INVARIANT — the pane intro is a system message in the agent's own
+  # transcript, so an issue title/body reaching it verbatim is the same
+  # prompt-injection path as the built prompt (see `Aiur.PromptBuilder`). Both
+  # render through the one wrapper for the same reason.
   defp from_issue(%Issue{} = issue) do
     %{
       identifier: issue.identifier,
-      title: issue.title,
+      author: issue.creator_login,
+      title: ExternalContent.wrap(issue.title, :issue_title, issue.creator_login),
       description: issue.description,
       url: issue.url,
       labels: List.wrap(issue.labels),
@@ -78,7 +85,7 @@ defmodule Aiur.IssueContext do
   end
 
   defp empty(identifier) do
-    %{identifier: identifier, title: nil, description: nil, url: nil, labels: [], blocked_by: []}
+    %{identifier: identifier, author: nil, title: nil, description: nil, url: nil, labels: [], blocked_by: []}
   end
 
   defp title_suffix(nil), do: ""
@@ -121,10 +128,17 @@ defmodule Aiur.IssueContext do
   defp blocker_label(%{url: url}) when is_binary(url), do: url
   defp blocker_label(_), do: nil
 
-  defp description_block(nil), do: nil
-  defp description_block(""), do: nil
+  defp description_block(nil, _author), do: nil
+  defp description_block("", _author), do: nil
 
-  defp description_block(text) do
+  # SECURITY INVARIANT — sanitize, then truncate, then wrap. In that order.
+  #
+  # This block previews only the first 12 lines / 600 characters. Wrapping
+  # before truncating would cut the closing `</external-content>` off any body
+  # longer than the preview, and everything after the opening tag would read as
+  # trusted prompt again — the exact failure `Aiur.ExternalContent` exists to
+  # prevent. The wrapper must be the last thing applied.
+  defp description_block(text, author) do
     # Some trackers return descriptions where newlines have been escaped
     # to literal `\\n` strings (a single backslash followed by `n`). The
     # pane has no way to know those are line breaks unless we unescape
@@ -133,12 +147,13 @@ defmodule Aiur.IssueContext do
     preview =
       text
       |> String.replace("\\n", "\n")
+      |> Sanitizer.clean_untrusted(:issue_body)
       |> String.split(~r/\r?\n/)
       |> Enum.take(12)
       |> Enum.join("\n")
       |> String.slice(0, 600)
 
-    "\n" <> preview
+    "\n" <> ExternalContent.wrap_sanitized(preview, author)
   end
 
   defp safe_call(fun) do

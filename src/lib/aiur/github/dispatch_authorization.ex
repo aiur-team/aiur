@@ -25,17 +25,24 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     deny_ambiguous(issue, {:contradictory_state_labels, state_labels})
   end
 
+  # SECURITY INVARIANT — provenance of the TRIGGER LABEL is the only thing that
+  # authorizes dispatch. There is deliberately no creator short-circuit.
+  #
+  # There used to be one: an issue whose creator was in `allowed_users` was
+  # dispatched with no label check at all. Agents create issues with that same
+  # credential, so an agent could file a ticket, label it `agent:todo`, and have
+  # it dispatched with no human anywhere in the loop — a self-sustaining work
+  # queue. It also meant that for any trusted-creator issue, a label applied by
+  # an outsider (or no verifiable `labeled` event at all) still dispatched.
+  #
+  # Who *filed* a ticket says nothing about whether anyone decided it should
+  # run. Requiring the verified label applier costs one timeline fetch per
+  # issue — already cached per `{id, label, updated_at}` — and makes "an actor
+  # in `allowed_users` moved this into a dispatch state" the single, auditable
+  # precondition. If you reintroduce a short-circuit, agent-filed work becomes
+  # self-authorizing again.
   def authorize(%Issue{} = issue, owner, repo, prefix, opts) do
-    allowed_users = allowed_users(opts)
-
-    case trusted_creator(issue.creator_login, allowed_users) do
-      true ->
-        log_decision(:allow, issue, "creator", issue.creator_login, nil)
-        %{issue | dispatch_authorized?: true}
-
-      false ->
-        authorize_label_applier(issue, owner, repo, prefix, allowed_users, opts)
-    end
+    authorize_label_applier(issue, owner, repo, prefix, allowed_users(opts), opts)
   end
 
   @doc false
@@ -49,8 +56,8 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     case trigger_label(issue, prefix) do
       {:ok, label} ->
         issue
-        |> label_applier_decision(label, owner, repo, opts)
-        |> apply_label_decision(issue, allowed_users)
+        |> label_applier_decision(label, prefix, owner, repo, opts)
+        |> apply_label_decision(issue, allowed_users, opts)
 
       :error ->
         deny_ambiguous(issue, :missing_trigger_label)
@@ -62,17 +69,43 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
   defp trigger_label(_issue, _prefix), do: :error
 
-  defp label_applier_decision(issue, label, owner, repo, opts) do
-    cached_decision(issue, label) || fetch_decision(issue, label, owner, repo, opts)
+  defp label_applier_decision(issue, label, prefix, owner, repo, opts) do
+    cached_decision(issue, label) || fetch_decision(issue, label, prefix, owner, repo, opts)
   end
 
-  defp apply_label_decision({:verified, actor, event_id}, issue, allowed_users) do
-    authorized? = member?(allowed_users, actor)
+  # The trigger label is the issue's CURRENT state label, and Aiur moves that
+  # label itself on every transition (`agent:todo` → `agent:in-progress` → …)
+  # using the bot credential. So the latest applier of the current state label
+  # is routinely Aiur, not the human who triaged the ticket.
+  #
+  # Requiring the applier to be in `allowed_users` and stopping there would mean
+  # every ticket loses authorization the moment Aiur advances its state, and
+  # `Orchestrator.Reconciler` terminates the running agent with "dispatch
+  # authorization was revoked" on the next poll. The old `trusted_creator`
+  # short-circuit hid that for operator-filed tickets; removing it exposed it
+  # for all of them.
+  #
+  # So: an Aiur-applied state label carries forward the triage decision instead
+  # of replacing it — authorized only if some allowed user applied a
+  # `<prefix>:*` label to this issue at some point. That keeps the invariant
+  # that a human put this ticket into the pipeline, while letting Aiur drive its
+  # own state machine. Note this deliberately does NOT extend to any other
+  # actor: an outsider re-labelling a ticket still revokes, because "latest
+  # applier wins" is what stops a hostile relabel from riding a stale approval.
+  defp apply_label_decision({:verified, actor, event_id, prefix_appliers}, issue, allowed_users, opts) do
+    triaged_by = Enum.find(prefix_appliers, &member?(allowed_users, &1))
+
+    {authorized?, source} =
+      cond do
+        member?(allowed_users, actor) -> {true, "label_applier"}
+        aiur_actor?(actor, opts) and not is_nil(triaged_by) -> {true, "prior_triage:#{triaged_by}"}
+        true -> {false, "label_applier"}
+      end
 
     log_decision(
       if(authorized?, do: :allow, else: :deny),
       issue,
-      "label_applier",
+      source,
       actor,
       event_id
     )
@@ -80,14 +113,19 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     %{issue | dispatch_authorized?: authorized?}
   end
 
-  defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users), do: deny_ambiguous(issue, reason)
+  defp apply_label_decision({:ambiguous, reason}, issue, _allowed_users, _opts), do: deny_ambiguous(issue, reason)
 
-  defp trusted_creator(login, allowed_users) when is_binary(login),
-    do: member?(allowed_users, login)
+  # Aiur's own identity, never a human decision. Resolved from the configured
+  # `bot_account`; when none is configured nothing carries forward and the
+  # stricter latest-applier rule applies unchanged.
+  defp aiur_actor?(actor, opts) do
+    case Keyword.get_lazy(opts, :bot_account, &Config.bot_account/0) do
+      bot when is_binary(bot) and bot != "" -> String.downcase(String.trim(bot)) == String.downcase(String.trim(actor))
+      _unconfigured -> false
+    end
+  end
 
-  defp trusted_creator(_login, _allowed_users), do: false
-
-  defp fetch_decision(issue, label, owner, repo, opts) do
+  defp fetch_decision(issue, label, prefix, owner, repo, opts) do
     request_fun = Keyword.get(opts, :request_fun, &Transport.default_request_fun/1)
     token = Keyword.get(opts, :token, Config.token())
 
@@ -97,7 +135,7 @@ defmodule Aiur.GitHub.DispatchAuthorization do
 
       case fetch_timeline_pages(request_fun, token, url, @max_timeline_pages, []) do
         {:ok, events} ->
-          timeline_decision(issue, label, events)
+          timeline_decision(issue, label, prefix, events)
 
         {:error, reason} ->
           {:ambiguous, reason}
@@ -136,12 +174,12 @@ defmodule Aiur.GitHub.DispatchAuthorization do
     end
   end
 
-  defp timeline_decision(issue, label, events) do
+  defp timeline_decision(issue, label, prefix, events) do
     case latest_label_event(events, label) do
       %{id: event_id, actor: actor} ->
         decision =
           if is_binary(actor),
-            do: {:verified, actor, event_id},
+            do: {:verified, actor, event_id, prefix_label_appliers(events, prefix)},
             else: {:ambiguous, :missing_timeline_actor}
 
         cache_decision(issue, label, event_id, decision)
@@ -158,6 +196,32 @@ defmodule Aiur.GitHub.DispatchAuthorization do
         decision
     end
   end
+
+  # Every actor who has ever applied a `<prefix>:*` state label to this issue.
+  # This is the evidence that someone put the ticket into the agent pipeline,
+  # and it is what an Aiur-applied state transition carries forward (see
+  # `apply_label_decision/4`). The list is kept as raw logins rather than a
+  # boolean so membership is evaluated against the CURRENT `allowed_users` on
+  # every call — a login removed from the allowlist stops conferring trust even
+  # while the timeline decision is still cached.
+  defp prefix_label_appliers(events, prefix) do
+    label_prefix = String.downcase(prefix) <> ":"
+
+    events
+    |> Enum.filter(fn event ->
+      is_map(event) and
+        (Map.get(event, "event") || Map.get(event, "type")) == "labeled" and
+        prefixed_label?(get_in(event, ["label", "name"]), label_prefix)
+    end)
+    |> Enum.map(&get_in(&1, ["actor", "login"]))
+    |> Enum.filter(&is_binary/1)
+    |> Enum.uniq()
+  end
+
+  defp prefixed_label?(name, label_prefix) when is_binary(name),
+    do: name |> String.trim() |> String.downcase() |> String.starts_with?(label_prefix)
+
+  defp prefixed_label?(_name, _label_prefix), do: false
 
   defp latest_label_event(events, label) do
     if Enum.all?(events, &is_map/1), do: matching_label_event(events, label), else: :invalid

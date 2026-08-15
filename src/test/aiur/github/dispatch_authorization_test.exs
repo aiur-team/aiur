@@ -9,14 +9,86 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     :ok
   end
 
-  test "allows an allowlisted issue creator without a timeline request" do
-    issue = issue(creator_login: "trusted")
+  # Regression: an allowlisted creator used to short-circuit authorization with
+  # no label check at all. Agents file issues with the same credential, so that
+  # let an agent create a ticket, label it, and dispatch it with no human in the
+  # loop — and it also dispatched trusted-creator issues whose trigger label was
+  # applied by an outsider. Creation is not authorization; the verified label
+  # applier is.
+  test "an allowlisted creator still requires a trusted trigger-label applier" do
+    events = [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]
+
+    denied = authorize_with_events(issue(creator_login: "trusted"), events, ["trusted"])
+
+    refute denied.dispatch_authorized?
+  end
+
+  # The bot login has to be in `allowed_users` for the fleet to work at all, so
+  # this is exactly what the creator short-circuit left unchecked: a ticket
+  # filed with the bot credential dispatched on creator alone, whoever applied —
+  # or did not apply — the trigger label.
+  test "an agent-filed ticket does not dispatch on an outsider's label" do
+    events = [labeled_event(10, "agent:todo", "outsider", "2026-01-01T00:00:00Z")]
+
+    denied = authorize_with_events(issue(creator_login: "aiur-bot"), events, ["aiur-bot"])
+
+    refute denied.dispatch_authorized?
+  end
+
+  # The trigger label is the issue's CURRENT state label, and Aiur moves that
+  # label itself on every transition. Without the carry-forward, the first
+  # `todo → in-progress` transition makes the verified applier the bot, the
+  # issue reads unauthorized, and `Orchestrator.Reconciler` kills the running
+  # agent. The old creator short-circuit hid this for operator-filed tickets.
+  test "an Aiur state transition does not revoke a human-triaged ticket" do
+    events = [
+      labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "aiur-bot", "2026-01-02T00:00:00Z")
+    ]
 
     authorized =
-      DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-        allowed_users: ["trusted"],
-        request_fun: fn _request -> flunk("trusted creator must not query the timeline") end
-      )
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"], bot_account: "aiur-bot")
+
+    assert authorized.dispatch_authorized?
+  end
+
+  test "an Aiur state transition carries nothing forward when no trusted actor ever triaged" do
+    events = [
+      labeled_event(10, "agent:todo", "aiur-bot", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "aiur-bot", "2026-01-02T00:00:00Z")
+    ]
+
+    denied =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"], bot_account: "aiur-bot")
+
+    refute denied.dispatch_authorized?
+  end
+
+  # Carry-forward is deliberately limited to Aiur's own identity. "Latest
+  # applier wins" is what stops a hostile relabel riding a stale approval, so
+  # any non-Aiur actor still replaces the decision.
+  test "an outsider relabel still revokes even after a trusted triage" do
+    events = [
+      labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z"),
+      labeled_event(11, "agent:in-progress", "outsider", "2026-01-02T00:00:00Z")
+    ]
+
+    denied =
+      authorize_with_events(issue(state: "in-progress"), events, ["trusted"], bot_account: "aiur-bot")
+
+    refute denied.dispatch_authorized?
+  end
+
+  test "an agent-filed ticket with no trigger-label event at all is denied" do
+    denied = authorize_with_events(issue(creator_login: "aiur-bot"), [], ["aiur-bot"])
+
+    refute denied.dispatch_authorized?
+  end
+
+  test "an allowlisted creator is dispatched once the trigger label is verifiably theirs" do
+    events = [labeled_event(10, "agent:todo", "trusted", "2026-01-01T00:00:00Z")]
+
+    authorized = authorize_with_events(issue(creator_login: "trusted"), events, ["trusted"])
 
     assert authorized.dispatch_authorized?
   end
@@ -347,11 +419,20 @@ defmodule Aiur.GitHub.DispatchAuthorizationTest do
     refute denied.dispatch_authorized?
   end
 
-  defp authorize_with_events(issue, events, allowed_users) do
-    DispatchAuthorization.authorize(issue, "owner", "repo", "agent",
-      allowed_users: allowed_users,
-      token: "test-token",
-      request_fun: fn _request -> {:ok, %{status: 200, body: events}} end
+  defp authorize_with_events(issue, events, allowed_users, extra_opts \\ []) do
+    DispatchAuthorization.authorize(
+      issue,
+      "owner",
+      "repo",
+      "agent",
+      Keyword.merge(
+        [
+          allowed_users: allowed_users,
+          token: "test-token",
+          request_fun: fn _request -> {:ok, %{status: 200, body: events}} end
+        ],
+        extra_opts
+      )
     )
   end
 
