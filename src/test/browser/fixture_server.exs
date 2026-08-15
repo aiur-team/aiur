@@ -924,10 +924,12 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   @now ~U[2026-07-17 12:00:00Z]
 
   @impl true
-  def mount(_params, _session, socket) do
+  # `?catalog=empty` mounts the same page with no units at all, so the browser
+  # suite can look at the zero-unit catalog without first deleting every row.
+  def mount(params, _session, socket) do
     {:ok,
      socket
-     |> assign(:catalog, catalog(rows()))
+     |> assign(:catalog, mount_catalog(params))
      |> assign(:selection, UnitsURL.default_selection())
      |> assign(:now, @now)
      |> assign(:context, nil)
@@ -1178,6 +1180,15 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       result: nil
     }
   end
+
+  defp mount_catalog(%{"catalog" => "empty"}) do
+    # Match what UnitsPresenter actually derives for a catalog with no rows, so
+    # the harness exercises the real zero-unit status rather than `:ready` with
+    # an empty list — a shape production never produces.
+    %{catalog([]) | status: :empty, message: "No units have been observed in this run."}
+  end
+
+  defp mount_catalog(_params), do: catalog(rows())
 
   defp catalog(rows) do
     %{
