@@ -111,6 +111,38 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
     assert CodingAgent.effort_for(issue) == preview.effort
   end
 
+  # The test above seeds the selection from the routed model, so it passed even
+  # while dispatch was throwing the operator's pick away. The bug only shows
+  # when they *change* the Model select: the confirmed labels then carry a
+  # variant that disagrees with routing for the same backend, and routing used
+  # to win silently.
+  test "a model the operator picks over the routed one survives to dispatch" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_routing: %{3 => "codex:gpt-5.6-terra:high"})
+
+    routed = AgentRoutingPreview.preview(["complexity:3"])
+    assert routed.model == "gpt-5.6-terra"
+
+    picked =
+      AgentRoutingPreview.normalize_selection(%{
+        backend: "codex",
+        model: "gpt-5.6-sol",
+        effort: routed.effort,
+        complexity: 3
+      })
+
+    assert picked.model == "gpt-5.6-sol"
+
+    plan = AgentRoutingPreview.plan(picked, ["complexity:3"])
+    issue = %Issue{id: "p", identifier: "p", labels: ["complexity:3"] ++ plan.add}
+
+    assert CodingAgent.backend_for(issue) == "codex"
+    assert CodingAgent.model_for(issue) == "gpt-5.6-sol"
+
+    # And the preview agrees with dispatch, so the modal is not showing one
+    # model while the daemon starts another.
+    assert AgentRoutingPreview.preview(["complexity:3"] ++ plan.add).model == "gpt-5.6-sol"
+  end
+
   # A pinned tag expires with its version, so a routing entry that deliberately
   # names a family alias has to survive the modal as an alias. Preselecting the
   # version the alias currently resolves to would strand the ticket there while

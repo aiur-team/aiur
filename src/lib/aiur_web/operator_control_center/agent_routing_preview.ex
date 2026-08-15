@@ -80,9 +80,22 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreview do
     %{
       backends: backends,
       models: safe(fn -> CodingAgent.seedable_models(backend) end, []),
-      efforts: safe(fn -> CodingAgent.efforts(backend) end, []),
+      efforts: offerable_efforts(backend),
       complexities: Enum.to_list(@complexities)
     }
+  end
+
+  # A backend's effort vocabulary is wider than the override-label vocabulary —
+  # codex accepts "none", which has no `model:none` override label. Offering it
+  # would write a label `effort_for/1` ignores and `family/1` misfiles as a
+  # model tag (so it would not even reconcile against the next selection),
+  # which is the same silent discard this modal exists to avoid. Only offer
+  # efforts that survive the round trip to dispatch.
+  defp offerable_efforts(backend) do
+    labels = safe(fn -> CodingAgent.override_effort_labels() end, [])
+
+    safe(fn -> CodingAgent.efforts(backend) end, [])
+    |> Enum.filter(&("model:#{&1}" in labels))
   end
 
   @doc """

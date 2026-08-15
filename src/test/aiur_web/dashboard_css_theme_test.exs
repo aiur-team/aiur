@@ -23,9 +23,7 @@ defmodule AiurWeb.DashboardCssThemeTest do
     "#e29b63",
     "#e3b341",
     "#e3b341",
-    "#e3b341",
-    "#fff",
-    "#fff"
+    "#e3b341"
   ]
 
   test "no new hardcoded text colors are introduced" do
@@ -115,6 +113,119 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert rule =~ "var(--blocking)"
   end
 
+  # Text on a filled control needs its own token pair: a fill tuned to carry
+  # ink, and the ink itself. `.btn` used to paint `#fff` straight onto --accent,
+  # which is 3.51:1 in the dark theme, and `.btn.danger` inherited that white
+  # onto the pale --blocking salmon at 2.52:1. Both are themed now, so a future
+  # edit that reaches back for a multi-line literal hex fails the debt test
+  # above (a single-line `color: #hex` rule still slips past its anchor).
+  test "filled buttons take their ink from themed on-fill tokens" do
+    btn = css_rule(".btn")
+    assert btn =~ "background: var(--accent-strong)"
+    assert btn =~ "color: var(--on-accent)"
+
+    assert css_rule(".btn.danger") =~ "color: var(--on-blocking)"
+    assert css_rule(".blocking .decision-banner-cta") =~ "color: var(--on-blocking)"
+
+    # --accent-strong exists because --accent is deliberately too bright to hold
+    # text; keeping them distinct in the dark theme is the point of the token.
+    dark = declarations(css_rule(":root"))
+    assert Map.fetch!(dark, "--accent-strong") != Map.fetch!(dark, "--accent")
+  end
+
+  # The browser suite's axe pass asserts that no *rendered* pair fails, but it
+  # can only grade what it can resolve: it never grades text over a gradient,
+  # and it only ever sees the states a fixture happens to render. These are the
+  # pairs whose ratio is load-bearing and whose margin is thin enough that a
+  # palette nudge would silently land under AA — measured here from the token
+  # values themselves, so the failure is a unit test rather than a rendering
+  # nobody looked at. Ratios are WCAG 2.x relative luminance.
+  #
+  # `.decision-revision` washes --super-soft over --surface, so the ink inside
+  # it is graded at the tinted end of that gradient — the end axe cannot see,
+  # and the end that caught --attention-ink at 4.16:1.
+  @aa_text 4.5
+  @aa_non_text 3.0
+
+  test "the contrast-critical token pairs still clear WCAG AA" do
+    dark = declarations(css_rule(":root"))
+    light = declarations(css_rule(~s(html[data-theme="light"])))
+
+    for {theme, tokens} <- [dark: dark, light: light] do
+      surface = tokens["--surface"]
+      panel = blend(tokens["--super-soft"], surface)
+
+      pairs = [
+        {"button ink on its fill", tokens["--on-accent"], tokens["--accent-strong"], @aa_text},
+        {"danger ink on its fill", tokens["--on-blocking"], tokens["--blocking"], @aa_text},
+        {"muted on surface", tokens["--muted"], surface, @aa_text},
+        {"faint on surface", tokens["--faint"], surface, @aa_text},
+        {"muted behind pill-bg", tokens["--muted"], blend(tokens["--pill-bg"], surface), @aa_text},
+        {"faint behind pill-bg", tokens["--faint"], blend(tokens["--pill-bg"], surface), @aa_text},
+        {"attention ink on a tinted panel", tokens["--attention-ink"], blend(tokens["--attention-soft"], panel), @aa_text},
+        {"super ink on a tinted panel", tokens["--super-ink"], blend(tokens["--super-soft"], panel), @aa_text},
+        # Non-text: the filled button's own edge against the page behind it.
+        {"button fill against surface", tokens["--accent-strong"], surface, @aa_non_text}
+      ]
+
+      for {label, fg, bg, minimum} <- pairs do
+        ratio = contrast(fg, bg)
+
+        assert ratio >= minimum,
+               "#{theme} #{label}: #{show(fg)} on #{show(bg)} is " <>
+                 "#{Float.round(ratio, 2)}:1, needs #{minimum}:1"
+      end
+    end
+  end
+
+  # A composited backdrop has no CSS spelling, so name it by its channels.
+  defp show(color) when is_list(color), do: "rgb(" <> Enum.map_join(color, ", ", &round/1) <> ")"
+  defp show(color), do: color
+
+  # Composite `rgba(r, g, b, a)` (or an opaque hex) over an opaque backdrop.
+  defp blend(color, backdrop) do
+    case Regex.run(~r{rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?\s*\)}, color) do
+      [_full, r, g, b] -> blend_channels([to_f(r), to_f(g), to_f(b)], 1.0, rgb(backdrop))
+      [_full, r, g, b, a] -> blend_channels([to_f(r), to_f(g), to_f(b)], to_f(a), rgb(backdrop))
+      nil -> rgb(color)
+    end
+  end
+
+  defp blend_channels(fg, alpha, bg) do
+    Enum.zip_with(fg, bg, fn f, b -> f * alpha + b * (1 - alpha) end)
+  end
+
+  defp to_f(value) do
+    {number, _rest} = Float.parse(value)
+    number
+  end
+
+  defp contrast(fg, bg) do
+    [l1, l2] = Enum.map([fg, bg], &luminance/1) |> Enum.sort(:desc)
+    (l1 + 0.05) / (l2 + 0.05)
+  end
+
+  defp luminance(color) do
+    [r, g, b] =
+      color
+      |> rgb()
+      |> Enum.map(fn channel ->
+        srgb = channel / 255
+
+        if srgb <= 0.03928, do: srgb / 12.92, else: :math.pow((srgb + 0.055) / 1.055, 2.4)
+      end)
+
+    0.2126 * r + 0.7152 * g + 0.0722 * b
+  end
+
+  defp rgb(channels) when is_list(channels), do: channels
+
+  defp rgb("#" <> hex) do
+    hex = if String.length(hex) == 3, do: hex |> String.graphemes() |> Enum.map_join(&(&1 <> &1)), else: hex
+
+    hex |> String.to_charlist() |> Enum.chunk_every(2) |> Enum.map(&List.to_integer(&1, 16))
+  end
+
   defp declarations(rule) do
     ~r/(--[a-z0-9-]+)\s*:\s*([^;]+);/
     |> Regex.scan(rule)
@@ -129,9 +240,11 @@ defmodule AiurWeb.DashboardCssThemeTest do
     |> Enum.sort()
   end
 
+  # Anchored on a line start so a descendant rule (`.decision-follow-up .btn {`)
+  # can never be mistaken for the base rule it contains as a substring.
   defp css_rule(selector) do
     css = File.read!(@css)
-    [_before, rest] = String.split(css, selector <> " {", parts: 2)
+    [_before, rest] = String.split(css, "\n" <> selector <> " {", parts: 2)
     [body, _after] = String.split(rest, "}", parts: 2)
     body
   end

@@ -26,6 +26,15 @@
   --pill-bg: rgba(221, 226, 235, 0.04);
   --accent: #2f86ff;
   --accent-ink: #8fbcff;
+  /* The fill under text that sits *on* the accent, as opposed to --accent-ink,
+     which is accent-coloured text on a surface. --accent itself is tuned bright
+     so it reads against the dark surfaces, and at that brightness it cannot
+     carry white text: #fff on #2f86ff is 3.51:1. This deeper blue takes #fff to
+     4.59:1 while its own edge still clears the 3:1 non-text minimum against
+     --surface (3.55:1) and --surface-3 (3.01:1). --accent stays as it was for
+     the progress fills, rings and borders, which carry no text. */
+  --accent-strong: #0070f0;
+  --on-accent: #ffffff;
   --accent-soft: rgba(47, 134, 255, 0.15);
   --accent-line: rgba(47, 134, 255, 0.34);
   --attention: #e3b341;
@@ -34,6 +43,11 @@
   --attention-line: rgba(227, 179, 65, 0.34);
   --blocking: #ff7b72;
   --blocking-ink: #ffa39c;
+  /* Ink on a --blocking fill. The dark theme's blocking red is a pale salmon so
+     that it reads on the dark surfaces, which leaves white text on it at
+     2.52:1; near-black ink reaches 7.30:1. The light theme keeps white, its
+     blocking red being dark enough to carry it (4.76:1). */
+  --on-blocking: #2a0906;
   --blocking-soft: rgba(255, 123, 114, 0.14);
   --blocking-line: rgba(255, 123, 114, 0.34);
   --good: #3fb950;
@@ -65,25 +79,47 @@ html[data-theme="light"] {
   --surface-2: #efe5cd;
   --surface-3: #e9dcbf;
   --fg: #2a2520;
-  --muted: #756a55;
-  --faint: #9a8e73;
+  /* Darkened from #756a55 and #9a8e73, which were tuned for the sepia surface
+     by eye and never measured: --faint reached only 2.75:1 on --surface (2.26:1
+     on --bg) and --muted fell to 4.20:1 behind --pill-bg, which is what put the
+     Units filter pills below AA. Both are now set to mirror their dark-theme
+     counterparts' contrast profile rather than to a bare 4.5:1 pass, so the
+     muted/faint step stays the same size it is in dark mode:
+       --muted 5.78:1 on --surface (dark: 5.79:1), 4.75:1 on --bg
+       --faint 4.97:1 on --surface (dark: 5.03:1), 4.62:1 behind --pill-bg
+     --faint clears AA on --surface and --surface-2 only. It is under it on
+     --surface-3 (4.31:1, as dark --faint is at 4.27:1) and on the page itself
+     (4.08:1 on --bg, 3.82:1 on --bg-2) — text on those steps up to --muted
+     rather than dragging the whole token darker, because --faint cannot go
+     much below this without collapsing into --muted and losing the third rung
+     of the hierarchy. Do not lighten either without rechecking axe. */
+  --muted: #635a48;
+  --faint: #6d6450;
   --line: rgba(42, 37, 26, 0.16);
   --line-strong: rgba(42, 37, 26, 0.28);
   --hairline: rgba(42, 37, 26, 0.1);
   --pill-bg: rgba(42, 37, 26, 0.04);
   --accent: #1f57c4;
   --accent-ink: #1a4aa8;
+  /* The light accent is already dark enough to carry white text (6.52:1), so
+     the fill and the accent are the same colour here. */
+  --accent-strong: #1f57c4;
+  --on-accent: #ffffff;
   --accent-soft: rgba(31, 87, 196, 0.11);
   --accent-line: rgba(31, 87, 196, 0.3);
   --attention: #b8821a;
   /* Darkened from #8a6210, which reached only 4.11:1 against its own soft
      background in the light theme — an "Expired" chip is a state the operator
-     has to be able to read. */
-  --attention-ink: #7d590e;
+     has to be able to read. Darkened again from #7d590e, which cleared its own
+     soft background (4.78:1) but not when that sits on a tinted panel: the
+     revision caution inside `.decision-revision` measured 4.16:1 over the
+     --super-soft wash. Now 4.59:1 there and 5.27:1 on the plain surface. */
+  --attention-ink: #75530d;
   --attention-soft: rgba(184, 130, 26, 0.13);
   --attention-line: rgba(184, 130, 26, 0.32);
   --blocking: #d23b32;
   --blocking-ink: #a52a23;
+  --on-blocking: #ffffff;
   --blocking-soft: rgba(210, 59, 50, 0.11);
   --blocking-line: rgba(210, 59, 50, 0.3);
   --good: #1f9d4d;
@@ -261,9 +297,12 @@ textarea:focus-visible,
   background: var(--accent-soft);
 }
 
+/* --muted, not --faint: the nav has no surface of its own, so this text sits
+   straight on the page background, where light --faint is only 4.08:1. The
+   "unavailable" state still reads as recessed against the --fg siblings. */
 .shell-nav-item.is-unavailable {
   cursor: not-allowed;
-  color: var(--faint);
+  color: var(--muted);
 }
 
 /* The sidebar sits hard against the browser's left edge, so its hover and
@@ -299,9 +338,11 @@ textarea:focus-visible,
   overflow-wrap: anywhere;
 }
 
+/* Also on the bare page background, and at 0.6rem it gets no large-text
+   relief, so it takes --muted for the same reason as .is-unavailable above. */
 .shell-nav-state {
   margin-left: auto;
-  color: var(--faint);
+  color: var(--muted);
   font-size: 0.6rem;
   font-weight: 600;
 }
@@ -2157,7 +2198,7 @@ html[data-theme="light"] .toggle-icon .moon {
 
 .blocking .decision-banner-cta {
   background: var(--blocking);
-  color: #fff;
+  color: var(--on-blocking);
 }
 
 .overview-strip {
@@ -3313,10 +3354,10 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 0.4rem;
   min-height: 2.25rem;
   padding: 0.5rem 0.85rem;
-  border: 1px solid var(--accent);
+  border: 1px solid var(--accent-strong);
   border-radius: 10px;
-  background: var(--accent);
-  color: #fff;
+  background: var(--accent-strong);
+  color: var(--on-accent);
   cursor: pointer;
   font-size: 0.82rem;
   font-weight: 650;
@@ -3337,6 +3378,7 @@ html[data-theme="light"] .toggle-icon .moon {
 .btn.danger {
   border-color: var(--blocking);
   background: var(--blocking);
+  color: var(--on-blocking);
 }
 
 .units-card {
