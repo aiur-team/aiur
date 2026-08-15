@@ -11,14 +11,24 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
   @max_labels 6
 
   attr(:view, :map, required: true)
+  attr(:visible, :integer, default: nil)
 
   @spec tickets_panel(map()) :: Phoenix.LiveView.Rendered.t()
   def tickets_panel(assigns) do
+    all_rows = Map.get(assigns.view, :rows, [])
+    # The LiveView holds the reveal count, so the rows past it are never rendered
+    # and never reach the client; the control is a real reveal, not a CSS trick.
+    visible = assigns[:visible] || TicketsPresenter.initial_reveal()
+    rows = Enum.take(all_rows, visible)
+    hidden_count = length(all_rows) - length(rows)
+
     assigns =
       assigns
       |> assign(:status, Map.get(assigns.view, :status, :unavailable))
       |> assign(:message, Map.get(assigns.view, :message))
-      |> assign(:rows, Map.get(assigns.view, :rows, []))
+      |> assign(:rows, rows)
+      |> assign(:hidden_count, hidden_count)
+      |> assign(:reveal_label, reveal_label(visible, hidden_count))
       |> assign(:count_label, TicketsPresenter.count_label(assigns.view))
 
     ~H"""
@@ -87,8 +97,25 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
           </tbody>
         </table>
       </div>
+
+      <div :if={@hidden_count > 0} class="tickets-more">
+        <%!-- No phx-disable-with, unlike History's "Load more": this reveal only
+              widens a slice of rows the LiveView already holds, so there is no
+              fetch to wait on and a transient disabled state would only flicker. --%>
+        <button type="button" class="btn ghost" phx-click="show-more-tickets">{@reveal_label}</button>
+      </div>
     </section>
     """
+  end
+
+  # The visible text is the whole accessible name: a bare "Show more" says
+  # nothing out of context, and a separate aria-label that did not contain the
+  # visible text would break label-in-name. The total stays in the panel header,
+  # so this names only the step and never repeats the count beside it.
+  defp reveal_label(visible, hidden_count) do
+    step = min(TicketsPresenter.reveal_more(visible) - visible, hidden_count)
+
+    "Show #{step} more #{if step == 1, do: "ticket", else: "tickets"}"
   end
 
   attr(:label, :string, default: nil)

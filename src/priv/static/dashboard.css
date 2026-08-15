@@ -9457,6 +9457,14 @@ html[data-theme="light"] .sd-device {
   text-align: right;
 }
 
+/* The reveal control sits outside the table so it is never mistaken for a row
+   and never intercepts a row's click. Centred, matching the History "Load more". */
+.tickets-more {
+  display: flex;
+  justify-content: center;
+  margin-top: 0.85rem;
+}
+
 /* ---- Ticket detail modal ---- */
 .ticket-detail-body {
   display: grid;
