@@ -28,10 +28,20 @@ defmodule Aiur.OpenTicketSource do
   # is unconditional (no ETag), so it polls well inside the REST rate budget.
   @default_interval :timer.minutes(2)
   @max_pages 10
-  # Issue bodies are large on a planning-heavy repository and this listing
-  # discards every one of them, so the response is bounded rather than decoded
-  # in full.
+  # Issue bodies are large on a planning-heavy repository, so the response is
+  # bounded rather than decoded in full.
   @max_response_bytes 4 * 1024 * 1024
+  # The Tickets panel search matches descriptions as well as titles, and this
+  # listing already carries every body on the wire — GitHub's REST issue list
+  # returns `body` inline, so reading descriptions costs no extra request. That
+  # is worth stating, because the Build Order catalog cannot do the same: its
+  # GraphQL connection bills per parent, which is why a per-ticket body fetch
+  # was avoided there. What descriptions do cost here is retained memory — this
+  # poller holds the whole open backlog and broadcasts it to every subscribed
+  # LiveView — so only the head of each body is kept. A ticket's summary lives
+  # in its opening lines; the tail is checklists and logs, which make a search
+  # noisier rather than better.
+  @body_excerpt_chars 1_000
 
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts \\ []) do
@@ -190,6 +200,7 @@ defmodule Aiur.OpenTicketSource do
       identity: issue.tracker_identity,
       identifier: issue.identifier,
       title: issue.title,
+      body_excerpt: body_excerpt(issue.description),
       url: issue.url,
       state: issue.state,
       labels: List.wrap(issue.labels),
@@ -198,6 +209,21 @@ defmodule Aiur.OpenTicketSource do
       updated_at: issue.updated_at
     }
   end
+
+  defp body_excerpt(description) when is_binary(description) do
+    case description |> String.slice(0, @body_excerpt_chars) |> String.trim() do
+      "" ->
+        nil
+
+      # `String.slice/3` and `String.trim/1` both return sub-binaries, which
+      # keep the *whole* body alive behind a 1000-character window. Copying is
+      # what actually applies the bound this design rests on.
+      excerpt ->
+        :binary.copy(excerpt)
+    end
+  end
+
+  defp body_excerpt(_description), do: nil
 
   defp apply_result(state, {:ok, tickets, truncated?}) do
     generation = (state.snapshot.generation || 0) + 1
@@ -241,12 +267,22 @@ defmodule Aiur.OpenTicketSource do
   end
 
   # Ignore observed_at/generation churn: only status or ticket changes warrant
-  # waking subscribed LiveViews to reload.
-  defp meaningful(%Snapshot{status: status, tickets: tickets}), do: {status, tickets}
+  # waking subscribed LiveViews to reload. Descriptions are excluded on purpose
+  # — an edited issue body changes what the panel *matches*, never what it
+  # *shows*, and waking every dashboard for a checklist tick would make prose
+  # churn on a planning-heavy repository indistinguishable from real work
+  # arriving. The next real change carries the new excerpt along with it.
+  defp meaningful(%Snapshot{status: status, tickets: tickets}) do
+    {status, Enum.map(tickets, &Map.delete(&1, :body_excerpt))}
+  end
 
   defp broadcast(state) do
     if Process.whereis(Aiur.PubSub) do
-      Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:open_tickets_updated, state.snapshot})
+      # Only the generation travels: every subscriber uses it to decide whether
+      # to reload and then reads the snapshot itself, so the full listing — now
+      # carrying an excerpt per ticket — is not copied into each of them.
+      payload = %{generation: state.snapshot.generation, status: state.snapshot.status}
+      Phoenix.PubSub.broadcast(Aiur.PubSub, @topic, {:open_tickets_updated, payload})
     end
 
     :ok

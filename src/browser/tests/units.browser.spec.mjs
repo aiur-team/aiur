@@ -271,7 +271,11 @@ test('Units preserves focused controls on stable updates and restores dialog foc
   await expect(page.getByText('Responsive Units interface · updated')).toBeVisible()
   await expect(page.locator('#units-status')).not.toHaveText(announcementBefore)
   await expect(page.locator('#units-status')).toContainText(/Catalog update [a-f0-9]{10}/)
-  await expect(page.locator('[role="status"][aria-live="polite"]')).toHaveCount(1)
+  // The catalog owns exactly one announcement channel. The Tickets panel has
+  // its own, which stays silent unless the operator searches, so this is scoped
+  // to the catalog's rather than counting every polite region on the page.
+  await expect(page.locator('[role="status"][aria-live="polite"]#units-status')).toHaveCount(1)
+  await expect(page.locator('#tickets-search-status')).toHaveText('')
 
   // Reopen after the update: the dialog reflects the new title.
   await page.locator('#units-rows tr.units-row').first().locator('td.ut-id-cell').click()
@@ -291,7 +295,8 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   const panel = page.locator('.tickets-card')
   await expect(panel).toBeVisible()
   await expect(panel.getByText('Tickets', { exact: true })).toBeVisible()
-  await expect(panel.getByText('2 tickets')).toBeVisible()
+  // The header count, not the visually hidden search announcement that echoes it.
+  await expect(panel.locator('.rs-group-count')).toHaveText('2 tickets')
 
   const accessibility = await new AxeBuilder({ page }).include('.tickets-card').analyze()
   expect(accessibility.violations).toEqual([])
@@ -356,4 +361,59 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
 
   await page.keyboard.press('Escape')
   await expect(modal).toHaveCount(0)
+})
+
+test('Tickets search filters on title and description from the keyboard alone', async ({ page }) => {
+  await openUnits(page)
+
+  const panel = page.locator('.tickets-card')
+  const search = panel.getByRole('searchbox', { name: /Search tickets/ })
+
+  // The panel opens on one revealed row, so the second ticket is on the server
+  // but not on screen.
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(panel.getByText('Documentation refresh')).toHaveCount(0)
+
+  // Reachable and operable without a pointer.
+  await search.focus()
+  await expect(search).toBeFocused()
+
+  // "retry" appears only in the unrevealed ticket's description, never in any
+  // title: the server filters the whole backlog, so a ticket the reveal has not
+  // reached is still findable, and by what it says rather than what it is named.
+  await search.pressSequentially('retry', { delay: 30 })
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(panel.getByText('Documentation refresh')).toBeVisible()
+  await expect(panel.getByText('Unrouted backlog ticket')).toHaveCount(0)
+  await expect(panel.locator('.rs-group-count')).toHaveText('1 of 2 tickets')
+  // The result is announced, not only shown.
+  await expect(panel.locator('#tickets-search-status')).toHaveText('1 of 2 tickets match.')
+  // One match does not fill the batch, so there is nothing left to reveal.
+  await expect(panel.getByRole('button', { name: /Show \d+ more ticket/ })).toHaveCount(0)
+
+  const filteredAccessibility = await new AxeBuilder({ page }).include('.tickets-card').analyze()
+  expect(filteredAccessibility.violations).toEqual([])
+
+  // A query matching both keeps the reveal control, counting the matches.
+  await search.fill('21')
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(panel.getByRole('button', { name: 'Show 1 more ticket' })).toBeVisible()
+
+  // A query that matches nothing says so rather than rendering an empty panel.
+  await search.fill('zzzzqqqq')
+  await expect(panel.locator('.tk-no-matches')).toBeVisible()
+  await expect(panel.locator('#tickets-rows')).toHaveCount(0)
+
+  // Clearing from the keyboard restores the unfiltered list, empties the field,
+  // and keeps focus on the control that was activated rather than dropping it
+  // to the document body.
+  const clear = panel.locator('.tk-search-clear')
+  await search.press('Tab')
+  await expect(clear).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  await expect(panel.locator('.rs-group-count')).toHaveText('2 tickets')
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  await expect(search).toHaveValue('')
+  await expect(clear).toBeFocused()
 })

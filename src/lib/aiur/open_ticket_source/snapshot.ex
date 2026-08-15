@@ -9,6 +9,10 @@ defmodule Aiur.OpenTicketSource.Snapshot do
   `truncated?` marks a listing cut short by the page budget, so a bounded prefix
   is never presented as an exact count. `tickets` are open issues only — pull
   requests share GitHub's issue endpoint and are excluded at the source.
+  `body_excerpt` is the head of the ticket's description, retained so the panel
+  search can match on what a ticket says and not only on what it is called; it
+  is deliberately a bounded excerpt rather than the whole body, which this
+  snapshot would otherwise carry into every subscribed LiveView.
   """
 
   alias Aiur.TrackerIdentity
@@ -19,6 +23,7 @@ defmodule Aiur.OpenTicketSource.Snapshot do
           identity: TrackerIdentity.t() | nil,
           identifier: String.t(),
           title: String.t() | nil,
+          body_excerpt: String.t() | nil,
           url: String.t() | nil,
           state: String.t() | nil,
           labels: [String.t()],

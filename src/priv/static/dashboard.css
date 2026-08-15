@@ -9425,6 +9425,97 @@ html[data-theme="light"] .sd-device {
   margin-top: 0.85rem;
 }
 
+/* The search sits between the panel title and the table because that is the
+   order the operator reads in: what this list is, how to narrow it, then the
+   list. It spans the panel so the input is the widest thing under the header
+   and cannot be mistaken for one more filter pill. */
+.tk-search {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  /* Wraps rather than crushing the field: at 320px the Clear button would
+     otherwise leave the input too narrow to read a query back in. */
+  flex-wrap: wrap;
+  margin-top: 0.85rem;
+}
+
+/* Borrows the tokens `.field-select` established rather than forking a second
+   field look: the border, radius, surfaces, and state colours are the ones the
+   add-agent selects use, so the dashboard's form controls read as one family.
+   This is not a `.field-select` itself — that control wraps a `<select>` and
+   draws a chevron for a popup this field does not have. The height stays at the
+   44px target the Units page holds its controls to. */
+.tk-search-input {
+  flex: 1;
+  min-width: 10rem;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.tk-search-input::placeholder {
+  color: var(--muted);
+}
+
+.tk-search-input:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-3);
+}
+
+.tk-search-input:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+/* The page-wide focus ring covers buttons, links, and textareas but not inputs.
+   Drawn with `--accent` rather than the page-wide `--accent-line` for the
+   reason the select control documents: `--accent-line` is too transparent to
+   clear 3:1 against a filled field in either theme. */
+.tk-search-input:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* WebKit draws its own clear "×" inside type="search", which no keyboard can
+   reach — two clear controls where only one is operable. The explicit Clear
+   button is the single affordance. */
+.tk-search-input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* Same box as the field it clears, so the pair reads as one control row. */
+.tk-search-clear {
+  min-height: 2.75rem;
+  min-width: 2.75rem;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--line-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  font-size: 0.78rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.tk-search-clear:hover {
+  border-color: var(--accent-line);
+  background: var(--surface-3);
+}
+
+/* A search that found nothing is a smaller statement than an empty backlog:
+   the panel still has tickets, just none under this query. */
+.tk-no-matches {
+  margin-top: 0.85rem;
+}
+
 .tickets-table th.tk-col-id {
   width: 62px;
 }

@@ -4690,6 +4690,102 @@ defmodule AiurWeb.DashboardLiveTest do
     assert selected_option(render(view), "model") == "sol"
   end
 
+  test "the Tickets panel search filters the whole backlog and clears back to it" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsSearchOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    tickets = [
+      open_ticket("2101", []),
+      open_ticket("2102", [],
+        title: "Retry the dispatch",
+        body_excerpt: "A storm of webhooks overwhelms the poller."
+      ),
+      open_ticket("2103", [], title: "Documentation refresh")
+    ]
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot(tickets) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert html =~ "3 tickets"
+
+    # One term from the title and one from the body, in the other order: the
+    # filter is tokenised, not a substring test against a single field.
+    filtered = view |> element("form.tk-search") |> render_change(%{"query" => "storm retry"})
+
+    assert filtered =~ "Retry the dispatch"
+    refute filtered =~ "Documentation refresh"
+    assert filtered =~ "1 of 3 tickets"
+
+    empty = view |> element("form.tk-search") |> render_change(%{"query" => "zzzzqqqq"})
+
+    assert empty =~ "No tickets match"
+    refute empty =~ "tickets-rows"
+
+    restored = view |> element("button.tk-search-clear") |> render_click()
+
+    assert restored =~ "Documentation refresh"
+    assert restored =~ ~s(<span class="rs-group-count">3 tickets</span>)
+  end
+
+  # The two features have to compose: a filter that only saw the revealed batch
+  # would report a ticket as absent when it is merely still hidden, and a reveal
+  # control counting the whole backlog would offer to reveal rows the query
+  # excluded.
+  test "the Tickets panel search reaches unrevealed tickets and the reveal control counts the matches" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsSearchRevealOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    # Newest first, so #2101 sorts last — well past the opening batch of five.
+    tickets =
+      Enum.map(2..20, &open_ticket("21#{String.pad_leading(to_string(&1), 2, "0")}", [])) ++
+        [open_ticket("2101", [], title: "Retry the dispatch")]
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot(tickets) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    assert ticket_row_count(html) == 5
+    refute html =~ "Retry the dispatch"
+
+    filtered = view |> element("form.tk-search") |> render_change(%{"query" => "retry"})
+
+    # Found although it was never rendered, and the reveal control is gone
+    # because one match does not fill the opening batch.
+    assert filtered =~ "Retry the dispatch"
+    assert ticket_row_count(filtered) == 1
+    assert filtered =~ "1 of 20 tickets"
+    refute filtered =~ "show-more-tickets"
+
+    # A broad query keeps the control, and it counts what the query matched —
+    # the 19 default titles, not the 20 tickets behind them.
+    broad = view |> element("form.tk-search") |> render_change(%{"query" => "backlog"})
+
+    assert ticket_row_count(broad) == 5
+    assert broad =~ "Show 10 more tickets"
+    assert broad =~ "19 of 20 tickets"
+  end
+
   test "an unavailable ticket listing is named rather than shown as zero tickets" do
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsUnavailableOrchestrator)
@@ -4744,18 +4840,22 @@ defmodule AiurWeb.DashboardLiveTest do
     }
   end
 
-  defp open_ticket(identifier, labels) do
-    %{
-      identity: units_identity(provider_id: "NODE-#{identifier}", database_id: nil, identifier: identifier),
-      identifier: identifier,
-      title: "Unrouted backlog ticket",
-      url: "https://github.com/its-everdred/aiur/issues/#{identifier}",
-      state: "Todo",
-      labels: labels,
-      assignee: nil,
-      created_at: ~U[2026-07-16 12:00:00Z],
-      updated_at: ~U[2026-07-17 11:00:00Z]
-    }
+  defp open_ticket(identifier, labels, overrides \\ %{}) do
+    Map.merge(
+      %{
+        identity: units_identity(provider_id: "NODE-#{identifier}", database_id: nil, identifier: identifier),
+        identifier: identifier,
+        title: "Unrouted backlog ticket",
+        body_excerpt: nil,
+        url: "https://github.com/its-everdred/aiur/issues/#{identifier}",
+        state: "Todo",
+        labels: labels,
+        assignee: nil,
+        created_at: ~U[2026-07-16 12:00:00Z],
+        updated_at: ~U[2026-07-17 11:00:00Z]
+      },
+      Map.new(overrides)
+    )
   end
 
   defp units_identity(overrides \\ []) do

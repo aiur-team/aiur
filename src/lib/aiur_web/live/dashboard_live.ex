@@ -74,6 +74,10 @@ defmodule AiurWeb.DashboardLive do
   @usage_summary_max_age_ms 30_000
   @usage_drill_limit 25
   @usage_drill_dimensions ~w(by_provider by_ticket by_agent_family by_model by_account_generation)a
+
+  # Matches the Tickets panel's own `maxlength`, so the control and the filter
+  # agree on where a query stops.
+  @max_ticket_query_length 128
   @provider_meters_flush_ms 250
   @current_run_outcomes_flush_ms 250
   @decision_filters [:all, :open, :blocking, :undelivered, :supervisor, :resolved, :superseded]
@@ -131,6 +135,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign_initial_current_run_outcomes(connected)
       |> assign_initial_usage_summary(connected)
       |> assign(:ticket_detail, nil)
+      |> assign(:tickets_query, "")
       |> assign(:add_agent_modal, nil)
       |> assign(:ticket_context, nil)
       |> assign(:ticket_context_detail, nil)
@@ -249,8 +254,8 @@ defmodule AiurWeb.DashboardLive do
     {:noreply, PayloadLoader.schedule(socket, {:event, {:activity, Map.get(payload, :generation)}})}
   end
 
-  def handle_info({:open_tickets_updated, snapshot}, socket) do
-    {:noreply, PayloadLoader.schedule(socket, {:event, {:open_tickets, Map.get(snapshot, :generation)}})}
+  def handle_info({:open_tickets_updated, change}, socket) do
+    {:noreply, PayloadLoader.schedule(socket, {:event, {:open_tickets, Map.get(change, :generation)}})}
   end
 
   def handle_info({:ticket_detail_updated, %TicketDetailState{} = detail}, socket) do
@@ -402,6 +407,23 @@ defmodule AiurWeb.DashboardLive do
   # edge — the same shift the untruncated table always had, one batch lower.
   def handle_event("show-more-tickets", _params, socket) do
     {:noreply, assign(socket, :tickets_visible, TicketsPresenter.reveal_more(socket.assigns.tickets_visible))}
+  end
+
+  # Filtering is a server round trip per debounced change rather than a client
+  # hook over the loaded rows: the panel reveals its table in batches, so a
+  # client-side filter would only ever see the revealed ones, and the operator
+  # would be told a ticket does not exist when it merely has not been revealed.
+  def handle_event("search-tickets", %{"query" => query}, socket) when is_binary(query) do
+    # Clamped server-side as well as in the input: a filter over the whole
+    # backlog is real work, and a pasted plan or stack trace would otherwise buy
+    # seconds of it inside the socket process that serves the rest of the page.
+    {:noreply, socket |> assign(:tickets_query, String.slice(query, 0, @max_ticket_query_length)) |> assign_tickets_panel_view()}
+  end
+
+  def handle_event("search-tickets", _params, socket), do: {:noreply, socket}
+
+  def handle_event("clear-ticket-search", _params, socket) do
+    {:noreply, socket |> assign(:tickets_query, "") |> assign_tickets_panel_view()}
   end
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
@@ -740,6 +762,8 @@ defmodule AiurWeb.DashboardLive do
       |> then(&Map.put_new(&1, :units_count_label, units_count_label(&1.units_view)))
       |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
       |> Map.put_new(:tickets_visible, TicketsPresenter.initial_reveal())
+      |> Map.put_new(:tickets_query, "")
+      |> then(&Map.put_new(&1, :tickets_panel_view, TicketsPresenter.search(&1.tickets_view, &1.tickets_query)))
       |> Map.put_new(:ticket_detail, nil)
       |> Map.put_new(:add_agent_modal, nil)
       |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
@@ -860,7 +884,9 @@ defmodule AiurWeb.DashboardLive do
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
 
-        <TicketsPanel.tickets_panel view={@tickets_view} visible={@tickets_visible} />
+        <%!-- The searched view, so the reveal batches and counts the matches
+        rather than the whole backlog behind them. --%>
+        <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
       </div>
 
       <AgentLogModal.agent_log_modal
@@ -1043,6 +1069,18 @@ defmodule AiurWeb.DashboardLive do
     |> assign(:units_announcement, UnitsPresenter.announcement(view))
     |> assign(:units_count_label, units_count_label(view))
     |> assign(:tickets_view, tickets_view)
+    |> assign_tickets_panel_view()
+  end
+
+  # The unfiltered projection stays in `tickets_view` and the panel renders the
+  # searched one. Lookups — the add-agent modal, the ticket-context refresh —
+  # then keep resolving a row the current query happens to hide, so a ticket
+  # already open on screen does not go dead the moment the operator types.
+  defp assign_tickets_panel_view(socket) do
+    # Reached during mount before the query default is assigned, so the query is
+    # read defensively: no search yet means the unfiltered projection.
+    query = Map.get(socket.assigns, :tickets_query, "")
+    assign(socket, :tickets_panel_view, TicketsPresenter.search(socket.assigns.tickets_view, query))
   end
 
   # The modal opens on the routing the dispatcher would have applied, so the

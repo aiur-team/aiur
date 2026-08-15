@@ -941,6 +941,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      # without growing the shared Units fixture (extra rows destabilise the
      # unrelated filter and drawer specs on this page).
      |> assign(:tickets_visible, 1)
+     |> assign(:tickets_query, "")
+     |> assign(:tickets_panel_view, TicketsPresenter.search(tickets_view(), ""))
      |> assign(:ticket_detail, nil)
      |> assign(:add_agent_modal, nil)
      |> assign(:generation, 1)}
@@ -993,6 +995,10 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   def handle_event("show-more-tickets", _params, socket) do
     {:noreply, assign(socket, :tickets_visible, TicketsPresenter.reveal_more(socket.assigns.tickets_visible))}
   end
+
+  def handle_event("search-tickets", %{"query" => query}, socket), do: {:noreply, search_tickets(socket, query)}
+
+  def handle_event("clear-ticket-search", _params, socket), do: {:noreply, search_tickets(socket, "")}
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) do
     case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
@@ -1094,7 +1100,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         <UnitsTable.units_table view={@view} now={@now} />
       </section>
 
-      <TicketsPanel.tickets_panel view={@tickets_view} visible={@tickets_visible} />
+      <TicketsPanel.tickets_panel view={@tickets_panel_view} visible={@tickets_visible} />
 
       <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
       <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={true} />
@@ -1124,6 +1130,12 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     """
   end
 
+  defp search_tickets(socket, query) do
+    socket
+    |> assign(:tickets_query, query)
+    |> assign(:tickets_panel_view, TicketsPresenter.search(socket.assigns.tickets_view, query))
+  end
+
   defp tickets_view do
     TicketsPresenter.project(%OpenTicketSnapshot{
       status: :available,
@@ -1131,12 +1143,12 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       observed_at: @now,
       tickets: [
         ticket("2101", "Unrouted backlog ticket", ["complexity:3"]),
-        ticket("2102", "Documentation refresh", [])
+        ticket("2102", "Documentation refresh", [], "The reference pages drifted after the retry storm work.")
       ]
     })
   end
 
-  defp ticket(identifier, title, labels) do
+  defp ticket(identifier, title, labels, body_excerpt \\ nil) do
     %{
       identity: %TrackerIdentity{
         status: :joinable,
@@ -1149,6 +1161,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       },
       identifier: identifier,
       title: title,
+      body_excerpt: body_excerpt,
       url: "https://github.com/acme/aiur/issues/#{identifier}",
       state: "Todo",
       labels: labels,
