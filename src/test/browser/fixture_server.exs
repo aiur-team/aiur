@@ -934,6 +934,11 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:conversation_drawer, nil)
      |> assign(:selected_row, nil)
      |> assign(:tickets_view, tickets_view())
+     # Deliberately below the production batch size: it puts a real reveal
+     # control on a two-ticket fixture, so the browser exercises the button
+     # without growing the shared Units fixture (extra rows destabilise the
+     # unrelated filter and drawer specs on this page).
+     |> assign(:tickets_visible, 1)
      |> assign(:ticket_detail, nil)
      |> assign(:add_agent_modal, nil)
      |> assign(:generation, 1)}
@@ -982,6 +987,10 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   end
 
   def handle_event("close-ticket-detail", _params, socket), do: {:noreply, assign(socket, :ticket_detail, nil)}
+
+  def handle_event("show-more-tickets", _params, socket) do
+    {:noreply, assign(socket, :tickets_visible, TicketsPresenter.reveal_more(socket.assigns.tickets_visible))}
+  end
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) do
     case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
@@ -1083,7 +1092,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
         <UnitsTable.units_table view={@view} now={@now} />
       </section>
 
-      <TicketsPanel.tickets_panel view={@tickets_view} />
+      <TicketsPanel.tickets_panel view={@tickets_view} visible={@tickets_visible} />
 
       <TicketDetailModal.ticket_detail_modal ticket={@ticket_detail} />
       <AddAgentModal.add_agent_modal modal={@add_agent_modal} writable={true} />

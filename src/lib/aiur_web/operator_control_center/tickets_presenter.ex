@@ -14,6 +14,23 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenter do
 
   @type status :: :ready | :empty | :stale | :unavailable | :unsupported
 
+  # A busy repository lists dozens of open tickets. The panel opens on a glance-
+  # sized batch and reveals more on request, so the Units page stays scannable.
+  @initial_reveal 5
+
+  # The first reveal is the operator saying "I want to read the backlog", so the
+  # step widens: 5 -> 15 -> 25 reaches a 25-ticket repo in two clicks, not four.
+  @reveal_step 10
+
+  @doc "How many ticket rows the panel shows before the operator asks for more."
+  @spec initial_reveal() :: pos_integer()
+  def initial_reveal, do: @initial_reveal
+
+  @doc "The row count after one more reveal, given the count shown now."
+  @spec reveal_more(term()) :: pos_integer()
+  def reveal_more(visible) when is_integer(visible) and visible >= @initial_reveal, do: visible + @reveal_step
+  def reveal_more(_visible), do: @initial_reveal
+
   @spec load(keyword()) :: map()
   def load(opts \\ []) do
     opts

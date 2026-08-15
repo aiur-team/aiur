@@ -17,6 +17,21 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPresenterTest do
     assert TicketsPresenter.lookup(view, "unknown-token") == {:error, :not_found}
   end
 
+  test "the reveal opens on a glance-sized batch and widens once the operator asks for more" do
+    assert TicketsPresenter.initial_reveal() == 5
+
+    # 5 -> 15 -> 25: the second step is wider, so a busy backlog is two presses
+    # away rather than four.
+    assert TicketsPresenter.reveal_more(5) == 15
+    assert TicketsPresenter.reveal_more(15) == 25
+
+    # Any count below the opening batch — or a value the panel never produces —
+    # reveals the opening batch rather than a partial or negative window.
+    assert TicketsPresenter.reveal_more(1) == 5
+    assert TicketsPresenter.reveal_more(0) == 5
+    assert TicketsPresenter.reveal_more(nil) == 5
+  end
+
   test "an empty available listing is named empty, never unavailable" do
     view = TicketsPresenter.load(tickets_fun: fn -> snapshot(:available, []) end)
 

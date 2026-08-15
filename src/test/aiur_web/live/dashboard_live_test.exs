@@ -4587,6 +4587,45 @@ defmodule AiurWeb.DashboardLiveTest do
     assert render(view) =~ "Applied"
   end
 
+  test "the Tickets panel reveals the next batch on request and retires the control when exhausted" do
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsRevealOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    # Enough tickets that exhausting the panel takes more than one reveal, so
+    # the assign is shown to accumulate rather than jump straight to the end.
+    tickets = Enum.map(1..20, &open_ticket("21#{String.pad_leading(to_string(&1), 2, "0")}", []))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot(tickets) end
+    )
+
+    {:ok, view, html} = live(build_conn(), "/")
+
+    # The header keeps the total; the control names only the step it reveals.
+    assert html =~ "20 tickets"
+    assert ticket_row_count(html) == 5
+    assert html =~ "Show 10 more tickets"
+
+    revealed = reveal_more_tickets(view)
+
+    # Progressive reveal: the first five stay put and the next batch joins them.
+    assert ticket_row_count(revealed) == 15
+    assert revealed =~ "Show 5 more tickets"
+
+    exhausted = reveal_more_tickets(view)
+
+    assert ticket_row_count(exhausted) == 20
+    refute exhausted =~ "show-more-tickets"
+  end
+
   test "an unavailable ticket listing is named rather than shown as zero tickets" do
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsUnavailableOrchestrator)
@@ -4608,6 +4647,14 @@ defmodule AiurWeb.DashboardLiveTest do
     assert html =~ "Open tickets are unavailable."
     assert html =~ "tickets unavailable"
     refute html =~ "0 tickets"
+  end
+
+  defp reveal_more_tickets(view) do
+    view |> element(~s(button[phx-click="show-more-tickets"])) |> render_click()
+  end
+
+  defp ticket_row_count(html) do
+    html |> Floki.parse_document!() |> Floki.find("#tickets-rows tr.tickets-row") |> length()
   end
 
   defp open_ticket_snapshot(tickets) do

@@ -121,6 +121,7 @@ defmodule AiurWeb.DashboardLive do
       |> assign(:units_selection, UnitsURL.default_selection())
       |> assign(:unit_controls, %{})
       |> assign(:unit_control_subscriptions, MapSet.new())
+      |> assign(:tickets_visible, TicketsPresenter.initial_reveal())
       |> assign_units_view()
       |> sync_unit_control_subscriptions(connected)
       |> assign(:capacity_input, "")
@@ -393,6 +394,15 @@ defmodule AiurWeb.DashboardLive do
   def handle_event("inspect-ticket", _params, socket), do: {:noreply, socket}
 
   def handle_event("close-ticket-detail", _params, socket), do: {:noreply, assign(socket, :ticket_detail, nil)}
+
+  # Revealing is monotonic, and the count survives a re-projection: a tracker
+  # poll must not collapse the table back under an operator part-way through
+  # reading it. It anchors a row count, not a set of rows, so a ticket opened
+  # upstream still enters at the top and pushes the last revealed row over the
+  # edge — the same shift the untruncated table always had, one batch lower.
+  def handle_event("show-more-tickets", _params, socket) do
+    {:noreply, assign(socket, :tickets_visible, TicketsPresenter.reveal_more(socket.assigns.tickets_visible))}
+  end
 
   def handle_event("open-add-agent", %{"ticket" => token}, socket) when is_binary(token) do
     case TicketsPresenter.lookup(socket.assigns.tickets_view, token) do
@@ -729,6 +739,7 @@ defmodule AiurWeb.DashboardLive do
       |> then(&Map.put_new(&1, :units_announcement, UnitsPresenter.announcement(&1.units_view)))
       |> then(&Map.put_new(&1, :units_count_label, units_count_label(&1.units_view)))
       |> Map.put_new(:tickets_view, TicketsPresenter.normalize(Map.get(assigns.payload, :tickets)))
+      |> Map.put_new(:tickets_visible, TicketsPresenter.initial_reveal())
       |> Map.put_new(:ticket_detail, nil)
       |> Map.put_new(:add_agent_modal, nil)
       |> Map.put_new(:capacity_view, CapacityPresenter.present(capacity_facts(assigns.payload)))
@@ -849,7 +860,7 @@ defmodule AiurWeb.DashboardLive do
           <UnitsTable.units_table view={@units_view} now={@now} controls={@unit_controls} writable={@writable} />
         </section>
 
-        <TicketsPanel.tickets_panel view={@tickets_view} />
+        <TicketsPanel.tickets_panel view={@tickets_view} visible={@tickets_visible} />
       </div>
 
       <AgentLogModal.agent_log_modal

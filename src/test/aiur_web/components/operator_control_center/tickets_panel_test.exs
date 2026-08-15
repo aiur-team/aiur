@@ -32,7 +32,58 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanelTest do
     assert html =~ "No open tickets on this repository."
     assert html =~ ~s(<span class="rs-group-count">0 tickets</span>)
     refute html =~ "tickets-rows"
+    # Nothing is hidden at zero tickets, so there is no reveal control to press.
+    refute html =~ "show-more-tickets"
   end
+
+  test "a long listing opens on the first batch and offers to reveal the rest" do
+    view = view(:available, tickets(23))
+
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view})
+
+    assert rendered_row_tokens(html, view) == Enum.map(Enum.take(view.rows, 5), & &1.token)
+    # Hidden rows never reach the client; the reveal is server-side, not CSS.
+    refute html =~ ~s(id="ticket-#{Enum.at(view.rows, 5).token}")
+
+    assert html =~ ~s(<div class="tickets-more">)
+    assert html =~ ~s(phx-click="show-more-tickets")
+    assert html =~ ~s(<button type="button" class="btn ghost")
+    assert html =~ "Show 10 more tickets"
+  end
+
+  test "revealing keeps the rows already shown and adds the next batch" do
+    view = view(:available, tickets(23))
+
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view, visible: TicketsPresenter.reveal_more(5)})
+
+    assert rendered_row_tokens(html, view) == Enum.map(Enum.take(view.rows, 15), & &1.token)
+    # The remainder is smaller than a full step, so the control names what is left.
+    assert html =~ "Show 8 more tickets"
+  end
+
+  test "the reveal control disappears once every ticket is shown" do
+    view = view(:available, tickets(5))
+
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view})
+
+    assert length(rendered_row_tokens(html, view)) == 5
+    refute html =~ "tickets-more"
+    refute html =~ "show-more-tickets"
+  end
+
+  test "one remaining ticket reads as a singular reveal" do
+    view = view(:available, tickets(6))
+
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view})
+
+    assert html =~ "Show 1 more ticket<"
+  end
+
+  defp rendered_row_tokens(html, view) do
+    Enum.filter(Enum.map(view.rows, & &1.token), &(html =~ ~s(id="ticket-#{&1}")))
+  end
+
+  defp tickets(count), do: Enum.map(1..count, &ticket(to_string(&1)))
 
   test "an unavailable listing names itself rather than reading as zero tickets" do
     html = render_component(&TicketsPanel.tickets_panel/1, %{view: TicketsPresenter.normalize(nil)})

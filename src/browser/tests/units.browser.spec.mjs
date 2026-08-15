@@ -233,6 +233,19 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   const accessibility = await new AxeBuilder({ page }).include('.tickets-card').analyze()
   expect(accessibility.violations).toEqual([])
 
+  // The panel opens on one batch and reveals the rest on request. This fixture
+  // starts one row below its own batch size so the control is present on a
+  // small ticket list; the production batch of 5 is covered by the unit tests.
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(1)
+  const showMore = panel.getByRole('button', { name: 'Show 1 more ticket' })
+  await showMore.focus()
+  await expect(showMore).toBeFocused()
+  await page.keyboard.press('Enter')
+
+  // Progressive reveal, and no dead control once everything is on screen.
+  await expect(panel.locator('#tickets-rows tr')).toHaveCount(2)
+  await expect(panel.getByRole('button', { name: /Show \d+ more ticket/ })).toHaveCount(0)
+
   // A row cell opens the ticket detail; the action column deliberately does not.
   await panel.locator('#tickets-rows tr').first().locator('td.tk-title-cell').click()
 
