@@ -168,6 +168,12 @@ defmodule Aiur.AgentEnvironment do
         {~c"AIUR_REPO_STATE_PATH", String.to_charlist(state_path)},
         {~c"AIUR_AGENT_QUOTA_STATE_PATH", workspace |> Path.join(".aiur-runtime/github-quota") |> String.to_charlist()},
         {~c"AIUR_AGENT_BIN", workspace |> AgentGitHubGuard.bin_dir() |> String.to_charlist()},
+        # SECURITY INVARIANT — see `AgentGitHubGuard.gh_config_dir/1`. An empty
+        # agent-private `gh` config dir severs the operator keyring, which is
+        # the identity that can bypass branch protection. Removing this makes
+        # `env -u GITHUB_TOKEN -u GH_TOKEN gh pr review --approve` succeed as
+        # the human again.
+        {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
@@ -280,6 +286,7 @@ defmodule Aiur.AgentEnvironment do
       "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
+      "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
       "export AIUR_AGENT_WORKSPACE=#{Aiur.Shell.escape(workspace)}\n" <>
       "export AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'\n" <>

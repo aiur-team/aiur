@@ -400,6 +400,13 @@ defmodule Aiur.AgentEnvironmentTest do
       assert {~c"AIUR_AGENT_BIN", ~c"/work/aiur/440/.aiur-runtime/bin"} =
                List.keyfind(env, ~c"AIUR_AGENT_BIN", 0)
 
+      # Dispatched agents must not inherit the operator's `gh` config dir: that
+      # is where the keyring account lives, and that account is the sole branch
+      # protection bypass actor. Point them at an agent-private dir instead so
+      # `env -u GITHUB_TOKEN -u GH_TOKEN gh` has nothing to fall back to.
+      assert {~c"GH_CONFIG_DIR", ~c"/work/aiur/440/.aiur-runtime/gh"} =
+               List.keyfind(env, ~c"GH_CONFIG_DIR", 0)
+
       assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
       assert is_list(real_gh) or real_gh == false
 
@@ -509,6 +516,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_GITHUB_STAGGER_MS=75"
       assert prefix =~ "export AIUR_REAL_GH AIUR_REAL_GIT"
       assert prefix =~ "AIUR_AGENT_BIN='/work/aiur/440/.aiur-runtime/bin'"
+      assert prefix =~ "GH_CONFIG_DIR='/work/aiur/440/.aiur-runtime/gh'"
       assert prefix =~ "AIUR_AGENT_QUOTA_STATE_PATH='/work/aiur/440/.aiur-runtime/github-quota'"
       assert prefix =~ "AIUR_AGENT_WORKSPACE='/work/aiur/440'"
       assert prefix =~ "unset AIUR_GITHUB_BUDGET_KEY"
