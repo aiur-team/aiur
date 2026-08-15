@@ -233,6 +233,11 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   const accessibility = await new AxeBuilder({ page }).include('.tickets-card').analyze()
   expect(accessibility.violations).toEqual([])
 
+  // The routing prediction is not a column: it is the add-agent modal's editable
+  // default, so the table never offers it as read-only text.
+  await expect(panel.locator('th.tk-col-agent')).toHaveCount(0)
+  await expect(panel.getByText('Would route to')).toHaveCount(0)
+
   // The panel opens on one batch and reveals the rest on request. This fixture
   // starts one row below its own batch size so the control is present on a
   // small ticket list; the production batch of 5 is covered by the unit tests.
@@ -261,8 +266,21 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   const modal = page.locator('#add-agent-modal')
   await expect(modal).toBeVisible()
   await expect(modal.getByRole('heading', { name: /Unrouted backlog ticket/ })).toBeFocused()
-  // The prediction is prefilled from the ticket's own complexity tag.
+  // The prediction is prefilled from the ticket's own complexity tag, and the
+  // sentence that used to explain the prefill is gone — the behaviour stays.
   await expect(modal.getByLabel('Complexity')).toHaveValue('3')
+  await expect(modal.getByText(/Prefilled from the current routing configuration/)).toHaveCount(0)
+
+  // The selects share the primary button's control height so the form reads as
+  // one column of controls rather than four fields and a differently sized row.
+  // A 1px tolerance, not equality: the two boxes derive their height from
+  // different line-height sources, so exact agreement would break on an
+  // unrelated base-font change rather than on this rhythm actually drifting.
+  const controlHeights = await modal.evaluate((panel) => {
+    const height = (selector) => panel.querySelector(selector).getBoundingClientRect().height
+    return { select: height('.field-select select'), button: height('.add-agent-actions .btn') }
+  })
+  expect(Math.abs(controlHeights.select - controlHeights.button)).toBeLessThanOrEqual(1)
 
   // `.btn` is excluded: the shared primary-button token fails AA contrast in the
   // dark theme (#ffffff on --accent #2f86ff = 3.51:1) everywhere it is used, so

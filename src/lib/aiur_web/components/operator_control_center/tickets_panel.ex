@@ -53,7 +53,6 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
               <th class="tk-col-id">ID</th>
               <th class="tk-col-title">Title</th>
               <th class="tk-col-labels">Labels</th>
-              <th class="tk-col-agent">Would route to</th>
               <th class="tk-col-action"><span class="sr-only">Actions</span></th>
             </tr>
           </thead>
@@ -76,10 +75,6 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
                   <span :if={hidden_label_count(row.labels) > 0} class="u-pill u-label is-more">+{hidden_label_count(row.labels)}</span>
                   <span :if={row.labels == []} class="tk-muted">None</span>
                 </div>
-              </td>
-
-              <td data-label="Would route to" class="tk-agent-cell ut-open" phx-click="inspect-ticket" phx-value-ticket={row.token}>
-                <.routing_cell label={routing_label(row.routing)} />
               </td>
 
               <td data-label="Actions" class="tk-action-cell">
@@ -118,27 +113,9 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
     "Show #{step} more #{if step == 1, do: "ticket", else: "tickets"}"
   end
 
-  attr(:label, :string, default: nil)
-
-  defp routing_cell(assigns) do
-    ~H"""
-    <span :if={@label} class="u-pill u-agent">{@label}</span>
-    <span :if={is_nil(@label)} class="tk-muted">Unknown</span>
-    """
-  end
-
   defp visible_labels(labels), do: Enum.take(List.wrap(labels), @max_labels)
 
   defp hidden_label_count(labels), do: max(length(List.wrap(labels)) - @max_labels, 0)
-
-  defp routing_label(%{available?: true, backend: backend} = routing) when is_binary(backend) do
-    [backend, routing.resolved_model, routing.effort]
-    |> Enum.reject(&(is_nil(&1) or &1 == ""))
-    |> Enum.uniq()
-    |> Enum.join(" · ")
-  end
-
-  defp routing_label(_routing), do: nil
 
   # Robot line art: a head outline with antenna, eyes, and mouth. Stroke-only so
   # it inherits the icon button's currentColor like every other action icon.

@@ -1047,12 +1047,27 @@ defmodule AiurWeb.DashboardLive do
 
   # The modal opens on the routing the dispatcher would have applied, so the
   # operator confirms a prediction rather than filling in a blank form.
+  #
+  # The model falls back to `resolved_model` only when routing named no model at all.
+  # `model` is the *requested* model and is `nil` whenever routing names just a
+  # backend, which would preselect "Backend default" and hide the model that is
+  # actually going to run — the prediction the Tickets table used to print in a
+  # "Would route to" column, and which now lives only here.
+  #
+  # The requested model is preferred over the resolved one so a family alias stays
+  # an alias. `CodingAgent.override_labels/0` seeds aliases ahead of pinned versions
+  # because "a pinned tag expires with its version"; preselecting `gpt-5.6-sol` for a
+  # `codex:sol` routing entry would write that expiry onto the ticket and strand it
+  # on 5.6 while every untouched ticket follows the alias forward.
+  #
+  # `normalize_selection/1` clamps whichever value wins to the backend's seedable
+  # vocabulary, so a model aiur does not list falls back to the backend default.
   defp add_agent_modal(row) do
     routing = row.routing
 
     selection = %{
       backend: routing.backend,
-      model: routing.model,
+      model: routing.model || routing.resolved_model,
       effort: routing.effort,
       complexity: routing.complexity
     }

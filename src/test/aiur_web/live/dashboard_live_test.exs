@@ -29,7 +29,7 @@ defmodule AiurWeb.DashboardLiveTest do
   alias Aiur.RecentMerge
   alias Aiur.RecentMergeStore
   alias AiurWeb.{ControlCenterCache, ControlCenterPresenter, DashboardLive, ObservabilityPubSub, Presenter}
-  alias AiurWeb.OperatorControlCenter.{FleetFilters, Overview, PayloadLoader, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{AgentRoutingPreview, FleetFilters, Overview, PayloadLoader, UnitsPresenter}
 
   @endpoint AiurWeb.Endpoint
 
@@ -4535,6 +4535,13 @@ defmodule AiurWeb.DashboardLiveTest do
   end
 
   test "the Tickets panel lists open tickets and opens detail and add-agent modals" do
+    # Pin the routing table to an entry that names a backend but no model. That is
+    # the case the modal used to get wrong: the requested model is nil, so the
+    # select fell back to "Backend default" while the table's routing column named
+    # the model that would really run. A bare test daemon routes to a backend with
+    # no default at all, which would make the prefill assertions vacuous.
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), agent_routing: %{5 => "kimi"})
+
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsPanelOrchestrator)
     orchestrator = start_counting_orchestrator(orchestrator_name)
@@ -4571,18 +4578,41 @@ defmodule AiurWeb.DashboardLiveTest do
     view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
     add_agent = render(view)
 
-    # Prefilled from the routing table plus the ticket's own complexity tag.
+    # Prefilled from the routing table plus the ticket's own complexity tag. The
+    # model select opens on the model the dispatcher would resolve — the value the
+    # Tickets table used to print in a "Would route to" column. The expectation is
+    # read from the preview rather than hard-coded because the routing table is
+    # operator configuration and differs between environments.
+    routing = AgentRoutingPreview.preview(["complexity:5"])
+
+    assert routing.resolved_model in AgentRoutingPreview.options(routing.backend).models,
+           "the routed model has to be one the modal can offer, or there is nothing to preselect"
+
     assert add_agent =~ "add-agent-modal"
     assert add_agent =~ "complexity:5"
+    assert selected_option(add_agent, "backend") == routing.backend
+    assert selected_option(add_agent, "model") == routing.resolved_model
+    assert selected_option(add_agent, "complexity") == "5"
+
+    # The routing explainer was deleted; the prefilling behaviour it described stays.
+    # The column is refuted by its cell class, not by its header text: the ticket
+    # detail modal still renders "Would route to" as a fact, and that is correct.
+    refute add_agent =~ "Prefilled from the current routing configuration"
+    refute add_agent =~ "tk-agent-cell"
 
     # Change the prefilled complexity before confirming, as an operator would.
     view |> element(~s(#add-agent-modal form)) |> render_change(%{"complexity" => "3"})
     view |> element(~s(#add-agent-modal form)) |> render_submit(%{})
 
     # The active-state label is what makes the ticket dispatchable at all, and the
-    # complexity tag it replaces is removed rather than left to outrank it.
+    # complexity tag it replaces is removed rather than left to outrank it. The
+    # model label carries the prefilled model, so the value the operator was shown
+    # is the value written to the tracker rather than one re-derived later.
+    model_label = "model:#{routing.backend}-#{routing.resolved_model}"
+
     assert_received {:add_label, "2101", "agent:todo"}
     assert_received {:add_label, "2101", "complexity:3"}
+    assert_received {:add_label, "2101", ^model_label}
     assert_received {:remove_label, "2101", "complexity:5"}
     assert render(view) =~ "Applied"
   end
@@ -4626,6 +4656,40 @@ defmodule AiurWeb.DashboardLiveTest do
     refute exhausted =~ "show-more-tickets"
   end
 
+  # A pinned tag expires with its version. When the routing table names a family
+  # alias the modal has to open on the alias, not on the concrete version it happens
+  # to resolve to today, or confirming strands the ticket on that version while every
+  # untouched ticket follows the alias forward.
+  test "the add-agent modal opens on a routed family alias rather than the version it resolves to" do
+    write_workflow_file!(Aiur.Workflow.workflow_file_path(), agent_routing: %{3 => "codex:sol"})
+
+    identity = units_identity()
+    orchestrator_name = Module.concat(__MODULE__, :TicketsAliasOrchestrator)
+    orchestrator = start_counting_orchestrator(orchestrator_name)
+
+    replace_counting_snapshot(orchestrator, units_orchestrator_snapshot(identity))
+
+    start_test_endpoint(
+      orchestrator: orchestrator_name,
+      snapshot_timeout_ms: 100,
+      control_center_cache: false,
+      dashboard_writable: true,
+      units_membership_fun: fn -> units_membership(identity) end,
+      units_activity_fun: fn -> units_activity(identity) end,
+      open_tickets_fun: fn -> open_ticket_snapshot([open_ticket("2103", ["complexity:3"])]) end
+    )
+
+    {:ok, view, _html} = live(build_conn(), "/")
+
+    routing = AgentRoutingPreview.preview(["complexity:3"])
+    assert routing.model == "sol"
+    assert routing.resolved_model != "sol", "only meaningful while `sol` resolves to a concrete version"
+
+    view |> element(~s(button[phx-click="open-add-agent"])) |> render_click()
+
+    assert selected_option(render(view), "model") == "sol"
+  end
+
   test "an unavailable ticket listing is named rather than shown as zero tickets" do
     identity = units_identity()
     orchestrator_name = Module.concat(__MODULE__, :TicketsUnavailableOrchestrator)
@@ -4655,6 +4719,20 @@ defmodule AiurWeb.DashboardLiveTest do
 
   defp ticket_row_count(html) do
     html |> Floki.parse_document!() |> Floki.find("#tickets-rows tr.tickets-row") |> length()
+  end
+
+  # The value of the `selected` option of one named select. Blank comes back as
+  # `nil` so it compares against an absent routing value rather than `""`.
+  defp selected_option(html, name) do
+    html
+    |> Floki.parse_fragment!()
+    |> Floki.find(~s(select[name="#{name}"] option[selected]))
+    |> Floki.attribute("value")
+    |> List.first()
+    |> case do
+      "" -> nil
+      value -> value
+    end
   end
 
   defp open_ticket_snapshot(tickets) do

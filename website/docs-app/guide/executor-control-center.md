@@ -85,7 +85,7 @@ The Agents panel combines running, retrying, and idle tracker-active tickets. Ea
 
 ## Tickets
 
-The Tickets panel covers every open ticket on the repository, including the ones no agent has been routed to yet — the fleet table only ever shows tickets carrying an active `agent:*` label. Each row shows its identifier, title, labels, and which agent the current routing configuration would send it to. A row opens the ticket's detail; the robot action opens an add-agent dialog prefilled with that prediction.
+The Tickets panel covers every open ticket on the repository, including the ones no agent has been routed to yet — the fleet table only ever shows tickets carrying an active `agent:*` label. Each row shows its identifier, title, and labels. A row opens the ticket's detail; the robot action opens an add-agent dialog prefilled with the agent, model, effort, and complexity the current routing configuration would apply — the prediction is the dialog's editable starting point rather than a column you can only read.
 
 The panel opens on the first five tickets so a busy backlog does not push the rest of the page out of reach. A "Show more tickets" control below the table reveals the next batch and leaves the rows already on screen in place; it names how many it will add and disappears once every ticket is shown. The panel header always carries the full count.
 
