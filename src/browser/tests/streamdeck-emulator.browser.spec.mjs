@@ -912,6 +912,12 @@ test('emulator and Units stay in sync after a live fleet-size change', async ({ 
 
   await expect(units.locator('.units-header p').nth(1)).toContainText(`${before - 1} observed`)
 
+  // The header count and the row list are separate patches from the same
+  // LiveView diff, so the header settling does not mean the tbody has. Wait on
+  // the rows themselves before snapshotting them: `evaluateAll` is a one-shot
+  // read with no retry, and reading mid-patch returned 1 row of 5 in CI.
+  await expect(rows).toHaveCount(5)
+
   const unitIdentifiers = await rows.evaluateAll((elements) =>
     elements.map((row) => row.querySelector('.ut-id-num').textContent.trim())
   )

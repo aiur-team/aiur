@@ -1985,6 +1985,17 @@ defmodule AiurEngineTest do
     stop = Keyword.get(opts, :stop, "echo STOP")
     env = Keyword.get(opts, :env, [])
 
+    # The dev shim declares AIUR_RESTART_BUILD_VERIFIES whenever it wires in a
+    # rebuild, so the verifying path is the default here too; the unverified
+    # branch is exercised by its own test.
+    env =
+      if List.keymember?(env, "AIUR_RESTART_BUILD_CMD", 0) and
+           not List.keymember?(env, "AIUR_RESTART_BUILD_VERIFIES", 0) do
+        [{"AIUR_RESTART_BUILD_VERIFIES", "1"} | env]
+      else
+        env
+      end
+
     run_sourced_engine(
       """
       cmd_stop() { #{stop}; }
@@ -2004,10 +2015,11 @@ defmodule AiurEngineTest do
     stamped_sha = Keyword.get(opts, :stamped_sha, sha)
     receipt_dir = Keyword.get(opts, :receipt_dir, release_dir)
     stamp = Keyword.get(opts, :stamp, true)
+    dirty = Keyword.get(opts, :dirty, "no")
 
     stamp_step =
       if stamp do
-        ~s|printf 'repo_root=/fake\\nsource_sha=#{stamped_sha}\\n' > "#{release_dir}/AIUR_BUILD_STAMP"; |
+        ~s|printf 'repo_root=/fake\\nsource_sha=#{stamped_sha}\\ndirty=#{dirty}\\n' > "#{release_dir}/AIUR_BUILD_STAMP"; |
       else
         ""
       end
@@ -2121,6 +2133,92 @@ defmodule AiurEngineTest do
     assert out =~ "not built from the commit the rebuild reported"
     assert out =~ "rebuild reported : abc123"
     assert out =~ "release stamped  : def456"
+  end
+
+  test "a builder that promises no receipt is reported unverified, not stopped" do
+    # AIUR_RESTART_BUILD_CMD is a documented generic hook. Holding a wrapper that
+    # never promised a receipt to the receipt contract would turn an upgrade into
+    # a stopped fleet; saying the guarantee did not apply is the honest answer.
+    rel = fake_release()
+
+    {out, 0} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", "echo BUILD"},
+          {"AIUR_RESTART_BUILD_VERIFIES", nil},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert out =~ "UNVERIFIED rebuild"
+    assert out =~ "RUN: --bg"
+    refute out =~ "STOPPED"
+  end
+
+  test "restart refuses to start when the receipt is missing its fields" do
+    rel = fake_release()
+
+    {out, code} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", ~s|echo BUILD; printf 'repo_root=/fake\\n' > "$AIUR_RESTART_BUILD_RECEIPT"|},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert code == 70
+    refute out =~ "RUN:"
+    assert out =~ "receipt is malformed"
+  end
+
+  test "an unverifiable abort names the builder it could not confirm" do
+    # Without this, an inherited AIUR_RESTART_BUILD_CMD from another checkout
+    # produces an identical refusal on every retry with nothing to act on.
+    rel = fake_release()
+
+    {out, 70} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", "echo BUILD"},
+          {"AIUR_RESTART_BUILD_VERIFIES", "1"},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert out =~ "rebuild command: echo BUILD"
+  end
+
+  test "restart declines to claim a verified boot for a release it cannot identify" do
+    rel = fake_release()
+
+    {out, 0} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel, sha: "unknown")},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert out =~ "source commit is"
+    assert out =~ "provenance unverified"
+    refute out =~ "verified release"
+    assert out =~ "RUN: --bg"
+  end
+
+  test "restart says so when the release was built from a dirty tree" do
+    rel = fake_release()
+
+    {out, 0} =
+      run_restart("",
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", fake_build_cmd(rel, sha: "abc123", dirty: "yes")},
+          {"AIUR_RELEASE_DIR", rel}
+        ]
+      )
+
+    assert out =~ "built from abc123 with uncommitted changes"
+    refute out =~ "verified release"
+    assert out =~ "RUN: --bg"
   end
 
   test "restart forwards run flags but consumes --no-build, which skips the refresh" do

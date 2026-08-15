@@ -2786,6 +2786,13 @@ verify_restart_build() {
   built_dir="$(sed -n 's/^release_dir=//p' "$receipt" | head -n 1)"
   built_sha="$(sed -n 's/^source_sha=//p' "$receipt" | head -n 1)"
 
+  # Fail on the missing field rather than on whatever an empty one happens to
+  # compare equal to further down.
+  if [ -z "$built_dir" ] || [ -z "$built_sha" ]; then
+    echo "aiur: the build receipt is malformed; restart cannot confirm what was built" >&2
+    return 1
+  fi
+
   # Compare canonical paths: the builder and this engine can reach the same
   # release through different symlinked parents.
   built_dir="$(cd -P "$built_dir" 2>/dev/null && pwd || printf '%s' "$built_dir")"
@@ -2811,6 +2818,20 @@ verify_restart_build() {
     echo "      rebuild reported : $built_sha" >&2
     echo "      release stamped  : $stamped_sha" >&2
     return 1
+  fi
+
+  # Say what was actually established. "verified ... built from unknown" would be
+  # a silent-pass guard reporting success over a release it cannot identify, and
+  # a dirty tree means the SHA is a floor rather than an identity.
+  if [ "$stamped_sha" = "unknown" ]; then
+    echo "aiur: release $target_dir matches the rebuild, but its source commit is" >&2
+    echo "      unknown (built outside a git work tree) — provenance unverified" >&2
+    return 0
+  fi
+
+  if [ "$(sed -n 's/^dirty=//p' "$stamp" | head -n 1)" = "yes" ]; then
+    echo "aiur: release $target_dir built from $stamped_sha with uncommitted changes" >&2
+    return 0
   fi
 
   echo "aiur: verified release $target_dir built from $stamped_sha" >&2
@@ -2867,19 +2888,33 @@ cmd_restart() {
       exit "$build_status"
     fi
 
-    # An unverifiable rebuild is not a lesser success. Starting anyway would
-    # hand back the stale-release outcome this whole ordering exists to prevent,
-    # with a "restarted" line on top of it.
-    local verify_status=0
-    verify_restart_build "$receipt" || verify_status=$?
-    rm -f "$receipt"
-    if [ "$verify_status" -ne 0 ]; then
-      echo "❌ restart aborted before start: the rebuild could not be verified" >&2
-      echo "   Rebuild from the checkout you mean and retry, or 'aiur restart --no-build'" >&2
-      echo "   to start the release on disk without the guarantee." >&2
-      aiur_restart_report_state
-      trap - EXIT INT TERM
-      exit 70
+    # A builder that declares AIUR_RESTART_BUILD_VERIFIES has promised a receipt,
+    # so a missing or contradicted one is a real failure and an unverifiable
+    # rebuild is not a lesser success — starting anyway would hand back the
+    # stale-release outcome this ordering exists to prevent, with a "restarted"
+    # line on top of it. A builder that makes no such promise cannot be held to
+    # it; say plainly that the guarantee did not apply rather than convert an
+    # unknown wrapper into a stopped fleet.
+    if [ "${AIUR_RESTART_BUILD_VERIFIES:-0}" = "1" ]; then
+      local verify_status=0
+      verify_restart_build "$receipt" || verify_status=$?
+      rm -f "$receipt"
+      if [ "$verify_status" -ne 0 ]; then
+        echo "❌ restart aborted before start: the rebuild could not be verified" >&2
+        # Naming the builder makes an inherited AIUR_RESTART_BUILD_CMD — a dev
+        # shim leaking into another shell — diagnosable from this output alone,
+        # instead of an identical refusal on every retry.
+        echo "   rebuild command: ${AIUR_RESTART_BUILD_CMD}" >&2
+        echo "   Rebuild from the checkout you mean and retry, or 'aiur restart --no-build'" >&2
+        echo "   to start the release on disk without the guarantee." >&2
+        aiur_restart_report_state
+        trap - EXIT INT TERM
+        exit 70
+      fi
+    else
+      rm -f "$receipt"
+      echo "aiur: UNVERIFIED rebuild — this builder reports no receipt, so restart" >&2
+      echo "      cannot confirm the release it is about to boot is the one just built" >&2
     fi
   elif [ "$skip_build" -eq 1 ]; then
     echo "aiur: --no-build — restarting on the release already on disk" >&2

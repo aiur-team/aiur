@@ -25,7 +25,10 @@ script_dir="$(cd -P "$(dirname "$src")" && pwd)"
 # path-derived default only infers one from where the script (or its symlink
 # target) happens to live.
 if [ -n "${AIUR_REPO_ROOT:-}" ]; then
-  repo_root="$AIUR_REPO_ROOT"
+  # Canonicalize: a trailing slash or a symlinked path would otherwise fail the
+  # physical-path comparisons below, silently disabling provenance and the
+  # targeting check on a root that is perfectly valid.
+  repo_root="$(cd -P "$AIUR_REPO_ROOT" 2>/dev/null && pwd || printf '%s' "$AIUR_REPO_ROOT")"
   repo_root_source="AIUR_REPO_ROOT"
 else
   repo_root="$(cd -P "$script_dir/.." && pwd)"
@@ -72,54 +75,119 @@ enclosing_aiur_checkout() {
   return 1
 }
 
-# Only commands that compile into a release or boot one can be harmed by the
-# mismatch. Control and informational commands act on the single global daemon
-# through whatever complete release is at hand, so a refusal there would be pure
-# noise — and noise is what makes the real warning easy to ignore.
-builds_or_boots_release() {
+# The command the ENGINE will see, which is not always "$1": the shim consumes
+# its own dev-only flags before dispatch, so `aiurdev --debug status` is still a
+# control command and must be classified as one.
+effective_command() {
+  local arg
+
+  for arg in "$@"; do
+    case "$arg" in
+      --debug | --clear | --allow-remote) ;;
+      *)
+        printf '%s\n' "$arg"
+        return 0
+        ;;
+    esac
+  done
+
+  # Nothing left: a bare run.
+  return 0
+}
+
+# Commands whose PURPOSE is to produce a release or boot one. For these a
+# mismatch is the defect itself and refusing costs nothing — re-run from the
+# right directory. Everything else is a control, informational, or RPC command
+# that only wants to reach the running daemon; refusing those would trade a
+# build nobody asked for against a fleet that cannot be answered, so they are
+# handled by not building instead (see guard_checkout_target).
+#
+# Every named engine subcommand is listed, so the fallthrough means "an
+# unrecognized token", which for this shim is a bare run, a run flag, or a
+# config path — all of which boot a release. Drift therefore lands on the
+# refusing side, which is loud and immediately fixable, never on the silent one.
+targets_release_deliberately() {
   case "${1:-}" in
-    __identity | help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
-    init | findings | guard-pr-deletions) return 1 ;;
-    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | watch | reset-budget) return 1 ;;
-    # Anything else — `build`, `restart`, a bare run, run flags, a config path —
-    # reaches a build or a boot. Defaulting to the guard keeps a new subcommand
-    # protected until someone decides it does not need to be.
+    build | restart) return 0 ;;
+    agents | alerts | status | set | pause | resume | stop | message | cleanup-stale | reset-budget) return 1 ;;
+    watch | init | findings | guard-pr-deletions | __identity) return 1 ;;
+    help | -h | -help | --h | --help | --version | --todo | --only) return 1 ;;
+    ask | asks | usage | commands | units | build-orders | analytics) return 1 ;;
+    executor-*) return 1 ;;
     *) return 0 ;;
   esac
 }
 
 refuse_diverging_checkout() {
-  local cwd_root="$1" shim_name
-  shift
+  local cwd_root="$1" cmd="$2" shim_name args=""
+  shift 2
   shim_name="$(basename "$src")"
+
+  # %q so a config path with spaces comes back as a line the operator can paste.
+  if [ "$#" -gt 0 ]; then
+    printf -v args ' %q' "$@"
+  fi
 
   echo "❌ aiurdev would target a different checkout than the one you are in" >&2
   echo "   you are in    : $cwd_root" >&2
   echo "   would target  : $repo_root (resolved from the aiurdev script path)" >&2
-  echo "   command       : ${1:-<run>}" >&2
+  echo "   command       : ${cmd:-<run>}" >&2
   echo >&2
   echo "   Building or booting there would report success while leaving the release" >&2
   echo "   you are working on untouched. Pick one:" >&2
   echo >&2
   echo "   # target the checkout you are in" >&2
-  echo "   $cwd_root/scripts/$shim_name $*" >&2
+  echo "   $cwd_root/scripts/$shim_name$args" >&2
   echo "   # target the other checkout on purpose" >&2
-  echo "   AIUR_REPO_ROOT=$repo_root $shim_name $*" >&2
+  echo "   AIUR_REPO_ROOT=$repo_root $shim_name$args" >&2
   exit 64
 }
 
+# Set when the cwd belongs to a different checkout than the one being targeted.
+# The dispatch block reads it to keep a control command off the build path: the
+# release in the OTHER checkout is one a live daemon may be booted from, and
+# rewriting it in place to answer an RPC is the same silent damage as building
+# it on purpose.
+checkout_diverges=0
+
 guard_checkout_target() {
-  local cwd_root
+  local cwd_root cmd shim_name
 
   # An explicit AIUR_REPO_ROOT already states the intent this guard exists to
   # confirm, so it is the documented escape hatch as well as the override.
-  [ "$repo_root_source" = "AIUR_REPO_ROOT" ] && return 0
-  builds_or_boots_release "${1:-}" || return 0
+  if [ "$repo_root_source" = "AIUR_REPO_ROOT" ]; then
+    return 0
+  fi
 
-  cwd_root="$(enclosing_aiur_checkout)" || return 0
-  [ "$cwd_root" = "$repo_root" ] && return 0
+  cmd="$(effective_command "$@")"
 
-  refuse_diverging_checkout "$cwd_root" "$@"
+  if ! cwd_root="$(enclosing_aiur_checkout)"; then
+    # No checkout to compare against. Name the target anyway for the commands
+    # that will write or boot a release: standing outside every checkout is the
+    # other way to lose track of which tree a build lands in.
+    if targets_release_deliberately "$cmd"; then
+      echo "ℹ️  aiurdev targeting $repo_root (resolved from the aiurdev script path)" >&2
+    fi
+    return 0
+  fi
+
+  if [ "$cwd_root" = "$repo_root" ]; then
+    return 0
+  fi
+
+  if targets_release_deliberately "$cmd"; then
+    refuse_diverging_checkout "$cwd_root" "$cmd" "$@"
+  fi
+
+  # A control or RPC command still has to reach the daemon — refusing
+  # `executor-answer` would leave a blocked agent unanswerable over a build it
+  # never needed. So it runs, but it says which checkout it is speaking through
+  # and is kept off the build path.
+  checkout_diverges=1
+  shim_name="$(basename "$src")"
+  echo "ℹ️  aiurdev is speaking through $repo_root, not the checkout you are in" >&2
+  echo "   ($cwd_root). Its existing release is reused and nothing is built there." >&2
+  echo "   Use $cwd_root/scripts/$shim_name to act on this checkout instead." >&2
 }
 
 require_mise() {
@@ -179,6 +247,21 @@ ensure_elixir_deps() {
   fi
 }
 
+# True only when repo_root is itself the root of a git work tree. `git -C` walks
+# UP to the nearest enclosing repository, so a repo_root that merely sits inside
+# some other checkout would otherwise be stamped with that outer repository's
+# commit — provenance for a tree nobody built. A linked worktree reports its own
+# path here, so worktrees are handled like any other root.
+repo_is_git_root() {
+  local toplevel
+
+  command -v git >/dev/null 2>&1 || return 1
+  toplevel="$(git -C "$repo_root" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$toplevel" ] || return 1
+
+  [ "$(cd -P "$toplevel" 2>/dev/null && pwd)" = "$repo_root" ]
+}
+
 # The SHA of the tree a build would produce a release FROM. "unknown" whenever
 # git cannot answer (no git on PATH, a tarball export); callers treat unknown as
 # "no provenance available" rather than as a mismatch, so a gitless checkout
@@ -186,7 +269,7 @@ ensure_elixir_deps() {
 repo_head_sha() {
   local sha=""
 
-  if command -v git >/dev/null 2>&1; then
+  if repo_is_git_root; then
     sha="$(git -C "$repo_root" rev-parse HEAD 2>/dev/null || true)"
   fi
 
@@ -203,10 +286,14 @@ read_stamp_field() {
 # which checkout or which commit produced it, which is why the debug playbook
 # tells operators to report a release SHA of "unknown". Stamping it makes the
 # provenance readable — and makes `restart` able to prove what it is booting.
+# Takes the SHA the build STARTED from. A release assembly runs for minutes, and
+# a commit or branch switch landing inside that window would otherwise stamp a
+# commit the release demonstrably was not built from — provenance that reads as
+# current forever after.
 write_release_stamp() {
-  local dirty="unknown"
+  local source_sha="$1" dirty="unknown"
 
-  if command -v git >/dev/null 2>&1 && git -C "$repo_root" rev-parse HEAD >/dev/null 2>&1; then
+  if repo_is_git_root; then
     if [ -n "$(git -C "$repo_root" status --porcelain 2>/dev/null)" ]; then
       dirty="yes"
     else
@@ -215,7 +302,7 @@ write_release_stamp() {
   fi
 
   printf 'repo_root=%s\nsource_sha=%s\ndirty=%s\nbuilt_at=%s\n' \
-    "$repo_root" "$(repo_head_sha)" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    "$repo_root" "$source_sha" "$dirty" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
     >"$release_stamp"
 }
 
@@ -268,9 +355,11 @@ release_build_lock() {
 }
 
 build_aiur() {
-  local log_file status=0
+  local log_file status=0 source_sha
 
   require_mise
+  # Read before the compile, not after — see write_release_stamp.
+  source_sha="$(repo_head_sha)"
   echo "🔨 rebuilding bin/aiur (compile + release)" >&2
   log_file="$(mktemp "${TMPDIR:-/tmp}/aiurdev-release.XXXXXX")"
 
@@ -295,7 +384,7 @@ build_aiur() {
     return 1
   fi
 
-  write_release_stamp
+  write_release_stamp "$source_sha"
 }
 
 # A release built from a commit other than the one checked out now is stale even
@@ -311,10 +400,13 @@ release_matches_head() {
   # extend it the benefit of the doubt.
   [ -n "$stamped" ] || return 1
 
-  # Without a SHA on either side there is nothing to compare; fall back to the
-  # mtime sweep rather than rebuilding this checkout on every launch.
+  # Unknown on BOTH sides means this checkout has no provenance to compare at
+  # all (no git, a tarball export); fall back to the mtime sweep rather than
+  # rebuilding on every single launch. Unknown on one side only is a mismatch
+  # like any other, so one rebuild converges the stamp onto whatever this host
+  # can actually attest — which keeps `restart` able to check it.
   current="$(repo_head_sha)"
-  if [ "$stamped" = "unknown" ] || [ "$current" = "unknown" ]; then
+  if [ "$stamped" = "unknown" ] && [ "$current" = "unknown" ]; then
     return 0
   fi
 
@@ -603,7 +695,10 @@ if builds_after_stop "${passthrough[0]:-}"; then
   # the stop — announce that inversion instead of performing it silently.
   release_ready || echo "⚠️  no complete release; building one BEFORE the stop (this rewrites the release the running daemon booted from)" >&2
   ensure_control_surface
-elif pure_control_command "${passthrough[0]:-}"; then
+elif pure_control_command "${passthrough[0]:-}" || [ "$checkout_diverges" -eq 1 ]; then
+  # The divergent case reaches here only for commands the guard let through, and
+  # those must not rebuild a checkout the operator is not standing in. Reusing
+  # the complete release is exactly what a control command needs anyway.
   ensure_control_surface
 else
   ensure_built
@@ -686,10 +781,18 @@ export AIUR_RELEASE_DIR="$release_dir"
 # path resolution: the target was settled here, and re-deriving it in a process
 # the engine launches from the operator's cwd is the very ambiguity this restart
 # is supposed to have eliminated by the time it stops the daemon.
-if builds_after_stop "${passthrough[0]:-}"; then
+#
+# AIUR_SKIP_BUILD excludes it entirely rather than wiring in a rebuild that will
+# decline to build: the engine would stop the daemon, get a success it cannot
+# match to the release on disk, and refuse to start. Skipping the build means
+# `restart` is a plain bounce, which is what asking to skip the build asks for.
+if builds_after_stop "${passthrough[0]:-}" && [ "${AIUR_SKIP_BUILD:-0}" != "1" ]; then
   printf -v AIUR_RESTART_BUILD_CMD 'AIUR_REPO_ROOT=%q %q %q' \
     "$repo_root" "$script_dir/$(basename "$src")" "__ensure-build"
-  export AIUR_RESTART_BUILD_CMD
+  # Declares that this builder reports a verifiable receipt, so the engine can
+  # tell "unverified" apart from "verified and wrong" for a builder it does not
+  # own.
+  export AIUR_RESTART_BUILD_CMD AIUR_RESTART_BUILD_VERIFIES=1
 fi
 
 if requires_pinned_opencode "${passthrough[0]:-}"; then

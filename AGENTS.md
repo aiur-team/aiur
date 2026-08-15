@@ -59,7 +59,15 @@ forming a verdict; the feature list does not imply them.
   `aiur-$USER[-KEY]@127.0.0.1`, tmux socket `aiur-$USER[-KEY]`), so there is no
   second command surface to maintain. Run `npm run setup` (or
   `mise run setup`) to install the toolchain and symlink `aiurdev` onto your
-  `PATH`.
+  `PATH`. That symlink resolves its target from the script's own path, so
+  invoke `scripts/aiurdev` from the checkout you mean to act on. A command that
+  would build or boot a *different* checkout than your working directory
+  (`build`, `restart`, a bare run) is refused rather than run; a control or RPC
+  command still runs but says which checkout it is speaking through and does not
+  rebuild it. `AIUR_REPO_ROOT` names a target explicitly when you do want the
+  other one. Each dev build stamps its release with the repo root and commit it
+  came from (`AIUR_BUILD_STAMP`), and `restart` refuses to start on a release it
+  cannot match to the rebuild it just ran.
 
 ## Running
 
