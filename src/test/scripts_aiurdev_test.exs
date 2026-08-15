@@ -110,6 +110,40 @@ defmodule ScriptsAiurdevTest do
     File.write!(Path.join(release_vsn_dir, "start_clean.boot"), "")
     File.write!(Path.join(release_vsn_dir, "vm.args"), "")
     File.write!(Path.join(release_vsn_dir, "sys.config"), "")
+
+    # A real build stamps the release with the commit it came from. These fake
+    # roots live outside any git repo, so "unknown" is exactly what the shim
+    # would write here — and an unknown SHA means the mtime sweep, not the SHA
+    # comparison, decides staleness. `stamp_release/2` overrides it where a test
+    # is about the SHA.
+    stamp_release(root)
+  end
+
+  defp stamp_release(root, sha \\ "unknown") do
+    File.write!(
+      release_stamp_path(root),
+      "repo_root=#{root}\nsource_sha=#{sha}\ndirty=unknown\nbuilt_at=1970-01-01T00:00:00Z\n"
+    )
+  end
+
+  defp release_stamp_path(root),
+    do: Path.join([root, "src", "_build", "dev", "rel", "aiur", "AIUR_BUILD_STAMP"])
+
+  # The SHA half of staleness only exists inside a work tree, so the tests that
+  # exercise it need a real (if empty) one. Identity is pinned per-invocation so
+  # the run never depends on the host's git config.
+  defp init_git_repo(root) do
+    git = fn args -> {_, 0} = System.cmd("git", args, cd: root, stderr_to_stdout: true) end
+
+    git.(["init", "--quiet"])
+    git.(["config", "user.email", "test@example.com"])
+    git.(["config", "user.name", "test"])
+    git.(["commit", "--quiet", "--allow-empty", "-m", "seed"])
+  end
+
+  defp git_head(root) do
+    {sha, 0} = System.cmd("git", ["rev-parse", "HEAD"], cd: root)
+    String.trim(sha)
   end
 
   # A fake mise that records how it was invoked and succeeds, so `--test`'s
@@ -210,12 +244,47 @@ defmodule ScriptsAiurdevTest do
       {"AIUR_OPENCODE_BRIDGE_PORT", nil}
     ]
 
-    System.cmd("bash", [@script | args],
+    System.cmd("bash", [Keyword.get(opts, :script, @script) | args],
       env: base_env ++ env,
       cd: Keyword.get(opts, :cd, System.tmp_dir!()),
       stderr_to_stdout: true
     )
   end
+
+  # A fake root that also looks like a CHECKOUT from the outside — the three
+  # markers the shim walks up the cwd for. `fake_repo/1` alone deliberately does
+  # not, so the targeting guard stays invisible to every test that is not about
+  # it. The shim is copied rather than symlinked: the shim resolves its own
+  # symlinks, so a link would resolve straight back to the real repo and the
+  # fake checkout would never be the target.
+  defp fake_checkout(root \\ nil) do
+    root = if root, do: fake_repo(root), else: fake_repo()
+    shim = Path.join([root, "scripts", "aiurdev"])
+
+    File.mkdir_p!(Path.dirname(shim))
+    File.cp!(@script, shim)
+    File.chmod!(shim, 0o755)
+    File.write!(Path.join([root, "src", "mix.exs"]), "")
+
+    {root, shim}
+  end
+
+  # ~/.local/bin/aiurdev -> <checkout>/scripts/aiurdev, the install that makes
+  # the divergence reachable in the first place.
+  defp global_shim(target) do
+    bin = Path.join(System.tmp_dir!(), "aiurdev-bin-#{System.unique_integer([:positive])}")
+    link = Path.join(bin, "aiurdev")
+
+    File.mkdir_p!(bin)
+    File.ln_s!(target, link)
+    on_exit(fn -> File.rm_rf!(bin) end)
+
+    link
+  end
+
+  # The physical path, which is what the shim compares against — `System.tmp_dir!`
+  # is a symlink on some hosts (macOS `/tmp` -> `/private/tmp`).
+  defp physical(path), do: File.cd!(path, &File.cwd!/0)
 
   test "execs the engine with the repo-local release dir and forwards args" do
     root = fake_repo()
@@ -577,7 +646,12 @@ defmodule ScriptsAiurdevTest do
       ])
 
     assert out =~ "ENGINE_ARGS: restart"
-    assert out =~ ~r/RESTART_BUILD_CMD: \S*aiurdev __ensure-build/
+
+    # The repo root is pinned into the command, not left to the child to
+    # re-derive from its own path in a process the engine launches from the
+    # operator's cwd — by the stop, the target is already settled.
+    assert out =~ ~r/RESTART_BUILD_CMD: AIUR_REPO_ROOT=\S*\s+\S*aiurdev __ensure-build/
+    assert out =~ "AIUR_REPO_ROOT=#{root}"
     refute out =~ "rebuilding"
     refute File.exists?(log), "restart must not rebuild before the engine stops the daemon"
 
@@ -630,12 +704,19 @@ defmodule ScriptsAiurdevTest do
     [_, build_cmd] = Regex.run(~r/RESTART_BUILD_CMD: (.+)/, out)
     assert build_cmd =~ "__ensure-build"
 
-    # Exactly how the engine invokes it.
-    {build_out, 0} = System.cmd("bash", ["-c", build_cmd], env: env, stderr_to_stdout: true)
+    # Exactly how the engine invokes it, receipt and all.
+    receipt = Path.join(root, "receipt")
+
+    {build_out, 0} =
+      System.cmd("bash", ["-c", build_cmd],
+        env: [{"AIUR_RESTART_BUILD_RECEIPT", receipt} | env],
+        stderr_to_stdout: true
+      )
 
     assert build_out =~ "the daemon is stopped until this finishes"
     assert build_out =~ "rebuilding"
     assert File.exists?(log)
+    assert File.read!(receipt) =~ "release_dir=#{root}/src/_build/dev/rel/aiur"
   end
 
   test "the rebuild command is exported only for restart" do
@@ -1062,5 +1143,578 @@ defmodule ScriptsAiurdevTest do
     assert out =~ "XDG_RUNTIME_DIR: #{sandbox_root}/runtime"
     assert File.read!(trace) =~ "AIUR_BG_STATE_DIR: #{sandbox_root}/state"
     refute out =~ "ENGINE_ARGS: --port 0"
+  end
+
+  # --- checkout targeting -----------------------------------------------------
+  # The shim resolves its target from its own path, so a globally symlinked
+  # `aiurdev` invoked inside a different checkout used to compile into, and boot,
+  # the symlink's repo — reporting success the whole way. These pin the refusal
+  # and, just as importantly, the cases that must keep working.
+
+  describe "checkout targeting" do
+    test "refuses to build the symlink's checkout while standing in another one" do
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+      log = Path.join(checkout_a, "release.log")
+
+      {out, code} =
+        run_shim(
+          ["build"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert code == 64
+      assert out =~ "would target a different checkout"
+      assert out =~ "you are in    : #{physical(checkout_b)}"
+      assert out =~ "would target  : #{physical(checkout_a)}"
+      assert out =~ "#{physical(checkout_b)}/scripts/aiurdev build"
+      assert out =~ "AIUR_REPO_ROOT=#{physical(checkout_a)} aiurdev build"
+      # The refusal has to come before the build, not after it.
+      refute File.exists?(log)
+      refute File.exists?(release_stamp_path(checkout_a))
+    end
+
+    test "refuses to restart the symlink's checkout while standing in another one" do
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      trace = engine_trace(checkout_a)
+
+      seed_ready_release(checkout_a)
+
+      {out, code} =
+        run_shim(
+          ["restart"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_ENGINE_TRACE", trace},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert code == 64
+      assert out =~ "would target a different checkout"
+      # Nothing reached the engine, so nothing was stopped: a refusal must not
+      # cost the operator a running daemon.
+      refute out =~ "ENGINE_ARGS:"
+      refute File.exists?(trace)
+    end
+
+    test "an explicit AIUR_REPO_ROOT declares the target and is honored" do
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["restart"],
+          [
+            {"AIUR_REPO_ROOT", checkout_a},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: restart"
+      assert out =~ "RELEASE_DIR: #{checkout_a}/src/_build/dev/rel/aiur"
+    end
+
+    test "a trailing slash or symlinked AIUR_REPO_ROOT is still recognized as the target" do
+      # The comparisons against it are physical-path comparisons; a raw value
+      # would fail them and silently switch provenance off on a valid root.
+      {checkout_a, shim_a} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["--bg"],
+          [
+            {"AIUR_REPO_ROOT", checkout_a <> "/"},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_a
+        )
+
+      assert out =~ "RELEASE_DIR: #{physical(checkout_a)}/src/_build/dev/rel/aiur"
+    end
+
+    test "an executor RPC from another checkout reaches the daemon without building it" do
+      # `executor-answer` is the only way to unblock a decision-paused agent, and
+      # it is not on the pure-control list, so before this it force-built the
+      # symlink's checkout on the way through. Refusing it instead would trade a
+      # build nobody asked for against a fleet nobody can answer -- so it runs,
+      # says which checkout it is speaking through, and builds nothing there.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+      log = Path.join(checkout_a, "release.log")
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["executor-answer", "d-1"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: executor-answer d-1"
+      assert out =~ "speaking through #{physical(checkout_a)}"
+      assert out =~ "#{physical(checkout_b)}/scripts/aiurdev"
+      refute out =~ "rebuilding"
+      refute File.exists?(log)
+    end
+
+    test "watch from another checkout does not force-build that checkout" do
+      # `watch` is deliberately not a pure control command, so it reaches the
+      # build path -- and it is the Executor's standing loop, i.e. the highest
+      # frequency way to rewrite a foreign release under a live daemon.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+      log = Path.join(checkout_a, "release.log")
+
+      seed_ready_release(checkout_a)
+      # Make the sources newer than the release: without the divergence rule this
+      # is exactly the state that triggers a rebuild.
+      File.mkdir_p!(Path.join([checkout_a, "src", "lib"]))
+      newer = Path.join([checkout_a, "src", "lib", "newer.ex"])
+      File.write!(newer, "# stale after release\n")
+      File.touch!(Path.join([checkout_a, "src", "bin", "aiur"]), {{2020, 1, 1}, {0, 0, 0}})
+      File.touch!(newer, {{2030, 1, 1}, {0, 0, 0}})
+
+      {out, 0} =
+        run_shim(
+          ["watch"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: watch"
+      refute out =~ "rebuilding"
+      refute File.exists?(log)
+    end
+
+    test "a control command is refused when the other checkout has no release to reuse" do
+      # Reusing the other checkout's release is only harmless while there is one.
+      # With none, reaching its daemon would compile one there, which is the same
+      # foreign build the guard exists to stop.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+      log = Path.join(checkout_a, "release.log")
+
+      {out, code} =
+        run_shim(
+          ["status"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert code == 64
+      assert out =~ "cannot run this against #{physical(checkout_a)} without building it"
+      assert out =~ "AIUR_REPO_ROOT=#{physical(checkout_a)} aiurdev build"
+      refute out =~ "ENGINE_ARGS:"
+      refute File.exists?(log)
+    end
+
+    test "an agent workspace clone is refused a run against the operator's checkout" do
+      # Agent workspaces are full clones, so they carry all three markers. An
+      # agent invoking a globally symlinked aiurdev from its workspace would
+      # otherwise build and boot the Executor's checkout -- cross-contamination
+      # between a ticket's tree and the operator's.
+      {checkout_a, shim_a} = fake_checkout()
+
+      workspace =
+        Path.join([
+          System.tmp_dir!(),
+          "aiur-workspaces",
+          "repo",
+          "9001-#{System.unique_integer([:positive])}"
+        ])
+
+      {workspace, _shim_w} = fake_checkout(workspace)
+      link = global_shim(shim_a)
+      home = sandbox_home()
+
+      seed_ready_release(checkout_a)
+
+      {out, code} =
+        run_shim(
+          ["--bg"],
+          [{"AIUR_REPO_ROOT", nil}, {"TMUX", nil}, {"HOME", home}, {"AIUR_AGENT_WORKSPACE", nil}],
+          script: link,
+          cd: workspace
+        )
+
+      assert code == 64
+      assert out =~ "would target a different checkout"
+      assert out =~ "#{physical(workspace)}/scripts/aiurdev"
+      refute out =~ "ENGINE_ARGS:"
+    end
+
+    test "control commands from another checkout still reach the daemon" do
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+
+      seed_ready_release(checkout_a)
+
+      # `status` neither builds nor boots — it queries the one global daemon
+      # through whatever complete release is at hand, so there is no divergence
+      # to refuse and a refusal here would only be noise.
+      {out, 0} =
+        run_shim(
+          ["status"],
+          [{"AIUR_REPO_ROOT", nil}, {"TMUX", nil}],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: status"
+    end
+
+    test "a dev flag before a control command does not make it look like a run" do
+      # The shim consumes --debug before dispatch, so the command the engine
+      # sees is `status` -- classifying on the raw first argument would refuse a
+      # control command that has no build to divert.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      home = sandbox_home()
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["--debug", "status"],
+          [{"AIUR_REPO_ROOT", nil}, {"TMUX", nil}, {"HOME", home}],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert out =~ "ENGINE_ARGS: status"
+      assert out =~ "AIUR_DEBUG: 1"
+    end
+
+    test "a symlinked shim still runs from a directory in no checkout at all" do
+      {checkout_a, shim_a} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["--bg"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: System.tmp_dir!()
+        )
+
+      assert out =~ "ENGINE_ARGS: --bg"
+      assert out =~ "RELEASE_DIR: #{checkout_a}/src/_build/dev/rel/aiur"
+    end
+
+    test "a symlinked shim invoked inside its own checkout is not a divergence" do
+      {checkout_a, shim_a} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["--bg"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_a
+        )
+
+      assert out =~ "ENGINE_ARGS: --bg"
+    end
+
+    test "a cwd inside a partial tree is not mistaken for a checkout" do
+      {checkout_a, shim_a} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+      # A repo-shaped directory missing src/mix.exs is not an aiur checkout, and
+      # refusing there would block a legitimate run for nothing.
+      partial = Path.join(System.tmp_dir!(), "aiurdev-partial-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec"]))
+      File.mkdir_p!(Path.join(partial, "scripts"))
+      File.write!(Path.join([partial, "scripts", "aiurdev"]), "")
+      File.write!(Path.join([partial, "packaging", "npm", "aiur-cli", "libexec", "aiur-engine.sh"]), "")
+      on_exit(fn -> File.rm_rf!(partial) end)
+
+      seed_ready_release(checkout_a)
+
+      {out, 0} =
+        run_shim(
+          ["--bg"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: partial
+        )
+
+      assert out =~ "ENGINE_ARGS: --bg"
+    end
+  end
+
+  # --- release provenance -----------------------------------------------------
+
+  describe "release provenance" do
+    test "a completed build stamps the release with its repo root and source sha" do
+      root = fake_repo()
+      mise = fake_mise()
+
+      {_out, 0} =
+        run_shim(["build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"TMUX", nil}
+        ])
+
+      stamp = File.read!(release_stamp_path(root))
+
+      assert stamp =~ "repo_root=#{root}"
+      # Outside a git work tree there is no commit to record; the field is still
+      # present so a reader never has to guess whether stamping ran.
+      assert stamp =~ "source_sha=unknown"
+      assert stamp =~ ~r/built_at=\d{4}-\d{2}-\d{2}T/
+    end
+
+    test "a repo root nested inside another repository is not stamped with that repo's commit" do
+      # `git -C` walks up to the nearest enclosing repository. Stamping the outer
+      # repo's HEAD would claim provenance for a tree nobody built — and would
+      # then compare that borrowed SHA against itself on every later launch.
+      outer = Path.join(System.tmp_dir!(), "aiurdev-outer-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(outer)
+      on_exit(fn -> File.rm_rf!(outer) end)
+      init_git_repo(outer)
+
+      root = fake_repo(Path.join(outer, "inner"))
+      mise = fake_mise()
+
+      {_out, 0} =
+        run_shim(["build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"TMUX", nil}
+        ])
+
+      stamp = File.read!(release_stamp_path(root))
+
+      assert stamp =~ "source_sha=unknown"
+      refute stamp =~ git_head(outer)
+    end
+
+    test "a ready release with no stamp is rebuilt rather than trusted" do
+      root = fake_repo()
+      mise = fake_mise()
+      log = Path.join(root, "release.log")
+
+      seed_ready_release(root)
+      File.rm!(release_stamp_path(root))
+
+      {out, 0} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "rebuilding"
+      assert File.exists?(log)
+    end
+
+    test "a ready release built from another commit is rebuilt even when no source is newer" do
+      root = fake_repo()
+      mise = fake_mise()
+      log = Path.join(root, "release.log")
+
+      init_git_repo(root)
+      seed_ready_release(root)
+      # Every source file predates the release, so the mtime sweep alone would
+      # call this current — which is how a `git switch` ships the old build.
+      stamp_release(root, String.duplicate("a", 40))
+
+      {out, 0} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "rebuilding"
+      assert File.exists?(log)
+      assert File.read!(release_stamp_path(root)) =~ "source_sha=#{git_head(root)}"
+    end
+
+    test "a ready release stamped with the checked-out commit is left alone" do
+      root = fake_repo()
+      mise = fake_mise()
+      log = Path.join(root, "release.log")
+
+      init_git_repo(root)
+      seed_ready_release(root)
+      stamp_release(root, git_head(root))
+
+      {out, 0} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      refute out =~ "rebuilding"
+      refute File.exists?(log)
+    end
+
+    test "AIUR_SKIP_BUILD leaves restart a plain bounce instead of an unverifiable one" do
+      # Wiring in a rebuild that will decline to build would stop the daemon and
+      # then hand the engine a success it cannot match to the release on disk --
+      # exit 70 with the fleet down, over a build the operator asked to skip.
+      root = fake_repo()
+      mise = fake_mise()
+
+      seed_ready_release(root)
+
+      {out, 0} =
+        run_shim(["restart"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_SKIP_BUILD", "1"},
+          {"AIUR_MISE_BIN", mise},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "ENGINE_ARGS: restart"
+      assert out =~ ~r/^RESTART_BUILD_CMD: *$/m
+    end
+
+    test "a stamp from another commit converges on one rebuild rather than staying unknown" do
+      # A release stamped `unknown` on a host where git now answers must not stay
+      # unknown forever: `restart` compares the receipt SHA against the stamp, so
+      # a permanently-unknown stamp is a permanently unverifiable restart.
+      root = fake_repo()
+      mise = fake_mise()
+      log = Path.join(root, "release.log")
+
+      init_git_repo(root)
+      seed_ready_release(root)
+      stamp_release(root, "unknown")
+
+      {out, 0} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+          {"TMUX", nil}
+        ])
+
+      assert out =~ "rebuilding"
+      assert File.read!(release_stamp_path(root)) =~ "source_sha=#{git_head(root)}"
+    end
+
+    test "the deferred rebuild leaves a receipt naming the release it vouches for" do
+      root = fake_repo()
+      mise = fake_mise()
+      receipt = Path.join(root, "receipt")
+
+      seed_ready_release(root)
+
+      {_out, 0} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_RESTART_BUILD_RECEIPT", receipt},
+          {"TMUX", nil}
+        ])
+
+      contents = File.read!(receipt)
+
+      assert contents =~ "release_dir=#{root}/src/_build/dev/rel/aiur"
+      assert contents =~ "repo_root=#{root}"
+      assert contents =~ "source_sha=unknown"
+    end
+
+    test "a failed rebuild leaves no receipt for restart to trust" do
+      root = fake_repo()
+      mise = fake_mise()
+      receipt = Path.join(root, "receipt")
+
+      {_out, 9} =
+        run_shim(["__ensure-build"], [
+          {"AIUR_REPO_ROOT", root},
+          {"AIUR_MISE_BIN", mise},
+          {"AIUR_FAKE_MISE_FAIL_RELEASE", "1"},
+          {"AIUR_RESTART_BUILD_RECEIPT", receipt},
+          {"TMUX", nil}
+        ])
+
+      refute File.exists?(receipt)
+    end
   end
 end

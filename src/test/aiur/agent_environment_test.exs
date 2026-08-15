@@ -62,6 +62,26 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "OTHER_COOKIE=keep\n"
   end
 
+  test "scrub_shell_command clears the restart rebuild command bound to the outer checkout" do
+    # AIUR_RESTART_BUILD_CMD names one checkout's builder. Inherited by an agent,
+    # an inner `aiur restart` runs the OUTER checkout's rebuild against whatever
+    # release it is pointed at — the cross-checkout build this guard exists to end.
+    command =
+      AgentEnvironment.scrub_shell_command("env | grep -E '^(AIUR_RESTART_BUILD_CMD|AIUR_RESTART_BUILD_RECEIPT|AIUR_RESTART_BUILD_VERIFIES|OTHER_KEEP)=' | sort")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command],
+        env: [
+          {"AIUR_RESTART_BUILD_CMD", "AIUR_REPO_ROOT=/outer/repo /outer/repo/scripts/aiurdev __ensure-build"},
+          {"AIUR_RESTART_BUILD_RECEIPT", "/tmp/outer-receipt"},
+          {"AIUR_RESTART_BUILD_VERIFIES", "1"},
+          {"OTHER_KEEP", "keep"}
+        ]
+      )
+
+    assert output == "OTHER_KEEP=keep\n"
+  end
+
   test "scrubbed toolchain probe resolves OTP from mise, not the release" do
     release_root = Path.join(System.tmp_dir!(), "aiur-release-#{System.unique_integer([:positive])}")
     release_erts_bin = Path.join([release_root, "erts-16.4", "bin"])
