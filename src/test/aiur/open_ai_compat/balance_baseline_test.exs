@@ -110,6 +110,127 @@ defmodule Aiur.OpenAICompat.BalanceBaselineTest do
     assert BalanceBaseline.persisted_baseline(:deepseek, path) == nil
   end
 
+  # Spend is `baseline - remaining`, so a remaining balance above the baseline
+  # would be negative consumption. The only thing that produces it is a top-up
+  # recorded after the baseline was, which used to strand the meter at 0%
+  # against a much larger balance until an operator deleted the ledger by hand.
+  test "a persisted baseline below the observed balance is reseeded in place" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    assert {1.43, true} = BalanceBaseline.resolve(:deepseek, 1.43, opts)
+    assert {1.43, false} = BalanceBaseline.resolve(:deepseek, 1.20, opts)
+
+    # The top-up lands: the stale baseline is replaced by the observed balance
+    # and reports itself as freshly seeded, so this observation renders
+    # dollar-only rather than a fabricated 0% spend.
+    assert {8.55, true} = BalanceBaseline.resolve(:deepseek, 8.55, opts)
+
+    # And it is durable, not just in-memory: the next observation reads the
+    # reseeded anchor and resumes reporting real spend against it.
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == 8.55
+    assert {8.55, false} = BalanceBaseline.resolve(:deepseek, 6.84, opts)
+
+    # Replacing the anchor discards the only record of what spend was measured
+    # against, so the entry keeps the amount it displaced.
+    assert %{"previous_amount" => 1.43, "reseeded_at" => reseeded_at} = entry(path, :deepseek)
+    assert is_binary(reseeded_at)
+  end
+
+  # A balance is dollars and cents. Sub-cent drift is float noise, not a
+  # top-up, and reseeding on it would rewrite the ledger and hold the meter at
+  # "no consumption evidence yet" on every probe cycle, forever.
+  test "sub-cent drift above the baseline does not reseed" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    assert {50.0, true} = BalanceBaseline.resolve(:deepseek, 50.0, opts)
+    recorded_at = recorded_at(path, :deepseek)
+
+    assert {50.0, false} = BalanceBaseline.resolve(:deepseek, 50.005, opts)
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == 50.0
+    assert recorded_at(path, :deepseek) == recorded_at
+
+    # A real top-up still clears the threshold.
+    assert {60.0, true} = BalanceBaseline.resolve(:deepseek, 60.0, opts)
+  end
+
+  # Same best-effort contract as a failed first seed: the meter degrades to
+  # dollar-only rather than raising through the probe. GitHub runners are not
+  # root, so the read-only bit holds.
+  test "a reseed that cannot be persisted degrades to dollar-only" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    assert {1.43, true} = BalanceBaseline.resolve(:deepseek, 1.43, opts)
+
+    File.chmod!(path, 0o444)
+    on_exit(fn -> File.chmod(path, 0o644) end)
+
+    assert BalanceBaseline.resolve(:deepseek, 8.55, opts) == nil
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == 1.43
+  end
+
+  test "a baseline exactly level with the observed balance is not reseeded" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    assert {50.0, true} = BalanceBaseline.resolve(:deepseek, 50.0, opts)
+    # Re-reading the seeding observation is not a top-up; it must not churn the
+    # ledger's `recorded_at` on every probe.
+    recorded_at = recorded_at(path, :deepseek)
+    assert {50.0, false} = BalanceBaseline.resolve(:deepseek, 50.0, opts)
+    assert recorded_at(path, :deepseek) == recorded_at
+  end
+
+  # A reseed is only ever an upgrade. A drained account reads 100%, and must not
+  # re-anchor itself to zero and start over at 0%.
+  test "a zero observation never reseeds a positive baseline" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    assert {50.0, true} = BalanceBaseline.resolve(:deepseek, 50.0, opts)
+    assert {50.0, false} = BalanceBaseline.resolve(:deepseek, 0.0, opts)
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == 50.0
+  end
+
+  test "a reseed leaves other providers' baselines untouched" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    assert {1.43, true} = BalanceBaseline.resolve(:deepseek, 1.43, opts)
+    assert {20.0, true} = BalanceBaseline.resolve(:openrouter, 20.0, opts)
+    assert {8.55, true} = BalanceBaseline.resolve(:deepseek, 8.55, opts)
+
+    assert BalanceBaseline.persisted_baseline(:openrouter, path) == 20.0
+  end
+
+  defp entry(path, provider) do
+    path
+    |> File.read!()
+    |> Jason.decode!()
+    |> get_in(["baselines", Atom.to_string(provider)])
+  end
+
+  defp recorded_at(path, provider), do: Map.get(entry(path, provider), "recorded_at")
+
+  # The ledger is read-modify-written whole, so an unserialized seed drops the
+  # other provider's entry. This is the failure the `:global` lock is for, and
+  # it was live: the lock id keyed its *requester* on the path, and `:global`
+  # grants a lock whose requester matches the one already held — so two probes
+  # on the same ledger both took it.
+  test "concurrent seeds for different providers on one ledger keep both entries" do
+    path = baseline_path()
+    opts = [path: path, backend_configs: %{}]
+
+    [:deepseek, :openrouter]
+    |> Enum.map(fn provider -> Task.async(fn -> BalanceBaseline.resolve(provider, 10.0, opts) end) end)
+    |> Task.await_many(5_000)
+
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == 10.0
+    assert BalanceBaseline.persisted_baseline(:openrouter, path) == 10.0
+  end
+
   test "concurrent resolve calls never raise and leave a valid single baseline" do
     path = baseline_path()
     opts = [path: path, backend_configs: %{}]
