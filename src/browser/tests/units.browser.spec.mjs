@@ -8,6 +8,11 @@ async function openUnits(page, path = '/units') {
   await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
+  // `isConnected()` reports the socket, not the view: the root still carries
+  // `phx-loading` until the first connected render is applied, and a click
+  // dispatched in that window lands on dead-render DOM that LiveView is about
+  // to replace, so its binding never reaches the server. Wait for the swap.
+  await expect(page.locator('[data-phx-main].phx-connected')).toHaveCount(1)
 }
 
 // Rows in the compact Units table open the ticket-context dialog via a click on
