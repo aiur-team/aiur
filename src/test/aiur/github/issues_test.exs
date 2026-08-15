@@ -164,6 +164,19 @@ defmodule Aiur.GitHub.IssuesTest do
         "updated_at" => "2026-01-02T00:00:00Z"
       }
 
+      # Dispatch authorization has no creator short-circuit: it always verifies
+      # who applied the trigger label, so the timeline has to carry a real
+      # `labeled` event by a trusted actor for either path to authorize. Serving
+      # the issue payload for `/timeline` would deny both paths and make the
+      # parity assertion below pass trivially on `[false, false]`.
+      labeled_event = %{
+        "id" => 1,
+        "event" => "labeled",
+        "label" => %{"name" => "sym:ci-wait"},
+        "actor" => %{"login" => "its-everdred"},
+        "created_at" => "2026-01-01T00:00:00Z"
+      }
+
       request_fun = fn
         %{url: url, etag: _etag} ->
           assert url =~ "/issues?labels="
@@ -171,7 +184,12 @@ defmodule Aiur.GitHub.IssuesTest do
 
         %{url: url} ->
           assert url =~ "/issues?labels=" or url =~ "/timeline"
-          {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+
+          if url =~ "/timeline" do
+            {:ok, %{status: 200, headers: [], body: [labeled_event]}}
+          else
+            {:ok, %{status: 200, headers: [], body: [gh_issue]}}
+          end
       end
 
       assert {:ok, conditional_issues, _cache} =

@@ -707,7 +707,7 @@ defmodule Aiur.GitHub.ClientTest do
       File.rm_rf!(repo_root)
     end
 
-    test "falls back to authoritative comments when CODEOWNERS is missing" do
+    test "fails closed on comments when CODEOWNERS is missing" do
       repo_root =
         Path.join(
           System.tmp_dir!(),
@@ -732,8 +732,28 @@ defmodule Aiur.GitHub.ClientTest do
                  repo_root: repo_root
                )
 
-      assert comment.authoritative
-      assert comment.authority_reason == "No CODEOWNERS file found; using compatibility fallback."
+      # Prove we really are on the degraded path and not failing for some other
+      # reason: there is no CODEOWNERS file under this repo root.
+      refute comment.codeowners.codeowners_present
+
+      # SECURITY INVARIANT — this used to be a "compatibility fallback" that made
+      # EVERY commenter authoritative whenever CODEOWNERS was missing. On a
+      # public repo with issues enabled that meant a drive-by comment from any
+      # outsider was handed to the agent as a trusted instruction. Degraded-mode
+      # trust now has exactly one owner, `Aiur.GitHub.CodeOwners`, which trusts
+      # only `bot_account` + `trusted_accounts` (falling back to the repo owner).
+      # `guest` is none of those, so the answer is no.
+      #
+      # This harness configures no trust source, so the assertion is the
+      # fail-closed default rather than the positive case. The positive case —
+      # an explicitly configured trusted account IS authoritative in degraded
+      # mode — is covered in `test/aiur/codeowners_test.exs`, which can inject a
+      # `:trust_server`; this client path resolves the trust server itself and
+      # has no seam to inject one.
+      refute comment.authoritative
+
+      assert comment.authority_reason ==
+               "No CODEOWNERS rules found; only explicitly configured trusted accounts are authoritative."
 
       File.rm_rf!(repo_root)
     end

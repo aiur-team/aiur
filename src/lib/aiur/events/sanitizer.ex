@@ -253,17 +253,41 @@ defmodule Aiur.Events.Sanitizer do
     end
   end
 
-  # Single per-string pipeline: strip known hidden-instruction carriers,
-  # redact secrets, truncate to the field's
+  # Single per-string pipeline: coerce to valid UTF-8, strip known
+  # hidden-instruction carriers, redact secrets, truncate to the field's
   # cap at a codepoint boundary, then HTML-escape so the rendered digest
   # can safely embed the content inside `<external-content>…</external-content>`
   # without an attacker breaking out via `</external-content>`.
   defp clean(text, field) when is_binary(text) do
     text
+    |> ensure_utf8()
     |> strip_instruction_carriers()
     |> redact()
     |> truncate(field)
     |> html_escape()
+  end
+
+  # SECURITY INVARIANT — this must stay FIRST in the pipeline.
+  #
+  # Every stage below it is a regex or `String` operation, and `:re` raises
+  # `ArgumentError` on a binary that is not valid UTF-8. An issue title, issue
+  # body, or comment carrying a stray `<<255>>` would therefore crash prompt and
+  # digest construction for that ticket — a denial of service anyone able to
+  # open an issue could trigger, and a way to stop a ticket being worked at all.
+  #
+  # Coercing here rather than at each call site is deliberate: `clean/2` is the
+  # one funnel every untrusted string passes through, so no future caller can
+  # forget it. Invalid bytes are reinterpreted as latin1 rather than dropped, so
+  # the agent still sees the text and the sanitizer still gets to inspect it.
+  defp ensure_utf8(text) do
+    if String.valid?(text) do
+      text
+    else
+      case :unicode.characters_to_binary(text, :latin1, :utf8) do
+        converted when is_binary(converted) -> converted
+        _uncoercible -> String.replace_invalid(text)
+      end
+    end
   end
 
   defp redact(text) when is_binary(text), do: SecretRedactor.redact(text)

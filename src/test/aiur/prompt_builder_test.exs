@@ -219,6 +219,20 @@ defmodule Aiur.PromptBuilderTest do
     refute prompt =~ String.duplicate("a", 20_000)
   end
 
+  # Every stage of the sanitizer is a regex or String operation, and `:re` raises
+  # on a binary that is not valid UTF-8. Without coercion up front, a stray byte
+  # in an issue body crashes prompt construction for that ticket — a denial of
+  # service anyone able to open an issue could trigger.
+  @tag config: @config
+  test "an issue body containing invalid UTF-8 bytes does not crash the builder" do
+    prompt = PromptBuilder.build_prompt(hostile_issue(title: <<255>>, description: "before " <> <<255>> <> " after"))
+
+    assert String.valid?(prompt)
+    assert prompt =~ ~s(<external-content source="github" author="outsider">)
+    assert prompt =~ "before"
+    assert prompt =~ "after"
+  end
+
   @tag config: @config
   test "leaves Aiur-derived task metadata unwrapped so the agent can tell it apart" do
     prompt = PromptBuilder.build_prompt(hostile_issue([]))
