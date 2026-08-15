@@ -717,29 +717,60 @@ defmodule Aiur.CodingAgent do
   end
 
   @doc """
-  Pinned model string for an issue from a `model:<backend>-<variant>`
-  override label (e.g. `model:claude-opus-4-8` -> `"opus-4-8"`), or `nil`
-  when no variant is pinned. The bare `model:<backend>` form selects the
-  backend but pins no model, so the backend's configured default applies.
+  Model string an issue asks for, or `nil` for "the backend's own default"
+  (which `resolve_model/2` supplies).
+
+  In precedence order: a variant pinned on a `model:<backend>-<variant>`
+  override label (e.g. `model:claude-opus-4-8` -> `"opus-4-8"`), then the
+  `complexity:` routing model, then `nil`. A bare `model:<backend>` names
+  only a backend, so it pins no model of its own and defers to the routing
+  model when routing names that same backend.
   """
   @spec model_for(Issue.t()) :: String.t() | nil
   def model_for(%Issue{} = issue) do
     case override_backend(issue) do
       # With no override, the complexity-routing value names the model for the
-      # routed backend. With an override, fall through to the routing model only
-      # when it targets that same backend: a `model:codex` bare override still
-      # wants the codex routing model, while a `model:deepseek` override must
-      # not inherit a codex-shaped model that is invalid for it. A bare override
-      # for a backend the routing table never names (an OpenAI-compatible one)
+      # routed backend. A *bare* override names only a backend, so the routing
+      # value is the more specific answer and is still deferred to when it
+      # targets that same backend: a `model:codex` override still wants the
+      # codex routing model, while a `model:deepseek` override must not inherit
+      # a codex-shaped model that is invalid for it. A bare override for a
+      # backend the routing table never names (an OpenAI-compatible one)
       # therefore yields nil, and `resolve_model/2` supplies the backend default.
       nil ->
         override_model(issue) || routing_model(issue)
 
       backend ->
-        case routing_backend(issue) do
-          ^backend -> routing_model(issue)
-          _other -> override_model(issue)
-        end
+        override_model_for(issue, backend)
+    end
+  end
+
+  # `backend_for/1` resolves `issue.selected_backend` ahead of the override
+  # label, so a variant pinned for the overridden backend must never be handed
+  # to a different one: `resolve_model/2` forwards a string it does not
+  # recognise untouched, so it would reach that CLI verbatim. Nothing sets both
+  # today — `select_for_dispatch/2` and the rate-limit fallback only assign a
+  # backend when there is no override — so this holds the invariant rather than
+  # serving live traffic.
+  @spec override_model_for(Issue.t(), backend()) :: String.t() | nil
+  defp override_model_for(%Issue{selected_backend: selected}, backend)
+       when is_binary(selected) and selected != backend,
+       do: nil
+
+  # A variant pinned on the override label is the operator naming a model
+  # outright, so it wins even when routing targets the same backend — the
+  # add-agent modal always writes `complexity:N` beside
+  # `model:<backend>-<variant>`, and deferring to routing here discarded the
+  # operator's choice with no feedback. It also used to discard the variant for
+  # nothing when routing named the backend but no model (`4 => "claude"`). The
+  # variant is passed through verbatim: `opus` stays the floating family alias
+  # the operator picked and is only widened to a concrete version by
+  # `resolve_model/2`, which knows which backends derive their aliases.
+  defp override_model_for(%Issue{} = issue, backend) do
+    case {override_model(issue), routing_backend(issue)} do
+      {nil, ^backend} -> routing_model(issue)
+      {nil, _other} -> nil
+      {variant, _any} -> variant
     end
   end
 

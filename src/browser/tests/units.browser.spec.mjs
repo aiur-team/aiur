@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
+import { assertNoDocumentOverflow, expectAuditClean, settleAnimations } from './support/browser-helpers.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
 async function openUnits(page, path = '/units') {
@@ -208,22 +208,26 @@ test('Units keeps its column headings at zero units and names the empty state in
   // The whole card is clean in the dark theme, so scan all of it -- that catches
   // a structural a11y regression anywhere in the Units panel, not just this box.
   const darkAccessibility = await new AxeBuilder({ page }).include('.units-card').analyze()
-  expect(darkAccessibility.violations).toEqual([])
+  expectAuditClean(darkAccessibility)
 
   await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  await settleAnimations(page)
   const light = await readStyle()
   expect(light.borderStyle).toBe('dashed')
   expect(light.textAlign).toBe('center')
   expect(light.color).not.toBe(dark.color)
   expect(light.borderColor).not.toBe(dark.borderColor)
 
-  // The light theme narrows to the box itself. The card's surrounding chrome --
-  // `.section-eyebrow` and `#units-title` on `--faint`, and the filter pills and
-  // scope buttons -- fails AA against the light `--surface`, and that is a
-  // pre-existing design-token defect: this change touches no CSS at all. The box
-  // itself passes, which is what the narrow scan is here to prove.
-  const lightAccessibility = await new AxeBuilder({ page }).include('.units-card .empty-state').analyze()
-  expect(lightAccessibility.violations).toEqual([])
+  // The light theme now scans the whole card too, rather than narrowing to the
+  // empty box. The filter pills that used to fail here are the production
+  // component on `--muted`; the card's `.section-eyebrow` and `<h1>` are this
+  // fixture's own chrome (production renders its heading in the shell, above
+  // the card), so widening the scope re-guards the pills for real and the
+  // heading only here. `--muted`/`--faint` were remeasured, and the heading
+  // failure that was blamed on them was really this theme fade being sampled
+  // mid-flight.
+  const lightAccessibility = await new AxeBuilder({ page }).include('.units-card').analyze()
+  expectAuditClean(lightAccessibility)
 })
 
 test('Units conversation drawer hook manages focus, Escape, and focus return', async ({ page }) => {
@@ -345,14 +349,11 @@ test('Tickets panel lists open tickets and both dialogs focus and dismiss on Esc
   })
   expect(Math.abs(controlHeights.select - controlHeights.button)).toBeLessThanOrEqual(1)
 
-  // `.btn` is excluded: the shared primary-button token fails AA contrast in the
-  // dark theme (#ffffff on --accent #2f86ff = 3.51:1) everywhere it is used, so
-  // it is a design-token defect rather than anything this dialog introduced.
-  const modalAccessibility = await new AxeBuilder({ page })
-    .include('#add-agent-modal')
-    .exclude('#add-agent-modal .btn')
-    .analyze()
-  expect(modalAccessibility.violations).toEqual([])
+  // `.btn` is back in scope: the primary button used to paint white straight
+  // onto the bright `--accent` (3.51:1 in the dark theme), and now takes its
+  // fill and ink from `--accent-strong`/`--on-accent` instead.
+  const modalAccessibility = await new AxeBuilder({ page }).include('#add-agent-modal').analyze()
+  expectAuditClean(modalAccessibility)
 
   await page.keyboard.press('Escape')
   await expect(modal).toHaveCount(0)

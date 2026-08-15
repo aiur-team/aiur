@@ -1,6 +1,6 @@
 import AxeBuilder from '@axe-core/playwright'
 import { expect, test } from '@playwright/test'
-import { assertNoDocumentOverflow, openFixture } from './support/browser-helpers.mjs'
+import { assertNoDocumentOverflow, expectAuditClean, openFixture, settleAnimations } from './support/browser-helpers.mjs'
 import { dashboardCredentials } from './support/layout-worker.mjs'
 
 const answeredRow = '#history-answered-command'
@@ -39,7 +39,7 @@ test('a history row expands in place and reports the recorded decision honestly'
   // this is where the status chips live, and one of them ("Expired") is the
   // reason the light-theme attention ink was too pale to read.
   const collapsedAudit = await new AxeBuilder({ page }).include('.command-history').analyze()
-  expect(collapsedAudit.violations).toEqual([])
+  expectAuditClean(collapsedAudit)
 
   // Clicking the row — not a button inside it — opens the accordion, and the
   // context arrives beneath that row rather than at the top of the page.
@@ -65,14 +65,14 @@ test('a history row expands in place and reports the recorded decision honestly'
 
   await assertNoDocumentOverflow(page)
 
-  // Expanded, `color-contrast` is excluded — not ignored. The only failing
-  // nodes are the `.decision-answer-summary` labels inside the shared Command
-  // action panel, which fail identically wherever that panel is rendered;
-  // nothing about the accordion introduced them and fixing them means moving a
-  // global token. The collapsed pass above still audits contrast unrestricted,
-  // so a regression in the table itself cannot hide behind this exclusion.
-  const expandedAudit = await new AxeBuilder({ page }).include('.command-history').disableRules(['color-contrast']).analyze()
-  expect(expandedAudit.violations).toEqual([])
+  // Expanded, contrast is audited too. `color-contrast` used to be disabled
+  // here because the `.decision-answer-summary` labels failed it — but the
+  // panel opens on a 0.22s `detail-open` fade, and the scan was reading those
+  // labels part-way through it (#569560 at 3.94:1, a partly transparent
+  // --good-ink). Settled, they measure 7.07:1 and the rule can stay on.
+  await settleAnimations(page, answeredPanel)
+  const expandedAudit = await new AxeBuilder({ page }).include('.command-history').analyze()
+  expectAuditClean(expandedAudit)
 
   // A click inside the panel must not bubble into a row toggle. The panel is a
   // sibling row, deliberately outside the clickable one — the operator has to
