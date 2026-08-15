@@ -74,4 +74,88 @@ defmodule Aiur.WorkflowStoreTest do
     # The whole point: a saturated store must not take the read path down with it.
     assert %Aiur.Config.Schema{} = Config.settings!()
   end
+
+  # The store is a supervised singleton, so it can die between `force_reload/1`
+  # checking the registered name and issuing its call. That window turned a
+  # sibling test's restart into an EXIT inside an unrelated test — the failure
+  # that took down `WorkspaceAndConfigTest` in CI run 31897085819. A caller is
+  # promised `:ok | {:error, term()}`, so a dying store must not exit it.
+  test "force_reload survives the store dying while the call is in flight" do
+    ensure_workflow_store_running()
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+
+    # Stands in for a store that is registered when `force_reload/1` looks the
+    # name up and gone by the time the call lands.
+    dying = spawn(fn -> receive do: (_message -> exit(:shutdown)) end)
+    true = Process.register(dying, WorkflowStore)
+    on_exit(fn -> restore_real_store(dying) end)
+
+    assert WorkflowStore.force_reload() == :ok
+  end
+
+  # OTP's shutdown reason may carry a payload, and `GenServer.call/3` then puts
+  # the whole `{:shutdown, term}` tuple in the reason position — where a
+  # `reason in [...]` guard cannot match it. That shape has its own catch clause,
+  # so it needs its own regression test.
+  test "force_reload survives a store shutting down with a reason payload" do
+    ensure_workflow_store_running()
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+
+    dying = spawn(fn -> receive do: (_message -> exit({:shutdown, :restarting})) end)
+    true = Process.register(dying, WorkflowStore)
+    on_exit(fn -> restore_real_store(dying) end)
+
+    assert WorkflowStore.force_reload() == :ok
+  end
+
+  # The reason that made a whitelist untenable. `start_link/1` registers the
+  # name before `init/1` runs, and `init/1` stops with `{:missing_workflow_file,
+  # path}` when a sibling transiently points the config path at a missing file —
+  # which `test/support/test_support.exs` documents as real in this suite. So a
+  # caller can look the name up successfully and still have its call land on a
+  # process that is stopping with a config tuple no fixed list would cover.
+  test "force_reload survives a store whose init stops with a config error" do
+    ensure_workflow_store_running()
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+
+    dying = spawn(fn -> receive do: (_message -> exit({:missing_workflow_file, "/nonexistent/.aiurconfig"})) end)
+    true = Process.register(dying, WorkflowStore)
+    on_exit(fn -> restore_real_store(dying) end)
+
+    assert WorkflowStore.force_reload() == :ok
+  end
+
+  # The counterpart guarantee: a store that is alive but not answering really can
+  # be serving a stale cache, so that must stay visible rather than be absorbed
+  # by the death fallback above.
+  test "force_reload still surfaces a timeout from a live but unresponsive store" do
+    ensure_workflow_store_running()
+    :ok = Supervisor.terminate_child(Aiur.Supervisor, WorkflowStore)
+
+    silent = spawn(fn -> Process.sleep(:infinity) end)
+    true = Process.register(silent, WorkflowStore)
+    on_exit(fn -> restore_real_store(silent) end)
+
+    assert {:timeout, _call} = catch_exit(WorkflowStore.force_reload(25))
+  end
+
+  # `Process.exit/2` is asynchronous, so the stub can still hold the registered
+  # name when the restart runs. `restart_workflow_store/1` treats an
+  # `{:already_started, _}` result as success by falling back to the registered
+  # name, so losing that race would leave the stub — not the real singleton —
+  # registered as `Aiur.WorkflowStore` for every later test in this VM. Wait for
+  # the stub to actually be gone before restarting.
+  defp restore_real_store(stub) do
+    ref = Process.monitor(stub)
+    Process.exit(stub, :kill)
+
+    receive do
+      {:DOWN, ^ref, :process, ^stub, _reason} -> :ok
+    after
+      5_000 -> flunk("stub standing in for #{inspect(WorkflowStore)} did not exit")
+    end
+
+    :ok = ensure_workflow_store_running()
+    assert Process.whereis(WorkflowStore) != stub
+  end
 end
