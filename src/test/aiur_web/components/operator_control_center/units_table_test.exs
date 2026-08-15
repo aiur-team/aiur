@@ -107,9 +107,15 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     # (column headings + a single "No active agents" row) rather than an error.
     assert unavailable =~ "No active agents"
     assert unavailable =~ "units-table"
+    # The placeholder is not a unit: `#units-rows` stays empty so every row
+    # selector keyed on it still counts only real units.
+    refute unavailable =~ ~r{<tbody id="units-rows">\s*<tr}
     assert unavailable =~ "Units catalog unavailable"
     assert unavailable =~ "membership failed"
-    assert empty =~ "No units observed"
+    # Every zero-unit catalog reads the same sentence; the per-status detail
+    # stays in the sr-only announcement rather than the empty-state box.
+    assert empty =~ "No live units."
+    refute empty =~ "No units observed"
     assert filtered =~ "No units match this valid scope"
     assert filtered =~ ~s(phx-click="reset-units-filters")
     assert filtered =~ ~s(class="btn ghost units-reset")
@@ -121,27 +127,46 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     assert stale =~ "Responsive Units interface"
 
     # A stale catalog with nothing retained must still account for the empty
-    # table rather than rendering a blank area, and it says why it is empty
-    # instead of claiming a fleet-wide emptiness it never observed.
+    # table rather than rendering a blank area. It keeps the column headings so
+    # the catalog reads as empty rather than absent, and it still says why it is
+    # empty instead of claiming a fleet-wide emptiness it never observed.
     stale_empty = render(%{status: :stale, message: "No last-known-good Units catalog is retained.", rows: [], zero_result?: false})
     refute stale_empty =~ "Stale Units catalog"
     assert stale_empty =~ "No last-known-good Units catalog is retained."
-    refute stale_empty =~ "No units have been observed in this run."
-    refute stale_empty =~ "units-table"
+    refute stale_empty =~ "No live units."
+    assert stale_empty =~ "units-table"
 
     # With no reason composed, the ordinary empty-state sentence still stands in.
     stale_empty_unexplained = render(%{status: :stale, message: nil, rows: [], zero_result?: false})
-    assert stale_empty_unexplained =~ "No units have been observed in this run."
+    assert stale_empty_unexplained =~ "No live units."
 
     # The filter-hides-everything case still belongs to zero_result?, not to the
     # catalog-empty message.
     stale_filtered = render(%{status: :stale, message: "last known membership", rows: [], zero_result?: true})
     assert stale_filtered =~ "No units match this valid scope"
-    refute stale_filtered =~ "No units have been observed in this run."
+    refute stale_filtered =~ "No live units."
 
     partial = render(Map.merge(view([row()]), %{truncated?: true, count_status: :partial}))
     assert partial =~ "Units catalog is partial"
     assert partial =~ "Counts are lower bounds"
+  end
+
+  test "keeps the column headings and names the empty state when the catalog holds no units" do
+    html = render(%{status: :empty, message: "No units observed", rows: [], zero_result?: false})
+
+    # The headings are the table's shape: they stay put at zero units so the
+    # operator reads an empty catalog rather than a vanished one.
+    assert html =~ ~s(<thead>)
+    assert html =~ ~s(<th class="ut-col-id">ID</th>)
+    assert html =~ ~s(<th class="ut-col-unit">Unit</th>)
+    assert html =~ ~s(<th class="ut-col-ticket">Ticket</th>)
+    assert html =~ ~s(<th class="ut-col-latest">Latest</th>)
+    assert html =~ ~s(<th class="ut-col-cmd">Command</th>)
+
+    # The empty state sits below the table in the dashboard's shared
+    # dashed-border `empty-state` surface.
+    assert html =~ ~s(class="units-state empty-state")
+    assert html =~ "No live units."
   end
 
   test "renders a named, reachable pause control for a running unit when writable" do

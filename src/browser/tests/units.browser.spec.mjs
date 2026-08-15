@@ -3,9 +3,9 @@ import { expect, test } from '@playwright/test'
 import { assertNoDocumentOverflow } from './support/browser-helpers.mjs'
 import { nextPaint } from './support/measurements.mjs'
 
-async function openUnits(page) {
+async function openUnits(page, path = '/units') {
   await page.goto('/auth/read_only')
-  await page.goto('/units')
+  await page.goto(path)
   await expect(page.locator('[data-units-fixture="true"]')).toBeVisible()
   await expect.poll(() => page.evaluate(() => window.liveSocket?.isConnected() === true)).toBe(true)
 }
@@ -161,6 +161,69 @@ test('Units URL history restores independent conditions and copied links', async
   await page.getByRole('button', { name: 'Reset Units filters' }).click()
   await expect(page).toHaveURL(/\/units\?v=1$/)
   await expect(page.getByText('Responsive Units interface')).toBeVisible()
+})
+
+test('Units keeps its column headings at zero units and names the empty state in both themes', async ({ page }) => {
+  await openUnits(page, '/units?catalog=empty')
+
+  // The table keeps its shape: a real thead with all five headings, over an
+  // empty tbody rather than a table that vanished with its rows. Scoped to the
+  // Units card because the Tickets panel below reuses the same table class.
+  const table = page.locator('.units-card table.units-table')
+  await expect(table).toBeVisible()
+  await expect(table.locator('thead th')).toHaveText(['ID', 'Unit', 'Ticket', 'Latest', 'Command'])
+  await expect(page.locator('#units-rows tr.units-row')).toHaveCount(0)
+
+  // The empty state sits below the table, and it is the only one: the
+  // filtered-empty sentence belongs to a hidden-by-filter catalog, not this one.
+  const empty = page.locator('.units-card .empty-state')
+  await expect(empty).toHaveCount(1)
+  await expect(empty).toHaveText('No live units.')
+  await expect(empty).not.toContainText('No units match this valid scope')
+
+  const emptyBelowTable = await page.evaluate(() => {
+    const box = document.querySelector('.units-card .empty-state').getBoundingClientRect()
+    return box.top >= document.querySelector('.units-card table.units-table').getBoundingClientRect().bottom
+  })
+  expect(emptyBelowTable).toBe(true)
+
+  // The box reads as a muted dashed placeholder in both themes. Colours come
+  // from the theme tokens, so they must actually differ between the two.
+  const readStyle = () =>
+    empty.evaluate((box) => {
+      const style = getComputedStyle(box)
+      return {
+        borderStyle: style.borderTopStyle,
+        borderWidth: style.borderTopWidth,
+        borderColor: style.borderTopColor,
+        color: style.color,
+        textAlign: style.textAlign,
+        radius: style.borderTopLeftRadius
+      }
+    })
+
+  const dark = await readStyle()
+  expect(dark.borderStyle).toBe('dashed')
+  expect(dark.borderWidth).toBe('1px')
+  expect(dark.textAlign).toBe('center')
+  expect(Number.parseFloat(dark.radius)).toBeGreaterThan(0)
+
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'light'))
+  const light = await readStyle()
+  expect(light.borderStyle).toBe('dashed')
+  expect(light.textAlign).toBe('center')
+  expect(light.color).not.toBe(dark.color)
+  expect(light.borderColor).not.toBe(dark.borderColor)
+
+  // Scoped to the empty state rather than the whole card: the surrounding
+  // light-theme chrome (`.section-eyebrow` on `--faint`) carries pre-existing
+  // design-token contrast defects that this box neither introduces nor owns.
+  const lightAccessibility = await new AxeBuilder({ page }).include('.units-card .empty-state').analyze()
+  expect(lightAccessibility.violations).toEqual([])
+
+  await page.locator('html').evaluate((html) => html.setAttribute('data-theme', 'dark'))
+  const darkAccessibility = await new AxeBuilder({ page }).include('.units-card .empty-state').analyze()
+  expect(darkAccessibility.violations).toEqual([])
 })
 
 test('Units conversation drawer hook manages focus, Escape, and focus return', async ({ page }) => {
