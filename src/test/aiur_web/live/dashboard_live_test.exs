@@ -2358,8 +2358,13 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :failed
            end)
 
-    assert eventually(fn -> render(view) =~ "Delivery failed" end, 100)
-    html = render(view)
+    # The store settles a dispatch in a Task, so the reload the submit handler
+    # already ran predates the failure roughly half the time. Waiting on
+    # PayloadLoader's debounced refresh instead is a race: it fires at most once
+    # per @reload_min_interval_ms, the slot is shared with every other dashboard
+    # event, and each competing reload defers this one by another whole window.
+    # The store has been polled above, so drive the reload from here instead.
+    html = reload_view(view)
     assert html =~ "Recorded answer"
     assert html =~ "Delivery failed"
     assert html =~ ~s(phx-click="retry-decision")
@@ -2372,7 +2377,7 @@ defmodule AiurWeb.DashboardLiveTest do
              current.delivery_status == :queued
            end)
 
-    assert eventually(fn -> not String.contains?(render(view), ~s(phx-click="retry-decision")) end, 100)
+    refute reload_view(view) =~ ~s(phx-click="retry-decision")
 
     assert {:ok, audit} = DecisionStore.audit_history(decision.decision_id, store)
     assert Enum.count(audit, &match?(%DecisionEvent{type: :answer_recorded}, &1)) == 1

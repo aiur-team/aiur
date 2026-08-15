@@ -68,9 +68,8 @@ defmodule AiurWeb.OperatorControlCenter.History do
             <.history_row
               :for={decision <- @rows}
               id={"history-#{decision.decision_id}"}
-              decision={decision}
+              decision={row_decision(decision, decision.decision_id == @expanded_id, @expanded_decision)}
               expanded={decision.decision_id == @expanded_id}
-              expanded_decision={@expanded_decision}
               history={@history}
               action_state={@action_state}
               writable={@writable}
@@ -96,7 +95,6 @@ defmodule AiurWeb.OperatorControlCenter.History do
   attr(:id, :string, required: true)
   attr(:decision, :map, required: true)
   attr(:expanded, :boolean, required: true)
-  attr(:expanded_decision, :any, required: true)
   attr(:history, :list, required: true)
   attr(:action_state, :map, required: true)
   attr(:writable, :boolean, required: true)
@@ -109,10 +107,6 @@ defmodule AiurWeb.OperatorControlCenter.History do
       |> assign(:detail_id, "history-detail-#{assigns.id}")
       |> assign(:toggle_id, "history-toggle-#{assigns.id}")
       |> assign(:toggle, toggle(assigns))
-      # The open row renders the freshly re-read record rather than the copy the
-      # history page returned: a Command can be revised while it is open, and
-      # the row must not keep asserting the question it was answered under.
-      |> assign(:decision, row_decision(assigns))
 
     ~H"""
     <tr
@@ -192,8 +186,19 @@ defmodule AiurWeb.OperatorControlCenter.History do
     decision.decision_id |> DecisionPath.detail(filter, query) |> JS.patch()
   end
 
-  defp row_decision(%{expanded: true, expanded_decision: %{} = expanded}), do: expanded
-  defp row_decision(%{decision: decision}), do: decision
+  # The open row renders the freshly re-read record rather than the copy the
+  # history page returned: a Command can be revised while it is open, and the row
+  # must not keep asserting the question it was answered under.
+  #
+  # This is resolved here, in the caller, rather than inside the row: assigning
+  # over the row's own :decision hid the dependency on the re-read record from
+  # change tracking. Once a payload reload had refreshed the history row to the
+  # same record, the assign was a no-op, the open panel was never re-sent, and it
+  # kept rendering the delivery state it was opened with — a retried delivery
+  # left a dead "Retry delivery" button on screen until the operator clicked
+  # something else.
+  defp row_decision(_decision, true, %{} = expanded), do: expanded
+  defp row_decision(decision, _expanded?, _expanded_decision), do: decision
 
   # A count is only shown when the store reported an exact total. "23 of 91"
   # with an unknown total would be a fabricated denominator.
