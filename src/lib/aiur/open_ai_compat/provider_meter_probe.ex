@@ -3,7 +3,7 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
 
   alias Aiur.{CodingAgent, ProviderMeterSnapshot}
   alias Aiur.OpenAICompat.{BalanceBaseline, Concurrency, MeterWindows}
-  alias Aiur.ProviderMeters.Events
+  alias Aiur.ProviderMeters.{Events, ProbeCrash}
 
   @backend :openai_compat
   @source_versions %{deepseek: 144_003, openrouter: 144_004}
@@ -26,9 +26,9 @@ defmodule Aiur.OpenAICompat.ProviderMeterProbe do
       {:error, reason} -> outcome(provider, false, reason)
     end
   rescue
-    _error -> outcome(provider, false, :probe_failed)
+    error -> outcome(provider, false, ProbeCrash.log(provider, :error, error, __STACKTRACE__))
   catch
-    _kind, _reason -> outcome(provider, false, :probe_failed)
+    kind, reason -> outcome(provider, false, ProbeCrash.log(provider, kind, reason, __STACKTRACE__))
   end
 
   defp publish(provider, windows, opts) do

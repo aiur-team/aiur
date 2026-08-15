@@ -154,6 +154,23 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenterTest do
       assert codex.windows == []
       assert codex.health.failure_label == "Authentication failed"
     end
+
+    # The two are rendered distinctly on purpose: a generic label is what let a
+    # crash in our own percentage arithmetic read as a multi-day provider
+    # outage. Both may still render unhealthy; the reason must not be the same
+    # sentence.
+    test "a probe crash is labelled apart from a probe that could not read the provider" do
+      labels =
+        for failure <- [:probe_crashed, :probe_failed] do
+          snapshot = healthy(:deepseek) |> Map.put(:health, health(:stale, failure))
+          card(Presenter.present(authorized(), %{deepseek: snapshot}), :deepseek).health.failure_label
+        end
+
+      assert [crashed, failed] = labels
+      assert crashed == "Meter probe crashed"
+      assert crashed != failed
+      refute failed == nil
+    end
   end
 
   describe "credential absence is awaiting observation, not a hard failure" do

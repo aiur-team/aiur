@@ -1,6 +1,9 @@
 defmodule Aiur.ProviderMeterProbeTest do
   use ExUnit.Case, async: true
 
+  import ExUnit.CaptureLog
+
+  alias Aiur.OpenAICompat.BalanceBaseline
   alias Aiur.OpenAICompat.ProviderMeterProbe, as: OpenAICompatProbe
   alias Aiur.ProviderMeterProbe
   alias Aiur.ProviderMeterProjection
@@ -78,12 +81,61 @@ defmodule Aiur.ProviderMeterProbeTest do
     def stop_session(_session), do: raise("close failed")
   end
 
+  defmodule ExitingAgent do
+    @moduledoc false
+
+    def start_session(_workspace, _opts) do
+      exit({:timeout, {GenServer, :call, [:app_server, :start_session, 5_000]}})
+    end
+
+    def stop_session(_session), do: :ok
+  end
+
   defmodule OddReturnAgent do
     @moduledoc false
 
     def start_session(_workspace, _opts), do: :something_unexpected
     def stop_session(_session), do: :ok
   end
+
+  # `test_helper.exs` points `:workflow_file_path` at the fixture config only
+  # after the application has booted, and `Aiur.WorkflowStore` picks a changed
+  # path up on its 1s poll — so for up to a poll interval `Aiur.Config` answers
+  # from the config it loaded at boot (here: none, hence the built-in default
+  # workspace root). Every other test in this file pins its config through
+  # `opts/2`, but the derived-workspace test necessarily reads the ambient
+  # `workspace_root/0`, and read inside that window it saw the default root
+  # while the assertion, running after the poll, saw the fixture's.
+  #
+  # Wait for the cached config to agree with on-disk truth once, for the whole
+  # file, rather than letting the seed decide.
+  setup_all do
+    settle_config(System.monotonic_time(:millisecond) + 5_000)
+    :ok
+  end
+
+  defp settle_config(deadline) do
+    cond do
+      cached_workspace_root() == on_disk_workspace_root() ->
+        :ok
+
+      System.monotonic_time(:millisecond) >= deadline ->
+        # Never pass quietly on the deadline: a silent give-up would restore
+        # exactly the ordering-dependent flake this exists to remove.
+        raise "config did not settle: cached workspace root #{inspect(cached_workspace_root())} " <>
+                "still disagrees with on-disk #{inspect(on_disk_workspace_root())}"
+
+      true ->
+        Process.sleep(25)
+        settle_config(deadline)
+    end
+  end
+
+  defp cached_workspace_root, do: workspace_root(Aiur.Config.settings())
+  defp on_disk_workspace_root, do: workspace_root(Aiur.Config.settings_uncached())
+
+  defp workspace_root({:ok, settings}), do: settings.workspace.root
+  defp workspace_root(_error), do: :unavailable
 
   setup do
     projection = :"probe_proj_#{System.unique_integer([:positive])}"
@@ -167,10 +219,38 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert view.health.consecutive_failures == 1
   end
 
-  test "a raising session start is contained", ctx do
+  # Containment is unchanged; what the operator is told is not. A raising
+  # adapter names itself `:probe_crashed` all the way through to the
+  # projection's `health.failure`, where it used to be indistinguishable from a
+  # provider that simply never answered.
+  test "a raising session start is contained and surfaces as a crash, not an outage", ctx do
     Process.put(:probe_start_result, :raise)
 
-    assert [%{observed?: false, reason: :probe_failed}] = ProviderMeterProbe.observe(:codex, opts(ctx))
+    log =
+      capture_log(fn ->
+        assert [%{observed?: false, reason: :probe_crashed}] =
+                 ProviderMeterProbe.observe(:codex, opts(ctx, observed_at: ~U[2026-07-27 12:00:00Z]))
+      end)
+
+    assert log =~ "provider meter probe crashed"
+    assert log =~ "provider=:codex"
+
+    view = ProviderMeterProjection.provider_view(ctx.projection, :codex)
+    assert view.health.failure == :probe_crashed
+  end
+
+  # The split has to cut both ways. An app-server that is slow or absent exits
+  # the caller's `GenServer.call`; that is the provider not answering, and
+  # relabelling it a crash would spam a stacktrace every probe cycle while the
+  # app-server is down — the same miscategorisation running the other way.
+  test "an app-server that never answers reports a timeout, not a crash", ctx do
+    log =
+      capture_log(fn ->
+        assert [%{observed?: false, reason: :timeout}] =
+                 ProviderMeterProbe.observe(:codex, opts(ctx, probe_agent: ExitingAgent))
+      end)
+
+    refute log =~ "provider meter probe crashed"
   end
 
   test "probing :all covers every registry provider", ctx do
@@ -197,6 +277,11 @@ defmodule Aiur.ProviderMeterProbeTest do
   test "disabled providers without credentials are not probed" do
     assert [%{provider: :deepseek, observed?: false, reason: :disabled}] =
              ProviderMeterProbe.observe(:deepseek,
+               # Pinned for the same reason `opts/2` pins it: read live, the
+               # dispatch gate answers from whatever config the daemon (or a
+               # neighbouring suite) has loaded, and "deepseek is not enabled"
+               # is precisely the premise under test.
+               backend_configs: %{},
                api_key_fetcher: fn _env -> nil end,
                openai_compat_request_fun: fn _request ->
                  flunk("a keyless disabled provider must not issue a balance request")
@@ -360,6 +445,87 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert_receive {:provider_meter_changed, snapshot}
     assert snapshot.windows["prepaid-balance-usd"].used_percent == 0.0
     assert snapshot.windows["prepaid-balance-usd"].credits.amount == 8.55
+  end
+
+  # Not crashing was only half the fix. A baseline stranded below the observed
+  # balance then reported 0% spent against a much larger balance — technically
+  # true, useless in practice — and clearing it meant an operator deleting a
+  # JSON file by hand. The probe re-anchors itself instead.
+  test "a top-up above the persisted baseline reseeds it and resumes measuring spend" do
+    :ok = Events.subscribe_observed()
+    path = baseline_path()
+
+    balance_fun = fn amount ->
+      fn _request -> {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => amount}]}}} end
+    end
+
+    probe = fn amount, observed_at ->
+      assert [%{observed?: true, reason: nil}] =
+               ProviderMeterProbe.observe(:deepseek,
+                 backend_configs: %{},
+                 observed_at: observed_at,
+                 deepseek_in_flight: 0,
+                 path: path,
+                 api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+                 openai_compat_request_fun: balance_fun.(amount)
+               )
+
+      assert_receive {:provider_meter_changed, snapshot}
+      snapshot.windows["prepaid-balance-usd"]
+    end
+
+    _seeding = probe.("1.43", ~U[2026-08-12 05:12:52Z])
+
+    # The top-up. Nothing has been spent against the new anchor yet, so the
+    # window is dollar-only rather than a fabricated 0%.
+    topped_up = probe.("8.55", ~U[2026-08-15 17:28:04Z])
+    refute Map.has_key?(topped_up, :used_percent)
+    assert topped_up.credits.amount == 8.55
+
+    assert BalanceBaseline.persisted_baseline(:deepseek, path) == 8.55
+
+    # And the next observation measures spend against the reseeded baseline —
+    # no operator ever touched the ledger.
+    spent = probe.("6.84", ~U[2026-08-15 17:33:04Z])
+    assert_in_delta spent.used_percent, 20.0, 0.01
+  end
+
+  # The blanket rescue that contains a probe crash used to flatten it onto
+  # `:probe_failed`, the same reason a provider that never answered reports.
+  # That is exactly why a one-line type error read as a multi-day outage, so
+  # "we raised" now carries its own reason and its own log line.
+  test "an adapter that raises reports :probe_crashed, not a provider outage" do
+    log =
+      capture_log(fn ->
+        assert %{observed?: false, reason: :probe_crashed} =
+                 OpenAICompatProbe.probe(:deepseek, "deepseek",
+                   backend_configs: %{},
+                   observed_at: ~U[2026-08-01 12:00:00Z],
+                   deepseek_in_flight: 0,
+                   path: baseline_path(),
+                   api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+                   openai_compat_request_fun: fn _request -> raise ArgumentError, "errors were found at the given arguments" end
+                 )
+      end)
+
+    assert log =~ "provider meter probe crashed"
+    assert log =~ "provider=:deepseek"
+    assert log =~ "ArgumentError"
+  end
+
+  # A provider that genuinely does not answer keeps the distinct, unchanged
+  # reason. The point of the split is that the two are told apart, not that
+  # everything became a crash.
+  test "a provider that does not answer keeps its own transport reason" do
+    assert %{observed?: false, reason: :transport} =
+             OpenAICompatProbe.probe(:deepseek, "deepseek",
+               backend_configs: %{},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: baseline_path(),
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: fn _request -> {:error, :transport} end
+             )
   end
 
   # The companion bound, pinned rather than regressed: an emptied account is the

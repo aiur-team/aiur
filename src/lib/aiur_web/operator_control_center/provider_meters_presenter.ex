@@ -399,6 +399,12 @@ defmodule AiurWeb.OperatorControlCenter.ProviderMetersPresenter do
   defp failure_label(:transport), do: "Transport error"
   defp failure_label(:no_observation), do: "Awaiting first observation"
   defp failure_label(:unknown_account_generation), do: "Account identity unknown"
+  # Named apart from `:probe_failed` on purpose: "the provider did not answer"
+  # and "we raised on the answer it gave" are different failures with different
+  # fixes, and the generic label is what let a one-line type error read as a
+  # multi-day outage.
+  defp failure_label(:probe_crashed), do: "Meter probe crashed"
+  defp failure_label(:probe_failed), do: "Meter probe could not read the provider"
   defp failure_label(:no_oauth_token), do: "No OAuth token"
   defp failure_label(:token_expired), do: "OAuth token expired"
   defp failure_label(nil), do: nil
