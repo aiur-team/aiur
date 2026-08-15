@@ -1162,7 +1162,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
     selection =
       AgentRoutingPreview.normalize_selection(%{
         backend: row.routing.backend,
-        model: row.routing.model,
+        # Mirrors `DashboardLive.add_agent_modal/1`: the model select opens on the
+        # model that will actually run, not on the possibly-nil requested one.
+        model: row.routing.model || row.routing.resolved_model,
         effort: row.routing.effort,
         complexity: row.routing.complexity
       })

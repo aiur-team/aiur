@@ -9433,10 +9433,6 @@ html[data-theme="light"] .sd-device {
   width: 220px;
 }
 
-.tickets-table th.tk-col-agent {
-  width: 190px;
-}
-
 .tickets-table th.tk-col-action {
   width: 68px;
 }
@@ -9501,8 +9497,10 @@ html[data-theme="light"] .sd-device {
 }
 
 /* ---- Add-agent modal ---- */
+/* Header, then the scrolling form, then the optional read-only footnote — the
+   routing explainer that used to sit between the first two rows is gone. */
 .add-agent-modal {
-  grid-template-rows: auto auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr) auto;
   width: min(520px, 100%);
 }
 
@@ -9525,14 +9523,109 @@ html[data-theme="light"] .sd-device {
   text-transform: uppercase;
 }
 
-.add-agent-field select {
-  min-height: 2.4rem;
-  padding: 0.4rem 0.55rem;
+/* ---- Select control ----
+   Written as a shared control rather than an add-agent one-off — the modal's
+   four selects are the dashboard's only ones today, so the next select to
+   arrive should join `.field-select` instead of forking this.
+
+   Geometry matches `.btn`: same 2.25rem height and 10px radius, so the Confirm
+   row and the fields above it sit on one vertical rhythm.
+
+   Native option rows cannot be given breathing room. Chromium and WebKit hand
+   the popup to the OS and drop `padding` on `<option>` outright; only Gecko
+   renders it in-page and honours it. The `option` rule below is therefore a
+   Firefox-only gain, kept because it costs nothing where it is ignored. Buying
+   the spacing everywhere would mean a bespoke JS listbox, and this dashboard
+   has no combobox pattern to build on — a half-built one would be worse for a
+   keyboard or screen-reader operator than the native control it replaced. */
+.field-select {
+  position: relative;
+  display: grid;
+}
+
+/* Chevron drawn from two borders rather than a background SVG: a data-URI icon
+   would have to hard-code its stroke, while a border tracks the theme's
+   `--muted` and follows the control's own hover and focus states. */
+.field-select::after {
+  content: "";
+  position: absolute;
+  top: calc(50% - 0.3rem);
+  right: 0.85rem;
+  width: 0.42rem;
+  height: 0.42rem;
+  border-right: 1.5px solid var(--muted);
+  border-bottom: 1.5px solid var(--muted);
+  /* The popup opens on click anywhere in the control, so the chevron must not
+     be the one spot that swallows it. */
+  pointer-events: none;
+  transform: rotate(45deg);
+  transition: border-color 0.18s ease;
+}
+
+.field-select:hover::after,
+.field-select:focus-within::after {
+  border-color: var(--fg);
+}
+
+.field-select select {
+  appearance: none;
+  width: 100%;
+  min-height: 2.25rem;
+  /* Vertical padding and line-height match `.btn`'s box exactly rather than
+     relying on the shared `min-height`, which the UA's own line box overshoots.
+     Right padding clears the chevron so a long model id truncates before it
+     rather than running underneath. */
+  padding: 0.5rem 2rem 0.5rem 0.7rem;
   border: 1px solid var(--line-strong);
   border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  transition: border-color 0.18s ease, background 0.18s ease;
+}
+
+.field-select select:hover:not(:disabled) {
+  border-color: var(--accent-line);
+  background: var(--surface-3);
+}
+
+/* `:focus` covers the open popup, which no pseudo-class reports portably. */
+.field-select select:focus {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+/* The page-wide ring is `--accent-line`, which is too transparent to clear 3:1
+   against `--surface-2` in either theme. `--accent` clears it at 4.1:1 dark and
+   6.3:1 light, so the ring is solid on a control the operator tabs into. */
+.field-select select:focus-visible {
+  outline: 3px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.field-select select:disabled {
+  border-color: var(--line);
+  background: var(--surface);
+  color: var(--faint);
+  cursor: not-allowed;
+  /* The UA fades the whole control; `--faint` already carries the state and is
+     contrast-checked, so keep the text readable. */
+  opacity: 1;
+}
+
+.field-select:has(select:disabled)::after {
+  border-color: var(--faint);
+}
+
+.field-select option {
+  padding: 0.35rem 0.6rem;
   background: var(--surface);
   color: var(--fg);
-  font-size: 0.8rem;
+  line-height: 1.9;
 }
 
 .add-agent-preview {

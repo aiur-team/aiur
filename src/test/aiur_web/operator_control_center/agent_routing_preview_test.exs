@@ -1,7 +1,7 @@
 defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
   use Aiur.TestSupport
 
-  alias Aiur.Workflow
+  alias Aiur.{CodingAgent, Issue, Workflow}
   alias AiurWeb.OperatorControlCenter.AgentRoutingPreview
 
   test "predicts the routed backend, model, and effort from the configured routing table" do
@@ -84,6 +84,49 @@ defmodule AiurWeb.OperatorControlCenter.AgentRoutingPreviewTest do
     assert "complexity:3" in plan.add
     assert "model:codex" in plan.add
     assert plan.remove == []
+  end
+
+  # The add-agent modal seeds its Model select from `resolved_model`, so a confirmed
+  # selection writes `model:<backend>-<model>` rather than a bare `model:<backend>`.
+  # The labels the operator confirms have to dispatch to the agent the modal showed
+  # them, or the preview is a promise the daemon does not keep.
+  test "the labels a confirmed selection writes dispatch to the previewed agent" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_routing: %{3 => "codex:gpt-5.6-terra:high"})
+
+    preview = AgentRoutingPreview.preview(["complexity:3"])
+
+    selection =
+      AgentRoutingPreview.normalize_selection(%{
+        backend: preview.backend,
+        model: preview.resolved_model,
+        effort: preview.effort,
+        complexity: preview.complexity
+      })
+
+    plan = AgentRoutingPreview.plan(selection, ["complexity:3"])
+    issue = %Issue{id: "p", identifier: "p", labels: ["complexity:3"] ++ plan.add}
+
+    assert CodingAgent.backend_for(issue) == preview.backend
+    assert CodingAgent.resolve_model(preview.session_backend, CodingAgent.model_for(issue)) == preview.resolved_model
+    assert CodingAgent.effort_for(issue) == preview.effort
+  end
+
+  # A pinned tag expires with its version, so a routing entry that deliberately
+  # names a family alias has to survive the modal as an alias. Preselecting the
+  # version the alias currently resolves to would strand the ticket there while
+  # every ticket the operator never opened followed the alias forward.
+  test "a routed family alias is not silently frozen into the version it resolves to" do
+    write_workflow_file!(Workflow.workflow_file_path(), agent_routing: %{3 => "codex:sol"})
+
+    preview = AgentRoutingPreview.preview(["complexity:3"])
+
+    assert preview.model == "sol"
+    assert preview.resolved_model != "sol", "this test is only meaningful while `sol` resolves to a concrete version"
+
+    plan = AgentRoutingPreview.plan(AgentRoutingPreview.normalize_selection(%{backend: preview.backend, model: preview.model, effort: preview.effort, complexity: preview.complexity}), [])
+
+    assert "model:codex-sol" in plan.add
+    refute "model:codex-#{preview.resolved_model}" in plan.add
   end
 
   # `complexity_level/1` takes the highest matching label and the model override

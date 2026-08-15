@@ -33,50 +33,54 @@ defmodule AiurWeb.OperatorControlCenter.AddAgentModal do
           </div>
         </header>
 
-        <p class="modal-meta">
-          Prefilled from the current routing configuration and this ticket's labels. Change anything before confirming.
-        </p>
-
         <form class="add-agent-form" phx-change="change-add-agent" phx-submit="confirm-add-agent">
           <label class="add-agent-field">
             <span>Agent</span>
-            <select name="backend" disabled={@modal.options.backends == []}>
-              <option :for={backend <- @modal.options.backends} value={backend} selected={backend == @modal.selection.backend}>
-                {backend}
-              </option>
-            </select>
+            <div class="field-select">
+              <select name="backend" disabled={@modal.options.backends == []}>
+                <option :for={backend <- @modal.options.backends} value={backend} selected={backend == @modal.selection.backend}>
+                  {backend}
+                </option>
+              </select>
+            </div>
           </label>
 
           <label class="add-agent-field">
             <span>Model</span>
-            <select name="model">
-              <option value="" selected={blank?(@modal.selection.model)}>Backend default</option>
-              <option :for={model <- @modal.options.models} value={model} selected={model == @modal.selection.model}>
-                {model}
-              </option>
-            </select>
+            <div class="field-select">
+              <select name="model">
+                <option value="" selected={blank?(@modal.selection.model)}>Backend default</option>
+                <option :for={model <- @modal.options.models} value={model} selected={model == @modal.selection.model}>
+                  {model}
+                </option>
+              </select>
+            </div>
           </label>
 
           <label class="add-agent-field" :if={@modal.options.efforts != []}>
             <span>Effort</span>
-            <select name="effort">
-              <option value="" selected={blank?(@modal.selection.effort)}>Backend default</option>
-              <option :for={effort <- @modal.options.efforts} value={effort} selected={effort == @modal.selection.effort}>
-                {effort}
-              </option>
-            </select>
+            <div class="field-select">
+              <select name="effort">
+                <option value="" selected={blank?(@modal.selection.effort)}>Backend default</option>
+                <option :for={effort <- @modal.options.efforts} value={effort} selected={effort == @modal.selection.effort}>
+                  {effort}
+                </option>
+              </select>
+            </div>
           </label>
 
           <label class="add-agent-field">
             <span>Complexity</span>
-            <select name="complexity">
-              <option value="" selected={is_nil(@modal.selection.complexity)}>Untagged</option>
-              <option
-                :for={complexity <- @modal.options.complexities}
-                value={complexity}
-                selected={complexity == @modal.selection.complexity}
-              >complexity:{complexity}</option>
-            </select>
+            <div class="field-select">
+              <select name="complexity">
+                <option value="" selected={is_nil(@modal.selection.complexity)}>Untagged</option>
+                <option
+                  :for={complexity <- @modal.options.complexities}
+                  value={complexity}
+                  selected={complexity == @modal.selection.complexity}
+                >complexity:{complexity}</option>
+              </select>
+            </div>
           </label>
 
           <div class="add-agent-preview">

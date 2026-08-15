@@ -26,6 +26,21 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanelTest do
     assert html =~ "<svg"
   end
 
+  # The routing prediction is a decision the operator makes in the add-agent
+  # modal, where it is editable, not a column they can only read.
+  test "the table does not carry a routing column" do
+    html = render_component(&TicketsPanel.tickets_panel/1, %{view: view(:available, [ticket("41", ["complexity:3"])])})
+
+    # Anchor the refutations to a rendered row table, so a regression that dropped
+    # the table entirely cannot read as "the column is correctly gone".
+    assert html =~ "tickets-rows"
+    assert html =~ ~s(<th class="tk-col-title">Title</th>)
+
+    refute html =~ "Would route to"
+    refute html =~ "tk-col-agent"
+    refute html =~ "tk-agent-cell"
+  end
+
   test "an empty listing states it instead of rendering a headerless blank table" do
     html = render_component(&TicketsPanel.tickets_panel/1, %{view: view(:available, [])})
 
