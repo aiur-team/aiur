@@ -1332,6 +1332,36 @@ defmodule ScriptsAiurdevTest do
       refute File.exists?(log)
     end
 
+    test "a control command is refused when the other checkout has no release to reuse" do
+      # Reusing the other checkout's release is only harmless while there is one.
+      # With none, reaching its daemon would compile one there, which is the same
+      # foreign build the guard exists to stop.
+      {checkout_a, shim_a} = fake_checkout()
+      {checkout_b, _shim_b} = fake_checkout()
+      link = global_shim(shim_a)
+      mise = fake_mise()
+      log = Path.join(checkout_a, "release.log")
+
+      {out, code} =
+        run_shim(
+          ["status"],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_MISE_BIN", mise},
+            {"AIUR_FAKE_MISE_RELEASE_LOG", log},
+            {"TMUX", nil}
+          ],
+          script: link,
+          cd: checkout_b
+        )
+
+      assert code == 64
+      assert out =~ "cannot run this against #{physical(checkout_a)} without building it"
+      assert out =~ "AIUR_REPO_ROOT=#{physical(checkout_a)} aiurdev build"
+      refute out =~ "ENGINE_ARGS:"
+      refute File.exists?(log)
+    end
+
     test "an agent workspace clone is refused a run against the operator's checkout" do
       # Agent workspaces are full clones, so they carry all three markers. An
       # agent invoking a globally symlinked aiurdev from its workspace would

@@ -179,12 +179,31 @@ guard_checkout_target() {
     refuse_diverging_checkout "$cwd_root" "$cmd" "$@"
   fi
 
-  # A control or RPC command still has to reach the daemon — refusing
+  shim_name="$(basename "$src")"
+
+  # Reusing the other checkout's release is only harmless while there IS one.
+  # `ensure_control_surface` repairs a missing release by building it, which
+  # from here is the same silent foreign build under a different name — so this
+  # is the one control-command case that still has to refuse.
+  if ! release_ready; then
+    echo "❌ aiurdev cannot run this against $repo_root without building it" >&2
+    echo "   you are in    : $cwd_root" >&2
+    echo "   would target  : $repo_root (resolved from the aiurdev script path)" >&2
+    echo "   That checkout has no complete release, so reaching its daemon would" >&2
+    echo "   compile one there — a checkout you are not working in." >&2
+    echo >&2
+    echo "   # use the checkout you are in" >&2
+    echo "   $cwd_root/scripts/$shim_name ${cmd:-}" >&2
+    echo "   # or build the other one on purpose first" >&2
+    echo "   AIUR_REPO_ROOT=$repo_root $shim_name build" >&2
+    exit 64
+  fi
+
+  # Otherwise a control or RPC command still has to reach the daemon — refusing
   # `executor-answer` would leave a blocked agent unanswerable over a build it
   # never needed. So it runs, but it says which checkout it is speaking through
   # and is kept off the build path.
   checkout_diverges=1
-  shim_name="$(basename "$src")"
   echo "ℹ️  aiurdev is speaking through $repo_root, not the checkout you are in" >&2
   echo "   ($cwd_root). Its existing release is reused and nothing is built there." >&2
   echo "   Use $cwd_root/scripts/$shim_name to act on this checkout instead." >&2
