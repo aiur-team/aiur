@@ -10,26 +10,56 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
 
   @max_labels 6
 
+  # Filtering runs on the server against the projection, not in a client hook
+  # over the rendered rows: the server holds the whole backlog, so the filter
+  # keeps answering "which tickets match" as the table gains a paged reveal,
+  # rather than quietly narrowing to "which rendered tickets match". That costs
+  # one round trip per change, and the debounce is what keeps it from being one
+  # per character: long enough to collapse a burst of typing into a single
+  # filter, short enough that a pause to read still feels immediate.
+  @search_debounce_ms 150
+
+  # The server clamps the query too; this is the matching UI affordance, so the
+  # operator's input stops where the filter stops rather than silently
+  # disagreeing with it.
+  @max_query_length 128
+
   attr(:view, :map, required: true)
   attr(:visible, :integer, default: nil)
+  attr(:search_event, :string, default: "search-tickets")
+  attr(:clear_search_event, :string, default: "clear-ticket-search")
 
   @spec tickets_panel(map()) :: Phoenix.LiveView.Rendered.t()
   def tickets_panel(assigns) do
-    all_rows = Map.get(assigns.view, :rows, [])
+    view = TicketsPresenter.normalize(assigns.view)
+
+    # The view arrives already filtered, so the reveal batches and counts the
+    # matches. A search that narrows below the revealed count retires the
+    # control rather than offering to reveal rows the query excluded.
+    matched_rows = Map.get(view, :rows, [])
     # The LiveView holds the reveal count, so the rows past it are never rendered
     # and never reach the client; the control is a real reveal, not a CSS trick.
     visible = assigns[:visible] || TicketsPresenter.initial_reveal()
-    rows = Enum.take(all_rows, visible)
-    hidden_count = length(all_rows) - length(rows)
+    rows = Enum.take(matched_rows, visible)
+    hidden_count = length(matched_rows) - length(rows)
 
     assigns =
       assigns
-      |> assign(:status, Map.get(assigns.view, :status, :unavailable))
-      |> assign(:message, Map.get(assigns.view, :message))
+      |> assign(:status, Map.get(view, :status, :unavailable))
+      |> assign(:message, Map.get(view, :message))
       |> assign(:rows, rows)
       |> assign(:hidden_count, hidden_count)
       |> assign(:reveal_label, reveal_label(visible, hidden_count))
-      |> assign(:count_label, TicketsPresenter.count_label(assigns.view))
+      |> assign(:count_label, TicketsPresenter.count_label(view))
+      |> assign(:query, Map.get(view, :query, ""))
+      |> assign(:search_status, Map.get(view, :search_status, :inactive))
+      |> assign(:search_message, Map.get(view, :search_message))
+      |> assign(:announcement, TicketsPresenter.search_announcement(view))
+      # Searching a listing that has no rows at all would be a control with
+      # nothing behind it, so the input appears only once there is a backlog.
+      |> assign(:searchable?, Map.get(view, :total_count, 0) > 0)
+      |> assign(:search_debounce_ms, @search_debounce_ms)
+      |> assign(:max_query_length, @max_query_length)
 
     ~H"""
     <section class="section-card tickets-card" aria-labelledby="tickets-title">
@@ -38,12 +68,54 @@ defmodule AiurWeb.OperatorControlCenter.TicketsPanel do
         <span class="rs-group-count">{@count_label}</span>
       </div>
 
+      <form
+        :if={@searchable?}
+        id="tickets-search-form"
+        class="tk-search"
+        role="search"
+        phx-change={@search_event}
+        phx-submit={@search_event}
+        aria-label="Search open tickets"
+      >
+        <label class="sr-only" for="tickets-search">Search tickets by title, description, or ID</label>
+        <input
+          id="tickets-search"
+          class="tk-search-input"
+          type="search"
+          name="query"
+          value={@query}
+          placeholder="Filter by title, description, or ID"
+          autocomplete="off"
+          spellcheck="false"
+          maxlength={@max_query_length}
+          aria-describedby="tickets-search-hint"
+          phx-debounce={@search_debounce_ms}
+        />
+        <span class="sr-only" id="tickets-search-hint">Matches ticket titles, descriptions, and IDs. Results are announced as you type.</span>
+        <%!-- Rendered for as long as the panel is searchable, rather than only while a
+        query exists. A button that removes itself takes the keyboard operator's focus
+        to the document body with it, and one that disables itself does the same;
+        leaving it in place also keeps the input unfocused when the cleared value comes
+        back from the server, which is what lets the field actually empty on screen.
+        Clearing an already empty query is a no-op, so nothing is lost by keeping it. --%>
+        <button
+          type="button"
+          class="tk-search-clear"
+          phx-click={@clear_search_event}
+          aria-label="Clear the ticket search"
+        >Clear</button>
+      </form>
+
+      <p :if={@searchable?} id="tickets-search-status" class="sr-only" role="status" aria-live="polite" aria-atomic="true">{@announcement}</p>
+
       <div :if={@status in [:stale, :unavailable]} class="units-state readonly-banner" role="status">
         <span aria-hidden="true">◉</span>
         <span>{@message}</span>
       </div>
 
       <div :if={@status in [:empty, :unsupported]} class="units-state empty-state">{@message}</div>
+
+      <div :if={@searchable? and @search_status == :no_matches} class="units-state empty-state tk-no-matches">{@search_message}</div>
 
       <div :if={@rows != []} class="units-table-wrap">
         <table class="units-table tickets-table">

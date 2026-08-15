@@ -96,7 +96,27 @@ defmodule Aiur.OpenTicketSourceTest do
       refute snapshot.truncated?
     end
 
-    test "bounds the response so discarded issue bodies are never decoded in full" do
+    # The listing already carries every body, so the panel search reads
+    # descriptions without a second request per ticket. Only the head is kept:
+    # this snapshot is broadcast to every subscribed LiveView.
+    test "retains a bounded excerpt of each issue body for the panel search" do
+      body = String.duplicate("storm ", 400)
+      request_fun = one_page([gh_issue(10, "Retry the dispatch", [], body), gh_issue(11, "No body", [], nil)])
+
+      snapshot = OpenTicketSource.refresh_sync(start_source(request_fun: request_fun))
+
+      excerpt = Enum.find(snapshot.tickets, &(&1.identifier == "10")).body_excerpt
+      assert String.starts_with?(excerpt, "storm storm")
+      assert String.length(excerpt) <= 1_000
+      assert String.length(excerpt) < String.length(body)
+
+      # A sub-binary would keep the whole body alive behind the excerpt, so the
+      # bound would be a claim rather than a fact.
+      assert :binary.referenced_byte_size(excerpt) == byte_size(excerpt)
+      assert Enum.find(snapshot.tickets, &(&1.identifier == "11")).body_excerpt == nil
+    end
+
+    test "bounds the response so an oversized listing is never decoded in full" do
       test_pid = self()
 
       request_fun = fn request ->
@@ -158,10 +178,11 @@ defmodule Aiur.OpenTicketSourceTest do
     end
   end
 
-  defp gh_issue(number, title, labels) do
+  defp gh_issue(number, title, labels, body \\ nil) do
     %{
       "number" => number,
       "title" => title,
+      "body" => body,
       "html_url" => "https://github.com/#{@owner}/#{@repo}/issues/#{number}",
       "state" => "open",
       "created_at" => "2026-07-14T12:00:00Z",
