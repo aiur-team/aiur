@@ -1444,13 +1444,19 @@ defmodule ScriptsAiurdevTest do
     test "a symlinked shim still runs from a directory in no checkout at all" do
       {checkout_a, shim_a} = fake_checkout()
       link = global_shim(shim_a)
+      mise = fake_mise()
 
       seed_ready_release(checkout_a)
 
       {out, 0} =
         run_shim(
           ["--bg"],
-          [{"AIUR_REPO_ROOT", nil}, {"AIUR_SKIP_BUILD", "1"}, {"TMUX", nil}],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
           script: link,
           cd: System.tmp_dir!()
         )
@@ -1462,13 +1468,19 @@ defmodule ScriptsAiurdevTest do
     test "a symlinked shim invoked inside its own checkout is not a divergence" do
       {checkout_a, shim_a} = fake_checkout()
       link = global_shim(shim_a)
+      mise = fake_mise()
 
       seed_ready_release(checkout_a)
 
       {out, 0} =
         run_shim(
           ["--bg"],
-          [{"AIUR_REPO_ROOT", nil}, {"AIUR_SKIP_BUILD", "1"}, {"TMUX", nil}],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
           script: link,
           cd: checkout_a
         )
@@ -1479,6 +1491,7 @@ defmodule ScriptsAiurdevTest do
     test "a cwd inside a partial tree is not mistaken for a checkout" do
       {checkout_a, shim_a} = fake_checkout()
       link = global_shim(shim_a)
+      mise = fake_mise()
       # A repo-shaped directory missing src/mix.exs is not an aiur checkout, and
       # refusing there would block a legitimate run for nothing.
       partial = Path.join(System.tmp_dir!(), "aiurdev-partial-#{System.unique_integer([:positive])}")
@@ -1493,7 +1506,12 @@ defmodule ScriptsAiurdevTest do
       {out, 0} =
         run_shim(
           ["--bg"],
-          [{"AIUR_REPO_ROOT", nil}, {"AIUR_SKIP_BUILD", "1"}, {"TMUX", nil}],
+          [
+            {"AIUR_REPO_ROOT", nil},
+            {"AIUR_SKIP_BUILD", "1"},
+            {"AIUR_MISE_BIN", mise},
+            {"TMUX", nil}
+          ],
           script: link,
           cd: partial
         )
