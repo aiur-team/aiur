@@ -5870,6 +5870,14 @@ html[data-theme="light"] .rs-github-mark {
     /* Roughly the reading width the old 1440px shell gave the content column,
        so a page does not stretch to the full width of an ultrawide display. */
     max-width: var(--shell-measure);
+    /* `margin-inline: auto` opts a grid item out of the default `stretch`
+       alignment, which left the column sized to each page's own max-content —
+       so Commands, Build Order, Analytics and Streamdeck each measured a
+       different width at the same viewport and the layout jumped when you
+       navigated. Claiming the whole column (capped above) makes the measure a
+       property of the shell rather than of whatever the page happens to
+       contain, so every route lines up. */
+    width: 100%;
     margin-inline: auto;
     padding-inline: 1.15rem;
     padding-block-end: 1rem;
