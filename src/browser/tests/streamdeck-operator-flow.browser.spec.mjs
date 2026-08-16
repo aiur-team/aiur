@@ -281,8 +281,11 @@ test('operator drives grid → paged grid → cmd with a real pause/resume → l
     await page.mouse.wheel(0, 100)
   }
   await expect(events).toHaveAttribute('data-offset', '0')
-  // Paged fully left, the origin anchor is the first key and LIVE is gone.
+  // Paged fully left, the origin anchor is the first key — and LIVE stays
+  // pinned to the last (bottom-right) key rather than scrolling away.
   await expect(events.locator('[data-log-event-index="0"]')).toHaveCount(1)
+  await expect(events.locator('.sd-live-key')).toHaveCount(1)
+  await expect(events.locator('.sd-key').last()).toHaveClass(/sd-live-key/)
 
   await dialA.hover()
   await page.mouse.wheel(0, 100)

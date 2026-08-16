@@ -33,7 +33,13 @@ defmodule AiurWeb.StreamdeckLogs do
   Index `0` is always an **origin** event, synthesised even when the bus is
   empty, so the transcript always has a defined left edge and no entry that
   predates the first published event is orphaned. The **last** key is always
-  LIVE, because live is the right-hand end of a chat.
+  LIVE, and LIVE is **pinned**: it occupies the bottom-right key at every scroll
+  position and never participates in the event window's paging, so "return to
+  now" is a single press from anywhere. The event window therefore shows
+  `@events_per_page` events (seven) plus the pinned LIVE key — one fewer event
+  per page than the physical key count — and the paging arithmetic derives the
+  max offset from those seven slots rather than slicing eight and silently
+  overwriting the slot LIVE occupies.
 
   Each key carries its own `start` — the offset of its header in the flattened
   transcript. The client jumps by reading that field rather than by indexing a
@@ -42,7 +48,11 @@ defmodule AiurWeb.StreamdeckLogs do
 
   alias Aiur.AgentEventFeed
 
-  @events_window_size 8
+  # LIVE is pinned to the rightmost key, so each page of events shows one fewer
+  # event than the physical key count (seven, against eight keys). All paging
+  # arithmetic (max offset, the visible window, selection chasing) is derived
+  # from this event count per page rather than from the total window size.
+  @events_per_page 7
   # The emulator's own readout height. The packaged deck renders five rows and
   # computes its own bounds from the transcript it receives, because how many
   # rows fit is a render decision the server cannot make for it.
@@ -78,14 +88,19 @@ defmodule AiurWeb.StreamdeckLogs do
     # readout rather than one line above blank ones.
     transcript_max_offset = max(length(flat) - 1, 0)
     event_keys = Enum.map(events, &event_key(&1, starts)) ++ [live_key(events, transcript_max_offset)]
+    # The scroll range covers the events only: LIVE is pinned and is not a list
+    # member the window pages over. `- 1` drops LIVE, and `@events_per_page`
+    # says how many events one page holds — the paging arithmetic is explicit
+    # that pinning removes one key from every page.
+    events_max_offset = max(length(event_keys) - 1 - @events_per_page, 0)
 
     %{
       events: events,
       event_keys: event_keys,
       event_starts: starts,
       transcript: flat,
-      events_offset: max(length(event_keys) - @events_window_size, 0),
-      events_max_offset: max(length(event_keys) - @events_window_size, 0),
+      events_offset: events_max_offset,
+      events_max_offset: events_max_offset,
       # Logs opens on the newest entry — where the agent is working — not on the
       # ticket's first line. This is the whole point of the LIVE anchor being on
       # the right.
@@ -209,16 +224,20 @@ defmodule AiurWeb.StreamdeckLogs do
     |> visible()
   end
 
-  @doc "Keeps the selected event inside the eight-key event window."
+  @doc "Keeps the selected event inside the event window; LIVE is pinned and always visible."
   @spec ensure_visible(map()) :: map()
   def ensure_visible(logs) do
     offset = logs.events_offset
     selected = logs.selected_event_index
+    live_index = length(logs.event_keys) - 1
 
     offset =
       cond do
+        # LIVE occupies the rightmost key at every scroll position, so it never
+        # needs the window to chase it.
+        selected == live_index -> offset
         selected < offset -> selected
-        selected >= offset + @events_window_size -> selected - @events_window_size + 1
+        selected >= offset + @events_per_page -> selected - @events_per_page + 1
         true -> offset
       end
 
@@ -444,11 +463,23 @@ defmodule AiurWeb.StreamdeckLogs do
     Enum.slice(logs.transcript, max(start, 0), @transcript_window_size)
   end
 
+  # The visible window is exactly eight keys: @events_per_page event slots from
+  # the scroll window plus the LIVE key pinned to the rightmost (bottom-right)
+  # slot. LIVE is excluded from the slice (`Enum.drop(-1)`) and appended, so no
+  # scroll position — and no short event list — can put it anywhere but the last
+  # slot, and the event slice is clamped to @events_per_page so the slot LIVE
+  # owns is never silently overwritten by a page's last event.
   defp event_window(logs) do
-    logs.event_keys
-    |> Enum.slice(logs.events_offset, @events_window_size)
-    |> Kernel.++(List.duplicate(%{kind: :empty, id: nil, index: nil}, @events_window_size))
-    |> Enum.take(@events_window_size)
+    live = List.last(logs.event_keys)
+
+    events =
+      logs.event_keys
+      |> Enum.drop(-1)
+      |> Enum.slice(logs.events_offset, @events_per_page)
+      |> Kernel.++(List.duplicate(%{kind: :empty, id: nil, index: nil}, @events_per_page))
+      |> Enum.take(@events_per_page)
+
+    events ++ [live]
   end
 
   # ---------------------------------------------------------------------------
