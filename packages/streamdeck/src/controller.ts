@@ -5,8 +5,53 @@ import { agentIndexForKey } from "./keys.js";
 import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./touchStrip/chatLog.js";
 import { createTypewriter } from "./touchStrip/typewriter.js";
 import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/providerPanel.js";
+import { micAtSlot, MICS_PER_PAGE, nextMicPage } from "./settings.js";
+import type { AudioDevice } from "./audio/index.js";
 
-export type ControllerMode = "grid" | "cmd" | "logs";
+export type ControllerMode = "grid" | "cmd" | "logs" | "settings";
+
+/* Command-mode key indices. Named because three of them are also handled in
+ * `handleReport`'s key-up pass, and a bare number there silently drifts from
+ * the face `surface.ts` paints on the same key. */
+const CMD_PAUSE = 0;
+const CMD_LOGS = 1;
+const CMD_MIC = 2;
+const CMD_SETTINGS = 3;
+const CMD_SEND = 4;
+const CMD_CANCEL = 5;
+
+/* Settings-mode key indices; 0..5 are the microphones. */
+const SETTINGS_TEST_MIC = 6;
+const SETTINGS_NEXT_PAGE = 7;
+
+/**
+ * What the controller needs from the host's voice stack.
+ *
+ * A port rather than the `VoiceSession` itself, because the controller also
+ * drives microphone discovery and the remembered choice, which are three
+ * different objects in `src/audio/`. Absent on a host with no audio, and every
+ * call site tolerates that — the deck still pages, focuses and reads logs on a
+ * machine with no `parec`.
+ */
+export interface ControllerVoice {
+  /** Begins capture. Idempotent. */
+  hold(): void;
+  /** Ends capture, keeping settled text. Idempotent. */
+  release(): void;
+  /** Settled text to deliver to the agent. */
+  message(): string;
+  hasMessage(): boolean;
+  /** Discards the buffer. */
+  clear(): void;
+  /** Stops capture and drops any open provider session. */
+  dispose(): void;
+  /** Microphones detected at the last enumeration. */
+  microphones(): readonly AudioDevice[];
+  /** Re-enumerates. Called when the settings surface opens, and only there. */
+  refresh(): void;
+  selectedDeviceId(): string | null;
+  select(deviceId: string): void;
+}
 
 /**
  * One row of the log surface, kept structured all the way to the renderer.
@@ -117,11 +162,26 @@ export interface ControllerState {
   /** Position in `eventLines` the transcript is currently showing, or null. */
   readonly selectedEvent: number | null;
   readonly micHeld: boolean;
+  /** First microphone shown on the settings surface; key 7 pages it. */
+  readonly micOffset: number;
+  /** The remembered microphone, re-read from the store after each selection. */
+  readonly selectedMicId: string | null;
+  /**
+   * True while the voice buffer holds settled text.
+   *
+   * Mirrored into controller state rather than read live by the surface,
+   * because it decides whether the Send and Cancel *keys exist* — and a key
+   * appearing or disappearing has to go through the same publish/diff path as
+   * every other key change, or the deck keeps painting keys that are gone.
+   */
+  readonly hasTranscript: boolean;
 }
 
 export interface PhysicalControllerOptions {
   grid(): StreamDeckGrid;
-  channel(): Pick<StreamDeckChannel, "focus" | "control"> | null;
+  channel(): Pick<StreamDeckChannel, "focus" | "control" | "say"> | null;
+  /** The voice stack, or null on a host with no audio. */
+  voice?(): ControllerVoice | null;
   /**
    * Providers the daemon currently reports, which is what bounds the provider
    * scroll. Absent for hosts with no usage feed, where the list cannot scroll.
@@ -163,6 +223,9 @@ const initialState: ControllerState = {
   chatHasNext: false,
   selectedEvent: null,
   micHeld: false,
+  micOffset: 0,
+  selectedMicId: null,
+  hasTranscript: false,
 };
 
 const agentAt = (grid: StreamDeckGrid, offset: number, key: number): Readonly<Record<string, unknown>> | undefined =>
@@ -303,13 +366,60 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
    * scrolled fully right — the same place the LIVE key jumps to.
    */
   const enterLogs = (): void => {
+    stopVoice();
     publish({ ...state, mode: "logs", micHeld: false });
     setLogsOffsets(eventMaxOffset, chatMaxOffset);
   };
 
+  /** The current voice port, or null when the host wired none. */
+  const voice = (): ControllerVoice | null => options.voice?.() ?? null;
+
+  /** Ends any capture in progress without touching the buffer. */
+  const stopVoice = (): void => {
+    voice()?.dispose();
+  };
+
+  /**
+   * Opens the settings surface and re-enumerates microphones.
+   *
+   * Re-enumerating here rather than on a timer is the whole discovery policy:
+   * the operator plugs a headset in and then goes looking for it, so the moment
+   * they open this screen is the moment the list has to be right. Polling
+   * `pw-dump` in the background would spawn a process every few seconds for a
+   * screen that is open for a few seconds a week.
+   */
+  const enterSettings = (): void => {
+    stopVoice();
+    const port = voice();
+    port?.refresh();
+    publish({ ...state, mode: "settings", micHeld: false, micOffset: 0, selectedMicId: port?.selectedDeviceId() ?? null });
+  };
+
+  /** True while the voice buffer holds text worth a Send key. */
+  const transcriptPresent = (): boolean => voice()?.hasMessage() === true;
+
   const back = (): void => {
     if (state.mode === "logs") publish({ ...state, mode: "cmd", transcriptRows: [], micHeld: false });
-    else if (state.mode === "cmd") publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false });
+    else if (state.mode === "settings") {
+      // Leaving settings must stop TestMic. Without this a hold that ended by
+      // pressing dial A rather than by lifting the key leaves `parec` running
+      // with nothing on screen to say so.
+      stopVoice();
+      publish({ ...state, mode: "cmd", micHeld: false });
+    } else if (state.mode === "cmd") {
+      // The buffer is addressed to the agent that is being left, so it goes
+      // with the focus. Carrying it to the next agent would put words the
+      // operator said about one ticket into a Send aimed at another.
+      leaveVoice();
+      publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false, hasTranscript: false });
+    }
+  };
+
+  /** Stops capture and discards the buffer; used whenever the focus is dropped. */
+  const leaveVoice = (): void => {
+    const port = voice();
+    port?.dispose();
+    port?.clear();
   };
 
   const pressKey = (index: number): void => {
@@ -348,27 +458,87 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       }
       return;
     }
+    if (state.mode === "settings") {
+      pressSettingsKey(index);
+      return;
+    }
     if (state.mode === "cmd") {
       const agent = focusedAgent();
       const identifier = state.focusedIdentifier;
       if (identifier === null || agent === undefined) return;
-      if (index === 0) {
+      if (index === CMD_PAUSE) {
         // Anything not already paused can be paused. Restricting this to the
         // `running` bucket left the key inert for an alert or stuck agent —
         // exactly the states an operator most wants to halt.
         options.channel()?.control(identifier, agent.bucket === "paused" ? "resume" : "pause");
-      } else if (index === 1) {
-        options.channel()?.control(identifier, agent.priority === true ? "deprioritize" : "prioritize");
-      } else if (index === 2) {
+      } else if (index === CMD_LOGS) {
         enterLogs();
-      } else if (index === 3) {
-        publish({ ...state, micHeld: true });
+      } else if (index === CMD_MIC) {
+        holdMic();
+      } else if (index === CMD_SETTINGS) {
+        enterSettings();
+      } else if (index === CMD_SEND) {
+        sendTranscript(identifier);
+      } else if (index === CMD_CANCEL) {
+        cancelTranscript();
       }
     }
   };
 
+  /**
+   * Delivers the settled text to the focused agent and empties the buffer.
+   *
+   * Guarded on `hasMessage` rather than on the key being painted: the key face
+   * and the report that pressed it are a frame apart, so a press that raced the
+   * buffer emptying would otherwise `say` an empty string, which the operator
+   * would see land in the agent's chat as a blank turn.
+   */
+  const sendTranscript = (identifier: string): void => {
+    const port = voice();
+    if (port === null || !port.hasMessage()) return;
+    options.channel()?.say(identifier, port.message());
+    port.clear();
+    publish({ ...state, hasTranscript: false });
+  };
+
+  const cancelTranscript = (): void => {
+    voice()?.clear();
+    publish({ ...state, hasTranscript: false });
+  };
+
+  const pressSettingsKey = (index: number): void => {
+    const port = voice();
+    if (index < MICS_PER_PAGE) {
+      const device = port === null ? undefined : micAtSlot(port.microphones(), state.micOffset, index);
+      if (device === undefined) return;
+      // Persisted immediately, through `MicPreferences.select`, so the choice
+      // survives a sidecar restart rather than living in this closure. The id
+      // is then read *back* out of the port rather than assumed, so state shows
+      // what was actually stored.
+      port?.select(device.id);
+      publish({ ...state, selectedMicId: port?.selectedDeviceId() ?? null });
+      return;
+    }
+    if (index === SETTINGS_TEST_MIC) {
+      holdMic();
+      return;
+    }
+    if (index === SETTINGS_NEXT_PAGE) {
+      const count = port?.microphones().length ?? 0;
+      publish({ ...state, micOffset: nextMicPage(state.micOffset, count) });
+    }
+  };
+
+  /** Key-down on the mic or TestMic key: one gesture, one capture. */
+  const holdMic = (): void => {
+    voice()?.hold();
+    publish({ ...state, micHeld: true });
+  };
+
   const releaseMic = (): void => {
-    if (state.micHeld) publish({ ...state, micHeld: false });
+    if (!state.micHeld) return;
+    voice()?.release();
+    publish({ ...state, micHeld: false, hasTranscript: transcriptPresent() });
   };
 
   /**
@@ -425,6 +595,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (state.mode === "cmd") {
       return enterLogs();
     }
+    // Settings pages with key 7, not with a knob: the grid window this would
+    // otherwise cycle is not on screen, so the press would move something the
+    // operator cannot see.
+    if (state.mode === "settings") return;
     const next = cycleWindow(state.columnOffset, options.grid().total);
     setGridOffset(next.columnOffset);
   };
@@ -432,8 +606,14 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const handleReport = (report: Uint8Array): void => {
     const decoded = decodeInputReport(report);
     for (const input of decoded) if (input.type === "encoder-turn") turn(input);
+    // Key-up is handled before the rising-edge pass, and from the report's own
+    // state rather than from an edge: a release must end the capture even when
+    // it shares a report with another press. The two hold keys are on different
+    // surfaces, so each mode listens to exactly one index.
     for (const input of decoded) {
-      if (input.type === "key" && !input.pressed && input.index === 3 && state.mode === "cmd") releaseMic();
+      if (input.type !== "key" || input.pressed) continue;
+      if (state.mode === "cmd" && input.index === CMD_MIC) releaseMic();
+      else if (state.mode === "settings" && input.index === SETTINGS_TEST_MIC) releaseMic();
     }
     const edges = risingEdges(decoded, pressed);
     pressed = new Set(edges.pressed);
@@ -450,7 +630,12 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       // Latch, or holding the pair would toggle once per poll.
       if (!chordActive) {
         chordActive = true;
-        if (state.mode !== "grid") publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false });
+        if (state.mode !== "grid") {
+          // The chord swaps the data source under the surface, so it drops the
+          // focus — and with the focus goes the buffer and any live capture.
+          leaveVoice();
+          publish({ ...state, mode: "grid", focusedIdentifier: null, micHeld: false, hasTranscript: false });
+        }
         options.toggleDemo?.();
       }
       return;
@@ -545,9 +730,24 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       setLogsOffsets(state.eventOffset, state.chatOffset, false, state.selectedEvent ?? undefined);
       return more;
     },
+    /**
+     * Re-reads whether the voice buffer holds text.
+     *
+     * The controller has no way to observe a transcript landing — it arrives on
+     * the channel, is applied by the voice session, and never passes through
+     * here. The host calls this on a voice update so the Send and Cancel keys
+     * appear as soon as there is something to send. `publish` diffs on value,
+     * so a call that changes nothing costs nothing.
+     */
+    refreshVoice: (): void => {
+      publish({ ...state, hasTranscript: transcriptPresent() });
+    },
     cancel: (): void => {
       pressed = new Set();
-      if (state.micHeld) publish({ ...state, micHeld: false });
+      // The device went away mid-hold. Stop capture, or `parec` keeps recording
+      // against a deck that is no longer there.
+      stopVoice();
+      if (state.micHeld) publish({ ...state, micHeld: false, hasTranscript: transcriptPresent() });
     },
   };
 };

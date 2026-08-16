@@ -46,7 +46,7 @@ for (const { label, width, isMobile } of composedViewports) {
       } else {
         await commands.click()
       }
-      await expect(page).toHaveURL(/\/decisions$/)
+      await expect(page).toHaveURL(/\/commands$/)
       await expect(page.locator('#route-title')).toHaveText('Commands')
       await expect(page.getByRole('link', { name: 'Commands' })).toHaveAttribute('aria-current', 'page')
       await assertNoDocumentOverflow(page)

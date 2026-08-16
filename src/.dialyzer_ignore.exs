@@ -22,5 +22,19 @@
   # Guardian liveness comes from injectable OS probes. Dialyzer collapses the
   # default `kill -0` probe to `true`, although the explicit false branch is
   # exercised by the process-containment regression tests.
-  {"lib/aiur/workspace/ownership/guardian.ex", :pattern_match}
+  {"lib/aiur/workspace/ownership/guardian.ex", :pattern_match},
+
+  # `Mint.WebSocket.new/4` succeeds only on a 101, which its own private
+  # `do_new(:http1, conn, status, _) when status != 101` clause expresses as a
+  # guard on a runtime value. Dialyzer cannot see that our status *is* 101 by
+  # then, so it decides the `{:ok, conn, websocket}` branch is unreachable and
+  # types the call as error-only. Declaring the state and the fold accumulator
+  # (see the types in that module) did not move it, because the fold runs
+  # through `Enum.reduce_while/3` and its return type is opaque.
+  #
+  # The success branch is demonstrably reached: `mint_socket_test.exs` completes
+  # a real RFC 6455 handshake on loopback and receives frames through it, and
+  # the `:external` latency test transcribes live speech end to end. Remove this
+  # entry if a future mint_web_socket makes the 101 check expressible in types.
+  {"lib/aiur/eleven_labs/realtime/mint_socket.ex", :pattern_match}
 ]

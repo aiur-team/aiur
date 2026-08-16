@@ -42,7 +42,7 @@ Three layers prove parity; each is authoritative for a different claim.
 existing-pages proof no single prerequisite provided. In one authenticated
 session it:
 
-- walks Units (`/`) → Commands (`/decisions`) → Build Order (`/build-orders`)
+- walks Units (`/`) → Commands (`/commands`) → Build Order (`/build-orders`)
   via URL-backed live navigation, then the standalone region fixtures
   `/units`, `/provider-meters`, `/ticket-context`, asserting each named region's
   landmark and accessible live-status region survives ("nothing silently
@@ -66,7 +66,7 @@ Legend: PRE = prerequisite proof already on `develop`; COMP = composed proof.
 | DREQ-001 | Responsive URL-backed route shell (Units/Commands/Build Order/Analytics, theme, `aria-current`, safe areas) | `browser/tests/route-shell.browser.spec.mjs`; `test/aiur_web/operator_control_center/route_registry_test.exs` | parity-composition walk (390/1440, nav + no-overflow + axe) | ✅ proven |
 | DREQ-003 | Units presentation, filters, unknowns, ticket-context activation | `browser/tests/units.browser.spec.mjs`; `test/aiur_web/components/operator_control_center/units_table_test.exs`, `units_filters_test.exs` | parity-composition `/units` landmark + status in session | ✅ proven |
 | DREQ-005 | Capability-gated per-unit pause/resume controls (writable-only, 44px) | `test/aiur_web/live/dashboard_live_test.exs` (writable/read-only control hiding) | Elixir composition authority; browser control-hiding not modeled in fixtures (see note) | ✅ proven (Elixir) |
-| DREQ-007 | Commands vocabulary/filters/cards over full Decision lifecycle + deep links | `dashboard_live_test.exs` decisions/decision routes; `test/aiur_web/controllers/decision_api_controller_test.exs` | parity-composition `/decisions` route identity + `aria-current` | ✅ proven |
+| DREQ-007 | Commands vocabulary/filters/cards over full Decision lifecycle + deep links | `dashboard_live_test.exs` decisions/decision routes; `test/aiur_web/controllers/decision_api_controller_test.exs` | parity-composition `/commands` route identity + `aria-current` | ✅ proven |
 | DREQ-015 | Authenticated provider-meter cards, freshness/LKG, accessible meter semantics, locked state | `browser/tests/provider_meters.browser.spec.mjs`; `test/aiur_web/components/operator_control_center/provider_meters_test.exs` | parity-composition `/provider-meters` + locked-region degrade | ⚠️ **routed back — see DF-013** |
 | DREQ-022 | Accessible nonfinancial run-summary strip, truthful unavailable states | `test/aiur_web/components/operator_control_center/run_summary_test.exs`; `.../run_summary_presenter_test.exs` | Elixir composition authority (rendered on `/`) | ✅ proven |
 | DREQ-027 | Read-only conversation drawer, focus trap, Escape, focus return | `test/aiur_web/operator_control_center/conversation_drawer/*`; `dashboard_live_test.exs` drawer | ticket-context/drawer landmarks; Elixir composition | ✅ proven |

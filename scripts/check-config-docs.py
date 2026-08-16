@@ -8,9 +8,11 @@ are review expectations, not checks.
 
 The check resolves each key to its full dotted path by walking `embeds_one`
 from the root `Aiur.Config.Schema`, then requires that exact path to appear in
-the reference. Matching bare field names would be worthless: `command`,
-`enabled`, and `model` each appear in several sections, so any new field
-reusing one of those names would pass without being documented.
+the reference. Structured map fields listed in KNOWN_MAP_SUBKEYS expand into
+canonical paths containing placeholders such as `<backend>`. Matching bare
+field names would be worthless: `command`, `enabled`, and `model` each appear
+in several sections, so any new field reusing one of those names would pass
+without being documented.
 
 A module that the root cannot reach is not config and is not checked. A key an
 operator would never set goes in EXEMPT below, with a reason.
@@ -35,9 +37,38 @@ ROOT_MODULE = "Aiur.Config.Schema"
 # each entry; "it is new" is not a reason.
 EXEMPT: dict[str, str] = {}
 
+# Plain `:map` fields do not expose their inner shape to the Ecto schema. Keep
+# the operator-facing maps with named sub-keys explicit here; maps keyed by
+# operator-chosen values with scalar leaves need no expansion. The backend
+# inventory mirrors OpenAICompat.Config's known keys plus direct consumers in
+# CodingAgent, Init.AgentCLI, and BalanceBaseline.
+KNOWN_MAP_SUBKEYS: dict[str, tuple[str, ...]] = {
+    "agent.backend_configs": (
+        "<backend>.enabled",
+        "<backend>.command",
+        "<backend>.model",
+        "<backend>.model_discovery",
+        "<backend>.default_model",
+        "<backend>.base_url",
+        "<backend>.api_key_env",
+        "<backend>.management_api_key_env",
+        "<backend>.transport",
+        "<backend>.balance_baseline",
+        "<backend>.quirks.reasoning_content_replay",
+        "<backend>.quirks.text_tool_fallback",
+        "<backend>.quirks.openrouter_metadata",
+        "<backend>.quirks.local_concurrency_limit",
+        "openrouter.provider.order",
+        "openrouter.provider.ignore",
+        "openrouter.provider.allow_fallbacks",
+        "openrouter.provider.sort",
+    ),
+}
+
 DEFMODULE_RE = re.compile(r"^\s*defmodule\s+([A-Za-z0-9_.]+)\s+do", re.MULTILINE)
 FIELD_RE = re.compile(r"^\s*field\(\s*:([a-zA-Z0-9_]+)", re.MULTILINE)
 EMBEDS_RE = re.compile(r"^\s*embeds_(?:one|many)\(\s*:([a-zA-Z0-9_]+)\s*,\s*([A-Za-z0-9_.]+)", re.MULTILINE)
+INLINE_CODE_RE = re.compile(r"`([^`\n]+)`")
 
 
 def die(message: str, code: int = 2) -> None:
@@ -87,7 +118,10 @@ def collect(modules: dict[str, str], module: str, prefix: str, seen: set[str], k
         return
 
     for field in FIELD_RE.findall(source):
-        keys[f"{prefix}{field}"] = module
+        key = f"{prefix}{field}"
+        keys[key] = module
+        for subkey in KNOWN_MAP_SUBKEYS.get(key, ()):
+            keys[f"{key}.{subkey}"] = f"{module} (known map shape)"
 
     for section, short in EMBEDS_RE.findall(source):
         collect(modules, module_name(short), f"{prefix}{section}.", seen, keys)
@@ -108,7 +142,8 @@ def main() -> int:
         die("found no config keys; that is a broken matcher, not an empty schema")
 
     reference = REFERENCE.read_text(encoding="utf-8")
-    missing = sorted(key for key in keys if key not in EXEMPT and key not in reference)
+    documented = set(INLINE_CODE_RE.findall(reference))
+    missing = sorted(key for key in keys if key not in EXEMPT and key not in documented)
 
     if missing:
         print("check-config-docs: config keys with no entry in the configuration reference:", file=sys.stderr)
