@@ -54,7 +54,8 @@ defmodule Aiur.Orchestrator.State do
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
-            rewakes: map()
+            rewakes: map(),
+            parked_ready_alerts: MapSet.t() | nil
           },
           todo_over_capacity_alert_active: boolean(),
           prewarm_blocked_alert_active: boolean(),
@@ -82,6 +83,9 @@ defmodule Aiur.Orchestrator.State do
             alerted: [String.t()]
           },
           fleet_capacity_starvation: %{since_ms: integer() | nil, alert_active: boolean(), effective_cap: pos_integer() | nil},
+          dependency_circular_wait: %{
+            optional(String.t()) => %{identifier: String.t(), waiting_count: pos_integer(), since_ms: integer(), alerted?: boolean()}
+          },
           running: map(),
           completed: MapSet.t(),
           claimed: MapSet.t(),
@@ -166,7 +170,8 @@ defmodule Aiur.Orchestrator.State do
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},
-      rewakes: %{}
+      rewakes: %{},
+      parked_ready_alerts: nil
     },
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
@@ -184,6 +189,7 @@ defmodule Aiur.Orchestrator.State do
     dispatch_capacity_sample: %{load: :unavailable, load_threshold: nil, target: nil, schedulers: nil},
     capacity_starvation: %{since_ms: %{}, alert_active: false, signature: [], alerted: []},
     fleet_capacity_starvation: %{since_ms: nil, alert_active: false, effective_cap: nil},
+    dependency_circular_wait: %{},
     running: %{},
     completed: MapSet.new(),
     claimed: MapSet.new(),
@@ -568,7 +574,7 @@ defmodule Aiur.Orchestrator.State do
   @spec reserved_paused_running_count(term()) :: non_neg_integer()
   def reserved_paused_running_count(running) when is_map(running) do
     Enum.count(running, fn
-      {_issue_id, %{paused_reason: :ci_wait}} -> false
+      {_issue_id, %{paused_reason: reason}} when reason in [:ci_wait, :blocker_dependency] -> false
       {_issue_id, entry} -> paused_running_entry?(entry)
     end)
   end

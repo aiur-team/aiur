@@ -14,6 +14,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.0",
     "@types/node": "^24.13.3",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "^4.1.10",
     "eslint": "^10.8.0",
     "typescript": "^5.7.2",
@@ -22,6 +23,7 @@
   },
   "dependencies": {
     "@napi-rs/canvas": "^0.1.100",
-    "usb": "^2.18.0"
+    "usb": "^2.18.0",
+    "ws": "^8.21.3"
   }
 }

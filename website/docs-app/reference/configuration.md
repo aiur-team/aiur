@@ -22,6 +22,10 @@ Configuration lives in `.aiur/config` (YAML); legacy `.aiurconfig` is also accep
 | `tracker.active_states` | array | tracker-specific | States eligible for dispatch. GitHub values are lifecycle label slugs such as `todo` and `in-progress`, not display names. |
 | `tracker.terminal_states` | array | tracker-specific | States that stop work. GitHub values are lifecycle label slugs such as `done`. |
 | `tracker.terminal_fence_grace_seconds` | integer | 30 | How long a terminal tracker observation remains lifecycle-fenced while an authoritative queued item is still undelivered. |
+| `tracker.github.max_inflight` | integer | 4 | Cap on concurrent tracker HTTP requests across all endpoints (1-100). |
+| `tracker.github.max_inflight_per_endpoint` | integer | 2 | Cap on concurrent requests to any single tracker endpoint (1-100). Must not exceed `tracker.github.max_inflight`. |
+| `tracker.github.requests_per_minute` | integer | 120 | Tracker request budget per minute (1-10000). Lower it when the tracker rate-limits Aiur. |
+| `tracker.github.stagger_ms` | integer | 75 | Delay inserted between tracker requests, in milliseconds (0-5000), so a poll cycle does not burst. |
 | `tracker.github.repo` | string | required for GitHub | GitHub owner/name used by Aiur. |
 | `tracker.github.label_prefix` | string | `agent` | Prefixes lifecycle labels. |
 | `tracker.github.bot_account` | string | nil | Login identity Aiur recognizes as its own to suppress self-triggered comment/event loops. This is an identity, not the credential: `GITHUB_TOKEN` is the credential Aiur authenticates with. `aiur init` defaults it to the token's login; prefer a dedicated bot account when operators also comment from a trusted CODEOWNER account. In a non-interactive or `--force` run the wizard applies the detected token login, or omits the key entirely when no login can be detected. Re-running `aiur init` preserves an existing value. |
@@ -264,6 +268,21 @@ Executor can tell capacity backoff apart from an idle or broken fleet. This limi
 | `alerts.use_os_default_sounds` | boolean | false | Uses built-in OS sounds by category. |
 | `alerts.sound_dir` | string path or nil | nil | Directory for custom sound files. |
 | `alerts.alerts_file` | string path or nil | bundled alerts file | Topic-to-sound YAML map. |
+
+## elevenlabs
+
+Optional. Backs Stream Deck voice input: the device records dictation, ElevenLabs speech-to-text transcribes it, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. The section may be omitted entirely; the defaults below apply.
+
+| Key | Type | Default | Controls |
+| --- | --- | --- | --- |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+
+`ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
+
+The key is a secret. Keep it in `.env` and leave the `$ELEVENLABS_API_KEY` reference in the config file rather than pasting the value there. Aiur never logs the key, and the daemon scrubs every `*_API_KEY` variable — `ELEVENLABS_API_KEY` included — from agent process environments, local and SSH-launched alike, so no coding agent inherits it.
+
+Configuring the key also adds an ElevenLabs meter to the Dashboard Units page, beside the GitHub API meter. It reads the account credit quota from `GET /v1/user/subscription`; with no key configured the meter is absent entirely. See [API meters](/guide/executor-control-center#api-meters) for what the figure does and does not measure.
 
 ## observability
 

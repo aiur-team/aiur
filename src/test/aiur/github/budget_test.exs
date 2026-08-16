@@ -129,15 +129,27 @@ defmodule Aiur.GitHub.BudgetTest do
   test "database lock cannot hold release beyond its absolute deadline", %{root: root} do
     broker_pid_path = Path.join(root, "release-broker.pid")
     python = broker_wrapper(root, broker_pid_path)
-    opts = [state_dir: root, enabled?: true, timeout_ms: 300]
+    opts = [state_dir: root, enabled?: true]
     request = request("locked-release-token", "/repos/owner/repo/issues/1477")
 
+    # The setup acquire spawns `python3` and creates the broker database. That is
+    # not the window under test, so it must not be charged the 300 ms deadline
+    # the release is measured against: on a loaded runner one admission alone
+    # costs more than that, `Budget.command/3` kills the port, and the acquire
+    # answers `{:hold, :shared_budget}` before the lock is even taken (#1983).
     assert {:ok, lease} = Budget.acquire(request, opts)
     lock = lock_database(Budget.database_path(opts))
     deadline_at = System.monotonic_time(:millisecond) + 300
     started_at = System.monotonic_time(:millisecond)
 
-    assert :ok = Budget.release(lease, opts |> Keyword.put(:python, python) |> Keyword.put(:deadline_at, deadline_at))
+    assert :ok =
+             Budget.release(
+               lease,
+               opts
+               |> Keyword.put(:python, python)
+               |> Keyword.put(:timeout_ms, 300)
+               |> Keyword.put(:deadline_at, deadline_at)
+             )
 
     elapsed_ms = System.monotonic_time(:millisecond) - started_at
     assert elapsed_ms >= 250

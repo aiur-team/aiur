@@ -22,6 +22,33 @@ defmodule Aiur.AgentEventsTest do
     end
   end
 
+  describe "tool_call_body/2" do
+    test "derives read/edit/write bodies from the file argument, matching the chat pane convention" do
+      assert AgentEvents.tool_call_body("read_file", %{"file_path" => "lib/a.ex"}) == "read lib/a.ex"
+      assert AgentEvents.tool_call_body("view", %{"path" => "lib/b.ex"}) == "read lib/b.ex"
+      assert AgentEvents.tool_call_body("edit", %{"file_path" => "lib/c.ex"}) == "edit lib/c.ex"
+      assert AgentEvents.tool_call_body("write_to_file", %{"file" => "lib/d.ex"}) == "write lib/d.ex"
+    end
+
+    test "carries the query for search tools instead of the tool name" do
+      assert AgentEvents.tool_call_body("grep", %{"query" => "defmodule Aiur"}) == "defmodule Aiur"
+      assert AgentEvents.tool_call_body("search", %{"glob" => "*.ex"}) == "*.ex"
+    end
+
+    test "keeps the tool name for a tool with no scalar argument" do
+      assert AgentEvents.tool_call_body("sequential-thinking", %{"thought" => "think"}) == "sequential-thinking"
+      assert AgentEvents.tool_call_body("bash", %{}) == "bash"
+    end
+
+    test "keeps the tool name for non-map arguments" do
+      assert AgentEvents.tool_call_body("read_file", "lib/a.ex") == "read_file"
+    end
+
+    test "ignores an empty file argument and falls through" do
+      assert AgentEvents.tool_call_body("read_file", %{"file_path" => ""}) == "read_file"
+    end
+  end
+
   describe "alert_event/3" do
     test "builds the expected shape with defaults" do
       event = AgentEvents.alert_event("task.todo", "you have a new todo")

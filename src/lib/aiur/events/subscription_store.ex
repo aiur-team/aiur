@@ -14,7 +14,7 @@ defmodule Aiur.Events.SubscriptionStore do
         "subscribed_to": [
           {
             "topic": "ticket.42.branch.push",
-            "reason": "auto:blocked_by(42)",
+            "reason": "blocker:auto",
             "subscription_created_at_event_id": 4287
           }
         ],
@@ -57,7 +57,7 @@ defmodule Aiur.Events.SubscriptionStore do
   require Logger
 
   alias Aiur.Config.Paths
-  alias Aiur.Events.{DebugLog, Exchange, IdGenerator}
+  alias Aiur.Events.{DebugLog, Exchange, IdGenerator, UniversalSubscriptions}
   alias Aiur.JsonStore
 
   @registry Aiur.Events.SubscriptionStoreRegistry
@@ -127,7 +127,8 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @doc """
   Adds a binding. The reason string is free-form metadata used for
-  observability (`"auto:blocked_by(42)"`, `"manual:aiur_subscribe"`).
+  observability (e.g. `"blocker:auto"`, `"own_comments:auto"`, or
+  `"manual:agent"` for an explicit `aiur_subscribe`).
   Idempotent: re-adding an existing topic keeps the original reason and
   `subscription_created_at_event_id` so bootstrap replay isn't reset and
   reason-filtered removal cannot drop manually retained subscriptions.
@@ -342,6 +343,14 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @impl true
   def handle_info({:event, event}, state) do
+    # A `system.config.base_branch.changed` event is the fleet-wide
+    # announcement that `tracker.base_branch` moved. Reconcile this ticket's
+    # own `base_branch:auto` subscription inline (direct state mutation, never
+    # a self-call, so no deadlock) so a running agent stops listening on the
+    # retired branch's push topic and starts hearing the new one immediately —
+    # without waiting for the next `attach`.
+    state = maybe_reconcile_base_branch(state, event)
+
     event_id = Map.get(event, :id) || Map.get(event, "id")
 
     cursor = state.last_seen_event_id || 0
@@ -375,6 +384,58 @@ defmodule Aiur.Events.SubscriptionStore do
   end
 
   defp advance_cursor_inline(state, _), do: state
+
+  defp maybe_reconcile_base_branch(state, %{topic: topic}) when is_binary(topic) do
+    if topic == "system.config.base_branch.changed" do
+      reconcile_base_branch_auto(state)
+    else
+      state
+    end
+  end
+
+  defp maybe_reconcile_base_branch(state, _event), do: state
+
+  # Runs entirely inside this GenServer — never calls back into
+  # `SubscriptionStore.remove_subscription/add_subscription` (a self-call would
+  # deadlock). Diffing against the previous list keeps the Exchange bindings
+  # exact and the persisted state authoritative. Any failure leaves the prior
+  # subscriptions untouched so a transient config hiccup cannot break a running
+  # agent's feed.
+  defp reconcile_base_branch_auto(state) do
+    desired = UniversalSubscriptions.reconcile_subscribed_to(state.subscribed_to)
+
+    reconcile_exchange_bindings(state.subscribed_to, desired)
+    new_state = %{state | subscribed_to: desired}
+    _ = persist(new_state)
+    new_state
+  rescue
+    _error -> state
+  catch
+    _kind, _reason -> state
+  end
+
+  defp reconcile_exchange_bindings(previous, desired) do
+    previous_topics = Enum.map(previous, &Map.get(&1, "topic"))
+    desired_topics = Enum.map(desired, &Map.get(&1, "topic"))
+
+    for topic <- previous_topics -- desired_topics do
+      _ = safe_unsubscribe(topic)
+    end
+
+    for topic <- desired_topics -- previous_topics do
+      try do
+        :ok = Exchange.subscribe(topic)
+      rescue
+        error ->
+          Logger.warning(
+            "SubscriptionStore(#{inspect(self())}) failed to subscribe after base reconcile " <>
+              topic <> ": " <> Exception.message(error)
+          )
+      end
+    end
+
+    :ok
+  end
 
   defp enqueue_event(identifier, event) do
     case :persistent_term.get({__MODULE__, :enqueue_fn}, nil) do

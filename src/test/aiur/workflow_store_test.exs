@@ -1,6 +1,8 @@
 defmodule Aiur.WorkflowStoreTest do
   use Aiur.TestSupport
 
+  alias Aiur.Events.Exchange
+
   # Regression for #1214: a transient reload error must not advance the change
   # stamp. When it did, the store believed the failed content was already
   # current, skipped the next good reload, and kept serving the previous
@@ -137,6 +139,35 @@ defmodule Aiur.WorkflowStoreTest do
     on_exit(fn -> restore_real_store(silent) end)
 
     assert {:timeout, _call} = catch_exit(WorkflowStore.force_reload(25))
+  end
+
+  describe "base branch change announcement" do
+    test "publishes system.config.base_branch.changed with old and new bases" do
+      ensure_workflow_store_running()
+      :ok = Exchange.subscribe("system.config.base_branch.changed")
+
+      # The TestSupport setup already committed the default (`main`); re-writing
+      # the same base is a no-change reload that must NOT announce. Then a real
+      # transition must.
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "main")
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "develop")
+
+      assert_receive {:event, event}, 2_000
+      assert event.topic == "system.config.base_branch.changed"
+      assert event.old_base == "main"
+      assert event.new_base == "develop"
+      assert event["message"] =~ "from main to develop"
+    end
+
+    test "does not announce when the base branch is unchanged" do
+      ensure_workflow_store_running()
+      :ok = Exchange.subscribe("system.config.base_branch.changed")
+
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "main")
+      write_workflow_file!(Workflow.workflow_file_path(), tracker_base_branch: "main")
+
+      refute_receive {:event, _event}, 300
+    end
   end
 
   # `Process.exit/2` is asynchronous, so the stub can still hold the registered

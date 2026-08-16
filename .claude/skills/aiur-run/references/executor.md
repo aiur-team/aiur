@@ -78,6 +78,25 @@ Classify every discovered finding before creating work:
   create or dispatch an individual feature-run ticket.
 - **Optimization:** preserve evidence for a separately authorized run.
 
+When creation is authorized, encode that classification in the same creation
+request. Executable work receives the configured lifecycle todo label
+(`agent:todo` in the standard workflow); deferred work receives `needs-triage`
+or `human:todo` and states why. Build Order roots carry `build-order`, while
+explicitly named `Epic:` containers carry `epic`; both are hierarchy and remain
+undispatched. Never split
+issue creation and disposition across two requests: failure of the label edit
+otherwise leaves an invisible ticket that looks complete to the findings
+ledger but can never be claimed.
+
+This is mechanical on both filing surfaces. Agent workspaces resolve `gh`
+through Aiur's wrapper, while the repository `PreToolUse` hook checks Executor
+Bash commands before they run. Both refuse an `issue create` with no disposition
+and refuse direct REST or GraphQL issue creation that bypasses the checked label
+flags. The aiur-build publication validator separately refuses a Build Order
+whose executable members are projected undispatched. Use
+`gh issue create --label ...`; keep `gh issue list --search 'no:label'` as the
+independent safety-net audit before treating a queue as empty.
+
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
 ticket/component, why acceptance is not blocked, and suggested disposition.
@@ -123,12 +142,20 @@ The Executor continuously:
 
 ## Command decision loop
 
-Subscribe the durable Executor listener to `executor.decision.requested` for the
-lifetime of the run. Creation events wake the Executor immediately, and the
-listener's persisted replay cursor delivers events missed during disconnects.
-This listener is the command inbox: do not discover new Commands by polling or
-sweeping the decision store. Periodic monitoring remains necessary for runtime
-health, but it is not a parallel decision-discovery mechanism.
+Launching the run with `--executor` arms the daemon-resident Executor listener
+(`Aiur.ExecutorListener`) as part of launch; there is no separate subscription
+step to forget. The run supervises and restarts it, it subscribes to
+`executor.decision.requested` / `executor.decision.deferred`, and it replays
+from its own durable watermark so a restart re-delivers only what was missed.
+Each Command surfaces as a needs-attention alert in `aiur watch` / `aiur
+alerts --needs-attention`; read the Command's payload with `aiur commands
+<decision-id>`. This listener is the command inbox: do not discover new
+Commands by polling or sweeping the decision store. Periodic monitoring remains
+necessary for runtime health, but it is not a parallel decision-discovery
+mechanism. Verify the listener is live with `aiur status` (`LISTENER present
+(executor.#)`) and report the subscription to the human at launch ("Listening
+for Executor events on `executor.#`."), and again if it is later confirmed dead
+or restarted.
 
 Evaluate each Command in its current run, ticket, and decision-history context.
 This is a judgment call, not a rules engine: do not encode a table of command

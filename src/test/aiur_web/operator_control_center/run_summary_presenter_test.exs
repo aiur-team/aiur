@@ -39,6 +39,49 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryPresenterTest do
       assert view.progress.unknown_weight > 0
     end
 
+    test "partial current-fact progress carries one shared set of operator labels" do
+      snapshot =
+        project([row(1, complexity: 1, progress: known(40))])
+        |> put_in([:progress, :exact], nil)
+        |> put_in([:progress, :current_facts], %{
+          status: :settling,
+          value: %{numerator: 2, denominator: 5},
+          lower_bound?: false,
+          current_member_count: 1,
+          total_member_count: 2,
+          missing_member_count: 1
+        })
+
+      view = Presenter.present(snapshot)
+
+      assert view.progress.kind == :partial
+      assert view.progress.display_percent_label == "40%"
+      assert view.progress.current_members_label == "1 of 2 members current"
+      assert view.progress.fact_status_label == "Still settling"
+      assert view.progress.fact_status_detail == "progress inputs are still settling"
+    end
+
+    test "partial current-fact progress qualifies an unknown subset as a lower bound" do
+      snapshot =
+        project([row(1, complexity: 1, progress: known(40))])
+        |> put_in([:progress, :exact], nil)
+        |> put_in([:progress, :current_facts], %{
+          status: :settling,
+          value: %{numerator: 2, denominator: 5},
+          lower_bound?: true,
+          current_member_count: 1,
+          total_member_count: 2,
+          missing_member_count: 1
+        })
+
+      view = Presenter.present(snapshot)
+
+      assert view.progress.kind == :partial
+      assert view.progress.partial_lower_bound?
+      assert view.progress.display_percent_label == "At least 40%"
+      assert Presenter.announcement(view) =~ "Progress at least 40 percent"
+    end
+
     test "zero eligible weight names the absence of weighted progress" do
       snapshot =
         project([

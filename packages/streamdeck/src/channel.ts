@@ -89,7 +89,39 @@ export type TranscriptRow =
       readonly body: string;
       /** Tool name for a `tool` role, when the provider named one. */
       readonly tool: string | null;
+      /**
+       * Colour class for the row, mirroring the server's `StreamdeckLogs.row_kind/1`
+       * so the physical deck and the emulator agree. Absent for a row that did
+       * not carry one (a live push, a legacy DTO); the renderer derives it from
+       * `role`.
+       */
+      readonly rowKind?: ChatKind;
+      /** opencode-style gutter glyph (`$`, `→`, `←`, `⚙`); absent for prose. */
+      readonly glyph?: string | null;
     };
+
+/**
+ * The three visually-distinct row classes plus the rare user turn. Commands
+ * and tool rows share the command colour; agent prose is its own class; system
+ * context rows (event headers, diffs, logs) are the third. Mirrors the server's
+ * `StreamdeckLogs.row_kind/1` so the physical deck matches the emulator.
+ */
+export type ChatKind = "command" | "agent" | "logs" | "user";
+
+/** Derives the row class from a role, for a row that did not carry one. */
+export const rowKindOfRole = (role: string): ChatKind => {
+  if (role === "assistant" || role === "agent") return "agent";
+  if (role === "command" || role === "tool") return "command";
+  if (role === "user") return "user";
+  // system, reasoning, alert, ci and anything unknown are the "logs" class —
+  // the same mapping as the server's `StreamdeckLogs.row_kind/1`.
+  return "logs";
+};
+
+export const chatKind = (value: unknown): ChatKind => {
+  if (value === "command" || value === "agent" || value === "logs" || value === "user") return value;
+  return "logs";
+};
 
 export interface StreamDeckLogs {
   readonly event_keys?: readonly Record<string, unknown>[];
@@ -140,6 +172,15 @@ export interface StreamDeckChannelOptions {
 export interface StreamDeckChannel {
   focus(identifier: string): void;
   control(identifier: string, action: "pause" | "resume" | "prioritize" | "deprioritize" | "mic"): void;
+  /**
+   * Delivers a transcribed message to an agent.
+   *
+   * This is a separate event from `control` because it carries operator text
+   * rather than a fixed verb: the server validates and length-caps it, then
+   * hands it to the same AgentChat path as the dashboard chat box, so a spoken
+   * message and a typed one are indistinguishable downstream.
+   */
+  say(identifier: string, text: string): void;
   close(): void;
 }
 
@@ -255,6 +296,7 @@ export const connectStreamDeckChannel = async (options: StreamDeckChannelOptions
   return {
     focus: (identifier) => send("focus", { identifier }),
     control: (identifier, action) => send("control", { identifier, action }),
+    say: (identifier, text) => send("say", { identifier, text }),
     close: () => { stopped = true; joined = false; if (heartbeat !== null) clearInterval(heartbeat); heartbeat = null; socket.close(); },
   };
 };

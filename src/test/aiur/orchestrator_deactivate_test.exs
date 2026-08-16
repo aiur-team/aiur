@@ -58,6 +58,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   defmodule FlakyReworkGitHubClient do
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
     def fetch_candidate_issues, do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
 
     def update_issue_state(issue_id, state_name) do
       if self() == Application.get_env(:aiur, :flaky_rework_owner) do
@@ -79,6 +80,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule PauseOverrideGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def remove_label(issue_id, label) do
       recipient = Application.get_env(:aiur, :pause_override_recipient)
 
@@ -89,6 +92,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule HumanReviewGuardGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def verify_human_review_ready(issue_id) do
       if is_pid(recipient()), do: send(recipient(), {:human_review_verify, issue_id})
       Application.get_env(:aiur, :human_review_ready_result, :ok)
@@ -103,6 +108,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule DirectDispatchGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def update_issue_state(issue_id, state_name) do
       if is_pid(recipient()),
         do: send(recipient(), {:direct_dispatch_update, issue_id, state_name})
@@ -130,6 +137,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule CIWatcherGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def update_issue_state(issue_id, state_name) do
       if is_pid(recipient()), do: send(recipient(), {:ci_watcher_update, issue_id, state_name})
       :ok
@@ -2947,6 +2956,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
             after_review_comment
           )
 
+        # The memory-tracker notification is a real downstream side effect of
+        # the merge transition, but it is delivered synchronously to the test
+        # process: the merge handler calls Tracker.update_issue_state, which
+        # for the memory adapter sends straight to memory_tracker_recipient
+        # (self()) before handle_info returns. The 100ms ExUnit default is the
+        # file's own convention for this signal (every other
+        # {:memory_tracker_state_update, ...} assert here uses it), so the
+        # observed #1920 flake was not a timing race but the shared
+        # WorkflowStore singleton being mid-restart, which made the tracker
+        # adapter resolve to a non-memory kind and the notification never be
+        # sent. That TOCTOU is fixed in production (WorkflowStore.force_reload
+        # now absorbs a dying store), so no budget bump is needed.
         assert_receive {:memory_tracker_state_update, ^issue_id, "done"}
         refute Map.has_key?(after_merge.running, issue_id)
         refute MapSet.member?(after_merge.claimed, issue_id)
@@ -3337,6 +3358,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         assert {:noreply, next_state} = Orchestrator.handle_info({:event, event}, state)
 
         assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
+
+        # Two reads, and only two: the #1971 parking gate resolves the ticket's
+        # labels before writing `rework`, then dispatch admission re-reads it so
+        # a concurrently terminal issue is not admitted. A third read would mean
+        # the comment path had started looping.
+        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
         assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
         refute_receive {:direct_dispatch_fetch, [^issue_identifier]}, 100
         assert_receive :run_poll_cycle, 100

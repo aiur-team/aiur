@@ -35,6 +35,7 @@ if config_env() == :test do
   config :aiur, :resolve_github_token_on_boot, false
   config :aiur, :workspace_github_preflight_enabled, false
   config :aiur, :github_quota_refresh?, false
+  config :aiur, :elevenlabs_quota_refresh?, false
   config :aiur, :github_budget_enabled?, false
   config :aiur, :github_quota_status_override, :available
 

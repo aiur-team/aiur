@@ -122,6 +122,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         state =
           state
           |> dispatch_or_hold(issues)
+          |> IssueSync.sync_dependency_circular_wait_alert(issues)
           |> IssueSync.sync_capacity_starvation_alert(issues)
           |> IssueSync.sync_fleet_capacity_starved_alert(issues)
 
@@ -812,7 +813,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       {:ok, %Issue{} = refreshed_issue} ->
         state
         |> clear_dispatch_decline(refreshed_issue)
-        |> do_dispatch_issue(refreshed_issue, attempt, preferred_worker_host, opts)
+        |> dispatch_with_dependency_gate(refreshed_issue, attempt, preferred_worker_host, opts)
 
       {:skip, :missing} ->
         Logger.info("Skipping dispatch; issue no longer active or visible: #{State.issue_context(issue)}")
@@ -834,6 +835,93 @@ defmodule Aiur.Orchestrator.Dispatcher do
         Logger.warning("Skipping dispatch; issue refresh failed for #{State.issue_context(issue)}: #{inspect(reason)}")
 
         emit_dispatch_attempt_decline(state, issue, :tracker_revalidation_failed, true)
+    end
+  end
+
+  # GitHub-native `blocked_by` is hydrated only here — at the point an issue is
+  # actually being dispatched — so the cost is bounded by dispatch attempts, not
+  # by tracker size (#1631, against the #1388 read budget).
+  #
+  # The dependency decision is deliberately FAIL-CLOSED:
+  #   * a known non-terminal blocker holds the issue (`:dependency` skip, info);
+  #   * a failed or incomplete dependency read means blockers are *unknown*, and
+  #     dispatching on unknown blockers would reintroduce exactly the "dispatches
+  #     work GitHub knows is blocked" defect this gate exists to prevent, so the
+  #     issue is held with an attention decline (`:dependency_hydration_failed`).
+  # A `/dependencies` outage therefore holds dispatch rather than risking blocked
+  # work; the tracker-wide quota gate already holds the fleet during GitHub-side
+  # rate limiting, so fail-closed does not add a new outage class.
+  @doc false
+  @spec dispatch_with_dependency_gate(State.t(), Issue.t(), term(), term(), keyword()) :: State.t()
+  def dispatch_with_dependency_gate(
+        %State{} = state,
+        %Issue{} = refreshed_issue,
+        attempt,
+        preferred_worker_host,
+        opts
+      )
+      when is_list(opts) do
+    hydrator = Keyword.get(opts, :blocked_by_hydrator, &default_blocked_by_hydrator/1)
+
+    case hydrator.(refreshed_issue) do
+      {:ok, %Issue{} = hydrated} ->
+        if DispatchPolicy.todo_issue_blocked_by_non_terminal?(hydrated, DispatchPolicy.terminal_state_set()) do
+          Logger.info(
+            "Skipping dispatch; issue is blocked by a non-terminal dependency: " <>
+              "#{State.issue_context(hydrated)} blocked_by=#{inspect(hydrated.blocked_by)}"
+          )
+
+          state
+        else
+          do_dispatch_issue(state, hydrated, attempt, preferred_worker_host, opts)
+        end
+
+      {:error, reason} ->
+        Logger.warning(
+          "Skipping dispatch; blocked-by hydration failed for #{State.issue_context(refreshed_issue)}: " <>
+            "#{inspect(reason)} (fail-closed: unknown blockers hold dispatch)"
+        )
+
+        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+
+      # A hydrator that returns an unexpected shape must never crash the
+      # orchestrator; treat it as unknown blockers and hold dispatch.
+      other ->
+        Logger.warning(
+          "Skipping dispatch; blocked-by hydration returned an unexpected result for " <>
+            "#{State.issue_context(refreshed_issue)}: #{inspect(other)} (fail-closed)"
+        )
+
+        emit_dispatch_attempt_decline(state, refreshed_issue, :dependency_hydration_failed, true)
+    end
+  end
+
+  # The GitHub tracker populates `blocked_by` from the native Issue Dependencies
+  # API only when the issue is being considered for a blocked_by decision
+  # (dispatch, or dependency-pause recheck in `PushRouting`). Other trackers
+  # (Linear, memory) already carry hydrated blockers from their poll response,
+  # so hydration is a passthrough.
+  @doc false
+  @spec default_blocked_by_hydrator(Issue.t()) :: {:ok, Issue.t()} | {:error, term()}
+  def default_blocked_by_hydrator(%Issue{} = issue) do
+    if github_tracker_kind?() do
+      GitHubTracker.hydrate_blocked_by(issue)
+    else
+      {:ok, issue}
+    end
+  end
+
+  # `Config.settings/0`, not `Config.tracker_kind/0` (which raises when no
+  # workflow file is present): this hydrator is also invoked from the
+  # dependency-pause recheck path that unit tests exercise without a workflow
+  # file, so "no config" must mean "not a GitHub tracker" (passthrough), never
+  # a crash.
+  @doc false
+  @spec github_tracker_kind?() :: boolean()
+  def github_tracker_kind? do
+    case Config.settings() do
+      {:ok, %{tracker: %{kind: kind}}} -> kind == "github"
+      _ -> false
     end
   end
 
@@ -874,7 +962,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_resolve_dispatch_decline(%State{} = state, %Issue{} = issue) do
     case Map.get(state.dispatch_declines, issue.id) do
-      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed] ->
+      reason when reason in [:claimed_without_runtime, :tracker_revalidation_failed, :dependency_hydration_failed] ->
         Alerts.emit_custom(
           dispatch_decline_topic(issue, true) <> ".resolved",
           "Dispatch decline cleared for #{issue.identifier}.",

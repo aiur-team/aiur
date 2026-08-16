@@ -77,6 +77,22 @@ The stepper is a compact view over two canonical axes: decision state and delive
 | **Delivery failed** | Delivery failed and may be retryable; the answer remains durable. |
 | **Superseded** | A newer append-only revision replaced an earlier action. |
 
+## API meters
+
+A strip at the top of the Units page meters the non-model APIs a run spends, beside the model providers' own meters.
+
+**GitHub** shows its two primary budgets, Core (REST requests) and GraphQL (points), as percentage *used* with remaining/limit counts and the reset time. An active secondary (abuse) rate-limit backoff is named on its own row, because the primary windows still read healthy while one is in force.
+
+**ElevenLabs** appears only when `elevenlabs.api_key` is configured; with no key there is no account to meter and the row is absent entirely, rather than reading "Unavailable" or showing an empty bar. A configured key whose read fails is a different thing and does say so, naming the reason — a rejected key, a rate limit, an unreachable endpoint — without ever printing the credential.
+
+Read the ElevenLabs figure for exactly what it is:
+
+- It is the **account credit quota** (`character_count` against `character_limit` from `GET /v1/user/subscription`), reported as credits **left** and a bar that *depletes* as they are spent. Every other meter on the page reads percentage *used* with a bar that fills, so this one runs in the opposite direction by design; its label and its fill agree with each other.
+- It is **not a dollar balance**. The ElevenLabs API publishes no remaining-balance figure at all — the only money-shaped fields it returns are amounts owed — so Aiur shows no dollar amount here and does not derive one from character counts.
+- It is **not a voice-input spend meter**. Speech-to-text, which is what Stream Deck voice input uses, is billed per minute of audio; the character quota is primarily the text-to-speech credit pool. Dictating heavily can therefore leave this meter unmoved.
+
+An account with a zero character limit renders its counts and no bar: there is no denominator, so there is no percentage to state.
+
 ## Units (fleet table)
 
 The Agents panel combines running, retrying, and idle tracker-active tickets. Each row exposes work and waiting state, latest activity, elapsed time, decision count, CI/review facts, and safe links to the ticket, decision, or agent conversation. The filters are cumulative and the table becomes a card list at narrow widths.

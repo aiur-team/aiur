@@ -1,6 +1,8 @@
 defmodule Aiur.CurrentRunSummary.Progress do
   @moduledoc false
 
+  alias Aiur.CurrentRunSummary.Facts
+
   @spec build([map()], map(), map(), map()) :: %{progress: map(), eta: map()}
   def build(members, weights, run, context) do
     %{
@@ -10,11 +12,7 @@ defmodule Aiur.CurrentRunSummary.Progress do
   end
 
   defp progress(members, weights, run, context) do
-    weighted_numerator =
-      Enum.reduce(members, 0, fn
-        %{progress: {:known, percent}, weight: weight}, total -> total + weight * percent
-        _member, total -> total
-      end)
+    weighted_numerator = weighted_numerator(members)
 
     denominator = weights.eligible * 100
 
@@ -31,8 +29,35 @@ defmodule Aiur.CurrentRunSummary.Progress do
       unknown_weight: weights.unknown_progress,
       lower_bound: fraction(weighted_numerator, denominator),
       coverage: fraction(weights.known_progress, weights.eligible),
-      exact: if(exact?, do: fraction(weighted_numerator, denominator))
+      exact: if(exact?, do: fraction(weighted_numerator, denominator)),
+      current_facts: current_facts(members, context)
     }
+  end
+
+  defp current_facts(members, context) do
+    eligible = Enum.reject(members, &(&1.class == :non_work_terminal))
+    current = Enum.filter(eligible, &(&1.weight_fact == :current))
+    current_weights = Facts.weights(current)
+
+    %{
+      status: fact_status(context),
+      value: fraction(weighted_numerator(current), current_weights.eligible * 100),
+      lower_bound?: current_weights.unknown_progress > 0,
+      current_member_count: length(current),
+      total_member_count: length(eligible),
+      missing_member_count: length(eligible) - length(current)
+    }
+  end
+
+  defp fact_status(%{weight_health: :healthy}), do: :complete
+  defp fact_status(%{weight_status: :stale}), do: :settling
+  defp fact_status(_context), do: :degraded
+
+  defp weighted_numerator(members) do
+    Enum.reduce(members, 0, fn
+      %{progress: {:known, percent}, weight: weight}, total -> total + weight * percent
+      _member, total -> total
+    end)
   end
 
   defp eta(weights, run, context) do

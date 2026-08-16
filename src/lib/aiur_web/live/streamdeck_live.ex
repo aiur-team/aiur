@@ -498,8 +498,8 @@ defmodule AiurWeb.StreamdeckLive do
                 <div :if={entry.shape == :diff_line} class="sd-log-diff">
                   <code class={["sd-log-diff-line", "is-#{entry.line_kind}"]}>{entry.line}</code>
                 </div>
-                <div :if={entry.shape == :message} class="sd-log-message">
-                  <span class={["sd-log-speaker", "is-#{entry.speaker}"]}>{entry.speaker}</span>
+                <div :if={entry.shape == :message} class={["sd-log-message", "is-#{entry.kind}"]}>
+                  <span :if={entry.glyph} class="sd-log-glyph" aria-hidden="true">{entry.glyph}</span>
                   <span class="sd-log-message-text">{entry.text}</span>
                 </div>
               </div>
