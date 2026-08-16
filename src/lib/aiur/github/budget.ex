@@ -351,6 +351,7 @@ defmodule Aiur.GitHub.Budget do
   defp settings(opts) do
     github = github_settings(opts)
     timeout_ms = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
+    lease_timeout_ms = Keyword.get(opts, :lease_timeout_ms, timeout_ms)
 
     %{
       max_inflight: positive(Keyword.get(opts, :max_inflight, Map.get(github, :max_inflight, @default_max_inflight)), @default_max_inflight),
@@ -365,7 +366,7 @@ defmodule Aiur.GitHub.Budget do
           @default_requests_per_minute
         ),
       stagger_ms: nonnegative(Keyword.get(opts, :stagger_ms, Map.get(github, :stagger_ms, @default_stagger_ms)), @default_stagger_ms),
-      lease_ttl_ms: positive(timeout_ms, @default_timeout_ms) * 2 + @lease_grace_ms
+      lease_ttl_ms: positive(lease_timeout_ms, @default_timeout_ms) * 2 + @lease_grace_ms
     }
   end
 

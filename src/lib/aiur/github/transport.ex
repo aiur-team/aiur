@@ -132,7 +132,10 @@ defmodule Aiur.GitHub.Transport do
   end
 
   defp budget_request(quota, request, request_fun, deadline_ms) do
-    case Budget.acquire(request, timeout_ms: min(deadline_ms, @budget_admission_timeout_ms)) do
+    case Budget.acquire(request,
+           timeout_ms: min(deadline_ms, @budget_admission_timeout_ms),
+           lease_timeout_ms: deadline_ms
+         ) do
       {:ok, lease} ->
         deadline_at_ms = System.monotonic_time(:millisecond) + deadline_ms
 

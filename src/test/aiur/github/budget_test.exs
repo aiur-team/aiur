@@ -98,6 +98,11 @@ defmodule Aiur.GitHub.BudgetTest do
              Budget.acquire(request("shared-token", "/repos/owner/repo/issues/1477"), opts)
   end
 
+  test "lease duration can outlive the broker command timeout" do
+    assert %{lease_ttl_ms: 25_000} =
+             Budget.guard_settings(timeout_ms: 1_500, lease_timeout_ms: 10_000)
+  end
+
   test "database lock cannot hold admission beyond its wall-clock budget", %{root: root} do
     broker_pid_path = Path.join(root, "broker.pid")
     python = broker_wrapper(root, broker_pid_path)
