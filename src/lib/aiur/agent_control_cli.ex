@@ -1285,8 +1285,44 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:admission, %{signal: :load, measured: load, threshold: threshold}}),
     do: "load, load=#{load} threshold=#{threshold}"
 
+  defp capacity_binding_label({:admission, %{signal: :github_quota, measured: measured}}) do
+    case github_quota_measurement(measured) do
+      {:current, detail} -> "github_quota, #{detail}"
+      {:stale, detail} -> "github_quota stale, #{detail}"
+      :unavailable -> "github_quota, measurement unavailable"
+    end
+  end
+
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, _detail}), do: "none"
+
+  defp github_quota_measurement(%{resource: resource, remaining: remaining, limit: limit, observed_at: observed_at}) do
+    if stale_github_quota_measurement?(observed_at) do
+      {:stale, "last_resource=#{resource} last_remaining=#{remaining}/#{limit} last_measured_at=#{format_observed_at(observed_at)}"}
+    else
+      {:current, "resource=#{resource} remaining=#{remaining}/#{limit} measured_at=#{format_observed_at(observed_at)}"}
+    end
+  end
+
+  defp github_quota_measurement(_measured), do: :unavailable
+
+  # The authority probes once a minute. Two missed intervals make a retained
+  # capacity verdict historical evidence, not a claim about the live quota.
+  defp stale_github_quota_measurement?(%DateTime{} = observed_at),
+    do: DateTime.diff(DateTime.utc_now(), observed_at, :second) > 120
+
+  defp stale_github_quota_measurement?(observed_at) when is_binary(observed_at) do
+    case DateTime.from_iso8601(observed_at) do
+      {:ok, parsed, _offset} -> stale_github_quota_measurement?(parsed)
+      _invalid -> true
+    end
+  end
+
+  defp stale_github_quota_measurement?(_observed_at), do: true
+
+  defp format_observed_at(%DateTime{} = observed_at), do: DateTime.to_iso8601(observed_at)
+  defp format_observed_at(observed_at) when is_binary(observed_at), do: observed_at
+  defp format_observed_at(_observed_at), do: "unknown"
 
   # `capacity_hold` is the daemon's own persisted admission decision — the only
   # source allowed to name an admission signal as the fleet's binding

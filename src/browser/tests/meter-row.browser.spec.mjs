@@ -14,7 +14,7 @@ async function openMeterRow(page) {
 test('the model pane groups providers, keeps every freshness state, and fits without scrolling', async ({ browser }) => {
   test.setTimeout(60_000)
 
-  for (const width of [1440, 1280, 960, 768, 390]) {
+  for (const width of [1440, 1280, 960, 768, 640, 481, 390]) {
     const context = await browser.newContext({ viewport: { width, height: 900 }, reducedMotion: 'reduce' })
     const page = await context.newPage()
 
@@ -25,6 +25,22 @@ test('the model pane groups providers, keeps every freshness state, and fits wit
       await expect(page.locator('.run-summary')).toHaveCount(1)
       await expect(page.locator('.rs-block')).toHaveCount(2)
       await expect(page.locator('.rs-block.rs-models')).toHaveCount(1)
+
+      const elevenlabs = page.locator('.rs-elevenlabs')
+      await expect(elevenlabs).toContainText('75.0K left · 25% used · resets 3d')
+      await expect(elevenlabs.locator('.rs-stat-label')).toHaveText('Next invoice due')
+      await expect(elevenlabs.locator('.rs-stat-val')).toHaveText('$5.00')
+      await expect(elevenlabs.locator('.rs-meter > i')).toHaveAttribute('style', /width:25\.0%/)
+      await expect(elevenlabs.locator('img')).toHaveAttribute('src', '/elevenlabs-symbol.svg')
+      await expect.poll(() => elevenlabs.locator('img').evaluate((img) => img.naturalWidth)).toBeGreaterThan(0)
+
+      const elevenlabsLine = await elevenlabs.locator('.rs-limit-top').evaluate((line) => ({
+        height: line.getBoundingClientRect().height,
+        childHeight: Math.max(...Array.from(line.children, (child) => child.getBoundingClientRect().height)),
+        overflow: line.scrollWidth - line.clientWidth
+      }))
+      expect(elevenlabsLine.height, `ElevenLabs metadata wrapped at ${width}px`).toBeLessThanOrEqual(elevenlabsLine.childHeight + 1)
+      expect(elevenlabsLine.overflow, `ElevenLabs metadata overflowed at ${width}px`).toBeLessThanOrEqual(0)
 
       // All four model providers render inside the one combined pane.
       const models = page.locator('.rs-models .rs-model')

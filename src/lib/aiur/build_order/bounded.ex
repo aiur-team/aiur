@@ -167,11 +167,11 @@ defmodule Aiur.BuildOrder.Bounded do
 
   def chat_route_for(_value, _identity), do: :error
 
-  @doc "Validates one query-free Commands detail route produced by DecisionPath."
+  @doc "Validates a canonical Commands detail route or its legacy Decisions equivalent."
   @spec commands_route(term()) :: {:ok, String.t()} | :error
   def commands_route(value) do
     with {:ok, value, %URI{path: path}} <- destination_route(value),
-         ["", "decisions", decision_id] <- String.split(path, "/", trim: false),
+         ["", route, decision_id] when route in ["commands", "decisions"] <- String.split(path, "/", trim: false),
          true <- safe_decision_identifier?(decision_id) do
       {:ok, value}
     else

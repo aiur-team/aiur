@@ -65,6 +65,7 @@ describe("agentDetailModel", () => {
       vendor: "codex",
       status: "running",
       percent: 72,
+      freshness: "fresh",
       elapsedLabel: "3h 07m",
       activity: { glyph: "waiting", label: "Waiting on CI" },
     });
@@ -83,6 +84,12 @@ describe("agentDetailModel", () => {
     expect(agentDetailModel({ progress_percent: Number.NaN }).percent).toBeNull();
     expect(agentDetailModel({ progress_percent: null }).percent).toBeNull();
     expect(agentDetailModel({}).percent).toBeNull();
+  });
+
+  it("preserves stale readings and fails closed on unknown freshness", () => {
+    expect(agentDetailModel({ progress_percent: 70, progress_freshness: "stale" })).toMatchObject({ percent: 70, freshness: "stale" });
+    expect(agentDetailModel({ progress_percent: 70, progress_freshness: "unknown" })).toMatchObject({ percent: null, freshness: "unknown" });
+    expect(agentDetailModel({ progress_percent: 70, progress_freshness: "future" })).toMatchObject({ percent: 70, freshness: "stale" });
   });
 
   it("falls back to printable text rather than leaving the panel blank", () => {

@@ -520,7 +520,7 @@ defmodule AiurWeb.AnalyticsLiveTest do
 
     assert html =~ "2 units awaiting commands"
     assert html =~ "decisions-banner"
-    assert html =~ ~s(href="/decisions")
+    assert html =~ ~s(href="/commands")
   end
 
   @tag awaiting_commands: %{total: 3, open: 2, blocking: 1, deferred: 0, awaiting: 2, awaiting_blocking: 1}

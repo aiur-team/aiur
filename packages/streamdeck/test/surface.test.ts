@@ -1,8 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { createPhysicalSurface, descriptorEvents, repaintGrid } from "../src/surface.js";
+import { createPhysicalSurface, descriptorEvents, descriptorSettings, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
 import type { EventKey } from "../src/controller.js";
 import type { TranscriptRow } from "../src/channel.js";
+import { settingsView } from "../src/settings.js";
+import { VOICE_WAVEFORM_COLUMNS } from "../src/voicePanel.js";
+import { createRasterizer } from "../src/rasterizer.js";
 
 const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
 
@@ -10,11 +13,11 @@ describe("physical surface composition", () => {
   it("places command faces on the exact keys their controller handles", () => {
     const descriptors = layoutPhysicalKeys([
       { identifier: "pause", title: "Pause", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
-      { identifier: "priority", title: "Prioritize", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
       { identifier: "logs", title: "Logs", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
       { identifier: "mic", title: "Mic", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
+      { identifier: "settings", title: "Settings", vendor: "command", bucket: "queued", progress_percent: 0, priority: false },
     ]);
-    expect(descriptors.slice(0, 4).map((descriptor) => descriptor.kind === "agent" ? descriptor.title : "empty")).toEqual(["Pause", "Prioritize", "Logs", "Mic"]);
+    expect(descriptors.slice(0, 4).map((descriptor) => descriptor.kind === "agent" ? descriptor.title : "empty")).toEqual(["Pause", "Logs", "Mic", "Settings"]);
     expect(descriptors.slice(4).every((descriptor) => descriptor.kind === "empty")).toBe(true);
   });
   it("repaints eight keys from the daemon grid and blacks out empty slots", async () => {
@@ -175,5 +178,134 @@ describe("physical surface composition", () => {
     const strip = write.mock.calls.map(([report]) => report as Uint8Array).filter((report) => report[1] === 0x0c);
     expect(strip.length).toBeGreaterThan(0);
     for (const report of strip) expect(Buffer.from(report).readUInt16LE(6)).toBe(800);
+  });
+});
+
+describe("descriptorSettings", () => {
+  const view = (count: number, selectedId: string | null = null, offset = 0) =>
+    settingsView(
+      Array.from({ length: count }, (_, index) => ({ id: `m${index}`, label: `Mic ${index}` })),
+      selectedId,
+      offset,
+    );
+
+  const titles = (descriptors: ReturnType<typeof descriptorSettings>): (string | null | undefined)[] =>
+    descriptors.map((descriptor) => (descriptor === undefined ? undefined : descriptor.title));
+
+  it("puts six microphones on keys 0-5, TestMic on 6 and paging on 7", () => {
+    const descriptors = descriptorSettings(view(9), false);
+    expect(descriptors).toHaveLength(8);
+    expect(titles(descriptors)).toEqual(["Mic 0", "Mic 1", "Mic 2", "Mic 3", "Mic 4", "Mic 5", "TestMic", "More"]);
+    expect(descriptors[7]?.subLabel).toBe("1/2");
+  });
+
+  it("leaves key 7 empty when every microphone fits on one page", () => {
+    expect(descriptorSettings(view(2), false)[7]).toBeUndefined();
+    expect(titles(descriptorSettings(view(2), false)).slice(0, 6)).toEqual([
+      "Mic 0",
+      "Mic 1",
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    ]);
+  });
+
+  /**
+   * The selection reuses the *logs* surface's idiom — `role: "event"` is what
+   * paints the brighter plate, the left rail and the inverted badge chip. A
+   * second way of saying "this one is active" would make neither definitive.
+   */
+  it("marks the selected microphone with the log surface's selection idiom", () => {
+    const descriptors = descriptorSettings(view(3, "m1"), false);
+    expect(descriptors[1]).toMatchObject({ role: "event", selected: true, subLabel: "IN USE" });
+    expect(descriptors[0]).toMatchObject({ role: "event", selected: false, subLabel: "MIC" });
+  });
+
+  it("paints the same idiom the log keys do, all the way to the pixels", () => {
+    const rasterizer = createRasterizer();
+    const [plain, selected] = [false, true].map((flag) => {
+      const [descriptor] = layoutPhysicalKeys(descriptorSettings(view(1, flag ? "m0" : null), false));
+      return rasterizer.key(descriptor);
+    });
+    expect(Buffer.from(plain).equals(Buffer.from(selected))).toBe(false);
+  });
+
+  it("shows TestMic as live only while it is held", () => {
+    expect(descriptorSettings(view(1), false)[6]?.subLabel).toBe("HOLD");
+    expect(descriptorSettings(view(1), true)[6]?.subLabel).toBe("LIVE");
+  });
+
+  // A headless box is a normal box: six blank keys and no paging arrow, rather
+  // than something that looks broken.
+  it("renders a machine with no microphone as empty keys plus TestMic", () => {
+    const descriptors = descriptorSettings(view(0), false);
+    expect(descriptors.slice(0, 6).every((descriptor) => descriptor === undefined)).toBe(true);
+    expect(descriptors[6]?.title).toBe("TestMic");
+    expect(descriptors[7]).toBeUndefined();
+  });
+});
+
+describe("the command and settings surfaces on the device", () => {
+  const backend = () => {
+    const write = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    const sendFeatureReport = vi.fn<(report: Uint8Array) => Promise<void>>(async () => undefined);
+    return { write, sendFeatureReport, device: { write, sendFeatureReport } as never };
+  };
+  const grid = { agents: [{ identifier: "1358", bucket: "running", title: "Live proof", vendor: "codex", progress_percent: 42, priority: false }], total: 1, windows: 1, max_column_offset: 0 };
+
+  // The keys have to appear and disappear through the same publish/diff path as
+  // every other key change, or the deck keeps painting keys that are gone.
+  it("uploads new key faces when Send and Cancel appear", async () => {
+    const { write, device } = backend();
+    const surface = createPhysicalSurface();
+    const base = { mode: "cmd" as const, focusedIdentifier: "1358", columnOffset: 0 };
+    await surface.repaint(device, grid, {}, undefined, base);
+    const painted = write.mock.calls.length;
+    await surface.repaint(device, grid, {}, undefined, { ...base, hasTranscript: true });
+    expect(write.mock.calls.slice(painted).some(([report]) => (report as Uint8Array)[1] === 0x07)).toBe(true);
+  });
+
+  it("paints the settings surface as one full-width panel", async () => {
+    const { write, device } = backend();
+    const surface = createPhysicalSurface();
+    await surface.repaint(device, grid, {}, undefined, {
+      mode: "settings",
+      focusedIdentifier: "1358",
+      columnOffset: 0,
+      microphones: [{ id: "a", label: "Yeti X" }],
+      selectedMicId: "a",
+      micOffset: 0,
+    });
+    const strip = write.mock.calls.map(([report]) => report as Uint8Array).filter((report) => report[1] === 0x0c);
+    expect(strip.length).toBeGreaterThan(0);
+    for (const report of strip) expect(Buffer.from(report).readUInt16LE(6)).toBe(800);
+  });
+
+  /**
+   * The load-bearing property at the surface level: the strip repaints from
+   * locally-captured readings alone. Nothing here has a channel, a session id
+   * or any transcribed text, and the panel still changes.
+   */
+  it("repaints the voice panel from waveform and level alone", async () => {
+    const { write, device } = backend();
+    const surface = createPhysicalSurface();
+    const columns = (amplitude: number) =>
+      Array.from({ length: VOICE_WAVEFORM_COLUMNS }, () => ({ min: -amplitude, max: amplitude }));
+    const base = {
+      mode: "cmd" as const,
+      focusedIdentifier: "1358",
+      columnOffset: 0,
+      micHeld: true,
+      voice: { columns: columns(0.1), dbfs: -40, text: "", holding: true, unavailableReason: null },
+    };
+    await surface.repaint(device, grid, {}, undefined, base);
+    const painted = write.mock.calls.length;
+    await surface.repaint(device, grid, {}, undefined, {
+      ...base,
+      voice: { ...base.voice, columns: columns(0.9), dbfs: -6 },
+    });
+    const strip = write.mock.calls.slice(painted).map(([report]) => report as Uint8Array).filter((report) => report[1] === 0x0c);
+    expect(strip.length).toBeGreaterThan(0);
   });
 });

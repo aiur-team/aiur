@@ -285,7 +285,7 @@ test('grid key press enters command mode and replaces grid keys', async ({ page 
   await expect(page.locator('.sd-dial-hint').first().locator('span').first()).toHaveCSS('visibility', 'hidden')
 })
 
-test('agent key face matches the design geometry and hue-mapped progress', async ({ page }) => {
+test('agent key face matches the design geometry and single-colour progress contract', async ({ page }) => {
   await openStreamdeck(page)
 
   const key = page.locator('.sd-agent-key:not(.is-empty)').first()
@@ -320,7 +320,6 @@ test('agent key face matches the design geometry and hue-mapped progress', async
       },
       topGap: css(top).gap,
       topChildrenFit,
-      progress: Number(bar.getAttribute('aria-valuenow')),
       fill: css(fill).backgroundColor
     }
   })
@@ -340,20 +339,11 @@ test('agent key face matches the design geometry and hue-mapped progress', async
   expect(geometry.topGap).toBe('5.6px')
   expect(geometry.topChildrenFit).toBe(true)
 
-  const hue = Math.round((geometry.progress / 100) * 125)
-  const expectedFill = await page.evaluate((h) => {
-    const sample = document.createElement('i')
-    sample.style.background = `hsl(${h} 72% 50%)`
-    document.body.append(sample)
-    const color = getComputedStyle(sample).backgroundColor
-    sample.remove()
-    return color
-  }, hue)
+  expect(geometry.fill).toBe('rgb(63, 185, 80)')
 
-  expect(geometry.fill).toBe(expectedFill)
-
-  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(219, 36, 36)')
-  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(36, 219, 51)')
+  // A measured 0% keeps the ordinary green stub; only completion brightens.
+  await expect(page.locator('[data-streamdeck-identifier="1352"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(63, 185, 80)')
+  await expect(page.locator('[data-streamdeck-identifier="1338"] .sd-ag-bar i')).toHaveCSS('background-color', 'rgb(116, 212, 127)')
 })
 
 // Pressing a fleet-control key needs a writable dashboard: read-only renders
@@ -365,7 +355,7 @@ test('command keys render real state-derived controls, flash on click, and emit 
   const commands = page.locator('[data-streamdeck-command]')
   await expect(commands).toHaveCount(4)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Prioritize', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.locator('#sd-keys button:disabled')).toHaveCount(4)
   await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
 
@@ -381,18 +371,20 @@ test('command keys render real state-derived controls, flash on click, and emit 
     }
   })
 
-  for (const command of ['pause', 'priority', 'logs']) {
+  for (const command of ['pause', 'logs', 'settings']) {
     const key = page.locator(`[data-streamdeck-command="${command}"]`)
     await key.click()
     await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
-    if (command === 'logs') {
-      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+    // Logs and Settings are the two navigation keys: each opens its own pane
+    // and dial A backs out of it.
+    if (command === 'logs' || command === 'settings') {
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', command)
       await page.locator('.sd-knob').first().click()
       await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
     }
   }
 
-  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'priority', 'logs'])
+  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'logs', 'settings'])
   expect(await page.evaluate(() => window.__streamdeckGridEvents)).toEqual([])
 })
 
@@ -445,8 +437,8 @@ test('cmd mode renders the design\'s four command keys with Mic excluded from th
 
   const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
   await expect(buttons).toHaveCount(4)
-  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Prioritize', 'Logs', 'Mic'])
-  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'RAISE', 'SCROLL', 'HOLD'])
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Logs', 'Mic', 'Settings'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN'])
 
   // Mic is the only press-and-hold key; the hook drives it from pointer events
   // rather than the click handler it binds to the others.
@@ -469,7 +461,7 @@ test('read-only mode disables the fleet-control command keys and a mic hold does
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
-  for (const command of ['pause', 'priority', 'mic']) {
+  for (const command of ['pause', 'mic']) {
     await expect(page.locator(`[data-streamdeck-command="${command}"]`)).toBeDisabled()
     await expect(page.locator(`.sd-cmd-key:has([data-streamdeck-command="${command}"])`)).toHaveClass(/is-disabled/)
   }

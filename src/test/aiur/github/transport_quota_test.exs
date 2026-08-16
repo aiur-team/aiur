@@ -10,6 +10,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     previous_budget_enabled = Application.get_env(:aiur, :github_budget_enabled?)
     previous_budget_dir = Application.get_env(:aiur, :github_budget_dir)
     previous_budget_settings = Application.get_env(:aiur, :github_budget_settings_override)
+    previous_deadline = Application.get_env(:aiur, :github_request_deadline_ms)
     quota = start_supervised!({Quota, name: nil, emit_fun: fn _name, _opts -> :ok end})
     budget_dir = Path.join(System.tmp_dir!(), "aiur-transport-budget-#{System.unique_integer([:positive])}")
 
@@ -23,6 +24,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       restore_env(:github_budget_enabled?, previous_budget_enabled)
       restore_env(:github_budget_dir, previous_budget_dir)
       restore_env(:github_budget_settings_override, previous_budget_settings)
+      restore_env(:github_request_deadline_ms, previous_deadline)
       File.rm_rf(budget_dir)
     end)
 
@@ -198,6 +200,43 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert {:ok, %{status: 200}} = Task.await(second, 1_500)
   end
 
+  test "starts the HTTP request deadline after local budget admission", %{budget_dir: budget_dir} do
+    Application.put_env(:aiur, :github_budget_enabled?, true)
+    Application.put_env(:aiur, :github_budget_dir, budget_dir)
+    Application.put_env(:aiur, :github_request_deadline_ms, 1_500)
+
+    Application.put_env(:aiur, :github_budget_settings_override, %{
+      max_inflight: 1,
+      max_inflight_per_endpoint: 1,
+      requests_per_minute: 20,
+      stagger_ms: 0
+    })
+
+    test_pid = self()
+
+    request = %{
+      method: :get,
+      url: "https://api.github.com/repos/owner/repo/issues/1984",
+      token: "shared-token"
+    }
+
+    assert {:ok, lease} = Budget.acquire(request, timeout_ms: 1_500)
+
+    Req.Test.stub(__MODULE__, fn conn ->
+      send(test_pid, :request_sent)
+      Process.sleep(1_000)
+      Req.Test.json(conn, [])
+    end)
+
+    pending_request = Task.async(fn -> Transport.default_request_fun(request) end)
+
+    Process.sleep(700)
+    Budget.release(lease)
+
+    assert_receive :request_sent, 1_500
+    assert {:ok, %{status: 200}} = Task.await(pending_request, 2_000)
+  end
+
   test "does not hide a secondary-limit response behind a retry", %{budget_dir: budget_dir} do
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
@@ -218,7 +257,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
         1 ->
           conn
           |> Plug.Conn.put_status(429)
-          |> Plug.Conn.put_resp_header("retry-after", "1")
+          |> Plug.Conn.put_resp_header("retry-after", "5")
           |> Req.Test.json(%{"message" => "You have exceeded a secondary rate limit"})
 
         _ ->
@@ -238,11 +277,11 @@ defmodule Aiur.GitHub.TransportQuotaTest do
     assert {:hold, %{reason: :shared_budget}} =
              Budget.acquire(
                %{request | url: "https://api.github.com/repos/owner/repo/pulls/1477"},
-               timeout_ms: 10
+               timeout_ms: 1_000
              )
   end
 
-  test "does not send a request when configured broker state is unavailable", %{budget_dir: budget_dir} do
+  test "reports unavailable broker state separately from quota exhaustion", %{budget_dir: budget_dir} do
     File.mkdir_p!(budget_dir)
     blocked_dir = Path.join(budget_dir, "blocked")
     File.write!(blocked_dir, "not a directory")
@@ -256,7 +295,7 @@ defmodule Aiur.GitHub.TransportQuotaTest do
       Req.Test.json(conn, [])
     end)
 
-    assert {:ok, %{status: 429}} =
+    assert {:error, :github_budget_broker_unavailable} =
              Transport.default_request_fun(%{
                method: :get,
                url: "https://api.github.com/repos/owner/repo/issues/1477",
