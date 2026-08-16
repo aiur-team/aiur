@@ -200,6 +200,11 @@ defmodule Aiur.Orchestrator.StatusReportTest do
                order: {DateTime.to_unix(observed_at, :microsecond), 1}
              })
 
+    # Synchronize: the retain is an async cast, and `flush` is a call that
+    # queues behind it in the same mailbox, so after it returns the mirror the
+    # fallback reads is guaranteed to hold the reading.
+    assert :ok = ProgressRetention.flush()
+
     # The live TicketActivity projection is absent (not running in this unit
     # test), so the durable reading is the only source of the percent. The
     # reading is served as the real value with a stale freshness — never a
