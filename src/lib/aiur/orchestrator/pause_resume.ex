@@ -4,7 +4,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   All functions execute inside the orchestrator GenServer process.
   """
 
-  alias Aiur.{AgentPubSub, Alerts, Config, Issue, Tracker, TrackerIdentity}
+  alias Aiur.{AgentPubSub, Alerts, CodingAgent, Config, Issue, Tracker, TrackerIdentity}
   alias Aiur.Events.IdGenerator
   alias Aiur.Orchestrator.AgentTeardown
   alias Aiur.Orchestrator.{ControlLifecycle, ControlLifecycleStore}
@@ -1072,6 +1072,14 @@ defmodule Aiur.Orchestrator.PauseResume do
   @doc false
   @spec dispatch_completed_replacement(State.t(), map(), Issue.t(), keyword()) :: State.t()
   def dispatch_completed_replacement(state, running_entry, issue, opts \\ []) do
+    {_result, state} = dispatch_completed_replacement_result(state, running_entry, issue, opts)
+    state
+  end
+
+  @doc false
+  @spec dispatch_completed_replacement_result(State.t(), map(), Issue.t(), keyword()) ::
+          {{:ok, :started} | {:error, {:redispatch_deferred, term()}}, State.t()}
+  def dispatch_completed_replacement_result(state, running_entry, issue, opts \\ []) do
     running_entry = normalize_completed_entry(running_entry, issue)
 
     state =
@@ -1087,13 +1095,28 @@ defmodule Aiur.Orchestrator.PauseResume do
 
       case admit.(state, issue, worker_host) do
         {:ok, admitted_state} ->
-          replace.(admitted_state, running_entry, issue, worker_host)
+          case replace.(admitted_state, running_entry, issue, worker_host) do
+            {result, %State{} = next_state} ->
+              {result, next_state}
 
-        {:error, _reason, rejected_state} ->
-          rejected_state
+            %State{} = next_state ->
+              if live_replacement?(next_state, issue.id),
+                do: {{:ok, :started}, next_state},
+                else: {{:error, {:redispatch_deferred, redispatch_start_failure_reason(next_state, issue)}}, next_state}
+          end
+
+        {:error, reason, rejected_state} ->
+          {{:error, {:redispatch_deferred, reason}}, rejected_state}
       end
     else
-      state
+      {{:error, {:redispatch_deferred, :max_concurrent_agents_reached}}, state}
+    end
+  end
+
+  defp redispatch_start_failure_reason(state, issue) do
+    case Map.fetch(state.retry_attempts, issue.id) do
+      {:ok, reason} -> {:worker_start_failed, reason}
+      :error -> :cause_unknown
     end
   end
 
@@ -1105,7 +1128,7 @@ defmodule Aiur.Orchestrator.PauseResume do
   defp replace_completed_entry(state, running_entry, issue, worker_host) do
     prior_work? = Config.agent_prior_work_continuation?()
 
-    replace_admitted_completed_entry(
+    replace_admitted_completed_entry_result(
       state,
       running_entry,
       issue,
@@ -1127,6 +1150,23 @@ defmodule Aiur.Orchestrator.PauseResume do
         dispatch_fun
       )
       when is_function(dispatch_fun, 4) do
+    {_result, state} =
+      replace_admitted_completed_entry_result(state, running_entry, issue, worker_host, dispatch_fun)
+
+    state
+  end
+
+  @doc false
+  @spec replace_admitted_completed_entry_result(State.t(), map(), Issue.t(), String.t() | nil, function()) ::
+          {{:ok, :started} | {:error, {:redispatch_deferred, term()}}, State.t()}
+  def replace_admitted_completed_entry_result(
+        state,
+        running_entry,
+        issue,
+        worker_host,
+        dispatch_fun
+      )
+      when is_function(dispatch_fun, 4) do
     issue_id = issue.id
 
     Logger.info("Replacing completed runner: issue_id=#{issue_id} issue_identifier=#{issue.identifier}")
@@ -1139,9 +1179,10 @@ defmodule Aiur.Orchestrator.PauseResume do
       |> dispatch_fun.(issue, nil, worker_host)
 
     if live_replacement?(next_state, issue_id) do
-      next_state
+      {{:ok, :started}, next_state}
     else
-      restore_completed_entry(next_state, running_entry, issue)
+      reason = redispatch_start_failure_reason(next_state, issue)
+      {{:error, {:redispatch_deferred, reason}}, restore_completed_entry(next_state, running_entry, issue)}
     end
   end
 
@@ -1177,12 +1218,30 @@ defmodule Aiur.Orchestrator.PauseResume do
 
   defp restart_completed_issue(state, running_entry) do
     issue = Map.fetch!(running_entry, :issue)
-    next_state = replace_completed_issue(state, running_entry, issue)
 
-    if live_replacement?(next_state, issue.id) do
-      {{:ok, :started}, next_state}
-    else
-      {{:error, :redispatch_deferred}, next_state}
+    case Dispatcher.revalidate_issue_for_dispatch(
+           issue,
+           &Tracker.fetch_issue_states_by_ids/1,
+           DispatchPolicy.terminal_state_set()
+         ) do
+      {:ok, refreshed_issue} ->
+        dispatch_completed_replacement_result(state, running_entry, refreshed_issue)
+
+      {:skip, %Issue{} = refreshed_issue} ->
+        reason =
+          case DispatchPolicy.dispatch_decision(refreshed_issue, state) do
+            {:skip, detail} -> {:not_dispatchable, detail}
+            :dispatch -> :stale_after_revalidation
+          end
+
+        next_state = Reconciler.refresh_running_entry_issue(state, refreshed_issue, running_entry)
+        {{:error, {:redispatch_deferred, reason}}, next_state}
+
+      {:skip, :missing} ->
+        {{:error, {:redispatch_deferred, :missing_after_revalidation}}, state}
+
+      {:error, reason} ->
+        {{:error, {:redispatch_deferred, {:tracker_revalidation_failed, reason}}}, state}
     end
   end
 
@@ -1224,8 +1283,16 @@ defmodule Aiur.Orchestrator.PauseResume do
         # decline a dispatch after the entry is optimistically made `:working`.
         # Restore the parked entry so the tracker still shows it as needing a
         # wake and the comment path can emit its durable Executor alert.
+        reason = reactivation_failure_reason(dispatched_state, issue, worker_host)
         restored_state = %{dispatched_state | running: Map.put(dispatched_state.running, issue_id, running_entry)}
-        {{:error, :dispatch_not_started}, TrackedSet.refresh(restored_state)}
+        {{:error, {:dispatch_failed, reason}}, TrackedSet.refresh(restored_state)}
+    end
+  end
+
+  defp reactivation_failure_reason(state, issue, worker_host) do
+    case dispatch_failure_reason(state, issue) do
+      :cause_unknown when not is_nil(worker_host) -> :preferred_worker_unavailable
+      reason -> reason
     end
   end
 
@@ -1784,29 +1851,77 @@ defmodule Aiur.Orchestrator.PauseResume do
     end
   end
 
-  defp dispatch_resumed_queued_issue(state, issue) do
-    if DispatchPolicy.dispatch_candidate?(
-         issue,
-         state,
-         DispatchPolicy.active_state_set(),
-         DispatchPolicy.terminal_state_set()
-       ) do
-      next_state = Dispatcher.dispatch_issue(state, issue)
+  @doc false
+  @spec dispatch_resumed_queued_issue(State.t(), Issue.t(), keyword()) ::
+          {{:ok, :started} | {:error, term()}, State.t()}
+  def dispatch_resumed_queued_issue(state, issue, opts \\ []) do
+    decision = Keyword.get(opts, :dispatch_decision_fun, &resumed_dispatch_decision/2)
 
-      cond do
-        MapSet.member?(next_state.claimed, issue.id) ->
-          {{:ok, :started}, next_state}
+    case decision.(issue, state) do
+      :dispatch ->
+        dispatch = Keyword.get(opts, :dispatch_fun, &Dispatcher.dispatch_issue/2)
+        next_state = dispatch.(state, issue)
 
-        match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
-          {{:error, :lifetime_dispatch_latch}, next_state}
+        cond do
+          MapSet.member?(next_state.claimed, issue.id) ->
+            {{:ok, :started}, next_state}
 
-        true ->
-          {{:error, :dispatch_failed}, next_state}
-      end
-    else
-      {{:error, :not_resumable}, state}
+          match?({:lifetime, _, _}, Dispatcher.dispatch_latch_status(next_state, issue.id)) ->
+            {{:error, :lifetime_dispatch_latch}, next_state}
+
+          true ->
+            {{:error, {:dispatch_failed, dispatch_failure_reason(next_state, issue)}}, next_state}
+        end
+
+      {:skip, reason} ->
+        {{:error, {:dispatch_failed, dispatch_decline_failure_reason(state, issue, reason)}}, state}
     end
   end
+
+  defp resumed_dispatch_decision(issue, state) do
+    active_states = DispatchPolicy.active_state_set()
+    terminal_states = DispatchPolicy.terminal_state_set()
+
+    if DispatchPolicy.dispatch_candidate?(issue, state, active_states, terminal_states),
+      do: :dispatch,
+      else: DispatchPolicy.dispatch_decision(issue, state, active_states, terminal_states)
+  end
+
+  defp dispatch_failure_reason(state, issue) do
+    cond do
+      Map.has_key?(state.dispatch_declines, issue.id) ->
+        dispatch_decline_failure_reason(state, issue, Map.fetch!(state.dispatch_declines, issue.id))
+
+      MapSet.member?(state.model_fallback_waiting, issue.id) ->
+        :all_backends_usage_limited
+
+      not is_nil(get_in(state.dispatch_recovery.codex_thrash_budget, [issue.id, :tripped])) ->
+        :thrash_circuit_open
+
+      CodingAgent.remote_worker?(CodingAgent.backend_for(issue)) and not Slots.worker_slots_available?(state) ->
+        :no_worker_capacity
+
+      Map.has_key?(state.retry_attempts, issue.id) ->
+        {:worker_start_failed, Map.fetch!(state.retry_attempts, issue.id)}
+
+      true ->
+        :cause_unknown
+    end
+  end
+
+  defp dispatch_decline_failure_reason(_state, _issue, :worker_capacity), do: :no_worker_capacity
+  defp dispatch_decline_failure_reason(_state, _issue, :state_capacity), do: :state_capacity
+  defp dispatch_decline_failure_reason(_state, _issue, :fleet_capacity), do: :fleet_capacity
+  defp dispatch_decline_failure_reason(_state, _issue, :model_fallback_waiting), do: :all_backends_usage_limited
+
+  defp dispatch_decline_failure_reason(state, issue, :retry_backoff) do
+    case Map.fetch(state.retry_attempts, issue.id) do
+      {:ok, reason} -> {:worker_start_failed, reason}
+      :error -> {:dispatch_declined, :retry_backoff}
+    end
+  end
+
+  defp dispatch_decline_failure_reason(_state, _issue, reason), do: {:dispatch_declined, reason}
 
   defp clear_pause_override(%{issue: %Issue{} = issue} = running_entry) do
     case clear_pause_override(issue) do

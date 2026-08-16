@@ -3784,8 +3784,8 @@ defmodule Aiur.OrchestratorStatusTest do
       %{torn_state | retry_attempts: %{issue.id => %{attempt: 1}}}
     end
 
-    next =
-      PauseResume.replace_admitted_completed_entry(
+    {result, next} =
+      PauseResume.replace_admitted_completed_entry_result(
         state,
         entry,
         issue,
@@ -3793,6 +3793,7 @@ defmodule Aiur.OrchestratorStatusTest do
         spawn_failure
       )
 
+    assert {:error, {:redispatch_deferred, {:worker_start_failed, %{attempt: 1}}}} = result
     refute Process.alive?(old_worker)
     restored = Map.fetch!(next.running, issue.id)
     assert restored.pid == nil
