@@ -205,16 +205,17 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
   # ---- persistence ----
 
   defp load_records(path) do
+    read_records(path)
+  rescue
+    error ->
+      Logger.warning("executor_takeover_alert_state load_error path=#{path} error=#{Exception.message(error)}")
+      %{}
+  end
+
+  defp read_records(path) do
     case File.read(path) do
       {:ok, contents} ->
-        case Jason.decode(contents) do
-          {:ok, decoded} when is_map(decoded) ->
-            Map.new(decoded, fn {identifier, raw} -> {identifier, decode_record(raw)} end)
-
-          _ ->
-            Logger.warning("executor_takeover_alert_state unreadable path=#{path}")
-            %{}
-        end
+        decode_records(path, contents)
 
       {:error, :enoent} ->
         %{}
@@ -223,10 +224,17 @@ defmodule Aiur.Executor.TakeoverAlert.Store do
         Logger.warning("executor_takeover_alert_state read_failed path=#{path} reason=#{inspect(reason)}")
         %{}
     end
-  rescue
-    error ->
-      Logger.warning("executor_takeover_alert_state load_error path=#{path} error=#{Exception.message(error)}")
-      %{}
+  end
+
+  defp decode_records(path, contents) do
+    case Jason.decode(contents) do
+      {:ok, decoded} when is_map(decoded) ->
+        Map.new(decoded, fn {identifier, raw} -> {identifier, decode_record(raw)} end)
+
+      _ ->
+        Logger.warning("executor_takeover_alert_state unreadable path=#{path}")
+        %{}
+    end
   end
 
   defp decode_record(raw) when is_map(raw) do

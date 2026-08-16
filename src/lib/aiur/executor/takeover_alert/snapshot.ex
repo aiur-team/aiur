@@ -35,11 +35,13 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
     end)
   end
 
+  @spec in_scope_nonterminal_identifiers(MapSet.t()) :: MapSet.t()
   defp in_scope_nonterminal_identifiers(running) do
     membership_nonterminal_identifiers()
     |> MapSet.union(running)
   end
 
+  @spec membership_nonterminal_identifiers() :: MapSet.t()
   defp membership_nonterminal_identifiers do
     case CurrentRunMembership.snapshot() do
       %{members: members} when is_list(members) ->
@@ -58,6 +60,7 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
     _, _ -> MapSet.new()
   end
 
+  @spec running_identifiers() :: MapSet.t()
   defp running_identifiers do
     Orchestrator.list_running_active_identifiers(Orchestrator, 1_000)
     |> MapSet.new()
@@ -130,8 +133,6 @@ defmodule Aiur.Executor.TakeoverAlert.Snapshot do
       true -> "unknown"
     end
   end
-
-  defp summarize_check_runs(_check_runs), do: nil
 
   defp parse_timestamp(nil), do: nil
 

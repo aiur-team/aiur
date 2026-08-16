@@ -78,6 +78,23 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
     wait_until(fn -> Store.record(identifier, store_name) != nil end)
   end
 
+  # Waits until the monitor has consumed the pending :tick message. Used only
+  # for ticks that perform no store write (e.g. an empty snapshot), where the
+  # record-based wait above has nothing to observe.
+  defp wait_for_mailbox_drained(pid, attempts \\ 400) do
+    case Process.info(pid, :messages) do
+      {:messages, []} ->
+        :ok
+
+      _ when attempts <= 0 ->
+        flunk("monitor mailbox did not drain")
+
+      _ ->
+        Process.sleep(5)
+        wait_for_mailbox_drained(pid, attempts - 1)
+    end
+  end
+
   defp wait_until(fun, attempts \\ 400) do
     cond do
       fun.() ->
@@ -262,6 +279,37 @@ defmodule Aiur.Executor.TakeoverAlert.MonitorTest do
     send(pid, :tick)
     assert_receive {:resolution, %{identifier: "101"}}, 500
     wait_until(fn -> Store.record("101", store.name) == nil end)
+  end
+
+  test "a worker restart (brief absence and return) does not reset the convergence clock", %{} do
+    state_dir = tmp_state_dir()
+    store = start_store(state_dir)
+    {now_fun, set_time, _} = start_clock(@t0)
+    {snapshot_fun, snapshot_agent} = start_agent_snapshot([healthy_ticket("101")])
+
+    pid = start_monitor(store.name, now_fun, %{first_hours: 8, continuous_hours: 1}, snapshot_fun)
+    tick_and_wait(pid, store.name, "101")
+
+    # A worker restart / max_turns recycle: the ticket briefly drops out of the
+    # snapshot (redispatch gap) and returns, well inside the scope grace period.
+    Agent.update(snapshot_agent, fn _tickets -> [] end)
+    set_time.(hours(0.2))
+    send(pid, :tick)
+    # The empty-snapshot tick performs no store write, so wait for it to drain
+    # from the monitor's mailbox before asserting nothing was resolved.
+    wait_for_mailbox_drained(pid)
+    refute_receive {:resolution, _payload}, 100
+
+    Agent.update(snapshot_agent, fn _tickets -> [healthy_ticket("101")] end)
+    set_time.(hours(0.5))
+    send(pid, :tick)
+    wait_until(fn -> stored(store.name, "101").last_seen_at == hours(0.5) end)
+
+    # The convergence clock was not reset: at the 8h boundary the first advisory
+    # still fires at the original age.
+    set_time.(hours(8))
+    send(pid, :tick)
+    assert_receive {:alert, %{identifier: "101", evidence: %{age_hours: 8.0}}}, 500
   end
 
   test "multiple tickets alert independently", %{} do

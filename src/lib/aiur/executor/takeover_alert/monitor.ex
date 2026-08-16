@@ -94,26 +94,28 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
   end
 
   defp run_tick(state) do
-    try do
-      thresholds = state.settings_fun.()
-      now = state.now_fun.()
-      tickets = state.snapshot_fun.(now)
+    run_tick_inner(state)
+  rescue
+    error ->
+      Logger.warning("executor_takeover tick raised: #{Exception.message(error)}")
+      Logger.flush()
+  catch
+    kind, reason ->
+      Logger.warning("executor_takeover tick caught #{kind}: #{inspect(reason)}")
+      Logger.flush()
+  end
 
-      Enum.each(tickets, fn ticket ->
-        process_ticket(state, ticket, thresholds, now)
-      end)
+  defp run_tick_inner(state) do
+    thresholds = state.settings_fun.()
+    now = state.now_fun.()
+    tickets = state.snapshot_fun.(now)
 
-      reconcile_out_of_scope(state, tickets, now)
-      :ok
-    rescue
-      error ->
-        Logger.warning("executor_takeover tick raised: #{Exception.message(error)}")
-        Logger.flush()
-    catch
-      kind, reason ->
-        Logger.warning("executor_takeover tick caught #{kind}: #{inspect(reason)}")
-        Logger.flush()
-    end
+    Enum.each(tickets, fn ticket ->
+      process_ticket(state, ticket, thresholds, now)
+    end)
+
+    reconcile_out_of_scope(state, tickets, now)
+    :ok
   end
 
   # A ticket the monitor previously tracked but that has now disappeared from
@@ -201,9 +203,6 @@ defmodule Aiur.Executor.TakeoverAlert.Monitor do
 
       %DateTime{} = checked_at ->
         TakeoverAlert.age_hours(checked_at, now) >= max(continuous_hours, @min_pr_refresh_hours)
-
-      _other ->
-        true
     end
   end
 
