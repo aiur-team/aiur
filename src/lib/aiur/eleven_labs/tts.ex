@@ -38,56 +38,66 @@ defmodule Aiur.ElevenLabs.TTS do
     Process.put(:aiur_tts_audio_bytes, 0)
     Process.put(:aiur_tts_limited, false)
 
-    into = fn {:data, data}, {request, response} ->
-      bytes = Process.get(:aiur_tts_audio_bytes, 0) + byte_size(data)
-      limited? = bytes > limits.max_audio_bytes or monotonic_ms() >= limits.deadline
-
-      cond do
-        limited? ->
-          Process.put(:aiur_tts_limited, true)
-          {:halt, {request, response}}
-
-        not Process.alive?(owner) ->
-          {:halt, {request, response}}
-
-        true ->
-          Process.put(:aiur_tts_audio_bytes, bytes)
-          if response.status == 200, do: send(owner, {:elevenlabs_audio, :chunk, data})
-          {:cont, {request, response}}
-      end
-    end
-
     url = "#{@endpoint}/#{URI.encode(voice_id, &URI.char_unreserved?/1)}/stream"
 
     options = [
       params: [output_format: @output_format],
       headers: [{"xi-api-key", api_key}],
       json: %{text: text, model_id: @model},
-      into: into,
+      into: stream_into(owner, limits),
       raw: true,
       retry: false,
       receive_timeout: 60_000
     ]
 
-    case request_fun.(url, options) do
-      {:ok, %{status: 200}} ->
-        if Process.get(:aiur_tts_limited) == true do
-          notify(owner, {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"})
-        else
-          notify(owner, {:elevenlabs_audio, :done})
-        end
-
-      {:ok, _response} ->
-        notify(owner, {:elevenlabs_audio, :error, "ElevenLabs could not speak this reply"})
-
-      {:error, _opaque} ->
-        notify(owner, {:elevenlabs_audio, :error, "Voice playback connection failed"})
-    end
+    request_fun.(url, options)
+    |> handle_result(owner)
   rescue
     _error -> notify(owner, {:elevenlabs_audio, :error, "Voice playback failed"})
   catch
     _kind, _reason -> notify(owner, {:elevenlabs_audio, :error, "Voice playback failed"})
   end
+
+  defp stream_into(owner, limits) do
+    fn {:data, data}, accumulator ->
+      bytes = Process.get(:aiur_tts_audio_bytes, 0) + byte_size(data)
+
+      stream_chunk(owner, data, bytes, limits, accumulator)
+    end
+  end
+
+  defp stream_chunk(owner, data, bytes, limits, {request, response} = accumulator) do
+    cond do
+      bytes > limits.max_audio_bytes or monotonic_ms() >= limits.deadline ->
+        Process.put(:aiur_tts_limited, true)
+        {:halt, accumulator}
+
+      not Process.alive?(owner) ->
+        {:halt, accumulator}
+
+      true ->
+        Process.put(:aiur_tts_audio_bytes, bytes)
+        forward_chunk(owner, response.status, data)
+        {:cont, {request, response}}
+    end
+  end
+
+  defp forward_chunk(owner, 200, data), do: send(owner, {:elevenlabs_audio, :chunk, data})
+  defp forward_chunk(_owner, _status, _data), do: :ok
+
+  defp handle_result({:ok, %{status: 200}}, owner) do
+    if Process.get(:aiur_tts_limited) == true do
+      notify(owner, {:elevenlabs_audio, :error, "Voice reply exceeded its playback limit"})
+    else
+      notify(owner, {:elevenlabs_audio, :done})
+    end
+  end
+
+  defp handle_result({:ok, _response}, owner),
+    do: notify(owner, {:elevenlabs_audio, :error, "ElevenLabs could not speak this reply"})
+
+  defp handle_result({:error, _opaque}, owner),
+    do: notify(owner, {:elevenlabs_audio, :error, "Voice playback connection failed"})
 
   defp validate_text(text) do
     text = String.trim(text)

@@ -314,16 +314,14 @@ defmodule AiurWeb.VoiceChannel do
   defp tts_error(_reason), do: "Voice playback could not start."
 
   defp decode_audio(data) do
-    cond do
-      byte_size(data) > @max_audio_base64_bytes ->
-        {:error, "Audio chunk is too large."}
-
-      true ->
-        case Base.decode64(data) do
-          {:ok, pcm} when byte_size(pcm) <= @max_audio_bytes -> {:ok, pcm}
-          {:ok, _pcm} -> {:error, "Audio chunk is too large."}
-          :error -> {:error, "Audio chunk encoding is invalid."}
-        end
+    if byte_size(data) > @max_audio_base64_bytes do
+      {:error, "Audio chunk is too large."}
+    else
+      case Base.decode64(data) do
+        {:ok, pcm} when byte_size(pcm) <= @max_audio_bytes -> {:ok, pcm}
+        {:ok, _pcm} -> {:error, "Audio chunk is too large."}
+        :error -> {:error, "Audio chunk encoding is invalid."}
+      end
     end
   end
 

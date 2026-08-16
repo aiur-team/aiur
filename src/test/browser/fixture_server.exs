@@ -2311,7 +2311,7 @@ defmodule Aiur.BrowserHarness.FixtureEndpoint do
 end
 
 defmodule Aiur.BrowserHarness.FixtureServer do
-  alias Aiur.BrowserHarness.FixtureEndpoint
+  alias Aiur.BrowserHarness.{FixtureEndpoint, VoiceSTT}
   alias Aiur.IssueLog
 
   @port System.fetch_env!("AIUR_BROWSER_PORT") |> String.to_integer()
@@ -2555,7 +2555,7 @@ defmodule Aiur.BrowserHarness.FixtureServer do
         agent_chat_pause_fun: &__MODULE__.streamdeck_pause/1,
         agent_chat_resume_fun: &__MODULE__.streamdeck_resume/1,
         voice_stt_start_fun: fn socket ->
-          case Aiur.BrowserHarness.VoiceSTT.start_link(socket.channel_pid) do
+          case VoiceSTT.start_link(socket.channel_pid) do
             {:ok, pid} -> {:ok, %{pid: pid}}
             {:error, reason} -> {:error, inspect(reason)}
           end

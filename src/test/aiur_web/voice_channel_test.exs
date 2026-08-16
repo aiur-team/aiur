@@ -106,7 +106,7 @@ defmodule AiurWeb.VoiceChannelTest do
     if is_nil(Process.whereis(Endpoint)) do
       start_supervised!({Endpoint, []})
     else
-      Endpoint.config_change(config, [])
+      Endpoint.config_change([{Endpoint, config}], [])
     end
 
     on_exit(fn ->
