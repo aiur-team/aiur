@@ -55,21 +55,7 @@ defmodule Aiur.Events.UniversalSubscriptions do
       when is_binary(identifier) do
     current = "system." <> Config.base_branch() <> ".branch.push"
 
-    stale =
-      case subscription_store.snapshot(identifier) do
-        %{subscribed_to: subscribed_to} when is_list(subscribed_to) ->
-          Enum.flat_map(subscribed_to, fn sub ->
-            if Map.get(sub, "reason") == "base_branch:auto" and
-                 Map.get(sub, "topic") != current do
-              [Map.get(sub, "topic")]
-            else
-              []
-            end
-          end)
-
-        _ ->
-          []
-      end
+    stale = stale_base_branch_topics(subscription_store, identifier, current)
 
     Enum.each(stale, fn topic ->
       safe_remove_subscription(subscription_store, identifier, topic, "base_branch:auto")
@@ -82,6 +68,23 @@ defmodule Aiur.Events.UniversalSubscriptions do
       Logger.warning("UniversalSubscriptions.reconcile_base_branch_failed identifier=#{identifier} reason=#{inspect({kind, reason})}")
 
       []
+  end
+
+  # Topics in the persisted `subscribed_to` list that are `base_branch:auto`
+  # entries for a base other than `current`. Extracted so `reconcile_base_branch/2`
+  # stays within Credo's nesting budget.
+  defp stale_base_branch_topics(subscription_store, identifier, current) do
+    case subscription_store.snapshot(identifier) do
+      %{subscribed_to: subscribed_to} when is_list(subscribed_to) ->
+        for sub <- subscribed_to,
+            Map.get(sub, "reason") == "base_branch:auto",
+            topic = Map.get(sub, "topic"),
+            topic != current,
+            do: topic
+
+      _ ->
+        []
+    end
   end
 
   @doc """
