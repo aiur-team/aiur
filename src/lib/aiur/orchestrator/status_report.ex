@@ -193,6 +193,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :agent_rate_limits,
       :agent_totals,
       :capacity_hold,
+      :dispatch_declines,
       :dispatch_hold,
       # `agent_statuses/1` reads the codex thrash budget to explain why an idle
       # ticket is not dispatching. Projecting without it would fall back to the
@@ -594,6 +595,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
+      dispatch_decline_reason: Map.get(state.dispatch_declines, issue.id),
       waiting_reason: idle_evidence_waiting_reason(idle_evidence, release),
       claim_released?: not is_nil(release),
       claim_release_cause: release && release.cause,
@@ -1166,6 +1168,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
+      dispatch_decline_reason: Map.get(state.dispatch_declines, Map.get(issue, :id)),
       pause_reason: pause_reason,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,

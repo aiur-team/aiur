@@ -105,6 +105,22 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert snapshot_status.blocked_by == status.blocked_by
   end
 
+  test "idle rows expose a blocking Command dispatch decline in live and snapshot status" do
+    issue = %Issue{id: "blocked-command", identifier: "repo#blocked-command", state: "todo"}
+
+    state = %State{
+      last_polled_issues: %{issue.id => issue},
+      dispatch_declines: %{issue.id => :blocked_on_decision}
+    }
+
+    [status] = StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+    assert status.dispatch_decline_reason == :blocked_on_decision
+
+    snapshot_input = StatusReport.snapshot_input(state)
+    [snapshot_status] = StatusReport.snapshot_payload(snapshot_input).idle
+    assert snapshot_status.dispatch_decline_reason == :blocked_on_decision
+  end
+
   test "snapshot input preserves auto-resume evidence for parity" do
     issue = %Issue{id: "transient", identifier: "repo#transient", state: "todo"}
 
