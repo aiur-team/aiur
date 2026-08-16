@@ -153,4 +153,93 @@ fi
 grep -q "the matcher is broken" <<<"$output" ||
   fail "an unparseable root schema must say the matcher is broken, got: $output"
 
+# --- Case 6: a known map sub-key must be documented -------------------------
+root="$work/map-subkey"
+scaffold "$root"
+python3 - "$root/src/lib/aiur/config/schema.ex" <<'PY'
+from pathlib import Path
+import sys
+
+path = Path(sys.argv[1])
+source = path.read_text()
+source = source.replace(
+    "alias Aiur.Config.Schema.{Tracker}",
+    "alias Aiur.Config.Schema.{Agent, Tracker}",
+).replace(
+    "    embeds_one(:tracker, Tracker, on_replace: :update)",
+    "    embeds_one(:tracker, Tracker, on_replace: :update)\n"
+    "    embeds_one(:agent, Agent, on_replace: :update)",
+)
+path.write_text(source)
+PY
+cat >"$root/src/lib/aiur/config/schema/agent.ex" <<'EOF'
+defmodule Aiur.Config.Schema.Agent do
+  embedded_schema do
+    field(:backend_configs, :map, default: %{})
+  end
+end
+EOF
+reference "$root" <<'EOF'
+| `debug` | boolean | false | Debug. |
+| `tracker.kind` | string | required | Kind. |
+| `tracker.command` | string | nil | Tracker command. |
+| `tracker.github.command` | string | nil | GitHub command. |
+| `tracker.github.p95_latency_ms` | integer | 0 | Latency budget. |
+| `agent.backend_configs` | map | `%{}` | Backend settings. |
+| `agent.backend_configs.<backend>.enabled` | boolean | backend default | Enable dispatch. |
+| `agent.backend_configs.<backend>.command` | string | registry default | Command. |
+| `agent.backend_configs.<backend>.model` | string | registry default | Model. |
+| `agent.backend_configs.<backend>.default_model` | string | registry default | Default model. |
+| `agent.backend_configs.<backend>.base_url` | string | registry default | Endpoint. |
+| `agent.backend_configs.<backend>.api_key_env` | string | registry default | API key environment name. |
+| `agent.backend_configs.<backend>.management_api_key_env` | string | registry default | Management key environment name. |
+| `agent.backend_configs.<backend>.transport` | string | registry default | Transport. |
+| `agent.backend_configs.<backend>.balance_baseline` | number | nil | Balance seed. |
+| `agent.backend_configs.<backend>.quirks.reasoning_content_replay` | boolean | registry default | Reasoning replay. |
+| `agent.backend_configs.<backend>.quirks.text_tool_fallback` | boolean | registry default | Text tool fallback. |
+| `agent.backend_configs.<backend>.quirks.openrouter_metadata` | boolean | registry default | OpenRouter metadata. |
+| `agent.backend_configs.<backend>.quirks.local_concurrency_limit` | boolean | registry default | Local concurrency. |
+| `agent.backend_configs.openrouter.provider.order` | array | nil | Provider order. |
+| `agent.backend_configs.openrouter.provider.ignore` | array | nil | Ignored providers. |
+| `agent.backend_configs.openrouter.provider.allow_fallbacks` | boolean | nil | Provider fallback. |
+| `agent.backend_configs.openrouter.provider.sort` | string | nil | Provider sorting. |
+EOF
+if ! output="$(run_check "$root")"; then
+  fail "a fully documented known map shape should pass, got: $output"
+fi
+
+# This intentionally duplicates KNOWN_MAP_SUBKEYS: the positive case fails when
+# the checker adds an untested key, while each omission fails when the checker
+# drops an expected key.
+map_subkeys=(
+  'agent.backend_configs.<backend>.enabled'
+  'agent.backend_configs.<backend>.command'
+  'agent.backend_configs.<backend>.model'
+  'agent.backend_configs.<backend>.default_model'
+  'agent.backend_configs.<backend>.base_url'
+  'agent.backend_configs.<backend>.api_key_env'
+  'agent.backend_configs.<backend>.management_api_key_env'
+  'agent.backend_configs.<backend>.transport'
+  'agent.backend_configs.<backend>.balance_baseline'
+  'agent.backend_configs.<backend>.quirks.reasoning_content_replay'
+  'agent.backend_configs.<backend>.quirks.text_tool_fallback'
+  'agent.backend_configs.<backend>.quirks.openrouter_metadata'
+  'agent.backend_configs.<backend>.quirks.local_concurrency_limit'
+  'agent.backend_configs.openrouter.provider.order'
+  'agent.backend_configs.openrouter.provider.ignore'
+  'agent.backend_configs.openrouter.provider.allow_fallbacks'
+  'agent.backend_configs.openrouter.provider.sort'
+)
+reference_file="$root/website/docs-app/reference/configuration.md"
+cp "$reference_file" "$root/complete-reference.md"
+
+for subkey in "${map_subkeys[@]}"; do
+  grep -Fv "\`$subkey\`" "$root/complete-reference.md" >"$reference_file"
+  if output="$(run_check "$root")"; then
+    fail "undocumented known map sub-key $subkey must fail the check, got: $output"
+  fi
+  grep -Fq "$subkey" <<<"$output" ||
+    fail "the failure must name the missing map sub-key $subkey, got: $output"
+done
+
 echo "check-config-docs guard: all cases passed"
