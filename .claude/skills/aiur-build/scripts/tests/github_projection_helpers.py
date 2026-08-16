@@ -20,16 +20,29 @@ def github(repository: str, number: int, node_id: str):
     }
 
 
+# A receipt is only certifiable against a lifecycle prefix supplied from
+# outside the document. These cases stand in for the frozen manifest the real
+# publication path loads from approved Git history.
+DEFAULT_AUTHORITY = PublicationAuthority(
+    "refs/heads/main", "root.md", ("example/repo", "example/other"), (), "agent",
+)
+
+
 class GithubProjectionCase(ValidatorCase):
+    def report_for_case(self, data, authority=DEFAULT_AUTHORITY):
+        return report_for(
+            data, getattr(self, "approved_body_expectations", None), authority,
+        )
+
     def assert_error(self, data, needle):
-        report = report_for(data, getattr(self, "approved_body_expectations", None))
+        report = self.report_for_case(data)
         self.assertTrue(
             any(needle in message for message in report.errors),
             f"missing {needle!r} in {report.errors}",
         )
 
     def assert_clean(self, data):
-        report = report_for(data, getattr(self, "approved_body_expectations", None))
+        report = self.report_for_case(data)
         self.assertEqual([], report.errors)
         self.assertEqual([], report.warnings)
 
@@ -47,13 +60,13 @@ class GithubProjectionCase(ValidatorCase):
             "dependency_edges": [{"ticket_id": "BO-002", "depends_on": "BO-001"}],
             "observed_labels": {
                 "example/repo:operator-dashboard": ["build-order"],
-                "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
-                "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
+                "BO-001": ["agent:todo", "build-lane:platform", "phase:1", "complexity:3", "model:codex"],
+                "BO-002": ["agent:todo", "build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
             "projected_labels": {
                 "example/repo:operator-dashboard": ["build-order"],
-                "BO-001": ["build-lane:platform", "phase:1", "complexity:3", "model:codex"],
-                "BO-002": ["build-lane:integration", "phase:2", "complexity:2", "model:codex"],
+                "BO-001": ["agent:todo", "build-lane:platform", "phase:1", "complexity:3", "model:codex"],
+                "BO-002": ["agent:todo", "build-lane:integration", "phase:2", "complexity:2", "model:codex"],
             },
             "expected_issue_titles": {
                 "example/repo:operator-dashboard": "example/repo:operator-dashboard",

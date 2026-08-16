@@ -78,6 +78,25 @@ Classify every discovered finding before creating work:
   create or dispatch an individual feature-run ticket.
 - **Optimization:** preserve evidence for a separately authorized run.
 
+When creation is authorized, encode that classification in the same creation
+request. Executable work receives the configured lifecycle todo label
+(`agent:todo` in the standard workflow); deferred work receives `needs-triage`
+or `human:todo` and states why. Build Order roots carry `build-order`, while
+explicitly named `Epic:` containers carry `epic`; both are hierarchy and remain
+undispatched. Never split
+issue creation and disposition across two requests: failure of the label edit
+otherwise leaves an invisible ticket that looks complete to the findings
+ledger but can never be claimed.
+
+This is mechanical on both filing surfaces. Agent workspaces resolve `gh`
+through Aiur's wrapper, while the repository `PreToolUse` hook checks Executor
+Bash commands before they run. Both refuse an `issue create` with no disposition
+and refuse direct REST or GraphQL issue creation that bypasses the checked label
+flags. The aiur-build publication validator separately refuses a Build Order
+whose executable members are projected undispatched. Use
+`gh issue create --label ...`; keep `gh issue list --search 'no:label'` as the
+independent safety-net audit before treating a queue as empty.
+
 “Worth fixing” and “we know how” do not expand the active boundary. Each
 deferred entry keeps description, severity, evidence/reproduction, affected
 ticket/component, why acceptance is not blocked, and suggested disposition.

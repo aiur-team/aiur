@@ -5,6 +5,7 @@ defmodule Aiur.AgentEnvironment do
 
   alias Aiur.{AgentBuildGuard, AgentGitHubGuard, AgentScratch, BuildGate, Config, RepoBase}
   alias Aiur.GitHub.Budget
+  alias Aiur.GitHub.Config, as: GitHubConfig
   alias Aiur.Workspace.Remote
 
   # AIUR_RELEASE_NODE + AIUR_INSTANCE_KEY + AIUR_REPO_ROOT are the per-instance
@@ -147,6 +148,7 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = sidecar_paths(opts)
     state_path = repo_url(opts) |> RepoBase.repo_path()
     base_branch = configured_base_branch(opts)
+    label_prefix = configured_label_prefix(opts)
     real_gh = AgentGitHubGuard.real_gh()
     github_budget = Budget.guard_settings()
     build_gate_env = BuildGate.shell_env()
@@ -175,6 +177,7 @@ defmodule Aiur.AgentEnvironment do
         # the human again.
         {~c"GH_CONFIG_DIR", workspace |> AgentGitHubGuard.gh_config_dir() |> String.to_charlist()},
         {~c"AIUR_REAL_GH", if(real_gh, do: String.to_charlist(real_gh), else: false)},
+        {~c"AIUR_GITHUB_LABEL_PREFIX", String.to_charlist(label_prefix)},
         {~c"AIUR_GITHUB_BUDGET_ROOT", Budget.state_dir() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_BROKER", workspace |> AgentGitHubGuard.budget_broker_path() |> String.to_charlist()},
         {~c"AIUR_GITHUB_BUDGET_CONSUMER", "workspace:#{workspace}" |> String.to_charlist()},
@@ -255,6 +258,7 @@ defmodule Aiur.AgentEnvironment do
     {hex, mix, npm_cache} = remote_sidecar_paths(opts)
     state_path = Path.join("~", RepoBase.repo_relative_path(repo_url(opts)))
     base_branch = configured_base_branch(opts)
+    label_prefix = configured_label_prefix(opts)
     agent_bin = AgentGitHubGuard.bin_dir(workspace)
     github_budget = Budget.guard_settings()
     build_gate_exports = build_gate_export_prefix(workspace, opts)
@@ -285,6 +289,7 @@ defmodule Aiur.AgentEnvironment do
     "{\n#{sidecar_exports}\n#{build_gate_exports}AIUR_REAL_GH=\n" <>
       "AIUR_REAL_GIT=\"$(command -v git 2>/dev/null || true)\"\n" <>
       "export AIUR_REAL_GH AIUR_REAL_GIT\n" <>
+      "export AIUR_GITHUB_LABEL_PREFIX=#{Aiur.Shell.escape(label_prefix)}\n" <>
       "export AIUR_AGENT_BIN=#{Aiur.Shell.escape(agent_bin)}\n" <>
       "export GH_CONFIG_DIR=#{Aiur.Shell.escape(AgentGitHubGuard.gh_config_dir(workspace))}\n" <>
       "export AIUR_AGENT_QUOTA_STATE_PATH=#{Aiur.Shell.escape(Path.join(workspace, ".aiur-runtime/github-quota"))}\n" <>
@@ -379,6 +384,7 @@ defmodule Aiur.AgentEnvironment do
   end
 
   defp configured_base_branch(opts), do: Config.base_branch(opts)
+  defp configured_label_prefix(opts), do: Keyword.get_lazy(opts, :label_prefix, &GitHubConfig.label_prefix/0)
 
   defp sidecar_paths(opts) do
     root = repo_url(opts) |> RepoBase.repo_path()

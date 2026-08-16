@@ -56,8 +56,8 @@ def fixture() -> tuple[dict[str, Any], dict[str, Any]]:
     }
     labels = {
         ROOT_ID: ["build-order"],
-        "BO-001": ["build-lane:platform", "complexity:3", "model:codex", "phase:1"],
-        "BO-002": ["build-lane:integration", "complexity:2", "model:codex", "phase:2"],
+        "BO-001": ["agent:todo", "build-lane:platform", "complexity:3", "model:codex", "phase:1"],
+        "BO-002": ["agent:todo", "build-lane:integration", "complexity:2", "model:codex", "phase:2"],
     }
     bodies: dict[str, str] = {}
     evidence: dict[str, dict[str, Any]] = {}
