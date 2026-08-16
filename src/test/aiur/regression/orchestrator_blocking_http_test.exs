@@ -32,19 +32,9 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   # already-known state must finish well inside it.
   @cli_budget_ms 5_000
 
-  # A request deadline that has to contain a *successful* admission has to be
-  # larger than one local admission round trip. `Budget.acquire/2` runs the
-  # host-local broker by spawning `python3` and running a SQLite transaction,
-  # and `Transport` charges that to the request deadline before any HTTP work
-  # starts: measured in-VM, one acquire costs 126–308 ms on an idle developer
-  # machine, so the 300 ms this test used to install was smaller than the
-  # acquire it had to hold. On a loaded runner the broker port command is killed
-  # at the deadline, `Budget` reads a killed command as an unavailable broker,
-  # and the caller is handed a synthetic 429 ("GitHub core quota is exhausted
-  # locally", `@broker_failure_backoff_ms` = 5 s) without the endpoint ever
-  # being reached — the request under test never happens. The property below is
-  # about the *release* staying inside the deadline, so the deadline is sized to
-  # hold the admission in front of it with room to spare.
+  # The release test first needs a real lease before it can lock the broker.
+  # Give that setup admission enough time for its Python process and SQLite
+  # transaction; the 300 ms deadline measured below applies only to release.
   @locked_release_deadline_ms 1_500
 
   @crashing_owner_name :orchestrator_blocking_http_crashing_owner
@@ -651,7 +641,7 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
-    assert_receive {:locked_budget_result, {:ok, %{status: 429}}}, 2_000
+    assert_receive {:locked_budget_result, {:error, :github_budget_broker_unavailable}}, 2_000
     assert answers?(pid)
     close_port(lock)
   end
