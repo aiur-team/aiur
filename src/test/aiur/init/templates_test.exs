@@ -1,7 +1,7 @@
 defmodule Aiur.Init.TemplatesTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Init.Templates
+  alias Aiur.Init.{ElevenLabs, Resume, Templates}
 
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
@@ -79,7 +79,8 @@ defmodule Aiur.Init.TemplatesTest do
         polling: 30,
         prompt_file: "prompt.md",
         prewarm: %{enabled: true, base_build: "mise exec -- mix compile"},
-        alerts: %{enabled: true, use_os_default_sounds: false}
+        alerts: %{enabled: true, use_os_default_sounds: false},
+        elevenlabs: %{enabled: false, api_key: nil}
       })
 
     rendered =
@@ -109,7 +110,8 @@ defmodule Aiur.Init.TemplatesTest do
       polling: 30,
       prompt_file: "prompt.md",
       prewarm: %{enabled: false},
-      alerts: %{enabled: false, use_os_default_sounds: false}
+      alerts: %{enabled: false, use_os_default_sounds: false},
+      elevenlabs: %{enabled: false, api_key: nil}
     }
 
     with_account =
@@ -143,7 +145,8 @@ defmodule Aiur.Init.TemplatesTest do
       polling: 30,
       prompt_file: "prompt.md",
       prewarm: %{enabled: false},
-      alerts: %{enabled: false, use_os_default_sounds: false}
+      alerts: %{enabled: false, use_os_default_sounds: false},
+      elevenlabs: %{enabled: false, api_key: nil}
     }
 
     for branch <- ["false", "null", "123"] do
@@ -169,9 +172,78 @@ defmodule Aiur.Init.TemplatesTest do
         polling: 30,
         prompt_file: "prompt.md",
         prewarm: %{enabled: false},
-        alerts: %{enabled: false, use_os_default_sounds: false}
+        alerts: %{enabled: false, use_os_default_sounds: false},
+        elevenlabs: %{enabled: false, api_key: nil}
       })
 
     assert Templates.fill_template("{{PRIORITY}}", fills) == "[codex, claude]"
+  end
+
+  describe "elevenlabs voice-input section" do
+    test "opting in fills the whole section from the shared renderer" do
+      rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
+
+      assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}}} =
+               YamlElixir.read_from_string(rendered)
+
+      assert rendered ==
+               "\n" <> IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
+    end
+
+    test "declining renders nothing at all" do
+      rendered = render_elevenlabs(%{enabled: false, api_key: nil})
+
+      assert rendered == ""
+    end
+
+    test "the shipped example renders as valid YAML with the section when opted in" do
+      rendered = render_example(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
+
+      refute rendered =~ "{{ELEVENLABS_SECTION}}"
+
+      assert {:ok, config} = YamlElixir.read_from_string(rendered)
+      assert %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}} = config
+    end
+
+    # Regression: a declined question used to leave an `elevenlabs:` header (with
+    # only `language_code`) in the config, so `Resume.missing_section?/2` never saw
+    # the section as missing and voice input could never be backfilled later.
+    test "the shipped example omits the elevenlabs key entirely when declined" do
+      rendered = render_example(%{enabled: false, api_key: nil})
+
+      refute rendered =~ "{{ELEVENLABS_SECTION}}"
+      refute rendered =~ "\n\n\n"
+
+      assert {:ok, config} = YamlElixir.read_from_string(rendered)
+      refute Map.has_key?(config, "elevenlabs")
+      assert Resume.missing_section?(config, "elevenlabs")
+    end
+  end
+
+  defp render_example(answer) do
+    Templates.fill_template(Templates.config_example(), elevenlabs_fills(answer))
+  end
+
+  defp render_elevenlabs(answer) do
+    Templates.fill_template("{{ELEVENLABS_SECTION}}", elevenlabs_fills(answer))
+  end
+
+  defp elevenlabs_fills(answer) do
+    Templates.build_fills(%{
+      tracker: %{kind: "github", repo: "owner/repo", base_branch: "develop"},
+      agents: ["claude"],
+      routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
+      permission_mode: "bypassPermissions",
+      workspace_root: "/tmp/workspaces",
+      max_agents: 1,
+      max_turns: "none",
+      max_duration: 60,
+      pre_warmed: 0,
+      polling: 30,
+      prompt_file: "prompt.md",
+      prewarm: %{enabled: false},
+      alerts: %{enabled: false, use_os_default_sounds: false},
+      elevenlabs: answer
+    })
   end
 end
