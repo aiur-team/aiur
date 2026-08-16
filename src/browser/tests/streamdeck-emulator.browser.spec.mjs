@@ -997,6 +997,10 @@ test('clicking a logs event key positions the flattened transcript at that event
   await expect(logKeys.locator('[data-log-event-index="0"]')).toContainText('Ticket opened')
   inks.add(await origin.evaluate((el) => getComputedStyle(el).color))
   expect(inks.size).toBe(4)
+  // LIVE is pinned: even scrolled fully left to the origin, it still occupies
+  // the last (bottom-right) key rather than scrolling away.
+  await expect(logKeys.locator('.sd-live-key')).toHaveCount(1)
+  await expect(logKeys.locator('.sd-key').last()).toHaveClass(/sd-live-key/)
 
   // Back to where it opened, so the assertions below read the live end.
   for (let i = 0; i < 6; i += 1) await dragDialThroughAngles(page, dialDKnob, [-90, 0, 90])

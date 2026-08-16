@@ -1,4 +1,4 @@
-import { cycleEventPage, cycleWindow, maxColumnOffset } from "./dial.js";
+import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
 import type { DiffLine, StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
@@ -311,11 +311,17 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     const grid = options.grid();
     if (state.mode === "logs") {
       // Pressing a key scrolls the transcript to that key's own start. LIVE is
-      // not a special case: its start is the newest row, so the same line of
-      // code serves both, and the selection that follows is derived from where
-      // the scroll landed — which is what makes exactly one of {LIVE, an event}
-      // active at a time.
-      const position = state.eventOffset + index;
+      // pinned to the bottom-right key and is not part of the scroll window, so
+      // it is not addressable as eventOffset + index: key EVENTS_PER_PAGE (7)
+      // is LIVE, the feed's last key, and keys 0-6 are the event page. Its
+      // start is the newest row, so the same line of code serves both, and the
+      // selection that follows is derived from where the scroll landed — which
+      // is what makes exactly one of {LIVE, an event} active at a time.
+      const position = index === EVENTS_PER_PAGE ? eventHistory.length - 1 : state.eventOffset + index;
+      // An event slot that is not a real event is a padded empty key: the last
+      // real event sits at `eventHistory.length - 2` (LIVE owns the last
+      // index), so anything at or past LIVE's index on an event key is empty.
+      if (index !== EVENTS_PER_PAGE && position >= eventHistory.length - 1) return;
       const entry = eventHistory[position];
       if (entry === undefined) return;
       setLogsOffsets(state.eventOffset, entry.start, true, position);
@@ -405,7 +411,10 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
     if (index === 0) return back();
     if (index !== 3) return;
     if (state.mode === "logs") {
-      const next = cycleEventPage(state.eventOffset, eventMaxOffset + 8);
+      // `eventMaxOffset + EVENTS_PER_PAGE + 1` is the total key count (events
+      // plus the pinned LIVE key), which is what the dial's max-offset math
+      // expects as its `eventCount`.
+      const next = cycleEventPage(state.eventOffset, eventMaxOffset + EVENTS_PER_PAGE + 1);
       return setLogsOffsets(next.eventOffset, state.chatOffset, false);
     }
     if (state.mode === "cmd") {
@@ -462,7 +471,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       const transcript = logs.transcript ?? [];
       transcriptHistory = transcript.map(toTranscriptRow);
       eventStarts = eventHistory.map((event) => event.start);
-      eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
+      eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - EVENTS_PER_PAGE - 1);
       // Every row must be reachable as a window *start*, not just visible in
       // some window. The daemon flattens newest event first, so the oldest
       // event's header is usually within the last few rows; capping the offset
