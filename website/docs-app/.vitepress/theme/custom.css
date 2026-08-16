@@ -82,15 +82,17 @@ body {
   display: none;
 }
 
+/* The wordmark uses the homepage lockup font (website/src/styles.css .wordmark)
+   so the docs nav and aiur.team read as one brand. */
 .VPNavBarTitle .title {
-  gap: 9px;
+  gap: 10px;
   border-bottom: 0;
-  font-family: var(--vp-font-family-mono);
-  font-size: 12px;
+  font-family: "Bungee", sans-serif;
+  font-size: 17px;
   font-weight: 400;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--aiur-muted);
+  letter-spacing: 0.01em;
+  line-height: 1;
+  color: var(--aiur-fg);
 }
 
 .VPNavBarTitle .logo {
@@ -276,6 +278,31 @@ body {
   border-radius: 5px;
   background: var(--aiur-surface);
   color: var(--aiur-accent);
+}
+
+/* Commands in reference tables. The syntax and runnable-example columns hold
+   whole commands, and an inline <code> span split across two lines reads as a
+   truncation rather than a wrap. Render each one as a single block with a
+   hanging indent, so a command that has to wrap looks deliberate and still
+   selects and copies as one unit. */
+.cli-reference .vp-doc table td:first-child > code,
+.cli-reference .vp-doc table td:last-child > code {
+  display: block;
+  padding: 6px 10px 6px calc(10px + 1.15em);
+  text-indent: -1.15em;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+  line-height: 1.6;
+  color: var(--aiur-fg);
+}
+
+/* Give a whole-command cell room, so the syntax column is not squeezed to a
+   sliver by a long description beside it. */
+.cli-reference .vp-doc table td:first-child,
+.cli-reference .vp-doc table td:last-child {
+  width: 21%;
+  min-width: 190px;
 }
 
 .vp-doc div[class*="language-"] {

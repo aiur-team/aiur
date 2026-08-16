@@ -56,18 +56,10 @@ source_flags="$(
     | sort -u
 )"
 
-documented_commands="$(
-  rg -o '<!-- cli-command: [^ ]+ -->' "$page" \
-    | sed 's/.*cli-command: //; s/ -->//' \
-    | sort -u
-)"
-
-documented_flags="$(
-  rg -o '<!-- cli-flag: --[a-z0-9-]+ -->' "$page" \
-    | sed 's/.*cli-flag: //; s/ -->//' \
-    | sort -u
-)"
-documented_dev_commands="$(rg -o '<!-- cli-dev-command: [a-z-]+ -->' "$page" | sed 's/.*cli-dev-command: //; s/ -->//' | sort -u)"
+# The page used to carry `<!-- cli-command: ... -->` markers beside every entry.
+# They duplicated the visible syntax column and cluttered the source, so the
+# checker now reads the rendered tables and prose instead. The rendered-* and
+# prose-* comparisons below cover exactly what the markers covered.
 
 has_complete_table_row() {
   local token="$1"
@@ -110,11 +102,8 @@ compare_source_to_docs() {
   fi
 }
 
-compare_source_to_docs command "$source_commands" "$documented_commands"
-compare_source_to_docs flag "$source_flags" "$documented_flags"
 compare_source_to_docs rendered-command "$source_word_commands" "$rendered_commands"
 compare_source_to_docs rendered-flag "$source_flags" "$rendered_flags"
-compare_source_to_docs dev-command "$source_dev_commands" "$documented_dev_commands"
 compare_source_to_docs rendered-dev-command "$source_dev_commands" "$rendered_dev_commands"
 compare_source_to_docs prose-flag "$source_flag_tokens" "$prose_flags"
 compare_source_to_docs prose-command "$source_prose_commands" "$prose_commands"

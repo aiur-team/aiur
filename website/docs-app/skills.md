@@ -2,40 +2,57 @@
 title: Skills
 ---
 
-Aiur has two skill families: driver skills under `.claude/skills/`, and skills present in agent workspaces. The latter include Codex-native git-workflow skills under `.codex/skills/` plus the compound-engineering skills invoked by the complexity router.
+# Skills
 
-## Driver skills
+Aiur ships Agent Skills in this repository under `.claude/skills/`, mirrored to `.codex/skills/` by relative symlink. They split into two families by **where they run**, not by where they are stored:
 
-[using-aiur](../../.claude/skills/using-aiur/SKILL.md) is the per-ticket operating manual for the agent:* label lifecycle, brainstorm→plan→work→review flow, Agent Workpad, and development loop. It is loaded every ticket turn via the shared per-turn prompt pointer.
+- **Agent-workspace skills** are copied into every ticket workspace, so the agent working a ticket can load them on any repository.
+- **Executor skills** stay in this repository and load in the Executor's own session, whether that Executor is a human or an agent driving Aiur.
 
-[aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) routes cross-ticket events, including `emit_event`, subscriptions, blockers, and attention open/close. An agent loads it before emitting or subscribing to events.
+The split is defined in code, not by convention. `@issue_worker_skills` in [`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex) is the single authoritative list of agent-workspace skills, and [`aiur_agent_skill_test.exs`](../../src/test/aiur/aiur_agent_skill_test.exs) cross-checks it against the canonical taxonomy so the two cannot drift.
 
-[aiur-build](../../.claude/skills/aiur-build/SKILL.md) researches and decomposes a feature into requirements, ticket contracts, a validated graph, and an Executor handoff. It stops before implementation or an Aiur run.
+## Agent-workspace skills
 
-[aiur-run](../../.claude/skills/aiur-run/SKILL.md) is the Executor playbook for launching and operating a bounded Aiur run through its accepted outcome. It triggers on “run aiur”, “run IAR”, “iarc run”, or the legacy phrase “run the aiur loop”.
+After a workspace is populated, `Aiur.AgentSkills.install/1` writes these four skills into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks. Destination paths come from `CodingAgent.skill_install_locations/0`, so a Claude workspace and a Codex workspace get the same set.
 
-[aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) compiles a one-glance status board from `aiurdev watch`. It triggers on “aiur status” or “iarc status”.
+| Skill | Loaded when | What it covers |
+| --- | --- | --- |
+| [using-aiur](../../.claude/skills/using-aiur/SKILL.md) | Every ticket turn, via the shared per-turn prompt pointer. | The `agent:*` label lifecycle, the brainstorm, plan, work, and review flow, the Agent Workpad, milestone alerts, complexity routing, and the development loop. |
+| [aiur-agent](../../.claude/skills/aiur-agent/SKILL.md) | Before emitting, subscribing to, or reacting to any event. | The [Message Bus](/concepts/coordination): `emit_event`, `aiur_subscribe`, blocker declaration, and attention open and close. |
+| [aiur-debug](../../.claude/skills/aiur-debug/SKILL.md) | When a run, daemon, agent, or workspace misbehaves. | An Aiur-specific context overlay for correlating evidence and ordering safe recovery. |
+| [design-import](../../.claude/skills/design-import/SKILL.md) | Before frontend work that involves a design artifact. | Importing large design payloads without overflowing inline tool-result limits. |
 
-[release](../../.claude/skills/release/SKILL.md) is the Executor playbook for cutting a new npm release by bumping `src/mix.exs`, tagging, and creating a GitHub release. It triggers on `/release` or “release a new version”.
+Executor skills are deliberately excluded from this set: an issue worker has no reason to run Aiur itself.
 
-## Skills in agent workspaces
+## Executor skills
 
-After a workspace is populated, `Aiur.AgentSkills.install/1` ([`agent_skills.ex`](../../src/lib/aiur/agent_skills.ex)) writes **using-aiur**, **aiur-agent**, and **design-import** into `<workspace>/.claude/skills/` and mirrors them into `<workspace>/.codex/skills/` via relative symlinks, so agents on any repository can load them; see the [Driver skills](#driver-skills) section.
+These load in the Executor's session and are never bundled into a workspace.
 
-### Codex-native git-workflow skills
+| Skill | Triggers on | What it does |
+| --- | --- | --- |
+| [aiur-intro](../../.claude/skills/aiur-intro/SKILL.md) | "what is aiur", "how do I install aiur". | First-contact evaluation, the two operating modes, install, and first run. |
+| [aiur-build](../../.claude/skills/aiur-build/SKILL.md) | "break this feature into Aiur tickets", "plan the Build Order". | Research and decomposition into requirements, ticket contracts, a validated graph, and an Executor handoff. It stops before implementation. |
+| [aiur-run](../../.claude/skills/aiur-run/SKILL.md) | "run aiur", "run IAR", "iarc run", "run the aiur loop". | The Executor playbook for launching and operating a bounded run through its accepted outcome. |
+| [aiur-monitor](../../.claude/skills/aiur-monitor/SKILL.md) | "aiur status", "iarc status". | A one-glance status board compiled from `aiur watch` and the alert feed. |
+| [aiur-meta](../../.claude/skills/aiur-meta/SKILL.md) | The recurring hourly timer that `aiur-run` arms, or "meta check". | One audit across every operator-facing surface, naming the current bottleneck and filing it durably. |
+| [aiur-handoff](../../.claude/skills/aiur-handoff/SKILL.md) | An Executor handoff, or before context exhaustion. | Writes the handoff document the next Executor reads on boot. |
+| [release](../../.claude/skills/release/SKILL.md) | `/release`, "release a new version". | Bumps `src/mix.exs`, tags, and creates the GitHub release. |
 
-[commit](../../.codex/skills/commit/SKILL.md) provides the Codex-native conventional-commit flow: read session intent, confirm scope before staging, use a `type(scope)` subject, and avoid model-attribution trailers. It triggers when a commit is requested.
+`aiur-handoff`, `aiur-meta`, and `release` are Claude-only and are not symlinked into `.codex/skills/`.
 
-[push](../../.codex/skills/push/SKILL.md) safely pushes changes and creates or updates a pull request against the PR template. It triggers when publishing changes is requested and distinguishes sync failures, which go to pull, from authentication failures.
+## Codex-native git-workflow skills
 
-[pull](../../.codex/skills/pull/SKILL.md) updates a branch with a merge rather than a rebase, using rerere and a clear conflict-resolution doctrine. It triggers when a branch needs to be synchronized with `origin/main`.
+These live only under `.codex/skills/` and are not installed by Aiur. They are the Codex-native equivalents of the git workflow.
 
-[land](../../.codex/skills/land/SKILL.md) handles end-to-end PR landing: staying conflict-free, keeping CI green, answering review personas, and squash-merging. It triggers when landing or merging a pull request is requested.
+| Skill | Triggers on | What it does |
+| --- | --- | --- |
+| [commit](../../.codex/skills/commit/SKILL.md) | A commit is requested. | Reads session intent, confirms scope before staging, uses a `type(scope)` subject, and avoids model-attribution trailers. |
+| [push](../../.codex/skills/push/SKILL.md) | Publishing changes is requested. | Pushes and creates or updates a PR against the template. It distinguishes sync failures, which go to `pull`, from authentication failures. |
+| [pull](../../.codex/skills/pull/SKILL.md) | A branch needs synchronizing with `origin/main`. | Updates with a merge rather than a rebase, using rerere and a clear conflict-resolution doctrine. |
+| [land](../../.codex/skills/land/SKILL.md) | Landing or merging a PR is requested. | Stays conflict-free, keeps CI green, answers review personas, and squash-merges. |
+| [debug](../../.codex/skills/debug/SKILL.md) | A run stalls, retries, or fails unexpectedly. | A log-tracing runbook using issue and session correlation keys. |
+| [linear](../../.codex/skills/linear/SKILL.md) | Raw Linear GraphQL operations are needed. | How to use the `linear_graphql` app-server tool. |
 
-[debug](../../.codex/skills/debug/SKILL.md) is a log-tracing runbook for stuck or failing runs using issue and session correlation keys. It triggers when a run stalls, retries, or fails unexpectedly.
+## Compound-engineering skills
 
-[linear](../../.codex/skills/linear/SKILL.md) explains how to use the `linear_graphql` app-server tool. It triggers when raw Linear GraphQL operations are needed.
-
-### Compound-engineering skills
-
-These are Executor-provided CE skills invoked by the complexity router; they are not bundled into workspaces by Aiur. The routing rules are in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md), which references **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**. These skills ship with the Executor’s environment, so this page does not link to per-skill files in this repository.
+The complexity router invokes CE skills that ship with the Executor's environment. Aiur does not bundle them, so this page does not link to per-skill files. The routing rules live in [complexity-routing.md](../../.claude/skills/using-aiur/complexity-routing.md) and reference **ce-work**, **ce-code-review**, **ce-plan**, **ce-brainstorm**, and **ce-doc-review**.
