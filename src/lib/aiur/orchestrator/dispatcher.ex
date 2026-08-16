@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   require Logger
 
-  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DecisionStore, DispatchBudgetStore, Issue, RepoBase, Tracker}
+  alias Aiur.{AgentRunner, AlertFeed, Alerts, CodingAgent, Config, DecisionStore, DispatchBudgetStore, Issue, RepoBase, SystemCpu, Tracker}
   alias Aiur.GitHub.{AuthPreflight, CiReadiness, CycleFetchCache, Errors}
   alias Aiur.GitHub.Tracker, as: GitHubTracker
   alias Aiur.Orchestrator
@@ -470,8 +470,12 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_sample_host_pressure_under_prewarm_hold(%State{} = state, issues, admission_probes_fun)
        when is_list(issues) and is_function(admission_probes_fun, 0) do
-    probes = admission_probes_fun.()
-    state |> record_capacity_sample(probes) |> record_capacity_constraints(probes)
+    probes = admission_probes_fun.() |> put_cpu_headroom(state)
+
+    state
+    |> remember_cpu_snapshot(probes)
+    |> record_capacity_sample(probes)
+    |> record_capacity_constraints(probes)
   end
 
   @doc false
@@ -661,7 +665,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
       when is_list(issues) and is_function(choose_fun, 2) and is_list(opts) do
     now_ms = Keyword.get(opts, :now_ms, System.monotonic_time(:millisecond))
     admission_probes_fun = Keyword.get(opts, :admission_probes_fun, &admission_probes/0)
-    probes = admission_probes_fun.()
+    probes = admission_probes_fun.() |> put_cpu_headroom(state)
     queued_demand? = DispatchPolicy.queued_dispatch_demand?(issues, state)
 
     state =
@@ -722,7 +726,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
     memory_threshold_mb = Config.min_free_memory_mb()
     schedulers = System.schedulers_online()
     load = DispatchPolicy.read_load(hard_threshold, target)
-    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold)
+    cpu_snapshot = DispatchPolicy.read_cpu(target, run_queue_threshold, hard_threshold)
 
     %{
       memory_mb: DispatchPolicy.read_memory(memory_threshold_mb),
@@ -764,7 +768,7 @@ defmodule Aiur.Orchestrator.Dispatcher do
         {:hold, :prewarm}
 
       true ->
-        probes = admission_probes()
+        probes = admission_probes() |> put_cpu_headroom(state)
 
         case DispatchPolicy.admission_gate(Map.put(probes, :queued_demand?, true)) do
           :dispatch -> :dispatch
@@ -1602,6 +1606,17 @@ defmodule Aiur.Orchestrator.Dispatcher do
   defp runnable_from(%{runnable: runnable}) when is_integer(runnable) and runnable >= 0, do: runnable
   defp runnable_from(_snapshot), do: :unavailable
 
+  defp put_cpu_headroom(probes, %State{} = state) do
+    previous = state.load_envelope_state.cpu_snapshot
+    Map.put(probes, :cpu_headroom, SystemCpu.headroom(previous, Map.get(probes, :cpu_snapshot, :unavailable)))
+  end
+
+  defp remember_cpu_snapshot(%State{} = state, %{cpu_snapshot: %{total: _, idle: _, runnable: _} = snapshot}) do
+    put_in(state.load_envelope_state.cpu_snapshot, snapshot)
+  end
+
+  defp remember_cpu_snapshot(%State{} = state, _probes), do: state
+
   @capacity_backoff_alert_ms 30_000
 
   # Reconciles the persisted `capacity_hold` with this poll's decision so status
@@ -1641,10 +1656,10 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
     case state.capacity_hold do
       %{signal: ^signal, alerted?: true} = hold ->
-        %{state | capacity_hold: Map.merge(hold, Map.take(reason, [:measured, :threshold]))}
+        %{state | capacity_hold: merge_capacity_reason(hold, reason)}
 
       %{signal: ^signal, alerted?: false} = hold ->
-        hold = Map.merge(hold, Map.take(reason, [:measured, :threshold]))
+        hold = merge_capacity_reason(hold, reason)
 
         if now_ms - hold.held_since_ms < debounce_ms do
           %{state | capacity_hold: hold}
@@ -1674,6 +1689,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp capacity_signal_label(_reason), do: "host pressure"
 
+  defp capacity_reason_measurements(reason) do
+    Map.take(reason, [
+      :measured,
+      :threshold,
+      :reclaimable_cpu_percent,
+      :reclaimable_cpu_threshold
+    ])
+  end
+
+  defp merge_capacity_reason(hold, reason) do
+    hold
+    |> Map.drop([:reclaimable_cpu_percent, :reclaimable_cpu_threshold])
+    |> Map.merge(capacity_reason_measurements(reason))
+  end
+
   defp log_admission_hold(%{signal: :memory, measured: available_mb, threshold: threshold_mb}) do
     Logger.info(
       "aiur_perf memory_hold surface=dispatch available_mb=#{available_mb} " <>
@@ -1685,12 +1715,20 @@ defmodule Aiur.Orchestrator.Dispatcher do
     log_fd_hold(sample)
   end
 
-  defp log_admission_hold(%{signal: :load, measured: load, threshold: limit}) do
-    Logger.info("aiur_perf load_hold load=#{load} limit=#{limit}")
+  defp log_admission_hold(%{signal: :load, measured: load, threshold: limit} = reason) do
+    Logger.info(
+      "aiur_perf load_hold load=#{load} limit=#{limit} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))} " <>
+        "reclaimable_cpu_threshold=#{inspect(Map.get(reason, :reclaimable_cpu_threshold))}"
+    )
   end
 
-  defp log_admission_hold(%{signal: :run_queue, measured: runnable, threshold: limit}) do
-    Logger.info("aiur_perf run_queue_hold runnable=#{runnable} limit=#{limit}")
+  defp log_admission_hold(%{signal: :run_queue, measured: runnable, threshold: limit} = reason) do
+    Logger.info(
+      "aiur_perf run_queue_hold runnable=#{runnable} limit=#{limit} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))} " <>
+        "reclaimable_cpu_threshold=#{inspect(Map.get(reason, :reclaimable_cpu_threshold))}"
+    )
   end
 
   defp log_admission_hold(%{signal: :build, measured: measured, threshold: capacity}) do
@@ -1741,13 +1779,21 @@ defmodule Aiur.Orchestrator.Dispatcher do
     )
     |> maybe_record_fd_constraint(DispatchPolicy.fd_gate(probes.fd_sample), probes.fd_sample)
     |> maybe_record_load_constraint(
-      DispatchPolicy.load_gate(probes.load, probes.load_threshold, probes.schedulers),
-      probes.load,
-      probes.load_threshold,
-      probes.schedulers
+      DispatchPolicy.load_admission_reason(
+        probes.load,
+        probes.load_threshold,
+        probes.schedulers,
+        Map.get(probes, :cpu_headroom, :unavailable)
+      ),
+      probes
     )
     |> maybe_record_run_queue_constraint(
-      DispatchPolicy.run_queue_gate(probes.runnable, probes.schedulers, probes.run_queue_threshold),
+      DispatchPolicy.run_queue_admission_reason(
+        probes.runnable,
+        probes.schedulers,
+        probes.run_queue_threshold,
+        Map.get(probes, :cpu_headroom, :unavailable)
+      ),
       probes
     )
     |> maybe_record_build_constraint(
@@ -1773,12 +1819,13 @@ defmodule Aiur.Orchestrator.Dispatcher do
     }
   end
 
-  defp maybe_record_run_queue_constraint(state, :hold, probes) do
+  defp maybe_record_run_queue_constraint(state, {:hold, reason}, probes) do
     record_capacity_constraint(
       state,
       :run_queue,
       "runnable=#{inspect(probes.runnable)} threshold=#{inspect(probes.run_queue_threshold)} " <>
-        "schedulers=#{probes.schedulers}"
+        "schedulers=#{probes.schedulers} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
     )
   end
 
@@ -1836,15 +1883,16 @@ defmodule Aiur.Orchestrator.Dispatcher do
 
   defp maybe_record_fd_constraint(state, _gate, _sample), do: state
 
-  defp maybe_record_load_constraint(state, :hold, load, threshold, schedulers) do
+  defp maybe_record_load_constraint(state, {:hold, reason}, probes) do
     record_capacity_constraint(
       state,
       :load,
-      "load=#{inspect(load)} threshold=#{threshold} schedulers=#{schedulers}"
+      "load=#{inspect(probes.load)} threshold=#{probes.load_threshold} schedulers=#{probes.schedulers} " <>
+        "reclaimable_cpu_percent=#{inspect(Map.get(reason, :reclaimable_cpu_percent))}"
     )
   end
 
-  defp maybe_record_load_constraint(state, _gate, _load, _threshold, _schedulers), do: state
+  defp maybe_record_load_constraint(state, _gate, _probes), do: state
 
   defp trigger_and_status do
     RepoBase.refresh_for_dispatch()
