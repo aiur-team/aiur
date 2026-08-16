@@ -3,10 +3,13 @@ defmodule Aiur.Usage.PriceTable.Data do
   Reviewed, immutable standard API-equivalent token prices.
 
   Prices use major USD units per one million tokens. Runtime code never fetches
-  these sources; a source update adds a new effective-dated revision.
+  these sources; a source update adds a new effective-dated revision instead of
+  overwriting, so historical spend keeps the rate that was actually in effect
+  and a stale rate is detectable from the entry's `effective_date`,
+  `source_reviewed_at`, and `price_revision` rather than failing silently.
   """
 
-  @catalog_revision "multi-provider-standard-global-2026-08-01"
+  @catalog_revision "multi-provider-standard-global-2026-08-16"
   @effective_date ~D[2026-07-15]
   @reviewed_at ~D[2026-07-15]
   @token_unit 1_000_000
@@ -43,21 +46,49 @@ defmodule Aiur.Usage.PriceTable.Data do
     {"claude-haiku-4-5", %{input: "1.00", cached_input: "0.10", five_minutes: "1.25", one_hour: "2.00", output: "5.00"}}
   ]
 
+  # Effective date shared by every OpenAI-compatible model that has not been
+  # repriced since it was first reviewed. A repriced model carries its own
+  # dated revisions below; each revision's `source_reviewed_at` is its
+  # effective date.
   @provider_effective_date ~D[2026-08-01]
-  @provider_reviewed_at ~D[2026-08-01]
+
+  # One model maps to one or more `{effective_date, rates, tag}` revisions.
+  # Effective dates are inclusive and the next revision in a series is the
+  # exclusive bound (see `Aiur.Usage.PriceTable`), so a repricing is an
+  # addition that leaves historical spend correctly valued. `tag` decorates the
+  # price revision so a deliberately-windowed rate (e.g. `:peak`) is
+  # self-describing in cost surfaces.
   @openai_compat_models %{
     kimi: [
-      {"kimi-k2.7-code", %{input: "0.95", cached_input: "0.19", output: "4.00"}},
-      {"kimi-k2.7-code-highspeed", %{input: "0.95", cached_input: "0.19", output: "4.00"}}
+      {"kimi-k2.7-code", [{@provider_effective_date, %{input: "0.95", cached_input: "0.19", output: "4.00"}, nil}]},
+      {"kimi-k2.7-code-highspeed", [{@provider_effective_date, %{input: "0.95", cached_input: "0.19", output: "4.00"}, nil}]}
     ],
     deepseek: [
-      {"deepseek-v4-flash", %{input: "0.14", cached_input: "0.0028", output: "0.28"}}
+      {"deepseek-v4-flash",
+       [
+         {@provider_effective_date, %{input: "0.14", cached_input: "0.0028", output: "0.28"}, nil},
+         # DeepSeek repriced to peak/off-peak billing effective 16:00 UTC
+         # 2026-08-16 (peak = 2x off-peak; verified against the live pricing
+         # docs). The price table is date-granular with one rate per dimension,
+         # so the conservative PEAK rate is priced here: it can never hide
+         # overspend (the retained $0.28 output rate under-reported peak spend
+         # by up to 79%). The off-peak schedule ($0.22 input / $0.007 cached /
+         # $0.66 output) is time-of-day dependent and tracked by #1456.
+         {~D[2026-08-16], %{input: "0.44", cached_input: "0.014", output: "1.32"}, :peak}
+       ]}
     ],
     openrouter: [
-      {"deepseek/deepseek-v4-flash", %{input: "0.14", cached_input: "0.0028", output: "0.28"}},
-      {"moonshotai/kimi-k2.7-code", %{input: "0.95", cached_input: "0.19", output: "4.00"}},
-      {"anthropic/claude-sonnet-5", %{input: "2.00", cached_input: "0.20", output: "10.00"}},
-      {"anthropic/claude-opus-5", %{input: "5.00", cached_input: "0.50", output: "25.00"}}
+      {"deepseek/deepseek-v4-flash",
+       [
+         {@provider_effective_date, %{input: "0.14", cached_input: "0.0028", output: "0.28"}, nil},
+         # OpenRouter's DeepSeek listing is flat (third-party hosts; it does
+         # not follow DeepSeek's peak schedule), verified against the OpenRouter
+         # model overview 2026-08-16.
+         {~D[2026-08-16], %{input: "0.06426", cached_input: "0.012852", output: "0.12852"}, nil}
+       ]},
+      {"moonshotai/kimi-k2.7-code", [{@provider_effective_date, %{input: "0.95", cached_input: "0.19", output: "4.00"}, nil}]},
+      {"anthropic/claude-sonnet-5", [{@provider_effective_date, %{input: "2.00", cached_input: "0.20", output: "10.00"}, nil}]},
+      {"anthropic/claude-opus-5", [{@provider_effective_date, %{input: "5.00", cached_input: "0.50", output: "25.00"}, nil}]}
     ]
   }
 
@@ -90,9 +121,10 @@ defmodule Aiur.Usage.PriceTable.Data do
 
   defp openai_compat_entries do
     for {provider, models} <- @openai_compat_models,
-        {model, rates} <- models,
+        {model, revisions} <- models,
+        {effective_date, rates, tag} <- revisions,
         {dimension, price} <- openai_compat_rates(rates) do
-      openai_compat_entry(provider, model, dimension, price)
+      openai_compat_entry(provider, model, dimension, price, effective_date, tag)
     end
   end
 
@@ -105,7 +137,7 @@ defmodule Aiur.Usage.PriceTable.Data do
     ]
   end
 
-  defp openai_compat_entry(provider, model, dimension, price) do
+  defp openai_compat_entry(provider, model, dimension, price, effective_date, tag) do
     %{
       provider: provider,
       resolved_model: model,
@@ -116,10 +148,10 @@ defmodule Aiur.Usage.PriceTable.Data do
       cache_write_duration: :not_applicable,
       price: price,
       token_unit: @token_unit,
-      effective_date: @provider_effective_date,
-      price_revision: openai_compat_price_revision(provider),
+      effective_date: effective_date,
+      price_revision: openai_compat_price_revision(provider, effective_date, tag),
       source_url: openai_compat_source(provider),
-      source_reviewed_at: @provider_reviewed_at,
+      source_reviewed_at: effective_date,
       pricing_scope: @pricing_scope
     }
   end
@@ -171,7 +203,10 @@ defmodule Aiur.Usage.PriceTable.Data do
   defp openai_compat_relationship(:deepseek), do: "deepseek-request-usage-2026-08"
   defp openai_compat_relationship(:openrouter), do: "openrouter-request-usage-2026-08"
 
-  defp openai_compat_price_revision(provider), do: "#{provider}-standard-global-2026-08-01"
+  defp openai_compat_price_revision(provider, effective_date, tag) do
+    base = "#{provider}-standard-global-#{Date.to_iso8601(effective_date)}"
+    if tag, do: base <> "-#{tag}", else: base
+  end
 
   defp openai_compat_source(:kimi), do: "https://platform.kimi.ai/docs/pricing/chat-k27-code"
   defp openai_compat_source(:deepseek), do: "https://api-docs.deepseek.com/quick_start/pricing"
