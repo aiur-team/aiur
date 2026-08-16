@@ -35,6 +35,65 @@ defmodule Aiur.AlertFeedTest do
     assert [] = AlertFeed.list(ledger_paths: [ledger], needs_attention: true)
   end
 
+  test "collapses a backlog of repeated resolutions down to the transition that opened it", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"system.github.quota.core.exhausted","message":"exhausted","needs_attention":true}
+    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"system.github.quota.core.exhausted.resolved","message":"cleared; 4905 of 5000 requests remain","needs_attention":false}
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"system.github.quota.core.exhausted.resolved","message":"cleared; 4905 of 5000 requests remain","needs_attention":false}
+    {"event":"alert","timestamp":"2026-06-25T01:03:00Z","topic":"system.github.quota.core.exhausted.resolved","message":"cleared; 4905 of 5000 requests remain","needs_attention":false}
+    """)
+
+    assert [resolution] = AlertFeed.list(ledger_paths: [ledger])
+    assert resolution["topic"] == "system.github.quota.core.exhausted.resolved"
+    assert resolution["timestamp"] == "2026-06-25T01:01:00Z"
+  end
+
+  test "keeps a resolution that follows a genuine re-fire", %{ledger: ledger} do
+    write_ledger!(ledger, """
+    {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"system.github.quota.core.exhausted","message":"exhausted","needs_attention":true}
+    {"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"system.github.quota.core.exhausted.resolved","message":"cleared","needs_attention":false}
+    {"event":"alert","timestamp":"2026-06-25T01:02:00Z","topic":"system.github.quota.core.exhausted.resolved","message":"cleared","needs_attention":false}
+    {"event":"alert","timestamp":"2026-06-25T01:03:00Z","topic":"system.github.quota.core.exhausted","message":"exhausted again","needs_attention":true}
+    {"event":"alert","timestamp":"2026-06-25T01:04:00Z","topic":"system.github.quota.core.exhausted.resolved","message":"cleared again","needs_attention":false}
+    """)
+
+    assert [first, second] = AlertFeed.list(ledger_paths: [ledger])
+    assert first["timestamp"] == "2026-06-25T01:01:00Z"
+    assert second["timestamp"] == "2026-06-25T01:04:00Z"
+  end
+
+  describe "condition_state/2 and duplicate_resolution?/2" do
+    test "report the ledger's current position in the firing cycle", %{ledger: ledger} do
+      assert AlertFeed.condition_state("system.dispatch.prewarm_blocked", ledger_paths: [ledger]) == :unknown
+      refute AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked.resolved", ledger_paths: [ledger])
+
+      write_ledger!(ledger, """
+      {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"system.dispatch.prewarm_blocked","message":"blocked","needs_attention":true}
+      """)
+
+      assert AlertFeed.condition_state("system.dispatch.prewarm_blocked", ledger_paths: [ledger]) == :firing
+      refute AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked.resolved", ledger_paths: [ledger])
+
+      File.write!(
+        ledger,
+        ~s({"event":"alert","timestamp":"2026-06-25T01:01:00Z","topic":"system.dispatch.prewarm_blocked.resolved","message":"ready","needs_attention":false}\n),
+        [:append]
+      )
+
+      assert AlertFeed.condition_state("system.dispatch.prewarm_blocked", ledger_paths: [ledger]) == :resolved
+      assert AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked.resolved", ledger_paths: [ledger])
+    end
+
+    test "never treat a non-resolution topic as a duplicate", %{ledger: ledger} do
+      write_ledger!(ledger, """
+      {"event":"alert","timestamp":"2026-06-25T01:00:00Z","topic":"system.dispatch.prewarm_blocked.resolved","message":"ready","needs_attention":false}
+      """)
+
+      refute AlertFeed.duplicate_resolution?("system.dispatch.prewarm_blocked", ledger_paths: [ledger])
+      refute AlertFeed.duplicate_resolution?(".resolved", ledger_paths: [ledger])
+    end
+  end
+
   test "does not open workspace transcripts during a normal default-ledger read", %{root: root} do
     workspace_log = Path.join(root, "workspace/repo/42/logs/agent.ndjson")
     File.mkdir_p!(Path.dirname(workspace_log))

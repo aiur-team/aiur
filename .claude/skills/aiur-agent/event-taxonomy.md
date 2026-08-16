@@ -29,7 +29,7 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 | `attention.<slug>` | Need the Executor to answer something (opens ❗ in the agent list) | `ticket.<id>.agent.attention.<slug>` |
 | `attention.resolved` | Closing a previously-opened attention; pass `payload: {slug: "<the-slug>"}` | `ticket.<id>.agent.attention.resolved` |
 | `pause.request` | Ask the Executor to pause your turn at the next checkpoint | `ticket.<id>.agent.pause.request` |
-| `custom.<slug>` | Anything else — capped at 5 per turn | `ticket.<id>.agent.custom.<slug>` |
+| `custom.<slug>` | Anything else | `ticket.<id>.agent.custom.<slug>` |
 
 > **Also allowed, but Executor-facing (not cross-ticket coordination):** the bare
 > `progress` and `progress.checkin` names drive the Executor’s agent-list
@@ -39,23 +39,34 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 
 ## System-emitted topics (subscribe-only)
 
-These you can subscribe to, but they're emitted by Aiur, not by you.
+These you can subscribe to, but they're emitted by Aiur, not by you. Rows
+marked **(auto)** are attached automatically when you start working on a ticket
+(or via a blocker declaration) — you do **not** subscribe to them explicitly;
+see `emit-and-subscribe.md` for the full automatic set.
 
 | Topic | What it means |
 |-------|---------------|
 | `ticket.<id>.branch.push` | Someone pushed to an Aiur ticket branch (legacy or readable); the payload carries the actual ref. |
-| `system.<branch>.branch.push` | Push to the repo's default branch (universal subscription — you don't need to subscribe explicitly) |
+| `system.<branch>.branch.push` | Push to the repo's base branch (auto — you don't need to subscribe explicitly) |
 | `ticket.<id>.pr.opened` | A PR was opened for this ticket |
 | `ticket.<id>.pr.merged` | A PR for this ticket was merged |
-| `ticket.<id>.issue.commented` | Someone left a comment on the GitHub issue (CODEOWNERS-filtered) |
-| `ticket.<id>.pr.review_comment` | Someone left a PR review comment (CODEOWNERS-filtered) |
-| `ticket.<id>.issue.blocked_by.changed` | The dependency graph changed (someone called `aiur_declare_blocker`) |
+| `ticket.<id>.issue.commented` | Someone left a comment on the GitHub issue (trusted-author filtered; auto for your own ticket) |
+| `ticket.<id>.pr.review_comment` | Someone left a PR review comment (trusted-author filtered; auto for your own ticket) |
+| `ticket.<id>.ci.passed` | Terminal CI pass for this ticket (auto for your own ticket) |
+| `ticket.<id>.ci.failed` | Terminal CI failure for this ticket (auto for your own ticket) |
+
+Note that the `agent.attention.*` family is **not** agent-exclusive: the
+orchestrator also publishes `attention.state_divergence`,
+`attention.waiting_for_human` (and `.resolved`), `attention.error-<cause>`,
+`attention.error-lifetime_latch`, and `attention.unsupported_model` on
+`ticket.<id>.agent.attention.*`. A subscriber to that pattern receives both
+agent-authored and orchestrator-authored attentions.
 
 ## What you do NOT need to emit
 
 - Don't emit `progress.commit` or `progress.push` — the GitHub firehose covers that.
 - Don't emit `pr.opened` / `pr.merged` — same, from the firehose.
-- Don't emit `issue.commented` — that's read from the firehose with CODEOWNERS filtering applied.
+- Don't emit `issue.commented` — that's read from the firehose with trusted-author filtering applied.
 
 Emit events for things only **you** know: architectural decisions, milestones inside your turn that aren't visible as git activity, and Executor-facing attentions.
 
@@ -64,6 +75,9 @@ architectural broadcasts: Aiur persists them in the Decision audit before
 publishing. They are ticket-scoped, reject stale/wrong correlation, and are
 idempotent when an agent turn is replayed.
 
-## Custom event quota
+## Per-turn quotas
 
-`custom.*` events are capped at `events.custom_events_per_turn_max` (default 5) per turn. The 6th `custom.*` call in a turn returns `custom_event_quota_exceeded`. Use named categories (`progress`, `decision`, etc.) when one fits — they have no quota.
+Only the bare `progress` name is quota-capped: at most **two** bare `progress`
+emits per turn — the 3rd returns `progress_cap_exceeded`, and the budget resets
+at the next turn boundary. No other vocabulary name has a per-turn cap,
+including `custom.<slug>` and `progress.<slug>`.
