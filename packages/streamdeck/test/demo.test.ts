@@ -82,8 +82,8 @@ describe("demo logs fixture", () => {
     controller.setLogs(logs);
     controller.handleReport(keyReport(0, true));
     controller.handleReport(keyReport(0, false));
-    controller.handleReport(keyReport(2, true));
-    controller.handleReport(keyReport(2, false));
+    controller.handleReport(keyReport(1, true));
+    controller.handleReport(keyReport(1, false));
     expect(controller.state().mode).toBe("logs");
 
     const offset = controller.state().eventOffset;

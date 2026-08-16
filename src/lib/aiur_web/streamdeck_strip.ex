@@ -20,6 +20,7 @@ defmodule AiurWeb.StreamdeckStrip do
   @spec command(map()) :: map()
   def command(agent) when is_map(agent) do
     percent = agent |> Map.get(:progress_percent) |> percent()
+    freshness = progress_freshness(percent, Map.get(agent, :progress_freshness))
     bucket = Map.fetch!(agent, :bucket)
     state = StreamdeckKeyFaceContract.state!(bucket)
 
@@ -32,6 +33,7 @@ defmodule AiurWeb.StreamdeckStrip do
       status: state["label"],
       accent: state["accent"],
       percent: percent,
+      progress_freshness: freshness,
       progress_colour: progress_colour(percent)
     }
   end
@@ -116,6 +118,10 @@ defmodule AiurWeb.StreamdeckStrip do
 
   defp progress_colour(nil), do: nil
   defp progress_colour(percent), do: StreamdeckKeyFaceContract.progress_color(percent)
+
+  defp progress_freshness(nil, _freshness), do: :unknown
+  defp progress_freshness(_percent, freshness) when freshness in [:stale, "stale"], do: :stale
+  defp progress_freshness(_percent, _freshness), do: :fresh
 
   # Glyphs are the strip's own affordance; the wording beside them is the
   # contract's `label`, so nothing here restates a state name.

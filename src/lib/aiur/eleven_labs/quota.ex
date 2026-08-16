@@ -4,10 +4,10 @@ defmodule Aiur.ElevenLabs.Quota do
 
   `GET /v1/user/subscription` reports a *character/credit* quota
   (`character_count`, `character_limit`, `next_character_count_reset_unix`,
-  `tier`). It reports no dollar balance: the only money-shaped fields it carries
-  are amounts owed (`current_overage`, `open_invoices`), never a remaining one.
-  So this authority publishes the credit quota and nothing that could be read as
-  a spendable balance.
+  `tier`). It reports no dollar balance. The money-shaped fields are amounts
+  owed, so this authority publishes the credit quota together with the
+  explicitly named amount due on the next invoice; neither can be read as
+  spendable dollars.
 
   The quota is also not a voice-input spend meter. Speech-to-text — what Stream
   Deck voice input actually uses — is billed per minute of audio, while the
@@ -203,9 +203,9 @@ defmodule Aiur.ElevenLabs.Quota do
   defp ingest(state, {:error, reason}) when is_atom(reason), do: failed(state, reason)
   defp ingest(state, _observation), do: failed(state, :malformed)
 
-  # A failed read drops the window rather than retaining it. The meter reads
-  # *remaining*, so a retained figure presented beside a failure is the one value
-  # an operator would act on while it is no longer known to be true.
+  # A failed read drops the window rather than retaining it. A retained quota or
+  # invoice amount beside a failure would look current when it is no longer
+  # known to be true.
   defp failed(state, reason), do: %{state | state: :failed, window: nil, failure: reason, observed_at: nil}
 
   defp response_status(%{status: status}) when status in 200..299, do: :ok
@@ -225,7 +225,8 @@ defmodule Aiur.ElevenLabs.Quota do
          limit: limit,
          used: used,
          remaining: remaining,
-         remaining_percent: remaining_percent(remaining, limit),
+         used_percent: used_percent(used, limit),
+         next_invoice: next_invoice(body),
          tier: tier(Map.get(body, "tier")),
          reset_at: reset_at(Map.get(body, "next_character_count_reset_unix")),
          observed_at: now
@@ -235,7 +236,8 @@ defmodule Aiur.ElevenLabs.Quota do
 
   defp subscription_window(_body, _now), do: {:error, :malformed}
 
-  # Percentage *remaining*, clamped to 0..100.
+  # Percentage used, clamped to 0..100 so the shared dashboard meter idiom can
+  # fill from empty to exhausted just like every neighboring budget.
   #
   # A zero (or absent) limit is not a meter: there is no denominator, so the
   # window reports no percentage at all rather than dividing by zero or
@@ -246,14 +248,36 @@ defmodule Aiur.ElevenLabs.Quota do
   # the moment the clamp engages — and `Float.round/2` has no integer clause, so
   # it raises. That is the DeepSeek `balance_used_percent` fault, and this is the
   # same guard against it.
-  defp remaining_percent(_remaining, limit) when limit <= 0, do: nil
+  defp used_percent(_used, limit) when limit <= 0, do: nil
 
-  defp remaining_percent(remaining, limit) do
-    (remaining / limit * 100)
+  defp used_percent(used, limit) do
+    (used / limit * 100)
     |> max(0.0)
     |> min(100.0)
     |> Float.round(1)
   end
+
+  # Invoice data is optional and independent of the credit quota. A missing or
+  # malformed invoice must not discard an otherwise truthful quota reading.
+  defp next_invoice(body) do
+    with %{} = invoice <- Map.get(body, "next_invoice"),
+         cents when is_integer(cents) and cents >= 0 <- Map.get(invoice, "amount_due_cents") do
+      %{amount_due_cents: cents, currency: invoice_currency(body)}
+    else
+      _missing_or_malformed -> nil
+    end
+  end
+
+  # ElevenLabs' invoice contract guarantees the cents field, while currency is
+  # absent from some subscription payloads. This meter was explicitly requested
+  # as a dollar figure, so absent or malformed currency metadata falls back to
+  # USD without discarding a truthful amount due.
+  defp invoice_currency(%{"currency" => currency}) when is_binary(currency) and currency != "", do: String.upcase(currency)
+
+  defp invoice_currency(%{"current_overage" => %{"currency" => currency}}) when is_binary(currency) and currency != "",
+    do: String.upcase(currency)
+
+  defp invoice_currency(_body), do: "USD"
 
   defp non_negative_integer(value) when is_integer(value) and value >= 0, do: {:ok, value}
   defp non_negative_integer(_value), do: {:error, :malformed}

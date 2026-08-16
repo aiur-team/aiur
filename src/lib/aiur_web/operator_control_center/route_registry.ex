@@ -18,7 +18,7 @@ defmodule AiurWeb.OperatorControlCenter.RouteRegistry do
       label: "Commands",
       icon: "⌘",
       description: "",
-      path: "/decisions",
+      path: "/commands",
       type: :live,
       owner: :dashboard,
       availability: :available,
