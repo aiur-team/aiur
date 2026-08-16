@@ -34,6 +34,24 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert is_binary(encoded)
   end
 
+  test "only tool rows strip the verb prefix; prose starting with a verb is untouched" do
+    logs =
+      StreamdeckLogs.project([
+        message("assistant", "read the failing spec first", "turn-1"),
+        message("tool", "read lib/aiur.ex", "turn-2")
+      ])
+
+    bodies =
+      logs.transcript
+      |> Enum.reject(&(&1.kind == :event_header))
+      |> Enum.map(&{&1.role, &1.body})
+
+    assert bodies == [
+             {"assistant", "read the failing spec first"},
+             {"tool", "lib/aiur.ex"}
+           ]
+  end
+
   test "message entries carry a row kind, a glyph and a verb-stripped body for the device and emulator" do
     logs =
       StreamdeckLogs.project([

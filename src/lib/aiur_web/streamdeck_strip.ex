@@ -85,14 +85,18 @@ defmodule AiurWeb.StreamdeckStrip do
       # `row_kind` and `glyph` come from the StreamdeckLogs projection (so the
       # emulator and the device DTO agree); the fallbacks let a raw transcript
       # entry still render standalone. `tool_display/1` strips the verb prefix
-      # and is idempotent, so a projection body already stripped is unchanged.
+      # for tool rows and is idempotent, so a projection body already stripped
+      # is unchanged.
       kind: Map.get(message, :row_kind, StreamdeckLogs.row_kind(role)),
       glyph: Map.get(message, :glyph, StreamdeckLogs.glyph(role, body)),
-      text: Map.get(message, :text, StreamdeckLogs.tool_display(body)) |> to_string()
+      text: Map.get(message, :text, display_body(role, body)) |> to_string()
     }
   end
 
   defp entry(_entry), do: %{shape: :message, kind: :logs, glyph: nil, text: ""}
+
+  defp display_body(role, body) when role in ["tool", :tool], do: StreamdeckLogs.tool_display(body)
+  defp display_body(_role, body), do: body
 
   defp percent(value) when is_integer(value), do: clamp(value, 0, 100)
   defp percent(value) when is_float(value), do: value |> round() |> percent()

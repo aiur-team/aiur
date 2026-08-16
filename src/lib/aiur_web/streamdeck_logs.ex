@@ -331,12 +331,12 @@ defmodule AiurWeb.StreamdeckLogs do
         %{
           kind: :message,
           role: role,
-          # The verb prefix (`read `/`edit `/`write `) is stripped from the
-          # body because the glyph gutter carries the verb; a tool row reads
+          # The verb prefix (`read `/`edit `/`write `) is stripped from tool
+          # bodies because the glyph gutter carries the verb; a tool row reads
           # `→ lib/aiur.ex` rather than `→ read lib/aiur.ex`. Both the emulator
           # strip and the device DTO consume this body, so the physical deck
-          # shows the same path the emulator shows.
-          body: tool_display(raw_body),
+          # shows the same path the emulator shows. Non-tool prose is untouched.
+          body: if(role in ["tool", :tool], do: tool_display(raw_body), else: raw_body),
           row_kind: row_kind(role),
           glyph: glyph(role, raw_body)
         }

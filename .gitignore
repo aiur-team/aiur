@@ -62,3 +62,4 @@ __pycache__/
 
 # Runtime build-gate lock namespace created by agent-launched Mix verification.
 .aiur/build-gate.locks/
+.aiur/update-check.json
