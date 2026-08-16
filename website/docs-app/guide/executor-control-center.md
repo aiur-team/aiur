@@ -103,7 +103,7 @@ Selecting an agent opens its live conversation without leaving Units. A writable
 
 Browser microphone capture requires a secure context. `localhost` qualifies, but a dashboard opened from a plain-HTTP LAN IP does not; use HTTPS through a trusted private proxy for remote access. An insecure origin or unsupported browser disables the control with an explanation. Permission denial is also explained beside the control, which remains available so the operator can change site permissions and retry. Device selection is browser-local and saved for that dashboard origin, independently of the Stream Deck microphone preference.
 
-Interactive spoken conversation is a separate control and remains unavailable until conversation mode provides the agent voice-response path.
+Interactive spoken conversation is a separate, half-duplex control. Press it, speak, and press it again; the settled text is sent through the ordinary agent composer and therefore enters the ticket transcript. When the agent's next reply arrives, Aiur streams ElevenLabs text-to-speech audio back to the browser. The browser never receives the API key. Configure `elevenlabs.voice_id` and grant that key **Text to Speech** permission before using the control; voice cloning and barge-in are not part of this mode.
 
 ## Tickets
 

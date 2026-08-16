@@ -110,6 +110,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
 
     assert html =~ "Agent"
     assert html =~ "Working on the drawer."
+    assert html =~ ~s(data-message-complete="true")
     assert html =~ ~s(datetime="2026-07-17T12:00:00Z")
   end
 
@@ -187,7 +188,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
     refute html =~ "not a unique writable target"
   end
 
-  test "renders dictation controls in the standard composer without enabling conversation mode" do
+  test "renders dictation and interactive conversation controls in the standard composer" do
     composer = %{target_key: "1110", writable_target?: true, messages: []}
     html = render(Presenter.present(row(), snapshot()), composer: composer, writable: true)
 
@@ -202,8 +203,8 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawerTest do
 
     assert html =~ ~s(data-voice-conversation)
     assert html =~ ~s(aria-label="Start interactive voice chat")
-    assert html =~ "Interactive voice chat is not available yet"
-    assert html =~ ~s(disabled)
+    assert html =~ "Talk to this agent and hear its reply"
+    refute html =~ "Interactive voice chat is not available yet"
   end
 
   test "renders the not-unique-writable-target notice when a composer is present but not writable" do

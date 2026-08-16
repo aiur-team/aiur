@@ -311,6 +311,15 @@ defmodule Aiur.Config do
   @spec elevenlabs_language_code() :: String.t()
   def elevenlabs_language_code, do: settings!().elevenlabs.language_code || "eng"
 
+  @doc "ElevenLabs voice used for dashboard interactive conversation replies."
+  @spec elevenlabs_voice_id() :: String.t() | nil
+  def elevenlabs_voice_id do
+    case settings!().elevenlabs.voice_id do
+      voice_id when is_binary(voice_id) -> if String.trim(voice_id) == "", do: nil, else: voice_id
+      _absent -> nil
+    end
+  end
+
   @doc "Raw settings for a registry-named backend, or an empty map when absent."
   @spec backend_config(String.t()) :: map()
   def backend_config(backend) when is_binary(backend) do

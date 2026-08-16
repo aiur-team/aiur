@@ -164,7 +164,6 @@ defmodule Aiur.MixProject do
       {:req, "~> 0.7"},
       {:mint_web_socket, "~> 1.0"},
       {:jason, "~> 1.4"},
-      {:websockex, github: "witchtails/websockex_wt", ref: "2ed0adaf4fd9ae87caac5098159d4f682701264d"},
       {:jose, "~> 1.11"},
       {:yaml_elixir, "~> 2.12"},
       {:ymlr, "~> 5.1.6"},

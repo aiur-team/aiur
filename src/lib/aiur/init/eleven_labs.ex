@@ -1,6 +1,6 @@
 defmodule Aiur.Init.ElevenLabs do
   @moduledoc """
-  ElevenLabs speech-to-text opt-in flow for `aiur init`.
+  ElevenLabs voice opt-in flow for `aiur init`.
 
   This module owns the voice-input prompt and the `elevenlabs:` YAML block that
   backs Stream Deck voice input. The key is a secret, so the prompt steers the
@@ -45,13 +45,14 @@ defmodule Aiur.Init.ElevenLabs do
   @spec eleven_labs_section_yaml(map()) :: iodata()
   def eleven_labs_section_yaml(%{enabled: true} = answer) do
     [
-      "# === Stream Deck voice input (added by `aiur init`; ElevenLabs speech-to-text) ===\n",
-      "# Holding the Stream Deck mic key records dictation, transcribes it with ElevenLabs, and delivers it to the focused agent.\n",
+      "# === Voice input and playback (added by `aiur init`; ElevenLabs) ===\n",
+      "# Stream Deck and dashboard microphones use speech-to-text. Set voice_id to enable spoken agent replies in the dashboard.\n",
       "# api_key is a SECRET: keep it as the literal `#{@env_reference}` reference and put the value in `.env`.\n",
       "# aiur scrubs every `*_API_KEY` variable from agent environments and never logs the key.\n",
       "elevenlabs:\n",
       "  api_key: #{api_key_value(answer)}\n",
-      "  language_code: #{@language_code}  # ISO-639-3 transcription language (\"eng\" = English)\n"
+      "  language_code: #{@language_code}  # ISO-639-3 transcription language (\"eng\" = English)\n",
+      "  voice_id: null  # Stock or owned ElevenLabs voice; also grant the key Text to Speech permission\n"
     ]
   end
 

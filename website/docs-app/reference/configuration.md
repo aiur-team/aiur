@@ -433,12 +433,13 @@ agent:
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input and Dashboard Units-modal dictation. Both clients stream captured audio to Aiur, and **Aiur** calls ElevenLabs speech-to-text with the credential below. Stream Deck delivers the transcript to the focused agent; dashboard dictation puts it in the ordinary message composer for the operator to review and send. This is the only place the credential is configured — neither the Stream Deck sidecar nor the browser holds it. The section may be omitted entirely; the defaults below apply.
+Optional. Backs Stream Deck voice input, Dashboard Units-modal dictation, and interactive spoken replies. Both capture clients stream audio to Aiur, and **Aiur** calls ElevenLabs with the credential below. Interactive conversation also streams raw speech audio back to the browser for playback. This is the only place the credential is configured — neither the Stream Deck sidecar nor the browser holds it. The section may be omitted entirely; the defaults below apply.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
-| `elevenlabs.api_key` | string or nil | nil | ElevenLabs speech-to-text credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. |
+| `elevenlabs.api_key` | string or nil | nil | ElevenLabs credential. Accepts a literal value or a `$ELEVENLABS_API_KEY` environment reference. Speech input needs Speech to Text permission; spoken replies also need Text to Speech permission. |
 | `elevenlabs.language_code` | string | `eng` | ISO-639-3 transcription language. ElevenLabs uses `eng` for English. |
+| `elevenlabs.voice_id` | string or nil | nil | Stock or owned ElevenLabs voice used for Dashboard interactive conversation replies. Find the identifier in **My Voices**; Aiur does not clone or manage voices. |
 
 `ELEVENLABS_API_KEY` is the environment variable for the credential. An explicit `elevenlabs.api_key` value wins; when the key is absent, or is the `$ELEVENLABS_API_KEY` reference, the variable supplies it. An environment variable set to the empty string resolves to no key.
 

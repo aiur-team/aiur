@@ -1023,6 +1023,7 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       {:ok, row} ->
         drawer = %{
           origin_id: "units-conversation-#{token}",
+          row: row,
           view: ConversationPresenter.present(row, conversation_snapshot())
         }
 
@@ -1040,6 +1041,8 @@ defmodule Aiur.BrowserHarness.UnitsLive do
   end
 
   def handle_event("send-operator-message", %{"message" => message}, socket) do
+    Process.send_after(self(), :fixture_agent_voice_partial, 50)
+
     {:noreply, socket |> assign(:sent_message, message) |> assign(:drafts, %{"1110" => ""})}
   end
 
@@ -1080,6 +1083,22 @@ defmodule Aiur.BrowserHarness.UnitsLive do
      |> assign(:catalog, catalog)
      |> update(:generation, &(&1 + 1))}
   end
+
+  @impl true
+  def handle_info(:fixture_agent_voice_partial, %{assigns: %{conversation_drawer: %{row: row} = drawer}} = socket) do
+    updated_drawer = %{drawer | view: ConversationPresenter.present(row, conversation_snapshot(:with_partial_reply))}
+    Process.send_after(self(), :fixture_agent_voice_reply, 250)
+    {:noreply, assign(socket, :conversation_drawer, updated_drawer)}
+  end
+
+  def handle_info(:fixture_agent_voice_partial, socket), do: {:noreply, socket}
+
+  def handle_info(:fixture_agent_voice_reply, %{assigns: %{conversation_drawer: %{row: row} = drawer}} = socket) do
+    updated_drawer = %{drawer | view: ConversationPresenter.present(row, conversation_snapshot(:with_reply))}
+    {:noreply, assign(socket, :conversation_drawer, updated_drawer)}
+  end
+
+  def handle_info(:fixture_agent_voice_reply, socket), do: {:noreply, socket}
 
   @impl true
   def render(assigns) do
@@ -1312,12 +1331,9 @@ defmodule Aiur.BrowserHarness.UnitsLive do
       end)
   end
 
-  defp conversation_snapshot do
-    %{
-      state: :live,
-      health: :healthy,
-      freshness: :current,
-      messages: [
+  defp conversation_snapshot(reply \\ :without_reply) do
+    messages =
+      [
         %{
           id: "fixture-message",
           role: "agent",
@@ -1326,12 +1342,48 @@ defmodule Aiur.BrowserHarness.UnitsLive do
           occurred_at: @now,
           observed_at: @now
         }
-      ],
+      ] ++ conversation_reply(reply)
+
+    %{
+      state: :live,
+      health: :healthy,
+      freshness: :current,
+      messages: messages,
       observed_at: @now,
       truncated?: false,
       evicted_count: 0,
       source: %{worker_generation: 1, session_id: "fixture-session"}
     }
+  end
+
+  defp conversation_reply(:without_reply), do: []
+
+  defp conversation_reply(:with_partial_reply) do
+    [
+      %{
+        id: "fixture-voice-reply",
+        role: "agent",
+        title: "Assistant",
+        body: "Voice reply",
+        complete?: false,
+        occurred_at: @now,
+        observed_at: @now
+      }
+    ]
+  end
+
+  defp conversation_reply(:with_reply) do
+    [
+      %{
+        id: "fixture-voice-reply",
+        role: "agent",
+        title: "Assistant",
+        body: "Voice reply from the agent.",
+        complete?: true,
+        occurred_at: @now,
+        observed_at: @now
+      }
+    ]
   end
 
   defp row(identity, overrides) do
@@ -1488,13 +1540,13 @@ defmodule Aiur.BrowserHarness.VoiceSTT do
 
   @impl true
   def handle_cast({:push, _pcm}, channel) do
-    send(channel, {:stt_transcript, :partial, "hello"})
+    send(channel, {:elevenlabs_transcript, :partial, "hello"})
     {:noreply, channel}
   end
 
   def handle_cast(:commit, channel) do
-    send(channel, {:stt_transcript, :final, "hello browser"})
-    send(channel, {:stt_stopped, :ok})
+    send(channel, {:elevenlabs_transcript, :final, "hello browser"})
+    send(channel, {:elevenlabs_closed})
     {:noreply, channel}
   end
 
@@ -2482,6 +2534,19 @@ defmodule Aiur.BrowserHarness.FixtureServer do
             {:ok, pid} -> {:ok, %{pid: pid}}
             {:error, reason} -> {:error, inspect(reason)}
           end
+        end,
+        voice_tts_start_fun: fn socket, text ->
+          {:ok, pid} =
+            Task.start(fn ->
+              if text == "Voice reply from the agent." do
+                send(socket.channel_pid, {:elevenlabs_audio, :chunk, <<0, 0, 255, 127, 0, 0, 1, 128>>})
+                send(socket.channel_pid, {:elevenlabs_audio, :done})
+              else
+                send(socket.channel_pid, {:elevenlabs_audio, :error, "fixture received an incomplete reply"})
+              end
+            end)
+
+          {:ok, pid}
         end
       )
       |> Keyword.delete(:streamdeck_logs_fun)

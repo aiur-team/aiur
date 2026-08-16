@@ -7,9 +7,9 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
   message/pause/capacity mutation handler: it is a pure projection of one pinned
   DASH-026 generation. Focus trap, Escape/close, focus return, scroll
   containment, auto-follow, and the jump-to-latest control are managed by the
-  `ConversationDrawer` client hook. Its voice controller owns dictation capture,
-  which only fills the ordinary message textarea; the operator always submits
-  it explicitly.
+  `ConversationDrawer` client hook. Its voice controller keeps dictation in the
+  ordinary message textarea until the operator submits it, and runs explicit
+  push-to-talk turns in conversation mode.
   """
 
   use Phoenix.Component
@@ -117,6 +117,7 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
                 :for={message <- @view.messages}
                 id={"#{@id}-message-#{message.id}"}
                 class={"conversation-message conversation-message-#{message.role}"}
+                data-message-complete={to_string(message.complete?)}
               >
                 <article>
                   <header class="conversation-message-header">
@@ -199,10 +200,10 @@ defmodule AiurWeb.OperatorControlCenter.ConversationDrawer do
                   class="tool-btn agent-voice-button"
                   type="button"
                   aria-label="Start interactive voice chat"
-                  title="Interactive voice chat is not available yet"
+                  aria-pressed="false"
+                  title="Talk to this agent and hear its reply"
                   data-voice-conversation
                   data-conversation-focus="conversation"
-                  disabled
                 >
                   <svg viewBox="0 0 24 24" aria-hidden="true">
                     <circle cx="8" cy="8" r="3" /><circle cx="17" cy="9" r="2.5" />

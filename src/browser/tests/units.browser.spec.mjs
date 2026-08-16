@@ -480,6 +480,153 @@ test('Units dictation crosses the authenticated Phoenix voice socket', async ({ 
   await expect(drawer.getByRole('button', { name: 'Send' })).toBeEnabled()
 })
 
+test('Units interactive voice chat sends speech and plays the next agent reply', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.__voicePlaybackStarts = 0
+    Object.defineProperty(navigator, 'mediaDevices', {
+      configurable: true,
+      value: {
+        enumerateDevices: async () => [],
+        getUserMedia: async () => ({ getTracks: () => [{ stop() {} }] })
+      }
+    })
+
+    window.AudioContext = class {
+      constructor() {
+        this.currentTime = 0
+        this.destination = {}
+        this.audioWorklet = { addModule: async () => {} }
+      }
+      createMediaStreamSource() { return { connect: (target) => target, disconnect() {} } }
+      createGain() { return { gain: { value: 1 }, connect: (target) => target, disconnect() {} } }
+      createBuffer(_channels, length, sampleRate) {
+        if (!this.resumed) throw new Error('reply AudioContext was not unlocked by the conversation click')
+        return {
+          duration: length / sampleRate,
+          getChannelData: () => new Float32Array(length)
+        }
+      }
+      createBufferSource() {
+        return {
+          connect() {},
+          start() { window.__voicePlaybackStarts += 1 },
+          stop() {},
+          disconnect() {}
+        }
+      }
+      async resume() { this.resumed = true }
+      close() {}
+    }
+
+    window.AudioWorkletNode = class {
+      constructor() {
+        this.port = {}
+        window.__conversationVoiceWorklet = this
+      }
+      connect(target) { return target }
+      disconnect() {}
+    }
+  })
+
+  await openWritableUnits(page)
+  await page.getByRole('button', { name: 'Open chat for its-everdred/aiur #1110' }).click()
+
+  const drawer = page.getByRole('dialog', { name: 'Responsive Units interface' })
+  const conversation = drawer.getByRole('button', { name: 'Start interactive voice chat' })
+  await conversation.click()
+  await expect(drawer.getByRole('button', { name: 'Stop interactive voice chat' })).toHaveAttribute('aria-pressed', 'true')
+
+  await page.evaluate(() => {
+    window.__conversationVoiceWorklet.port.onmessage({
+      data: { samples: new Float32Array(800).fill(0.5), sampleRate: 16000 }
+    })
+  })
+
+  await expect(drawer.getByLabel('Message agent')).toHaveValue('hello')
+  await drawer.getByRole('button', { name: 'Stop interactive voice chat' }).click()
+
+  await expect(page.locator('[data-units-fixture]')).toHaveAttribute('data-sent-message', 'hello browser')
+  await expect(drawer.getByRole('button', { name: 'Dictate message' })).toBeDisabled()
+  await expect(drawer.getByRole('button', { name: 'Cancel waiting for voice reply' })).toBeEnabled()
+  await expect(drawer.locator('.conversation-message-agent[data-message-complete="false"]')).toContainText('Voice reply')
+  await expect.poll(() => page.evaluate(() => window.__voicePlaybackStarts)).toBe(0)
+  await expect(drawer).toContainText('Voice reply from the agent.')
+  await expect.poll(() => page.evaluate(() => window.__voicePlaybackStarts)).toBe(1)
+  await expect(drawer.locator('[data-voice-status]')).toContainText(
+    'Reply finished. Press the conversation button to speak again.'
+  )
+})
+
+test('Units interactive voice chat can cancel an indefinitely queued reply', async ({ page }) => {
+  await openUnits(page)
+
+  const state = await page.evaluate(() => {
+    const root = document.createElement('div')
+    root.innerHTML = `
+      <form><textarea data-voice-input>queued turn</textarea><button data-voice-send type="submit">Send</button></form>
+      <button data-voice-mic></button><button data-voice-conversation></button>
+      <p data-voice-status></p><canvas data-voice-waveform></canvas>
+    `
+    document.body.append(root)
+
+    const controller = new window.AiurConversationVoiceController({ el: root })
+    controller.bindElements()
+    controller.awaitingReply = true
+    controller.conversationActive = true
+    controller.channel = { leave() { window.__cancelChannelLeft = true } }
+    controller.socket = { disconnect() { window.__cancelSocketDisconnected = true } }
+    controller.syncElements()
+    root.querySelector('[data-voice-conversation]').click()
+
+    return {
+      status: root.querySelector('[data-voice-status]').textContent,
+      inputReadOnly: root.querySelector('[data-voice-input]').readOnly,
+      conversationLabel: root.querySelector('[data-voice-conversation]').getAttribute('aria-label'),
+      channelLeft: window.__cancelChannelLeft,
+      socketDisconnected: window.__cancelSocketDisconnected
+    }
+  })
+
+  expect(state.status).toContain('Voice reply cancelled')
+  expect(state.inputReadOnly).toBe(false)
+  expect(state.conversationLabel).toBe('Start interactive voice chat')
+  expect(state.channelLeft).toBe(true)
+  expect(state.socketDisconnected).toBe(true)
+})
+
+test('Units interactive voice chat recovers after a silent turn', async ({ page }) => {
+  await openUnits(page)
+
+  const state = await page.evaluate(() => {
+    const root = document.createElement('div')
+    root.innerHTML = `
+      <form><textarea data-voice-input></textarea><button data-voice-send type="submit">Send</button></form>
+      <button data-voice-mic></button><button data-voice-conversation></button>
+      <p data-voice-status></p><canvas data-voice-waveform></canvas>
+    `
+    document.body.append(root)
+
+    const controller = new window.AiurConversationVoiceController({ el: root })
+    controller.bindElements()
+    controller.conversationActive = true
+    controller.channel = { leave() { window.__silentChannelLeft = true } }
+    controller.socket = { disconnect() { window.__silentSocketDisconnected = true } }
+    controller.submitConversationTurn()
+
+    return {
+      status: root.querySelector('[data-voice-status]').textContent,
+      conversationActive: controller.conversationActive,
+      channelLeft: window.__silentChannelLeft,
+      socketDisconnected: window.__silentSocketDisconnected
+    }
+  })
+
+  expect(state.status).toContain('I did not hear a message')
+  expect(state.conversationActive).toBe(false)
+  expect(state.channelLeft).toBe(true)
+  expect(state.socketDisconnected).toBe(true)
+})
+
 test('Units preserves focused controls on stable updates and restores dialog focus with a safe fallback', async ({ page }) => {
   await openUnits(page)
 

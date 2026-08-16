@@ -81,7 +81,9 @@ defmodule Aiur.LiveConversation.Normalizer do
 
   @spec public_message(map()) :: map()
   def public_message(message) do
-    Map.drop(message, [:delivery, :fragment, :fragments, :order, :truncated?])
+    message
+    |> Map.put(:complete?, message.delivery == :completed)
+    |> Map.drop([:delivery, :fragment, :fragments, :order, :truncated?])
   end
 
   defp normalized_message(role, body, event, observed_at) do

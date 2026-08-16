@@ -58,6 +58,8 @@ defmodule Aiur.ElevenLabs.Realtime do
   # commit flush before closing anyway. It is driven through an injectable
   # scheduler so no test waits on elapsed time.
   @flush_timeout_ms 2_000
+  @ready_timeout_ms 10_000
+  @max_backlog_bytes 426_668
 
   # `committed_transcript` is the authoritative settled text. `final_transcript`
   # is still revisable despite its name, so it is treated as a *partial* —
@@ -109,6 +111,14 @@ defmodule Aiur.ElevenLabs.Realtime do
     :exit, _reason -> :ok
   end
 
+  @doc "Close a session immediately without committing the current utterance."
+  @spec stop(GenServer.server()) :: :ok
+  def stop(server) do
+    GenServer.cast(server, :stop)
+  catch
+    :exit, _reason -> :ok
+  end
+
   # The credential is resolved twice on purpose: once here, only to learn
   # whether one exists at all, and once inside the connect step that uses it.
   # Neither reading is kept. Testing presence up front is what turns "no key"
@@ -141,6 +151,10 @@ defmodule Aiur.ElevenLabs.Realtime do
     Process.monitor(owner)
     send(self(), :connect)
 
+    ready_timeout_ms = Keyword.get(opts, :ready_timeout_ms, @ready_timeout_ms)
+    ready_scheduler = Keyword.get(opts, :ready_scheduler, &default_ready_scheduler/1)
+    ready_scheduler.(ready_timeout_ms)
+
     {:ok,
      %{
        owner: owner,
@@ -152,10 +166,13 @@ defmodule Aiur.ElevenLabs.Realtime do
        transport: Keyword.get(opts, :transport, MintTransport),
        flush_timeout_ms: Keyword.get(opts, :flush_timeout_ms, @flush_timeout_ms),
        scheduler: Keyword.get(opts, :scheduler, &default_scheduler/1),
+       max_backlog_bytes: Keyword.get(opts, :max_backlog_bytes, @max_backlog_bytes),
        conn: nil,
        ready?: false,
        flushing?: false,
-       backlog: []
+       commit_pending?: false,
+       backlog: [],
+       backlog_bytes: 0
      }}
   end
 
@@ -169,14 +186,20 @@ defmodule Aiur.ElevenLabs.Realtime do
       # discarded, so it queues and flushes on that frame. Losing the first word
       # of every hold is exactly what makes voice input feel unreliable, and the
       # socket being open is not the same as the session being ready.
-      true -> {:noreply, %{state | backlog: [audio_base64 | state.backlog]}}
+      true -> queue_audio(state, audio_base64)
     end
   end
 
   def handle_cast(:commit, %{flushing?: true} = state), do: {:noreply, state}
 
-  # Nothing was ever sent, so there is nothing to settle.
-  def handle_cast(:commit, %{ready?: false} = state), do: finish(state)
+  # Nothing was ever captured, so there is nothing to settle.
+  def handle_cast(:commit, %{ready?: false, backlog: []} = state), do: finish(state)
+
+  # The operator may release the microphone before ElevenLabs emits
+  # `session_started`. Preserve and seal the queued utterance instead of
+  # silently dropping the whole recording.
+  def handle_cast(:commit, %{ready?: false} = state),
+    do: {:noreply, %{state | commit_pending?: true}}
 
   def handle_cast(:commit, state) do
     # An empty chunk with `commit` set is the documented way to seal the final
@@ -185,6 +208,11 @@ defmodule Aiur.ElevenLabs.Realtime do
     state = transmit(state, "", true)
     state.scheduler.(state.flush_timeout_ms)
     {:noreply, %{state | flushing?: true}}
+  end
+
+  def handle_cast(:stop, state) do
+    close_transport(state)
+    {:stop, :normal, state}
   end
 
   @impl true
@@ -210,6 +238,11 @@ defmodule Aiur.ElevenLabs.Realtime do
 
   def handle_info({:elevenlabs_transport, :error, _opaque}, state), do: fail(state, @connection_failure)
 
+  def handle_info(:ready_deadline, %{ready?: false} = state),
+    do: fail(state, "Speech-to-text session did not become ready")
+
+  def handle_info(:ready_deadline, state), do: {:noreply, state}
+
   # The settled utterance never arrived inside the flush window. Close anyway
   # rather than holding a session open on a provider that has gone quiet.
   def handle_info(:flush_deadline, state), do: finish(state)
@@ -222,8 +255,20 @@ defmodule Aiur.ElevenLabs.Realtime do
   def handle_info(_message, state), do: {:noreply, state}
 
   defp handle_message(%{"message_type" => "session_started"}, state) do
-    state = Enum.reduce(Enum.reverse(state.backlog), %{state | ready?: true, backlog: []}, &transmit(&2, &1, false))
-    {:noreply, state}
+    state =
+      Enum.reduce(
+        Enum.reverse(state.backlog),
+        %{state | ready?: true, backlog: [], backlog_bytes: 0},
+        &transmit(&2, &1, false)
+      )
+
+    if state.commit_pending? do
+      state = transmit(state, "", true)
+      state.scheduler.(state.flush_timeout_ms)
+      {:noreply, %{state | flushing?: true, commit_pending?: false}}
+    else
+      {:noreply, state}
+    end
   end
 
   defp handle_message(%{"message_type" => type} = message, state) when type in @final_types do
@@ -299,11 +344,25 @@ defmodule Aiur.ElevenLabs.Realtime do
       })
 
     case state.transport.send_text(state.conn, frame) do
-      {:ok, conn} -> %{state | conn: conn}
-      # A send failure surfaces on the next inbound transport message; the frame
-      # itself is dropped rather than retried, because a re-sent chunk would
-      # arrive out of order in an utterance the provider is already committing.
-      {:error, _opaque} -> state
+      {:ok, conn} ->
+        %{state | conn: conn}
+
+      # Do not retry: a repeated chunk would arrive out of order. Schedule the
+      # normal transport-failure path so the owner is told this utterance did
+      # not make it to the provider instead of presenting a silent success.
+      {:error, _opaque} ->
+        send(self(), {:elevenlabs_transport, :error, :send_failed})
+        state
+    end
+  end
+
+  defp queue_audio(state, audio_base64) do
+    backlog_bytes = state.backlog_bytes + byte_size(audio_base64)
+
+    if backlog_bytes > state.max_backlog_bytes do
+      fail(state, "Speech-to-text session did not become ready")
+    else
+      {:noreply, %{state | backlog: [audio_base64 | state.backlog], backlog_bytes: backlog_bytes}}
     end
   end
 
@@ -350,6 +409,7 @@ defmodule Aiur.ElevenLabs.Realtime do
   defp describe_failure(_type, _detail), do: "Speech-to-text failed"
 
   defp default_scheduler(delay_ms), do: Process.send_after(self(), :flush_deadline, delay_ms)
+  defp default_ready_scheduler(delay_ms), do: Process.send_after(self(), :ready_deadline, delay_ms)
 
   defp language_code do
     Config.elevenlabs_language_code()
