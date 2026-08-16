@@ -30,7 +30,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 
 Each page is a projection of a durable concept. The Concepts pages carry the detail; the Dashboard just renders it.
 
-- **Units** is the live fleet table of agent runs. Read how to filter and read the rows in [Units](/concepts/units).
+- **Units** is the live fleet table of agent runs. Read how to filter and read the rows, and how the provider and API meters work, in [Units](/concepts/units).
 - **Commands** is the Executor's decision inbox, where issues agents flag are answered or deferred. See [Commands](/concepts/commands).
 - **Build Order** renders planning packs as a catalog, phases, and lanes. See [Build Orders](/concepts/build-orders).
 - **Analytics** renders the durable telemetry stream for the current live session: lifecycle timing, per-unit CPU and memory, concurrency against the cap, and cost per ticket. A missing telemetry stream renders an explicit empty state.

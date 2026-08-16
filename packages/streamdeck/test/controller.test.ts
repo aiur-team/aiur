@@ -259,7 +259,10 @@ describe("physical controller composition", () => {
       { kind: "event", badge: "EMIT", text: "PR opened", time: "now", start: 5 },
       { kind: "live", label: "LIVE", start: 8 },
     ];
-    const LIVE_KEY = 3;
+    // LIVE is pinned to the bottom-right physical key (index 7), while its
+    // absolute position in the event list is the last index.
+    const LIVE_KEY = 7;
+    const LIVE_SELECTION = eventKeys.length - 1;
 
     /** A controller sitting on the logs surface with the fixture feed loaded. */
     const inLogs = (logs: Parameters<ReturnType<typeof createPhysicalController>["setLogs"]>[0] = { event_keys: eventKeys, transcript }) => {
@@ -315,13 +318,13 @@ describe("physical controller composition", () => {
      */
     it("makes exactly one of LIVE and an event key active at a time", () => {
       const controller = inLogs();
-      expect(controller.state().selectedEvent).toBe(LIVE_KEY);
+      expect(controller.state().selectedEvent).toBe(LIVE_SELECTION);
       controller.handleReport(keyReport(1, true));
       controller.handleReport(keyReport(1, false));
       expect(controller.state().selectedEvent).toBe(1);
       controller.handleReport(keyReport(LIVE_KEY, true));
       controller.handleReport(keyReport(LIVE_KEY, false));
-      expect(controller.state().selectedEvent).toBe(LIVE_KEY);
+      expect(controller.state().selectedEvent).toBe(LIVE_SELECTION);
     });
 
     // The key window and the event list are different index spaces; reading the
@@ -350,8 +353,10 @@ describe("physical controller composition", () => {
       controller.handleReport(keyReport(1, true));
       controller.handleReport(keyReport(1, false));
       const before = controller.state().chatOffset;
-      controller.handleReport(keyReport(7, true));
-      controller.handleReport(keyReport(7, false));
+      // The fixture has three events + LIVE, so keys 3-6 are empty event slots;
+      // LIVE is pinned at key 7, which is not an empty slot.
+      controller.handleReport(keyReport(3, true));
+      controller.handleReport(keyReport(3, false));
       expect(controller.state().chatOffset).toBe(before);
     });
 
@@ -392,7 +397,7 @@ describe("physical controller composition", () => {
       controller.handleReport(dialTurn(0, 2));
       expect(controller.state().selectedEvent).toBe(2);
       controller.handleReport(dialTurn(0, 3));
-      expect(controller.state().selectedEvent).toBe(LIVE_KEY);
+      expect(controller.state().selectedEvent).toBe(LIVE_SELECTION);
     });
 
     // A highlight on a key the operator has paged away from looks like the
@@ -414,9 +419,10 @@ describe("physical controller composition", () => {
       controller.handleReport(dialTurn(0, -13));
       expect(controller.state().selectedEvent).toBe(1);
       expect(controller.state().eventOffset).toBe(1);
-      // Scrolling forward moves the window only as far as it must.
+      // Scrolling forward moves the window only as far as it must: seven event
+      // slots, so event 10 lands in the last event slot (position 6) at offset 4.
       controller.handleReport(dialTurn(0, 9));
-      expect(controller.state()).toMatchObject({ selectedEvent: 10, eventOffset: 3 });
+      expect(controller.state()).toMatchObject({ selectedEvent: 10, eventOffset: 4 });
     });
 
     // The event window and the chat are two independent navigations. Chasing
@@ -491,7 +497,9 @@ describe("physical controller composition", () => {
       const controller = createPhysicalController({ grid, channel: () => null, stateChanged: vi.fn() });
       controller.setLogs({ event_keys: eventKeys, transcript });
       expect(controller.state().chatOffset).toBe(transcript.length - 1);
-      expect(controller.state().selectedEvent).toBe(LIVE_KEY);
+      // Opening selects LIVE — its absolute position in the event list, not the
+      // pinned physical key index.
+      expect(controller.state().selectedEvent).toBe(LIVE_SELECTION);
     });
 
     it("repaints the transcript window when logs is re-entered", () => {

@@ -35,18 +35,21 @@ defmodule Aiur.Orchestrator.SlotsTest do
       assert Slots.available_slots(state) == 0
     end
 
-    test "releases CI-wait pauses while other pauses keep their reservation" do
+    test "releases CI-wait and dependency pauses while operator pauses keep their reservation" do
       state = %State{
         max_concurrent_agents: 3,
         running: %{
           "active" => running_entry(:working),
           "ci-wait" => running_entry(:paused, nil, :ci_wait),
+          "dependency" => running_entry(:paused, nil, :blocker_dependency),
           "operator" => running_entry(:paused, nil, :operator_pause)
         }
       }
 
       assert Slots.used_slots(state) == 2
       assert Slots.available_slots(state) == 1
+
+      assert Slots.dispatch_slots_available?(%Issue{state: "todo"}, state)
     end
 
     test "reports no slots when globally paused, regardless of free capacity" do

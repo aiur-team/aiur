@@ -12,6 +12,7 @@ defmodule Aiur.AgentControlCLI do
     Config,
     ExecutorCommandCLI,
     ExecutorEvents,
+    ExecutorListener,
     Issue,
     Orchestrator,
     PauseContainment,
@@ -162,6 +163,7 @@ defmodule Aiur.AgentControlCLI do
   defp stale_snapshot_reason(_reason), do: ""
 
   defp print_status_report(statuses, snapshot, opts) do
+    print_executor_listener_status()
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
@@ -1489,6 +1491,23 @@ defmodule Aiur.AgentControlCLI do
 
   defp format_pause_time(%DateTime{} = paused_at), do: "at #{DateTime.to_iso8601(paused_at)}"
   defp format_pause_time(_), do: nil
+
+  # Surface whether the daemon-resident Executor listener (the Command inbox,
+  # started by `--executor`) is currently listening. Absence is otherwise
+  # indistinguishable from "no Commands were created", which is exactly the
+  # silent failure #1961 set out to make visible. The check reflects the live
+  # Exchange binding, not "was started once": a listener that lost its binding
+  # (Exchange restart) or a launch that forgot `--executor` both report absent.
+  defp print_executor_listener_status do
+    alive? =
+      Application.get_env(:aiur, :executor_listener_alive_fun, &ExecutorListener.alive?/0).()
+
+    if alive? do
+      IO.puts("LISTENER present (executor.#)")
+    else
+      IO.puts("LISTENER absent (executor.decision.requested will not wake the Executor)")
+    end
+  end
 
   defp print_codeowners_trust do
     snapshot =

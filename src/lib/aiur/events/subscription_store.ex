@@ -14,7 +14,7 @@ defmodule Aiur.Events.SubscriptionStore do
         "subscribed_to": [
           {
             "topic": "ticket.42.branch.push",
-            "reason": "auto:blocked_by(42)",
+            "reason": "blocker:auto",
             "subscription_created_at_event_id": 4287
           }
         ],
@@ -127,7 +127,8 @@ defmodule Aiur.Events.SubscriptionStore do
 
   @doc """
   Adds a binding. The reason string is free-form metadata used for
-  observability (`"auto:blocked_by(42)"`, `"manual:aiur_subscribe"`).
+  observability (e.g. `"blocker:auto"`, `"own_comments:auto"`, or
+  `"manual:agent"` for an explicit `aiur_subscribe`).
   Idempotent: re-adding an existing topic keeps the original reason and
   `subscription_created_at_event_id` so bootstrap replay isn't reset and
   reason-filtered removal cannot drop manually retained subscriptions.

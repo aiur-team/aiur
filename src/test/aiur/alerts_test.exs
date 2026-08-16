@@ -277,6 +277,92 @@ defmodule Aiur.AlertsTest do
     end)
   end
 
+  describe "resolution alerts are edge-triggered" do
+    setup do
+      log_root = Path.join(System.tmp_dir!(), "aiur-alert-resolution-#{System.unique_integer([:positive])}")
+      original_log_file = Application.get_env(:aiur, :log_file)
+      Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+      on_exit(fn ->
+        if original_log_file do
+          Application.put_env(:aiur, :log_file, original_log_file)
+        else
+          Application.delete_env(:aiur, :log_file)
+        end
+
+        File.rm_rf!(log_root)
+      end)
+
+      {:ok, log_root: log_root}
+    end
+
+    test "one firing-to-cleared transition records exactly one resolution" do
+      condition = "system.github.quota.core.exhausted"
+      resolution = condition <> ".resolved"
+
+      assert :ok = Alerts.emit_system(condition, message: "alert", reason: "0 of 5000 requests remaining", needs_attention: true)
+
+      Enum.each(1..4, fn _cycle ->
+        assert :ok =
+                 Alerts.emit_system(resolution, message: "alert", reason: "GitHub core exhausted quota alert cleared; 4905 of 5000 requests remain", needs_attention: false)
+      end)
+
+      assert ledger_topic_count(resolution) == 1
+    end
+
+    test "a condition that stays clear records nothing further" do
+      resolution = "system.github.quota.core.low.resolved"
+
+      assert :ok = Alerts.emit_system("system.github.quota.core.low", message: "alert", reason: "low", needs_attention: true)
+      assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "cleared", needs_attention: false)
+
+      before = ledger_records()
+      Enum.each(1..10, fn _poll -> assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "cleared", needs_attention: false) end)
+
+      assert ledger_records() == before
+    end
+
+    test "a re-fire earns a second, distinct resolution" do
+      condition = "system.dispatch.prewarm_blocked"
+      resolution = condition <> ".resolved"
+
+      assert :ok = Alerts.emit_system(condition, message: "alert", reason: "prewarm is building", needs_attention: true)
+      assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "prewarm is ready", needs_attention: false)
+      assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "prewarm is ready", needs_attention: false)
+      assert ledger_topic_count(resolution) == 1
+
+      assert :ok = Alerts.emit_system(condition, message: "alert", reason: "prewarm is fetching", needs_attention: true)
+      assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "prewarm is ready again", needs_attention: false)
+
+      assert ledger_topic_count(resolution) == 2
+      assert Enum.any?(ledger_records(), &(&1["topic"] == resolution and &1["reason"] == "prewarm is ready again"))
+    end
+
+    test "a suppressed resolution is not published to the topic exchange" do
+      condition = "system.github.quota.graphql.exhausted"
+      resolution = condition <> ".resolved"
+
+      assert :ok = Alerts.emit_system(condition, message: "alert", reason: "graphql exhausted", needs_attention: true)
+      assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "graphql cleared", needs_attention: false)
+
+      :ok = Exchange.subscribe(resolution)
+      assert :ok = Alerts.emit_system(resolution, message: "alert", reason: "graphql cleared", needs_attention: false)
+
+      refute_receive {:event, _envelope}, 200
+    end
+
+    defp ledger_records do
+      AlertLedger.path()
+      |> File.read()
+      |> case do
+        {:ok, contents} -> contents |> String.split("\n", trim: true) |> Enum.map(&Jason.decode!/1)
+        {:error, _missing} -> []
+      end
+    end
+
+    defp ledger_topic_count(topic), do: Enum.count(ledger_records(), &(&1["topic"] == topic))
+  end
+
   test "todo overload emits system.dispatch.todo_capacity_exceeded once per overload interval" do
     workspace_root =
       Path.join(System.tmp_dir!(), "aiur-alert-overload-#{System.unique_integer([:positive])}")

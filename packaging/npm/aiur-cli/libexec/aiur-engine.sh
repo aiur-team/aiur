@@ -309,10 +309,10 @@ build_init_cmd() {
 
 usage() {
   cat <<'EOF'
-Usage: aiur [--interactive] [--no-dashboard] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
-       aiur run [--bg] [--no-dashboard] [--debug]  explicit launch form (foreground unless --bg)
+Usage: aiur [--interactive] [--no-dashboard] [--executor] [--pause] [--max-agents <n>] [--logs-root <path>] [--port <port>] [--host <host>] [path-to-.aiurconfig]
+       aiur run [--bg] [--no-dashboard] [--executor] [--debug]  explicit launch form (foreground unless --bg)
        aiur init [--force]   scaffold .aiurconfig (interactive setup wizard)
-       aiur --bg [--no-dashboard] [--debug]   start detached; dashboard on unless suppressed
+       aiur --bg [--no-dashboard] [--executor] [--debug]   start detached; dashboard on unless suppressed
        aiur stop             stop the running session
        aiur restart [--no-build] [run flags]  stop, refresh the build, start again (detached)
        aiur status           show agent status
