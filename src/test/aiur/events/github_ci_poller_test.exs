@@ -69,6 +69,53 @@ defmodule Aiur.Events.GithubCIPollerTest do
              GithubCIPoller.poll(["42"], request_fun: request_fun)
   end
 
+  # The GraphQL batch carries draft + review decision alongside the checks so
+  # the daemon can surface DRAFT in the Executor queue and alert on the
+  # approved-green-draft stall (#1974).
+  test "threads draft and review decision from the GraphQL batch into the result" do
+    batch = %{
+      "42" => %{
+        pull_request: %{
+          "number" => 77,
+          "state" => "open",
+          "head" => %{"ref" => "aiur/42-x", "sha" => "head-77"},
+          "base" => %{"ref" => "main"},
+          "draft" => true,
+          "review_decision" => "APPROVED"
+        },
+        check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
+        commit_status: %{"statuses" => [], "state" => ""}
+      }
+    }
+
+    assert {:ok, %{errors: [], results: [result]}} =
+             GithubCIPoller.poll(["42"], ci_batch: batch)
+
+    assert result.decision == :passed
+    assert result.draft? == true
+    assert result.review_decision == "APPROVED"
+  end
+
+  test "a ready (non-draft) batched PR reports draft false" do
+    batch = %{
+      "42" => %{
+        pull_request: %{
+          "number" => 77,
+          "state" => "open",
+          "head" => %{"ref" => "aiur/42-x", "sha" => "head-77"},
+          "base" => %{"ref" => "main"},
+          "draft" => false,
+          "review_decision" => nil
+        },
+        check_runs: [%{"name" => "test", "status" => "completed", "conclusion" => "success"}],
+        commit_status: %{"statuses" => [], "state" => ""}
+      }
+    }
+
+    assert {:ok, %{errors: [], results: [%{draft?: false, review_decision: nil}]}} =
+             GithubCIPoller.poll(["42"], ci_batch: batch)
+  end
+
   test "returns pending for no observed checks or in-progress work" do
     assert %{decision: :pending, failures: []} = GithubCIPoller.evaluate_for_test([], %{"statuses" => []})
 

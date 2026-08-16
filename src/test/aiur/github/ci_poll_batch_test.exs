@@ -48,8 +48,45 @@ defmodule Aiur.GitHub.CIPollBatchTest do
              )
 
     assert %{"number" => 77, "head" => %{"sha" => "head-77"}} = batch.pull_request
+    assert batch.pull_request["draft"] == true
+    assert batch.pull_request["review_decision"] == "APPROVED"
     assert [%{"name" => "test", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
+  end
+
+  # The Executor cannot distinguish a draft PR from one waiting on checks
+  # without draft state in the batch (#1974). Draft + approval ride the same
+  # GraphQL query so the daemon both surfaces DRAFT and alerts on the
+  # approved-green-draft stall.
+  test "requests draft state and review decision alongside the check contexts" do
+    request_fun = fn %{method: :post, body: body} ->
+      assert body["query"] =~ "isDraft"
+      assert body["query"] =~ "reviewDecision"
+
+      {:ok,
+       %{
+         status: 200,
+         body: %{
+           "data" => %{
+             "repository" => %{
+               "branch_0_0" => %{
+                 "pageInfo" => %{"hasNextPage" => false},
+                 "nodes" => [pull_request() |> Map.put("isDraft", false) |> Map.put("reviewDecision", "CHANGES_REQUESTED")]
+               }
+             }
+           }
+         }
+       }}
+    end
+
+    assert {:ok, %{"42" => batch}} =
+             CIPollBatch.fetch(["42"],
+               request_fun: request_fun,
+               branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
+             )
+
+    assert batch.pull_request["draft"] == false
+    assert batch.pull_request["review_decision"] == "CHANGES_REQUESTED"
   end
 
   # Regression guard: GitHub issues have no branch name, so without the
@@ -198,6 +235,8 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       "headRefName" => "aiur/42-ci-batch",
       "headRefOid" => "head-77",
       "baseRefName" => "develop",
+      "isDraft" => true,
+      "reviewDecision" => "APPROVED",
       "commits" => %{
         "nodes" => [
           %{

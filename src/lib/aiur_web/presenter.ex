@@ -419,7 +419,9 @@ defmodule AiurWeb.Presenter do
     %{
       decision: Map.get(result, :decision),
       pr_number: Map.get(result, :pr_number),
-      head_sha: Map.get(result, :head_sha)
+      head_sha: Map.get(result, :head_sha),
+      draft?: Map.get(result, :draft?) == true,
+      review_decision: Map.get(result, :review_decision)
     }
   end
 

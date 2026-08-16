@@ -6,7 +6,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
 
   require Logger
 
-  alias Aiur.{CIApprovalStore, Config, Issue, Tracker}
+  alias Aiur.{Alerts, CIApprovalStore, Config, Issue, Tracker}
   alias Aiur.Events.{GithubCIPoller, IdGenerator, Publisher, Sanitizer, UniversalSubscriptions}
   alias Aiur.GitHub.{CIPollBatch, Client}
 
@@ -503,10 +503,63 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   defp apply_ci_poll_result_for_target(state, result, issues_by_target) do
     case Map.get(issues_by_target, Map.get(result, :target)) do
       %Issue{} = issue ->
+        previous = cached_ci_projection(state, issue)
+
         state
         |> reconcile_base_repair_invalidation(issue, result)
         |> stash_last_ci_result(issue, result)
+        |> maybe_alert_approved_green_draft(issue, result, previous)
         |> apply_ci_poll_result(issue, result)
+
+      _ ->
+        state
+    end
+  end
+
+  # Edge-triggered, once per stalled head: approved + CI-green + still a draft
+  # is always wrong and is precisely the "finished work silently parked" case
+  # (#1974). The previous poll_cache projection carries the last observed
+  # stall state, so a genuinely new observation (fresh stall or a re-push of
+  # the same stall) alerts while a repeated poll of the identical stalled head
+  # stays silent.
+  defp maybe_alert_approved_green_draft(%State{} = state, %Issue{} = issue, result, previous) do
+    if stalled_approved_green_draft?(result) and not already_alerted_for_stall?(previous, result) do
+      emit_approved_green_draft_alert(state, issue, result)
+    else
+      state
+    end
+  end
+
+  defp already_alerted_for_stall?(nil, _result), do: false
+
+  defp already_alerted_for_stall?(previous, result) do
+    stalled_approved_green_draft?(previous) and
+      Map.get(previous, :head_sha) == Map.get(result, :head_sha)
+  end
+
+  defp stalled_approved_green_draft?(nil), do: false
+
+  defp stalled_approved_green_draft?(result) do
+    Map.get(result, :decision) == :passed and
+      Map.get(result, :draft?) == true and
+      Map.get(result, :review_decision) == "APPROVED"
+  end
+
+  defp emit_approved_green_draft_alert(%State{} = state, %Issue{} = issue, result) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) ->
+        pr_number = Map.get(result, :pr_number)
+
+        Alerts.emit_system(
+          "ticket.#{target}.pr.draft_approved_green",
+          message: "Approved and CI-green PR ##{pr_number} is still a draft and cannot auto-merge",
+          reason:
+            "A draft blocks the merge queue: the PR is approved, CI is green, and it is still " <>
+              "a draft (#1974). Mark the PR ready to resume auto-merge; until then finished work sits.",
+          needs_attention: true
+        )
+
+        state
 
       _ ->
         state
@@ -544,8 +597,17 @@ defmodule Aiur.Orchestrator.CiLifecycle do
     %{
       decision: Map.get(result, :decision),
       pr_number: Map.get(result, :pr_number),
-      head_sha: Map.get(result, :head_sha)
+      head_sha: Map.get(result, :head_sha),
+      draft?: Map.get(result, :draft?) == true,
+      review_decision: Map.get(result, :review_decision)
     }
+  end
+
+  defp cached_ci_projection(%State{} = state, %Issue{} = issue) do
+    case ci_target_for_issue(issue) do
+      target when is_binary(target) -> Map.get(Map.get(state.ci_lifecycle, :poll_cache, %{}), target)
+      _ -> nil
+    end
   end
 
   defp reconcile_base_repair_invalidation(

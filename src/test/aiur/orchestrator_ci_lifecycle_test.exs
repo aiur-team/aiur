@@ -175,7 +175,9 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       # The OCC-5 CI/PR projection still caches even when the tracker write
       # itself fails and the transition is left untouched.
       assert next.running == state.running
-      assert next.ci_lifecycle.poll_cache == %{identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head"}}
+      assert next.ci_lifecycle.poll_cache == %{
+               identifier => %{decision: :failed, pr_number: 941, head_sha: "failed-head", draft?: false, review_decision: nil}
+             }
       assert Map.delete(next.ci_lifecycle, :poll_cache) == Map.delete(state.ci_lifecycle, :poll_cache)
       assert MapSet.member?(next.claimed, identifier)
     end
@@ -226,6 +228,94 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert [%{body: %{events: [event]}}] = AgentQueueStore.list_pending(next.queue_store, identifier)
       assert event.topic == topic
       assert event.message == "CI passed for the current PR head"
+    end
+
+    test "alerts once when an approved, green PR is still a draft (#1974)" do
+      identifier = unique_identifier("ci-draft-stall")
+      alert_topic = "ticket.#{identifier}.pr.draft_approved_green"
+      recorder = start_recorder(alert_topic)
+      issue = issue(identifier, "human-review")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+
+      result = %{
+        decision: :passed,
+        head_sha: "stalled-head",
+        pr_number: 941,
+        draft?: true,
+        review_decision: "APPROVED"
+      }
+
+      next = poll_ci(state, issue, result)
+      sync_recorder(recorder)
+
+      # Approved + green + draft is always wrong: the daemon alerts so the
+      # stall is loud instead of an indistinguishable BLOCKED.
+      assert_received {:recorded, _position, {:event, %{"needs_attention" => true, topic: ^alert_topic}}}
+
+      # The projection records draft state so the Executor queue surfaces DRAFT.
+      assert next.ci_lifecycle.poll_cache == %{
+               identifier => %{
+                 decision: :passed,
+                 pr_number: 941,
+                 head_sha: "stalled-head",
+                 draft?: true,
+                 review_decision: "APPROVED"
+               }
+             }
+
+      # Re-polling the identical stalled head must not re-alert every cycle.
+      _again = poll_ci(next, issue, result)
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
+    end
+
+    test "does not alert for a ready (non-draft) green PR" do
+      identifier = unique_identifier("ci-draft-ready")
+      alert_topic = "ticket.#{identifier}.pr.draft_approved_green"
+      recorder = start_recorder(alert_topic)
+      issue = issue(identifier, "human-review")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+
+      _next =
+        poll_ci(state, issue, %{
+          decision: :passed,
+          head_sha: "ready-head",
+          pr_number: 942,
+          draft?: false,
+          review_decision: "APPROVED"
+        })
+
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
+    end
+
+    test "does not alert for an approved draft that is still pending CI" do
+      identifier = unique_identifier("ci-draft-pending")
+      alert_topic = "ticket.#{identifier}.pr.draft_approved_green"
+      recorder = start_recorder(alert_topic)
+      issue = issue(identifier, "ci-wait")
+
+      state =
+        issue
+        |> running_state(recorder, :paused, paused_reason: :ci_wait)
+
+      _next =
+        poll_ci(state, issue, %{
+          decision: :pending,
+          head_sha: "pending-head",
+          pr_number: 943,
+          draft?: true,
+          review_decision: "APPROVED"
+        })
+
+      sync_recorder(recorder)
+      refute_received {:recorded, _position, {:event, %{topic: ^alert_topic}}}
     end
 
     test "failing CI queues failed-check context before resuming into rework" do
@@ -418,7 +508,7 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       assert next.running == armed.running
 
       assert next.ci_lifecycle.poll_cache == %{
-               identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head"}
+               identifier => %{decision: :pending, pr_number: nil, head_sha: "same-head", draft?: false, review_decision: nil}
              }
 
       assert Map.delete(next.ci_lifecycle, :poll_cache) ==

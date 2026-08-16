@@ -124,7 +124,7 @@ defmodule Aiur.GitHub.CIPollBatch do
     branch_#{index}_#{candidate}: pullRequests(headRefName: "#{escape_graphql_string(branch)}", states: OPEN, orderBy: {field: CREATED_AT, direction: DESC}, first: #{@pull_requests_per_branch}) {
       pageInfo { hasNextPage }
       nodes {
-        number state headRefName headRefOid baseRefName
+        number state headRefName headRefOid baseRefName isDraft reviewDecision
         commits(last: 1) {
           nodes {
             commit {
@@ -228,7 +228,9 @@ defmodule Aiur.GitHub.CIPollBatch do
         "number" => Map.get(node, "number"),
         "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
         "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
-        "base" => %{"ref" => Map.get(node, "baseRefName")}
+        "base" => %{"ref" => Map.get(node, "baseRefName")},
+        "draft" => Map.get(node, "isDraft") == true,
+        "review_decision" => Map.get(node, "reviewDecision")
       },
       check_runs: Enum.map(check_runs, &normalize_check_run/1),
       commit_status: normalize_commit_status(statuses),

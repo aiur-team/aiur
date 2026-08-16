@@ -160,9 +160,16 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
   defp waiting_chip_class(:unresponsive), do: "chip blocking"
   defp waiting_chip_class(_reason), do: "chip attention"
 
-  defp ci_review(%{ci: %{decision: decision, pr_number: number}, review: review}) do
+  defp ci_review(%{ci: %{decision: decision, pr_number: number} = ci, review: review}) do
     prefix = if number, do: "PR ##{number}", else: "CI"
-    "#{prefix} #{humanize(decision)} · #{review_label(review)}"
+
+    # A draft PR is never an indistinguishable BLOCKED: the whole reason a
+    # finished PR stalls silently is that draft state was invisible to the
+    # Executor (#1974). Show DRAFT up front so the stalled case reads at a
+    # glance.
+    draft_marker = if Map.get(ci, :draft?), do: "DRAFT ", else: ""
+
+    "#{prefix} #{draft_marker}#{humanize(decision)} · #{review_label(review)}"
   end
 
   defp ci_review(%{review: review}), do: review_label(review)
