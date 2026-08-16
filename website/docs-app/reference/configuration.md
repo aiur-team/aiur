@@ -12,6 +12,41 @@ Configuration lives in `.aiur/config` (YAML). `prompt_file:` and `hooks_file:` p
 | `prompt_file` | string | nil | Per-repository Liquid prompt template. |
 | `debug` | boolean | false | Enables file logging without the CLI debug flag. |
 | `hooks_file` | file pointer | none | Sibling YAML file merged as the `hooks:` block. |
+| `executor_takeover_first_alert_hours` | integer | 8 | First Executor takeover advisory threshold in hours; `0` disables. |
+| `executor_takeover_continuous_alert_hours` | integer | 1 | Repeated takeover advisory cadence in hours after the first; `0` disables repeats. |
+
+## executor takeover alerts
+
+Aiur watches nonterminal tickets in the run scope and, once a ticket's
+**convergence age** crosses a configurable threshold, raises an advisory
+`needs_attention` alert visible in `aiurdev alerts --needs-attention` and the
+watch actionable section. The alerts are advisory takeover prompts — they never
+perform a takeover automatically.
+
+- `executor_takeover_first_alert_hours` (default `8`) — a nonterminal ticket
+  first raises the advisory once its convergence age reaches this value.
+- `executor_takeover_continuous_alert_hours` (default `1`) — while the ticket
+  stays nonterminal and unresolved, the advisory is repeated at most this often.
+  A value of `0` disables repeats (first alert only); `0` on the first threshold
+  disables the feature. Negative or non-integer values are rejected.
+
+**Convergence age** is `now − min(first_observed_active_work_at,
+open_pr_created_at)`:
+
+- `first_observed_active_work_at` is persisted durably per ticket in daemon
+  state, set once the first time the monitor observes the ticket as nonterminal
+  and in scope. A worker restart, redispatch, `max_turns` recycle, or daemon
+  restart never resets it.
+- `open_pr_created_at` is the creation time of the ticket's open PR (a floor,
+  so an already-open PR is never hidden by a freshly installed or restarted
+  monitor).
+
+The alert includes actionable evidence: ticket/PR, elapsed age, last material
+push, current live-owner state, dispatch/restart count, PR base/merge
+freshness, and (for already-alerted tickets) current CI state when available.
+When a ticket becomes terminal or leaves the run scope, the active advisory is
+resolved and its convergence state is forgotten; a re-opened ticket starts a
+fresh episode.
 
 ## tracker
 

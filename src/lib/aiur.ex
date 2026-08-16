@@ -267,6 +267,8 @@ defmodule Aiur.Application do
       Aiur.CurrentRunProjections,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
+      Aiur.Executor.TakeoverAlert.Store,
+      Aiur.Executor.TakeoverAlert.Monitor,
       Aiur.Logs.Retention,
       # The daemon-resident Executor listener (the Command inbox) is started only
       # for an Executor-owned run (`--executor`). It must come after the Exchange
