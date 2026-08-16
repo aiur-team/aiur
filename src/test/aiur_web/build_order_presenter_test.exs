@@ -38,7 +38,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
           agent_input_tokens: 10,
           agent_output_tokens: 20,
           agent_total_tokens: 30,
-          ci_result: %{decision: :pending, pr_number: 99, head_sha: "abc123"},
+          ci_result: %{decision: :pending, pr_number: 99, head_sha: "abc123", draft?: true},
           last_codex_timestamp: @now
         }
       ],
@@ -68,6 +68,7 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     refute Map.has_key?(active_node.execution, :tokens)
     assert active_node.execution.runtime_seconds == 90
     assert active_node.execution.ci_result.decision == :pending
+    assert active_node.execution.ci_result.draft? == true
     assert active_node.activity.progress.percent == 42
     assert active_node.activity.active_stage == :work
     assert active_node.card.progress == 42

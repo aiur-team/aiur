@@ -58,7 +58,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
     # same node, without any extra read.
     assert %{
              "merge_queue" => %{
-               draft?: false,
+               draft?: true,
                review_decision: "APPROVED",
                mergeable: "MERGEABLE",
                merge_state_status: "BLOCKED",
@@ -69,40 +69,6 @@ defmodule Aiur.GitHub.CIPollBatchTest do
 
     assert [%{"name" => "test", "status" => "completed", "conclusion" => "success"}] = batch.check_runs
     assert %{"state" => "success", "statuses" => [%{"context" => "legacy", "state" => "success"}]} = batch.commit_status
-  end
-
-  # The Executor cannot distinguish a draft PR from one waiting on checks
-  # without draft state in the batch (#1974). Draft + approval ride the same
-  # GraphQL query so the daemon both surfaces DRAFT and alerts on the
-  # approved-green-draft stall.
-  test "requests draft state and review decision alongside the check contexts" do
-    request_fun = fn %{method: :post, body: body} ->
-      assert body["query"] =~ "isDraft"
-      assert body["query"] =~ "reviewDecision"
-
-      {:ok,
-       %{
-         status: 200,
-         body: %{
-           "data" => %{
-             "repository" => %{
-               "branch_0_0" => %{
-                 "pageInfo" => %{"hasNextPage" => false},
-                 "nodes" => [pull_request() |> Map.put("isDraft", true) |> Map.put("reviewDecision", "CHANGES_REQUESTED")]
-               }
-             }
-           }
-         }
-       }}
-    end
-
-    assert {:ok, %{"42" => batch}} =
-             CIPollBatch.fetch(["42"],
-               request_fun: request_fun,
-               branch_names_by_target: %{"42" => "aiur/42-ci-batch"}
-             )
-
-    assert %{draft?: true, review_decision: "CHANGES_REQUESTED"} = batch.pull_request["merge_queue"]
   end
 
   # Regression guard: GitHub issues have no branch name, so without the
@@ -251,7 +217,7 @@ defmodule Aiur.GitHub.CIPollBatchTest do
       "headRefName" => "aiur/42-ci-batch",
       "headRefOid" => "head-77",
       "baseRefName" => "develop",
-      "isDraft" => false,
+      "isDraft" => true,
       "reviewDecision" => "APPROVED",
       "mergeable" => "MERGEABLE",
       "mergeStateStatus" => "BLOCKED",

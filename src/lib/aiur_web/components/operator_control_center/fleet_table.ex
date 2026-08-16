@@ -162,11 +162,6 @@ defmodule AiurWeb.OperatorControlCenter.FleetTable do
 
   defp ci_review(%{ci: %{decision: decision, pr_number: number} = ci, review: review}) do
     prefix = if number, do: "PR ##{number}", else: "CI"
-
-    # A draft PR is never an indistinguishable BLOCKED: the whole reason a
-    # finished PR stalls silently is that draft state was invisible to the
-    # Executor (#1974). Show DRAFT up front so the stalled case reads at a
-    # glance.
     draft_marker = if Map.get(ci, :draft?), do: "DRAFT ", else: ""
 
     "#{prefix} #{draft_marker}#{humanize(decision)} · #{review_label(review)}"

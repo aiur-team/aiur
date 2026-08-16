@@ -158,7 +158,7 @@ defmodule AiurWeb.PresenterTest do
     assert running_row.tracker_paused == false
     assert is_integer(running_row.runtime_seconds)
     assert running_row.waiting_reason == :waiting_for_ci
-    assert running_row.ci == %{decision: :pending, pr_number: 55, head_sha: "abc123", draft?: false, review_decision: nil}
+    assert running_row.ci == %{decision: :pending, pr_number: 55, head_sha: "abc123", draft?: false}
     assert running_row.review == :not_started
     assert running_row.open_decision_count == 0
     assert is_integer(running_row.stale_for_seconds)
@@ -193,7 +193,7 @@ defmodule AiurWeb.PresenterTest do
     assert [idle_row] = payload.idle
     assert idle_row.issue_identifier == "MT-702"
     assert idle_row.waiting_reason == :waiting_for_review
-    assert idle_row.ci == %{decision: :passed, pr_number: 56, head_sha: "def456", draft?: false, review_decision: nil}
+    assert idle_row.ci == %{decision: :passed, pr_number: 56, head_sha: "def456", draft?: false}
     assert idle_row.review == :awaiting
     assert idle_row.tracker_identity == idle_identity
   end

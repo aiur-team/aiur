@@ -776,6 +776,7 @@ defmodule Aiur.Orchestrator.CiLifecycle do
   end
 
   defp parked_ready_alert_target(_alert), do: nil
+
   # Read-only projection of the poll result for OCC-5's fleet-state row (PR
   # number / CI decision), cached by ticket identifier independently of
   # whatever tracker transition (or no-op) the result below triggers — a

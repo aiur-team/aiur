@@ -439,17 +439,12 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
   test "surfaces DRAFT so a draft PR is never indistinguishable from a blocked one" do
     fleet = %{
       running: [
-        %{
-          issue_identifier: "AIUR-42",
+        fleet_row("AIUR-42", :active,
           title: "Drafting ticket",
           state: "human-review",
-          work_state: :working,
-          waiting_reason: :active,
-          runtime_seconds: 60,
-          open_decision_count: 0,
           review: :awaiting,
-          ci: %{decision: :passed, pr_number: 77, head_sha: "head-77", draft?: true, review_decision: "APPROVED"}
-        }
+          ci: %{decision: :passed, pr_number: 77, head_sha: "head-77", draft?: true}
+        )
       ],
       retrying: [],
       idle: []
@@ -466,22 +461,7 @@ defmodule AiurWeb.OperatorControlCenterComponentsTest do
     assert html =~ "DRAFT"
     assert html =~ "Review awaiting"
 
-    ready_fleet = %{
-      fleet
-      | running: [
-          %{
-            issue_identifier: "AIUR-42",
-            title: "Drafting ticket",
-            state: "human-review",
-            work_state: :working,
-            waiting_reason: :active,
-            runtime_seconds: 60,
-            open_decision_count: 0,
-            review: :awaiting,
-            ci: %{decision: :passed, pr_number: 77, head_sha: "head-77", draft?: false, review_decision: "APPROVED"}
-          }
-        ]
-    }
+    ready_fleet = put_in(fleet, [:running, Access.at(0), :ci, :draft?], false)
 
     ready_html =
       render_component(&FleetTable.fleet_table/1, %{
