@@ -236,6 +236,89 @@ defmodule Aiur.GitHub.IssuesTest do
     end
   end
 
+  describe "hydrate_blocked_by/1" do
+    test "returns the issue unchanged when blocked_by is already hydrated" do
+      issue = %Issue{id: "5", identifier: "5", title: "t", state: "todo", blocked_by: [%{id: "2", state: "done"}]}
+
+      assert {:ok, ^issue} = Issues.hydrate_blocked_by(issue)
+    end
+
+    test "fetches and normalizes native blockers onto the issue" do
+      request_fun = fn %{method: :get, url: url, api_version: api_version} ->
+        assert url =~ "/issues/5/dependencies/blocked_by"
+        assert api_version == "2026-03-10"
+
+        blockers = [
+          %{
+            "number" => 3,
+            "html_url" => "https://github.com/owner/repo/issues/3",
+            "state" => "open",
+            "labels" => [%{"name" => "sym:todo"}]
+          },
+          %{
+            "number" => 4,
+            "html_url" => "https://github.com/owner/repo/issues/4",
+            "state" => "closed",
+            "labels" => []
+          }
+        ]
+
+        {:ok, %{status: 200, body: blockers}}
+      end
+
+      issue = %Issue{id: "5", identifier: "5", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: blockers}} =
+               Issues.hydrate_blocked_by(issue, request_fun: request_fun)
+
+      assert blockers == [
+               %{
+                 id: "3",
+                 identifier: "3",
+                 state: "todo",
+                 url: "https://github.com/owner/repo/issues/3"
+               },
+               %{
+                 id: "4",
+                 identifier: "4",
+                 state: "Closed",
+                 url: "https://github.com/owner/repo/issues/4"
+               }
+             ]
+    end
+
+    test "an open blocker with no agent state label hydrates as unknown (fail-closed at the gate)" do
+      request_fun = fn %{method: :get, url: _url} ->
+        {:ok, %{status: 200, body: [%{"number" => 9, "state" => "open", "labels" => []}]}}
+      end
+
+      issue = %Issue{id: "5", identifier: "5", title: "t", state: "todo"}
+
+      assert {:ok, %Issue{blocked_by: [blocker]}} =
+               Issues.hydrate_blocked_by(issue, request_fun: request_fun)
+
+      assert blocker.id == "9"
+      assert blocker.state == nil
+    end
+
+    test "returns the error when the dependency read fails" do
+      request_fun = fn %{method: :get, url: _url} ->
+        {:ok, %{status: 500, body: %{"message" => "boom"}}}
+      end
+
+      issue = %Issue{id: "5", identifier: "5", title: "t", state: "todo"}
+
+      assert {:error, {:github, :http, %{status: 500}}} =
+               Issues.hydrate_blocked_by(issue, request_fun: request_fun)
+    end
+
+    test "returns the issue unchanged when it has no numeric id" do
+      issue = %Issue{id: nil, identifier: nil, title: "t", state: "todo"}
+
+      assert {:ok, ^issue} = Issues.hydrate_blocked_by(issue)
+    end
+  end
+
   describe "fetch_issue_raw/2" do
     test "returns raw map on 200" do
       raw_body = %{"number" => 5, "title" => "Raw"}
