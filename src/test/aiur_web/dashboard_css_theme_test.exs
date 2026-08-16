@@ -113,6 +113,22 @@ defmodule AiurWeb.DashboardCssThemeTest do
     assert rule =~ "var(--blocking)"
   end
 
+  test "dashboard progress bars match the Stream Deck progress contract" do
+    contract =
+      Path.expand("../../../packages/streamdeck/src/key-face-contract.json", __DIR__)
+      |> File.read!()
+      |> Jason.decode!()
+
+    root = declarations(css_rule(":root"))
+    assert root["--progress-fill"] == contract["progress"]["fill"]
+    assert root["--progress-complete-fill"] == contract["progress"]["complete_fill"]
+
+    assert css_rule(".ut-pbar > i") =~ "var(--progress-fill)"
+    assert css_rule(".ut-pbar > i.is-complete") =~ "var(--progress-complete-fill)"
+    assert css_rule(".run-summary-progress-fill") =~ "var(--progress-fill)"
+    assert css_rule(".run-summary-progress-fill.is-complete") =~ "var(--progress-complete-fill)"
+  end
+
   # Text on a filled control needs its own token pair: a fill tuned to carry
   # ink, and the ink itself. `.btn` used to paint `#fff` straight onto --accent,
   # which is 3.51:1 in the dark theme, and `.btn.danger` inherited that white

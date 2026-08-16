@@ -122,7 +122,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
       aria-label="Weighted run progress"
     >
       <span class="run-summary-progress-track" aria-hidden="true">
-        <span class="run-summary-progress-fill" style={"width: #{@percent}%"}></span>
+        <span class={["run-summary-progress-fill", @percent == 100 && "is-complete"]} style={"width: #{@percent}%"}></span>
       </span>
       <span class="run-summary-progress-value">{@percent}% complete (exact)</span>
     </div>

@@ -38,8 +38,9 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
 
   progress = @contract["progress"]
 
-  unless Enum.all?(["minimum", "maximum", "hue_start", "hue_end", "saturation", "lightness", "round_decimals"], &is_number(progress[&1])) and
-           progress["maximum"] > progress["minimum"] and is_integer(progress["round_decimals"]) and progress["round_decimals"] >= 0 do
+  unless Enum.all?(["minimum", "maximum"], &is_number(progress[&1])) and
+           progress["maximum"] > progress["minimum"] and
+           Enum.all?(["fill", "complete_fill"], &(is_binary(progress[&1]) and progress[&1] != "" and not String.contains?(progress[&1], ["<", ">"]))) do
     raise "Stream Deck progress contract is malformed"
   end
 
@@ -94,14 +95,18 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
   def footer_for_agent(bucket, agent) when is_map(agent), do: footer(bucket, Map.get(agent, :dependency_ready))
 
   @spec progress_color(number()) :: String.t()
+  @doc """
+  One fill colour at every measured value, with a brighter shade at 100% so
+  completion reads at a glance. A hue ramp is deliberately not used: it makes
+  the bar read as two segments of data (and, on the device, as two tones of
+  grey at low saturation). Completion is a shade change, not a different hue.
+  """
   def progress_color(percent) when is_number(percent) do
     progress = @contract["progress"]
     minimum = progress["minimum"]
     maximum = progress["maximum"]
     clamped = min(max(percent, minimum), maximum)
-    hue = progress["hue_start"] + (clamped - minimum) / (maximum - minimum) * (progress["hue_end"] - progress["hue_start"])
-    hue = Float.round(hue, progress["round_decimals"])
-    "hsl(#{format_number(hue)} #{progress["saturation"]}% #{progress["lightness"]}%)"
+    if clamped >= maximum, do: progress["complete_fill"], else: progress["fill"]
   end
 
   @spec direction_badges() :: %{String.t() => map()}
@@ -116,7 +121,4 @@ defmodule AiurWeb.StreamdeckKeyFaceContract do
       :error -> raise ArgumentError, "unhandled Stream Deck direction badge: #{inspect(badge)}"
     end
   end
-
-  defp format_number(number) when trunc(number) == number, do: Integer.to_string(trunc(number))
-  defp format_number(number), do: :erlang.float_to_binary(number, decimals: 3) |> String.trim_trailing("0") |> String.trim_trailing(".")
 end

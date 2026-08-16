@@ -81,6 +81,25 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ "example.com"
     refute html =~ "/private/workspace"
     refute html =~ "Agent log"
+    assert html =~ ~s(class="ut-pbar is-unknown")
+    refute html =~ ~s(class="ut-progress-fill")
+  end
+
+  test "marks measured zero and completion without overriding semantic tones" do
+    zero = render(view([put_in(row(), [:progress, :percent], 0)]))
+    complete = render(view([put_in(row(), [:progress, :percent], 100)]))
+
+    blocked_complete =
+      row()
+      |> put_in([:progress, :percent], 100)
+      |> put_in([:reasons, :blocking], :dependency)
+      |> then(&render(view([&1])))
+
+    assert zero =~ ~s(class="ut-progress-fill")
+    assert zero =~ "width:0%"
+    refute zero =~ "is-unknown"
+    assert complete =~ ~s(class="ut-progress-fill is-complete")
+    assert blocked_complete =~ ~s(class="ut-progress-fill is-complete is-blocked")
   end
 
   test "resolves string-backed registry families and backends" do

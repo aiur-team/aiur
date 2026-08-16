@@ -188,9 +188,9 @@ function buildFooter(agent: AgentInput): Footer {
   const clamped = clampPercent(agent.progress_percent);
   const freshness = readFreshness(agent, clamped);
   // Unknown means unknown all the way down: the percent is dropped as well as
-  // the hue, so nothing downstream can key a confident branch off a number the
-  // payload disowned. The progress ramp maps 0 to red, and painting an unknown
-  // bar red would state a measurement.
+  // the colour, so nothing downstream can key a confident branch off a number
+  // the payload disowned. Painting an unknown bar in the measured green would
+  // state a measurement that was never taken.
   const pct = freshness === "unknown" ? null : clamped;
   return {
     kind: KEY_FACE_CONTRACT.footers.progress.kind,

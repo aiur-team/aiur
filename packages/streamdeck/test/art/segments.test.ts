@@ -788,12 +788,25 @@ describe("agent detail panel", () => {
     expect(ink.find((entry) => entry.text.startsWith("HHH"))?.text.endsWith("…")).toBe(true);
   });
 
-  it("grows the bar with the percentage and fills nothing at zero", () => {
+  it("uses one green fill, a solid zero stub, and a brighter completion shade", () => {
     const empty = render(detail({ identifier: "401", bucket: "queued", progress_percent: 0 }), 800);
     const some = render(detail({ identifier: "401", bucket: "running", progress_percent: 60 }), 800);
+    const complete = render(detail({ identifier: "401", bucket: "running", progress_percent: 100 }), 800);
     expect(drew(empty.ink, "0%")).toBeDefined();
     expect(empty.inked).toBeGreaterThan(0);
     expect(empty.inked).toBeLessThan(some.inked);
+    expect(pixelAt(empty.pixels, 800, 211, 79)).toEqual([63, 185, 80]);
+    expect(pixelAt(some.pixels, 800, 300, 79)).toEqual([63, 185, 80]);
+    expect(pixelAt(complete.pixels, 800, 300, 79)).toEqual([116, 212, 127]);
+  });
+
+  it("keeps unknown progress structurally distinct from a measured zero", () => {
+    const unknown = render(detail({ identifier: "401", bucket: "running", progress_percent: null }), 800);
+    const zero = render(detail({ identifier: "401", bucket: "running", progress_percent: 0 }), 800);
+
+    expect(drew(unknown.ink, "—")).toBeDefined();
+    expect(drew(zero.ink, "0%")).toBeDefined();
+    expect(Array.from(unknown.pixels)).not.toEqual(Array.from(zero.pixels));
   });
 
   it("clips an over-long title rather than running it under the percentage", () => {

@@ -23,6 +23,15 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryTest do
     refute_protected(html)
   end
 
+  test "marks only exact 100% progress with the completion shade" do
+    ordinary = render(ready_view())
+    complete = ready_view() |> put_progress(%{ready_view().progress | percent: 100}) |> render()
+
+    assert ordinary =~ ~s(class="run-summary-progress-fill")
+    refute ordinary =~ ~s(class="run-summary-progress-fill is-complete")
+    assert complete =~ ~s(class="run-summary-progress-fill is-complete")
+  end
+
   test "lower-bound progress omits aria-valuenow and names coverage" do
     view =
       put_progress(ready_view(), %{

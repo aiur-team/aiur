@@ -14,8 +14,12 @@
  *   CSS gradient strings. Assigning one to `fillStyle` is silently ignored by
  *   canvas and leaves the previous fill in place, which is what rendered every
  *   key solid black. They go through {@link createPaint}.
- * - **The progress bar is hue-mapped**, `hsl(pct/100*125 72% 50%)`: red at 0%,
- *   green at 100%. A fixed accent colour is not parity.
+ * - **The progress bar is one colour**, a single green from the shared
+ *   contract with a brighter shade at 100%, so completion reads at a glance.
+ *   A hue ramp read as two segments of data on the device (and as two tones of
+ *   grey at low saturation), which is the complaint this rendering is
+ *   answering. Unknown stays structurally different: a dashed track and a
+ *   hollow dot, never a second fill colour.
  * - **Titles re-wrap with real glyph metrics** rather than the character-count
  *   heuristic the pure layer uses, which is what lets a 120px key fit three
  *   proportional lines.
@@ -223,7 +227,7 @@ const drawKeyTitle = (context: SKRSContext2D, face: AgentKeyFace): void => {
   });
 };
 
-/** Status dot plus hue-mapped bar, or the queued status label and tag. */
+/** Status dot plus single-colour bar, or the queued status label and tag. */
 const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   if (face.footer.kind === "queued") {
     // Two stacked rows (the mock's `.sd-ag-foot.col`): status label above, the
@@ -288,19 +292,17 @@ const drawKeyFooter = (context: SKRSContext2D, face: AgentKeyFace): void => {
   // and "no reading" the same picture.
   const filled = Math.max(Math.round((barWidth * face.footer.percent) / 100), BAR_HEIGHT);
   // A retained-but-stale reading is the truth, drawn as not-current rather than
-  // replaced by a fabricated zero.
+  // replaced by a fabricated zero. It used to be dimmed *and* ringed with a
+  // full-bar outline in the fill colour; the outline read as a second bar (the
+  // "border in a different colour from the fill" the operator asked to remove)
+  // and was carrying no state the dimming does not. Stale now lives in the
+  // alpha alone, so the bar stays one solid fill with no border.
   const stale = face.footer.freshness === "stale";
   if (stale) context.globalAlpha = 0.5;
   roundedPath(context, barX, barY, filled, BAR_HEIGHT, BAR_HEIGHT / 2);
   context.fillStyle = face.footer.barColor;
   context.fill();
   context.globalAlpha = 1;
-  if (stale) {
-    context.strokeStyle = face.footer.barColor;
-    context.lineWidth = 1;
-    roundedPath(context, barX, barY, barWidth, BAR_HEIGHT, BAR_HEIGHT / 2);
-    context.stroke();
-  }
 };
 
 /**

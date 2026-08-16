@@ -371,7 +371,14 @@ defmodule AiurWeb.StreamdeckLive do
                   <span class="sd-ag-stat">{key.label}</span>
                   <span class={["sd-ag-tag", key.dependency_ready? && "ready", !key.dependency_ready? && "blocked"]}>{key.dependency}</span>
                 </div>
-                <div :if={!key.empty? and key.bucket != "queued"} class="sd-ag-foot">
+                <div
+                  :if={!key.empty? and key.bucket != "queued"}
+                  class={[
+                    "sd-ag-foot",
+                    is_nil(key.progress) && "is-progress-unknown",
+                    key.progress_freshness in [:stale, "stale"] && "is-progress-stale"
+                  ]}
+                >
                   <span class="sd-ag-dot" aria-hidden="true"></span>
                   <span class="sr-only">{key.label}</span>
                   <span class="sd-ag-bar" role="progressbar" aria-valuenow={key.progress} aria-valuemin="0" aria-valuemax="100" aria-label={progress_aria_label(key.progress)}><i :if={not is_nil(key.progress)} style={"width: #{key.progress}%"}></i></span>
@@ -730,6 +737,7 @@ defmodule AiurWeb.StreamdeckLive do
       vendor_logo: Map.get(agent, :vendor_logo),
       dependency_ready?: footer.ready?,
       dependency: footer.dependency,
+      progress_freshness: Map.get(agent, :progress_freshness),
       style: key_style(Map.get(agent, :progress_percent))
     )
   end
@@ -742,6 +750,7 @@ defmodule AiurWeb.StreamdeckLive do
       title: title,
       label: label,
       progress: progress,
+      progress_freshness: Keyword.get(opts, :progress_freshness),
       priority?: Keyword.get(opts, :priority?, false),
       dependency_ready?: Keyword.get(opts, :dependency_ready?, false),
       icon: Keyword.get(opts, :icon),

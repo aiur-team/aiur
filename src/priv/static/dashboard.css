@@ -52,6 +52,10 @@
   --blocking-line: rgba(255, 123, 114, 0.34);
   --good: #3fb950;
   --good-ink: #74d47f;
+  /* Shared with key-face-contract.json. Progress stays green at every measured
+     value; only exact completion steps up to the brighter shade. */
+  --progress-fill: #3fb950;
+  --progress-complete-fill: #74d47f;
   --good-soft: rgba(63, 185, 80, 0.14);
   --good-line: rgba(63, 185, 80, 0.32);
   --super: #c69bff;
@@ -3557,7 +3561,17 @@ html[data-theme="light"] .toggle-icon .moon {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  min-width: 5px;
+  background: var(--progress-fill);
+}
+
+.ut-pbar > i.is-complete {
+  background: var(--progress-complete-fill);
+}
+
+.ut-pbar.is-unknown {
+  border: 1px dashed var(--muted);
+  background: transparent;
 }
 
 .ut-pbar > i.is-blocked {
@@ -6796,8 +6810,13 @@ html[data-theme="light"] .rs-github-mark {
   display: block;
   height: 100%;
   border-radius: 999px;
-  background: var(--accent);
+  min-width: 0.55rem;
+  background: var(--progress-fill);
   transition: width 0.3s ease;
+}
+
+.run-summary-progress-fill.is-complete {
+  background: var(--progress-complete-fill);
 }
 
 .run-summary-progress-value {
@@ -8540,6 +8559,11 @@ html[data-theme="light"] .rs-github-mark {
   background: var(--sd-accent);
 }
 
+.sd-ag-foot.is-progress-unknown .sd-ag-dot {
+  border: 1px solid var(--sd-accent);
+  background: transparent;
+}
+
 /* Pulse timings come from key-face-contract.json via @key_face_css. */
 
 .sd-ag-bar {
@@ -8557,6 +8581,14 @@ html[data-theme="light"] .rs-github-mark {
   height: 100%;
   border-radius: inherit;
   background: var(--sd-progress-fill);
+  min-width: 6px;
+}
+
+.sd-ag-foot.is-progress-stale .sd-ag-bar i { opacity: 0.5; }
+
+.sd-ag-foot.is-progress-unknown .sd-ag-bar {
+  border: 1px dashed rgba(255, 255, 255, 0.45);
+  background: transparent;
 }
 
 /* Per-state --sd-accent/--sd-glow/--sd-face and the pulse timings are emitted
