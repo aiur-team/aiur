@@ -495,124 +495,37 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
   end
 
   # A prepaid balance is a :credit window with no percentage. It must render as
-  # a dollar amount, never as a fabricated "0% consumed" bar, and stay visible
-  # next to any rate-limit window the provider also publishes. The zero-flight
-  # concurrency gauge is hidden entirely (it only appears once requests are in
-  # flight).
-  test "renders a credit balance window as a dollar amount and hides the idle concurrency gauge" do
+  # a dollar amount, never as a fabricated "0% consumed" bar. Local concurrency
+  # is an instantaneous process-local reading, so retaining it on a provider
+  # card would turn it into a permanently stale pseudo-limit.
+  test "renders a credit balance and omits local concurrency from provider cards" do
     with_deepseek_key(fn ->
-      meters = %{
-        state: :authorized,
-        cards: [
-          %{
-            provider: :deepseek,
-            provider_label: "DeepSeek",
-            state: :ready,
-            status_label: "Healthy",
-            auth_mode: %{value: :api_key},
-            windows: [
-              %{
-                kind: :credit,
-                name: :credits,
-                coverage_label: "Supported",
-                credits: %{status: :available, label: "Available", amount: 7.25},
-                expires_at: DateTime.add(@now, 5, :minute)
-              },
-              scoped_window("local-concurrency", 0)
-            ]
-          }
-        ]
+      credit = %{
+        kind: :credit,
+        name: :credits,
+        coverage_label: "Supported",
+        credits: %{status: :available, label: "Available", amount: 7.25},
+        expires_at: DateTime.add(@now, 5, :minute)
       }
 
-      html =
-        render_component(&RunSummaryStrip.run_summary_strip/1, %{
-          run: %{state: :loading},
-          usage: %{state: :ready, providers: %{}},
-          meters: meters,
-          now: @now
-        })
+      Enum.each([{0, :ready, :fresh}, {5, :stale, :stale}, {42, :ready, :fresh}], fn {used, state, freshness} ->
+        concurrency =
+          scoped_window("local-concurrency", used)
+          |> Map.merge(%{name: "Local concurrency", freshness: freshness, resets_at: nil})
 
-      assert html =~ "$7.25"
-      refute html =~ "0% consumed"
-      # Only the credit row renders: the idle concurrency gauge is dropped, so
-      # exactly one provider limit row survives instead of two. The GitHub
-      # quota card has its own row earlier in the strip.
-      [_before_provider, provider_html] = String.split(html, "DeepSeek", parts: 2)
-      assert length(Regex.scan(~r/<div class="rs-limit">/, provider_html)) == 1
-      refute html =~ "concurrency"
-    end)
-  end
+        meters = %{
+          state: :authorized,
+          cards: [model_card(:deepseek, "DeepSeek", state, "Healthy", [credit, concurrency])]
+        }
 
-  test "shows the local-concurrency gauge once requests are in flight" do
-    with_deepseek_key(fn ->
-      meters = %{
-        state: :authorized,
-        cards: [
-          %{
-            provider: :deepseek,
-            provider_label: "DeepSeek",
-            state: :ready,
-            status_label: "Healthy",
-            auth_mode: %{value: :api_key},
-            windows: [scoped_window("local-concurrency", 42)]
-          }
-        ]
-      }
+        html = strip(run: %{state: :loading}, usage: %{state: :ready, providers: %{}}, meters: meters)
 
-      html =
-        render_component(&RunSummaryStrip.run_summary_strip/1, %{
-          run: %{state: :loading},
-          usage: %{state: :ready, providers: %{}},
-          meters: meters,
-          now: @now
-        })
-
-      assert html =~ "42%"
-      assert html =~ ~s(<i class="" style="width:42%">)
-    end)
-  end
-
-  # A few in-flight requests against a large concurrency limit round to a 0%
-  # meter, but the gauge is real activity and must still render. The hide rule
-  # keys on the used (in-flight) value, not the rounded meter.
-  test "the concurrency gauge stays visible for small in-flight counts that round to 0%" do
-    with_deepseek_key(fn ->
-      meters = %{
-        state: :authorized,
-        cards: [
-          %{
-            provider: :deepseek,
-            provider_label: "DeepSeek",
-            state: :ready,
-            status_label: "Healthy",
-            auth_mode: %{value: :api_key},
-            windows: [
-              %{
-                limit_id: "local-concurrency",
-                kind: :rate_limit,
-                name: "Primary",
-                coverage_label: "Supported",
-                meter: %{kind: :exact, now: 0, min: 0, max: 100},
-                used: 5,
-                used_percent: 0.2,
-                resets_at: DateTime.add(@now, 30, :minute)
-              }
-            ]
-          }
-        ]
-      }
-
-      html =
-        render_component(&RunSummaryStrip.run_summary_strip/1, %{
-          run: %{state: :loading},
-          usage: %{state: :ready, providers: %{}},
-          meters: meters,
-          now: @now
-        })
-
-      # The gauge row still renders (its bar rounds to 0% width, but the row
-      # is real activity, not an idle zero).
-      assert html =~ ~s(<div class="rs-meter">)
+        assert html =~ "$7.25"
+        refute html =~ "Local concurrency"
+        refute html =~ "reset unavailable"
+        [_before_provider, provider_html] = String.split(html, "DeepSeek", parts: 2)
+        assert length(Regex.scan(~r/<div class="rs-limit">/, provider_html)) == 1
+      end)
     end)
   end
 
@@ -1625,8 +1538,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStripTest do
 
   # Mirrors the shape ProviderMetersPresenter emits: the rendered percentage
   # comes from `meter.now`, and `coverage_label` is required by the meta
-  # renderer. `used`/`used_percent` are carried through so the local-concurrency
-  # hide-at-zero rule keys on the used value as production does.
+  # renderer.
   defp scoped_window(limit_id, percent) do
     %{
       limit_id: limit_id,

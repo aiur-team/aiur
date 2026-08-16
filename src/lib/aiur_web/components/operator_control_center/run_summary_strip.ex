@@ -536,9 +536,10 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # standing for a provider like DeepSeek, and dropping it makes the card read
   # as if the provider had no limit at all.
   #
-  # The local-concurrency gauge is a measured in-flight window: at zero requests
-  # it reads a truthful "0%" but is pure noise, so it only appears once there is
-  # something in flight to show.
+  # Local concurrency is an instantaneous count owned by this Aiur process, not
+  # a provider-reported quota. Retaining it in the provider projection turns it
+  # into a stale pseudo-limit, so provider cards never render that window. Live
+  # consumers such as the CLI and TUI can still use the underlying measurement.
   defp meter_windows(%{windows: windows} = card) when is_list(windows) do
     rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit and visible_rate_limit?(&1)))
     credits = Enum.filter(windows, &(&1.kind == :credit and show_credit_window?(card, &1)))
@@ -561,17 +562,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp show_credit_window?(%{provider: :codex}, _window), do: false
   defp show_credit_window?(_card, _window), do: true
 
-  # The local-concurrency gauge is a measured in-flight window: it reads a
-  # truthful "0%" at zero requests but is pure noise, so it only appears once
-  # there is something in flight to show. The decision keys on the *used*
-  # value (the in-flight count), not the rounded meter percent — a few requests
-  # against a large limit round to 0% but are still real activity.
-  defp visible_rate_limit?(%{limit_id: "local-concurrency"} = window), do: concurrency_used(window) > 0
+  defp visible_rate_limit?(%{limit_id: "local-concurrency"}), do: false
   defp visible_rate_limit?(_window), do: true
-
-  defp concurrency_used(%{used: used}) when is_number(used), do: used
-  defp concurrency_used(%{used_percent: percent}) when is_number(percent), do: percent
-  defp concurrency_used(_window), do: 0
 
   # Account-wide windows carry the bare provider scope; a per-model one suffixes
   # it with the model's codename.
