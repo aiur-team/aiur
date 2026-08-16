@@ -142,15 +142,10 @@ defmodule Aiur.ExecutorListener do
       # when the binding is actually gone (Exchange restart / first start).
       true
     else
-      case Exchange.subscribe(topic) do
-        :ok ->
-          true
-
-        {:error, reason} ->
-          Logger.error("aiur_executor_listener phase=subscribe_failed topic=#{topic} reason=#{inspect(reason)}")
-          report_unavailable()
-          false
-      end
+      # `Exchange.subscribe/2` returns `:ok` or raises/exits; either failure is
+      # caught below, so a non-`:ok` result does not need its own branch.
+      :ok = Exchange.subscribe(topic)
+      true
     end
   rescue
     error ->
@@ -165,13 +160,11 @@ defmodule Aiur.ExecutorListener do
   end
 
   defp bound?(topic) do
-    try do
-      Exchange.bindings_for(self()) |> Enum.member?(topic)
-    rescue
-      _error -> false
-    catch
-      :exit, _reason -> false
-    end
+    Exchange.bindings_for(self()) |> Enum.member?(topic)
+  rescue
+    _error -> false
+  catch
+    :exit, _reason -> false
   end
 
   # Best-effort, guarded: at boot the alert pipeline may not be ready yet, and a
