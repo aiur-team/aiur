@@ -24,6 +24,25 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.load_admission_reason(24.0, 1.5, 16) == :dispatch
     end
 
+    test "requires real CPU contention before a high load average holds dispatch" do
+      clear_headroom = %{idle_percent: 10.0, nice_percent: 70.0, reclaimable_percent: 80.0, runnable: 74}
+      contention = %{idle_percent: 5.0, nice_percent: 0.0, reclaimable_percent: 5.0, runnable: 20}
+
+      assert DispatchPolicy.load_admission_reason(143.0, 1.5, 16, clear_headroom) == :dispatch
+
+      assert {:hold,
+              %{
+                signal: :load,
+                measured: 143.0,
+                threshold: 24.0,
+                reclaimable_cpu_percent: 5.0,
+                reclaimable_cpu_threshold: 60.0
+              }} = DispatchPolicy.load_admission_reason(143.0, 1.5, 16, contention)
+
+      assert {:hold, %{signal: :load, measured: 143.0}} =
+               DispatchPolicy.load_admission_reason(143.0, 1.5, 16, :unavailable)
+    end
+
     # admission_gate/1 must never report a load decision that load_admission_reason/3
     # would not make, and the reported threshold must always be the already
     # multiplied `threshold * schedulers` — the operator reads that number
@@ -100,6 +119,18 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.read_cpu(nil, nil) == :unavailable
       assert DispatchPolicy.read_cpu(nil, 0) == :unavailable
     end
+
+    test "reads the CPU snapshot when any CPU-corroborated gate is enabled" do
+      Application.put_env(:aiur, :proc_stat_source_override, fn ->
+        {:ok, "cpu 100 0 100 800 0 0 0 0 0 0\nprocs_running 3\n"}
+      end)
+
+      on_exit(fn -> Application.delete_env(:aiur, :proc_stat_source_override) end)
+
+      assert %{runnable: 3} = DispatchPolicy.read_cpu(1.0, nil, 0.0)
+      assert %{runnable: 3} = DispatchPolicy.read_cpu(nil, nil, 1.5)
+      assert DispatchPolicy.read_cpu(nil, 0.0, 0.0) == :unavailable
+    end
   end
 
   describe "run_queue_gate/3" do
@@ -116,6 +147,23 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert DispatchPolicy.run_queue_gate(99, 12, -1.0) == :dispatch
       assert DispatchPolicy.run_queue_gate(99, 12, :invalid) == :dispatch
       assert DispatchPolicy.run_queue_gate(:unavailable, 12, 1.5) == :dispatch
+    end
+
+    test "admission ignores a niced runnable queue when CPU remains reclaimable" do
+      assert :dispatch =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   run_queue_threshold: 1.5,
+                   runnable: 74,
+                   load: 10.0,
+                   cpu_headroom: %{
+                     idle_percent: 10.0,
+                     nice_percent: 70.0,
+                     reclaimable_percent: 80.0,
+                     runnable: 74
+                   }
+                 })
+               )
     end
   end
 
@@ -200,6 +248,14 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
 
       assert {:hold, %{signal: :load, measured: 25.0, threshold: 18.0}} =
                DispatchPolicy.admission_gate(gate_input(%{load: 25.0}))
+
+      assert :dispatch =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   load: 143.0,
+                   cpu_headroom: %{idle_percent: 10.0, nice_percent: 70.0, reclaimable_percent: 80.0, runnable: 74}
+                 })
+               )
 
       reset_at = ~U[2026-08-09 22:00:00Z]
 
@@ -477,6 +533,24 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       assert ramped.effective_concurrent_agents == 10
       assert ramped.load_envelope_state.last_decrease_ms == nil
       assert ramped.load_envelope_state.bootstrap_complete?
+    end
+
+    test "cold start seeds from niced headroom despite stale high load" do
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 8, target_load_average: 1.0)
+
+      previous = %{total: 1_000, idle: 600, nice: 100, runnable: 20}
+      current = %{total: 1_200, idle: 620, nice: 240, runnable: 74}
+
+      state = %State{
+        max_concurrent_agents: 8,
+        effective_concurrent_agents: 1,
+        load_envelope_state: %{last_decrease_ms: nil, cpu_snapshot: previous}
+      }
+
+      seeded = DispatchPolicy.update_load_envelope(state, 143.0, 1.0, 16, 2_000, current, true)
+
+      assert seeded.effective_concurrent_agents == 8
+      assert seeded.load_envelope_state.bootstrap_complete?
     end
 
     test "cold seed adds idle slots to used and reserved capacity" do

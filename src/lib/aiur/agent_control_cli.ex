@@ -1282,8 +1282,39 @@ defmodule Aiur.AgentControlCLI do
   defp capacity_binding_label({:ticket_supply, _detail}), do: "ticket supply"
   defp capacity_binding_label({:session_cap, _detail}), do: "session max_concurrent_agents"
 
+  defp capacity_binding_label(
+         {:admission,
+          %{
+            signal: :load,
+            measured: load,
+            threshold: threshold,
+            reclaimable_cpu_percent: reclaimable,
+            reclaimable_cpu_threshold: reclaimable_threshold
+          }}
+       ),
+       do:
+         "load+cpu contention, load=#{load} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
   defp capacity_binding_label({:admission, %{signal: :load, measured: load, threshold: threshold}}),
     do: "load, load=#{load} threshold=#{threshold}"
+
+  defp capacity_binding_label(
+         {:admission,
+          %{
+            signal: :run_queue,
+            measured: runnable,
+            threshold: threshold,
+            reclaimable_cpu_percent: reclaimable,
+            reclaimable_cpu_threshold: reclaimable_threshold
+          }}
+       ),
+       do:
+         "run_queue+cpu contention, runnable=#{runnable} threshold=#{threshold} " <>
+           "reclaimable_cpu=#{reclaimable}% threshold=#{reclaimable_threshold}%"
+
+  defp capacity_binding_label({:admission, %{signal: :run_queue, measured: runnable, threshold: threshold}}),
+    do: "run_queue, runnable=#{runnable} threshold=#{threshold}"
 
   defp capacity_binding_label({:admission, %{signal: signal}}), do: to_string(signal)
   defp capacity_binding_label({:none, _detail}), do: "none"
@@ -1307,14 +1338,17 @@ defmodule Aiur.AgentControlCLI do
   # precisely when the box is loaded). It is explicitly not a fleet decision:
   # the daemon may run on another host, with another config, and may not be
   # holding at all. So the line says "local host sample" and, when the local
-  # reading is over the local threshold, predicts a possible hold rather than
-  # asserting one.
+  # reading is over the local threshold, explains that the daemon still needs a
+  # short-window CPU sample before it can identify real contention.
   defp print_load_status(%{load: load, load_threshold: threshold, schedulers: schedulers})
        when is_number(load) and is_number(threshold) and is_integer(schedulers) and schedulers > 0 do
     suffix =
       case DispatchPolicy.load_admission_reason(load, threshold, schedulers) do
-        {:hold, _reason} -> " (local host sample; over local threshold, dispatch may be held)"
-        :dispatch -> " (local host sample)"
+        {:hold, _reason} ->
+          " (local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+
+        :dispatch ->
+          " (local host sample)"
       end
 
     IO.puts("LOAD #{load} threshold=#{threshold * schedulers} schedulers=#{schedulers}#{suffix}")

@@ -860,7 +860,24 @@ defmodule Aiur.AgentControlCLITest do
 
     assert output =~
              "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
-               "(local host sample; over local threshold, dispatch may be held)"
+               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | capacity_hold:
+            Map.merge(state.capacity_hold, %{
+              reclaimable_cpu_percent: 5.0,
+              reclaimable_cpu_threshold: 60.0
+            })
+      }
+    end)
+
+    corroborated_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert corroborated_output =~
+             "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
+               "reclaimable_cpu=5.0% threshold=60.0%)"
 
     # The daemon still holds. A quiet LOCAL sample must not clear the daemon's
     # decision, and the local line must never claim to be the fleet's binding
@@ -869,9 +886,30 @@ defmodule Aiur.AgentControlCLITest do
 
     persisted_hold_output = capture_io(fn -> AgentControlCLI.status() end)
 
-    assert persisted_hold_output =~ "AGENTS 0/10 (binding: load, load=#{local_load} threshold=#{threshold})"
+    assert persisted_hold_output =~
+             "AGENTS 0/10 (binding: load+cpu contention, load=#{local_load} threshold=#{threshold} " <>
+               "reclaimable_cpu=5.0% threshold=60.0%)"
+
     assert persisted_hold_output =~ "LOAD 0.0 threshold=#{threshold} schedulers=#{local_schedulers} (local host sample)"
     refute persisted_hold_output =~ "(binding: load)"
+
+    :sys.replace_state(pid, fn state ->
+      %{
+        state
+        | capacity_hold:
+            Map.merge(state.capacity_hold, %{
+              signal: :run_queue,
+              measured: 74,
+              threshold: 24.0
+            })
+      }
+    end)
+
+    run_queue_output = capture_io(fn -> AgentControlCLI.status() end)
+
+    assert run_queue_output =~
+             "AGENTS 0/10 (binding: run_queue+cpu contention, runnable=74 threshold=24.0 " <>
+               "reclaimable_cpu=5.0% threshold=60.0%)"
 
     # The inverse, and the actual regression guard: the daemon is NOT holding,
     # but the CLI's own host is over the CLI's own threshold. A locally
@@ -887,7 +925,7 @@ defmodule Aiur.AgentControlCLITest do
 
     assert fallback_output =~
              "LOAD #{local_load} threshold=#{threshold} schedulers=#{local_schedulers} " <>
-               "(local host sample; over local threshold, dispatch may be held)"
+               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
   end
 
   test "status treats blocked tracker rows as ticket supply, not dispatch demand", %{orchestrator: pid} do
@@ -929,7 +967,7 @@ defmodule Aiur.AgentControlCLITest do
     # the fleet's decision.
     assert output =~
              "LOAD #{saturated_load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
-               "(local host sample; over local threshold, dispatch may be held)"
+               "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
   end
 
   test "status counts paused reservations as occupied capacity", %{orchestrator: pid} do
@@ -2106,7 +2144,7 @@ defmodule Aiur.AgentControlCLITest do
 
       assert output =~
                "LOAD #{load} threshold=#{schedulers * 1.5} schedulers=#{schedulers} " <>
-                 "(local host sample; over local threshold, dispatch may be held)"
+                 "(local host sample; over load threshold, daemon corroborates CPU contention before holding)"
 
       assert output =~ "__AIUR_CONTROL_ERROR__:aiur: status query timed out after 1ms; outcome is unknown"
       assert output =~ "__AIUR_CONTROL_EXIT__:124"
