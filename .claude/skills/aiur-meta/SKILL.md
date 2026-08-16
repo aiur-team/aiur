@@ -145,6 +145,12 @@ chat message — both die with the session. Of 71 findings in this repo's
 2026-07-30 run, 23 reached no ticket, which is why the self-improvement pack
 exists.
 
+Give every ticket its disposition in the same creation request. Executable
+findings carry the configured lifecycle todo label (`agent:todo` in the standard
+workflow); deliberately parked findings carry `needs-triage` or `human:todo`
+with the reason in the body. The meta epic is an explicitly named container and
+remains undispatched.
+
 Include the evidence that would let someone else confirm it without repeating the
 investigation: the command, its output, file:line, the screenshot.
 

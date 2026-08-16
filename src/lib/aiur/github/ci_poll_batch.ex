@@ -3,7 +3,7 @@ defmodule Aiur.GitHub.CIPollBatch do
 
   require Logger
 
-  alias Aiur.GitHub.Transport
+  alias Aiur.GitHub.{MergeQueue, Transport}
   alias Aiur.TicketBranch
 
   # Up to two headRefName-keyed aliases per target (the generated
@@ -125,6 +125,9 @@ defmodule Aiur.GitHub.CIPollBatch do
       pageInfo { hasNextPage }
       nodes {
         number state headRefName headRefOid baseRefName
+        isDraft reviewDecision mergeable mergeStateStatus
+        autoMergeRequest { enabledAt }
+        mergeQueueEntry { id }
         commits(last: 1) {
           nodes {
             commit {
@@ -224,16 +227,30 @@ defmodule Aiur.GitHub.CIPollBatch do
     {check_runs, statuses} = Enum.split_with(contexts, &(Map.get(&1, "__typename") == "CheckRun"))
 
     %{
-      pull_request: %{
-        "number" => Map.get(node, "number"),
-        "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
-        "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
-        "base" => %{"ref" => Map.get(node, "baseRefName")}
-      },
+      pull_request:
+        %{
+          "number" => Map.get(node, "number"),
+          "state" => String.downcase(to_string(Map.get(node, "state", "open"))),
+          "head" => %{"ref" => Map.get(node, "headRefName"), "sha" => Map.get(node, "headRefOid")},
+          "base" => %{"ref" => Map.get(node, "baseRefName")}
+        }
+        |> put_merge_queue_observation(node),
       check_runs: Enum.map(check_runs, &normalize_check_run/1),
       commit_status: normalize_commit_status(statuses),
       contexts_overflow: contexts_overflow
     }
+  end
+
+  # The merge-queue recovery observation (ready/approved/mergeable/unarmed) is
+  # derived from the same GraphQL node, so no extra read is needed. A node the
+  # batch cannot fully observe simply carries no observation, which the
+  # classifier treats as `:unknown` (fail closed) rather than arming or
+  # clearing a recovery signal on partial data.
+  defp put_merge_queue_observation(pull_request, node) do
+    case MergeQueue.normalize_graphql_pull_request(node) do
+      %{} = observation -> Map.put(pull_request, "merge_queue", observation)
+      {:error, _reason} -> pull_request
+    end
   end
 
   defp status_contexts(nil), do: {[], false}

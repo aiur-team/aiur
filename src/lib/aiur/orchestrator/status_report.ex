@@ -230,7 +230,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: poll_cache,
-      rewakes: %{}
+      rewakes: %{},
+      # The dashboard never renders the parked-ready ledger, so the projection
+      # carries the struct default rather than copying the live one. It still
+      # has to be present: `State.t()` declares `ci_lifecycle` as a closed map,
+      # and a projection missing the key is not a `State.t()`.
+      parked_ready_alerts: nil
     }
   end
 

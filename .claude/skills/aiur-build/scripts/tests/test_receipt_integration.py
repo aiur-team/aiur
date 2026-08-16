@@ -156,8 +156,8 @@ class ReceiptModeIntegrationTests(unittest.TestCase):
     def labels() -> dict[str, list[str]]:
         return {
             ROOT_ID: ["build-order"],
-            "BO-001": ["build-lane:platform", "complexity:3", "model:codex", "phase:1"],
-            "BO-002": ["build-lane:integration", "complexity:2", "model:codex", "phase:2"],
+            "BO-001": ["agent:todo", "build-lane:platform", "complexity:3", "model:codex", "phase:1"],
+            "BO-002": ["agent:todo", "build-lane:integration", "complexity:2", "model:codex", "phase:2"],
         }
 
     @staticmethod

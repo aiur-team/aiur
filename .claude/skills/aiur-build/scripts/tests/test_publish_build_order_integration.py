@@ -16,6 +16,7 @@ REFERENCES = SCRIPT_DIR.parent / "references"
 sys.path.insert(0, str(SCRIPT_DIR))
 sys.path.insert(0, str(SCRIPT_DIR / "publication"))
 
+from helpers import umbrella  # noqa: E402
 from publish_build_order import load_driver  # noqa: E402
 
 
@@ -133,13 +134,22 @@ class RecordingGitHub(FakeGitHub):
         return super().request(method, path, payload, allow_404=allow_404)
 
 
-def prepare_example_pack(root: Path) -> tuple[Path, Path, dict, str]:
+def prepare_example_pack(
+    root: Path, *, include_umbrella: bool = False,
+) -> tuple[Path, Path, dict, str]:
     """Materialize the reference pack on an approved commit and return it."""
     pack = root / "docs/build-orders/example"
     (pack / "example-tickets").mkdir(parents=True)
     build = json.loads(
         (REFERENCES / "build-order.example.json").read_text(encoding="utf-8")
     )
+    if include_umbrella:
+        build["tickets"].append(
+            umbrella(
+                "BO-003", "example-tickets/BO-003-example-umbrella.md",
+                ["BO-001", "BO-002"],
+            )
+        )
     publication = json.loads(
         (REFERENCES / "publication.example.json").read_text(encoding="utf-8")
     )
@@ -265,6 +275,31 @@ class PersistedPointerOwnershipTests(unittest.TestCase):
 
 
 class CanonicalPublicationIntegrationTests(unittest.TestCase):
+    def test_umbrella_issue_is_published_without_dispatch_labels(self) -> None:
+        with tempfile.TemporaryDirectory() as name:
+            root = Path(name)
+            build_path, publication_path, build, approved = prepare_example_pack(
+                root, include_umbrella=True,
+            )
+            driver = load_driver(build_path, publication_path, approved, approved)
+
+            self.assertEqual((), driver.context.specs["BO-003"].labels)
+
+            labels = {
+                label for spec in driver.context.specs.values()
+                for label in spec.labels
+            }
+            client = FakeGitHub(build["repository"], approved, labels)
+            driver.client = client
+            driver.apply()
+            materialized = json.loads(build_path.read_text(encoding="utf-8"))
+            umbrella_mapping = materialized["tickets"][2]["github"]
+
+            self.assertEqual([], client.issues[umbrella_mapping["number"]]["labels"])
+            self.assertEqual(
+                [], materialized["github_reconciliation"]["observed_labels"]["BO-003"],
+            )
+
     def test_example_structure_materializes_and_reconciles_without_pack_modules(self) -> None:
         with tempfile.TemporaryDirectory() as name:
             root = Path(name)

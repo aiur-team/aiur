@@ -3,6 +3,25 @@
 The marketing site (Vite + TypeScript). Deploys to **aiur.team via Netlify
 from `main`** — website work pushes directly to `main`, no feature branch.
 
+## `docs-app/` is where the product docs live
+
+`docs-app/` (VitePress) is the documentation every other part of this repo is
+required to keep current: `reference/configuration.md` (every config key),
+`reference/cli.md` (every command and flag), `guide/` (dashboard, TUI, Stream
+Deck, quick start), `concepts/`. The rule that puts docs in the same PR as the
+change — and the list of changes exempt from it — is
+[`../AGENTS.md#docs-ship-with-the-change`](../AGENTS.md#docs-ship-with-the-change).
+
+**`docs-app/` is the exception to the push-to-`main` note above.** The
+direct-to-`main` practice covers the marketing site only. A `docs-app/` edit
+that documents a code change belongs in that change's own PR, on that change's
+branch — splitting it out is the failure mode this rule exists to stop. A
+docs-only correction with no code behind it may still go straight to `main`.
+
+Prefer editing an existing page over adding one; a wrong page is worse than a
+missing one. A genuinely new page also needs a sidebar entry in
+`docs-app/.vitepress/config.ts` or it is unreachable.
+
 ## Guards
 
 Run before every push:
@@ -13,7 +32,11 @@ Run before every push:
   purpose: `npx tsx scripts/gen-golden.ts`.
 - `npm run build` — full Vite build.
 
-There is no CI gate for the website, so these guards are the only safety net.
+There is no CI gate for the marketing site, so these guards are the only safety
+net. `docs-app/` has one narrow gate: the required `lint` job runs
+`scripts/check-config-docs.py`, which fails when a config key has no entry in
+`docs-app/reference/configuration.md`. Everything else in `docs-app/` is
+unguarded and rests on review.
 
 ## Manual browser testing
 
