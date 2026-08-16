@@ -1,3 +1,5 @@
+import { EVENTS_PER_PAGE } from "../dial.js";
+
 /**
  * logs-mode strip view-model: the agent's chat log, and which event it is at.
  *
@@ -69,13 +71,13 @@ export const selectedKeyAtOffset = (
 
 /**
  * Scroll the eight-key event window so `key` is inside it, moving as little as
- * possible. Without it, scrolling the chat into an event that is off the
- * current key page highlights a key the operator cannot see, which looks
- * exactly like the highlight being broken.
+ * possible. The window holds EVENTS_PER_PAGE (seven) event slots plus LIVE
+ * pinned at the rightmost key, so an event must land in the first seven slots;
+ * LIVE itself never needs chasing because it is always visible.
  */
 export const ensureEventVisible = (offset: number, key: number, maxOffset: number): number => {
   const bounded = Math.max(0, Math.min(offset, maxOffset));
   if (key < bounded) return Math.max(0, Math.min(key, maxOffset));
-  if (key > bounded + 7) return Math.max(0, Math.min(key - 7, maxOffset));
+  if (key > bounded + EVENTS_PER_PAGE - 1) return Math.max(0, Math.min(key - (EVENTS_PER_PAGE - 1), maxOffset));
   return bounded;
 };

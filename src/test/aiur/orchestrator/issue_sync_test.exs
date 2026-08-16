@@ -442,6 +442,180 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     refute Map.has_key?(resumed.running[previous.id], :pending_auto_resume)
   end
 
+  describe "push_routing GitHub blocked_by hydration (#1631)" do
+    # GitHub's poll never populates `blocked_by`, so the blockee handed to the
+    # cleared-dependency resume path looks unblocked. The hydrator must reveal
+    # the real blocker set before `other_open_blockers?/2` decides whether a
+    # second blocker keeps the agent parked — otherwise a dependency-paused
+    # GitHub agent auto-resumes while a second blocker is still open.
+
+    test "keeps a dependency-paused agent parked when hydration reveals a second open blocker" do
+      parent = self()
+      agent = spawn_link(fn -> control_agent(parent) end)
+      assert_receive {:agent_started, ^agent}
+
+      github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
+      blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
+
+      entry = %{
+        pid: agent,
+        identifier: github_blockee.identifier,
+        issue: github_blockee,
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :blocker_dependency,
+        blocker_pause_generation: 1,
+        blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+      }
+
+      state = %State{running: %{github_blockee.id => entry}}
+
+      hydrator = fn _issue ->
+        {:ok,
+         %{
+           github_blockee
+           | blocked_by: [
+               blocker,
+               %{id: "other", identifier: "its-everdred/aiur#other", state: "in-progress"}
+             ]
+         }}
+      end
+
+      result =
+        PushRouting.maybe_resume_blockee_on_cleared_dependency(
+          state,
+          github_blockee,
+          blocker,
+          :terminal,
+          hydrator
+        )
+
+      refute_receive {:resume_agent, _}, 100
+      assert get_in(result.running, [github_blockee.id, :control, :status]) == :paused
+      assert result.running[github_blockee.id].paused_reason == :blocker_dependency
+    end
+
+    test "resumes when hydration reveals only the cleared blocker" do
+      parent = self()
+      agent = spawn_link(fn -> control_agent(parent) end)
+      assert_receive {:agent_started, ^agent}
+
+      github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
+      blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
+
+      entry = %{
+        pid: agent,
+        identifier: github_blockee.identifier,
+        issue: github_blockee,
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :blocker_dependency,
+        blocker_pause_generation: 1,
+        blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+      }
+
+      state = %State{running: %{github_blockee.id => entry}}
+
+      hydrator = fn _issue -> {:ok, %{github_blockee | blocked_by: [blocker]}} end
+
+      result =
+        PushRouting.maybe_resume_blockee_on_cleared_dependency(
+          state,
+          github_blockee,
+          blocker,
+          :terminal,
+          hydrator
+        )
+
+      assert_receive {:resume_agent, _request_id}
+      assert get_in(result.running, [github_blockee.id, :control, :status]) == :working
+      refute Map.has_key?(result.running[github_blockee.id], :paused_reason)
+    end
+
+    test "keeps a dependency-paused agent parked when hydration fails (fail-closed)" do
+      parent = self()
+      agent = spawn_link(fn -> control_agent(parent) end)
+      assert_receive {:agent_started, ^agent}
+
+      github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
+      blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
+
+      entry = %{
+        pid: agent,
+        identifier: github_blockee.identifier,
+        issue: github_blockee,
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :blocker_dependency,
+        blocker_pause_generation: 1,
+        blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+      }
+
+      state = %State{running: %{github_blockee.id => entry}}
+
+      log =
+        capture_log(fn ->
+          result =
+            PushRouting.maybe_resume_blockee_on_cleared_dependency(
+              state,
+              github_blockee,
+              blocker,
+              :terminal,
+              fn _issue -> {:error, :dependencies_unavailable} end
+            )
+
+          refute_receive {:resume_agent, _}, 100
+          assert get_in(result.running, [github_blockee.id, :control, :status]) == :paused
+        end)
+
+      assert log =~ "blocked-by hydration failed"
+    end
+
+    test "recheck path keeps a dependency-paused agent parked when hydration reveals a second blocker" do
+      parent = self()
+      agent = spawn_link(fn -> control_agent(parent) end)
+      assert_receive {:agent_started, ^agent}
+
+      github_blockee = %{issue("blockee", "in-progress") | blocked_by: []}
+      blocker = %{id: "blocker", identifier: "its-everdred/aiur#blocker", state: "done"}
+
+      entry = %{
+        pid: agent,
+        identifier: github_blockee.identifier,
+        issue: github_blockee,
+        control: %{status: :paused, can_interrupt: true},
+        paused_reason: :blocker_dependency,
+        blocker_pause_generation: 1,
+        blocker_pause: %{blocker_identifier: blocker.identifier, generation: 1}
+      }
+
+      state = %State{
+        running: %{github_blockee.id => entry},
+        last_polled_issues: %{github_blockee.id => github_blockee}
+      }
+
+      hydrator = fn _issue ->
+        {:ok,
+         %{
+           github_blockee
+           | blocked_by: [
+               blocker,
+               %{id: "other", identifier: "its-everdred/aiur#other", state: "in-progress"}
+             ]
+         }}
+      end
+
+      result =
+        PushRouting.recheck_cleared_dependency_pauses(
+          state,
+          fn _blockers -> {:ok, [blocker]} end,
+          [github_blockee],
+          hydrator
+        )
+
+      refute_receive {:resume_agent, _}, 100
+      assert get_in(result.running, [github_blockee.id, :control, :status]) == :paused
+      assert result.running[github_blockee.id].paused_reason == :blocker_dependency
+    end
+  end
+
   test "alerts once with observed dispatch constraints while ready work is held" do
     Publisher.set_tracked_fn(fn _ -> true end)
     :ok = Exchange.subscribe("system.dispatch.capacity_starved")
@@ -549,6 +723,92 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
     assert event["reason"] =~ "load=0.7/16.0"
     assert event["reason"] =~ "effective cap=20, configured cap=20"
     assert event["reason"] =~ "binding constraint=no binding constraint identified"
+  end
+
+  test "alerts when parked agents wait on an undispatched queued keystone" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    keystone = issue("keystone", "todo")
+    topic = "ticket.#{keystone.identifier}.agent.attention.dependency-circular-wait"
+    resolved_topic = topic <> ".resolved"
+    :ok = Exchange.subscribe(topic)
+    :ok = Exchange.subscribe(resolved_topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    state = %State{
+      max_concurrent_agents: 1,
+      effective_concurrent_agents: 1,
+      running: %{
+        "blocked-one" => dependency_paused_entry(keystone.identifier),
+        "blocked-two" => dependency_paused_entry(keystone.identifier),
+        "operator-pause" => %{control: %{status: :paused}, paused_reason: :operator_pause}
+      }
+    }
+
+    waiting = IssueSync.sync_dependency_circular_wait_alert(state, [keystone], 1_000)
+    refute waiting.dependency_circular_wait[keystone.id].alerted?
+    refute_receive {:event, %{topic: ^topic}}, 100
+
+    alerted = IssueSync.sync_dependency_circular_wait_alert(waiting, [keystone], 61_000)
+    assert alerted.dependency_circular_wait[keystone.id].alerted?
+
+    assert_receive {:event, %{topic: ^topic} = event}, 500
+    assert event["needs_attention"] == true
+    assert event["reason"] =~ keystone.identifier
+    assert event["reason"] =~ "2 parked agent(s)"
+
+    repeated = IssueSync.sync_dependency_circular_wait_alert(alerted, [keystone], 122_000)
+    assert repeated == alerted
+    refute_receive {:event, %{topic: ^topic}}, 100
+
+    held = %{repeated | capacity_hold: %{signal: :load}}
+    assert IssueSync.sync_dependency_circular_wait_alert(held, [keystone], 123_000) == held
+    refute_receive {:event, %{topic: ^resolved_topic}}, 100
+
+    resumed = %{held | capacity_hold: nil}
+    assert IssueSync.sync_dependency_circular_wait_alert(resumed, [keystone], 124_000).dependency_circular_wait == repeated.dependency_circular_wait
+    refute_receive {:event, %{topic: ^topic}}, 100
+
+    dispatched = %{
+      resumed
+      | running:
+          resumed.running
+          |> Map.delete("operator-pause")
+          |> Map.put(keystone.id, %{control: %{status: :working}, issue: keystone})
+    }
+
+    recovered = IssueSync.sync_dependency_circular_wait_alert(dispatched, [keystone], 123_000)
+    assert recovered.dependency_circular_wait == %{}
+    assert_receive {:event, %{topic: ^resolved_topic}}, 500
+  end
+
+  test "does not report circular waits while dispatch is intentionally held" do
+    Publisher.set_tracked_fn(fn _ -> true end)
+    keystone = issue("held-keystone", "todo")
+    topic = "ticket.#{keystone.identifier}.agent.attention.dependency-circular-wait"
+    :ok = Exchange.subscribe(topic)
+
+    on_exit(fn ->
+      Publisher.set_tracked_fn(fn _ -> true end)
+      for pattern <- Exchange.bindings_for(self()), do: Exchange.unsubscribe(pattern)
+    end)
+
+    blocked = %{
+      "blocked" => dependency_paused_entry(keystone.identifier)
+    }
+
+    for state <- [
+          %State{running: blocked, globally_paused: true},
+          %State{running: blocked, capacity_hold: %{signal: :load}},
+          %State{running: blocked, prewarm_hold_ticks: 1}
+        ] do
+      assert IssueSync.sync_dependency_circular_wait_alert(state, [keystone], 61_000).dependency_circular_wait == %{}
+    end
+
+    refute_receive {:event, %{topic: ^topic}}, 100
   end
 
   test "does not alert while a low-load fleet is normally ramping its envelope" do
@@ -1625,6 +1885,14 @@ defmodule Aiur.Orchestrator.IssueSyncTest do
       entry = if issue_state, do: %{issue: issue("live-#{id}", issue_state)}, else: %{}
       {"live-#{id}", entry}
     end
+  end
+
+  defp dependency_paused_entry(blocker_identifier) do
+    %{
+      control: %{status: :paused},
+      paused_reason: :blocker_dependency,
+      blocker_pause: %{blocker_identifier: blocker_identifier}
+    }
   end
 
   defp write_central_attention!(topic) do

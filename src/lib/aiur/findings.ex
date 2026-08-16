@@ -1,4 +1,6 @@
 defmodule Aiur.Findings do
+  require Logger
+
   @moduledoc """
   Durable executor findings stored as bounded NDJSON records in repository state
   nodes. Records are intentionally host-local; readers aggregate sibling nodes
@@ -13,6 +15,10 @@ defmodule Aiur.Findings do
 
   @type record :: %{required(String.t()) => term()}
 
+  @type ledger_error ::
+          {:invalid_finding_record, Path.t(), pos_integer(), String.t()}
+          | {:finding_read_failed, Path.t(), term()}
+
   @doc "Appends one validated finding with `O_APPEND` semantics."
   @spec append(String.t(), record()) :: :ok | {:error, term()}
   def append(repo_url, finding) when is_binary(repo_url) and is_map(finding) do
@@ -25,6 +31,22 @@ defmodule Aiur.Findings do
   @doc "Returns findings from all repository nodes on this host."
   @spec all(keyword()) :: {:ok, [record()]} | {:error, term()}
   def all(opts \\ []) do
+    case all_with_diagnostics(opts) do
+      {:ok, findings, []} ->
+        {:ok, findings}
+
+      {:ok, findings, errors} ->
+        Enum.each(errors, &Logger.warning("skipping unreadable findings ledger entry: #{inspect(&1)}"))
+        {:ok, findings}
+
+      error ->
+        error
+    end
+  end
+
+  @doc "Returns findings and diagnostics (corrupt lines, unreadable files) without failing closed."
+  @spec all_with_diagnostics(keyword()) :: {:ok, [record()], [ledger_error()]} | {:error, term()}
+  def all_with_diagnostics(opts \\ []) do
     scope = Keyword.get(opts, :scope)
 
     case validate_scope_filter(scope) do
@@ -46,6 +68,14 @@ defmodule Aiur.Findings do
   def unfiled(opts \\ []) do
     with {:ok, findings} <- all(opts) do
       {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""]))}
+    end
+  end
+
+  @doc "Returns unfiled findings and diagnostics (corrupt lines, unreadable files) without failing closed."
+  @spec unfiled_with_diagnostics(keyword()) :: {:ok, [record()], [ledger_error()]} | {:error, term()}
+  def unfiled_with_diagnostics(opts \\ []) do
+    with {:ok, findings, errors} <- all_with_diagnostics(opts) do
+      {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""])), errors}
     end
   end
 
@@ -114,19 +144,22 @@ defmodule Aiur.Findings do
     end
   end
 
+  # One unreadable ledger file must not hide the other repositories' findings.
+  # Its read failure joins the diagnostics so it stays visible without failing
+  # the whole read closed.
   defp read_all(scope) do
     finding_paths()
-    |> Enum.reduce_while({:ok, []}, fn path, {:ok, findings} ->
+    |> Enum.reduce({[], []}, fn path, {findings, errors} ->
       case read_file(path) do
-        {:ok, records} -> {:cont, {:ok, Enum.reverse(filter_scope(records, scope)) ++ findings}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, records, line_errors} ->
+          {Enum.reverse(filter_scope(records, scope)) ++ findings, errors ++ line_errors}
+
+        {:error, reason} ->
+          {findings, errors ++ [reason]}
       end
     end)
-    |> reverse_findings()
+    |> then(fn {findings, errors} -> {:ok, Enum.reverse(findings), errors} end)
   end
-
-  defp reverse_findings({:ok, findings}), do: {:ok, Enum.reverse(findings)}
-  defp reverse_findings({:error, _reason} = error), do: error
 
   defp finding_paths do
     [RepoBase.repo_path("placeholder/placeholder"), "..", "..", "*", "*", "meta", "findings.ndjson"]
@@ -151,15 +184,31 @@ defmodule Aiur.Findings do
 
   defp decode_records(contents, path) do
     contents
-    |> String.split("\n", trim: true)
+    |> split_lines()
     |> Enum.with_index(1)
-    |> Enum.reduce_while({:ok, []}, fn {line, line_number}, {:ok, records} ->
+    |> Enum.reduce({[], []}, fn {line, line_number}, {records, errors} ->
       case decode_line(line, path, line_number) do
-        {:ok, finding} -> {:cont, {:ok, [finding | records]}}
-        {:error, reason} -> {:halt, {:error, reason}}
+        {:ok, finding} -> {[finding | records], errors}
+        {:error, reason} -> {records, [reason | errors]}
       end
     end)
-    |> reverse_findings()
+    |> then(fn {records, errors} -> {:ok, Enum.reverse(records), Enum.reverse(errors)} end)
+  end
+
+  # Keep physical line numbers in diagnostics. A trailing newline terminates
+  # the final record; it is not an additional corrupt blank record. Interior
+  # blank lines, however, are ledger corruption and must remain addressable.
+  defp split_lines(""), do: []
+
+  defp split_lines(contents) do
+    case String.split(contents, "\n", trim: false) do
+      lines ->
+        if List.last(lines) == "" do
+          Enum.drop(lines, -1)
+        else
+          lines
+        end
+    end
   end
 
   defp filter_scope(records, nil), do: records

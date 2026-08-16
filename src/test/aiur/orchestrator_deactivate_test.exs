@@ -58,6 +58,7 @@ defmodule Aiur.OrchestratorDeactivateTest do
   defmodule FlakyReworkGitHubClient do
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
     def fetch_candidate_issues, do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
 
     def update_issue_state(issue_id, state_name) do
       if self() == Application.get_env(:aiur, :flaky_rework_owner) do
@@ -79,6 +80,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule PauseOverrideGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def remove_label(issue_id, label) do
       recipient = Application.get_env(:aiur, :pause_override_recipient)
 
@@ -89,6 +92,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule HumanReviewGuardGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def verify_human_review_ready(issue_id) do
       if is_pid(recipient()), do: send(recipient(), {:human_review_verify, issue_id})
       Application.get_env(:aiur, :human_review_ready_result, :ok)
@@ -103,6 +108,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule DirectDispatchGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def update_issue_state(issue_id, state_name) do
       if is_pid(recipient()),
         do: send(recipient(), {:direct_dispatch_update, issue_id, state_name})
@@ -130,6 +137,8 @@ defmodule Aiur.OrchestratorDeactivateTest do
   end
 
   defmodule CIWatcherGitHubClient do
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def update_issue_state(issue_id, state_name) do
       if is_pid(recipient()), do: send(recipient(), {:ci_watcher_update, issue_id, state_name})
       :ok

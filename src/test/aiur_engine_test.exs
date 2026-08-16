@@ -155,8 +155,8 @@ defmodule AiurEngineTest do
     assert out =~ "aiur findings --digest [--scope aiur|repo]"
     assert out =~ "aiur ask <title> [--body <text>|--body-file <path>] [--urgency low|normal|high] [--blocking]"
     assert out =~ "aiur asks [--open|--all] [--json]"
-    assert out =~ "aiur run [--bg] [--no-dashboard] [--debug]"
-    assert out =~ "aiur --bg [--no-dashboard] [--debug]"
+    assert out =~ "aiur run [--bg] [--no-dashboard] [--executor] [--debug]"
+    assert out =~ "aiur --bg [--no-dashboard] [--executor] [--debug]"
     refute out =~ "sweep"
   end
 

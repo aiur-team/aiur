@@ -3,7 +3,7 @@ defmodule Aiur.Init.Templates do
   One home for all compile-time embedded scaffold templates and config-template fill rendering.
   """
 
-  alias Aiur.Init.Questions
+  alias Aiur.Init.{ElevenLabs, Questions}
 
   # Scaffolded prompt_file template. PromptBuilder renders this as the whole
   # turn template (Liquid), so it must reference the issue or the agent gets
@@ -32,6 +32,7 @@ defmodule Aiur.Init.Templates do
   # — otherwise the first run would fail resolving a missing hooks file. Embedded at
   # compile time so the wizard works from a release with no runtime file dependency.
   @prewarm_file_name "prewarm"
+
   @aiurhooks_example_path Path.expand("../../../../.aiur/examples/hooks.example", __DIR__)
   @external_resource @aiurhooks_example_path
   @aiurhooks_example_template File.read!(@aiurhooks_example_path)
@@ -103,7 +104,8 @@ defmodule Aiur.Init.Templates do
       "{{PREWARM_ENABLED}}" => to_string(d.prewarm.enabled),
       "{{PREWARM_BASE_BUILD_FILE}}" => prewarm_base_build_file_line(d.prewarm),
       "{{ALERTS_ENABLED}}" => to_string(d.alerts.enabled),
-      "{{ALERTS_OS_SOUNDS}}" => to_string(d.alerts.use_os_default_sounds)
+      "{{ALERTS_OS_SOUNDS}}" => to_string(d.alerts.use_os_default_sounds),
+      "{{ELEVENLABS_SECTION}}" => elevenlabs_section(d.elevenlabs)
     }
   end
 
@@ -118,6 +120,20 @@ defmodule Aiur.Init.Templates do
     do: "  base_build_file: #{@prewarm_file_name}\n"
 
   defp prewarm_base_build_file_line(_), do: ""
+
+  # The whole section, from the one renderer the resume backfill also uses, so
+  # both init paths write the same block. Declining renders nothing — the
+  # written config then has no `elevenlabs` key at all, which is what lets a
+  # later `aiur init` resume offer voice input again. The token sits alone at
+  # column 0 in the example, so the block owns its own comments, indentation and
+  # trailing newline and starts with the blank line that separates it from the
+  # section above; declining collapses the token line to that separator alone.
+  defp elevenlabs_section(answer) do
+    case IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(answer)) do
+      "" -> ""
+      block -> "\n" <> block
+    end
+  end
 
   defp tracker_provider_block(%{kind: "github"} = github) do
     # label_prefix is fixed (`agent`) and matches the schema default, so the

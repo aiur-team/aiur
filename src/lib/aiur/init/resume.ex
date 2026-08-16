@@ -4,7 +4,7 @@ defmodule Aiur.Init.Resume do
   """
 
   alias Aiur.Config
-  alias Aiur.Init.{Format, Prewarm, Questions}
+  alias Aiur.Init.{ElevenLabs, Format, Prewarm, Questions}
 
   @gitignore_entry ".aiur/"
 
@@ -38,6 +38,7 @@ defmodule Aiur.Init.Resume do
          "pre_warmed_sessions: #{config["pre_warmed_sessions"]}",
          "polling_interval_seconds: #{polling["interval_seconds"]}",
          alerts_summary_line(config),
+         config["elevenlabs"] && "elevenlabs_voice_input: #{elevenlabs_key_state(config["elevenlabs"])}",
          config["prompt_file"] && "prompt_file: #{config["prompt_file"]}"
        ])
     |> Enum.reject(&is_nil/1)
@@ -60,6 +61,12 @@ defmodule Aiur.Init.Resume do
       _ -> nil
     end
   end
+
+  # The ElevenLabs credential is a secret, so the readback reports only whether
+  # one is configured — never the value (nor the env reference's resolved key).
+  @spec elevenlabs_key_state(map() | term()) :: String.t()
+  def elevenlabs_key_state(%{"api_key" => key}) when is_binary(key) and key != "", do: "api_key set"
+  def elevenlabs_key_state(_elevenlabs), do: "api_key not set"
 
   @spec format_routing(map() | term()) :: String.t()
   def format_routing(routing) when is_map(routing) do
@@ -175,6 +182,14 @@ defmodule Aiur.Init.Resume do
         opted_in?: fn answer -> answer.enabled end,
         to_yaml: &Prewarm.prewarm_section_yaml/1,
         first_run: &Prewarm.first_prewarm_backfill/5
+      },
+      %{
+        key: "elevenlabs",
+        label: "ElevenLabs voice input",
+        prompt: &ElevenLabs.prompt_eleven_labs/3,
+        opted_in?: fn answer -> answer.enabled end,
+        to_yaml: &ElevenLabs.eleven_labs_section_yaml/1,
+        first_run: fn _io, _deps, _target, _tracker, _answer -> :ok end
       }
     ]
   end

@@ -63,11 +63,30 @@ defmodule AiurWeb.StreamdeckChannel do
 
     case result do
       {:ok, value} -> {:reply, {:ok, %{"identifier" => identifier, "action" => action, "result" => value}}, socket}
-      {:error, reason} -> {:reply, {:error, %{reason: inspect(reason)}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 
   def handle_in("control", _payload, socket), do: {:reply, {:error, %{reason: "invalid_control"}}, socket}
+
+  # Delivers a spoken (device-transcribed) message to an agent through the same
+  # `AgentChat.send/2` facade the dashboard chat box uses, so voice and typed
+  # input share one delivery path. Admission is not shared: a device cannot show
+  # a deep failure, so this channel trims the text and refuses an empty or
+  # over-long dictation up front (see `validate_message/1`), which the dashboard
+  # chat box does not do.
+  def handle_in("say", %{"identifier" => identifier, "text" => text}, %{assigns: %{streamdeck_authenticated: true}} = socket)
+      when is_binary(identifier) and byte_size(identifier) in 1..200 and is_binary(text) do
+    case validate_message(String.trim(text)) do
+      {:ok, message} -> reply_to_say(identifier, message, socket)
+      {:error, reason} -> {:reply, {:error, %{reason: reason}}, socket}
+    end
+  end
+
+  def handle_in("say", _payload, %{assigns: %{streamdeck_authenticated: true}} = socket),
+    do: {:reply, {:error, %{reason: "invalid_message"}}, socket}
+
+  def handle_in("say", _payload, socket), do: {:reply, {:error, %{reason: "unauthorized"}}, socket}
 
   @impl true
   def handle_info(:streamdeck_snapshot, socket) do
@@ -136,6 +155,43 @@ defmodule AiurWeb.StreamdeckChannel do
   end
 
   def terminate(_reason, _socket), do: :ok
+
+  # Mirrors `Aiur.Orchestrator.OperatorMessages`' own ceiling so an over-long
+  # dictation is refused here, with a reason the device can show, instead of
+  # failing deeper in delivery.
+  @max_message_chars 8_000
+
+  defp validate_message(""), do: {:error, "empty_message"}
+
+  defp validate_message(message) do
+    if String.length(message) > @max_message_chars do
+      {:error, "message_too_long"}
+    else
+      {:ok, message}
+    end
+  end
+
+  defp reply_to_say(identifier, message, socket) do
+    case send_agent_message(identifier, message) do
+      {:ok, request_id} -> {:reply, {:ok, %{"request_id" => request_id}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
+    end
+  end
+
+  # Atom/binary reasons (`:no_agent`, `:message_too_long`) render as the bare
+  # word the device shows; anything structured falls back to `inspect/1` rather
+  # than raising a String.Chars error inside the reply.
+  defp reason_text(reason) when is_atom(reason) or is_binary(reason), do: to_string(reason)
+  defp reason_text(reason), do: inspect(reason)
+
+  # Same injection seam as the dashboard's chat box (`DashboardLive`), so tests
+  # can observe delivery without a live orchestrator.
+  defp send_agent_message(identifier, message) do
+    case Endpoint.config(:agent_chat_send_fun) do
+      fun when is_function(fun, 2) -> fun.(identifier, message)
+      _fun -> AgentChat.send(identifier, message)
+    end
+  end
 
   defp push_decisions(socket) do
     push(socket, "decisions", StreamdeckProjection.decisions())
