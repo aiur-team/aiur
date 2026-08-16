@@ -9,7 +9,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
   alias Aiur.AgentPubSub
   alias Aiur.ProviderMeters.Events, as: ProviderMeterEvents
   alias Aiur.ProviderMeterSnapshot
-  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckProjection, StreamdeckSocket}
+  alias AiurWeb.{Endpoint, FinancialDataAccess, StreamdeckAuth, StreamdeckChannel, StreamdeckProjection, StreamdeckSocket}
   alias Phoenix.Socket.Message
   alias Phoenix.Socket.V2.JSONSerializer
 
@@ -457,6 +457,88 @@ defmodule AiurWeb.StreamdeckChannelTest do
 
     assert %{"identifier" => "AIUR-3", "role" => "assistant", "timestamp" => "2026-07-30T12:00:00Z"} =
              StreamdeckProjection.transcript("AIUR-3", %{role: :assistant, timestamp: timestamp})
+  end
+
+  describe "say (voice input)" do
+    test "delivers the spoken message through the AgentChat seam and replies with the request id" do
+      test_pid = self()
+      put_endpoint_config(agent_chat_send_fun: fn identifier, text -> send(test_pid, {:sent, identifier, text}) && {:ok, 42} end)
+
+      socket = joined_socket()
+      say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "  ship the fix  "})
+
+      assert_reply(say, :ok, %{request_id: 42})
+      # Trimmed, and delivered through the one existing chat path.
+      assert_received {:sent, "AIUR-1", "ship the fix"}
+    end
+
+    test "surfaces a delivery error as a reason string" do
+      put_endpoint_config(agent_chat_send_fun: fn _identifier, _text -> {:error, :no_agent} end)
+
+      socket = joined_socket()
+      say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "hello"})
+
+      assert_reply(say, :error, %{reason: "no_agent"})
+    end
+
+    test "rejects a message that trims to empty without calling delivery" do
+      test_pid = self()
+      put_endpoint_config(agent_chat_send_fun: fn identifier, text -> send(test_pid, {:sent, identifier, text}) && {:ok, 1} end)
+
+      socket = joined_socket()
+      say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "   \n\t "})
+
+      assert_reply(say, :error, %{reason: "empty_message"})
+      refute_received {:sent, _identifier, _text}
+    end
+
+    test "rejects a message over the operator-message ceiling without calling delivery" do
+      test_pid = self()
+      put_endpoint_config(agent_chat_send_fun: fn identifier, text -> send(test_pid, {:sent, identifier, text}) && {:ok, 1} end)
+
+      socket = joined_socket()
+      say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => String.duplicate("a", 8_001)})
+
+      assert_reply(say, :error, %{reason: "message_too_long"})
+      refute_received {:sent, _identifier, _text}
+
+      at_ceiling = push(socket, "say", %{"identifier" => "AIUR-1", "text" => String.duplicate("a", 8_000)})
+      assert_reply(at_ceiling, :ok, %{request_id: 1})
+    end
+
+    test "rejects malformed payloads" do
+      socket = joined_socket()
+
+      for payload <- [%{"identifier" => "AIUR-1"}, %{"text" => "hello"}, %{"identifier" => "AIUR-1", "text" => 7}, %{"identifier" => "", "text" => "hello"}] do
+        reply = push(socket, "say", payload)
+        assert_reply(reply, :error, %{reason: "invalid_message"})
+      end
+    end
+
+    test "rejects an unauthenticated socket" do
+      unauthenticated = %Phoenix.Socket{assigns: %{streamdeck_authenticated: false}}
+
+      assert {:reply, {:error, %{reason: "unauthorized"}}, ^unauthenticated} =
+               StreamdeckChannel.handle_in("say", %{"identifier" => "AIUR-1", "text" => "hello"}, unauthenticated)
+    end
+  end
+
+  # The endpoint outlives each test, so the injected seam is removed again on
+  # exit — the shared cache must not carry one test's stub into the next.
+  defp put_endpoint_config(extra) do
+    previous = Application.get_env(:aiur, Endpoint, [])
+    config = Keyword.merge(previous, extra)
+
+    on_exit(fn ->
+      Application.put_env(:aiur, Endpoint, previous)
+      # The supervised endpoint may already be down when this runs; its config
+      # cache dies with it, so there is nothing left to restore.
+      if Process.whereis(Endpoint), do: Endpoint.config_change([{Endpoint, previous}], [])
+    end)
+
+    Application.put_env(:aiur, Endpoint, config)
+    :ok = Endpoint.config_change([{Endpoint, config}], [])
+    :ok
   end
 
   defp joined_socket do

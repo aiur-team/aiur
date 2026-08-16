@@ -79,7 +79,8 @@ defmodule Aiur.Init.TemplatesTest do
         polling: 30,
         prompt_file: "prompt.md",
         prewarm: %{enabled: true, base_build: "mise exec -- mix compile"},
-        alerts: %{enabled: true, use_os_default_sounds: false}
+        alerts: %{enabled: true, use_os_default_sounds: false},
+        elevenlabs: %{enabled: false, api_key: nil}
       })
 
     rendered =
@@ -109,7 +110,8 @@ defmodule Aiur.Init.TemplatesTest do
       polling: 30,
       prompt_file: "prompt.md",
       prewarm: %{enabled: false},
-      alerts: %{enabled: false, use_os_default_sounds: false}
+      alerts: %{enabled: false, use_os_default_sounds: false},
+      elevenlabs: %{enabled: false, api_key: nil}
     }
 
     with_account =
@@ -143,7 +145,8 @@ defmodule Aiur.Init.TemplatesTest do
       polling: 30,
       prompt_file: "prompt.md",
       prewarm: %{enabled: false},
-      alerts: %{enabled: false, use_os_default_sounds: false}
+      alerts: %{enabled: false, use_os_default_sounds: false},
+      elevenlabs: %{enabled: false, api_key: nil}
     }
 
     for branch <- ["false", "null", "123"] do
@@ -169,9 +172,67 @@ defmodule Aiur.Init.TemplatesTest do
         polling: 30,
         prompt_file: "prompt.md",
         prewarm: %{enabled: false},
-        alerts: %{enabled: false, use_os_default_sounds: false}
+        alerts: %{enabled: false, use_os_default_sounds: false},
+        elevenlabs: %{enabled: false, api_key: nil}
       })
 
     assert Templates.fill_template("{{PRIORITY}}", fills) == "[codex, claude]"
+  end
+
+  describe "elevenlabs voice-input tokens" do
+    test "opting in writes the api_key line and the language code" do
+      rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
+
+      assert rendered == "elevenlabs:\n  api_key: $ELEVENLABS_API_KEY\n  language_code: eng\n"
+
+      assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}}} =
+               YamlElixir.read_from_string(rendered)
+    end
+
+    test "declining leaves no api_key line and no stray blank line" do
+      rendered = render_elevenlabs(%{enabled: false, api_key: nil})
+
+      assert rendered == "elevenlabs:\n  language_code: eng\n"
+      refute rendered =~ "api_key"
+      refute rendered =~ "\n\n"
+
+      assert {:ok, %{"elevenlabs" => %{"language_code" => "eng"}}} = YamlElixir.read_from_string(rendered)
+    end
+
+    test "the shipped example renders both ways as valid YAML" do
+      for answer <- [%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}, %{enabled: false, api_key: nil}] do
+        rendered = Templates.fill_template(Templates.config_example(), elevenlabs_fills(answer))
+
+        refute rendered =~ "{{ELEVENLABS_API_KEY}}"
+        refute rendered =~ "{{ELEVENLABS_LANGUAGE}}"
+        assert rendered =~ "elevenlabs:\n"
+      end
+    end
+  end
+
+  defp render_elevenlabs(answer) do
+    Templates.fill_template(
+      "elevenlabs:\n{{ELEVENLABS_API_KEY}}  language_code: {{ELEVENLABS_LANGUAGE}}\n",
+      elevenlabs_fills(answer)
+    )
+  end
+
+  defp elevenlabs_fills(answer) do
+    Templates.build_fills(%{
+      tracker: %{kind: "github", repo: "owner/repo", base_branch: "develop"},
+      agents: ["claude"],
+      routing: %{1 => "claude", 2 => "claude", 3 => "claude", 4 => "claude", 5 => "claude"},
+      permission_mode: "bypassPermissions",
+      workspace_root: "/tmp/workspaces",
+      max_agents: 1,
+      max_turns: "none",
+      max_duration: 60,
+      pre_warmed: 0,
+      polling: 30,
+      prompt_file: "prompt.md",
+      prewarm: %{enabled: false},
+      alerts: %{enabled: false, use_os_default_sounds: false},
+      elevenlabs: answer
+    })
   end
 end

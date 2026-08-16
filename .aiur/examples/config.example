@@ -104,6 +104,13 @@ alerts:
   # sound_dir: ~/alerts                        # custom sound folder: resolves the map's filenames, and (in OS-default mode) a <category>.<ext> file here overrides that category
   alerts_file: alerts                          # topic→sound map; a relative path resolves next to this config (edit `.aiur/alerts`). Use an absolute or ~/ path to point elsewhere; a missing file falls back to the default `.aiur/alerts` next to the config
 
+# === Stream Deck voice input (opt-in; ElevenLabs speech-to-text) ===
+# Holding the Stream Deck mic key records dictation, transcribes it with ElevenLabs, and delivers it to the focused agent.
+# api_key is a SECRET: set it to the literal `$ELEVENLABS_API_KEY` reference and keep the value in `.env`.
+# aiur scrubs every `*_API_KEY` variable from agent environments and never logs the key.
+elevenlabs:
+{{ELEVENLABS_API_KEY}}  language_code: {{ELEVENLABS_LANGUAGE}}                # ISO-639-3 transcription language ("eng" = English)
+
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
 # Requires github.bot_account (reply identity) and CODEOWNERS / github.trusted_accounts (who may direct the agent).

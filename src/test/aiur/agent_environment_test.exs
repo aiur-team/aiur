@@ -347,6 +347,35 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "GITHUB_TOKEN=tracker-token\n"
   end
 
+  # ELEVENLABS_API_KEY is the Stream Deck voice-input credential the daemon reads.
+  # It ends in `_API_KEY`, so all three scrub surfaces already cover it; this is
+  # the regression guard that keeps it that way.
+  test "the ElevenLabs voice-input key is scrubbed from an agent workspace env" do
+    previous = System.get_env("ELEVENLABS_API_KEY")
+    System.put_env("ELEVENLABS_API_KEY", "elevenlabs-secret")
+    on_exit(fn -> restore_env("ELEVENLABS_API_KEY", previous) end)
+
+    assert {~c"ELEVENLABS_API_KEY", false} in AgentEnvironment.workspace_env("/work/aiur/1920")
+    assert "ELEVENLABS_API_KEY" in AgentEnvironment.provider_credential_env_names()
+
+    command = AgentEnvironment.scrub_shell_command("env | grep -E '^(ELEVENLABS_API_KEY|GITHUB_TOKEN)=' | sort")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command], env: [{"ELEVENLABS_API_KEY", "elevenlabs-secret"}, {"GITHUB_TOKEN", "tracker-token"}])
+
+    assert output == "GITHUB_TOKEN=tracker-token\n"
+
+    # The SSH-launch path inlines the same scrub prefix, so the remote export
+    # block drops it too.
+    prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/1920", base_branch: "main")
+
+    {remote_output, 0} =
+      System.cmd("bash", ["-lc", "#{prefix}; printf '[%s]' \"${ELEVENLABS_API_KEY:-}\""], env: [{"ELEVENLABS_API_KEY", "elevenlabs-secret"}, {"HOME", "/remote-home"}])
+
+    assert remote_output =~ "[]"
+    refute remote_output =~ "elevenlabs-secret"
+  end
+
   test "scrub_shell_command preserves caller exec choice" do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
@@ -630,4 +659,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert resolved == "/tmp"
     end
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end
