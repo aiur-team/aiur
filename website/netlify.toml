@@ -5,3 +5,15 @@
 
 [build.environment]
   NODE_VERSION = "20"
+
+# The Concepts restructure renamed two pages that were linked from the docs
+# landing page and the sidebar, so external links to them still exist.
+[[redirects]]
+  from = "/docs/concepts/coordination"
+  to = "/docs/concepts/message-bus"
+  status = 301
+
+[[redirects]]
+  from = "/docs/concepts/state-and-build-orders"
+  to = "/docs/concepts/build-orders"
+  status = 301

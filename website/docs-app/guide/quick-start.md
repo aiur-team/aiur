@@ -44,4 +44,4 @@ Set `AIUR_DASHBOARD_USERNAME` and `AIUR_DASHBOARD_PASSWORD` before the default w
 | `aiur message <id> "<text>"` | Send an Executor message through the agent’s native queue. |
 | `aiur --todo <ids…> [--only]` | Queue selected tickets; `--only` dequeues other pending tickets. |
 
-See [CLI and control commands](/reference/cli) for the complete operational surface.
+See the [CLI](/reference/cli) reference for the complete operational surface, and [Executor](/concepts/executor) for what the role you have just taken on actually involves.
