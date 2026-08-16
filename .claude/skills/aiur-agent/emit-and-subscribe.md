@@ -219,7 +219,10 @@ not acknowledge a Decision for you.
 
 ## `aiur_subscribe(topic_pattern)`
 
-Persistent — the subscription survives BEAM restarts. Use AMQP topic-exchange wildcards:
+Persistent — the subscription survives BEAM restarts. An agent-created pattern
+must begin with `ticket.<literal-id>.`, where the ticket identifier is one
+concrete segment. Within the rest of that ticket-scoped pattern, use AMQP
+topic-exchange wildcards:
 
 - `*` — exactly one segment
 - `#` — zero or more segments
@@ -227,12 +230,18 @@ Persistent — the subscription survives BEAM restarts. Use AMQP topic-exchange 
 Examples:
 
 ```jsonc
-{ "topic_pattern": "ticket.42.#" }              // everything about ticket 42
-{ "topic_pattern": "*.*.branch.push" }          // any push on any ticket
+{ "topic_pattern": "ticket.42.#" }                // everything about ticket 42
+{ "topic_pattern": "ticket.314.branch.push" }     // pushes for sibling ticket 314
 { "topic_pattern": "ticket.42.agent.decision.*" } // every decision from ticket 42
 ```
 
 Returns `{ "ok": true, "topic_pattern": "ticket.42.#" }`.
+
+Aiur refuses agent requests for `executor.*`, `system.*`, arbitrary namespaces,
+bare wildcard patterns such as `#` or `*`, and wildcard ticket identifiers such
+as `ticket.*.branch.push` or `ticket.#`. Those patterns can observe trusted
+control-plane or fleet-wide traffic. Automatic subscriptions below are internal
+wiring and are not subject to the manual agent policy.
 
 ## `aiur_unsubscribe(topic_pattern)`
 
@@ -255,7 +264,8 @@ own ticket's topics:
 This set is deliberately narrow rather than a blanket `ticket.<self>.#`: you are
 **not** auto-subscribed to your own `branch.push`, `pr.opened`, or `pr.merged`
 (those are consumed by the orchestrator, which owns the resulting state
-transition). Anything outside the table needs an explicit `aiur_subscribe`.
+transition). A watch outside the table needs an explicit `aiur_subscribe` and
+must name one literal ticket identifier.
 
 After `aiur_declare_blocker(N)`, Aiur additionally auto-subscribes both
 directions of the dependency, idempotently:
@@ -305,5 +315,6 @@ bound to your `ticket.<id>.agent.#` pattern.
 ## Don't do
 
 - Don't bind a pattern just to read it once. Subscriptions are for ongoing watch; if you want a one-time read, `aiur --logs <id>` is the right tool.
-- Don't bind `#` (everything) — you'll drown in noise.
+- Don't try to bind `#`, `executor.#`, `system.#`, or `ticket.*.#` — broad and
+  trusted-namespace patterns are refused for agents.
 - Don't pair `aiur_declare_blocker(N)` with `aiur_subscribe("ticket.N.#")` — the blocker declaration handles the auto-subscription already.
