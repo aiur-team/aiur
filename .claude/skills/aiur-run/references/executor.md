@@ -123,12 +123,20 @@ The Executor continuously:
 
 ## Command decision loop
 
-Subscribe the durable Executor listener to `executor.decision.requested` for the
-lifetime of the run. Creation events wake the Executor immediately, and the
-listener's persisted replay cursor delivers events missed during disconnects.
-This listener is the command inbox: do not discover new Commands by polling or
-sweeping the decision store. Periodic monitoring remains necessary for runtime
-health, but it is not a parallel decision-discovery mechanism.
+Launching the run with `--executor` arms the daemon-resident Executor listener
+(`Aiur.ExecutorListener`) as part of launch; there is no separate subscription
+step to forget. The run supervises and restarts it, it subscribes to
+`executor.decision.requested` / `executor.decision.deferred`, and it replays
+from its own durable watermark so a restart re-delivers only what was missed.
+Each Command surfaces as a needs-attention alert in `aiur watch` / `aiur
+alerts --needs-attention`; read the Command's payload with `aiur commands
+<decision-id>`. This listener is the command inbox: do not discover new
+Commands by polling or sweeping the decision store. Periodic monitoring remains
+necessary for runtime health, but it is not a parallel decision-discovery
+mechanism. Verify the listener is live with `aiur status` (`LISTENER present
+(executor.#)`) and report the subscription to the human at launch ("Listening
+for Executor events on `executor.#`."), and again if it is later confirmed dead
+or restarted.
 
 Evaluate each Command in its current run, ticket, and decision-history context.
 This is a judgment call, not a rules engine: do not encode a table of command

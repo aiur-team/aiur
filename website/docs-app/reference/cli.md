@@ -39,6 +39,7 @@ Background mode is the shape that matters for an agent Executor. `aiur --bg` sta
 | `aiur --max-agents 6` | Launch-only session cap. It wins over `agent.max_concurrent_agents`; Aiur warns when it exceeds that setting. `status` identifies the active binding. | `aiur --max-agents 6` |
 | `aiur --interactive` | Requests the terminal UI, including from a background launch. | `aiur --bg --interactive` |
 | `aiur --headless` | Requests no terminal UI. Background launch injects it unless `--interactive` is present. | `aiur run --headless` |
+| `aiur --executor` | Marks the run as Executor-owned: the daemon starts the supervised `executor.#` listener (the Command inbox) as part of launch, surfacing created/deferred Commands as needs-attention alerts. An Executor launch omitting it has no Command inbox and `status` reports `LISTENER absent`. | `aiur --bg --executor` |
 | `aiur --no-dashboard` | Suppresses the dashboard listener in foreground or background mode. It is rejected for Remote Control because its lifecycle hooks need the listener. | `aiur --bg --no-dashboard` |
 | `aiur --host 127.0.0.1` | Overrides the dashboard bind host. A non-loopback host requires dashboard credentials. | `aiur --host 127.0.0.1` |
 | `aiur --port 4000` | Overrides the HTTP port. `0` lets the OS choose a free port. | `aiur --port 4000` |

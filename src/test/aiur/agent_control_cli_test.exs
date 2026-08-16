@@ -523,6 +523,26 @@ defmodule Aiur.AgentControlCLITest do
     assert populated_output =~ "__AIUR_CONTROL_EXIT__:0"
   end
 
+  test "status surfaces whether the Executor listener is currently listening", %{orchestrator: _pid} do
+    previous = Application.get_env(:aiur, :executor_listener_alive_fun)
+
+    on_exit(fn ->
+      if is_nil(previous) do
+        Application.delete_env(:aiur, :executor_listener_alive_fun)
+      else
+        Application.put_env(:aiur, :executor_listener_alive_fun, previous)
+      end
+    end)
+
+    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> true end)
+    present = capture_io(fn -> AgentControlCLI.status() end)
+    assert present =~ "LISTENER present (executor.#)"
+
+    Application.put_env(:aiur, :executor_listener_alive_fun, fn -> false end)
+    absent = capture_io(fn -> AgentControlCLI.status() end)
+    assert absent =~ "LISTENER absent (executor.decision.requested will not wake the Executor)"
+  end
+
   test "status distinguishes paused reasons and names dependency blockers", %{orchestrator: pid} do
     dependency = %Issue{
       id: "issue-99",
