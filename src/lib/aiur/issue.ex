@@ -19,6 +19,7 @@ defmodule Aiur.Issue do
     :assignee_id,
     :pr_head_ref,
     :selected_backend,
+    :selected_model,
     :creator_login,
     :dispatch_revision,
     paused: false,
@@ -49,6 +50,11 @@ defmodule Aiur.Issue do
           # every legacy tracker-issue unit.
           pr_head_ref: String.t() | nil,
           selected_backend: String.t() | nil,
+          # The model half of the selected route. `selected_backend` alone
+          # cannot express `openrouter:anthropic/claude-sonnet-5`, so a
+          # dispatch that picked a route would have shown as bare `openrouter`
+          # and re-resolved some other model at session start.
+          selected_model: String.t() | nil,
           creator_login: String.t() | nil,
           dispatch_revision: String.t() | nil,
           paused: boolean(),

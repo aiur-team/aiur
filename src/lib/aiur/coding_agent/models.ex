@@ -11,13 +11,35 @@ defmodule Aiur.CodingAgent.Models do
   is what keeps a routing table from going stale every time a version is
   retired.
 
-  Ids that do not match the grammar (a bare `o3`, a provider-specific
+  A second grammar covers **aggregator slugs** — `vendor/model`, as
+  OpenRouter names them (`anthropic/claude-sonnet-5`,
+  `moonshotai/kimi-k2.7-code`). These never match the id grammar above
+  (`claude-sonnet-5` has no numeric segment where the version belongs), so
+  without a second rule an aggregator backend could derive no aliases at
+  all and `openrouter:claude` would be unusable. For a slug the family is
+  the **leading alphabetic run of the model segment** — `claude`, `kimi`,
+  `deepseek` — which is the name an operator actually types, and the
+  version is every numeric run in that segment, compared in order.
+
+  Two slugs in the same family can tie on version (`claude-sonnet-5` and
+  `claude-opus-5`). Ties resolve to the **earlier entry in the list**,
+  which for the registry is its deliberate most-capable-first order. That
+  makes the choice deterministic rather than incidental; when it matters,
+  pin the full slug.
+
+  Ids that do not match either grammar (a bare `o3`, a provider-specific
   string) simply carry no family. They stay perfectly valid as explicitly
   pinned models; they just contribute no alias.
   """
 
   # Anchored so a stray suffix can't be silently absorbed into the tier.
   @model ~r/^(?<prefix>[a-z]+)-(?<version>\d+(?:\.\d+)*)(?:-(?<tier>[a-z][a-z0-9]*))?$/
+  # `vendor/model`. Split on the FIRST slash only: a model id may itself
+  # contain slashes, which is how every aggregator that nests namespaces
+  # writes them.
+  @slug ~r{^(?<vendor>[^/]+)/(?<model>.+)$}
+  @slug_family ~r/^[a-z]+/
+  @slug_version ~r/\d+(?:\.\d+)*/
 
   @type parsed :: %{prefix: String.t(), version: [non_neg_integer()], tier: String.t() | nil}
 
@@ -52,9 +74,53 @@ defmodule Aiur.CodingAgent.Models do
     case parse(model) do
       {:ok, %{tier: tier}} when is_binary(tier) -> tier
       {:ok, %{prefix: prefix}} -> prefix
-      :error -> nil
+      :error -> slug_family(model)
     end
   end
+
+  @doc """
+  The vendor namespace of an aggregator slug (`anthropic` for
+  `anthropic/claude-sonnet-5`), or nil for a plain model id.
+  """
+  @spec vendor(term()) :: String.t() | nil
+  def vendor(model) when is_binary(model) do
+    case Regex.named_captures(@slug, model) do
+      %{"vendor" => vendor} -> vendor
+      nil -> nil
+    end
+  end
+
+  def vendor(_model), do: nil
+
+  @doc """
+  Whether `family` names slugs from **more than one vendor** within
+  `models` — `openrouter:claude` when both `anthropic/claude-*` and some
+  other vendor's `claude-*` are listed. Resolution would then be a coin
+  flip between two differently-priced upstreams, so config validation
+  rejects the alias and asks for the full slug instead.
+  """
+  @spec ambiguous_alias?([String.t()], term()) :: boolean()
+  def ambiguous_alias?(models, family) when is_list(models) and is_binary(family) do
+    models
+    |> Enum.filter(&(family(&1) == family))
+    |> Enum.map(&vendor/1)
+    |> Enum.reject(&is_nil/1)
+    |> Enum.uniq()
+    |> length() > 1
+  end
+
+  def ambiguous_alias?(_models, _family), do: false
+
+  defp slug_family(model) when is_binary(model) do
+    with %{"model" => segment} <- Regex.named_captures(@slug, model),
+         [family] <- Regex.run(@slug_family, segment) do
+      family
+    else
+      _ -> nil
+    end
+  end
+
+  defp slug_family(_model), do: nil
 
   @doc """
   Generic family aliases derivable from `models`, in the order each family
@@ -97,9 +163,18 @@ defmodule Aiur.CodingAgent.Models do
   defp version_of(model) do
     case parse(model) do
       {:ok, %{version: version}} -> version
-      :error -> []
+      :error -> slug_version(model)
     end
   end
+
+  defp slug_version(model) when is_binary(model) do
+    case Regex.named_captures(@slug, model) do
+      %{"model" => segment} -> @slug_version |> Regex.scan(segment) |> Enum.flat_map(&version_segments(hd(&1)))
+      nil -> []
+    end
+  end
+
+  defp slug_version(_model), do: []
 
   defp version_segments(version) do
     version |> String.split(".") |> Enum.map(&String.to_integer/1)

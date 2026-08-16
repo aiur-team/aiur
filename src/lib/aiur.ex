@@ -22,6 +22,7 @@ defmodule Aiur.Application do
   require Logger
 
   alias Aiur.{AgentGitHubGuard, GitHub.Budget}
+  alias Aiur.CodingAgent.RouteCredentials
   alias Aiur.Config, as: AiurConfig
   alias Aiur.Config.RoutingValue
   alias Aiur.GitHub.Config
@@ -37,6 +38,7 @@ defmodule Aiur.Application do
     Aiur.RunTelemetry.start_boot()
     Logger.info("aiur_boot phase=start elapsed_ms=0")
     :ok = log_base_branch(settings)
+    :ok = log_route_credentials(settings)
     log_process_identity()
     Aiur.Shutdown.record_workspace_root()
     install_signal_handlers()
@@ -76,6 +78,29 @@ defmodule Aiur.Application do
     Logger.info("aiur_boot phase=config base_branch=#{inspect(AiurConfig.base_branch(settings))}")
     :ok
   end
+
+  @doc """
+  Announces, once per boot, every `agent.priority` route that will be skipped
+  because its API key is not set.
+
+  A missing key stops being a hard error at dispatch and becomes a silent
+  selection-time skip (#1923) — that is the whole point of writing
+  `[claude, "openrouter:anthropic/claude-sonnet-5"]` while holding only the
+  OpenRouter key. But a behaviour change from "crashes loudly" to "quietly not
+  chosen" must not happen invisibly, so it is stated at boot rather than
+  per claim, where it would become noise the operator learns to skip.
+  """
+  @spec log_route_credentials(term()) :: :ok
+  def log_route_credentials(settings \\ AiurConfig.settings_uncached()) do
+    settings |> priority_routes() |> RouteCredentials.log_startup_survey()
+  end
+
+  # `settings_uncached/0` yields `{:ok, schema}` on success and an error tuple
+  # when the config is unreadable. Boot must survive the latter: a startup
+  # notice is never worth crashing the node over.
+  defp priority_routes({:ok, settings}), do: priority_routes(settings)
+  defp priority_routes(%{agent: %{priority: routes}}) when is_list(routes), do: routes
+  defp priority_routes(_settings), do: []
 
   @doc """
   Reject a no-dashboard launch when configured Remote Control sessions would

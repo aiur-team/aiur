@@ -72,6 +72,12 @@ defmodule Aiur.OpenAICompat.Registry do
             "anthropic/claude-sonnet-5",
             "anthropic/claude-opus-5"
           ],
+          # OpenRouter has no CLI of its own to expand `claude` into a
+          # version, so aiur derives the family aliases itself and rewrites
+          # them to a concrete slug before the request is built — which is
+          # also before any usage event exists to attribute. See
+          # `Aiur.CodingAgent.resolve_model/2`.
+          model_aliases: :derived,
           openai_compat: %{
             base_url: "https://openrouter.ai/api/v1",
             api_key_env: "OPENROUTER_API_KEY",
