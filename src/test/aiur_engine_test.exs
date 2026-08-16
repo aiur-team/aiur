@@ -1241,7 +1241,7 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "CODE=1"
-    assert out =~ "aiur control plane did not become ready at aiur-test@127.0.0.1 during startup"
+    assert out =~ "aiur control plane at aiur-test@127.0.0.1 was still booting"
     assert out =~ "node boot log"
   end
 
@@ -1271,6 +1271,47 @@ defmodule AiurEngineTest do
     assert out =~ "CODE=1"
     assert out =~ "aiur exited during startup"
     assert out =~ "boot failed"
+  end
+
+  # A daemon that is merely slow used to be reported exactly like a crashed
+  # one -- with an empty capture, because there was no failure to print. That
+  # sent debugging after a broken release instead of a short timeout.
+  test "startup wait distinguishes a still-booting control plane from a crash" do
+    tmux = fake_tmux_script("exit 0")
+    capture = Path.join(System.tmp_dir!(), "aiur-startup-#{System.unique_integer([:positive])}")
+    File.write!(capture, "")
+    on_exit(fn -> File.rm(capture) end)
+
+    script = """
+    sleep() { :; }
+    probe_control_liveness() { printf down; }
+    set +e
+    wait_for_session_startup "$FAKE_TMUX" sock conf session "$CAPTURE" 1
+    code=$?
+    set -e
+    echo "CODE=$code"
+    """
+
+    {out, 0} =
+      run_sourced_engine(script, [
+        {"FAKE_TMUX", tmux},
+        {"CAPTURE", capture},
+        {"AIUR_NODE_GRACE_TICKS", "2"}
+      ])
+
+    assert out =~ "CODE=1"
+    assert out =~ "was still booting"
+    assert out =~ "the BEAM is alive but not yet answering"
+    assert out =~ "AIUR_NODE_GRACE_TICKS"
+    refute out =~ "did not become ready"
+  end
+
+  # The 10s budget this replaced was short enough that a healthy daemon lost
+  # the race on a cold boot, so guard the floor rather than the exact value.
+  test "startup wait keeps a generous default control-plane budget" do
+    source = File.read!(Path.join(__DIR__, "../../packaging/npm/aiur-cli/libexec/aiur-engine.sh"))
+    [_, ticks] = Regex.run(~r/AIUR_NODE_GRACE_TICKS:-(\d+)/, source)
+    assert String.to_integer(ticks) >= 600
   end
 
   test "background startup failure cleans generated tempfiles and reaps session" do
@@ -1425,7 +1466,7 @@ defmodule AiurEngineTest do
       ])
 
     assert out =~ "CODE=1"
-    assert out =~ ~r/aiur control plane did not become ready at aiur-enginetest-\d+@127\.0\.0\.1 during startup/
+    assert out =~ ~r/aiur control plane at aiur-enginetest-\d+@127\.0\.0\.1 was still booting/
     assert out =~ "Failed to start Aiur with workflow test-config"
     assert out =~ "KILL_SESSION:"
     assert out =~ "REAP:aiur-"
