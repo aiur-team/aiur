@@ -2853,6 +2853,31 @@ defmodule Aiur.DecisionStoreTest do
       send(pid, retry_message)
       assert_receive {:reconciled, ^decision_id, 1}
     end
+
+    test "an accepted expiration fans out on the owning ticket's decision.expired topic", %{dir: dir} do
+      pid = start_store!(dir)
+      :ok = Exchange.subscribe("ticket.979.agent.decision.expired")
+
+      assert {:ok, %{decision: decision}} =
+               request(pid, %{"question" => "Still waiting?", "blocking" => true})
+
+      assert {:ok, %{status: :accepted}} =
+               DecisionStore.expire(decision.decision_id, "agent_not_running", [], pid)
+
+      assert_receive {:event,
+                      %{
+                        "event_type" => "decision_expired",
+                        "decision_id" => decision_id,
+                        "decision_version" => 1,
+                        "data" => %{"reason_class" => "agent_not_running"},
+                        topic: "ticket.979.agent.decision.expired",
+                        digest_source: :orchestrator
+                      } = expired_event},
+                     500
+
+      assert decision_id == decision.decision_id
+      assert EventsDigest.render([expired_event], "979") =~ "ticket.979.agent.decision.expired"
+    end
   end
 
   defp answerable_request(source_id) do
