@@ -2,9 +2,13 @@
 
 `attention.<slug>` events surface a ❗ chip in the Executor’s agent list. They are how an agent says "I need the Executor to look at this before I can keep going."
 
-The `attention.*` family is not agent-exclusive: the orchestrator also publishes
-`attention.state_divergence`, `attention.waiting_for_human`, `attention.error-<cause>`,
-and `attention.unsupported_model` on the same topic family. Your
+The `agent.attention.*` family is **not** agent-exclusive. The orchestrator
+also publishes into it — `attention.state_divergence`,
+`attention.waiting_for_human` (and `.resolved`), `attention.error-<cause>`,
+`attention.error-lifetime_latch`, and `attention.unsupported_model` — so a
+subscriber to `ticket.<id>.agent.attention.#` sees orchestrator-authored
+attentions alongside your own. Opening and closing the ❗ chips you author
+works exactly as below; you don't resolve the orchestrator's. Your
 `attention.resolved` only clears the slugs you opened, so keep your own
 attention slugs distinct from system ones.
 

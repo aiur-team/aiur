@@ -142,6 +142,30 @@ defmodule AiurWeb.OperatorControlCenter.RunSummary do
     """
   end
 
+  defp progress_body(%{view: %{progress: %{kind: :partial}}} = assigns) do
+    ~H"""
+    <div class="run-summary-progress run-summary-progress-partial">
+      <p class="run-summary-progress-value">
+        {@view.progress.display_percent_label} complete from current inputs
+      </p>
+      <p class="run-summary-progress-coverage">
+        {@view.progress.current_members_label}; {@view.progress.fact_status_detail}.
+      </p>
+    </div>
+    """
+  end
+
+  defp progress_body(%{view: %{progress: %{kind: :pending}}} = assigns) do
+    ~H"""
+    <div class="run-summary-progress run-summary-progress-partial">
+      <p class="run-summary-progress-value">{@view.progress.progress_status_label}.</p>
+      <p class="run-summary-progress-coverage">
+        {@view.progress.current_members_label}; {@view.progress.fact_status_detail}.
+      </p>
+    </div>
+    """
+  end
+
   defp progress_body(assigns) do
     ~H"""
     <div class="run-summary-progress run-summary-progress-partial">

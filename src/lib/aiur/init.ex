@@ -8,6 +8,7 @@ defmodule Aiur.Init do
 
   # credo:disable-for-this-file Credo.Check.Design.AliasUsage
   alias Aiur.Init.Alerts
+  alias Aiur.Init.ElevenLabs
   alias Aiur.Init.Format
   alias Aiur.Init.Migration
   alias Aiur.Init.Prewarm
@@ -116,6 +117,7 @@ defmodule Aiur.Init do
         prewarm = Prewarm.prompt_prewarm(io, deps, location)
         Prewarm.maybe_first_prewarm(io, deps, tracker, prewarm)
         alerts = Alerts.prompt_alerts(io, deps, target)
+        elevenlabs = ElevenLabs.prompt_eleven_labs(io, deps, location)
 
         fills =
           Templates.build_fills(%{
@@ -131,7 +133,8 @@ defmodule Aiur.Init do
             polling: polling,
             prompt_file: prompt_file,
             prewarm: prewarm,
-            alerts: alerts
+            alerts: alerts,
+            elevenlabs: elevenlabs
           })
 
         config_yaml = Templates.fill_template(deps.read_example.(), fills)

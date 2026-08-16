@@ -39,22 +39,34 @@ These are the names you can pass to `emit_event(name, ...)`. Anything else is re
 
 ## System-emitted topics (subscribe-only)
 
-These you can subscribe to, but they're emitted by Aiur, not by you.
+These you can subscribe to, but they're emitted by Aiur, not by you. Rows
+marked **(auto)** are attached automatically when you start working on a ticket
+(or via a blocker declaration) — you do **not** subscribe to them explicitly;
+see `emit-and-subscribe.md` for the full automatic set.
 
 | Topic | What it means |
 |-------|---------------|
 | `ticket.<id>.branch.push` | Someone pushed to an Aiur ticket branch (legacy or readable); the payload carries the actual ref. |
-| `system.<branch>.branch.push` | Push to the repo's base branch (universal subscription — you don't need to subscribe explicitly) |
+| `system.<branch>.branch.push` | Push to the repo's base branch (auto — you don't need to subscribe explicitly) |
 | `ticket.<id>.pr.opened` | A PR was opened for this ticket |
 | `ticket.<id>.pr.merged` | A PR for this ticket was merged |
-| `ticket.<id>.issue.commented` | Someone left a comment on the GitHub issue (CODEOWNERS-filtered) |
-| `ticket.<id>.pr.review_comment` | Someone left a PR review comment (CODEOWNERS-filtered) |
+| `ticket.<id>.issue.commented` | Someone left a comment on the GitHub issue (trusted-author filtered; auto for your own ticket) |
+| `ticket.<id>.pr.review_comment` | Someone left a PR review comment (trusted-author filtered; auto for your own ticket) |
+| `ticket.<id>.ci.passed` | Terminal CI pass for this ticket (auto for your own ticket) |
+| `ticket.<id>.ci.failed` | Terminal CI failure for this ticket (auto for your own ticket) |
+
+Note that the `agent.attention.*` family is **not** agent-exclusive: the
+orchestrator also publishes `attention.state_divergence`,
+`attention.waiting_for_human` (and `.resolved`), `attention.error-<cause>`,
+`attention.error-lifetime_latch`, and `attention.unsupported_model` on
+`ticket.<id>.agent.attention.*`. A subscriber to that pattern receives both
+agent-authored and orchestrator-authored attentions.
 
 ## What you do NOT need to emit
 
 - Don't emit `progress.commit` or `progress.push` — the GitHub firehose covers that.
 - Don't emit `pr.opened` / `pr.merged` — same, from the firehose.
-- Don't emit `issue.commented` — that's read from the firehose with CODEOWNERS filtering applied.
+- Don't emit `issue.commented` — that's read from the firehose with trusted-author filtering applied.
 
 Emit events for things only **you** know: architectural decisions, milestones inside your turn that aren't visible as git activity, and Executor-facing attentions.
 
@@ -63,10 +75,9 @@ architectural broadcasts: Aiur persists them in the Decision audit before
 publishing. They are ticket-scoped, reject stale/wrong correlation, and are
 idempotent when an agent turn is replayed.
 
-## Per-turn progress cap
+## Per-turn quotas
 
-The bare `progress` name is capped at **two** emits per turn — the third returns
-`progress_cap_exceeded`. The Executor's 1-of-10 estimate protocol and check-in
-cadence live in the per-turn prompt, so pace your `progress` emissions against
-that rule. Named categories (`progress.<slug>`, `decision.*`, `attention.*`,
-etc.) have no per-turn cap.
+Only the bare `progress` name is quota-capped: at most **two** bare `progress`
+emits per turn — the 3rd returns `progress_cap_exceeded`, and the budget resets
+at the next turn boundary. No other vocabulary name has a per-turn cap,
+including `custom.<slug>` and `progress.<slug>`.

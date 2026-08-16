@@ -97,6 +97,14 @@ defmodule Aiur.GitHub.Client do
           {:ok, [map()]} | {:error, term()}
   def fetch_blocking(issue_number, opts \\ []), do: DependenciesApi.fetch_blocking(issue_number, opts)
 
+  @doc """
+  Hydrates `blocked_by` on a GitHub `Issue.t()` from the native Issue
+  Dependencies API. Only meaningful for issues that are actually being
+  considered for dispatch (see `Aiur.GitHub.Issues.hydrate_blocked_by/1`).
+  """
+  @spec hydrate_blocked_by(Issue.t(), keyword()) :: {:ok, Issue.t()} | {:error, term()}
+  def hydrate_blocked_by(issue, opts \\ []), do: Issues.hydrate_blocked_by(issue, opts)
+
   @spec add_dependency(integer() | String.t(), integer(), keyword()) ::
           {:ok, map()} | {:error, term()}
   def add_dependency(blocked_issue_number, blocker_issue_id, opts \\ []),

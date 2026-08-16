@@ -5,13 +5,18 @@ defmodule Aiur.DecisionExpiry do
   The grace period protects Decisions created around agent startup and shutdown
   races. Liveness lookup failures skip the entire sweep so a transient
   Orchestrator outage can never be mistaken for an empty run.
+
+  A blocking `human_required` Decision is exempt: an agent idle *because* it
+  escalated to the operator is the expected steady state for that Decision,
+  not evidence it went stale, and retiring it removes the only surface the
+  operator can answer (see #1779).
   """
 
   use GenServer
 
   require Logger
 
-  alias Aiur.DecisionStore
+  alias Aiur.{Decision, DecisionStore}
 
   @interval_ms 60_000
   @grace_seconds 300
@@ -93,9 +98,18 @@ defmodule Aiur.DecisionExpiry do
 
   defp expired_candidate?(decision, active, now, grace_seconds) do
     decision.decision_status == :open and
+      not waiting_on_operator?(decision) and
       not MapSet.member?(active, decision.ticket.identifier) and
       DateTime.diff(now, decision.created_at, :second) >= grace_seconds
   end
+
+  # A blocking Decision that only the operator may answer is retired by the
+  # operator answering (or dismissing) it, never because its owning agent is
+  # between turns. `agent_not_running` is the normal steady state of exactly
+  # the agent that escalated it, so it is the opposite of a stale signal here.
+  # Supervisor-answerable and non-blocking Decisions still expire as before.
+  defp waiting_on_operator?(%Decision{blocking: true, authority: :human_required}), do: true
+  defp waiting_on_operator?(_decision), do: false
 
   defp expire(decision, now, opts) do
     result =

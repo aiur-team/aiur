@@ -11,7 +11,7 @@ import { summaryModel } from "./touchStrip/summarySegment.js";
 import { providerRows } from "./touchStrip/providerPanel.js";
 import { agentDetailModel } from "./touchStrip/agentDetail.js";
 import { pagerModel } from "./touchStrip/pagerSegment.js";
-import { currentWindow } from "./dial.js";
+import { currentWindow, EVENTS_PER_PAGE } from "./dial.js";
 import type { EventKey } from "./controller.js";
 import type { StripData } from "./touchStrip/stripLayout.js";
 import type { StreamDeckGrid, TranscriptRow } from "./channel.js";
@@ -73,7 +73,13 @@ const agentDescriptor = (agent: Readonly<Record<string, unknown>>): AgentInput =
 const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map(agentDescriptor);
 
 /**
- * The eight log keys: the visible slice of the event list.
+ * The eight log keys: EVENTS_PER_PAGE event slots plus the LIVE key pinned to
+ * the bottom-right slot.
+ *
+ * LIVE never participates in the scroll window, so the event page is sliced for
+ * EVENTS_PER_PAGE (seven) events and the pinned LIVE key is appended after it —
+ * it stays on the last key at every scroll position instead of being pushed off
+ * by paging.
  *
  * The LIVE key is given the focused agent's own face — ticket number, lane
  * icon, provider mark and progress bar — with `LIVE` in the title slot. It is
@@ -81,48 +87,59 @@ const descriptorAgents = (grid: StreamDeckGrid): AgentInput[] => grid.agents.map
  * the agent did, so dressing it as an event key made the one key that answers
  * "how far along is this ticket?" the one key that did not say.
  */
-const descriptorEvents = (
+export const descriptorEvents = (
   events: readonly EventKey[],
   offset: number,
   selected: number | null,
   focused: Readonly<Record<string, unknown>> | null | undefined,
-): AgentInput[] =>
-  events.slice(offset, offset + 8).map((event, index) => {
-    const position = offset + index;
-    if (event.kind === "live") {
-      const agent = focused === null || focused === undefined ? null : agentDescriptor(focused);
+): (AgentInput | undefined)[] => {
+  if (events.length === 0) return [];
+  const live = events[events.length - 1];
+
+  // The event page is sliced from the events only — LIVE is pinned and is not a
+  // page member, so it is excluded from the slice and appended once, keeping it
+  // out of the seven event slots no matter the offset.
+  const slots: (AgentInput | undefined)[] = events
+    .slice(0, -1)
+    .slice(offset, offset + EVENTS_PER_PAGE)
+    .map((event, index) => {
+      const position = offset + index;
       return {
-        ...(agent ?? {
-          identifier: "",
-          title: "",
-          vendor: "unknown",
-          icon: "",
-          bucket: "queued" as const,
-          progress_percent: null,
-          priority: false,
-          dependency_ready: true,
-        }),
-        title: "LIVE",
-        role: "live" as const,
+        identifier: `event-${position}`,
+        title: event.text,
+        vendor: "logs",
+        role: "event" as const,
         subLabel: event.badge,
-        timeLabel: "",
+        timeLabel: event.time,
         selected: position === selected,
+        bucket: "queued" as const,
+        progress_percent: null,
+        priority: false,
+        dependency_ready: true,
       };
-    }
-    return {
-      identifier: `event-${position}`,
-      title: event.text,
-      vendor: "logs",
-      role: "event" as const,
-      subLabel: event.badge,
-      timeLabel: event.time,
-      selected: position === selected,
+    });
+  while (slots.length < EVENTS_PER_PAGE) slots.push(undefined);
+
+  const agent = focused === null || focused === undefined ? null : agentDescriptor(focused);
+  slots.push({
+    ...(agent ?? {
+      identifier: "",
+      title: "",
+      vendor: "unknown",
+      icon: "",
       bucket: "queued" as const,
       progress_percent: null,
       priority: false,
       dependency_ready: true,
-    };
+    }),
+    title: "LIVE",
+    role: "live" as const,
+    subLabel: live.badge,
+    timeLabel: "",
+    selected: events.length - 1 === selected,
   });
+  return slots;
+};
 
 /**
  * The four per-agent command keys, in the order the mock defines: pause/play,

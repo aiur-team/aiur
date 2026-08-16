@@ -92,6 +92,7 @@ defmodule Aiur.OrchestratorStatusTest do
     end
 
     def fetch_issue_states_by_ids(_issue_ids), do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
 
     defp notify(message) do
       case Application.get_env(:aiur, :startup_cleanup_test_pid) do

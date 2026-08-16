@@ -32,6 +32,10 @@ Agents working on dependent tickets used to coordinate through the Executor (PR 
 | **`git ls-remote`** | Low-latency `branch.push` override (faster than firehose) |
 | **Agents (you)** | `progress`, `progress.*`, `decision.*`, `attention.*`, `blocked`, `unblocked`, `custom.*` via `emit_event` |
 
+Blockers are tracked through GitHub's native issue-dependency API
+(`aiur_declare_blocker` / `aiur_unblock`); that API drives subscription wiring,
+it does not emit a `blocked_by.changed` event.
+
 ## See also
 
 - `event-taxonomy.md` — full list of agent-emittable names + system-emitted topics
