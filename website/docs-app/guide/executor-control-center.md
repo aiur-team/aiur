@@ -31,7 +31,7 @@ The navigation labels and routes are the same projections the page-parity CLI re
 | Dashboard label | Route and purpose | CLI counterpart |
 | --- | --- | --- |
 | **Units** | `/` — the Agents fleet table and its filters, plus the Tickets panel of every open ticket; the tables below describe this surface. | `aiur units` |
-| **Commands** | `/decisions` — durable decision inbox and each decision’s detail. | `aiur commands` |
+| **Commands** | `/commands` — durable decision inbox and each decision’s detail. | `aiur commands` |
 | **Build Order** | `/build-orders` — Build Order catalog and one root’s execution detail. | `aiur build-orders` |
 | **Analytics** | `/analytics` — live-run telemetry and an optional Build Order scope. | `aiur analytics` |
 | **Streamdeck+** | `/streamdeck` — browser emulator for the same live projection used by the authenticated physical Stream Deck + sidecar; [#1358](https://github.com/aiur-team/aiur/issues/1358) defines the remaining terminal hardware proof. | — |
@@ -44,7 +44,9 @@ The overview gives the Executor a fast triage path: a blocking-decision banner, 
 
 ## Decision inbox
 
-The inbox at `/decisions` sorts durable decisions by blocking status, urgency, and age. Filters separate open, blocking, undelivered, supervising-Executor, resolved, and superseded records. Selecting a card opens its stable `/decisions/:decision_id` detail URL.
+The inbox at `/commands` sorts durable decisions by blocking status, urgency, and age. Filters separate open, blocking, undelivered, supervising-Executor, resolved, and superseded records. Selecting a card opens its stable `/commands/:decision_id` detail URL. Existing `/decisions` inbox and detail links redirect permanently to their `/commands` equivalents.
+
+The operator-facing UI and CLI call these records **Commands**. Internal storage, event topics, API routes such as `/api/v1/decisions`, and identifiers such as `decision_id` retain the **decision** vocabulary for compatibility.
 
 <img src="/images/dashboard/decision-inbox-dark.png" alt="Desktop decision inbox populated with synthetic decisions in several lifecycle states">
 
