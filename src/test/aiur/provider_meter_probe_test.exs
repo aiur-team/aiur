@@ -393,7 +393,16 @@ defmodule Aiur.ProviderMeterProbeTest do
   end
 
   test "absent or malformed balance values never fabricate zero credits" do
-    :ok = Events.subscribe_observed()
+    # Subscribe to the generation-scoped topics these probes publish to, not
+    # the shared fan-out: the fan-out is a global topic every async test
+    # module broadcasts on, so a bare `refute_receive` there is polluted by
+    # concurrent probes from other modules (the #1920 flake received a
+    # :port_closed codex snapshot broadcast by ProviderMeterProjectionTest).
+    # These two probes publish only on success — and both fail below — so
+    # asserting nothing arrives on their own scoped topics deterministically
+    # verifies "never fabricate" without ambient fan-out noise.
+    :ok = Events.subscribe(:deepseek, :openai_compat, nil)
+    :ok = Events.subscribe(:openrouter, :openai_compat, nil)
 
     assert %{observed?: false, reason: :missing_api_key} =
              OpenAICompatProbe.probe(:deepseek, "deepseek", path: baseline_path(), api_key_fetcher: fn _ -> nil end)
