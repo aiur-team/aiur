@@ -53,7 +53,9 @@ describe("selectedKeyAtOffset", () => {
 describe("ensureEventVisible", () => {
   it("leaves the window alone when the key is already inside it", () => {
     expect(ensureEventVisible(4, 4, 20)).toBe(4);
-    expect(ensureEventVisible(4, 11, 20)).toBe(4);
+    // The last event slot is offset + 6; position 7 belongs to pinned LIVE.
+    expect(ensureEventVisible(4, 10, 20)).toBe(4);
+    expect(ensureEventVisible(4, 6, 20)).toBe(4);
   });
 
   it("scrolls back to the key when it sits above the window", () => {
@@ -61,7 +63,17 @@ describe("ensureEventVisible", () => {
   });
 
   it("scrolls forward the minimum needed when the key sits below the window", () => {
-    expect(ensureEventVisible(0, 9, 20)).toBe(2);
+    // 7 event slots: a key at position 7 must move the window so it lands in
+    // slot 6 (the last event slot before pinned LIVE).
+    expect(ensureEventVisible(0, 9, 20)).toBe(3);
+    expect(ensureEventVisible(0, 7, 20)).toBe(1);
+  });
+
+  it("chases the pinned LIVE key to the newest page when it is the selection", () => {
+    // LIVE is the feed's last key (index maxOffset + 7); ensuring it visible
+    // means scrolling the event window to its newest page.
+    expect(ensureEventVisible(0, 19, 12)).toBe(12);
+    expect(ensureEventVisible(4, 19, 12)).toBe(12);
   });
 
   it("never scrolls past the ends of the event list", () => {
