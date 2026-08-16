@@ -16,7 +16,23 @@ defmodule Aiur.OpenAICompat.TranscriptTest do
                "turn-1"
              )
 
-    assert {:ok, %{role: :tool, body: "read_file", payload: %{tool: "read_file"}}} =
+    assert {:ok, %{role: :tool, body: "read lib/a.ex", payload: %{tool: "read_file"}}} =
+             Transcript.extract(
+               %{event: :tool_call, payload: %{id: "call-2", name: "read_file", arguments: %{"file_path" => "lib/a.ex"}}},
+               "turn-1"
+             )
+  end
+
+  test "keeps the tool name for a tool call with no scalar argument" do
+    assert {:ok, %{role: :tool, body: "sequential-thinking"}} =
+             Transcript.extract(
+               %{event: :tool_call, payload: %{name: "sequential-thinking", arguments: %{"thought" => "step"}}},
+               "turn-1"
+             )
+  end
+
+  test "skips the tool_result echo so a tool is one row, not two" do
+    assert :skip =
              Transcript.extract(
                %{event: :tool_result, payload: %{id: "call-2", name: "read_file", output: "contents", success: true}},
                "turn-1"

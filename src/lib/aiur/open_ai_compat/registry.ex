@@ -102,7 +102,14 @@ defmodule Aiur.OpenAICompat.Registry do
         family: family,
         can_interrupt: false,
         safe_checkpoints: [:notification, :tool_result],
-        control_application_confirmation: :request_only,
+        # The OpenAI-compat worker implements the correlated unit-control
+        # protocol: `pause_state/0` echoes the orchestrator's `request_id` and
+        # `generation` in its `{:paused, ...}` payload, and the runner forwards
+        # that as `{:worker_control_state, ...}` evidence the orchestrator
+        # verifies before applying. Declare `:confirmed` so pause/resume are
+        # admitted and applied for these backends (#1966) instead of being
+        # rejected as `:unsupported` by the control preflight.
+        control_application_confirmation: :confirmed,
         remote_control: false,
         resumable: false,
         remote_worker: false,

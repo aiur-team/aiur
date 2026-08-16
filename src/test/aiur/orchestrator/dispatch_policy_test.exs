@@ -402,6 +402,23 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
       refute DispatchPolicy.queued_dispatch_demand?(issues, state)
     end
 
+    test "ignores a parked issue even when it carries an active state label" do
+      # #1971: `agent:parked` is the explicit operator-held marker. Unlike the
+      # paused override (which preserves a running session), parking means "do
+      # not dispatch this at all" — so a `todo` ticket with `agent:parked` must
+      # not surface as queued demand, be a dispatch candidate, or pass the
+      # should_dispatch_issue? gate.
+      write_workflow_file!(Workflow.workflow_file_path(), max_concurrent_agents: 5)
+
+      parked = issue("parked-ticket", state: "todo", parked: true, labels: ["agent:todo", "agent:parked"])
+      state = %State{max_concurrent_agents: 5}
+
+      refute DispatchPolicy.queued_dispatch_demand?([parked], state)
+      refute DispatchPolicy.dispatch_candidate?(parked, state)
+      refute DispatchPolicy.should_dispatch_issue?(parked, state)
+      assert DispatchPolicy.dispatch_decision(parked, state) == {:skip, :parked}
+    end
+
     test "ignores demand blocked by per-state capacity" do
       write_workflow_file!(Workflow.workflow_file_path(),
         max_concurrent_agents: 8,

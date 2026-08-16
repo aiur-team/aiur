@@ -1857,7 +1857,11 @@ defmodule Aiur.DecisionStoreTest do
       send(parent, {:escalation_result, result})
     end)
 
-    assert_receive {:attention_opening, opener_pid}
+    # The escalation runs on a spawned process, so the attention-opener signal
+    # is a genuine async event; the ExUnit default 100ms is far tighter than
+    # this file's own convention for spawned-process waits (2s elsewhere) and
+    # times out under CI load (#1920). Wait for the real signal, not a guess.
+    assert_receive {:attention_opening, opener_pid}, 2_000
 
     spawn(fn ->
       result =

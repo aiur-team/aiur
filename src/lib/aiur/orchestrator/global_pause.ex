@@ -66,13 +66,21 @@ defmodule Aiur.Orchestrator.GlobalPause do
 
   @spec set_global_pause(GenServer.server(), boolean(), String.t()) ::
           {:ok, map()} | {:error, term()}
-  def set_global_pause(server, on?, source) when is_boolean(on?) and is_binary(source) do
+  def set_global_pause(server, on?, source) when is_boolean(on?) and is_binary(source),
+    do: set_global_pause(server, on?, source, @call_timeout)
+
+  @doc false
+  @spec set_global_pause(GenServer.server(), boolean(), String.t(), pos_integer()) ::
+          {:ok, map()} | {:error, term()}
+  def set_global_pause(server, on?, source, timeout_ms)
+      when is_boolean(on?) and is_binary(source) and is_integer(timeout_ms) and timeout_ms > 0 do
     if GenServer.whereis(server) do
-      GenServer.call(server, {:set_global_pause, on?, source}, @call_timeout)
+      GenServer.call(server, {:set_global_pause, on?, source}, timeout_ms)
     else
       {:error, :orchestrator_unavailable}
     end
   catch
+    :exit, {:timeout, _details} -> {:error, :timeout}
     :exit, reason -> {:error, {:orchestrator_call_failed, reason}}
   end
 

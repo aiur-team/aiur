@@ -54,7 +54,8 @@ defmodule Aiur.Orchestrator.State do
             test_failure_heads: map(),
             base_repair_invalidations: map(),
             poll_cache: map(),
-            rewakes: map()
+            rewakes: map(),
+            parked_ready_alerts: MapSet.t() | nil
           },
           todo_over_capacity_alert_active: boolean(),
           prewarm_blocked_alert_active: boolean(),
@@ -169,7 +170,8 @@ defmodule Aiur.Orchestrator.State do
       test_failure_heads: %{},
       base_repair_invalidations: %{},
       poll_cache: %{},
-      rewakes: %{}
+      rewakes: %{},
+      parked_ready_alerts: nil
     },
     todo_over_capacity_alert_active: false,
     prewarm_blocked_alert_active: false,
