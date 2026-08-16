@@ -14,7 +14,7 @@ The [Dashboard](/guide/executor-control-center) combines the live fleet, durable
 
 The timer matters because an Executor deep in a merge queue should not have to remember an hourly audit. The first manual parity-run check found four defects that `aiur status`, `aiur alerts`, and, for three of them, the HTTP API did not reveal. A surface with a confident wrong number is more dangerous than a visible failure, so the check records what an operator can actually see rather than inferring health from one backend metric.
 
-After a check, inspect its durable follow-up with `aiur findings`. Work the named bottleneck or file its evidence-backed follow-up, then use `aiur findings --unfiled` before treating the retrospective as complete: it shows records that still lack a filed ticket. The per-boot narrative is host-local at `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`; append a new durable finding only through `aiur findings --record '<json>' --repo <owner>/<repo>`, which validates the record. [State nodes and Build Orders](/concepts/state-and-build-orders#executor-handoff-and-findings) documents the ledger and its locations.
+After a check, inspect its durable follow-up with `aiur findings`. Work the named bottleneck or file its evidence-backed follow-up, then use `aiur findings --unfiled` before treating the retrospective as complete: it shows records that still lack a filed ticket. The per-boot narrative is host-local at `~/.aiur/repo/<owner>/<repo>/meta/retros/<boot-id>.md`; append a new durable finding only through `aiur findings --record '<json>' --repo <owner>/<repo>`, which validates the record. [Build Orders](/concepts/build-orders#executor-handoff-and-findings) documents the ledger and its locations.
 
 ## Alerts
 
