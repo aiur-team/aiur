@@ -97,28 +97,27 @@ defmodule Aiur.ExecutorListener do
 
   @impl true
   def handle_info({:event, event}, %{subscribed?: true} = state) do
-    process_event(event, state)
-    {:noreply, state}
+    {:noreply, process_event(event, state)}
   end
 
   # The Exchange is a sibling that can be restarted by the supervisor. When it
   # comes back its binding table is fresh, so this listener's binding is gone
-  # even though the process is alive. Re-establish it and replay anything
-  # published while it was not listening — the durable watermark makes that
-  # replay safe (no double delivery), and `alive?/0` reflects the gap truthfully
-  # until the binding is restored.
+  # even though the process is alive. Re-establish it and replay everything
+  # published since the durable watermark — events emitted during the gap must
+  # not be lost, and already-delivered events must not be re-notified.
   def handle_info(:resubscribe, %{topic: topic, resubscribe_interval_ms: interval} = state) do
     state =
-      case subscribe_or_arm(topic) do
-        true ->
-          if not state.subscribed? do
-            replay_and_deliver(topic, state.watermark)
-          end
+      if bound?(topic) do
+        state
+      else
+        case subscribe_or_arm(topic) do
+          true ->
+            replay_and_deliver(topic, read_watermark())
+            %{state | subscribed?: true}
 
-          %{state | subscribed?: true}
-
-        false ->
-          state
+          false ->
+            %{state | subscribed?: false}
+        end
       end
 
     schedule_resubscribe(interval)
@@ -201,14 +200,19 @@ defmodule Aiur.ExecutorListener do
       try do
         deliver(event)
         advance_watermark(event_id(event))
+        %{state | watermark: event_id(event)}
       rescue
-        error -> log_delivery_failure(event, error)
+        error ->
+          log_delivery_failure(event, error)
+          state
       catch
-        kind, reason -> log_delivery_failure(event, {kind, reason})
+        kind, reason ->
+          log_delivery_failure(event, {kind, reason})
+          state
       end
+    else
+      state
     end
-
-    state
   end
 
   defp matching_fresh_event?(event, %{topic: pattern, watermark: watermark}) do

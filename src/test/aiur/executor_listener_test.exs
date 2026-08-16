@@ -74,6 +74,35 @@ defmodule Aiur.ExecutorListenerTest do
     assert ExecutorListener.alive?(@listener_name)
   end
 
+  test "re-subscribes and replays missed events after the Exchange drops the binding" do
+    :ok = Exchange.subscribe("executor.command.requested")
+    pid = start_listener(resubscribe_interval_ms: 500)
+
+    first = command_decision("dec-gap-first")
+    assert {:ok, _first_id, _count} = ExecutorEvents.publish_requested(first)
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => first_message}}, 500
+    assert first_message =~ "dec-gap-first"
+    assert eventually(fn -> is_integer(watermark()) end)
+
+    # Simulate the Exchange being restarted by the supervisor: its fresh
+    # binding table no longer has this listener's row. The next re-subscribe
+    # tick is 500ms out, so the Command below is published during a real gap.
+    table = :persistent_term.get({{Aiur.Events.Exchange, :table}, Aiur.Events.Exchange})
+    :ets.match_delete(table, {:_, pid, :_})
+    assert ExecutorListener.alive?(@listener_name) == false
+
+    second = command_decision("dec-gap-second")
+    assert {:ok, _second_id, _count} = ExecutorEvents.publish_requested(second)
+    refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
+
+    # The next re-subscribe tick re-establishes the binding and replays the
+    # missed Command — but never re-notifies the already-delivered one.
+    assert eventually(fn -> ExecutorListener.alive?(@listener_name) end)
+    assert_receive {:event, %{"topic" => "executor.command.requested", "message" => replayed}}, 1_000
+    assert replayed =~ "dec-gap-second"
+    refute_receive {:event, %{"topic" => "executor.command.requested"}}, 200
+  end
+
   test "reports not alive when no listener is running" do
     refute ExecutorListener.alive?(Aiur.ExecutorListener.NoSuch)
     refute ExecutorListener.alive?(@listener_name)
