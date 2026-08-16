@@ -55,7 +55,11 @@ def validate_data(
     validate_identity(data, report)
     workstreams = validate_workstreams(data, report)
     critical_path = validate_boundary(data, report)
-    projection = validate_label_projection(data, report)
+    lifecycle_prefix = (
+        publication_authority.tracker_lifecycle_label_prefix
+        if publication_authority is not None else None
+    )
+    projection = validate_label_projection(data, report, lifecycle_prefix)
     gates = validate_external_gates(data, report)
     requirements = validate_requirements(data, report)
     design = validate_design_evidence(data, base_dir, report)

@@ -117,6 +117,22 @@ defmodule Aiur.PromptBuilderTest do
   end
 
   @tag config: @config
+  test "shared prompt requires docs in the same PR, with the threshold and the exemptions" do
+    prompt = PromptBuilder.build_prompt(issue([]))
+
+    # Features have repeatedly shipped without docs, leaving the operator to
+    # schedule a cleanup pass. Every dispatched agent must see the rule while it
+    # is writing the PR, so it lives in the compiled-in shared prompt rather than
+    # only in the aiur-agent skill an agent may not load.
+    assert String.contains?(prompt, "Docs ship in the same PR as the change")
+    assert String.contains?(prompt, "website/docs-app/")
+    # The threshold matters as much as the rule: docs must not balloon for small
+    # changes, so the exemptions travel with it.
+    assert String.contains?(prompt, "not** required for internal refactors")
+    assert String.contains?(prompt, "a wrong")
+  end
+
+  @tag config: @config
   test "shared prompt points at the aiur-agent operating-manual skill" do
     prompt = PromptBuilder.build_prompt(issue([]))
 

@@ -25,6 +25,7 @@ defmodule Aiur.WorkflowStore do
   use GenServer
   require Logger
 
+  alias Aiur.Alerts
   alias Aiur.Workflow
   alias Aiur.WorkflowStore.Cache
 
@@ -33,11 +34,21 @@ defmodule Aiur.WorkflowStore do
   @reload_attempts 3
   @reload_retry_delay_ms 50
   @configuration_topic "workflow_store:configuration"
+  @base_branch_changed_topic "system.config.base_branch.changed"
 
   defmodule State do
     @moduledoc false
 
-    defstruct [:path, :stamp, :workflow, :failed_stamp, :config_digest, :aux_paths, generation: 1]
+    defstruct [
+      :path,
+      :stamp,
+      :workflow,
+      :failed_stamp,
+      :config_digest,
+      :aux_paths,
+      :base_branch,
+      generation: 1
+    ]
   end
 
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -250,7 +261,7 @@ defmodule Aiur.WorkflowStore do
     case load_state(path) do
       {:ok, new_state} ->
         new_state = advance_generation(new_state, state)
-        commit(new_state)
+        commit(state, new_state)
         {:ok, new_state}
 
       {:error, reason} ->
@@ -277,7 +288,7 @@ defmodule Aiur.WorkflowStore do
     case load_state(path) do
       {:ok, new_state} ->
         new_state = advance_generation(new_state, state)
-        commit(new_state)
+        commit(state, new_state)
         {:ok, new_state}
 
       {:error, reason} ->
@@ -294,7 +305,15 @@ defmodule Aiur.WorkflowStore do
   defp load_state(path, attempts \\ @reload_attempts) do
     with {:ok, workflow} <- Workflow.load(path),
          {:ok, stamp, digest, aux} <- stamp_with_context(path, nil, nil) do
-      {:ok, %State{path: path, stamp: stamp, workflow: workflow, config_digest: digest, aux_paths: aux}}
+      {:ok,
+       %State{
+         path: path,
+         stamp: stamp,
+         workflow: workflow,
+         config_digest: digest,
+         aux_paths: aux,
+         base_branch: base_branch_from(workflow)
+       }}
     else
       {:error, {:workflow_parse_error, _reason}} when attempts > 1 ->
         Process.sleep(@reload_retry_delay_ms)
@@ -364,9 +383,12 @@ defmodule Aiur.WorkflowStore do
   # Publish before announcing. A subscriber woken by the broadcast reads through
   # `Cache`, so the new value has to be visible there first or the listener
   # would race back to the value it was told had changed.
-  defp commit(%State{} = state) do
+  defp commit(%State{} = state), do: commit(nil, state)
+
+  defp commit(previous, %State{} = state) do
     Cache.put(state.workflow, state.generation)
     broadcast_configuration(state)
+    maybe_announce_base_branch_change(previous, state)
     :ok
   end
 
@@ -375,4 +397,56 @@ defmodule Aiur.WorkflowStore do
       Phoenix.PubSub.broadcast(Aiur.PubSub, @configuration_topic, {:workflow_config_updated, generation})
     end
   end
+
+  # The initial commit (previous == nil) has nothing to announce. Only an
+  # actual transition between two resolved base branches is a fleet-wide event:
+  # it means running agents may hold a stale `AIUR_BASE_BRANCH` env value and
+  # still listen on the retired branch's push topic.
+  defp maybe_announce_base_branch_change(nil, _state), do: :ok
+
+  defp maybe_announce_base_branch_change(%State{base_branch: old}, %State{base_branch: new})
+       when is_binary(old) and is_binary(new) and old != new do
+    announce_base_branch_change(old, new)
+  end
+
+  defp maybe_announce_base_branch_change(_previous, _state), do: :ok
+
+  defp announce_base_branch_change(old_base, new_base) do
+    message = "tracker.base_branch changed from #{old_base} to #{new_base}"
+
+    # One Exchange event that is both semantic (structured old -> new for
+    # agent-facing subscribers through the normal subscription path) and an
+    # operator alert (Executor-facing feed/ledger/sound). The extra fields
+    # ride the alert's exchange payload so subscribers do not receive a
+    # duplicate event for the same change.
+    Alerts.emit_system(@base_branch_changed_topic,
+      message: message,
+      reason: message,
+      needs_attention: false,
+      severity: "info",
+      exchange_payload: %{old_base: old_base, new_base: new_base, source: :system}
+    )
+
+    :ok
+  rescue
+    # The alert pipeline must never take the config store down — a missing or
+    # mid-restart publisher/alerts module at boot swallows the announcement
+    # rather than crashing the reload that already published the new config.
+    _error -> :ok
+  catch
+    _kind, _reason -> :ok
+  end
+
+  # The resolved `tracker.base_branch`, extracted defensively from the raw
+  # loaded workflow config so a malformed or missing value can never crash the
+  # store. Uses the same string-key shape `Config.base_branch/0` accepts.
+  defp base_branch_from(%{config: %{"tracker" => %{"base_branch" => branch}}})
+       when is_binary(branch) and byte_size(branch) > 0,
+       do: String.trim(branch)
+
+  defp base_branch_from(%{config: %{tracker: %{base_branch: branch}}})
+       when is_binary(branch) and byte_size(branch) > 0,
+       do: String.trim(branch)
+
+  defp base_branch_from(_workflow), do: nil
 end

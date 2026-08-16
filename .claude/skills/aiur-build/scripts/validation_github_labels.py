@@ -4,13 +4,13 @@ from __future__ import annotations
 
 from typing import Any
 
-from validation_common import Report, checked_string_list, nonempty_string
-
-
-LIFECYCLE_SLUGS = {
-    "todo", "in-progress", "human-review", "rework", "merging", "done",
-    "paused",
-}
+from validation_common import (
+    RUNNABLE_KINDS,
+    Report,
+    checked_string_list,
+    nonempty_string,
+)
+from validation_header import LIFECYCLE_SLUGS
 
 
 def _validate_label_sets(
@@ -37,22 +37,38 @@ def _validate_label_sets(
         label.casefold() for label in projection.get("forbidden_labels", [])
         if nonempty_string(label)
     }
+    normalized_lifecycle_prefix = lifecycle_prefix.casefold()
+    lifecycle_labels = {
+        f"{normalized_lifecycle_prefix}:{slug}" for slug in LIFECYCLE_SLUGS
+    }
+    routing_prefixes = tuple(
+        f"{prefix}:" for prefix in (
+            normalized_lifecycle_prefix, "human", "model", "phase",
+            "complexity", "build-lane",
+        )
+    )
     expected: dict[str, set[str]] = {}
     if nonempty_string(root_id):
         expected[str(root_id)] = (
             {root_label_key} if root_label_key is not None else set()
         )
     for ticket_id, ticket in by_id.items():
-        labels: set[str] = set(required)
-        selectors = (
-            ("workstreams", ticket.get("workstream")),
-            ("phases", str(ticket.get("phase_hint"))),
-            ("complexities", str(ticket.get("complexity_points"))),
-        )
-        for group, key in selectors:
-            mapping = projection.get(group)
-            if isinstance(mapping, dict) and key in mapping and nonempty_string(mapping[key]):
-                labels.add(mapping[key].casefold())
+        labels: set[str] = set()
+        if ticket.get("kind") in RUNNABLE_KINDS:
+            labels.update(required)
+            selectors = (
+                ("workstreams", ticket.get("workstream")),
+                ("phases", str(ticket.get("phase_hint"))),
+                ("complexities", str(ticket.get("complexity_points"))),
+            )
+            for group, key in selectors:
+                mapping = projection.get(group)
+                if (
+                    isinstance(mapping, dict)
+                    and key in mapping
+                    and nonempty_string(mapping[key])
+                ):
+                    labels.add(mapping[key].casefold())
         expected[ticket_id] = labels
     if set(value) != set(expected):
         report.error(f"github_reconciliation.{field}_labels keys must match root and tickets")
@@ -75,11 +91,7 @@ def _validate_label_sets(
             )
         forbidden_hits = sorted(actual & forbidden)
         forbidden_hits.extend(sorted(
-            actual
-            & {
-                f"{lifecycle_prefix.casefold()}:{slug}"
-                for slug in LIFECYCLE_SLUGS
-            }
+            actual & (lifecycle_labels - {f"{normalized_lifecycle_prefix}:todo"})
         ))
         forbidden_hits = sorted(set(forbidden_hits))
         if forbidden_hits:
@@ -91,12 +103,6 @@ def _validate_label_sets(
             report.error(
                 f"github_reconciliation root-only label present for {identity}: {root_label}"
             )
-        routing_prefixes = tuple(
-            f"{prefix.casefold()}:" for prefix in (
-                lifecycle_prefix, "human", "model", "phase", "complexity",
-                "build-lane",
-            )
-        )
         unexpected = {
             label for label in actual
             if label.startswith(routing_prefixes) and label not in expected_labels

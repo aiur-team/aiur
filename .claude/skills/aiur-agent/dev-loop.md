@@ -61,8 +61,10 @@ beats comprehensive — a wrong doc is worse than a missing one, so fix every pa
 your change falsifies first. A genuinely new page also needs a sidebar entry in
 `website/docs-app/.vitepress/config.ts`.
 
-Nothing machine-checks the threshold; `ce-code-review` treating a missing doc as
-a blocking finding is the enforcement.
+Only config keys are machine-checked: `scripts/check-config-docs.py` fails the
+required `lint` job when a key has no entry in the configuration reference.
+Nothing checks the other cases, so `ce-code-review` treating a missing doc as a
+blocking finding is the only enforcement they have.
 
 ## The loop
 
