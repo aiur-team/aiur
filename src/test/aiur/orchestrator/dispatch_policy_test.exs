@@ -202,9 +202,27 @@ defmodule Aiur.Orchestrator.DispatchPolicyTest do
                DispatchPolicy.admission_gate(gate_input(%{load: 25.0}))
 
       reset_at = ~U[2026-08-09 22:00:00Z]
+      observed_at = ~U[2026-08-09 21:55:00Z]
 
-      assert {:hold, %{signal: :github_quota, measured: %{resource: "core"}, threshold: :ten_percent_remaining}} =
-               DispatchPolicy.admission_gate(gate_input(%{github_quota: {:hold, %{resource: "core", remaining: 500, limit: 5000, reset_at: reset_at}}}))
+      assert {:hold,
+              %{
+                signal: :github_quota,
+                measured: %{resource: "core", observed_at: ^observed_at},
+                threshold: :ten_percent_remaining
+              }} =
+               DispatchPolicy.admission_gate(
+                 gate_input(%{
+                   github_quota:
+                     {:hold,
+                      %{
+                        resource: "core",
+                        remaining: 500,
+                        limit: 5000,
+                        reset_at: reset_at,
+                        observed_at: observed_at
+                      }}
+                 })
+               )
 
       build = %{enabled?: true, capacity: 1, active: 1, queued: 1}
 

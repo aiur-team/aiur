@@ -128,9 +128,11 @@ defmodule Aiur.AiurAgentSkillTest do
     # its list against the canonical sets here so the two cannot drift — adding
     # or renaming a skill forces a conscious decision about issue-worker exposure.
     issue_worker = Aiur.AgentSkills.issue_worker_skills()
+    compound_engineering = Aiur.AgentSkills.compound_engineering_skills()
+    aiur_issue_worker = issue_worker -- compound_engineering
 
-    assert issue_worker -- @codex_exposed_aiur_skills == [],
-           "issue-worker skills must be a subset of @codex_exposed_aiur_skills"
+    assert aiur_issue_worker -- @codex_exposed_aiur_skills == [],
+           "Aiur-authored issue-worker skills must be a subset of @codex_exposed_aiur_skills"
 
     for skill <- issue_worker do
       refute skill in @claude_executor_only_skills,
@@ -138,6 +140,10 @@ defmodule Aiur.AiurAgentSkillTest do
 
       assert File.dir?(Path.join([@repo_root, ".claude", "skills", skill])),
              "issue-worker skill #{skill} has no canonical .claude/skills/#{skill} dir"
+    end
+
+    for skill <- compound_engineering do
+      assert_codex_skill_is_tracked_symlink(skill)
     end
   end
 
@@ -147,6 +153,7 @@ defmodule Aiur.AiurAgentSkillTest do
       |> Path.join(".claude/skills/*/SKILL.md")
       |> Path.wildcard()
       |> Enum.map(fn path -> path |> Path.dirname() |> Path.basename() end)
+      |> Kernel.--(Aiur.AgentSkills.compound_engineering_skills())
       |> Enum.sort()
 
     assert claude_skills == Enum.sort(@codex_exposed_aiur_skills ++ @claude_executor_only_skills)

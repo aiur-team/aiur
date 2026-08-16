@@ -21,7 +21,9 @@
  */
 
 import { spawn } from "node:child_process";
+import { homedir } from "node:os";
 import net from "node:net";
+import path from "node:path";
 import process from "node:process";
 
 import { findByIds, InEndpoint, type Interface, LibUSBException, OutEndpoint } from "usb";
@@ -38,7 +40,21 @@ import { startRuntime } from "./runtime.js";
 import type { Runtime } from "./runtime.js";
 import { createPhysicalSurface, type PhysicalSurfaceState } from "./surface.js";
 import { openUsbBackend, type UsbDeviceLike, type UsbInResult } from "./usb-backend.js";
-import { createPhysicalController } from "./controller.js";
+import { createPhysicalController, type ControllerVoice } from "./controller.js";
+import {
+  createFilePreferenceStore,
+  createMicPreferences,
+  createNodeSystem,
+  createRelayTranscriber,
+  createVoiceSession,
+  listMicrophones,
+  VOICE_UNCONFIGURED_REASON,
+  type AudioDevice,
+  type RelayTranscriber,
+  type VoiceSession,
+} from "./audio/index.js";
+import { createRepaintCoalescer, createVoiceLink, VOICE_LINK_LOST } from "./voiceHost.js";
+import { VOICE_WAVEFORM_COLUMNS, type VoicePanelInput } from "./voicePanel.js";
 
 /** HID interface number on the Stream Deck +. */
 const HID_INTERFACE = 0;
@@ -62,6 +78,16 @@ const POLL_TRANSFER_COUNT = 3;
  * notice, shallow enough that a runaway stream cannot grow memory unbounded.
  */
 const MAX_BUFFERED_REPORTS = 64;
+
+/**
+ * Where the remembered microphone is kept.
+ *
+ * `XDG_CONFIG_HOME` when the desktop sets it, `~/.config` otherwise — the same
+ * rule every other tool on this box follows, so the file lands where an
+ * operator would look for it and where their dotfile backup already reaches.
+ */
+const micPreferencePath = (): string =>
+  path.join(process.env.XDG_CONFIG_HOME ?? path.join(homedir(), ".config"), "aiur", "streamdeck-mic.json");
 
 /** Tracer for the paths that otherwise produce no operator-visible output. */
 const debug = createDebugLog(debugEnabled(process.env.AIUR_STREAMDECK_DEBUG));
@@ -285,6 +311,121 @@ export const main = async (): Promise<void> => {
   let repaintChain: Promise<void> = Promise.resolve();
   const surface = createPhysicalSurface();
 
+  // ---------------------------------------------------------------- voice ---
+  // Wiring only. Every decision below lives in a covered module: session
+  // correlation and repaint coalescing in `voiceHost.ts`, the panel's contents
+  // in `voicePanel.ts`, the key layout in `settings.ts`, and capture, metering
+  // and buffering in `src/audio/`.
+  //
+  // There is no `ELEVENLABS_API_KEY` here, and no second config location for
+  // one. Aiur performs the provider call; this process only streams audio to it.
+  const audioSystem = createNodeSystem();
+  const micPreferences = createMicPreferences(createFilePreferenceStore(micPreferencePath()));
+  let microphones: readonly AudioDevice[] = [];
+  /**
+   * Aiur's answer to "can you transcribe?", from the snapshot.
+   *
+   * Starts false: until a snapshot says otherwise the deck must not promise a
+   * transcription it has no evidence anyone can perform. The meters work
+   * either way, which is what makes the pessimistic default cheap.
+   */
+  let voiceAvailable = false;
+  let voiceReason: string | null = VOICE_UNCONFIGURED_REASON;
+  let relay: RelayTranscriber | null = null;
+  let voiceSession: VoiceSession | null = null;
+
+  const voiceLink = createVoiceLink({ channel: () => channel, relay: () => relay });
+
+  const voiceRepaints = createRepaintCoalescer({
+    repaint: () => {
+      // The Send/Cancel keys depend on the buffer, which only changes on one of
+      // these updates, so the key refresh rides the same coalesced tick rather
+      // than diffing controller state fifty times a second.
+      controller.refreshVoice();
+      if (activeBackend !== null) repaintDetached(activeBackend);
+    },
+    now: () => Date.now(),
+    setTimer: (fn, ms) => void setTimeout(fn, ms).unref(),
+  });
+
+  /**
+   * Rebuilds the capture session.
+   *
+   * A session binds one transcriber and one device id at construction, so
+   * anything that changes either — Aiur reporting a key, the operator picking a
+   * different microphone, a device list arriving — rebuilds rather than mutates.
+   * It is cheap: no process is spawned and no socket opened until `hold()`.
+   */
+  const buildVoiceSession = (): void => {
+    voiceSession?.dispose();
+    relay = createRelayTranscriber({
+      port: voiceLink.port,
+      unavailableReason: voiceAvailable ? null : voiceReason ?? VOICE_UNCONFIGURED_REASON,
+    });
+    voiceSession = createVoiceSession({
+      system: audioSystem,
+      transcriber: relay.transcriber,
+      deviceId: micPreferences.resolve(microphones.map((device) => device.id)),
+      waveformWidth: VOICE_WAVEFORM_COLUMNS,
+      onUpdate: () => voiceRepaints.request(),
+      onError: (reason) => {
+        console.warn(`[streamdeck] voice: ${reason}`);
+        voiceRepaints.request();
+      },
+    });
+  };
+
+  /** Re-enumerates microphones, then rebinds the session to the resolved device. */
+  const refreshMicrophones = (): void => {
+    // `listMicrophones` never rejects — an empty list is its answer for every
+    // failure path, because a box with no microphone is a normal box.
+    void listMicrophones(audioSystem).then((devices) => {
+      microphones = devices;
+      buildVoiceSession();
+      if (activeBackend !== null) repaintDetached(activeBackend);
+    });
+  };
+
+  const voicePort: ControllerVoice = {
+    hold: () => {
+      voiceSession?.hold();
+      voiceRepaints.request();
+    },
+    release: () => {
+      voiceSession?.release();
+      voiceRepaints.request();
+    },
+    message: () => voiceSession?.message() ?? "",
+    hasMessage: () => voiceSession?.hasMessage() === true,
+    clear: () => voiceSession?.clear(),
+    dispose: () => voiceSession?.dispose(),
+    microphones: () => microphones,
+    refresh: refreshMicrophones,
+    selectedDeviceId: () => micPreferences.selectedDeviceId(),
+    select: (deviceId) => {
+      micPreferences.select(deviceId);
+      buildVoiceSession();
+    },
+  };
+
+  /**
+   * The session's readings, all computed locally from captured PCM.
+   *
+   * Nothing here awaits the network: `session.ts` measures the level and folds
+   * the waveform on the capture callback, before the aggregator that reaches
+   * Aiur is even handed the bytes. Only `text` came back over the channel.
+   */
+  const voiceReadings = (): VoicePanelInput | undefined => {
+    if (voiceSession === null) return undefined;
+    return {
+      columns: voiceSession.waveform(),
+      dbfs: voiceSession.level().dbfs,
+      text: voiceSession.text(),
+      holding: voiceSession.holding,
+      unavailableReason: voiceSession.unavailableReason,
+    };
+  };
+
   /**
    * Demo mode swaps the daemon's data for fixtures covering every bucket,
    * footer, badge and meter.
@@ -359,6 +500,7 @@ export const main = async (): Promise<void> => {
   const controller = createPhysicalController({
     grid: () => latestGrid,
     channel: () => channel,
+    voice: () => voicePort,
     // Read live rather than captured: the usage map is replaced on every push,
     // and it is what bounds the provider scroll.
     providerCount: () => Object.keys(latestUsage).length,
@@ -407,6 +549,11 @@ export const main = async (): Promise<void> => {
       chatHasPrevious: current.chatHasPrevious,
       chatHasNext: current.chatHasNext,
       selectedEvent: current.selectedEvent,
+      hasTranscript: current.hasTranscript,
+      microphones,
+      selectedMicId: current.selectedMicId,
+      micOffset: current.micOffset,
+      voice: voiceReadings(),
     };
     const next = repaintChain.then(() => surface.repaint(backend, latestGrid, latestUsage, runtime ?? undefined, state));
     repaintChain = next.catch(() => undefined);
@@ -429,6 +576,12 @@ export const main = async (): Promise<void> => {
       runtime?.notifyWriteFailure(error);
     });
   };
+
+  // Built once the repaint path exists, since a rebuild repaints. The device
+  // list follows on its own: enumeration spawns `pw-dump`, so it happens here
+  // and whenever the settings surface is opened, not on a timer.
+  buildVoiceSession();
+  refreshMicrophones();
 
   const baseUrl = process.env.AIUR_PHOENIX_URL;
   if (baseUrl && process.env.AIUR_DASHBOARD_USERNAME && process.env.AIUR_DASHBOARD_PASSWORD) {
@@ -469,9 +622,29 @@ export const main = async (): Promise<void> => {
           transcript: () => undefined,
           logs: (logs) => { logsFeed = logs; liveLogs = logs; if (!demoActive) controller.setLogs(logsFeed); },
           control: () => undefined,
+          voiceStarted: (session, reason) => voiceLink.started(session, reason),
+          voice: (session, kind, text) => { voiceLink.transcript(session, { kind, text }); voiceRepaints.request(); },
+          voiceError: (session, reason) => { voiceLink.failed(session, reason); voiceRepaints.request(); },
+          voiceClosed: (session) => { voiceLink.closed(session); voiceRepaints.request(); },
+          voiceAvailability: (state) => {
+            if (state.available === voiceAvailable && state.reason === voiceReason) return;
+            voiceAvailable = state.available;
+            voiceReason = state.reason;
+            // Rebuilt rather than patched: the transcriber's availability is
+            // fixed at construction, so this is the only way the reason on the
+            // panel can change without a restart.
+            buildVoiceSession();
+          },
           closed: (error) => {
             console.warn("[streamdeck] channel closed; renewing token and reconnecting", error);
             channel = null;
+            // A dropped link must not leave `parec` recording into a socket
+            // that no longer exists. `drop` fails the open hold, which the
+            // session's own error path turns into a stopped capture; the
+            // dispose covers a hold that had not opened a session yet.
+            voiceLink.drop(VOICE_LINK_LOST);
+            voiceSession?.dispose();
+            voiceRepaints.request();
             scheduleConnect();
           },
         },

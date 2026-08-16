@@ -1,6 +1,7 @@
 defmodule Aiur.Orchestrator.LifecycleTest do
   use Aiur.TestSupport
 
+  alias Aiur.Orchestrator
   alias Aiur.Orchestrator.{ControlLifecycle, Lifecycle, State, TrackedSet}
   alias Aiur.TrackerIdentity
 
@@ -104,6 +105,26 @@ defmodule Aiur.Orchestrator.LifecycleTest do
              Lifecycle.request_refresh(refreshed)
 
     assert coalesced.tick_token == refreshed.tick_token
+    assert_receive {:tick, token}
+    assert token == refreshed.tick_token
+  end
+
+  test "a GitHub quota recovery signal queues an immediate admission poll" do
+    state = %State{
+      capacity_hold: %{
+        signal: :github_quota,
+        measured: %{resource: "graphql", remaining: 0, limit: 5000},
+        threshold: :ten_percent_remaining,
+        held_since_ms: System.monotonic_time(:millisecond),
+        alerted?: false
+      },
+      next_poll_due_at_ms: System.monotonic_time(:millisecond) + 30_000,
+      poll_check_in_progress: false
+    }
+
+    assert {:noreply, refreshed} = Orchestrator.handle_info(:github_quota_recovered, state)
+    assert is_reference(refreshed.tick_token)
+    assert refreshed.next_poll_due_at_ms <= System.monotonic_time(:millisecond)
     assert_receive {:tick, token}
     assert token == refreshed.tick_token
   end

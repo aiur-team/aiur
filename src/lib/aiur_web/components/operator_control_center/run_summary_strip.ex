@@ -19,6 +19,8 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # budgets billed in different units on windows that reset at different times,
   # so every figure on the card belongs to exactly one of them.
   @github_resources ~w(core graphql)
+  @seconds_per_day 86_400
+  @seconds_per_hour 3_600
 
   attr(:run, :map, required: true)
   attr(:usage, :map, required: true)
@@ -101,37 +103,40 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
 
-  # The only figure ElevenLabs publishes is a character/credit quota; the API
-  # exposes no dollar balance at all, so none is shown or derived. The label
-  # states what the quota is and the tooltip states what it is *not*: speech to
-  # text — the Stream Deck voice input this account exists for — bills per minute
-  # of audio and is not counted in these characters.
-  #
-  # This row alone reads *remaining* rather than used, and its bar depletes as
-  # credits are spent. That is opposite to every other meter on the page, which
-  # is a deliberate, operator-requested direction (see the docs) — the label and
-  # the fill agree with each other, which is what keeps it readable.
+  # The quota is a character/credit allowance, while the dollar amount is what
+  # ElevenLabs says will be due on the next invoice. The tooltip keeps both facts
+  # distinct and also names the speech-to-text billing unit this quota omits.
   defp elevenlabs_api_row(assigns) do
-    assigns = assign(assigns, :window, Map.get(assigns.quota, :window))
+    window = Map.get(assigns.quota, :window)
+
+    assigns =
+      assigns
+      |> assign(:window, window)
+      |> assign(:invoice_due, elevenlabs_invoice_due(window))
+      |> assign(:meter_percent, elevenlabs_meter_percent(window))
 
     ~H"""
     <div class="rs-api rs-elevenlabs">
       <div class="rs-head">
+        <img class="rs-logo rs-elevenlabs-mark" src="/elevenlabs-symbol.svg" alt="" aria-hidden="true" />
         <span class="rs-name">ElevenLabs</span>
+        <div :if={@invoice_due} class="rs-head-stats">
+          <div class="rs-stat">
+            <span class="rs-stat-label">Next invoice due</span>
+            <span class="rs-stat-val">{@invoice_due}</span>
+          </div>
+        </div>
       </div>
       <div class="rs-limits">
         <div class="rs-limit">
           <div class="rs-limit-top">
-            <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits remaining</span>
-            <span class="rs-limit-meta">{elevenlabs_meta(@quota, @now)}</span>
+            <span class="rs-limit-label" title={elevenlabs_explanation()}>Credits</span>
+            <span class={["rs-limit-meta", @quota.state == :observed && "is-compact"]}>{elevenlabs_meta(@quota, @now)}</span>
           </div>
-          <%!-- No track outside the observed state: an empty bar under a
-                "remaining" label reads as an exhausted account, which is exactly
-                what an unread quota is not known to be. --%>
-          <div :if={is_number(elevenlabs_remaining_percent(@window))} class="rs-meter">
+          <div class="rs-meter">
             <i
-              class={remaining_meter_class(elevenlabs_remaining_percent(@window))}
-              style={"width:#{elevenlabs_remaining_percent(@window)}%"}
+              class={meter_class(@meter_percent, 90)}
+              style={"width:#{@meter_percent}%"}
             >
             </i>
           </div>
@@ -346,21 +351,20 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp elevenlabs_configured?(%{state: state}) when state in [:unknown, :observed, :failed], do: true
   defp elevenlabs_configured?(_quota), do: false
 
-  defp elevenlabs_remaining_percent(%{remaining_percent: percent}) when is_number(percent), do: percent
-  defp elevenlabs_remaining_percent(_window), do: nil
+  defp elevenlabs_meter_percent(%{used_percent: percent}) when is_number(percent), do: percent
+  defp elevenlabs_meter_percent(_window), do: 0
 
   defp elevenlabs_explanation do
-    "ElevenLabs account credit quota (characters). Speech-to-text is billed per minute of audio and is not counted here. ElevenLabs publishes no dollar balance."
+    "ElevenLabs account credit quota (characters). Speech-to-text is billed per minute of audio and is not counted here. The dollar figure is the amount due on the next invoice, not a balance."
   end
 
-  # Credits left, then the share they are of the quota, then the reset. The
-  # percentage is stated as "left" so the number and the bar beside it can only
-  # be read one way.
+  # The label already says Credits, so the compact line carries only the
+  # remaining count, consumed share, and day-scale reset.
   defp elevenlabs_meta(%{state: :observed, window: %{} = window}, now) do
     [
-      "#{compact_number(window.remaining)}/#{compact_number(window.limit)} credits left",
+      "#{compact_number(window.remaining)} left",
       elevenlabs_percent_text(window),
-      reset_text(window.reset_at, now)
+      elevenlabs_reset_text(window.reset_at, now)
     ]
     |> Enum.reject(&is_nil/1)
     |> Enum.join(" · ")
@@ -369,8 +373,30 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp elevenlabs_meta(%{state: :failed, failure: failure}, _now), do: "Unavailable · #{elevenlabs_failure_label(failure)}"
   defp elevenlabs_meta(_quota, _now), do: "Awaiting ElevenLabs response"
 
-  defp elevenlabs_percent_text(%{remaining_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% left"
+  defp elevenlabs_percent_text(%{used_percent: percent}) when is_number(percent), do: "#{format_used_percent(percent)}% used"
   defp elevenlabs_percent_text(_window), do: nil
+
+  defp elevenlabs_invoice_due(%{next_invoice: %{amount_due_cents: cents, currency: currency}})
+       when is_integer(cents) and cents >= 0 and is_binary(currency) do
+    currency_amount(currency, cents_amount(cents))
+  end
+
+  defp elevenlabs_invoice_due(_window), do: nil
+
+  defp cents_amount(cents), do: "#{div(cents, 100)}.#{pad2(rem(cents, 100))}"
+
+  defp elevenlabs_reset_text(%DateTime{} = reset, %DateTime{} = now) do
+    seconds = DateTime.diff(reset, now, :second)
+
+    cond do
+      seconds <= 0 -> "reset time passed"
+      seconds >= @seconds_per_day -> "resets #{div(seconds, @seconds_per_day)}d"
+      seconds >= @seconds_per_hour -> "resets #{div(seconds, @seconds_per_hour)}h"
+      true -> "resets #{max(div(seconds, 60), 1)}m"
+    end
+  end
+
+  defp elevenlabs_reset_text(_reset, _now), do: "reset unavailable"
 
   # Named reasons only, and never the credential: a failure line is one of the
   # places a secret leaks into a screenshot.
@@ -380,13 +406,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp elevenlabs_failure_label(:transport), do: "ElevenLabs could not be reached"
   defp elevenlabs_failure_label(:malformed), do: "the response could not be read"
   defp elevenlabs_failure_label(_failure), do: "the quota could not be read"
-
-  # A remaining-direction bar warns in the opposite direction to a used one: it
-  # is alarming when it is *low*, so the used-percentage thresholds must not be
-  # reused here.
-  defp remaining_meter_class(percent) when is_number(percent) and percent <= 0, do: "is-critical"
-  defp remaining_meter_class(percent) when is_number(percent) and percent <= 10, do: "is-warning"
-  defp remaining_meter_class(_percent), do: ""
 
   defp github_windows(%{windows: windows}) when is_map(windows) do
     @github_resources
@@ -810,9 +829,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   defp reset_text(_reset, _now), do: "reset unavailable"
   # Days once there are any: a weekly window reading "167h 59m" makes the reader
   # divide to learn it is a week away.
-  @seconds_per_day 86_400
-  @seconds_per_hour 3_600
-
   defp duration(seconds) when seconds < @seconds_per_hour, do: "#{max(div(seconds, 60), 1)}m"
 
   defp duration(seconds) when seconds < @seconds_per_day do

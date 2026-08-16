@@ -92,8 +92,8 @@ drive-through.
    authority badge and choice controls are visible. Confirm the chat renders
    the outgoing tool call rather than merely describing it.
 
-4. Open `http://127.0.0.1:4000/decisions`, select the new inbox row, and copy
-   its `/decisions/<decision-id>` URL. Reload that URL directly to prove the
+4. Open `http://127.0.0.1:4000/commands`, select the new inbox row, and copy
+   its `/commands/<decision-id>` URL. Reload that URL directly to prove the
    stable deep link resolves. Confirm the detail initially shows the request,
    open lifecycle, and a real latency state (`Pending` is valid before the
    corresponding lifecycle edge exists).

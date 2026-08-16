@@ -194,6 +194,14 @@ defmodule Aiur.Orchestrator do
       when is_reference(ref) and is_pid(owner) and is_pid(pid),
       do: {:noreply, CommentPolling.apply_async_guarding(state, ref, owner, pid)}
 
+  # Quota observations arrive outside the tracker poll. A recovered window must
+  # invalidate the persisted admission verdict immediately; otherwise `status`
+  # can keep reporting the historical hold until some unrelated poll succeeds.
+  def handle_info(:github_quota_recovered, state) do
+    {:reply, _result, state} = Lifecycle.request_refresh(state)
+    {:noreply, state}
+  end
+
   def handle_info(msg, state) do
     Logger.debug("Orchestrator ignored message: #{inspect(msg)}")
     {:noreply, state}
