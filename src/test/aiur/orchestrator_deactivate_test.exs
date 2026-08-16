@@ -2947,7 +2947,11 @@ defmodule Aiur.OrchestratorDeactivateTest do
             after_review_comment
           )
 
-        assert_receive {:memory_tracker_state_update, ^issue_id, "done"}
+        # The memory-tracker notification is a real downstream side effect of
+        # the merge transition; the ExUnit default 100ms is too tight under CI
+        # load for the transition + notification to land (#1920). Use the
+        # file's convention for downstream waits instead of the default.
+        assert_receive {:memory_tracker_state_update, ^issue_id, "done"}, 2_000
         refute Map.has_key?(after_merge.running, issue_id)
         refute MapSet.member?(after_merge.claimed, issue_id)
       after
