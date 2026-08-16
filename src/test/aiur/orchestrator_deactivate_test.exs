@@ -3358,6 +3358,12 @@ defmodule Aiur.OrchestratorDeactivateTest do
         assert {:noreply, next_state} = Orchestrator.handle_info({:event, event}, state)
 
         assert_receive {:direct_dispatch_update, ^issue_identifier, "rework"}
+
+        # Two reads, and only two: the #1971 parking gate resolves the ticket's
+        # labels before writing `rework`, then dispatch admission re-reads it so
+        # a concurrently terminal issue is not admitted. A third read would mean
+        # the comment path had started looping.
+        assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
         assert_receive {:direct_dispatch_fetch, [^issue_identifier]}
         refute_receive {:direct_dispatch_fetch, [^issue_identifier]}, 100
         assert_receive :run_poll_cycle, 100
