@@ -1090,27 +1090,31 @@ defmodule Aiur.Orchestrator.PauseResume do
     worker_host = Map.get(running_entry, :worker_host)
 
     if Slots.dispatch_slots_available?(issue, state) do
-      admit = Keyword.get(opts, :admit_fun, &Dispatcher.admit_redispatch/3)
-      replace = Keyword.get(opts, :replace_fun, &replace_completed_entry/4)
-
-      case admit.(state, issue, worker_host) do
-        {:ok, admitted_state} ->
-          case replace.(admitted_state, running_entry, issue, worker_host) do
-            {result, %State{} = next_state} ->
-              {result, next_state}
-
-            %State{} = next_state ->
-              if live_replacement?(next_state, issue.id),
-                do: {{:ok, :started}, next_state},
-                else: {{:error, {:redispatch_deferred, redispatch_start_failure_reason(next_state, issue)}}, next_state}
-          end
-
-        {:error, reason, rejected_state} ->
-          {{:error, {:redispatch_deferred, reason}}, rejected_state}
-      end
+      dispatch_admitted_completed_replacement(state, running_entry, issue, worker_host, opts)
     else
       {{:error, {:redispatch_deferred, :max_concurrent_agents_reached}}, state}
     end
+  end
+
+  defp dispatch_admitted_completed_replacement(state, running_entry, issue, worker_host, opts) do
+    admit = Keyword.get(opts, :admit_fun, &Dispatcher.admit_redispatch/3)
+    replace = Keyword.get(opts, :replace_fun, &replace_completed_entry/4)
+
+    case admit.(state, issue, worker_host) do
+      {:ok, admitted_state} ->
+        classify_completed_replacement(replace.(admitted_state, running_entry, issue, worker_host), issue)
+
+      {:error, reason, rejected_state} ->
+        {{:error, {:redispatch_deferred, reason}}, rejected_state}
+    end
+  end
+
+  defp classify_completed_replacement({result, %State{} = state}, _issue), do: {result, state}
+
+  defp classify_completed_replacement(%State{} = state, issue) do
+    if live_replacement?(state, issue.id),
+      do: {{:ok, :started}, state},
+      else: {{:error, {:redispatch_deferred, redispatch_start_failure_reason(state, issue)}}, state}
   end
 
   defp redispatch_start_failure_reason(state, issue) do
