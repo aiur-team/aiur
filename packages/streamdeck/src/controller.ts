@@ -1,6 +1,6 @@
 import { cycleEventPage, cycleWindow, EVENTS_PER_PAGE, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
-import type { DiffLine, StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
+import { chatKind, rowKindOfRole, type DiffLine, type StreamDeckChannel, type StreamDeckGrid, type StreamDeckLogs, type TranscriptRow } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
 import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./touchStrip/chatLog.js";
 import { createTypewriter } from "./touchStrip/typewriter.js";
@@ -83,6 +83,11 @@ const toTranscriptRow = (entry: Readonly<Record<string, unknown>>): TranscriptRo
     role: asString(entry.role, "system"),
     body: asString(entry.body, asString(entry.line)),
     tool: asText(entry.tool),
+    // The server's `row_kind`/`glyph` are authoritative (the emulator and the
+    // device agree); a row that carried neither derives its class from its
+    // role so a live push or legacy DTO still paints coherently.
+    rowKind: entry.row_kind === undefined ? rowKindOfRole(asString(entry.role, "system")) : chatKind(entry.row_kind),
+    glyph: asText(entry.glyph),
   };
 };
 
