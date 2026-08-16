@@ -32,31 +32,31 @@ defmodule Aiur.BuildOrder.BoundedTest do
           "/chat/42?capability=private",
           "/chat/42#token=private",
           "/chat/42/extra",
-          "/decisions/42"
+          "/commands/42"
         ] do
       assert Bounded.chat_route_for(unsafe, identity) == :error
     end
   end
 
   test "accepts only query-free canonical Commands detail routes" do
+    assert Bounded.commands_route("/commands/42") == {:ok, "/commands/42"}
+    assert Bounded.commands_route("/commands/dec%20%2F42") == {:ok, "/commands/dec%20%2F42"}
     assert Bounded.commands_route("/decisions/42") == {:ok, "/decisions/42"}
-    assert Bounded.commands_route("/decisions/dec%20%2F42") == {:ok, "/decisions/dec%20%2F42"}
 
     token = "ghp_" <> String.duplicate("a", 36)
 
     for unsafe <- [
-          "/decisions",
-          "/decisions/42?token=private",
-          "/decisions/42#capability=private",
-          "/decisions/42/extra",
-          "/decisions//42",
-          "/decisions/42/",
-          "/decisions/%0A42",
-          "/decisions/%20leading",
-          "/decisions/..",
-          "/decisions/%2E%2E",
-          "/commands/42",
-          "/decisions/#{token}"
+          "/commands",
+          "/commands/42?token=private",
+          "/commands/42#capability=private",
+          "/commands/42/extra",
+          "/commands//42",
+          "/commands/42/",
+          "/commands/%0A42",
+          "/commands/%20leading",
+          "/commands/..",
+          "/commands/%2E%2E",
+          "/commands/#{token}"
         ] do
       assert Bounded.commands_route(unsafe) == :error
     end

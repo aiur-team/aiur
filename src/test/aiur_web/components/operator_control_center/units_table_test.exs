@@ -34,7 +34,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTableTest do
     refute html =~ ~s(phx-click="read-conversation")
     # Verbose per-row Commands / GitHub / Agent-log actions moved into the inspect modal.
     refute html =~ "Inspect ticket"
-    refute html =~ ~s(href="/decisions?ticket=1110")
+    refute html =~ ~s(href="/commands?ticket=1110")
     refute html =~ ">Agent log</button>"
     # The standalone read-agent-log row action is gone: the chat modal now
     # carries the agent log beneath the conversation.

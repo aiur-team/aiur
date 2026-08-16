@@ -380,13 +380,13 @@ defmodule AiurWeb.BuildOrderPresenterTest do
       BuildOrderPresenter.relationships(model, identity(1), %{
         issue: %{available?: true, url: "https://token@github.com/owner/repo/issues/1", identity: identity(1)},
         pull_request: %{available?: true, url: "https://github.com/owner/repo/pull/2", identity: identity(1), number: 2},
-        commands: %{available?: true, path: "/decisions/1", identity: identity(1)},
+        commands: %{available?: true, path: "/commands/1", identity: identity(1)},
         chat: %{available?: true, path: "/chat\nheader: value", identity: identity(1)}
       })
 
     refute relationships.capabilities.issue.available?
     assert relationships.capabilities.pull_request.destination == "https://github.com/owner/repo/pull/2"
-    assert relationships.capabilities.commands.destination == "/decisions/1"
+    assert relationships.capabilities.commands.destination == "/commands/1"
     refute relationships.capabilities.chat.available?
     assert BuildOrderPresenter.relationships(model, %{identifier: "1"}).status == :invalid_selection
 
@@ -409,9 +409,9 @@ defmodule AiurWeb.BuildOrderPresenterTest do
     for {kind, destination} <- [
           {:chat, "/chat/1?capability=private"},
           {:chat, "/chat/1#token=private"},
-          {:chat, "/decisions/1"},
-          {:commands, "/decisions/1?token=private"},
-          {:commands, "/decisions/1#capability=private"},
+          {:chat, "/commands/1"},
+          {:commands, "/commands/1?token=private"},
+          {:commands, "/commands/1#capability=private"},
           {:commands, "/chat/1"}
         ] do
       capability = %{available?: true, path: destination, identity: identity(1), active?: true, readable?: true}
