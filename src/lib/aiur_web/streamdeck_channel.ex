@@ -63,7 +63,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
     case result do
       {:ok, value} -> {:reply, {:ok, %{"identifier" => identifier, "action" => action, "result" => value}}, socket}
-      {:error, reason} -> {:reply, {:error, %{reason: inspect(reason)}}, socket}
+      {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end
 
@@ -71,8 +71,10 @@ defmodule AiurWeb.StreamdeckChannel do
 
   # Delivers a spoken (device-transcribed) message to an agent through the same
   # `AgentChat.send/2` facade the dashboard chat box uses, so voice and typed
-  # input share one delivery path, one audit trail, and one set of orchestrator
-  # rules.
+  # input share one delivery path. Admission is not shared: a device cannot show
+  # a deep failure, so this channel trims the text and refuses an empty or
+  # over-long dictation up front (see `validate_message/1`), which the dashboard
+  # chat box does not do.
   def handle_in("say", %{"identifier" => identifier, "text" => text}, %{assigns: %{streamdeck_authenticated: true}} = socket)
       when is_binary(identifier) and byte_size(identifier) in 1..200 and is_binary(text) do
     case validate_message(String.trim(text)) do
@@ -171,7 +173,7 @@ defmodule AiurWeb.StreamdeckChannel do
 
   defp reply_to_say(identifier, message, socket) do
     case send_agent_message(identifier, message) do
-      {:ok, request_id} -> {:reply, {:ok, %{request_id: request_id}}, socket}
+      {:ok, request_id} -> {:reply, {:ok, %{"request_id" => request_id}}, socket}
       {:error, reason} -> {:reply, {:error, %{reason: reason_text(reason)}}, socket}
     end
   end

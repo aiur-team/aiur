@@ -1,7 +1,7 @@
 defmodule Aiur.Init.TemplatesTest do
   use ExUnit.Case, async: true
 
-  alias Aiur.Init.Templates
+  alias Aiur.Init.{ElevenLabs, Resume, Templates}
 
   test "embedded templates return non-empty content" do
     assert Templates.config_example() =~ "tracker:"
@@ -179,42 +179,53 @@ defmodule Aiur.Init.TemplatesTest do
     assert Templates.fill_template("{{PRIORITY}}", fills) == "[codex, claude]"
   end
 
-  describe "elevenlabs voice-input tokens" do
-    test "opting in writes the api_key line and the language code" do
+  describe "elevenlabs voice-input section" do
+    test "opting in fills the whole section from the shared renderer" do
       rendered = render_elevenlabs(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
-
-      assert rendered == "elevenlabs:\n  api_key: $ELEVENLABS_API_KEY\n  language_code: eng\n"
 
       assert {:ok, %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}}} =
                YamlElixir.read_from_string(rendered)
+
+      assert rendered ==
+               "\n" <> IO.iodata_to_binary(ElevenLabs.eleven_labs_section_yaml(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}))
     end
 
-    test "declining leaves no api_key line and no stray blank line" do
+    test "declining renders nothing at all" do
       rendered = render_elevenlabs(%{enabled: false, api_key: nil})
 
-      assert rendered == "elevenlabs:\n  language_code: eng\n"
-      refute rendered =~ "api_key"
-      refute rendered =~ "\n\n"
-
-      assert {:ok, %{"elevenlabs" => %{"language_code" => "eng"}}} = YamlElixir.read_from_string(rendered)
+      assert rendered == ""
     end
 
-    test "the shipped example renders both ways as valid YAML" do
-      for answer <- [%{enabled: true, api_key: "$ELEVENLABS_API_KEY"}, %{enabled: false, api_key: nil}] do
-        rendered = Templates.fill_template(Templates.config_example(), elevenlabs_fills(answer))
+    test "the shipped example renders as valid YAML with the section when opted in" do
+      rendered = render_example(%{enabled: true, api_key: "$ELEVENLABS_API_KEY"})
 
-        refute rendered =~ "{{ELEVENLABS_API_KEY}}"
-        refute rendered =~ "{{ELEVENLABS_LANGUAGE}}"
-        assert rendered =~ "elevenlabs:\n"
-      end
+      refute rendered =~ "{{ELEVENLABS_SECTION}}"
+
+      assert {:ok, config} = YamlElixir.read_from_string(rendered)
+      assert %{"elevenlabs" => %{"api_key" => "$ELEVENLABS_API_KEY", "language_code" => "eng"}} = config
+    end
+
+    # Regression: a declined question used to leave an `elevenlabs:` header (with
+    # only `language_code`) in the config, so `Resume.missing_section?/2` never saw
+    # the section as missing and voice input could never be backfilled later.
+    test "the shipped example omits the elevenlabs key entirely when declined" do
+      rendered = render_example(%{enabled: false, api_key: nil})
+
+      refute rendered =~ "{{ELEVENLABS_SECTION}}"
+      refute rendered =~ "\n\n\n"
+
+      assert {:ok, config} = YamlElixir.read_from_string(rendered)
+      refute Map.has_key?(config, "elevenlabs")
+      assert Resume.missing_section?(config, "elevenlabs")
     end
   end
 
+  defp render_example(answer) do
+    Templates.fill_template(Templates.config_example(), elevenlabs_fills(answer))
+  end
+
   defp render_elevenlabs(answer) do
-    Templates.fill_template(
-      "elevenlabs:\n{{ELEVENLABS_API_KEY}}  language_code: {{ELEVENLABS_LANGUAGE}}\n",
-      elevenlabs_fills(answer)
-    )
+    Templates.fill_template("{{ELEVENLABS_SECTION}}", elevenlabs_fills(answer))
   end
 
   defp elevenlabs_fills(answer) do

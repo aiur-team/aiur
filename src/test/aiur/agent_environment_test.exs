@@ -1,5 +1,9 @@
 defmodule Aiur.AgentEnvironmentTest do
-  use ExUnit.Case, async: true
+  # Not async: every test here mutates process-global `System.put_env` state
+  # (including the ELEVENLABS_API_KEY credential case), which raced concurrent
+  # BuildGate readers and made `AIUR_BUILD_START_STAGGER_SECONDS` observe another
+  # module's value (#1920).
+  use ExUnit.Case, async: false
 
   alias Aiur.AgentEnvironment
   alias Aiur.GitHub.Budget

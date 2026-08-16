@@ -168,5 +168,32 @@ defmodule Aiur.Init.ResumeTest do
       assert yaml =~ "api_key: $ELEVENLABS_API_KEY"
       assert yaml =~ "language_code: eng"
     end
+
+    test "declining the offer appends nothing" do
+      test_pid = self()
+
+      io = %{
+        confirm: fn _question, _default -> false end,
+        input: fn _label, default, _mask -> default end,
+        puts: fn _message -> :ok end
+      }
+
+      deps = %{
+        append_config: fn target, yaml ->
+          send(test_pid, {:appended, target, IO.iodata_to_binary(yaml)})
+          {:ok, target}
+        end
+      }
+
+      section = Enum.find(Resume.promptable_sections(), &(&1.key == "elevenlabs"))
+
+      Resume.offer_section(io, deps, :repo_local, %{}, "/tmp/aiur-config", section)
+
+      refute_received {:appended, _target, _yaml}
+
+      # The declined answer also renders nothing, so a config written by fresh
+      # setup stays free of the section and stays offerable.
+      assert IO.iodata_to_binary(section.to_yaml.(%{enabled: false, api_key: nil})) == ""
+    end
   end
 end

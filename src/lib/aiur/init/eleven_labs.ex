@@ -11,6 +11,9 @@ defmodule Aiur.Init.ElevenLabs do
 
   @env_reference "$ELEVENLABS_API_KEY"
 
+  # ISO-639-3, the code family the ElevenLabs speech-to-text API expects.
+  @language_code "eng"
+
   @doc false
   @spec prompt_eleven_labs(Aiur.Init.io(), Aiur.Init.deps(), Path.t() | atom()) :: %{
           enabled: boolean(),
@@ -30,16 +33,29 @@ defmodule Aiur.Init.ElevenLabs do
     end
   end
 
-  @doc false
+  @doc """
+  The `elevenlabs:` YAML block, or empty iodata when the operator declined.
+
+  The single renderer for both `aiur init` paths — the fresh-setup template fill
+  (`{{ELEVENLABS_SECTION}}`) and the resume backfill append — so the same answer
+  always produces the same config. Declining renders nothing at all, which is
+  what leaves the section *missing* and therefore offerable again on a later
+  resume.
+  """
   @spec eleven_labs_section_yaml(map()) :: iodata()
-  def eleven_labs_section_yaml(answer) do
+  def eleven_labs_section_yaml(%{enabled: true} = answer) do
     [
-      "# === Stream Deck voice input (added by `aiur init`) ===\n",
+      "# === Stream Deck voice input (added by `aiur init`; ElevenLabs speech-to-text) ===\n",
+      "# Holding the Stream Deck mic key records dictation, transcribes it with ElevenLabs, and delivers it to the focused agent.\n",
+      "# api_key is a SECRET: keep it as the literal `#{@env_reference}` reference and put the value in `.env`.\n",
+      "# aiur scrubs every `*_API_KEY` variable from agent environments and never logs the key.\n",
       "elevenlabs:\n",
       "  api_key: #{api_key_value(answer)}\n",
-      "  language_code: eng\n"
+      "  language_code: #{@language_code}  # ISO-639-3 transcription language (\"eng\" = English)\n"
     ]
   end
+
+  def eleven_labs_section_yaml(_answer), do: []
 
   defp api_key_value(%{api_key: key}) when is_binary(key) do
     case String.trim(key) do

@@ -459,6 +459,18 @@ defmodule AiurWeb.StreamdeckChannelTest do
              StreamdeckProjection.transcript("AIUR-3", %{role: :assistant, timestamp: timestamp})
   end
 
+  test "a failed control action reports the same bare reason wording as say" do
+    socket = joined_socket()
+    control = push(socket, "control", %{"identifier" => "AIUR-1", "action" => "pause"})
+
+    # One wire convention: an atom reason from the AgentChat facade reaches the
+    # device as the bare word, never inspect-quoted (`":no_running_agent"`).
+    # Which atom comes back depends on orchestrator state, so pin the wording,
+    # not the value.
+    assert_reply(control, :error, %{reason: reason})
+    assert reason =~ ~r/^[a-z_]+$/
+  end
+
   describe "say (voice input)" do
     test "delivers the spoken message through the AgentChat seam and replies with the request id" do
       test_pid = self()
@@ -467,7 +479,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       socket = joined_socket()
       say = push(socket, "say", %{"identifier" => "AIUR-1", "text" => "  ship the fix  "})
 
-      assert_reply(say, :ok, %{request_id: 42})
+      assert_reply(say, :ok, %{"request_id" => 42})
       # Trimmed, and delivered through the one existing chat path.
       assert_received {:sent, "AIUR-1", "ship the fix"}
     end
@@ -503,7 +515,7 @@ defmodule AiurWeb.StreamdeckChannelTest do
       refute_received {:sent, _identifier, _text}
 
       at_ceiling = push(socket, "say", %{"identifier" => "AIUR-1", "text" => String.duplicate("a", 8_000)})
-      assert_reply(at_ceiling, :ok, %{request_id: 1})
+      assert_reply(at_ceiling, :ok, %{"request_id" => 1})
     end
 
     test "rejects malformed payloads" do
