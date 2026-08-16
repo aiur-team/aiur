@@ -29,6 +29,8 @@ defmodule Aiur.Orchestrator.State do
           },
           capacity_hold:
             %{
+              optional(:reclaimable_cpu_percent) => float(),
+              optional(:reclaimable_cpu_threshold) => float(),
               signal: :memory | :file_descriptors | :run_queue | :load | :build | :provider | :envelope,
               measured: term(),
               threshold: term(),

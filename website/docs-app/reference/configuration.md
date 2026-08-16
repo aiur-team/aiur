@@ -205,9 +205,9 @@ any active backoff.
 | `agent.stall_timeout_ms` | integer | 3600000 | Silent-agent watchdog; 0 disables it. |
 | `agent.max_agent_duration_minutes` | integer | 60 | Active-runtime pause checkpoint; 0 disables it. |
 | `agent.ci_wait_rewake_minutes` | positive integer | 5 | Re-wakes a CI-wait-paused agent for one recovery check when no terminal event arrives. |
-| `agent.max_load_average` | float | 1.5 | Holds dispatch above the load threshold; null disables it. |
+| `agent.max_load_average` | float | 1.5 | Per-scheduler load ceiling. Above it, dispatch holds only when a short-window CPU sample also shows less than 60% reclaimable capacity (idle + niced CPU); null disables it. If the CPU delta is unavailable, load remains the conservative fallback. |
 | `agent.target_load_average` | float | 1.0 | Adaptive per-scheduler load target; null disables the adaptive envelope. |
-| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it (the 1-minute load gate still applies). When enabled, new dispatch holds while `procs_running` exceeds `run_queue_threshold × schedulers`, catching short CPU bursts the lagging load average smooths out (`run_queue` capacity hold). |
+| `agent.run_queue_threshold` | float or nil | nil | Per-scheduler runnable-process ceiling for the instantaneous run-queue dispatch gate; null disables it. When enabled, `procs_running` above `run_queue_threshold × schedulers` holds only when the same CPU sample shows less than 60% reclaimable capacity, catching real short bursts without treating niced work as contention (`run_queue` capacity hold). |
 | `agent.load_ramp_step` | integer | 1 | Capacity increase while load is below the target. |
 | `agent.load_cooldown_seconds` | integer | 60 | Minimum interval between adaptive capacity reductions. |
 | `agent.synthetic_load_process_cap` | integer or nil | nil | Caps synthetic load processes; 0 disables the guard. |
@@ -338,7 +338,8 @@ unreadable (e.g. non-Linux hosts):
 - **CPU load** (`agent.max_load_average`) and the **adaptive AIMD envelope**
   (`agent.target_load_average`, `agent.load_ramp_step`, `agent.load_cooldown_seconds`)
   reduce and re-ramp effective capacity as the 1-minute load crosses its per-scheduler
-  targets.
+  targets. High load or runnable counts hold dispatch only when consecutive CPU
+  samples corroborate real contention; idle and niced CPU count as reclaimable.
 - **Run queue** (`agent.run_queue_threshold`) reacts instantly to `procs_running` spikes
   that the lagging load average smooths out.
 - **Available memory** (`agent.min_free_memory_mb`), **file descriptors** (a 10% open-file
@@ -349,8 +350,9 @@ unreadable (e.g. non-Linux hosts):
   the AIMD envelope re-ramps within its cooldown window. There is no permanent cap reduction or
   starvation.
 
-While a hold is active the fleet surfaces the binding signal and threshold: idle
-dispatchable rows read `backing off`, the dashboard/status carry a `capacity_hold` block
+While a hold is active the fleet surfaces the binding signal, pressure threshold,
+and corroborating reclaimable-CPU measurement. Idle dispatchable rows read
+`backing off`, the dashboard/status carry a `capacity_hold` block
 naming the measured signal and threshold, telemetry records `capacity_hold` /
 `capacity_resumed`, and a debounced `system.fleet.capacity.backoff` alert fires so an
 Executor can tell capacity backoff apart from an idle or broken fleet. This limits only
