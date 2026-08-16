@@ -122,23 +122,28 @@ defmodule Aiur.AlertFeed do
   # timestamps the actual transition.
   defp collapse_repeated_resolutions(alerts) do
     alerts
-    |> Enum.reduce({[], %{}}, fn alert, {kept, states} ->
-      topic = Map.get(alert, "topic") || ""
-
-      case condition_topic(topic) do
-        nil ->
-          {[alert | kept], Map.put(states, topic, :firing)}
-
-        condition ->
-          if Map.get(states, condition) == :resolved do
-            {kept, states}
-          else
-            {[alert | kept], Map.put(states, condition, :resolved)}
-          end
-      end
-    end)
+    |> Enum.reduce({[], %{}}, &collapse_resolution_step/2)
     |> elem(0)
     |> Enum.reverse()
+  end
+
+  defp collapse_resolution_step(alert, {kept, states}) do
+    topic = Map.get(alert, "topic") || ""
+
+    case condition_topic(topic) do
+      nil -> {[alert | kept], Map.put(states, topic, :firing)}
+      condition -> keep_first_resolution(alert, condition, kept, states)
+    end
+  end
+
+  # The earliest resolution of a run is the one that timestamps the transition;
+  # the rest repeat it and are dropped.
+  defp keep_first_resolution(alert, condition, kept, states) do
+    if Map.get(states, condition) == :resolved do
+      {kept, states}
+    else
+      {[alert | kept], Map.put(states, condition, :resolved)}
+    end
   end
 
   defp condition_topic(topic) do
