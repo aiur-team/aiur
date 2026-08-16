@@ -9,6 +9,8 @@ import { PROVIDER_SCROLL_ENCODER, VISIBLE_PROVIDER_ROWS, type ProviderPanelModel
 import { encoderCenterX, SEGMENT_WIDTH } from "../../src/touchStrip/geometry.js";
 import type { SummaryModel } from "../../src/touchStrip/summarySegment.js";
 import { agentDetailModel } from "../../src/touchStrip/agentDetail.js";
+import { VOICE_HOLD_PROMPT, VOICE_LISTENING, VOICE_WAVEFORM_COLUMNS, voicePanel } from "../../src/voicePanel.js";
+import type { WaveformColumn } from "../../src/audio/index.js";
 
 const EMIT = "#9fd0ff";
 const INFO = "#c2c6cf";
@@ -827,5 +829,159 @@ describe("blank panel", () => {
   // label here would claim a provider that does not exist.
   it("draws nothing at all", () => {
     expect(render({ kind: "blank" }).ink).toEqual([]);
+  });
+});
+
+describe("voice panel", () => {
+  const columns = (shape: (index: number) => number): WaveformColumn[] =>
+    Array.from({ length: VOICE_WAVEFORM_COLUMNS }, (_, index) => ({ min: -shape(index), max: shape(index) }));
+
+  const panel = (over: Partial<Parameters<typeof voicePanel>[0]> = {}): SegmentContent => ({
+    kind: "voice",
+    data: voicePanel({
+      columns: columns(() => 0),
+      dbfs: -60,
+      text: "",
+      holding: false,
+      unavailableReason: null,
+      ...over,
+    }),
+  });
+
+  it("prints the hold prompt and the placeholder when idle", () => {
+    const { ink } = render(panel(), 800);
+    expect(drew(ink, VOICE_HOLD_PROMPT)).toBeDefined();
+    expect(drew(ink, "Nothing heard yet.")).toBeDefined();
+  });
+
+  it("prints LISTENING in the live accent while the key is held", () => {
+    const { ink } = render(panel({ holding: true }), 800);
+    expect(drew(ink, VOICE_LISTENING)?.fill).toBe(ACCENT_LIVE);
+    expect(drew(ink, "Listening…")).toBeDefined();
+  });
+
+  it("prints the transcribed text once there is some", () => {
+    expect(drew(render(panel({ text: "run the tests again" }), 800).ink, "run the tests again")).toBeDefined();
+  });
+
+  it("clips over-long text rather than running it off the panel", () => {
+    const { ink } = render(panel({ text: "word ".repeat(300) }), 800);
+    expect(ink.some((entry) => entry.text.endsWith("…"))).toBe(true);
+  });
+
+  /**
+   * The reason the split exists. A missing key is a configuration problem, and
+   * blanking the trace would present it as a dead microphone.
+   */
+  it("keeps the trace and the bar when transcription is unavailable", () => {
+    const reason = "Aiur has no ElevenLabs API key - transcription is off";
+    const off = render(panel({ unavailableReason: reason, dbfs: -6, columns: columns(() => 0.8) }), 800);
+    expect(drew(off.ink, reason.toUpperCase())).toBeDefined();
+    // Same trace, same bar, whether or not the reason is set.
+    const on = render(panel({ dbfs: -6, columns: columns(() => 0.8) }), 800);
+    expect(off.inked).toBeGreaterThan(render(panel(), 800).inked);
+    expect(Math.abs(off.inked - on.inked)).toBeLessThan(on.inked / 4);
+  });
+
+  // Every column carries a min/max pair. A rectified trace is a solid blob;
+  // peaks above and valleys below the centre are what read as speech.
+  it("draws each column above and below the centre line", () => {
+    const { pixels } = render(panel({ columns: columns(() => 0.9) }), 800);
+    const centre = 36;
+    const above = pixelAt(pixels, 800, 20, centre - 20);
+    const below = pixelAt(pixels, 800, 20, centre + 20);
+    expect(above).not.toEqual([...BACKGROUND]);
+    expect(below).not.toEqual([...BACKGROUND]);
+  });
+
+  /**
+   * The scroll direction: `createWaveformScroll` emits oldest-first, so column
+   * `i` maps straight to the `i`-th x position and the newest audio is the
+   * right-hand edge. A ramp therefore has to grow left to right.
+   */
+  it("puts the newest column at the right edge", () => {
+    const ramp = columns((index) => (index / VOICE_WAVEFORM_COLUMNS) * 0.95);
+    const { pixels } = render(panel({ columns: ramp }), 800);
+    const spread = (x: number): number => {
+      let top = 100;
+      let bottom = 0;
+      for (let y = 10; y < 62; y += 1) {
+        if (pixelAt(pixels, 800, x, y).join() !== [...BACKGROUND].join()) {
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+      return bottom - top;
+    };
+    // The trace band runs from PAD to just short of the decibel bar.
+    expect(spread(700)).toBeGreaterThan(spread(60));
+  });
+
+  /**
+   * The bar is a *height*, taken from `dbfsToFill`, which is already linear in
+   * decibels. Measured down the bar's own column rather than by total ink,
+   * because the track is painted at every level and would swamp the difference.
+   */
+  const barHeight = (dbfs: number): number => {
+    const { pixels } = render(panel({ dbfs }), 800);
+    // The bar sits at width - PAD - DB_BAR_WIDTH; 780 is inside it.
+    let filled = 0;
+    for (let y = 10; y < 62; y += 1) {
+      const [r, g] = pixelAt(pixels, 800, 780, y);
+      if (Math.max(r, g) > 120) filled += 1;
+    }
+    return filled;
+  };
+
+  it("grows the decibel bar with the level, linearly in decibels", () => {
+    expect(barHeight(-60)).toBe(0);
+    const half = barHeight(-30);
+    const loud = barHeight(-3);
+    expect(half).toBeGreaterThan(0);
+    expect(loud).toBeGreaterThan(half);
+    // -30 dBFS is halfway up a -60 dB scale; a bar re-mapped to amplitude would
+    // sit at about 3% instead.
+    expect(half / loud).toBeGreaterThan(0.4);
+    expect(half / loud).toBeLessThan(0.6);
+  });
+
+  it("prints the decibel reading beside the bar", () => {
+    expect(drew(render(panel({ dbfs: -3 }), 800).ink, "-3")).toBeDefined();
+  });
+});
+
+describe("settings panel", () => {
+  const settings = (over: Partial<Extract<SegmentContent, { kind: "settings" }>> = {}): SegmentContent => ({
+    kind: "settings",
+    selectedLabel: "Yeti X Analog Stereo",
+    deviceCount: 3,
+    pageLabel: "1/1",
+    ...over,
+  });
+
+  it("names the microphone capture will open, the count and the page", () => {
+    const { ink } = render(settings(), 800);
+    expect(drew(ink, "MICROPHONE")).toBeDefined();
+    expect(drew(ink, "Yeti X Analog Stereo")).toBeDefined();
+    expect(drew(ink, "3 found · page 1/1")).toBeDefined();
+    expect(drew(ink, "HOLD TESTMIC TO CHECK LEVELS")?.fill).toBe(ACCENT_LIVE);
+  });
+
+  // A headless box has no microphone and that is not a fault, so the panel says
+  // so rather than showing an empty selection that reads as broken.
+  it("says so when there is no microphone at all", () => {
+    const { ink } = render(settings({ selectedLabel: "", deviceCount: 0 }), 800);
+    expect(drew(ink, "No microphones")).toBeDefined();
+    expect(drew(ink, "Attach a microphone, then reopen settings")).toBeDefined();
+    expect(drew(ink, "HOLD TESTMIC TO CHECK LEVELS")?.fill).toBe(LABEL);
+  });
+
+  it("clips a long device name rather than running it off the panel", () => {
+    const { ink } = render(settings({ selectedLabel: "Yeti ".repeat(80) }), 800);
+    expect(ink.some((entry) => entry.text.endsWith("…"))).toBe(true);
+  });
+
+  it("carries the BACK hint, because dial A is what performs it", () => {
+    expect(render(settings(), 800).ink.some((entry) => entry.text.includes("BACK"))).toBe(true);
   });
 });

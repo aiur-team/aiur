@@ -433,7 +433,7 @@ agent:
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input: the device records dictation, ElevenLabs speech-to-text transcribes it, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. The section may be omitted entirely; the defaults below apply.
+Optional. Backs Stream Deck voice input: the device records dictation and streams the audio to Aiur, **Aiur** calls ElevenLabs speech-to-text with the credential below, and the transcript is delivered to the focused agent through the same operator-message path as the dashboard chat box. This is the only place the credential is configured — the Stream Deck sidecar never holds it. The section may be omitted entirely; the defaults below apply.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |
