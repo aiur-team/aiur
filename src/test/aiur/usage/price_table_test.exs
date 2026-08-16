@@ -18,18 +18,24 @@ defmodule Aiur.Usage.PriceTableTest do
     {"claude-sonnet-4-6", "3.00", "0.30", "3.75", "6.00", "15.00"},
     {"claude-haiku-4-5", "1.00", "0.10", "1.25", "2.00", "5.00"}
   ]
+  # Each row pins the exact effective-date revision it prices at, so a repriced
+  # model (deepseek) appears once per revision. 2026-08-16 is DeepSeek's
+  # peak/off-peak repricing date; the table prices the conservative peak rates
+  # (off-peak time-of-day valuation is #1456).
   @openai_compat_rates [
-    {:kimi, "kimi-k2.7-code", "0.95", "0.19", "4.00"},
-    {:kimi, "kimi-k2.7-code-highspeed", "0.95", "0.19", "4.00"},
-    {:deepseek, "deepseek-v4-flash", "0.14", "0.0028", "0.28"},
-    {:openrouter, "deepseek/deepseek-v4-flash", "0.14", "0.0028", "0.28"},
-    {:openrouter, "moonshotai/kimi-k2.7-code", "0.95", "0.19", "4.00"},
-    {:openrouter, "anthropic/claude-sonnet-5", "2.00", "0.20", "10.00"},
-    {:openrouter, "anthropic/claude-opus-5", "5.00", "0.50", "25.00"}
+    {:kimi, "kimi-k2.7-code", ~D[2026-08-01], "0.95", "0.19", "4.00"},
+    {:kimi, "kimi-k2.7-code-highspeed", ~D[2026-08-01], "0.95", "0.19", "4.00"},
+    {:deepseek, "deepseek-v4-flash", ~D[2026-08-01], "0.14", "0.0028", "0.28"},
+    {:deepseek, "deepseek-v4-flash", ~D[2026-08-16], "0.44", "0.014", "1.32"},
+    {:openrouter, "deepseek/deepseek-v4-flash", ~D[2026-08-01], "0.14", "0.0028", "0.28"},
+    {:openrouter, "deepseek/deepseek-v4-flash", ~D[2026-08-16], "0.06426", "0.012852", "0.12852"},
+    {:openrouter, "moonshotai/kimi-k2.7-code", ~D[2026-08-01], "0.95", "0.19", "4.00"},
+    {:openrouter, "anthropic/claude-sonnet-5", ~D[2026-08-01], "2.00", "0.20", "10.00"},
+    {:openrouter, "anthropic/claude-opus-5", ~D[2026-08-01], "5.00", "0.50", "25.00"}
   ]
   test "resolves every reviewed model dimension on its inclusive boundary" do
     assert {:ok, catalog} = PriceTable.default()
-    assert length(catalog.entries) == 76
+    assert length(catalog.entries) == 84
 
     for {model, context_tier, input, cached, creation, output} <- @codex_rates,
         {dimension, expected} <- [
@@ -78,7 +84,7 @@ defmodule Aiur.Usage.PriceTableTest do
       assert price.price_revision == price_revision(:claude)
     end
 
-    for {provider, model, input, cached, output} <- @openai_compat_rates,
+    for {provider, model, effective_date, input, cached, output} <- @openai_compat_rates,
         {dimension, expected} <- [
           input: input,
           cached_input: cached,
@@ -89,17 +95,83 @@ defmodule Aiur.Usage.PriceTableTest do
                PriceTable.lookup(
                  catalog,
                  query(provider, model, dimension, :not_applicable, :not_applicable)
-                 |> Map.put(:pricing_effective_date, ~D[2026-08-01])
+                 |> Map.put(:pricing_effective_date, effective_date)
                )
 
       assert Decimal.equal?(price.price, Decimal.new(expected))
-      assert price.effective_date == ~D[2026-08-01]
-      assert price.source_reviewed_at == ~D[2026-08-01]
+      assert price.effective_date == effective_date
+      assert price.source_reviewed_at == effective_date
       assert price.context_tier == :not_applicable
       assert price.cache_write_duration == :not_applicable
     end
 
     assert catalog.revision == Data.catalog_revision()
+  end
+
+  test "DeepSeek repricing is effective-dated and never silently under-reports output" do
+    assert {:ok, catalog} = PriceTable.default()
+
+    # Spend before the 2026-08-16 repricing keeps the retained flat rate; the
+    # next revision in the exact series is the exclusive bound.
+    assert {:ok, old} =
+             PriceTable.lookup(
+               catalog,
+               query(:deepseek, "deepseek-v4-flash", :output, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-15])
+             )
+
+    assert Decimal.equal?(old.price, Decimal.new("0.28"))
+    assert old.expires_before == ~D[2026-08-16]
+    assert old.price_revision == "deepseek-standard-global-2026-08-01"
+
+    # From 2026-08-16 the published peak rate is priced. The retained $0.28
+    # output rate under-reported peak spend by ~79% (1.32 vs 0.28), so the
+    # corrected value must be the peak rate — never a silent low total.
+    assert {:ok, peak} =
+             PriceTable.lookup(
+               catalog,
+               query(:deepseek, "deepseek-v4-flash", :output, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-16])
+             )
+
+    assert Decimal.equal?(peak.price, Decimal.new("1.32"))
+    assert peak.expires_before == nil
+    assert peak.effective_date == ~D[2026-08-16]
+    assert peak.source_reviewed_at == ~D[2026-08-16]
+    assert peak.price_revision == "deepseek-standard-global-2026-08-16-peak"
+
+    assert {:ok, input} =
+             PriceTable.lookup(
+               catalog,
+               query(:deepseek, "deepseek-v4-flash", :input, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-16])
+             )
+
+    assert Decimal.equal?(input.price, Decimal.new("0.44"))
+
+    assert {:ok, cached} =
+             PriceTable.lookup(
+               catalog,
+               query(:deepseek, "deepseek-v4-flash", :cached_input, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-16])
+             )
+
+    assert Decimal.equal?(cached.price, Decimal.new("0.014"))
+    assert cached.price_revision == "deepseek-standard-global-2026-08-16-peak"
+
+    # OpenRouter's DeepSeek mirror is a flat third-party listing, effective
+    # 2026-08-16, distinct from DeepSeek's first-party peak schedule.
+    assert {:ok, mirror} =
+             PriceTable.lookup(
+               catalog,
+               query(:openrouter, "deepseek/deepseek-v4-flash", :output, :not_applicable, :not_applicable)
+               |> Map.put(:pricing_effective_date, ~D[2026-08-16])
+             )
+
+    assert Decimal.equal?(mirror.price, Decimal.new("0.12852"))
+    assert mirror.expires_before == nil
+    assert mirror.effective_date == ~D[2026-08-16]
+    assert mirror.price_revision == "openrouter-standard-global-2026-08-16"
   end
 
   test "accepts the test-only registry provider without a validator clause" do
