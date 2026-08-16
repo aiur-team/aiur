@@ -87,6 +87,22 @@ defmodule Aiur.FindingsCLITest do
     assert 0 == FindingsCLI.run(%{unfiled: true, slugs: false, scope: nil}, fn _ -> flunk("filed finding was still unfiled") end)
   end
 
+  test "reports corrupt ledger lines while rendering valid findings", %{repo: repo} do
+    assert :ok = Findings.append(repo, finding(nil) |> Map.put("slug", "valid"))
+    path = Aiur.RepoBase.findings_path(repo)
+    File.write!(path, File.read!(path) <> "{not-json}\n")
+    output = Agent.start_link(fn -> [] end) |> elem(1)
+
+    assert 0 ==
+             FindingsCLI.run(%{unfiled: false, slugs: false, scope: nil}, fn line ->
+               Agent.update(output, &[IO.iodata_to_binary(line) | &1])
+             end)
+
+    lines = Agent.get(output, &Enum.reverse/1)
+    assert Enum.any?(lines, &String.contains?(&1, ", 2,"))
+    assert Enum.any?(lines, &String.contains?(&1, ~s("slug":"valid")))
+  end
+
   test "--slugs emits de-duplicated join keys", %{repo: repo} do
     assert :ok = Findings.append(repo, finding(1464, "filed"))
     assert 0 == FindingsCLI.run(%{unfiled: false, slugs: true, scope: "aiur"}, &send(self(), {:slug, &1}))

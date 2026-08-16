@@ -44,6 +44,11 @@ describe("Stream Deck Phoenix channel", () => {
     socket.message(["4", "5", "streamdeck:fleet", "transcript", { identifier: "1358", body: 42 }]);
     channel.control("1358", "pause");
     expect(JSON.parse(socket.sent[1])).toEqual(["4", "2", "streamdeck:fleet", "control", { identifier: "1358", action: "pause" }]);
+    // Transcribed speech goes out as its own event carrying operator text,
+    // not as a `control` verb; the server length-caps it and hands it to the
+    // same AgentChat path as the dashboard chat box.
+    channel.say("1358", "run the tests again");
+    expect(JSON.parse(socket.sent[2])).toEqual(["4", "3", "streamdeck:fleet", "say", { identifier: "1358", text: "run the tests again" }]);
     expect(events.snapshot).toHaveBeenCalledOnce();
     expect(events.grid).toHaveBeenCalledOnce();
     expect(events.logs).toHaveBeenCalledWith({ event_keys: [{ label: "LIVE" }], transcript: [{ body: "chat" }] });

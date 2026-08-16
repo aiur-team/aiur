@@ -5,11 +5,11 @@ defmodule Aiur.CurrentRunProjections.WeightFacts do
 
   @spec resolve([map()], map(), [map()], map(), map()) :: map()
   def resolve(members, status, facts, retained, availability) do
-    fact_index = identity_index(facts)
+    fact_index = fact_index(facts, availability)
     retained = retain_members(retained, members)
 
-    {entries, retained, stale?} =
-      Enum.reduce(members, {[], retained, false}, fn member, accumulator ->
+    {entries, retained, stale?, freshness} =
+      Enum.reduce(members, {[], retained, false, %{}}, fn member, accumulator ->
         resolve_member(member, fact_index, accumulator)
       end)
 
@@ -19,30 +19,31 @@ defmodule Aiur.CurrentRunProjections.WeightFacts do
     %{
       entries: Enum.reverse(entries),
       retained: retained,
+      freshness: freshness,
       health: health,
       race_signature: race_signature
     }
   end
 
-  defp resolve_member(member, fact_index, {entries, retained, stale?}) do
+  defp resolve_member(member, fact_index, {entries, retained, stale?, freshness}) do
     key = member_key(member)
 
     case Map.fetch(fact_index, key) do
-      {:ok, fact} -> current_fact(fact, key, entries, retained, stale?)
-      :error -> retained_fact(member, Map.get(retained, key), entries, retained, stale?)
+      {:ok, fact} -> current_fact(fact, key, entries, retained, stale?, freshness)
+      :error -> retained_fact(member, Map.get(retained, key), key, entries, retained, stale?, freshness)
     end
   end
 
-  defp current_fact(fact, key, entries, retained, stale?) do
+  defp current_fact(fact, key, entries, retained, stale?, freshness) do
     if valid_complexity?(Map.get(fact, :complexity)) do
-      {[fact | entries], Map.put(retained, key, fact), stale?}
+      {[fact | entries], Map.put(retained, key, fact), stale?, Map.put(freshness, key, :fresh)}
     else
-      {[fact | entries], Map.delete(retained, key), stale?}
+      {[fact | entries], Map.delete(retained, key), stale?, freshness}
     end
   end
 
-  defp retained_fact(%{terminal?: true}, fact, entries, retained, stale?) when is_map(fact),
-    do: {[fact | entries], retained, stale?}
+  defp retained_fact(%{terminal?: true}, fact, key, entries, retained, stale?, freshness) when is_map(fact),
+    do: {[fact | entries], retained, stale?, Map.put(freshness, key, :fresh)}
 
   # A replaced member has been superseded by another ticket: the status
   # pipeline will never emit a fact for it again. Serving its retained fact
@@ -50,21 +51,25 @@ defmodule Aiur.CurrentRunProjections.WeightFacts do
   # replaced member with no fact marks the entire run's weight facts stale
   # forever, which degrades health/ETA to "unhealthy weight facts" while
   # every live ticket's facts are actually current.
-  defp retained_fact(%{lifecycle: :replaced}, fact, entries, retained, stale?) when is_map(fact),
-    do: {[fact | entries], retained, stale?}
+  defp retained_fact(%{lifecycle: :replaced}, fact, key, entries, retained, stale?, freshness) when is_map(fact),
+    do: {[fact | entries], retained, stale?, Map.put(freshness, key, :fresh)}
 
-  defp retained_fact(%{lifecycle: :replaced}, nil, entries, retained, stale?),
-    do: {entries, retained, stale?}
+  defp retained_fact(%{lifecycle: :replaced}, nil, _key, entries, retained, stale?, freshness),
+    do: {entries, retained, stale?, freshness}
 
-  defp retained_fact(_member, fact, entries, retained, _stale?) when is_map(fact),
-    do: {[fact | entries], retained, true}
+  defp retained_fact(_member, fact, key, entries, retained, _stale?, freshness) when is_map(fact),
+    do: {[fact | entries], retained, true, Map.put(freshness, key, :stale)}
 
-  defp retained_fact(_member, nil, entries, retained, _stale?), do: {entries, retained, true}
+  defp retained_fact(_member, nil, _key, entries, retained, _stale?, freshness),
+    do: {entries, retained, true, freshness}
 
   defp retain_members(retained, members) do
     keys = members |> Enum.map(&member_key/1) |> Enum.reject(&is_nil/1)
     Map.take(retained, keys)
   end
+
+  defp fact_index(_facts, %{status_facts: false}), do: %{}
+  defp fact_index(facts, _availability), do: identity_index(facts)
 
   defp health(%{status: false}, _stale?, _race?), do: :unavailable
   defp health(%{status_facts: false}, _stale?, _race?), do: :unavailable

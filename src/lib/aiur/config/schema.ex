@@ -14,6 +14,7 @@ defmodule Aiur.Config.Schema do
     BuildOrder,
     Codex,
     Decisions,
+    ElevenLabs,
     EnvResolver,
     Errors,
     Events,
@@ -57,6 +58,7 @@ defmodule Aiur.Config.Schema do
     embeds_one(:pr_watch, PrWatch, on_replace: :update, defaults_to_struct: true)
     embeds_one(:build_order, BuildOrder, on_replace: :update, defaults_to_struct: true)
     embeds_one(:webhooks, Webhooks, on_replace: :update, defaults_to_struct: true)
+    embeds_one(:elevenlabs, ElevenLabs, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -131,6 +133,7 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:pr_watch, with: &PrWatch.changeset/2)
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
+    |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
   end
 
   defp finalize_settings(settings) do
@@ -167,6 +170,15 @@ defmodule Aiur.Config.Schema do
 
     agent = %{settings.agent | codex: codex, mix_scheduler_cap: settings.agent.mix_scheduler_cap || 4}
 
-    %{settings | tracker: tracker, workspace: workspace, agent: agent}
+    elevenlabs = %{
+      settings.elevenlabs
+      | api_key:
+          EnvResolver.resolve_secret_setting(
+            settings.elevenlabs.api_key,
+            System.get_env("ELEVENLABS_API_KEY")
+          )
+    }
+
+    %{settings | tracker: tracker, workspace: workspace, agent: agent, elevenlabs: elevenlabs}
   end
 end

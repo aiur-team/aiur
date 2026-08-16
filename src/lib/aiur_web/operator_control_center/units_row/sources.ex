@@ -134,10 +134,16 @@ defmodule AiurWeb.OperatorControlCenter.UnitsRow.Sources do
     %{
       available?: not is_nil(entry),
       health: source_health(source),
-      freshness: Value.get(source, :freshness) || Value.get(source, :status) || :unknown,
+      freshness: entry_freshness(source, entry) || Value.get(source, :freshness) || Value.get(source, :status) || :unknown,
       generation: Value.get(source, :generation)
     }
   end
+
+  defp entry_freshness(%{entry_freshness: freshness}, entry) when is_map(freshness) do
+    entry |> identity() |> key() |> then(&Map.get(freshness, &1))
+  end
+
+  defp entry_freshness(_source, _entry), do: nil
 
   defp source(inputs, key) do
     Map.get(inputs, key) || Map.get(inputs, Atom.to_string(key)) || %{}
