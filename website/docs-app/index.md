@@ -2,7 +2,7 @@
 
 Coordinate coding agents via events.
 
-<a class="VPButton brand" href="/docs/guide/quick-start">Quick start</a>
+<VPButton theme="brand" text="Quick start" href="/guide/quick-start" />
 
 ## What Aiur is
 
