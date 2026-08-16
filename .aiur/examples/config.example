@@ -113,7 +113,6 @@ alerts:
 # are rejected.
 # executor_takeover_first_alert_hours: 8     # first advisory after this many hours of convergence
 # executor_takeover_continuous_alert_hours: 1 # repeat cadence (hours) while unresolved; 0 = first alert only
-
 {{ELEVENLABS_SECTION}}
 # === Repo-wide PR comment watching (opt-in; OFF by default) ===
 # Let aiur act on comments across the whole repo, not just its own aiur/<id> PRs.
