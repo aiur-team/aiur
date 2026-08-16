@@ -118,7 +118,7 @@ defmodule Aiur.Alerts do
   def emit_custom(_name, _message, _opts), do: {:error, :invalid_alert}
 
   defp do_emit(topic, override_message, opts) do
-    if repeat_resolution?(topic, opts) do
+    if repeat_resolution?(topic) do
       :ok
     else
       emit_alert(topic, override_message, opts)
@@ -131,8 +131,11 @@ defmodule Aiur.Alerts do
   # Executor would act on. The check is against the durable ledger rather than
   # caller-held state, so an emitter that loses its in-memory latch — a restart,
   # a fresh CLI process — still cannot replay a transition that already landed.
-  defp repeat_resolution?(topic, opts) do
-    AlertFeed.duplicate_resolution?(topic, Keyword.take(opts, [:ledger_path, :ledger_paths, :log_roots]))
+  # Reads with the same default options `write_alert_ledger_entry/3` appends
+  # under, so the gate can never consult a ledger the emit would not land in.
+  # Fails open: an unreadable ledger must not swallow a real transition.
+  defp repeat_resolution?(topic) do
+    AlertFeed.duplicate_resolution?(topic)
   rescue
     _unavailable -> false
   end
