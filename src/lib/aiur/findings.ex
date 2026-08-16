@@ -14,7 +14,10 @@ defmodule Aiur.Findings do
   @statuses ~w(open filed resolved)
 
   @type record :: %{required(String.t()) => term()}
-  @type decode_error :: {:invalid_finding_record, Path.t(), pos_integer(), String.t()}
+
+  @type ledger_error ::
+          {:invalid_finding_record, Path.t(), pos_integer(), String.t()}
+          | {:finding_read_failed, Path.t(), term()}
 
   @doc "Appends one validated finding with `O_APPEND` semantics."
   @spec append(String.t(), record()) :: :ok | {:error, term()}
@@ -33,7 +36,7 @@ defmodule Aiur.Findings do
         {:ok, findings}
 
       {:ok, findings, errors} ->
-        Enum.each(errors, &Logger.warning("skipping corrupt findings ledger record: #{inspect(&1)}"))
+        Enum.each(errors, &Logger.warning("skipping unreadable findings ledger entry: #{inspect(&1)}"))
         {:ok, findings}
 
       error ->
@@ -41,8 +44,8 @@ defmodule Aiur.Findings do
     end
   end
 
-  @doc "Returns findings and invalid ledger lines without failing closed."
-  @spec all_with_diagnostics(keyword()) :: {:ok, [record()], [decode_error()]} | {:error, term()}
+  @doc "Returns findings and diagnostics (corrupt lines, unreadable files) without failing closed."
+  @spec all_with_diagnostics(keyword()) :: {:ok, [record()], [ledger_error()]} | {:error, term()}
   def all_with_diagnostics(opts \\ []) do
     scope = Keyword.get(opts, :scope)
 
@@ -68,8 +71,8 @@ defmodule Aiur.Findings do
     end
   end
 
-  @doc "Returns unfiled findings and invalid ledger lines without failing closed."
-  @spec unfiled_with_diagnostics(keyword()) :: {:ok, [record()], [decode_error()]} | {:error, term()}
+  @doc "Returns unfiled findings and diagnostics (corrupt lines, unreadable files) without failing closed."
+  @spec unfiled_with_diagnostics(keyword()) :: {:ok, [record()], [ledger_error()]} | {:error, term()}
   def unfiled_with_diagnostics(opts \\ []) do
     with {:ok, findings, errors} <- all_with_diagnostics(opts) do
       {:ok, findings |> latest_by_slug() |> Enum.filter(&(Map.get(&1, "ticket") in [nil, ""])), errors}
@@ -141,22 +144,22 @@ defmodule Aiur.Findings do
     end
   end
 
+  # One unreadable ledger file must not hide the other repositories' findings.
+  # Its read failure joins the diagnostics so it stays visible without failing
+  # the whole read closed.
   defp read_all(scope) do
     finding_paths()
-    |> Enum.reduce_while({:ok, [], []}, fn path, {:ok, findings, errors} ->
+    |> Enum.reduce({[], []}, fn path, {findings, errors} ->
       case read_file(path) do
         {:ok, records, line_errors} ->
-          {:cont, {:ok, Enum.reverse(filter_scope(records, scope)) ++ findings, errors ++ line_errors}}
+          {Enum.reverse(filter_scope(records, scope)) ++ findings, errors ++ line_errors}
 
         {:error, reason} ->
-          {:halt, {:error, reason}}
+          {findings, errors ++ [reason]}
       end
     end)
-    |> reverse_findings()
+    |> then(fn {findings, errors} -> {:ok, Enum.reverse(findings), errors} end)
   end
-
-  defp reverse_findings({:ok, findings, errors}), do: {:ok, Enum.reverse(findings), errors}
-  defp reverse_findings({:error, _reason} = error), do: error
 
   defp finding_paths do
     [RepoBase.repo_path("placeholder/placeholder"), "..", "..", "*", "*", "meta", "findings.ndjson"]

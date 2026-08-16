@@ -70,6 +70,22 @@ defmodule Aiur.FindingsTest do
              Findings.all_with_diagnostics()
   end
 
+  test "keeps other ledgers readable when one ledger file is unreadable", %{repo: repo, second_repo: second_repo} do
+    assert :ok = Findings.append(repo, finding("first-failure", nil))
+    assert :ok = Findings.append(second_repo, finding("second-failure", 42, "repo"))
+
+    # A directory at the ledger path cannot be read; the other repo's ledger
+    # must survive and the failure must be surfaced as a diagnostic.
+    unreadable = RepoBase.findings_path(repo)
+    File.rm!(unreadable)
+    File.mkdir_p!(unreadable)
+
+    assert {:ok, records, [{:finding_read_failed, ^unreadable, _reason}]} =
+             Findings.all_with_diagnostics()
+
+    assert Enum.map(records, & &1["slug"]) == ["second-failure"]
+  end
+
   test "reports the physical line number after an interior blank line", %{repo: repo} do
     assert :ok = Findings.append(repo, finding("first-failure", nil))
     path = RepoBase.findings_path(repo)

@@ -43,7 +43,7 @@ defmodule Aiur.FindingsCLI do
 
     case reader.(scope: opts.scope) do
       {:ok, findings, errors} ->
-        Enum.each(errors, fn error -> puts.("aiur findings: skipping corrupt ledger record: #{format_error(error)}") end)
+        Enum.each(errors, fn error -> puts.("aiur findings: skipping unreadable ledger entry: #{format_error(error)}") end)
         render_findings(findings, opts, puts)
 
       {:error, reason} ->
