@@ -224,18 +224,20 @@ defmodule AiurWeb.StreamdeckLogs do
     |> visible()
   end
 
-  @doc "Keeps the selected event inside the event window; LIVE is pinned and always visible."
+  @doc "Keeps the selected event inside the event window; LIVE chases to the newest page."
   @spec ensure_visible(map()) :: map()
   def ensure_visible(logs) do
     offset = logs.events_offset
     selected = logs.selected_event_index
-    live_index = length(logs.event_keys) - 1
 
     offset =
       cond do
-        # LIVE occupies the rightmost key at every scroll position, so it never
-        # needs the window to chase it.
-        selected == live_index -> offset
+        # LIVE is pinned to the rightmost key, so it never needs the window to
+        # chase it for visibility — but selection semantics are unchanged from
+        # #1934, and the client chases a selected LIVE to the newest page, so
+        # the server does too: selecting LIVE lands the window on the newest
+        # events beside it. The general branch below yields max_offset for LIVE
+        # after clamping.
         selected < offset -> selected
         selected >= offset + @events_per_page -> selected - @events_per_page + 1
         true -> offset

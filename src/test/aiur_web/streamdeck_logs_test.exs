@@ -203,6 +203,25 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert List.last(at_origin.event_keys_visible).kind == :live
   end
 
+  # Selection semantics from #1934 are unchanged: selecting LIVE returns to the
+  # newest page of events as well as the newest transcript row, matching the
+  # physical deck's chase — the window is not left showing an old page beside a
+  # LIVE key that says "now".
+  test "selecting LIVE moves the event window to the newest page" do
+    logs = StreamdeckLogs.project(%{events: Enum.map(1..12, &bus(&1, "emit", "ticket.401.pr.opened", "e#{&1}", stamp(&1))), transcript: []})
+
+    # 12 events + origin = 13 event keys + LIVE = 14 keys; max offset = 6.
+    assert logs.events_max_offset == 6
+
+    at_origin = StreamdeckLogs.scroll(logs, :events, -99)
+    assert at_origin.events_offset == 0
+
+    back_to_live = StreamdeckLogs.select_event(at_origin, length(at_origin.event_keys) - 1)
+    assert back_to_live.selected_event_id == :live
+    assert back_to_live.events_offset == back_to_live.events_max_offset
+    assert List.last(back_to_live.event_keys_visible).kind == :live
+  end
+
   test "selection keeps the selected event in the eight-key window" do
     logs = StreamdeckLogs.project(%{events: Enum.map(1..12, &bus(&1, "emit", "ticket.401.pr.opened", "e#{&1}", stamp(&1))), transcript: []})
 
