@@ -9223,6 +9223,23 @@ html[data-theme="light"] .sd-device {
   display: block;
 }
 
+/* The settings pane is prose, not a key grid: there is nothing to pick here
+   because microphone enumeration happens on the sidecar host. */
+.sd-settings-view {
+  display: grid;
+  gap: 0.6rem;
+  align-content: center;
+  min-height: 8rem;
+  padding: 0.9rem 1rem;
+}
+
+.sd-settings-line {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.45;
+}
+
 .sd-mode-label {
   margin: 0 0 0.5rem;
   color: var(--muted);

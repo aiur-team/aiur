@@ -433,7 +433,7 @@ agent:
 
 ## elevenlabs
 
-Optional. Backs Stream Deck voice input and Dashboard Units-modal dictation. Stream Deck delivers its transcript to the focused agent; dashboard dictation puts its transcript in the ordinary message composer for the operator to review and send. The section may be omitted entirely; the defaults below apply.
+Optional. Backs Stream Deck voice input and Dashboard Units-modal dictation. Both clients stream captured audio to Aiur, and **Aiur** calls ElevenLabs speech-to-text with the credential below. Stream Deck delivers the transcript to the focused agent; dashboard dictation puts it in the ordinary message composer for the operator to review and send. This is the only place the credential is configured — neither the Stream Deck sidecar nor the browser holds it. The section may be omitted entirely; the defaults below apply.
 
 | Key | Type | Default | Controls |
 | --- | --- | --- | --- |

@@ -365,7 +365,7 @@ test('command keys render real state-derived controls, flash on click, and emit 
   const commands = page.locator('[data-streamdeck-command]')
   await expect(commands).toHaveCount(4)
   await expect(page.getByRole('button', { name: 'Pause', exact: true })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Prioritize', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toBeVisible()
   await expect(page.locator('#sd-keys button:disabled')).toHaveCount(4)
   await expect(page.locator('#sd-keys .sd-cmd-key.is-empty[aria-hidden="true"]')).toHaveCount(4)
 
@@ -381,18 +381,20 @@ test('command keys render real state-derived controls, flash on click, and emit 
     }
   })
 
-  for (const command of ['pause', 'priority', 'logs']) {
+  for (const command of ['pause', 'logs', 'settings']) {
     const key = page.locator(`[data-streamdeck-command="${command}"]`)
     await key.click()
     await expect(key).toHaveClass(/is-flashing/, { timeout: 500 })
-    if (command === 'logs') {
-      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'logs')
+    // Logs and Settings are the two navigation keys: each opens its own pane
+    // and dial A backs out of it.
+    if (command === 'logs' || command === 'settings') {
+      await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', command)
       await page.locator('.sd-knob').first().click()
       await expect(page.locator('.sd-device')).toHaveAttribute('data-mode', 'cmd')
     }
   }
 
-  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'priority', 'logs'])
+  expect(await page.evaluate(() => window.__streamdeckCommandEvents.map((event) => event.payload.command))).toEqual(['pause', 'logs', 'settings'])
   expect(await page.evaluate(() => window.__streamdeckGridEvents)).toEqual([])
 })
 
@@ -445,8 +447,8 @@ test('cmd mode renders the design\'s four command keys with Mic excluded from th
 
   const buttons = page.locator('.sd-cmd-key .sd-key-face[data-streamdeck-command]')
   await expect(buttons).toHaveCount(4)
-  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Prioritize', 'Logs', 'Mic'])
-  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'RAISE', 'SCROLL', 'HOLD'])
+  await expect(buttons.locator('.sd-cmd-label')).toHaveText(['Pause', 'Logs', 'Mic', 'Settings'])
+  await expect(buttons.locator('.sd-cmd-sub')).toHaveText(['HOLD', 'SCROLL', 'HOLD', 'OPEN'])
 
   // Mic is the only press-and-hold key; the hook drives it from pointer events
   // rather than the click handler it binds to the others.
@@ -469,7 +471,7 @@ test('read-only mode disables the fleet-control command keys and a mic hold does
 
   await page.locator('.sd-key:not(.is-empty)').first().click()
 
-  for (const command of ['pause', 'priority', 'mic']) {
+  for (const command of ['pause', 'mic']) {
     await expect(page.locator(`[data-streamdeck-command="${command}"]`)).toBeDisabled()
     await expect(page.locator(`.sd-cmd-key:has([data-streamdeck-command="${command}"])`)).toHaveClass(/is-disabled/)
   }
