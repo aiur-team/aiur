@@ -361,6 +361,37 @@ defmodule Aiur.ProviderMeterProbeTest do
     assert snapshot.windows["credits-remaining"].credits.amount == 77.5
   end
 
+  # A baseline write that fails (read-only mount, full disk, an un-creatable
+  # directory) must never take down the balance probe: the balance still
+  # publishes dollar-only, with no spend percentage. This is the regression the
+  # probe used to turn into a hard `:probe_failed` — the `File.mkdir_p!/1` in
+  # `BalanceBaseline.write/2` sat outside its guard and raised through
+  # `resolve/3`.
+  test "DeepSeek publishes a balance window even when the baseline cannot be written" do
+    :ok = Events.subscribe_observed()
+
+    file = Path.join(System.tmp_dir!(), "aiur-probe-mkdirfail-#{System.unique_integer([:positive])}")
+    File.write!(file, "not a directory")
+    on_exit(fn -> File.rm(file) end)
+    path = Path.join([file, "sub", "balance-baseline.json"])
+
+    assert %{observed?: true, reason: nil} =
+             OpenAICompatProbe.probe(:deepseek, "deepseek",
+               backend_configs: %{},
+               observed_at: ~U[2026-08-01 12:00:00Z],
+               deepseek_in_flight: 0,
+               path: path,
+               api_key_fetcher: fn "DEEPSEEK_API_KEY" -> "secret" end,
+               openai_compat_request_fun: fn _request ->
+                 {:ok, %{status: 200, body: %{"balance_infos" => [%{"currency" => "USD", "total_balance" => "16.85"}]}}}
+               end
+             )
+
+    assert_receive {:provider_meter_changed, snapshot}
+    assert snapshot.windows["prepaid-balance-usd"].credits.amount == 16.85
+    refute Map.has_key?(snapshot.windows["prepaid-balance-usd"], :used_percent)
+  end
+
   test "absent or malformed balance values never fabricate zero credits" do
     :ok = Events.subscribe_observed()
 

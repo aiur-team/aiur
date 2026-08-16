@@ -125,7 +125,7 @@ defmodule AiurWeb.BuildOrderPresenter do
     }
 
     member_index = member_index(planning.selected.members)
-    edge_inputs = edge_inputs(planning.selected.members, member_index)
+    edge_inputs = edge_inputs(planning.selected.members)
     native_edges = native_member_edges(edge_inputs, member_index)
     graph = GraphAnalysis.analyze(Map.keys(member_index), native_edges)
     edges = build_edges(edge_inputs, member_index, graph, edge_health(planning))
@@ -236,38 +236,39 @@ defmodule AiurWeb.BuildOrderPresenter do
     end)
   end
 
-  defp edge_inputs(members, member_index) do
+  defp edge_inputs(members) do
     members
     |> Enum.filter(&match?(%Member{}, &1))
     |> Enum.sort_by(&member_sort_key/1)
-    |> Enum.flat_map(&member_edge_inputs(&1, member_index))
+    |> Enum.flat_map(&member_edge_inputs/1)
     |> merge_duplicate_edges()
     |> Enum.sort_by(&edge_input_sort_key/1)
   end
 
-  defp member_edge_inputs(%Member{} = member, member_index) do
+  defp member_edge_inputs(%Member{} = member) do
     owner_key = identity_key(member.identity)
 
     member.dependencies
     |> Enum.with_index()
     |> Enum.map(fn {dependency, index} ->
-      edge_input(dependency, owner_key, index, member_index)
+      edge_input(dependency, owner_key, index)
     end)
   end
 
-  defp edge_input(dependency, owner_key, index, member_index) do
+  defp edge_input(dependency, owner_key, index) do
     source = Map.get(dependency, :blocker_identity)
     target = Map.get(dependency, :blocked_identity)
     source_key = identity_key(source) || unresolved_key(owner_key, dependency, index, :source)
     target_key = identity_key(target) || unresolved_key(owner_key, dependency, index, :target)
     kind = edge_kind(Map.get(dependency, :kind))
-    missing_internal? = kind == :native and not internal_edge?({source_key, target_key}, member_index)
 
+    # A native edge whose endpoint falls outside this root's member set is a
+    # cross-root reference, not a defect: it already renders neutrally (state
+    # `:unknown`) as leaving the graph, so it contributes no diagnostic here.
     diagnostics =
       dependency
       |> Map.get(:diagnostics, [])
       |> List.wrap()
-      |> Kernel.++(if(missing_internal?, do: [Diagnostic.new(:unresolved_internal_dependency)], else: []))
       |> normalize_diagnostics()
 
     %{

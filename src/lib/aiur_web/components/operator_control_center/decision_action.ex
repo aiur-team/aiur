@@ -13,21 +13,37 @@ defmodule AiurWeb.OperatorControlCenter.DecisionAction do
     form = Map.get(assigns.state, :form, %{})
     choice = Map.get(form, "choice") || default_choice(assigns.decision)
 
+    decision = assigns.decision
+    status = decision.decision_status
+    blocking? = Map.get(decision, :blocking, false)
+
+    answerable? = status in [:open, :deferred, :dismissed]
+
+    # Only offer the control where dismissal genuinely clears the block:
+    # the dashboard resolves the underlying legacy attention alongside it.
+    # An agent-filed blocking Command has no such path and the store
+    # refuses it, so it must be answered rather than closed.
+    dismissible? =
+      blocking? and
+        not is_nil(Map.get(decision, :legacy_attention)) and
+        status in [:open, :deferred]
+
+    acknowledgeable? = decision.options == [] and status == :open and not blocking?
+
+    # The command footer never renders more than two buttons: the submit button
+    # plus at most one secondary action. Defer is the secondary action that can
+    # otherwise coexist with a dismiss/acknowledge, so it yields to whichever of
+    # those is present rather than crowding the row.
+    deferrable? = status in [:open, :deferred] and not dismissible? and not acknowledgeable?
+
     assigns =
       assign(assigns,
         form: form,
         choice: choice,
-        answerable?: assigns.decision.decision_status in [:open, :deferred, :dismissed],
-        deferrable?: assigns.decision.decision_status in [:open, :deferred],
-        # Only offer the control where dismissal genuinely clears the block:
-        # the dashboard resolves the underlying legacy attention alongside it.
-        # An agent-filed blocking Command has no such path and the store
-        # refuses it, so it must be answered rather than closed.
-        dismissible?:
-          Map.get(assigns.decision, :blocking, false) and
-            not is_nil(Map.get(assigns.decision, :legacy_attention)) and
-            assigns.decision.decision_status in [:open, :deferred],
-        acknowledgeable?: assigns.decision.options == [] and assigns.decision.decision_status == :open and not Map.get(assigns.decision, :blocking, false),
+        answerable?: answerable?,
+        deferrable?: deferrable?,
+        dismissible?: dismissible?,
+        acknowledgeable?: acknowledgeable?,
         error: Map.get(assigns.state, :error),
         notice: Map.get(assigns.state, :notice)
       )

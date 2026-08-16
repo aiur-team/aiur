@@ -6,7 +6,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   alias Aiur.BuildOrder.Bounded
   alias Aiur.CodingAgent
   alias Aiur.TrackerIdentity
-  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPresentation, UnitsPresenter}
+  alias AiurWeb.OperatorControlCenter.{UnitsControlPolicy, UnitsPolicy, UnitsPresentation, UnitsPresenter}
 
   attr(:view, :map, required: true)
   attr(:now, :any, required: true)
@@ -54,14 +54,6 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
         {@message || "No units have been observed in this run."}
       </div>
 
-      <div :if={@status == :stale} class="units-state readonly-banner stale-banner" role="status">
-        <span aria-hidden="true">◉</span>
-        <span>
-          <b>Stale Units catalog.</b>
-          {@message || "Showing the last-known-good Units catalog while refresh is degraded."}
-        </span>
-      </div>
-
       <div :if={catalog_empty?(@status, @rows, @view)} class="units-state empty-state">
         No units have been observed in this run.
       </div>
@@ -103,13 +95,13 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
                 phx-value-unit={token}
                 data-ticket-context-origin
               >
-                <span :if={row_tone(row)} class={["ut-alert", row_tone(row)]} aria-hidden="true">{icon(:warning)}</span>
+                <span :if={attention_emoji?(row)} class="ut-alert" aria-hidden="true">{icon(:warning)}</span>
                 <span class="ut-id-num mono num">{id_number(row.identity)}</span>
               </td>
 
               <td data-label="Unit" class="ut-unit-cell ut-open" phx-click="inspect-unit" phx-value-unit={token}>
                 <div class="ut-pill-row">
-                  <span class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(agent_family(row))}</span>
+                  <span :if={present?(agent_label(row))} class={["u-pill", "u-agent", agent_class(agent_family(row))]} style={agent_style(agent_family(row))}>{agent_label(row)}</span>
                   <span :if={is_integer(row.complexity)} class="u-pill u-cx">Cx:{row.complexity}</span>
                 </div>
                 <div class="ut-pill-row">
@@ -299,13 +291,29 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
 
   defp row_tone(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: "is-blocked"
   defp row_tone(%{reasons: %{alert: alert}}) when not is_nil(alert), do: "has-alert"
-  defp row_tone(_row), do: nil
+  defp row_tone(row), do: row_state_tone(row)
 
-  # A stale catalog with nothing retained must still say so. Without this the
-  # staleness banner claims to be "showing the last-known-good Units catalog"
-  # over an empty area, which is a worse report than the unavailable panel this
-  # surface replaced. `zero_result?` owns the "rows exist but the filter hides
-  # them" case, so it is excluded here.
+  # Active, queued, and paused are distinct non-red states. The aggressive red
+  # alert treatment (warning glyph + red left border + red background) is
+  # reserved for a row blocked awaiting a command/decision; every other state
+  # renders without it.
+  defp row_state_tone(row) do
+    cond do
+      UnitsPolicy.condition?(:paused, row) -> "is-paused"
+      UnitsPolicy.condition?(:queued, row) -> "is-queued"
+      true -> nil
+    end
+  end
+
+  # Only the two attention tones — blocked awaiting a command/decision and the
+  # open-command alert — carry the warning glyph; paused/queued/active never do.
+  defp attention_emoji?(%{reasons: %{blocking: blocking}}) when not is_nil(blocking), do: true
+  defp attention_emoji?(%{reasons: %{alert: alert}}) when not is_nil(alert), do: true
+  defp attention_emoji?(_row), do: false
+
+  # A stale catalog with nothing retained must still say so, rather than
+  # silently rendering a blank area. `zero_result?` owns the "rows exist but the
+  # filter hides them" case, so it is excluded here.
   defp catalog_empty?(:stale, [], view), do: view[:zero_result?] != true
   defp catalog_empty?(_status, _rows, _view), do: false
 
@@ -328,7 +336,7 @@ defmodule AiurWeb.OperatorControlCenter.UnitsTable do
   defp id_number(%TrackerIdentity{identifier: identifier}) when is_binary(identifier) and identifier != "", do: identifier
   defp id_number(_identity), do: "—"
 
-  defp agent_label(family), do: UnitsPresentation.agent_label(family)
+  defp agent_label(row), do: UnitsPresentation.agent_label(row)
 
   # A row names its provider family via `:agent_family` (metering) or `:backend`
   # (control), preferring the former. Both are matched against the registry's

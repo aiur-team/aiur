@@ -116,6 +116,7 @@ defmodule AiurWeb.Router do
     get("/aiur-dom-svg-layout-loader.js", StaticAssetController, :dom_svg_layout_loader)
     get("/aiur-dom-svg-layout/:module", StaticAssetController, :dom_svg_layout_module)
     get("/aiur-logo.png", StaticAssetController, :aiur_logo)
+    get("/images/github-mark.svg", StaticAssetController, :github_mark)
     get("/bungee.woff2", StaticAssetController, :bungee_font)
     get("/provider-assets/*provider_asset", StaticAssetController, :provider_asset)
     get("/vendor/phoenix_html/phoenix_html.js", StaticAssetController, :phoenix_html_js)
