@@ -100,6 +100,7 @@ const makeHarness = (overrides: Partial<RuntimeEnv> = {}): Harness => {
     net: okNet(),
     brightness: 80,
     devicePresentAtStart: false,
+    onBackendClosed: vi.fn(),
     openBackend: async () => makeBackend(),
     registerSignals: (handler) => {
       signalHandler = handler;
@@ -245,8 +246,10 @@ describe("startRuntime", () => {
     const first = makeBackend();
     const second = makeBackend();
     let opened = 0;
+    const onBackendClosed = vi.fn();
     const h = makeHarness({
       devicePresentAtStart: true,
+      onBackendClosed,
       openBackend: async () => (opened++ === 0 ? first : second),
     });
     await startRuntime(h.env);
@@ -255,6 +258,7 @@ describe("startRuntime", () => {
     h.sleep.onSleep();
     await tick();
     expect(first.close).toHaveBeenCalled();
+    expect(onBackendClosed).toHaveBeenCalledWith(first);
 
     h.sleep.onWake();
     await tick();

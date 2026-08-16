@@ -94,15 +94,6 @@ defmodule Aiur.Init.Questions do
     end
   end
 
-  @spec prompt_rate_limit_fallback(Aiur.Init.io(), [String.t()]) :: [String.t()]
-  def prompt_rate_limit_fallback(io, agents) do
-    if length(agents) > 1 and io.confirm.("Switch to another configured agent when a usage limit is reached?", false) do
-      io.multiselect.("Fallback priority (first available wins)", agents, agents)
-    else
-      []
-    end
-  end
-
   @spec routing_value(String.t(), String.t() | nil, String.t() | nil) :: String.t()
   def routing_value(backend, nil, nil), do: backend
   def routing_value(backend, model, nil), do: "#{backend}:#{model}"

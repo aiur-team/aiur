@@ -168,6 +168,85 @@ defmodule AiurWeb.OperatorControlCenter.TicketContextTest do
     refute html =~ "ticket-context-dependencies"
   end
 
+  test "renders a fixed header nav with the ticket id, a smaller title, and an X close button" do
+    html =
+      render_component(&TicketContext.ticket_context/1, %{
+        id: "ticket-context-header",
+        context: context(),
+        close_event: "close-ticket-context"
+      })
+
+    assert html =~ ~s(class="ticket-context-nav")
+    assert html =~ ~s(class="ticket-context-id mono">#42</span>)
+    assert html =~ ~s(class="ticket-context-title")
+    assert html =~ "Configured ticket"
+    assert html =~ ~s(class="ticket-context-close")
+    assert html =~ ~s(aria-label="Close ticket context")
+    assert html =~ ~s(phx-click="close-ticket-context")
+    assert html =~ ~s(<path d="M6 18 18 6M6 6l12 12">)
+    refute html =~ ">Close</button>"
+  end
+
+  test "renders the description as height-constrained, scrollable markdown" do
+    context = %{
+      context()
+      | description: "## Overview\n\n- first\n- second\n\n**bold** and `code` with [a link](https://example.com)"
+    }
+
+    html = render_component(&TicketContext.ticket_context/1, %{id: "ticket-context-markdown", context: context, mode: :region})
+
+    assert html =~ ~s(class="ticket-context-markdown")
+    assert html =~ "<h2>Overview</h2>"
+    assert html =~ "<ul>"
+    assert html =~ "<li>first</li>"
+    assert html =~ "<li>second</li>"
+    assert html =~ "<strong>bold</strong>"
+    assert html =~ "<code>code</code>"
+    assert html =~ ~s(href="https://example.com")
+    refute html =~ "javascript:"
+  end
+
+  test "unifies progress updates and the full event stream in a scrollable Logs view" do
+    context = %{
+      context()
+      | logs: %{
+          entries: [
+            %LogEntry{
+              kind: :pull_request,
+              label: "Pull request updated",
+              source: :issue_log,
+              occurred_at: @observed_at,
+              observed_at: @observed_at
+            },
+            %LogEntry{
+              kind: :progress,
+              label: "Progress updated",
+              source: :exchange,
+              occurred_at: @observed_at,
+              observed_at: @observed_at,
+              details: %{percent: 25}
+            }
+          ],
+          truncated?: false,
+          observed_at: @observed_at
+        }
+    }
+
+    html =
+      render_component(&TicketContext.ticket_context/1, %{
+        id: "ticket-context-unified-logs",
+        context: context,
+        mode: :region
+      })
+
+    assert html =~ "Progress update"
+    assert html =~ "40% complete"
+    assert html =~ "Pull request updated"
+    assert html =~ "25% complete"
+    assert html =~ ~s(class="ticket-context-progress-row")
+    assert html =~ ~s(class="ticket-context-logs-wrap")
+  end
+
   test "normalizes direct View inputs before rendering text, logs, evidence, or provenance" do
     unsafe_context = %{
       context()

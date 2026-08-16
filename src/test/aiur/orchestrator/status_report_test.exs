@@ -122,6 +122,31 @@ defmodule Aiur.Orchestrator.StatusReportTest do
     assert snapshot_status.waiting_reason == status.waiting_reason
   end
 
+  test "a released claim is projected into the snapshot and wins the waiting reason (#1475)" do
+    issue = %Issue{id: "released", identifier: "repo#1475", state: "todo"}
+    release = %{cause: :rate_limit, details: %{}, released_at_ms: System.monotonic_time(:millisecond)}
+
+    state = %State{
+      last_polled_issues: %{issue.id => issue},
+      released_claims: %{issue.id => release}
+    }
+
+    snapshot_input = StatusReport.snapshot_input(state)
+    assert snapshot_input.released_claims == state.released_claims
+
+    [status] = StatusReport.agent_statuses(state, fn _ -> {:unavailable, nil} end)
+
+    assert status.claim_released?
+    assert status.claim_release_cause == :rate_limit
+    assert status.waiting_reason == :claim_released
+    assert {:claim_released, :rate_limit, nil} = status.reason
+
+    [snapshot_status] = StatusReport.snapshot_payload(snapshot_input).idle
+    assert snapshot_status.claim_released?
+    assert snapshot_status.claim_release_cause == :rate_limit
+    assert snapshot_status.waiting_reason == :claim_released
+  end
+
   test "human-wait alert threshold is episode-based and inclusive" do
     now = ~U[2026-08-11 12:00:00Z]
 

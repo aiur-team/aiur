@@ -1285,8 +1285,9 @@ defmodule Aiur.CoreTest do
     assert log =~ "Retry poll failed for issue_id=#{issue_id} issue_identifier=MT-POLL"
     assert log =~ "retry_poll_failure=2/3 agent_attempt=1 tracker_error={:github_api_status, 403}"
     assert log =~ "Retrying retry-poll precondition issue_id=#{issue_id} issue_identifier=MT-POLL"
-    assert log =~ "Retry poll exhausted for issue_id=#{issue_id} issue_identifier=MT-POLL agent_attempt=1"
-    assert log =~ "[alert] (#MT-POLL) orchestrator.retry_poll.exhausted"
+    assert log =~ "Claim released for issue_id=#{issue_id} issue_identifier=MT-POLL agent_attempt=1"
+    assert log =~ "reason=tracker_retry_exhausted"
+    assert log =~ "[alert] (#MT-POLL) orchestrator.claim_released"
   end
 
   test "stale retry timer messages do not consume newer retry entries" do

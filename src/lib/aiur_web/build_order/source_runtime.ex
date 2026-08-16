@@ -138,11 +138,17 @@ defmodule AiurWeb.BuildOrder.SourceRuntime do
   @spec assign_model(Socket.t()) :: Socket.t()
   def assign_model(socket) do
     model =
-      case RouteState.selected_snapshot(socket.assigns.route_state) do
-        %Snapshot{} = snapshot ->
+      case {RouteState.selected_snapshot(socket.assigns.route_state), RouteState.status(socket.assigns.route_state)} do
+        # A selected scope that is still loading has no renderable model yet:
+        # the nil-data snapshot the demand returns while the async fetch is in
+        # flight must surface as the shimmer, not a provider-unavailable model.
+        {%Snapshot{}, :selected_loading} ->
+          nil
+
+        {%Snapshot{} = snapshot, _status} ->
           BuildOrderPresenter.present(snapshot, socket.assigns.sources.execution, socket.assigns.sources.activity)
 
-        _snapshot ->
+        _no_snapshot ->
           nil
       end
 

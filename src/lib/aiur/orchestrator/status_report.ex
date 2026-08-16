@@ -17,11 +17,11 @@ defmodule Aiur.Orchestrator.StatusReport do
   alias Aiur.Orchestrator.ControlLifecycle
   alias Aiur.Orchestrator.Dispatcher
   alias Aiur.Orchestrator.DispatchPolicy
-  alias Aiur.Orchestrator.Lifecycle
   alias Aiur.Orchestrator.OperatorMessages, as: OM
   alias Aiur.Orchestrator.RemoteControlMode, as: RC
   alias Aiur.Orchestrator.Slots
   alias Aiur.Orchestrator.SnapshotPublisher
+  alias Aiur.Orchestrator.SnapshotStore
   alias Aiur.Orchestrator.State
   alias Aiur.Orchestrator.StatusReason
   alias Aiur.Orchestrator.WaitingReason
@@ -32,6 +32,64 @@ defmodule Aiur.Orchestrator.StatusReport do
   @activity_snapshot_timeout_ms 100
   @repo_base_status_timeout_ms 100
   @waiting_for_human_alert_after_seconds 600
+
+  @doc """
+  Reads the fleet view for a control query without sending a message to the
+  Orchestrator.
+
+  `status`, `agents` and `watch` read already-known state, so they must not
+  queue behind a data fetch: the Orchestrator was captured holding a GitHub
+  socket with thousands of messages behind it while these commands timed out
+  (#1837). They are served from the `SnapshotStore` read model instead.
+
+  Returns `{:ok, snapshot, freshness}` for both a current and a retained-but-
+  aged snapshot — the caller renders the age. The freshness map is the one
+  established by #1814 (`:status`, `:reason`, `:observed_at`, `:age_ms`,
+  `:age_seconds`, ...), not a second vocabulary. `{:error, reason}` is reserved
+  for the cases with genuinely nothing to show.
+
+  `fleet_rows?: true` asks for the `status`/`watch` row shape under `:statuses`.
+  Those rows are built on this process from the retained projection, so a query
+  that does not render them (`agents`) does not pay for them.
+  """
+  @spec fleet_view(GenServer.server(), timeout(), keyword()) :: {:ok, map(), map()} | {:error, :timeout | :unavailable}
+  def fleet_view(server \\ Aiur.Orchestrator, timeout, opts \\ []) do
+    case SnapshotStore.read(server, timeout, opts) do
+      {:current, snapshot, freshness} -> {:ok, snapshot, freshness}
+      {:stale, snapshot, freshness} -> {:ok, snapshot, freshness}
+      :snapshot_unpublished -> fleet_view_from_process(server, timeout, opts)
+      :orchestrator_unavailable -> {:error, :unavailable}
+    end
+  end
+
+  # Only reachable before the first publish of a generation — the short window
+  # after a restart, where the read model genuinely has nothing and a bounded
+  # call is the honest way to get an answer rather than telling the operator to
+  # retry. It is never the steady-state path, so it cannot reintroduce the
+  # head-of-line block: an Orchestrator that has been running long enough to be
+  # busy has already published.
+  #
+  # One call, never two: a query that needs the rows asks for the payload and
+  # the rows together, so this window costs the mailbox exactly one message.
+  defp fleet_view_from_process(server, timeout, opts) do
+    request = if Keyword.get(opts, :fleet_rows?, false), do: :fleet_view, else: :snapshot
+
+    case status_api_call(server, request, timeout, true) do
+      snapshot when is_map(snapshot) -> {:ok, snapshot, just_observed_freshness()}
+      :timeout -> {:error, :timeout}
+      _unavailable -> {:error, :unavailable}
+    end
+  end
+
+  defp just_observed_freshness do
+    %{
+      status: :current,
+      reason: nil,
+      observed_at: DateTime.to_iso8601(DateTime.utc_now()),
+      age_ms: 0,
+      age_seconds: 0
+    }
+  end
 
   @spec snapshot_api() :: map() | :timeout | :unavailable
   def snapshot_api, do: snapshot_api(Aiur.Orchestrator, 15_000)
@@ -122,6 +180,10 @@ defmodule Aiur.Orchestrator.StatusReport do
       :agent_totals,
       :capacity_hold,
       :dispatch_hold,
+      # `agent_statuses/1` reads the codex thrash budget to explain why an idle
+      # ticket is not dispatching. Projecting without it would fall back to the
+      # struct default and render a confident wrong *reason* on every idle row.
+      :dispatch_recovery,
       :effective_concurrent_agents,
       :global_pause,
       :globally_paused,
@@ -133,6 +195,7 @@ defmodule Aiur.Orchestrator.StatusReport do
       :poll_interval_ms,
       :retry_attempts,
       :auto_resume,
+      :released_claims,
       :running,
       :session_max_concurrent_agents
     ])
@@ -158,24 +221,13 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
   end
 
-  # A dashboard can show a pending control only for a running issue. Preserve
-  # those records, not the full bounded-but-fleet-wide control history.
+  # A dashboard needs bounded control history for each running issue so CLI
+  # receipt correlation survives a newer request and terminal resume reasons
+  # remain visible after the live event passes. The lifecycle already caps
+  # this history per issue; exclude every non-rendered issue from the copy.
   defp snapshot_control_lifecycle(%State{} = state) do
-    Enum.reduce(state.running, %ControlLifecycle{}, fn {_issue_id, entry}, lifecycle ->
-      issue_id = entry |> Map.get(:issue, %{}) |> Map.get(:id)
-
-      case ControlLifecycle.current_pending(state.control_lifecycle, issue_id) do
-        %{request_id: request_id} = request ->
-          %{
-            lifecycle
-            | pending: Map.put(lifecycle.pending, issue_id, request_id),
-              records: Map.put(lifecycle.records, request_id, request)
-          }
-
-        nil ->
-          lifecycle
-      end
-    end)
+    issue_ids = Enum.map(state.running, fn {_issue_id, entry} -> entry |> Map.get(:issue, %{}) |> Map.get(:id) end)
+    ControlLifecycle.snapshot_for(state.control_lifecycle, issue_ids)
   end
 
   # Queue depth and visible operator messages are dashboard contract fields.
@@ -259,11 +311,24 @@ defmodule Aiur.Orchestrator.StatusReport do
       end)
 
   @spec snapshot(State.t()) :: {:reply, map(), State.t()}
-  def snapshot(%State{} = state) do
-    state = Lifecycle.refresh_runtime_config(state)
+  # No runtime-config refresh here. The read model projects this same payload
+  # from a state copy on another process and cannot refresh anything, so a
+  # refresh on this path would make the two sources report different capacity
+  # for the same fleet — one of them confidently wrong. The poll cycle already
+  # refreshes runtime config every cycle; a read-only control query has no
+  # business mutating state to do it again (#1837).
+  def snapshot(%State{} = state), do: {:reply, snapshot_payload(state), state}
 
-    {:reply, snapshot_payload(state), state}
-  end
+  @doc """
+  The snapshot payload plus the `status`/`watch` rows, in one reply.
+
+  Serves the one window the read model cannot: a generation that has not
+  published yet. Answering both from a single call keeps that window at one
+  mailbox message rather than two.
+  """
+  @spec fleet_view_call(State.t()) :: {:reply, map(), State.t()}
+  def fleet_view_call(%State{} = state),
+    do: {:reply, Map.put(snapshot_payload(state), :statuses, agent_statuses(state)), state}
 
   @doc false
   @spec snapshot_payload(State.t()) :: map()
@@ -288,6 +353,12 @@ defmodule Aiur.Orchestrator.StatusReport do
       running: running,
       retrying: retrying,
       idle: idle,
+      # The `status`/`watch` rows are deliberately *not* built here. This runs on
+      # every state change, and `agent_statuses/1` reads `dispatch-budgets.json`
+      # and calls `RepoBase`; paying that continuously to save it on a command an
+      # operator types occasionally is a bad trade on a box that also runs the
+      # fleet. `SnapshotStore.read/3` builds them from the retained projection,
+      # on the reader's process, when someone asks (#1837).
       agent_totals: state.agent_totals,
       capacity: Slots.max_concurrent_agent_status(state),
       capacity_hold: capacity_hold_payload(state, now_ms),
@@ -349,7 +420,7 @@ defmodule Aiur.Orchestrator.StatusReport do
          stall_timeout_seconds,
          activity_by_identity
        ) do
-    capabilities = OM.issue_control_capabilities(state, metadata.identifier)
+    capabilities = OM.issue_control_capabilities(state, metadata.identifier, metadata)
     work_state = get_in(metadata, [:control, :status]) || :working
     pause_reason = Map.get(metadata, :paused_reason)
     started_at = Map.get(metadata, :started_at)
@@ -483,6 +554,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     identifier = issue.identifier || issue.id
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     latch = Map.get(latch_statuses, issue.id, :none)
+    release = Map.get(state.released_claims, issue.id)
     idle_evidence = idle_evidence(state, issue, latch, open_decision_count, now_ms)
 
     %{
@@ -501,7 +573,9 @@ defmodule Aiur.Orchestrator.StatusReport do
       auto_resume_retry_in_ms: idle_evidence.auto_resume_retry_in_ms,
       dispatch_hold_reason: idle_evidence.dispatch_hold_reason,
       capacity_hold_active?: idle_evidence.capacity_hold_active?,
-      waiting_reason: idle_evidence.waiting_reason,
+      waiting_reason: idle_evidence_waiting_reason(idle_evidence, release),
+      claim_released?: not is_nil(release),
+      claim_release_cause: release && release.cause,
       blocked_by: known_blocked_by(issue),
       open_decision_count: open_decision_count,
       open_decision_count_health: open_decision_count_health,
@@ -511,6 +585,15 @@ defmodule Aiur.Orchestrator.StatusReport do
     }
     |> Map.merge(issue_execution_facts(issue))
   end
+
+  # A released claim is the one idle signal that must win over every other
+  # reason: ownership evaporated and the operator (or the automatic re-claim)
+  # has to act. Prefer the claim-release classifier so the row never reads as a
+  # plain awaiting-dispatch; the detailed cause and retry window stay in
+  # `reason` (`StatusReason.render`) and `claim_release_cause`.
+  defp idle_evidence_waiting_reason(_evidence, %{cause: cause}) when not is_nil(cause), do: :claim_released
+
+  defp idle_evidence_waiting_reason(%{waiting_reason: fallback}, _release), do: fallback
 
   defp issue_execution_facts(%Issue{} = issue) do
     backend = CodingAgent.backend_for(issue)
@@ -780,6 +863,7 @@ defmodule Aiur.Orchestrator.StatusReport do
     identifier = Map.get(entry, :identifier) || issue_id
     issue = Map.get(entry, :issue) || %{}
     work_state = get_in(entry, [:control, :status]) || :working
+    capabilities = OM.issue_control_capabilities(state, identifier, entry)
     pause_reason = Map.get(entry, :paused_reason)
     {open_decision_count, open_decision_count_health} = open_decision_count(identifier)
     stale_for_seconds = stale_for_seconds(entry, now)
@@ -810,7 +894,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       session_id: Map.get(entry, :session_id),
       live_conversation: Map.get(entry, :live_conversation),
       runtime_seconds: State.running_seconds(Map.get(entry, :started_at), now),
-      queue_depth: OM.queue_depth_for_issue(state, identifier),
+      queue_depth: capabilities.queue_depth,
+      control: capabilities,
       complexity: issue_complexity(issue),
       last_codex_timestamp: Map.get(entry, :last_codex_timestamp),
       last_codex_message: Map.get(entry, :last_codex_message),
@@ -917,9 +1002,10 @@ defmodule Aiur.Orchestrator.StatusReport do
 
     work_state = idle_issue_work_state(issue)
     pause_reason = idle_issue_pause_reason(issue)
+    release = Map.get(state.released_claims, Map.get(issue, :id))
 
     idle_evidence = idle_evidence(state, issue, latch_status, open_decision_count, System.monotonic_time(:millisecond))
-    waiting_reason = idle_evidence.waiting_reason
+    waiting_reason = idle_evidence_waiting_reason(idle_evidence, release)
 
     %{
       issue_id: Map.get(issue, :id),
@@ -941,6 +1027,8 @@ defmodule Aiur.Orchestrator.StatusReport do
       last_codex_timestamp: nil,
       last_codex_message: nil,
       last_codex_event: nil,
+      claim_released?: not is_nil(release),
+      claim_release_cause: release && release.cause,
       reason:
         idle_status_reason(
           work_state,
@@ -948,7 +1036,9 @@ defmodule Aiur.Orchestrator.StatusReport do
           prewarm_blocked?,
           budget,
           max_dispatches,
-          latch_status
+          latch_status,
+          release && release.cause,
+          idle_evidence.auto_resume_retry_in_ms
         ),
       waiting_reason: waiting_reason,
       dispatch_latch: idle_evidence.dispatch_latch,
@@ -1060,7 +1150,22 @@ defmodule Aiur.Orchestrator.StatusReport do
          _prewarm_blocked?,
          _budget,
          _max_dispatches,
-         {:lifetime, lifetime, maximum}
+         _latch_status,
+         cause,
+         retry_in_ms
+       )
+       when not is_nil(cause),
+       do: StatusReason.for_claim_release(cause, retry_in_ms)
+
+  defp idle_status_reason(
+         _work_state,
+         _pause_reason,
+         _prewarm_blocked?,
+         _budget,
+         _max_dispatches,
+         {:lifetime, lifetime, maximum},
+         _cause,
+         _retry_in_ms
        ),
        do: StatusReason.for_idle(false, :lifetime, lifetime, maximum)
 
@@ -1070,7 +1175,9 @@ defmodule Aiur.Orchestrator.StatusReport do
          _prewarm_blocked?,
          _budget,
          _max_dispatches,
-         :none
+         :none,
+         _cause,
+         _retry_in_ms
        ),
        do: StatusReason.for_pause(pause_reason)
 
@@ -1080,7 +1187,9 @@ defmodule Aiur.Orchestrator.StatusReport do
          prewarm_blocked?,
          budget,
          max_dispatches,
-         :none
+         :none,
+         _cause,
+         _retry_in_ms
        ) do
     StatusReason.for_idle(
       prewarm_blocked?,

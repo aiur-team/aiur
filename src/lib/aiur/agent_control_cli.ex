@@ -28,6 +28,9 @@ defmodule Aiur.AgentControlCLI do
   alias Aiur.Orchestrator.{DispatchPolicy, StatusReason, WaitingReason}
   alias Aiur.SystemLoad
   alias Aiur.Webhooks.ModePresenter
+  # One age shape wherever a stale surface appears — reuse #1814's renderer
+  # rather than adding a second one for the CLI.
+  alias AiurWeb.OperatorControlCenter.UnitsPresentation
   import Aiur.EventHumanizerHelpers, only: [map_value: 2]
 
   @exit_marker "__AIUR_CONTROL_EXIT__:"
@@ -74,32 +77,113 @@ defmodule Aiur.AgentControlCLI do
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
       load_sample = local_load_sample()
 
-      # Read and show host pressure before touching the daemon. The control RPC
-      # is expected to be slow precisely when the machine is overloaded, so a
-      # timeout must not hide the load signal that explains it.
+      # Read and show host pressure before touching the daemon. The fleet view
+      # stays off the Orchestrator mailbox, while this local signal remains
+      # available even if the daemon itself is overloaded or unreachable.
       print_load_status(load_sample)
 
-      with {statuses, capacity} when is_list(statuses) and is_map(capacity) <-
-             Orchestrator.status_with_capacity(Orchestrator, timeout_ms),
-           :ok <- print_global_pause_banner(opts, timeout_ms) do
-        print_status_report(statuses, capacity, opts)
-      else
-        {:error, error} -> report_control_query_failure(error, "status", timeout_ms)
-        error -> report_control_query_failure(error, "status", timeout_ms)
-      end
+      with_fleet_view("status", opts, timeout_ms, fn snapshot, statuses ->
+        print_status_report(statuses, snapshot, opts)
+      end)
     end)
   end
 
-  defp print_status_report(statuses, capacity, opts) do
+  # The shared shape of every fleet-reading control query: read the view, say so
+  # if it is stale, print the global-pause banner, then render.
+  defp with_fleet_view(query, opts, timeout_ms, render) do
+    case fleet_view(opts, timeout_ms, fleet_rows?: true) do
+      {:ok, snapshot, freshness} -> render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render)
+      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+    end
+  end
+
+  defp render_fleet_view(query, opts, timeout_ms, {snapshot, freshness}, render) do
+    case fleet_statuses(snapshot) do
+      {:ok, statuses} -> render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render)
+      :error -> report_control_query_failure(:unavailable, query, timeout_ms)
+    end
+  end
+
+  defp render_fleet_rows(query, opts, timeout_ms, {snapshot, freshness}, statuses, render) do
+    print_snapshot_freshness(freshness)
+
+    case print_global_pause_banner(global_pause_opts(opts, snapshot), timeout_ms) do
+      :ok -> render.(snapshot, statuses)
+      {:error, error} -> report_control_query_failure(error, query, timeout_ms)
+    end
+  end
+
+  # `status`, `agents` and `watch` read state the daemon already knows. Serving
+  # them from the Orchestrator mailbox meant they queued behind whatever the
+  # dispatch loop was doing — including a blocking GitHub read on a held socket,
+  # which is what made both commands time out while `alerts` answered in ~300ms
+  # (#1837). They read the snapshot read model instead, so a fetch in flight
+  # cannot delay them.
+  defp fleet_view(opts, timeout_ms, view_opts \\ []) do
+    Keyword.get_lazy(opts, :fleet_view, fn -> Orchestrator.fleet_view(Orchestrator, timeout_ms, view_opts) end)
+  end
+
+  # A view with no rows in it is reported as unavailable, never rendered as an
+  # empty fleet. "No agents" and "we could not read the agents" are different
+  # facts, and this repo has already shipped the confusion once: `Active 0` and
+  # every counter zero while nine agents were working.
+  defp fleet_statuses(snapshot) do
+    case Map.get(snapshot, :statuses) do
+      statuses when is_list(statuses) -> {:ok, statuses}
+      _missing -> :error
+    end
+  end
+
+  defp global_pause_opts(opts, snapshot) do
+    case Map.get(snapshot, :global_pause) do
+      %{globally_paused: paused} = global_pause when is_boolean(paused) ->
+        Keyword.put_new(opts, :global_pause_status, {:ok, global_pause})
+
+      _other ->
+        opts
+    end
+  end
+
+  # A stale fleet view that looks current is worse than the timeout it replaces.
+  # When the read model is serving last-known-good data, say so and say how old,
+  # in the shape #1814 established.
+  defp print_snapshot_freshness(%{status: :stale} = freshness) do
+    IO.puts(
+      "STALE FLEET VIEW — showing the last-known-good snapshot, #{UnitsPresentation.age_label(Map.get(freshness, :age_seconds))} old" <>
+        stale_snapshot_reason(Map.get(freshness, :reason))
+    )
+  end
+
+  defp print_snapshot_freshness(_freshness), do: :ok
+
+  defp stale_snapshot_reason(:snapshot_timeout), do: " (the orchestrator is busy)"
+  defp stale_snapshot_reason(:snapshot_stalled), do: " (the orchestrator has stopped publishing)"
+  defp stale_snapshot_reason(:orchestrator_unavailable), do: " (the orchestrator is unavailable)"
+  defp stale_snapshot_reason(_reason), do: ""
+
+  defp print_status_report(statuses, snapshot, opts) do
     print_codeowners_trust()
 
     tracker_states = tracker_state_sets()
 
-    statuses
-    |> Enum.filter(&visible_status_row?(&1, tracker_states))
-    |> print_status_table()
+    # Count from the rows that are actually printed. Counting the unfiltered
+    # `statuses` let `RELEASED CLAIMS n` claim releases whose rows were hidden,
+    # so the headline and the table disagreed (#1475).
+    visible_statuses = Enum.filter(statuses, &visible_status_row?(&1, tracker_states))
 
-    print_capacity_status(capacity)
+    released_claims = Enum.count(visible_statuses, &(&1[:claim_released?] == true))
+
+    automatic_reclaims =
+      Enum.count(visible_statuses, &match?(%{reason: {:claim_released, _, retry_in_ms}} when is_integer(retry_in_ms), &1))
+
+    print_status_table(visible_statuses)
+
+    if released_claims > 0 do
+      recovery = if automatic_reclaims == released_claims, do: "automatic re-claim pending", else: "operator recovery required for some claims"
+      IO.puts("RELEASED CLAIMS #{released_claims} (#{recovery})")
+    end
+
+    print_capacity_status(Map.get(snapshot, :capacity))
 
     supervision_exit_code = print_supervision_health()
     print_ci_readiness()
@@ -118,16 +202,17 @@ defmodule Aiur.AgentControlCLI do
     guarded("agents", fn ->
       timeout_ms = control_query_timeout(opts, :snapshot_timeout_ms, @agents_timeout_ms)
 
-      case Orchestrator.snapshot(Orchestrator, timeout_ms) do
-        %{running: running} when is_list(running) ->
+      case fleet_view(opts, timeout_ms) do
+        {:ok, %{running: running}, freshness} when is_list(running) ->
+          print_snapshot_freshness(freshness)
           print_agents_table(running)
           exit_marker(0)
 
-        error when error in [:timeout, :unavailable] ->
-          report_control_query_failure(error, "agents", timeout_ms)
-
-        _other ->
+        {:ok, _snapshot, _freshness} ->
           report_control_query_failure(:unavailable, "agents", timeout_ms)
+
+        {:error, error} ->
+          report_control_query_failure(error, "agents", timeout_ms)
       end
     end)
   end
@@ -144,13 +229,9 @@ defmodule Aiur.AgentControlCLI do
     guarded("watch", fn ->
       timeout_ms = control_query_timeout(opts, :status_timeout_ms, @status_timeout_ms)
 
-      with statuses when is_list(statuses) <- Orchestrator.status(Orchestrator, timeout_ms),
-           :ok <- print_global_pause_banner(opts, timeout_ms) do
+      with_fleet_view("watch", opts, timeout_ms, fn _snapshot, statuses ->
         print_watch_board(statuses, opts)
-      else
-        {:error, error} -> report_control_query_failure(error, "watch", timeout_ms)
-        error -> report_control_query_failure(error, "watch", timeout_ms)
-      end
+      end)
     end)
   end
 
@@ -741,7 +822,9 @@ defmodule Aiur.AgentControlCLI do
   # many targets `--all` selected, and each read is capped by the time actually
   # left so a slow orchestrator cannot walk past the launcher's RPC timeout.
   defp resolve_queued_resumes(results) do
-    queued = for {:queued_resume, status} <- results, do: canonical_identifier(status)
+    queued =
+      for {:queued_resume, status, request_id} <- results,
+          do: %{canonical: canonical_identifier(status), request_id: request_id}
 
     if queued == [] do
       results
@@ -750,7 +833,7 @@ defmodule Aiur.AgentControlCLI do
       outcomes = await_resumes_applied(queued, deadline, %{})
 
       Enum.map(results, fn
-        {:queued_resume, status} ->
+        {:queued_resume, status, _request_id} ->
           report_resume(status, Map.fetch!(outcomes, canonical_identifier(status)))
 
         result ->
@@ -762,27 +845,48 @@ defmodule Aiur.AgentControlCLI do
   defp await_resumes_applied(pending, deadline, outcomes) do
     case read_control_states(pending, remaining_ms(deadline)) do
       {:error, error} ->
-        settle_all(pending, {:status_unreadable, error}, outcomes)
+        if remaining_ms(deadline) <= @resume_confirm_poll_ms do
+          settle_all(pending, {:unknown, %{reason: {:status_unreadable, error}}}, outcomes)
+        else
+          Process.sleep(@resume_confirm_poll_ms)
+          await_resumes_applied(pending, deadline, outcomes)
+        end
 
       {:ok, observed} ->
-        {settled, still_paused} = Enum.split_with(pending, &(Map.fetch!(observed, &1) != :paused))
-        outcomes = Enum.into(settled, outcomes, &{&1, Map.fetch!(observed, &1)})
+        {settled, waiting} = Enum.split_with(pending, &settled_resume_outcome?(Map.fetch!(observed, &1.canonical)))
+        outcomes = Enum.into(settled, outcomes, &{&1.canonical, Map.fetch!(observed, &1.canonical)})
 
         cond do
-          still_paused == [] ->
+          waiting == [] ->
             outcomes
 
           remaining_ms(deadline) <= @resume_confirm_poll_ms ->
-            settle_all(still_paused, :still_paused, outcomes)
+            settle_timed_out(waiting, observed, outcomes)
 
           true ->
             Process.sleep(@resume_confirm_poll_ms)
-            await_resumes_applied(still_paused, deadline, outcomes)
+            await_resumes_applied(waiting, deadline, outcomes)
         end
     end
   end
 
-  defp settle_all(pending, outcome, outcomes), do: Enum.into(pending, outcomes, &{&1, outcome})
+  defp settle_timed_out(waiting, observed, outcomes) do
+    Enum.into(waiting, outcomes, fn pending_resume ->
+      outcome = observed |> Map.fetch!(pending_resume.canonical) |> timeout_resume_outcome()
+      {pending_resume.canonical, outcome}
+    end)
+  end
+
+  defp settle_all(pending, outcome, outcomes), do: Enum.into(pending, outcomes, &{&1.canonical, outcome})
+
+  defp settled_resume_outcome?(:applied), do: true
+  defp settled_resume_outcome?({outcome, _detail}) when outcome in [:declined, :dropped], do: true
+  defp settled_resume_outcome?(_outcome), do: false
+
+  defp timeout_resume_outcome({:pending, detail}),
+    do: {:unknown, Map.put(detail, :reason, :confirmation_window_elapsed)}
+
+  defp timeout_resume_outcome(outcome), do: outcome
 
   defp remaining_ms(deadline), do: max(deadline - System.monotonic_time(:millisecond), 0)
 
@@ -791,12 +895,13 @@ defmodule Aiur.AgentControlCLI do
   defp read_control_states(pending, remaining) do
     case Orchestrator.status(Orchestrator, remaining |> max(@resume_confirm_poll_ms) |> min(@status_timeout_ms)) do
       statuses when is_list(statuses) ->
+        statuses_by_identifier = Map.new(statuses, &{canonical_identifier(&1), &1})
+
         {:ok,
-         Map.new(pending, fn canonical ->
-           case Enum.find(statuses, &target_matches?(&1, canonical)) do
-             nil -> {canonical, :no_longer_tracked}
-             %{state: :paused} -> {canonical, :paused}
-             _status -> {canonical, :applied}
+         Map.new(pending, fn %{canonical: canonical, request_id: request_id} ->
+           case Map.get(statuses_by_identifier, canonical) do
+             nil -> {canonical, {:unknown, %{reason: :no_longer_tracked}}}
+             status -> {canonical, resume_outcome(status, request_id)}
            end
          end)}
 
@@ -805,13 +910,95 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
+  defp resume_outcome(status, nil) do
+    if Map.get(status, :state) == :paused,
+      do: paused_resume_outcome(status, nil),
+      else: :applied
+  end
+
+  defp resume_outcome(status, request_id) do
+    latest = resume_control_outcome(status, request_id)
+
+    if is_map(latest) and Map.get(latest, :request_id) == request_id and Map.get(latest, :status) == :applied,
+      do: :applied,
+      else: paused_resume_outcome(status, request_id, latest)
+  end
+
+  defp paused_resume_outcome(status, request_id, latest \\ nil) do
+    latest = latest || resume_control_outcome(status, request_id)
+    detail = held_resume_detail(status, latest)
+    classify_paused_resume(latest, request_id, detail)
+  end
+
+  defp classify_paused_resume(latest, request_id, detail) do
+    cond do
+      not is_map(latest) -> unknown_outcome(detail, :missing_control_outcome)
+      mismatched_request?(request_id, latest) -> unknown_outcome(detail, :mismatched_control_outcome)
+      Map.get(latest, :action) != :resume -> unknown_outcome(detail, :mismatched_control_outcome)
+      true -> resume_status_outcome(latest, detail)
+    end
+  end
+
+  defp mismatched_request?(nil, _latest), do: false
+  defp mismatched_request?(request_id, latest), do: Map.get(latest, :request_id) != request_id
+
+  defp resume_status_outcome(latest, detail) do
+    case Map.get(latest, :status) do
+      :rejected -> {:declined, detail}
+      :expired -> {:dropped, detail}
+      status when status in [:requested, :accepted] -> {:pending, detail}
+      _other -> unknown_outcome(detail, :inconsistent_control_outcome)
+    end
+  end
+
+  defp unknown_outcome(detail, reason), do: {:unknown, Map.put(detail, :reason, reason)}
+
+  defp resume_control_outcome(status, request_id) do
+    control = Map.get(status, :control, %{})
+    recent = Map.get(control, :recent_controls, [])
+    correlated = Enum.find(recent, &(Map.get(&1, :request_id) == request_id))
+
+    if is_map(correlated) do
+      correlated
+    else
+      fallback_resume_control(control, request_id)
+    end
+  end
+
+  defp fallback_resume_control(control, request_id) do
+    latest_resume = Map.get(control, :latest_resume_control)
+    latest = Map.get(control, :latest_control)
+
+    Enum.find([latest_resume, latest], &matching_control?(&1, request_id)) ||
+      latest_resume ||
+      latest
+  end
+
+  defp matching_control?(control, request_id) when is_map(control) do
+    is_nil(request_id) or Map.get(control, :request_id) == request_id
+  end
+
+  defp matching_control?(_control, _request_id), do: false
+
+  defp held_resume_detail(status, latest) do
+    condition = get_in(latest || %{}, [:rejection, :condition]) || %{}
+
+    %{
+      control_status: Map.get(condition, :control_status, Map.get(status, :work_state, :paused)),
+      pause_reason: Map.get(condition, :pause_reason, Map.get(status, :pause_reason)),
+      status_reason: Map.get(status, :reason),
+      rejection: if(is_map(latest), do: Map.get(latest, :rejection)),
+      expiry: if(is_map(latest), do: Map.get(latest, :expiry))
+    }
+  end
+
   defp report_resume(status, :applied) do
     IO.puts("aiur: resumed #{display_identifier(status)} (was: paused)")
     :ok
   end
 
   defp report_resume(status, detail) do
-    print_unconfirmed_resume(status, detail)
+    print_unapplied_resume(status, detail)
     {:error, {:resume_unconfirmed, detail}}
   end
 
@@ -884,8 +1071,11 @@ defmodule Aiur.AgentControlCLI do
       # agent a resume control request and answers before the agent acts on it.
       # `:started` and `:reactivated` have already moved the issue into the
       # running set by the time they are returned, so they are claimable.
+      {:ok, {:resumed, request_id}} when previous_state == :paused ->
+        {:queued_resume, status, request_id}
+
       {:ok, :resumed} when previous_state == :paused ->
-        {:queued_resume, status}
+        {:queued_resume, status, nil}
 
       {:ok, result} when result in [:started, :resumed, :reactivated] ->
         IO.puts("aiur: #{result_verb(result)} #{display_identifier(status)} (was: #{previous_state})")
@@ -898,26 +1088,53 @@ defmodule Aiur.AgentControlCLI do
     end
   end
 
-  defp print_unconfirmed_resume(status, :still_paused) do
+  defp print_unapplied_resume(status, {:declined, detail}) do
     IO.puts(
       :stderr,
-      "aiur: resume request accepted for #{display_identifier(status)} but it was still paused #{format_timeout_budget(resume_confirm_timeout_ms())} later; the resume is unconfirmed"
+      "aiur: resume declined for #{display_identifier(status)}; #{held_control_detail(detail)}; #{control_rejection_detail(detail)}"
     )
   end
 
-  defp print_unconfirmed_resume(status, :no_longer_tracked) do
+  defp print_unapplied_resume(status, {:dropped, detail}) do
     IO.puts(
       :stderr,
-      "aiur: resume request accepted for #{display_identifier(status)} but the agent left the fleet before the resume was confirmed; outcome is unknown"
+      "aiur: resume request accepted for #{display_identifier(status)} but the resume dropped (#{dropped_resume_detail(detail)}); #{held_control_detail(detail)}"
     )
   end
 
-  defp print_unconfirmed_resume(status, {:status_unreadable, error}) do
+  defp print_unapplied_resume(status, {:unknown, detail}) do
     IO.puts(
       :stderr,
-      "aiur: resume request accepted for #{display_identifier(status)} but agent status could not be read (#{format_reason(error)}); the resume is unconfirmed"
+      "aiur: resume request accepted for #{display_identifier(status)} but why it was not applied could not be determined (#{unknown_resume_detail(detail)}); #{held_control_detail(detail)}; outcome is unknown"
     )
   end
+
+  defp held_control_detail(detail) do
+    status = Map.get(detail, :control_status, :unknown)
+    "control status remains #{status} (pause condition: #{pause_condition(detail)})"
+  end
+
+  defp pause_condition(%{status_reason: {:paused, :max_agent_duration}}), do: "maximum agent duration reached"
+  defp pause_condition(%{pause_reason: :max_agent_duration}), do: "maximum agent duration reached"
+  defp pause_condition(%{status_reason: reason}) when not is_nil(reason), do: StatusReason.render(reason)
+  defp pause_condition(%{pause_reason: reason}) when not is_nil(reason), do: StatusReason.render(StatusReason.for_pause(reason))
+  defp pause_condition(_detail), do: "unknown"
+
+  defp control_rejection_detail(%{rejection: %{message: message}}) when is_binary(message), do: message
+  defp control_rejection_detail(%{rejection: %{class: class}}), do: format_reason(class)
+  defp control_rejection_detail(_detail), do: "declining rule was not reported"
+
+  defp dropped_resume_detail(%{expiry: %{reason: :timeout}}), do: "timeout"
+  defp dropped_resume_detail(%{expiry: %{reason: reason}}), do: format_reason(reason)
+  defp dropped_resume_detail(_detail), do: "drop reason was not reported"
+
+  defp unknown_resume_detail(%{reason: {:status_unreadable, error}}), do: "status unreadable: #{format_reason(error)}"
+
+  defp unknown_resume_detail(%{reason: reason}) when is_atom(reason),
+    do: reason |> Atom.to_string() |> String.replace("_", " ")
+
+  defp unknown_resume_detail(%{reason: reason}) when not is_nil(reason), do: format_reason(reason)
+  defp unknown_resume_detail(_detail), do: "no diagnostic was reported"
 
   defp resume_confirm_timeout_ms do
     Application.get_env(:aiur, :agent_control_cli_resume_confirm_timeout_ms, @resume_confirm_timeout_ms)
@@ -1398,6 +1615,14 @@ defmodule Aiur.AgentControlCLI do
          _tracker_states
        ),
        do: true
+
+  # A released claim is an operator-actionable idle state, so it stays visible
+  # even when the ticket is outside the active tracker states. It is NOT exempt
+  # from the terminal filter: a claim released on a ticket that has since been
+  # closed cannot be recovered, and showing it forever is a wrong count (#1475).
+  defp visible_status_row?(%{state: :idle, reason: {:claim_released, _cause, _retry_in_ms}} = status, tracker_states) do
+    not in_tracker_state_set?(Map.get(status, :tracker_state), tracker_states.terminal)
+  end
 
   defp visible_status_row?(%{state: :idle, tracker_state: tracker_state}, tracker_states) do
     in_tracker_state_set?(tracker_state, tracker_states.active) and
@@ -1969,7 +2194,7 @@ defmodule Aiur.AgentControlCLI do
   end
 
   defp resume_agent(identifier) do
-    Application.get_env(:aiur, :agent_control_cli_resume_fun, &AgentChat.resume/1).(identifier)
+    Application.get_env(:aiur, :agent_control_cli_resume_fun, &AgentChat.resume_with_receipt/1).(identifier)
   end
 
   defp display_identifier(%{identifier: identifier, issue_id: issue_id}) do

@@ -97,6 +97,9 @@ defmodule Aiur.Orchestrator.State do
           # automatic re-dispatch (#1453). Keyed by issue_id; see
           # `Aiur.Orchestrator.AutoResume`.
           auto_resume: %{String.t() => map()},
+          # Claims released after retry exhaustion, retained until a later
+          # dispatch successfully re-establishes ownership.
+          released_claims: %{String.t() => map()},
           model_fallback_waiting: MapSet.t(),
           agent_totals: map() | nil,
           agent_rate_limits: map() | nil,
@@ -107,6 +110,8 @@ defmodule Aiur.Orchestrator.State do
           github_comments_since: String.t() | map() | nil,
           github_comment_etags: map(),
           github_comment_issue_updated_at: map(),
+          github_comment_issue_list_cache: map(),
+          github_comment_poll: map() | nil,
           pr_review_seen_at: map(),
           github_command_scan_since: String.t() | nil,
           github_connectivity: map(),
@@ -190,6 +195,7 @@ defmodule Aiur.Orchestrator.State do
     # successor — see `Aiur.Orchestrator.CommentWake`.
     comment_rework_retries: %{},
     auto_resume: %{},
+    released_claims: %{},
     model_fallback_waiting: MapSet.new(),
     agent_totals: nil,
     agent_rate_limits: nil,
@@ -200,6 +206,13 @@ defmodule Aiur.Orchestrator.State do
     github_comments_since: nil,
     github_comment_etags: %{},
     github_comment_issue_updated_at: %{},
+    # Conditional issue-list cache owned by the asynchronous comment poll.
+    # Keeping it separate prevents a late completion from replacing the newer
+    # cache written by synchronous CI/candidate fetching in the same cycle.
+    github_comment_issue_list_cache: %{},
+    # In-flight marker for the asynchronous comment poll. The pid and monitor
+    # let lifecycle shutdown reap the poll and its owned descendants.
+    github_comment_poll: nil,
     pr_review_seen_at: %{},
     github_command_scan_since: nil,
     github_connectivity: %{},

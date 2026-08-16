@@ -4,6 +4,17 @@
 
 Use the command from the repository that owns the run. An instance is keyed to that project, so control commands address that repository's daemon.
 
+## What the CLI does
+
+The CLI is the operator's primary surface. It starts and stops runs, drives the fleet, and reads back live state — the dashboard renders the same facts in a browser. In practice the CLI covers four jobs:
+
+- **Start a run.** `aiur` launches a foreground run with the interactive terminal board; `aiur --bg` runs headless with no agent-list or chat panes. Foreground is for watching and chatting with agents directly; background is for unattended operation.
+- **Inspect live state.** `status`, `agents`, `watch`, `alerts`, and `usage` report the fleet, capacity, alerts, and provider meters from the running daemon without changing anything.
+- **Operate the fleet.** `set max-agents`, `pause`, `resume`, `message`, and `stop` steer the run while it is live — raise or lower the concurrency ceiling, hold the fleet, resume a paused ticket, send Executor text into an agent's queue, or shut the daemon down.
+- **Read and act on durable records.** `commands` exposes the decision inbox, `executor-*` commands subscribe to and emit Executor events, and `findings` reads the findings ledger.
+
+The two launch shapes matter for who is driving. `aiur` runs the [TUI](/guide/tui) — the agent-list board and chat panes — for a human watching a terminal. **Background mode (`aiur --bg`) exists so an agent Executor can drive Aiur** with no board or panes: the dashboard stays up and every command below reads and writes the exact same live state through the detached daemon, so an agent can operate the run end to end over the CLI alone.
+
 ## Start, initialize, and queue
 
 | Syntax | Default or important interaction | Runnable example |

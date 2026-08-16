@@ -121,17 +121,20 @@ defmodule Aiur.Claude.UsageApi do
     now_ms = Keyword.get(opts, :now_ms, System.system_time(:millisecond))
 
     with {:ok, raw} <- read_file(path),
-         {:ok, json} <- decode(raw),
-         %{"accessToken" => token} = oauth when is_binary(token) <- Map.get(json, "claudeAiOauth", %{}),
-         false <- token == "",
-         false <- expired?(oauth, now_ms) do
-      {:ok, token}
-    else
-      true -> {:error, :token_expired}
-      {:error, reason} -> {:error, reason}
-      _missing -> {:error, :no_oauth_token}
+         {:ok, json} <- decode(raw) do
+      oauth_token(Map.get(json, "claudeAiOauth", %{}), now_ms)
     end
   end
+
+  # An empty or absent `accessToken` is "not signed in", distinct from a token
+  # that was present but has lapsed: the former needs a fresh Claude Code login,
+  # the latter needs a token refresh. Both are definite errors — never a state
+  # that hangs a surface in "loading".
+  defp oauth_token(%{"accessToken" => token} = oauth, now_ms) when is_binary(token) and token != "" do
+    if expired?(oauth, now_ms), do: {:error, :token_expired}, else: {:ok, token}
+  end
+
+  defp oauth_token(_oauth, _now_ms), do: {:error, :no_oauth_token}
 
   @doc false
   @spec default_credentials_path() :: Path.t()
@@ -221,7 +224,12 @@ defmodule Aiur.Claude.UsageApi do
   end
 
   # `expiresAt` is epoch milliseconds. An expired token would 401; skipping the
-  # request is cheaper and keeps the failure quiet.
-  defp expired?(%{"expiresAt" => expires_at}, now_ms) when is_integer(expires_at), do: expires_at <= now_ms
+  # request is cheaper and keeps the failure quiet. A zero (or negative) expiry
+  # is what a signed-out Claude Code writes, and must read as already expired
+  # rather than "no expiry".
+  defp expired?(%{"expiresAt" => expires_at}, now_ms) when is_integer(expires_at) and expires_at > 0,
+    do: expires_at <= now_ms
+
+  defp expired?(%{"expiresAt" => expires_at}, _now_ms) when is_integer(expires_at), do: true
   defp expired?(_oauth, _now_ms), do: false
 end

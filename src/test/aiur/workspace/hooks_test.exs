@@ -13,17 +13,21 @@ defmodule Aiur.Workspace.HooksTest do
     {:ok, workspace: workspace, test_root: test_root}
   end
 
-  test "run_after_create/4 with created? true runs after_create hook", %{workspace: workspace, test_root: test_root} do
+  test "run_after_create/4 keeps build gate support outside the empty reconstruction stage", %{workspace: workspace, test_root: test_root} do
     sentinel = Path.join(workspace, "hook-ran")
 
     write_workflow_file!(Workflow.workflow_file_path(),
       workspace_root: test_root,
-      hook_after_create: "touch hook-ran"
+      hook_after_create: """
+      test -z "$(find . -mindepth 1 -maxdepth 1 -print -quit)"
+      touch hook-ran
+      """
     )
 
     issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
     assert :ok = Hooks.run_after_create(workspace, issue_context, true, nil)
     assert File.exists?(sentinel)
+    refute File.exists?(Path.join(workspace, ".aiur-runtime"))
   end
 
   test "run_after_create/4 stages logs-only reconstruction and preserves the prior event stream", %{
@@ -44,6 +48,28 @@ defmodule Aiur.Workspace.HooksTest do
 
     assert File.read!(Path.join(workspace, "README.md")) == "rebuilt"
     assert File.read!(log_path) == "{\"event\":\"alert\"}\n"
+  end
+
+  test "run_after_create/4 cleans sibling support after a failed reconstruction", %{
+    workspace: workspace,
+    test_root: test_root
+  } do
+    log_path = Path.join([workspace, "logs", "agent.ndjson"])
+    File.mkdir_p!(Path.dirname(log_path))
+    File.write!(log_path, "{\"event\":\"alert\"}\n")
+
+    write_workflow_file!(Workflow.workflow_file_path(),
+      workspace_root: test_root,
+      hook_after_create: "exit 42"
+    )
+
+    issue_context = %{issue_id: 1, issue_identifier: "test", issue_state: nil, issue_labels: [], pr_head_ref: nil}
+
+    assert {:error, {:workspace_hook_failed, "after_create", 42, ""}} =
+             Hooks.run_after_create(workspace, issue_context, true, nil)
+
+    assert File.read!(log_path) == "{\"event\":\"alert\"}\n"
+    assert File.ls!(test_root) == ["ws"]
   end
 
   test "run_after_create/4 with created? :materialized returns :ok and hook does NOT run", %{workspace: workspace, test_root: test_root} do

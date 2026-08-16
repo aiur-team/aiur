@@ -642,6 +642,17 @@ defmodule Aiur.AgentRunner.MessageHandler do
 
   def send_control_state(_recipient, _issue, _status, _payload), do: :ok
 
+  @doc false
+  @spec send_control_rejection(pid() | nil, Issue.t(), pos_integer(), non_neg_integer(), atom()) :: :ok
+  def send_control_rejection(recipient, %Issue{id: issue_id}, request_id, generation, class)
+      when is_pid(recipient) and is_binary(issue_id) and is_integer(request_id) and request_id > 0 and
+             is_integer(generation) and generation >= 0 and is_atom(class) do
+    send(recipient, {:worker_control_rejected, issue_id, request_id, generation, class})
+    :ok
+  end
+
+  def send_control_rejection(_recipient, _issue, _request_id, _generation, _class), do: :ok
+
   defp normalize_control_payload(
          status,
          %{control: %{request_id: request_id, generation: generation} = control} = payload

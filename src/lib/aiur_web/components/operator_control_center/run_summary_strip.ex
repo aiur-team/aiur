@@ -28,33 +28,18 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   @spec run_summary_strip(map()) :: Phoenix.LiveView.Rendered.t()
   def run_summary_strip(assigns) do
-    cards = provider_cards(assigns.usage, assigns.meters)
-
     assigns =
       assigns
       |> assign(:usage_ready?, Map.get(assigns.usage, :state) in [:ready, :partial, :stale])
-      |> assign(:cards, cards)
-      |> assign(:compressed?, compressed?(cards))
+      |> assign(:cards, provider_cards(assigns.usage, assigns.meters))
 
     ~H"""
-    <section :if={@compressed?} class="run-summary is-compressed" aria-label="Provider and GitHub usage">
-      <.compressed_meters cards={@cards} github_quota={@github_quota} now={@now} />
-    </section>
-    <section :if={not @compressed?} class="run-summary" aria-label="Provider and GitHub usage">
+    <section class="run-summary" aria-label="Provider and GitHub usage">
       <.github_quota_card quota={@github_quota} now={@now} />
-      <.vendor_card :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
+      <.models_card :if={@cards != []} cards={@cards} usage_ready?={@usage_ready?} now={@now} />
     </section>
     """
   end
-
-  # The strip is a quota glance, not a dashboard: past four panes the row stops
-  # reading as one thing, so it collapses into a single grouped table. The
-  # GitHub pane counts — it occupies a pane like any provider — so today's four
-  # (GitHub plus three model providers) stay exactly as they are and the fifth
-  # provider is what trips the compressed form.
-  @max_panes 4
-
-  defp compressed?(cards), do: length(cards) + 1 > @max_panes
 
   attr(:quota, :map, required: true)
   attr(:now, :any, required: true)
@@ -64,16 +49,17 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
       assigns
       |> assign(:windows, github_windows(assigns.quota))
       |> assign(:attribution, github_attribution(assigns.quota))
-      |> assign(:top_consumer, github_top_consumer(assigns.quota))
-      |> assign(:coverage, github_coverage(assigns.quota))
-      |> assign(:coverage_rows, assigns.quota |> github_coverage() |> github_coverage_rows())
       |> assign(:backoffs, github_backoffs(assigns.quota))
 
     ~H"""
     <div class="rs-block github-quota-card">
+      <div class="rs-group-head">
+        <span class="rs-group-title">APIS</span>
+        <span class="rs-group-count">1 API</span>
+      </div>
       <div class="rs-head">
-        <span class="rs-logo rs-github-logo" aria-hidden="true">GH</span>
-        <span class="rs-name">GitHub API</span>
+        <img class="rs-logo rs-github-mark" src="/images/github-mark.svg" alt="" aria-hidden="true" />
+        <span class="rs-name">Github</span>
         <div :if={@attribution} class="rs-head-stats">
           <div class="rs-stat">
             <span class="rs-stat-label">Window traffic</span>
@@ -91,7 +77,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         </div>
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
-            <span class="rs-limit-label">{github_window_label(window)}</span>
+            <span class="rs-limit-label" title={github_window_explanation(window)}>{github_window_label(window)}</span>
             <span class="rs-limit-meta">{github_window_meta(window, @now)}</span>
           </div>
           <div class="rs-meter">
@@ -101,25 +87,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :for={backoff <- @backoffs} class="github-quota-backoff">
           <span class="rs-limit-label">{github_window_label(backoff)} backoff</span>
           <span class="rs-limit-meta">Secondary limit · {backoff.seconds_remaining}s left</span>
-        </div>
-        <div :if={@top_consumer} class="github-quota-attribution">
-          <span class="rs-limit-label">Top consumer</span>
-          <span class="rs-limit-meta">{github_top_consumer_meta(@top_consumer, @coverage)}</span>
-        </div>
-        <%!-- The ranking above only orders the calls Aiur can see, and it
-              cannot see every call billed to the shared credential. Naming a
-              leader without saying what share of the spend it was drawn from
-              invited acting on 0.04% of the budget (#1805), so the coverage
-              line renders whenever a window has been observed — including, and
-              especially, when there is no leader to name.
-
-              One line per budget, each against its own window's spend. Core
-              bills requests and GraphQL bills points on windows that reset at
-              different times, so a combined "% of 10000 spent this window"
-              would name a quantity and a window that do not exist. --%>
-        <div :for={{resource, entry} <- @coverage_rows} class="github-quota-coverage">
-          <span class="rs-limit-label">Attributed {github_resource_label(resource)}</span>
-          <span class="rs-limit-meta">{github_coverage_meta(entry)}</span>
         </div>
       </div>
     </div>
@@ -176,23 +143,53 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
+  attr(:cards, :list, required: true)
+  attr(:usage_ready?, :boolean, required: true)
+  attr(:now, :any, required: true)
+
+  defp models_card(assigns) do
+    ~H"""
+    <div class="rs-block rs-models" aria-label="Model providers">
+      <div class="rs-group-head">
+        <span class="rs-group-title">Models</span>
+        <span class="rs-group-count">{model_count_label(length(@cards))}</span>
+      </div>
+      <div class="rs-models-rows">
+        <.model_row :for={card <- @cards} card={card} usage_ready?={@usage_ready?} now={@now} />
+      </div>
+    </div>
+    """
+  end
+
   attr(:card, :map, required: true)
   attr(:usage_ready?, :boolean, required: true)
   attr(:now, :any, required: true)
 
-  defp vendor_card(assigns) do
+  defp model_row(assigns) do
     assigns =
       assigns
       |> assign(:usage, provider_usage(assigns.card))
       |> assign(:windows, meter_windows(assigns.card))
       |> assign(:show_spend?, provider_spend?(assigns.card))
       |> assign(:token_count, token_count(assigns.usage_ready?, provider_usage(assigns.card)))
+      |> assign(:state, model_state(assigns.card))
 
     ~H"""
-    <div class="rs-block">
+    <div class="rs-model">
       <div class="rs-head">
+        <%!-- The spend figure leads an API-key provider row, left of the logo,
+              so the dollar amount is the first fact the eye meets. --%>
+        <div :if={@show_spend?} class="rs-stat rs-spend-lead">
+          <span class="rs-stat-label">Spend</span>
+          <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
+        </div>
         <img class="rs-logo" src={provider_logo(@card.provider)} alt="" aria-hidden="true" />
         <span class="rs-name">{@card.provider_label}</span>
+        <%!-- The state chip is the row's staleness signal. A row that lost it
+              would read a last-known-good or unavailable value as a live one
+              (the failure mode of issue #1564), so it renders for every model,
+              including the healthy ones. --%>
+        <span class={["rs-state", @state.class]}>{@state.label}</span>
         <div class="rs-head-stats">
           <div :if={@token_count} class="rs-stat">
             <span class="rs-stat-label">Tokens</span>
@@ -207,10 +204,6 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
                 "Tokens N/A" row is noise. The token glyph remains, alone, at the
                 top right of the card at logo size, so the card keeps its shape. --%>
           <img :if={is_nil(@token_count)} class="rs-logo rs-token-na" src={provider_token_icon(@card.provider)} alt="" aria-hidden="true" />
-          <div :if={@show_spend?} class="rs-stat">
-            <span class="rs-stat-label">Spend</span>
-            <span class="rs-stat-val rs-stat-spend">{if @usage_ready?, do: money(@usage), else: "N/A"}</span>
-          </div>
         </div>
       </div>
       <div class="rs-limits">
@@ -231,7 +224,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
         <div :for={window <- @windows} class="rs-limit">
           <div class="rs-limit-top">
             <span class="rs-limit-label">{window_label(window, @windows)}</span>
-            <span class="rs-limit-meta">{window_meta(window, @now)}</span>
+            <span class="rs-limit-meta">{model_window_meta(window, @now)}</span>
           </div>
           <div class="rs-meter"><i class={meter_class(meter_percent(window))} style={"width:#{meter_percent(window)}%"}></i></div>
         </div>
@@ -240,235 +233,42 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
     """
   end
 
-  # --- compressed (>4 panes) -----------------------------------------------
+  # --- helpers -------------------------------------------------------------
 
-  # The compressed strip is one pane holding two named groups. The grouping is
-  # rendered, not implied by order: an operator scanning for "is my model
-  # provider out of quota" should not have to know that the GitHub row happens
-  # to sort last.
-  attr(:cards, :list, required: true)
-  attr(:github_quota, :map, required: true)
-  attr(:now, :any, required: true)
+  defp model_count_label(1), do: "1 model"
+  defp model_count_label(count), do: "#{count} models"
 
-  defp compressed_meters(assigns) do
-    assigns =
-      assigns
-      |> assign(:agent_rows, Enum.map(assigns.cards, &compressed_provider_row(&1, assigns.now)))
-      |> assign(:other_rows, [compressed_github_row(assigns.github_quota, assigns.now)])
-
-    ~H"""
-    <div class="rs-block rs-compressed">
-      <.compressed_group title="Agent APIs" rows={@agent_rows} />
-      <.compressed_group title="Other" rows={@other_rows} />
-    </div>
-    """
-  end
-
-  attr(:title, :string, required: true)
-  attr(:rows, :list, required: true)
-
-  defp compressed_group(assigns) do
-    ~H"""
-    <div class="rs-group">
-      <div class="rs-group-head">
-        <span class="rs-group-title">{@title}</span>
-        <span class="rs-group-count">{provider_count_label(length(@rows))}</span>
-      </div>
-      <div class="rs-group-rows">
-        <div :for={row <- @rows} class="rs-row">
-          <div class="rs-row-id">
-            <img :if={row.logo} class="rs-logo" src={row.logo} alt="" aria-hidden="true" />
-            <span :if={is_nil(row.logo)} class="rs-logo rs-github-logo" aria-hidden="true">GH</span>
-            <span class="rs-row-name">{row.name}</span>
-          </div>
-          <div class="rs-row-meters">
-            <div :for={line <- row.lines} class="rs-row-meter">
-              <span class="rs-limit-label">{line.label}</span>
-              <div :if={line.percent} class="rs-meter"><i class={line.class} style={"width:#{line.percent}%"}></i></div>
-              <span :if={is_nil(line.percent)} class="rs-meter rs-meter-none"></span>
-              <span class="rs-limit-meta">{line.meta}</span>
-            </div>
-          </div>
-          <%!-- The state chip is the compressed row's staleness signal. A row
-                that lost it would read a last-known-good or unavailable value
-                as a live one (the failure mode of issue #1564), so it renders
-                for every row, including the healthy ones. --%>
-          <span class={["rs-state", row.state_class]}>{row.state_label}</span>
-        </div>
-      </div>
-    </div>
-    """
-  end
-
-  defp provider_count_label(1), do: "1 provider"
-  defp provider_count_label(count), do: "#{count} providers"
-
-  defp compressed_provider_row(card, now) do
-    {state_label, state_class} = compressed_state(card)
-
-    %{
-      logo: provider_logo(card.provider),
-      name: card.provider_label,
-      lines: compressed_provider_lines(card, now),
-      state_label: state_label,
-      state_class: state_class
-    }
-  end
-
-  defp compressed_provider_lines(card, now) do
-    case meter_windows(card) do
-      [] -> [compressed_fallback_line(card, now)]
-      windows -> Enum.map(windows, &compressed_window_line(&1, windows, now))
-    end
-  end
-
-  defp compressed_window_line(window, windows, now) do
-    percent = meter_percent(window)
-
-    %{
-      label: window_label(window, windows),
-      percent: percent,
-      class: meter_class(percent),
-      meta: compressed_window_meta(window, now)
-    }
-  end
-
-  defp compressed_fallback_line(card, now) do
+  # A model whose only standing is the durable dispatch ledger is stale by
+  # construction, whatever its live state says.
+  defp model_state(card) do
     case durable_record(card) do
-      # No live window and no durable record is not a zero-consumed reading —
-      # it is the absence of one. The line carries no bar at all rather than an
-      # empty track, which would read exactly like a healthy 0%.
-      nil ->
-        %{label: "Limits", percent: nil, class: "", meta: provider_status(card)}
-
-      record ->
-        %{label: "Limits", percent: durable_percent(record), class: meter_class(durable_percent(record)), meta: durable_meta(record, now)}
+      nil -> state_chip(Map.get(card, :state), Map.get(card, :status_label))
+      _record -> %{label: "Stale", class: "is-stale"}
     end
   end
 
-  # The compressed row trades the card's headroom for a wider meter line, so
-  # the line carries the counts the card left implicit: an exact
-  # remaining-of-limit reading where the window reports one, and the percentage
-  # form otherwise. A window the probe marked stale says so here — a stale
-  # remaining count and a live one must never render identically.
-  defp compressed_window_meta(window, now) do
-    meta = compressed_window_base_meta(window, now)
+  defp state_chip(:healthy, _label), do: %{label: "Healthy", class: "is-healthy"}
+  defp state_chip(:partial, _label), do: %{label: "Partial", class: "is-partial"}
+  defp state_chip(:stale, _label), do: %{label: "Stale", class: "is-stale"}
+  defp state_chip(:loading, _label), do: %{label: "Loading…", class: "is-nodata"}
+  defp state_chip(:unknown, _label), do: %{label: "No data", class: "is-nodata"}
+  defp state_chip(:error, _label), do: %{label: "Provider error", class: "is-unavailable"}
+  defp state_chip(:unavailable, _label), do: %{label: "Unavailable", class: "is-unavailable"}
+  defp state_chip(_state, label) when is_binary(label) and label != "", do: %{label: label, class: "is-nodata"}
+  defp state_chip(_state, _label), do: %{label: "N/A", class: "is-nodata"}
 
-    # `window_meta/2` already appends its own stale clause for a credit balance
-    # past its freshness horizon, so the probe-reported window freshness is only
-    # added when the meta does not already say it.
+  # `window_meta/2` already appends its own stale clause for a credit balance
+  # past its freshness horizon, so the probe-reported window freshness is only
+  # added when the meta does not already say it.
+  defp model_window_meta(window, now) do
+    meta = window_meta(window, now)
+
     if Map.get(window, :freshness) == :stale and not String.contains?(meta, "stale") do
       meta <> " (stale)"
     else
       meta
     end
   end
-
-  defp compressed_window_base_meta(%{kind: kind, remaining: remaining, limit: limit} = window, now)
-       when kind != :credit and is_number(remaining) and is_number(limit) do
-    "#{remaining}/#{limit} left · #{reset_text(Map.get(window, :resets_at), now)}"
-  end
-
-  defp compressed_window_base_meta(window, now), do: window_meta(window, now)
-
-  defp compressed_github_row(quota, now) do
-    windows = github_windows(quota)
-    backoffs = github_backoffs(quota)
-    {state_label, state_class} = compressed_github_state(windows, backoffs)
-
-    %{
-      logo: nil,
-      name: "GitHub API",
-      lines: compressed_github_lines(windows, backoffs, now) ++ compressed_coverage_lines(quota),
-      state_label: state_label,
-      state_class: state_class
-    }
-  end
-
-  defp compressed_github_lines([], backoffs, now) do
-    # No window yet is the absence of a reading, not a quota observed to be
-    # untouched. It draws the hollow track rather than a full-width empty one,
-    # so it cannot be read as a healthy 0% consumed.
-    [%{label: "Quota", percent: nil, class: "", meta: "Awaiting GitHub response"}] ++
-      compressed_backoff_lines(backoffs, now)
-  end
-
-  defp compressed_github_lines(windows, backoffs, now) do
-    Enum.map(windows, fn window ->
-      %{
-        label: github_window_label(window),
-        percent: window.used_percent,
-        class: meter_class(window.used_percent, 90),
-        meta: github_window_meta(window, now)
-      }
-    end) ++ compressed_backoff_lines(backoffs, now)
-  end
-
-  # The compressed strip carries the coverage caveat too: the grouped table
-  # shows GitHub's meters, and a meter with no statement of how much of it Aiur
-  # can explain is the surface #1805 reported.
-  #
-  # It carries the short form, though. This row's meta track is a fixed width
-  # that does not wrap, so the full sentence — leader, its share, coverage and
-  # the estimation caveat — pushed the whole table past the viewport and broke
-  # the compressed row's no-horizontal-scroll guarantee. The leader itself is
-  # not compressed at all; the compressed row never named one, and the fraction
-  # is the part that keeps the meter honest.
-  #
-  # The short form drops the denominators rather than combining them: a percent
-  # per budget is true at any width, a shared denominator across two budgets is
-  # not true at any width.
-  defp compressed_coverage_lines(quota) do
-    case github_coverage(quota) do
-      nil -> []
-      coverage -> [%{label: "Attributed", percent: nil, class: "", meta: compressed_coverage_meta(coverage)}]
-    end
-  end
-
-  defp compressed_coverage_meta(coverage) do
-    coverage
-    |> github_coverage_rows()
-    |> Enum.map_join(" · ", fn {resource, entry} ->
-      "#{github_resource_label(resource)} #{percent_text(Map.get(entry, :named_fraction) || 0.0)}"
-    end)
-  end
-
-  # A backoff is a live stoppage rather than a measured window, so it renders
-  # as a note line with no bar: a fabricated meter width would be the kind of
-  # confident wrong number this strip must not invent.
-  defp compressed_backoff_lines(backoffs, _now) do
-    Enum.map(backoffs, fn backoff ->
-      %{
-        label: "#{github_window_label(backoff)} backoff",
-        percent: nil,
-        class: "",
-        meta: "Secondary limit · #{backoff.seconds_remaining}s left"
-      }
-    end)
-  end
-
-  defp compressed_github_state([], _backoffs), do: {"Awaiting", "is-nodata"}
-  defp compressed_github_state(_windows, [_ | _]), do: {"Backoff", "is-partial"}
-  defp compressed_github_state(_windows, _backoffs), do: {"Observed", "is-healthy"}
-
-  # A card whose only standing is the durable dispatch ledger is stale by
-  # construction, whatever its live state says.
-  defp compressed_state(card) do
-    case durable_record(card) do
-      nil -> state_chip(Map.get(card, :state), Map.get(card, :status_label))
-      _record -> {"Stale", "is-stale"}
-    end
-  end
-
-  defp state_chip(:healthy, _label), do: {"Healthy", "is-healthy"}
-  defp state_chip(:partial, _label), do: {"Partial", "is-partial"}
-  defp state_chip(:stale, _label), do: {"Stale", "is-stale"}
-  defp state_chip(:loading, _label), do: {"Loading…", "is-nodata"}
-  defp state_chip(:unknown, _label), do: {"No data", "is-nodata"}
-  defp state_chip(:error, _label), do: {"Provider error", "is-unavailable"}
-  defp state_chip(:unavailable, _label), do: {"Unavailable", "is-unavailable"}
-  defp state_chip(_state, label) when is_binary(label) and label != "", do: {label, "is-nodata"}
-  defp state_chip(_state, _label), do: {"N/A", "is-nodata"}
 
   defp provider_cards(usage, %{state: :authorized, cards: cards}) when is_list(cards) do
     cards
@@ -509,113 +309,16 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
 
   defp github_attribution(_quota), do: nil
 
-  # Ranked by cost, not by call count. GraphQL bills points: one catalog query
-  # can cost 26 while a hundred reads cost one each, so a request-count ranking
-  # names a leader that is not burning the budget (#1805).
-  defp github_top_consumer(%{attribution: attribution}) when is_list(attribution) do
-    attribution
-    |> Enum.reject(&(Map.get(&1, :consumer) == "unattributed"))
-    |> Enum.max_by(&{consumer_cost(&1), Map.get(&1, :total, 0)}, fn -> nil end)
-  end
-
-  defp github_top_consumer(_quota), do: nil
-
-  defp consumer_cost(entry), do: Map.get(entry, :cost) || Map.get(entry, :total, 0)
-
-  defp github_coverage(%{coverage: %{resources: resources} = coverage}) when is_map(resources) and map_size(resources) > 0, do: coverage
-  defp github_coverage(_quota), do: nil
-
-  # Rendered in meter order so the coverage lines read down the card against the
-  # windows they qualify.
-  defp github_coverage_rows(%{resources: resources}) when is_map(resources) do
-    Enum.flat_map(@github_resources, fn resource ->
-      case Map.get(resources, resource) do
-        %{} = entry -> [{resource, entry}]
-        _absent -> []
-      end
-    end)
-  end
-
-  defp github_coverage_rows(_coverage), do: []
-
-  # A consumer's spend is reported against the budget it was billed to, in that
-  # budget's unit. A ticket that burned 312 of GraphQL's 5,000 points burned
-  # 6.2% of the budget it is draining; dividing it by core-plus-GraphQL would
-  # report 3.4% of a number that is not a budget (#1805).
-  defp github_top_consumer_meta(consumer, coverage) do
-    parts =
-      Enum.flat_map(@github_resources, fn resource ->
-        case consumer |> Map.get(:costs, %{}) |> Kernel.||(%{}) |> Map.get(resource) do
-          cost when is_integer(cost) and cost > 0 -> [consumer_resource_part(resource, cost, coverage)]
-          _unspent -> []
-        end
-      end)
-
-    case parts do
-      # No per-budget split to report — a snapshot published before costs were
-      # tracked. Calls are the one figure that is true of both budgets; naming a
-      # unit here would be inventing one.
-      [] -> "#{consumer.consumer} · #{Map.get(consumer, :total, 0)} calls"
-      parts -> Enum.join([consumer.consumer | parts], " · ")
-    end
-  end
-
-  defp consumer_resource_part(resource, cost, coverage) do
-    base = "#{github_resource_label(resource)} #{cost} #{resource_unit(resource, cost)}"
-
-    case consumer_share(coverage, resource, cost) do
-      nil -> base
-      share -> "#{base} (#{percent_text(share)})"
-    end
-  end
-
-  # Clamped like every other fraction on this card: a stale reading can report
-  # more attributed spend than the window, and "104% of GraphQL spend" is a
-  # confident wrong number rather than a signal.
-  defp consumer_share(coverage, resource, cost) do
-    case coverage |> Kernel.||(%{}) |> Map.get(:resources, %{}) |> Map.get(resource) do
-      %{spend: spend} when is_integer(spend) and spend > 0 -> min(cost / spend, 1.0)
-      _unknown -> nil
-    end
-  end
-
-  # Two numbers an operator can act on, both against this budget's own window:
-  # how much of its real spend the ranking accounts for, and how much of it Aiur
-  # observed at all. The gap between them is traffic Aiur saw but could not tie
-  # to a ticket; what is missing from both is traffic it never saw.
-  defp github_coverage_meta(entry) do
-    named = Map.get(entry, :named_fraction) || 0.0
-    observed = Map.get(entry, :fraction) || 0.0
-    spend = Map.get(entry, :spend, 0)
-
-    meta = "#{percent_text(named)} of #{spend} spent this window · #{percent_text(observed)} observed"
-
-    if Map.get(entry, :estimated?), do: meta <> " · cost partly estimated", else: meta
-  end
-
-  defp resource_unit("graphql", 1), do: "point"
-  defp resource_unit("graphql", _cost), do: "points"
-  defp resource_unit(_resource, 1), do: "request"
-  defp resource_unit(_resource, _cost), do: "requests"
-
-  # Sub-1% coverage is the whole finding, so it must not round to "0%".
-  defp percent_text(fraction) when is_float(fraction) or is_integer(fraction) do
-    percent = fraction * 100.0
-
-    cond do
-      percent >= 10 -> "#{round(percent)}%"
-      percent >= 1 -> "#{Float.round(percent, 1)}%"
-      percent > 0 -> "#{Float.round(percent, 2)}%"
-      true -> "0%"
-    end
-  end
-
-  defp percent_text(_fraction), do: "0%"
-
   defp github_window_label(%{resource: resource}), do: github_resource_label(resource)
 
   defp github_resource_label("graphql"), do: "GraphQL"
   defp github_resource_label(resource), do: String.capitalize(resource)
+
+  # GitHub's two budgets bill in different units; the popover names what each
+  # window actually meters so "Core"/"GraphQL" are never read as the same thing.
+  defp github_window_explanation(%{resource: "core"}), do: "REST request budget"
+  defp github_window_explanation(%{resource: "graphql"}), do: "GraphQL point budget"
+  defp github_window_explanation(_window), do: nil
 
   defp github_window_meta(window, now) do
     "#{window.remaining}/#{window.limit} left · #{reset_text(window.reset_at, now)}"
@@ -748,7 +451,7 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   # something in flight to show.
   defp meter_windows(%{windows: windows} = card) when is_list(windows) do
     rate_limits = Enum.filter(windows, &(&1.kind == :rate_limit and visible_rate_limit?(&1)))
-    credits = Enum.filter(windows, &(&1.kind == :credit))
+    credits = Enum.filter(windows, &(&1.kind == :credit and show_credit_window?(card, &1)))
 
     shown_rate_limits =
       case Enum.filter(rate_limits, &account_wide?(&1, Map.get(card, :provider))) do
@@ -760,6 +463,13 @@ defmodule AiurWeb.OperatorControlCenter.RunSummaryStrip do
   end
 
   defp meter_windows(_card), do: []
+
+  # Codex reports `hasCredits`/`unlimited`/`rateLimitResetCredits` facts, not a
+  # prepaid dollar balance. Rendering them as a "Credits … balance" row with a
+  # meter implies a spendable balance that does not exist, so the codex card
+  # drops its credit windows entirely.
+  defp show_credit_window?(%{provider: :codex}, _window), do: false
+  defp show_credit_window?(_card, _window), do: true
 
   # The local-concurrency gauge is a measured in-flight window: it reads a
   # truthful "0%" at zero requests but is pure noise, so it only appears once

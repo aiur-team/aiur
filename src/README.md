@@ -287,9 +287,12 @@ orchestrator answers as soon as the resume control request is queued for the
 agent, so the CLI then waits for that agent to actually leave the paused state
 before printing `aiur: resumed #44`. Every resume in one invocation shares a
 single 4s confirmation budget, so `resume --all` stays inside the control-RPC
-timeout. If the agent is still paused when the budget expires, the CLI says the
-request was accepted but the resume is unconfirmed, and exits 1 — a queued
-request is never reported as a completed resume.
+timeout. A worker refusal is reported as `declined` with the held pause
+condition; a lifecycle expiry is reported as `dropped` with its reason. If the
+request is still pending at the confirmation deadline, or the correlated
+outcome cannot be determined, the CLI says the outcome is unknown. Every
+unapplied path exits 1, and the same declined/dropped reason remains visible on
+the dashboard's paused row.
 
 Read-only fleet queries never use an empty buffer to mean success: `status`,
 `agents`, and `watch` print an affirmative empty-fleet row when no agents are
@@ -422,6 +425,37 @@ remaining and pauses new dispatch until the affected window resets. At zero,
 daemon requests are rejected locally and agent-launched `gh` commands wait on
 the recorded reset instead of retrying into the exhausted budget. Quota state
 that has not yet been observed fails open so startup is not blocked by a meter.
+
+Aiur also coordinates request *shape* across all local instances that share a
+credential. A host-local SQLite broker at `~/.aiur/github-budget/` keys state
+by SHA-256 fingerprints, never the token or consumer identity itself. It enforces a shared
+requests-per-minute ceiling, total and endpoint-family in-flight ceilings, and
+jittered admission starts. A primary exhaustion holds its resource globally;
+a secondary-limit response or `Retry-After` holds every consumer of that token,
+including separately started daemons and agent `gh` commands.
+
+The defaults are deliberately conservative and can be tuned per workflow:
+
+```yaml
+tracker:
+  github:
+    max_inflight: 4
+    max_inflight_per_endpoint: 2
+    requests_per_minute: 120
+    stagger_ms: 75
+```
+
+When active consumers of the same token disagree, the broker uses the most
+restrictive ceilings and the widest stagger observed in the preceding two
+minutes. This prevents a permissive second instance from raising the shared
+limit above another instance's configured safety boundary.
+
+At startup Aiur installs an optional Executor-shell wrapper at
+`~/.aiur/bin/gh`. Put that directory ahead of the system `gh` in
+an Executor shell's `PATH` to share the same budget for direct CLI calls. The
+wrapper fingerprints the `GH_TOKEN`, `GITHUB_TOKEN`, or `gh auth` credential it actually
+uses, so distinct daemon and Executor credentials never share a budget. Agent
+workspaces receive the wrapper automatically.
 
 ### Supervisor Decision API
 
@@ -611,6 +645,11 @@ path parameter and is never browser-cacheable.
   while ordinary editing, Git, and model work continue. Set it to `0` to remove
   the concurrency cap; a configured memory floor or start stagger remains active
   independently.
+  Local Codex and Claude launches prepend shell-independent `elixir`, `mix`, and
+  `mise` entrypoints, and local workspace lifecycle hooks run with the same admission
+  environment before agent support is installed. This keeps `after_create` and
+  `before_run` warm-up builds under the fleet cap as well as builds started during
+  agent turns.
   Local Codex `workspaceWrite` turns add the canonical `~/.aiur/build-gate` metadata
   directory to `writableRoots` without replacing configured, workspace, or writable Git
   roots. Persistent lock inodes live in the host-prepared sibling
