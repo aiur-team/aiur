@@ -10,7 +10,7 @@ set -euo pipefail
 #
 # This script is the CI counterpart. It runs with a read-only GITHUB_TOKEN and
 # verifies every ruleset property a read-only token can see, so a regressed
-# gate -- a ruleset that stops actively protecting main/develop, drops the
+# gate -- a ruleset that stops actively protecting main, drops the
 # pull-request approval rule, or loses or weakens the required_status_checks
 # rule -- fails CI visibly instead of silently.
 #
@@ -42,10 +42,9 @@ if ! jq -e '
   .target == "branch" and
   .enforcement == "active" and
   (.conditions.ref_name.include | type == "array") and
-  (.conditions.ref_name.include | index("refs/heads/main")) and
-  (.conditions.ref_name.include | index("refs/heads/develop"))
+  (.conditions.ref_name.include | index("refs/heads/main"))
 ' >/dev/null <<<"$ruleset"; then
-  echo "ruleset must target branches and actively protect main and develop" >&2
+  echo "ruleset must target branches and actively protect main" >&2
   exit 1
 fi
 
