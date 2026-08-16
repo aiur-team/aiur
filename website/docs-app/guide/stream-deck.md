@@ -16,6 +16,8 @@ The `Pause` and `Prioritize` labels reflect the selected agent’s actual curren
 
 In Logs mode, click an event key to select it. That does not merely highlight the key: it moves the touch strip to the selected event’s position in the flattened transcript. Dial A then continues from that position; dial D changes which event keys are visible.
 
+The transcript rows are colour-coded so you can tell them apart at a glance: commands and tool calls are green with a glyph gutter (`$` for commands, `→` for reads, `←` for edits/writes, `⚙` for generic tools), agent prose is blue and unlabelled, and system/log context is tan. A tool row shows the command or file path, not the tool name — the glyph carries the "this is a tool" signal.
+
 ## How Grid chooses agent keys
 
 Grid has five buckets, in this exact priority: `alert` → `stuck` → `running` → `paused` → `queued`. Within `queued`, dependency-ready (unblocked) agents precede blocked agents. The server supplies that already-ranked list; the surface does not re-sort it.
