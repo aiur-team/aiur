@@ -165,6 +165,7 @@ defmodule Aiur.Orchestrator.DispatcherTest do
     assert_receive {:orphan_recovered, "orphaned-claim-recovery"}, 2_000
     assert Map.has_key?(recovered.running, candidate.id)
     assert MapSet.member?(recovered.claimed, candidate.id)
+    Process.exit(recovered.running[candidate.id].pid, :kill)
   end
 
   defp dispatch_recovery(codex_thrash_budget) do
