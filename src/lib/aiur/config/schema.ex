@@ -41,6 +41,10 @@ defmodule Aiur.Config.Schema do
     field(:max_log_history_mb, :integer, default: 1000)
     field(:prompt_file, :string)
     field(:debug, :boolean, default: false)
+    # Configurable Executor takeover advisory alerts (#1182). `0` disables the
+    # corresponding alert; negative values are rejected by the changeset.
+    field(:executor_takeover_first_alert_hours, :integer, default: 8)
+    field(:executor_takeover_continuous_alert_hours, :integer, default: 1)
 
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
@@ -111,12 +115,24 @@ defmodule Aiur.Config.Schema do
     %__MODULE__{}
     |> cast(
       attrs,
-      [:max_vertical_panes, :pre_warmed_sessions, :max_log_history_mb, :prompt_file, :debug],
+      [
+        :max_vertical_panes,
+        :pre_warmed_sessions,
+        :max_log_history_mb,
+        :prompt_file,
+        :debug,
+        :executor_takeover_first_alert_hours,
+        :executor_takeover_continuous_alert_hours
+      ],
       empty_values: []
     )
     |> validate_number(:max_vertical_panes, greater_than: 0)
     |> validate_number(:pre_warmed_sessions, greater_than_or_equal_to: 0)
     |> validate_number(:max_log_history_mb, greater_than: 0)
+    |> validate_number(:executor_takeover_first_alert_hours, greater_than_or_equal_to: 0)
+    |> validate_number(:executor_takeover_continuous_alert_hours, greater_than_or_equal_to: 0)
+    |> validate_raw_non_negative_integer(attrs, "executor_takeover_first_alert_hours")
+    |> validate_raw_non_negative_integer(attrs, "executor_takeover_continuous_alert_hours")
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
@@ -134,6 +150,18 @@ defmodule Aiur.Config.Schema do
     |> cast_embed(:build_order, with: &BuildOrder.changeset/2)
     |> cast_embed(:webhooks, with: &Webhooks.changeset/2)
     |> cast_embed(:elevenlabs, with: &ElevenLabs.changeset/2)
+  end
+
+  # Ecto's integer cast truncates a float (1.5 -> 1) and coerces a numeric
+  # string ("1" -> 1), silently accepting config mistakes for fields that are
+  # documented as whole-hour integers. Inspect the raw pre-cast value and
+  # reject anything that is not an integer >= 0 with a clear error.
+  defp validate_raw_non_negative_integer(changeset, attrs, key) do
+    case Map.get(attrs, key) do
+      nil -> changeset
+      value when is_integer(value) and value >= 0 -> changeset
+      _other -> Ecto.Changeset.add_error(changeset, String.to_atom(key), "must be a non-negative integer")
+    end
   end
 
   defp finalize_settings(settings) do

@@ -298,6 +298,59 @@ defmodule Aiur.AlertsTest do
     end)
   end
 
+  test "executor takeover advisories round-trip through the needs-attention feed and resolve" do
+    log_root = Path.join(System.tmp_dir!(), "aiur-takeover-alert-#{System.unique_integer([:positive])}")
+    original_log_file = Application.get_env(:aiur, :log_file)
+    Application.put_env(:aiur, :log_file, Path.join(log_root, "aiur.log"))
+
+    on_exit(fn ->
+      if original_log_file do
+        Application.put_env(:aiur, :log_file, original_log_file)
+      else
+        Application.delete_env(:aiur, :log_file)
+      end
+
+      File.rm_rf!(log_root)
+    end)
+
+    topic = "system.executor_takeover.999"
+
+    assert :ok =
+             Alerts.emit_system(topic,
+               message: "Executor takeover advisory for #999.",
+               reason: "Executor takeover advisory for #999.",
+               needs_attention: true,
+               severity: "warning"
+             )
+
+    assert Enum.any?(AlertFeed.list(log_roots: [log_root]), fn alert ->
+             alert["topic"] == topic and alert["needs_attention"] == true
+           end)
+
+    # The continuous reminder is collapsed to one active advisory by the feed.
+    assert :ok =
+             Alerts.emit_system(topic,
+               message: "Executor takeover advisory for #999 (repeated).",
+               reason: "Executor takeover advisory for #999.",
+               needs_attention: true,
+               severity: "warning"
+             )
+
+    active = AlertFeed.list(log_roots: [log_root], needs_attention: true) |> Enum.filter(&(&1["topic"] == topic))
+    assert length(active) == 1
+
+    # Resolution clears the active advisory from the needs-attention surface.
+    assert :ok =
+             Alerts.emit_system(topic <> ".resolved",
+               message: "Executor takeover advisory resolved: #999 is terminal or out of run scope.",
+               reason: "Executor takeover advisory resolved.",
+               needs_attention: false,
+               severity: "info"
+             )
+
+    refute Enum.any?(AlertFeed.list(log_roots: [log_root], needs_attention: true), &(&1["topic"] == topic))
+  end
+
   describe "resolution alerts are edge-triggered" do
     setup do
       log_root = Path.join(System.tmp_dir!(), "aiur-alert-resolution-#{System.unique_integer([:positive])}")
