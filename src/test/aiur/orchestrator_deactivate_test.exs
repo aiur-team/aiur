@@ -2948,10 +2948,18 @@ defmodule Aiur.OrchestratorDeactivateTest do
           )
 
         # The memory-tracker notification is a real downstream side effect of
-        # the merge transition; the ExUnit default 100ms is too tight under CI
-        # load for the transition + notification to land (#1920). Use the
-        # file's convention for downstream waits instead of the default.
-        assert_receive {:memory_tracker_state_update, ^issue_id, "done"}, 2_000
+        # the merge transition, but it is delivered synchronously to the test
+        # process: the merge handler calls Tracker.update_issue_state, which
+        # for the memory adapter sends straight to memory_tracker_recipient
+        # (self()) before handle_info returns. The 100ms ExUnit default is the
+        # file's own convention for this signal (every other
+        # {:memory_tracker_state_update, ...} assert here uses it), so the
+        # observed #1920 flake was not a timing race but the shared
+        # WorkflowStore singleton being mid-restart, which made the tracker
+        # adapter resolve to a non-memory kind and the notification never be
+        # sent. That TOCTOU is fixed in production (WorkflowStore.force_reload
+        # now absorbs a dying store), so no budget bump is needed.
+        assert_receive {:memory_tracker_state_update, ^issue_id, "done"}
         refute Map.has_key?(after_merge.running, issue_id)
         refute MapSet.member?(after_merge.claimed, issue_id)
       after

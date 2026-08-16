@@ -106,14 +106,79 @@ defmodule Aiur.WorkflowStore do
   @spec force_reload(timeout()) :: :ok | {:error, term()}
   def force_reload(timeout \\ @call_timeout_ms) do
     case Process.whereis(__MODULE__) do
-      pid when is_pid(pid) ->
-        GenServer.call(__MODULE__, :force_reload, timeout)
+      pid when is_pid(pid) -> call_force_reload(timeout)
+      _ -> reload_without_store()
+    end
+  end
 
-      _ ->
-        case Workflow.load() do
-          {:ok, _workflow} -> :ok
-          {:error, reason} -> {:error, reason}
-        end
+  # The store can terminate between the `whereis/1` above and this call: it is a
+  # supervised singleton, so any restart — or a test tearing it down — leaves
+  # that window open. An exiting `GenServer.call` would then propagate out of an
+  # unrelated caller, which both contradicts this function's `:ok | {:error, _}`
+  # contract and is how a sibling's restart surfaced as an EXIT inside a
+  # different test (`CoreTest` "config defaults and validation checks", CI run
+  # 31657551337).
+  #
+  # A dead store is the same situation as an absent one, so it takes the same
+  # fallback: the restarting incarnation reloads the current path in `init/1`,
+  # so confirming the file loads is the equivalent guarantee.
+  #
+  # Only two exit classes are re-raised, because both mean the caller can still
+  # be looking at a stale cache and must find out. Everything else is absorbed.
+  #
+  # Listing the death reasons instead would be unfixably incomplete: an exit
+  # reason is an arbitrary term, and `init/1` below stops with
+  # `{:missing_workflow_file, path}` or `{:workflow_parse_error, _}` when the
+  # config path is transiently bad — which `test/support/test_support.exs`
+  # documents as something that actually happens in this suite. `start_link/1`
+  # registers the name *before* `init/1` runs, so `whereis/1` can hand back a
+  # pid whose init then stops with exactly those tuples. A whitelist would let
+  # them through, which is the very race this function is closing.
+  #
+  # The call is pinned the same way `current_from/1` pins its own, so an exit
+  # raised by anything other than this call still propagates.
+  defp call_force_reload(timeout) do
+    GenServer.call(__MODULE__, :force_reload, timeout)
+  catch
+    # Alive but not answering. `:workflow_store_call_timeout_ms` exists so the
+    # saturation repro can exercise this path.
+    :exit, {:timeout, {GenServer, :call, [__MODULE__, :force_reload, _timeout]}} = reason ->
+      exit(reason)
+
+    # A real bug took the store down, e.g. config content that crashes the
+    # reload. Absorbing that would turn a loud failure into a silent one.
+    :exit, {{exception, stacktrace}, {GenServer, :call, [__MODULE__, :force_reload, _timeout]}} = reason
+    when is_exception(exception) and is_list(stacktrace) ->
+      exit(reason)
+
+    # Any other death — including a `{:stop, reason}` from a restarting
+    # `init/1` — is the same situation as an absent store.
+    :exit, {_reason, {GenServer, :call, [__MODULE__, :force_reload, _timeout]}} ->
+      reload_without_store()
+
+    # A call to an already-dead pid can report the bare atom rather than the
+    # wrapped tuple above.
+    :exit, :noproc ->
+      reload_without_store()
+  end
+
+  # Mirrors `load_state/1`'s retry rather than reading once. A caller reaching
+  # this path has usually just written the config, and `File.write!/2` is not
+  # atomic, so a concurrent read can land mid-write and parse-fail. The store
+  # absorbs that; without the same retry here, substituting for the store would
+  # turn a transient error into `{:error, {:workflow_parse_error, _}}` — and
+  # `TestSupport.write_workflow_file!/2` matches `:ok =` on this result.
+  defp reload_without_store(attempts \\ @reload_attempts) do
+    case Workflow.load() do
+      {:ok, _workflow} ->
+        :ok
+
+      {:error, {:workflow_parse_error, _reason}} when attempts > 1 ->
+        Process.sleep(@reload_retry_delay_ms)
+        reload_without_store(attempts - 1)
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
