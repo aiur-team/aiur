@@ -234,6 +234,8 @@ defmodule Aiur.Application do
       Aiur.CurrentRunProjections,
       Aiur.Events.LsRemoteTicker,
       Aiur.ProgressCheckin.Worker,
+      Aiur.Executor.TakeoverAlert.Store,
+      Aiur.Executor.TakeoverAlert.Monitor,
       Aiur.Logs.Retention,
       # Dashboard supervision is independent of terminal attachment/headless
       # mode. Aiur.HttpServer retains its own bind and credential guards.

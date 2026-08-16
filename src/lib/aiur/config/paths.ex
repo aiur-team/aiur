@@ -146,6 +146,27 @@ defmodule Aiur.Config.Paths do
   end
 
   @doc """
+  Resolves the daemon-private Executor takeover-alert state directory.
+
+  The takeover-alert monitor persists per-ticket convergence anchors and alert
+  cadence across daemon restarts (worker recycling must not reset the clock),
+  so it owns a dedicated leaf beneath the same instance- and repository-
+  qualified root as other daemon-private state.
+  """
+  @spec takeover_alert_state_dir() :: {:ok, Path.t()} | {:error, atom()}
+  def takeover_alert_state_dir do
+    case Application.get_env(:aiur, :takeover_alert_state_dir) do
+      path when is_binary(path) and path != "" ->
+        {:ok, path}
+
+      _ ->
+        with {:ok, root} <- decision_state_dir() do
+          {:ok, Path.join(root, "executor-takeover-alerts")}
+        end
+    end
+  end
+
+  @doc """
   Resolves the daemon-private prepaid-balance baseline state directory.
 
   The OpenAI-compatible balance baseline (`balance-baseline.json`) is
