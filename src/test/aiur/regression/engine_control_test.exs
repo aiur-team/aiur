@@ -515,7 +515,7 @@ defmodule Aiur.Regression.EngineControlTest do
         ])
 
       assert out =~ "CODE=1"
-      assert out =~ "aiur control plane did not become ready"
+      assert out =~ "was still booting"
       assert out =~ "KILL_BEAM:-name aiur-"
     end
   end

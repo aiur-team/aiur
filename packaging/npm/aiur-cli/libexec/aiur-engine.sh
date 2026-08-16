@@ -1419,7 +1419,11 @@ wait_for_session_startup() {
   local tmux_bin="$1" socket="$2" conf="$3" session="$4" startup_capture="$5" require_control="$6"
   local max_ticks="${AIUR_TMUX_GRACE_TICKS:-30}" tick control_state
   if [ "$require_control" = "1" ]; then
-    max_ticks="${AIUR_NODE_GRACE_TICKS:-100}"
+    # 0.1s per tick. The old 100-tick (10s) budget was under a cold control
+    # plane's real boot time, so a healthy daemon was killed mid-startup and
+    # reported as a failure. Boot time grows with the module count; keep the
+    # headroom generous, since the loop exits as soon as the probe says "up".
+    max_ticks="${AIUR_NODE_GRACE_TICKS:-1200}"
   fi
 
   for ((tick = 0; tick < max_ticks; tick++)); do
@@ -1443,7 +1447,16 @@ wait_for_session_startup() {
   done
 
   if [ "$require_control" = "1" ]; then
-    echo "❌ aiur control plane did not become ready at ${RELEASE_NODE:-unknown} during startup; captured output:" >&2
+    # A live session at this point means the BEAM never died -- we ran out of
+    # patience, not the daemon out of health. Saying so is the difference
+    # between "your release is broken" and "give it longer", and the empty
+    # capture below is evidence of the latter, not of a silent crash.
+    if "$tmux_bin" -L "$socket" -f "$conf" has-session -t "$session" 2>/dev/null; then
+      echo "❌ aiur control plane at ${RELEASE_NODE:-unknown} was still booting after $(awk "BEGIN{printf \"%.0f\", ${max_ticks} / 10}")s; the BEAM is alive but not yet answering." >&2
+      echo "   Raise the budget with AIUR_NODE_GRACE_TICKS (ticks of 0.1s) if this box is just slow." >&2
+    else
+      echo "❌ aiur control plane did not become ready at ${RELEASE_NODE:-unknown} during startup; captured output:" >&2
+    fi
     tail -n 30 "$startup_capture" 2>/dev/null | sed 's/^/  /' >&2 || true
     return 1
   fi
