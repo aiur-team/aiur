@@ -1,17 +1,51 @@
 defmodule AiurWeb.StreamdeckLogs do
   @moduledoc """
-  Server-side projection of the classified agent event feed onto the Stream
-  Deck logs mode window model from #1351.
+  Server-side projection of a ticket's activity onto the Stream Deck logs
+  surface.
 
-  `AgentEventFeed.list/2` returns a flat, newest-first list of classified
-  transcript entries. `project/1` groups them by `turn_id` into events, derives
-  a badge/body header per event, and flattens them once into the transcript
-  while recording the start offset for each event. The eight-key event window
-  reserves index zero for the LIVE key; selecting another key positions the
-  transcript at that event's recorded start offset.
+  ## Two inputs, and why they are not one
+
+  `project/1` takes a map with two keys:
+
+    * `:events` — the ticket's **shared event bus** history, oldest first, from
+      `Aiur.AgentEventFeed.bus_events/2`. These are the things that *happened to
+      the ticket*: progress and phase changes, inbound comments, CI and PR
+      transitions, decisions and attentions. One key on the deck per entry.
+    * `:transcript` — the agent's **provider transcript**, from
+      `Aiur.AgentEventFeed.list/2`. These are the things the agent *said*:
+      messages, tool calls, commands, diffs. They are the detail underneath an
+      event, never a key of their own.
+
+  The surface previously fed both roles from the transcript alone and grouped it
+  by `turn_id`. That is what produced a single, endlessly-rewritten event key: a
+  turn is one grouping of dozens of messages, so the whole page collapsed into
+  one "event" whose label was simply the newest thing the agent had typed.
+
+  ## Ordering
+
+  Everything here is **oldest first**, in both axes, because the surface is read
+  as a chat window: scroll fully left for the beginning, fully right for now.
+  The previous projection flattened newest-first, which put the agent's most
+  recent word at the far left and the ticket's origin at the far right.
+
+  ## The two anchors
+
+  Index `0` is always an **origin** event, synthesised even when the bus is
+  empty, so the transcript always has a defined left edge and no entry that
+  predates the first published event is orphaned. The **last** key is always
+  LIVE, because live is the right-hand end of a chat.
+
+  Each key carries its own `start` — the offset of its header in the flattened
+  transcript. The client jumps by reading that field rather than by indexing a
+  parallel array, so there is no off-by-one to get wrong when the anchors move.
   """
 
+  alias Aiur.AgentEventFeed
+
   @events_window_size 8
+  # The emulator's own readout height. The packaged deck renders five rows and
+  # computes its own bounds from the transcript it receives, because how many
+  # rows fit is a render decision the server cannot make for it.
   @transcript_window_size 2
 
   # The badge is the only thing the projection emits; the shared key-face
@@ -19,31 +53,46 @@ defmodule AiurWeb.StreamdeckLogs do
   # with, so the emulator and the packaged deck cannot drift apart.
   @directions Map.keys(AiurWeb.StreamdeckKeyFaceContract.direction_badges())
 
-  @spec project([map()]) :: map()
-  def project(entries) when is_list(entries) do
-    events =
-      entries
-      |> grouped_events()
-      |> Enum.map(&event/1)
-      |> Enum.with_index(1)
-      |> Enum.map(fn {event, index} -> Map.put(event, :index, index) end)
+  @origin_id :origin
+  @live_id :live
 
-    {flat, event_starts} = flatten(events)
-    event_keys = [%{kind: :live, id: :live, index: 0, label: "LIVE"} | Enum.map(events, &event_key/1)]
+  @type source :: %{optional(:events) => [map()], optional(:transcript) => [map()]}
+
+  @spec project(source() | [map()]) :: map()
+  def project(source)
+
+  # A bare list is the transcript alone — the shape every caller used before the
+  # bus became a separate input. Kept so a caller with no bus access still
+  # projects, rather than raising.
+  def project(entries) when is_list(entries), do: project(%{events: [], transcript: entries})
+
+  def project(%{} = source) do
+    transcript_entries = source |> Map.get(:transcript, []) |> oldest_first() |> Enum.map(&entry/1)
+    bus = source |> Map.get(:events, []) |> Enum.map(&bus_event/1)
+
+    events = bus |> with_origin(transcript_entries) |> assign_entries(transcript_entries) |> Enum.with_index() |> Enum.map(&indexed/1)
+    {flat, starts} = flatten(events)
+    # Every row is addressable as a reading position — an event header in the
+    # last rows still has to be somewhere a key can jump to. The *window* is
+    # clamped separately in `visible/1`, so scrolling to the end paints a full
+    # readout rather than one line above blank ones.
+    transcript_max_offset = max(length(flat) - 1, 0)
+    event_keys = Enum.map(events, &event_key(&1, starts)) ++ [live_key(events, transcript_max_offset)]
 
     %{
-      # Retained so `refresh_relative_times/2` can re-derive each key's age from
-      # the real timestamp without rebuilding the feed.
       events: events,
       event_keys: event_keys,
-      event_starts: event_starts,
+      event_starts: starts,
       transcript: flat,
-      events_offset: 0,
+      events_offset: max(length(event_keys) - @events_window_size, 0),
       events_max_offset: max(length(event_keys) - @events_window_size, 0),
-      transcript_offset: 0,
-      transcript_max_offset: max(length(flat) - @transcript_window_size, 0),
-      selected_event_id: :live,
-      selected_event_index: 0
+      # Logs opens on the newest entry — where the agent is working — not on the
+      # ticket's first line. This is the whole point of the LIVE anchor being on
+      # the right.
+      transcript_offset: transcript_max_offset,
+      transcript_max_offset: transcript_max_offset,
+      selected_event_id: @live_id,
+      selected_event_index: length(event_keys) - 1
     }
     |> visible()
   end
@@ -60,6 +109,13 @@ defmodule AiurWeb.StreamdeckLogs do
 
   defp wire_value(value) when is_list(value), do: Enum.map(value, &wire_value/1)
   defp wire_value(value) when is_tuple(value), do: value |> Tuple.to_list() |> Enum.map_join(":", &wire_value/1)
+  # `nil`, `true` and `false` are atoms, and the generic clause below would send
+  # them as the strings "nil"/"true"/"false". The client reads an absent tool
+  # name, timestamp or diff line as absent, so a stringified `nil` arrives as a
+  # present value: every tool row would have rendered as the tool named "Nil".
+  # This is the same defect as the persisted `"nil"` turn id, one layer out.
+  defp wire_value(nil), do: nil
+  defp wire_value(value) when is_boolean(value), do: value
   defp wire_value(value) when is_atom(value), do: Atom.to_string(value)
   defp wire_value(value), do: value
 
@@ -67,48 +123,51 @@ defmodule AiurWeb.StreamdeckLogs do
   def visible(logs) do
     logs
     |> Map.put(:event_keys_visible, event_window(logs))
-    |> Map.put(:transcript_visible, Enum.slice(logs.transcript, logs.transcript_offset, @transcript_window_size))
+    |> Map.put(:transcript_visible, transcript_window(logs))
   end
 
-  @doc "Selects an event key and positions the transcript at that event header."
+  @doc """
+  Selects an event key and positions the transcript at that event's header.
+
+  Selecting LIVE is not a jump to a header — LIVE has none. It is a jump to the
+  newest entry, which is what "live" means on a surface read left-to-right.
+  """
   @spec select_event(map(), integer()) :: map()
   def select_event(logs, index) when is_integer(index) do
     index = clamp(index, 0, length(logs.event_keys) - 1)
-    transcript_offset = Map.get(logs.event_starts, index, 0)
+    key = Enum.at(logs.event_keys, index)
 
     logs
-    |> Map.put(:selected_event_id, Enum.at(logs.event_keys, index).id)
+    |> Map.put(:selected_event_id, key.id)
     |> Map.put(:selected_event_index, index)
-    |> Map.put(:transcript_offset, transcript_offset)
+    |> Map.put(:transcript_offset, clamp(key.start, 0, logs.transcript_max_offset))
     |> ensure_visible()
     |> visible()
   end
 
   @doc """
-  Refreshes entries while retaining the operator's reading position.
+  Refreshes the projection while retaining the operator's reading position.
 
-  The relay flushes several times a second, so re-projecting alone is not
-  enough: the selected event, how far into that event the transcript is
-  scrolled, and where the eight-key window sits all have to survive the flush.
-  The transcript position is carried as a delta from the selected event's start
-  offset, because the absolute offset moves whenever a newer event is prepended.
+  Following LIVE is the default and the common case: while LIVE is selected the
+  refresh re-pins to the new newest entry, which is what makes the surface show
+  the agent working. A selected *event* keeps its identity across the refresh —
+  bus event ids are stable — and the transcript position is carried as a delta
+  from that event's header, because the absolute offset moves as newer entries
+  are appended.
   """
-  @spec refresh(map(), [map()]) :: map()
-  def refresh(logs, entries) do
-    refreshed = project(entries)
+  @spec refresh(map(), source() | [map()]) :: map()
+  def refresh(logs, source) do
+    refreshed = project(source)
     selected_id = Map.get(logs, :selected_event_id)
 
-    with id when not is_nil(id) and id != :live <- selected_id,
+    with id when not is_nil(id) and id != @live_id <- selected_id,
          key when not is_nil(key) <- Enum.find(refreshed.event_keys, &(&1.id == id)) do
       refreshed
       |> select_event(key.index)
       |> shift_transcript(transcript_delta(logs))
       |> restore_events_offset(logs)
     else
-      # LIVE follows the head of the feed, so the transcript position is not
-      # carried; only the key window the operator scrolled with dial D is.
-      :live -> restore_events_offset(refreshed, logs)
-      _ -> refreshed
+      _ -> restore_events_offset(refreshed, logs)
     end
   end
 
@@ -116,18 +175,14 @@ defmodule AiurWeb.StreamdeckLogs do
   Re-derives the age shown on each event key against `now`.
 
   `refresh/2` only runs when the feed changes, so on an idle agent a key face
-  would otherwise read "now" indefinitely. This recomputes the relative times
-  from the events' real timestamps without rebuilding the feed, leaving the
-  selection, both offsets and the flattened transcript untouched.
+  would otherwise read "now" indefinitely.
   """
   @spec refresh_relative_times(map(), DateTime.t()) :: map()
   def refresh_relative_times(logs, now \\ DateTime.utc_now()) do
-    times = Map.new(logs.events, fn event -> {event.index, relative_time(event.timestamp, now)} end)
-
     logs
     |> Map.update!(:event_keys, fn keys ->
       Enum.map(keys, fn
-        %{kind: :event, index: index} = key -> Map.put(key, :time, Map.fetch!(times, index))
+        %{kind: :event, timestamp: timestamp} = key -> Map.put(key, :time, relative_time(timestamp, now))
         key -> key
       end)
     end)
@@ -144,12 +199,12 @@ defmodule AiurWeb.StreamdeckLogs do
 
   def scroll(logs, :transcript, delta) when is_integer(delta) do
     transcript_offset = clamp(logs.transcript_offset + delta, 0, logs.transcript_max_offset)
-    selected_event_index = event_at(logs.event_starts, transcript_offset)
+    selected = selected_at(logs, transcript_offset)
 
     logs
     |> Map.put(:transcript_offset, transcript_offset)
-    |> Map.put(:selected_event_id, Enum.at(logs.event_keys, selected_event_index).id)
-    |> Map.put(:selected_event_index, selected_event_index)
+    |> Map.put(:selected_event_id, Enum.at(logs.event_keys, selected).id)
+    |> Map.put(:selected_event_index, selected)
     |> ensure_visible()
     |> visible()
   end
@@ -173,6 +228,10 @@ defmodule AiurWeb.StreamdeckLogs do
   @spec line(map()) :: String.t()
   def line(%{kind: :event_header, badge: badge, body: body}), do: "[#{badge}] #{body}"
   def line(%{kind: :message, role: role, body: body}), do: "[#{role}] #{body}"
+  # An unrolled hunk line keeps its own sign, which is the only thing that says
+  # whether it was added or removed. Without this clause it fell to the
+  # catch-all and every line of every diff read "[INFO]".
+  def line(%{kind: :diff_line, sign: sign, text: text}), do: "#{sign}#{text}"
 
   def line(%{kind: :diff, path: path, additions: additions, deletions: deletions, line: line}) do
     "[diff] #{path || "changed file"} +#{additions} -#{deletions}" <> if(is_binary(line) and line != "", do: " #{line}", else: "")
@@ -180,72 +239,180 @@ defmodule AiurWeb.StreamdeckLogs do
 
   def line(_entry), do: "[INFO]"
 
-  defp grouped_events(entries) do
-    entries
-    |> Enum.with_index()
-    |> Enum.chunk_by(fn {entry, index} -> value(entry, :turn_id) || {:entry, index} end)
-    |> Enum.map(fn group -> Enum.map(group, &elem(&1, 0)) end)
-  end
+  # ---------------------------------------------------------------------------
+  # Events
+  # ---------------------------------------------------------------------------
 
-  defp event([latest | _] = entries) do
+  defp bus_event(row) do
     %{
-      badge: value(latest, :badge, "INFO"),
-      body: summary_body(entries),
-      id: event_id(latest),
-      timestamp: value(latest, :timestamp),
-      entries: entries |> Enum.reverse() |> Enum.map(&entry/1)
+      # The kind is part of the identity, not decoration. A ticket subscribes to
+      # some of its own topics, so the same event id can be written twice — once
+      # as `[event:emit]` when published and once as `[event:consumed]` when
+      # delivered back. Keying on the id alone made those two rows one identity,
+      # and a refresh silently moved the selection from the row the operator
+      # picked to its twin, dragging the transcript with it.
+      id: {:bus, value(row, :kind, "emit"), value(row, :id)},
+      badge: direction(value(row, :badge, "EMIT")),
+      label: value(row, :label, "Event"),
+      body: summary(value(row, :label, "Event"), value(row, :body, "")),
+      timestamp: value(row, :timestamp)
     }
   end
 
-  defp event_key(event) do
+  # The origin exists so the surface always has a beginning. A ticket that has
+  # published nothing still has a transcript, and every entry of it belongs
+  # somewhere; without an anchor those rows would sit above the first header
+  # with no key able to reach them.
+  defp with_origin(events, transcript_entries) do
+    origin = %{
+      id: @origin_id,
+      badge: "INFO",
+      label: "Ticket opened",
+      body: "Ticket opened",
+      timestamp: earliest(events, transcript_entries)
+    }
+
+    [origin | events]
+  end
+
+  defp earliest(events, transcript_entries) do
+    (Enum.map(events, & &1.timestamp) ++ Enum.map(transcript_entries, & &1.timestamp))
+    |> Enum.reject(&is_nil/1)
+    |> Enum.map(&to_string/1)
+    |> Enum.min(fn -> nil end)
+  end
+
+  # Every transcript entry belongs to the last event at or before it. Entries
+  # with no usable timestamp fall to the origin rather than being dropped: an
+  # unattributable row is still something the agent said.
+  defp assign_entries(events, transcript_entries) do
+    events
+    |> Enum.reverse()
+    |> Enum.map_reduce(transcript_entries, fn event, remaining ->
+      {mine, earlier} = Enum.split_with(remaining, &at_or_after?(&1, event.timestamp))
+      {Map.put(event, :entries, mine), earlier}
+    end)
+    |> then(fn {assigned, leftover} -> attach_leftover(Enum.reverse(assigned), leftover) end)
+  end
+
+  defp attach_leftover([origin | rest], leftover), do: [Map.update!(origin, :entries, &(leftover ++ &1)) | rest]
+  defp attach_leftover([], _leftover), do: []
+
+  # An event with no usable timestamp claims nothing rather than everything.
+  # The walk runs newest-first and uses `split_with`, so a boundary that matched
+  # every entry would hand one malformed event the whole transcript and leave
+  # every older key — including the origin — empty. Unmatched entries still
+  # reach the origin through `attach_leftover/2`, which is where they belong.
+  defp at_or_after?(_entry, nil), do: false
+  defp at_or_after?(%{timestamp: nil}, _boundary), do: false
+
+  defp at_or_after?(%{timestamp: timestamp}, boundary) do
+    case {instant(timestamp), instant(boundary)} do
+      {%DateTime{} = at, %DateTime{} = edge} -> DateTime.compare(at, edge) != :lt
+      # Neither side parses as an instant: a lexical comparison is the only
+      # ordering left, and it is right for the same-shape UTC strings both
+      # producers actually emit.
+      _ -> to_string(timestamp) >= to_string(boundary)
+    end
+  end
+
+  # Parsed rather than compared as strings: ISO 8601 is only lexically ordered
+  # when both sides share a precision and an offset. "10:00:00Z" against
+  # "10:00:00.5Z" compares "Z" to ".", which sorts the later instant first.
+  defp instant(value) when is_binary(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, at, _offset} -> at
+      _ -> nil
+    end
+  end
+
+  defp instant(%DateTime{} = value), do: value
+  defp instant(_value), do: nil
+
+  defp indexed({event, index}), do: Map.put(event, :index, index)
+
+  defp flatten(events) do
+    {chunks, starts, _offset} =
+      Enum.reduce(events, {[], %{}, 0}, fn event, {chunks, starts, offset} ->
+        entries = [header(event) | Enum.flat_map(event.entries, &flat_rows/1)]
+        {[entries | chunks], Map.put(starts, event.index, offset), offset + length(entries)}
+      end)
+
+    {chunks |> Enum.reverse() |> List.flatten(), starts}
+  end
+
+  # A diff becomes a header row plus one row per hunk line, because the client
+  # addresses transcript rows by index to scroll and to jump. Summarising a
+  # multi-line hunk into a single row would have shown the operator a diff's
+  # *existence* where he asked to read the diff; unrolling it here — rather than
+  # at the renderer — keeps "one row is one line" true for the scroll maths.
+  defp flat_rows(%{kind: :diff, lines: lines} = entry) when is_list(lines) and lines != [] do
+    [Map.delete(entry, :lines) | Enum.map(lines, &Map.put(&1, :kind, :diff_line))]
+  end
+
+  defp flat_rows(%{kind: :diff} = entry), do: [Map.delete(entry, :lines)]
+  defp flat_rows(entry), do: [entry]
+
+  defp header(event) do
+    %{kind: :event_header, badge: event.badge, body: event.body, label: event.label, timestamp: event.timestamp}
+  end
+
+  defp event_key(event, starts) do
     %{
       kind: :event,
       id: event.id,
       index: event.index,
-      badge: direction(event.badge),
-      text: event.body,
-      time: relative_time(event.timestamp)
+      badge: event.badge,
+      text: event.label,
+      body: event.body,
+      time: relative_time(event.timestamp),
+      timestamp: event.timestamp,
+      start: Map.get(starts, event.index, 0)
     }
   end
 
-  # `turn_id` is what the classified feed always sets, and it is what makes an
-  # event stable across refreshes. The remaining clauses only matter for
-  # synthetic or partial entries, where two byte-identical entries collide and
-  # `refresh/2` may reselect the sibling.
-  defp event_id(entry) do
-    cond do
-      turn_id = value(entry, :turn_id) -> {:turn, turn_id}
-      msg_id = value(entry, :msg_id) -> {:message, msg_id}
-      true -> {:entry, value(entry, :timestamp), value(entry, :type), value(entry, :role), body(entry), value(entry, :path)}
-    end
+  # LIVE is a key like any other so that selection is a single index rather than
+  # a special case the client has to remember to exclude. Its `start` is the
+  # newest row, which is exactly what pressing it should show.
+  defp live_key(events, transcript_max_offset) do
+    %{
+      kind: :live,
+      id: @live_id,
+      index: length(events),
+      badge: "AGENT",
+      text: "LIVE",
+      body: "LIVE",
+      time: "",
+      timestamp: nil,
+      start: transcript_max_offset
+    }
   end
 
-  # The classified feed omits `body` for diff entries, so a turn whose newest
-  # entry is a provider diff derives its header summary from the diff path.
-  defp summary_body(entries) do
-    entries
-    |> Enum.map(fn entry ->
-      case body(entry) do
-        "" -> value(entry, :path) || ""
-        text -> text
-      end
-    end)
-    |> Enum.find(&(&1 != ""))
-    |> Kernel.||("")
+  # A bus event's label is the human topic; its summary is whatever the
+  # publisher wrote. Both are worth showing when they differ, and repeating the
+  # label is worth showing never.
+  defp summary(label, ""), do: label
+  defp summary(label, body) when is_binary(body), do: if(String.downcase(body) == String.downcase(label), do: label, else: body)
+  defp summary(label, _body), do: label
+
+  # ---------------------------------------------------------------------------
+  # Selection and scrolling
+  # ---------------------------------------------------------------------------
+
+  # Sitting on the newest row *is* being live; anything else is reading a
+  # specific event. Deriving it this way is what makes the selection
+  # bidirectional — a press moves the offset and the highlight follows, and so
+  # does a scroll — without LIVE needing a rule of its own.
+  defp selected_at(logs, transcript_offset) do
+    if transcript_offset >= logs.transcript_max_offset,
+      do: length(logs.event_keys) - 1,
+      else: event_at(logs.event_starts, transcript_offset)
   end
 
-  defp flatten(events) do
-    {chunks, event_starts, _offset} =
-      Enum.reduce(events, {[], %{}, 0}, fn event, {chunks, starts, offset} ->
-        entries = flatten_event(event)
-        {[entries | chunks], Map.put(starts, event.index, offset), offset + length(entries)}
-      end)
-
-    {chunks |> Enum.reverse() |> List.flatten(), event_starts}
-  end
-
-  defp flatten_event(event) do
-    [%{kind: :event_header, badge: event.badge, body: event.body, timestamp: event.timestamp} | event.entries]
+  defp event_at(event_starts, transcript_offset) do
+    event_starts
+    |> Enum.sort_by(fn {index, _offset} -> index end)
+    |> Enum.reduce(0, fn {index, offset}, selected -> if offset <= transcript_offset, do: index, else: selected end)
   end
 
   defp transcript_delta(logs) do
@@ -266,8 +433,15 @@ defmodule AiurWeb.StreamdeckLogs do
   # the key window away from the selection, and a flush must not drag it back.
   defp restore_events_offset(logs, previous) do
     logs
-    |> Map.put(:events_offset, clamp(Map.get(previous, :events_offset, 0), 0, logs.events_max_offset))
+    |> Map.put(:events_offset, clamp(Map.get(previous, :events_offset, logs.events_offset), 0, logs.events_max_offset))
     |> visible()
+  end
+
+  # The painted window stops at the end of the transcript even though the
+  # reading position does not, so the last position still shows a full readout.
+  defp transcript_window(logs) do
+    start = min(logs.transcript_offset, max(length(logs.transcript) - @transcript_window_size, 0))
+    Enum.slice(logs.transcript, max(start, 0), @transcript_window_size)
   end
 
   defp event_window(logs) do
@@ -277,11 +451,42 @@ defmodule AiurWeb.StreamdeckLogs do
     |> Enum.take(@events_window_size)
   end
 
-  defp event_at(event_starts, transcript_offset) do
-    event_starts
-    |> Enum.sort_by(fn {index, _offset} -> index end)
-    |> Enum.reduce(0, fn {index, offset}, selected -> if offset <= transcript_offset, do: index, else: selected end)
+  # ---------------------------------------------------------------------------
+  # Transcript entries
+  # ---------------------------------------------------------------------------
+
+  defp oldest_first(entries) when is_list(entries), do: Enum.reverse(entries)
+  defp oldest_first(_entries), do: []
+
+  defp entry(entry) do
+    case value(entry, :type) do
+      "diff" ->
+        %{
+          kind: :diff,
+          path: value(entry, :path),
+          additions: value(entry, :additions, 0),
+          deletions: value(entry, :deletions, 0),
+          line: value(entry, :line),
+          lines: diff_lines(value(entry, :lines, [])),
+          timestamp: value(entry, :timestamp)
+        }
+
+      _ ->
+        %{
+          kind: :message,
+          role: value(entry, :role, "system"),
+          body: body(entry),
+          tool: value(entry, :tool),
+          timestamp: value(entry, :timestamp)
+        }
+    end
   end
+
+  defp diff_lines(lines) when is_list(lines) do
+    Enum.map(lines, fn line -> %{sign: value(line, :sign, " "), text: value(line, :text, "")} end)
+  end
+
+  defp diff_lines(_lines), do: []
 
   defp direction(badge) do
     if badge in @directions, do: badge, else: "INFO"
@@ -313,22 +518,6 @@ defmodule AiurWeb.StreamdeckLogs do
 
   defp relative_time(_timestamp, _now), do: ""
 
-  defp entry(entry) do
-    case value(entry, :type) do
-      "diff" ->
-        %{
-          kind: :diff,
-          path: value(entry, :path),
-          additions: value(entry, :additions, 0),
-          deletions: value(entry, :deletions, 0),
-          line: value(entry, :line)
-        }
-
-      _ ->
-        %{kind: :message, role: value(entry, :role, "system"), body: body(entry)}
-    end
-  end
-
   defp body(entry), do: value(entry, :body, "") |> to_string() |> String.replace(~r/\R/u, " ") |> String.trim()
 
   defp value(map, key, default \\ nil) do
@@ -336,4 +525,16 @@ defmodule AiurWeb.StreamdeckLogs do
   end
 
   defp clamp(value, lower, upper), do: value |> max(lower) |> min(max(upper, lower))
+
+  @doc "Reads both feeds for `identifier` and projects them together."
+  @spec load(String.t()) :: map()
+  def load(identifier) when is_binary(identifier) do
+    transcript =
+      case AgentEventFeed.list(identifier, %{"limit" => 50}) do
+        {:ok, %{events: events}} -> events
+        _ -> []
+      end
+
+    project(%{events: AgentEventFeed.bus_events(identifier), transcript: transcript})
+  end
 end

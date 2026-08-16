@@ -3,7 +3,7 @@ import { createPhysicalSurface, repaintGrid } from "../src/surface.js";
 import { layoutPhysicalKeys } from "../src/keys.js";
 import type { TranscriptRow } from "../src/channel.js";
 
-const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body });
+const message = (body: string): TranscriptRow => ({ kind: "message", role: "assistant", body, tool: null });
 
 describe("physical surface composition", () => {
   it("places command faces on the exact keys their controller handles", () => {
@@ -51,9 +51,9 @@ describe("physical surface composition", () => {
     const backend = { write, sendFeatureReport } as never;
     const grid = { agents: [], total: 0, windows: 1, max_column_offset: 0 };
     const base = { mode: "logs" as const, focusedIdentifier: null, columnOffset: 0, eventLines: [
-      { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
-      { kind: "event" as const, badge: "CONSUME", text: "event-b", time: "2m" },
-      { kind: "event" as const, badge: "INFO", text: "event-c", time: "3m" },
+      { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m", start: 0 },
+      { kind: "event" as const, badge: "CONSUME", text: "event-b", time: "2m", start: 1 },
+      { kind: "event" as const, badge: "INFO", text: "event-c", time: "3m", start: 2 },
     ], eventOffset: 0, transcriptRows: [message("chat-a"), message("chat-b")], eventHasNext: true, chatHasNext: true };
     await surface.repaint(backend, grid, {}, undefined, base);
     const first = write.mock.calls.length;
@@ -78,8 +78,8 @@ describe("physical surface composition", () => {
       focusedIdentifier: null,
       columnOffset: 0,
       eventLines: [
-        { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m" },
-        { kind: "event" as const, badge: "EMIT", text: "event-b", time: "2m" },
+        { kind: "event" as const, badge: "EMIT", text: "event-a", time: "1m", start: 0 },
+        { kind: "event" as const, badge: "EMIT", text: "event-b", time: "2m", start: 1 },
       ],
       eventOffset: 0,
       transcriptRows: [],

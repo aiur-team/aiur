@@ -31,7 +31,7 @@ import { connectStreamDeckChannel, defaultFetch, defaultWebSocket, type StreamDe
 import type { HidBackend } from "./backend.js";
 import { preloadVendorMarks } from "./art/vendorMark.js";
 import { createDebugLog, debugEnabled, hexPreview } from "./debug.js";
-import { advanceDemoGrid, demoGrid, demoLogs, demoUsage } from "./demo.js";
+import { advanceDemoGrid, advanceDemoLogs, demoGrid, demoLogs, demoUsage } from "./demo.js";
 import { decodeInputReport } from "./input.js";
 import { INPUT_REPORT_LENGTH, POLL_INTERVAL_MS, PRODUCT_ID, VENDOR_ID } from "./report.js";
 import { startRuntime } from "./runtime.js";
@@ -42,6 +42,12 @@ import { createPhysicalController } from "./controller.js";
 
 /** HID interface number on the Stream Deck +. */
 const HID_INTERFACE = 0;
+/**
+ * Frame interval for the live-typing reveal. 40ms with the typewriter's
+ * six-characters-per-frame step reads as fast typing rather than as a stutter,
+ * and repaints only the one 800x100 strip panel whose bytes actually changed.
+ */
+const TYPING_TICK_MS = 40;
 /** Timeout for feature-report control transfers. */
 const CONTROL_TIMEOUT_MS = 1000;
 /**
@@ -331,9 +337,24 @@ export const main = async (): Promise<void> => {
     demoGridState = advanceDemoGrid(demoGridState, 3);
     latestGrid = demoGridState;
     latestUsage = demoUsage(Date.now());
-    if (demoTick % 5 === 0) controller.setLogs(demoLogsState);
+    // Every tick, not every fifth: the newest message grows a clause each time,
+    // which is what drives the live-typing reveal. Feeding the logs only
+    // occasionally left the one behaviour that has to be seen moving looking
+    // frozen for ten seconds at a stretch.
+    demoLogsState = advanceDemoLogs(demoLogsState, demoTick);
+    controller.setLogs(demoLogsState);
     if (activeBackend !== null) repaintDetached(activeBackend);
   }, 2000).unref();
+
+  // Drives the live-typing reveal. The controller owns the animation state and
+  // reports whether it still owes a frame; this is only the clock, and it costs
+  // nothing when nothing is typing because `tickTyping` returns immediately
+  // outside logs mode.
+  // Every frame it produces changes controller state, which already fires
+  // `stateChanged` and therefore a repaint, so this is only the clock. It costs
+  // nothing when nothing is typing: `tickTyping` returns immediately outside
+  // logs mode and whenever the reveal has finished.
+  setInterval(() => controller.tickTyping(), TYPING_TICK_MS).unref();
 
   const controller = createPhysicalController({
     grid: () => latestGrid,

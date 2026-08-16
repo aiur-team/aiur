@@ -55,6 +55,8 @@ export interface AgentKeyFace {
   readonly titleLines: TitleLines;
   readonly priority: boolean;
   readonly footer: FooterFace;
+  /** `null` when the daemon reported no reading. Distinct from a real 0%. */
+  readonly progressPercent: number | null;
 }
 
 /** A composed empty key: painted as a solid blackout via the RGB fast path. */
@@ -144,5 +146,6 @@ function composeAgentFace(agent: AgentKey, lineChars: number): AgentKeyFace {
     titleLines: wrapTitle(agent.title, lineChars),
     priority: agent.priority,
     footer: agent.footer,
+    progressPercent: agent.progressPercent,
   };
 }

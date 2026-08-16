@@ -17,7 +17,7 @@
  * here is used unless the demo flag is set.
  */
 
-import type { StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
+import type { DiffLine, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 
 /** One synthetic agent, in the daemon's grid payload shape. */
 type DemoAgent = Readonly<Record<string, unknown>>;
@@ -29,11 +29,18 @@ type DemoAgent = Readonly<Record<string, unknown>>;
  * fresh workflow stage and no actionable wait.
  */
 const AGENTS: readonly DemoAgent[] = [
-  { identifier: "401", title: "Auth refactor and session rotation", vendor: "claude", icon: "key", bucket: "running", progress_percent: 72, priority: false, dependency_ready: true, activity: "waiting_ci", runtime_seconds: 11_240 },
-  { identifier: "333", title: "Fleet-wide retry storm", vendor: "codex", icon: "retry", bucket: "stuck", progress_percent: 34, priority: true, dependency_ready: true, activity: "work", runtime_seconds: 2_700 },
-  { identifier: "640", title: "Tutorials — draft", vendor: "claude", icon: "book", bucket: "running", progress_percent: 18, priority: false, dependency_ready: true, activity: "brainstorm", runtime_seconds: 320 },
+  { identifier: "401", title: "Auth refactor and session rotation", vendor: "claude", icon: "key", bucket: "running", progress_percent: 72, progress_freshness: "fresh", priority: false, dependency_ready: true, activity: "waiting_ci", runtime_seconds: 11_240 },
+  // The flicker case, held still: a real reading that has aged past the
+  // freshness window. It must keep its percent and read as not-current, never
+  // collapse to an empty bar that looks like 0%.
+  { identifier: "333", title: "Fleet-wide retry storm", vendor: "codex", icon: "retry", bucket: "stuck", progress_percent: 34, progress_freshness: "stale", priority: true, dependency_ready: true, activity: "work", runtime_seconds: 2_700 },
+  // No reading at all. Renders as a dashed track and a hollow dot — the state
+  // that used to be indistinguishable from "0% done".
+  { identifier: "640", title: "Tutorials — draft", vendor: "claude", icon: "book", bucket: "running", progress_percent: null, progress_freshness: "unknown", priority: false, dependency_ready: true, activity: "brainstorm", runtime_seconds: 320 },
+  // A genuine zero, next to the two above so the three are comparable at a
+  // glance: it paints a short solid stub, because 0% is a measurement.
+  { identifier: "412", title: "Restore retry statistics", vendor: "codex", icon: "database", bucket: "running", progress_percent: 0, progress_freshness: "fresh", priority: false, dependency_ready: true, activity: "review", runtime_seconds: 18_900 },
   { identifier: "540", title: "UI polish and theming", vendor: "deepseek", icon: "palette", bucket: "alert", progress_percent: 55, priority: false, dependency_ready: true, activity: "waiting_review", runtime_seconds: 47 },
-  { identifier: "412", title: "Restore retry statistics", vendor: "codex", icon: "database", bucket: "running", progress_percent: 91, priority: false, dependency_ready: true, activity: "review", runtime_seconds: 18_900 },
   { identifier: "620", title: "Docs site integration", vendor: "claude", icon: "globe", bucket: "paused", progress_percent: 45, priority: false, dependency_ready: true },
   { identifier: "530", title: "State management rewrite", vendor: "kimi", icon: "flow", bucket: "running", progress_percent: 63, priority: false, dependency_ready: true },
   { identifier: "520", title: "Navigation shell", vendor: "codex", icon: "components", bucket: "running", progress_percent: 27, priority: false, dependency_ready: true },
@@ -63,76 +70,172 @@ const AGENTS: readonly DemoAgent[] = [
   { identifier: "933", title: "Fixture server hardening", vendor: "claude", icon: "shield", bucket: "queued", progress_percent: 0, priority: false, dependency_ready: false },
 ];
 
-/** One synthetic event: the key face, plus the chat that event published. */
+/** One synthetic bus event: the key face, plus the chat that followed it. */
 interface DemoEvent {
   readonly badge: string;
-  readonly text: string;
+  /** Human topic name, exactly as `AgentEventFeed.topic_label/1` produces it. */
+  readonly label: string;
+  /** The publisher's own summary; falls back to the label when it adds nothing. */
+  readonly body: string;
   /** Minutes ago, which drives both the key's age and the header timestamp. */
   readonly minutesAgo: number;
   readonly entries: readonly TranscriptRow[];
 }
 
-const message = (role: string, body: string): TranscriptRow => ({ kind: "message", role, body });
-const diff = (path: string, additions: number, deletions: number, line: string | null = null): TranscriptRow =>
-  ({ kind: "diff", path, additions, deletions, line });
+const message = (role: string, body: string, tool: string | null = null): TranscriptRow => ({ kind: "message", role, body, tool });
+
+const diffLines = (spec: readonly string[]): readonly DiffLine[] =>
+  spec.map((raw) => ({
+    sign: raw.startsWith("+") ? "+" : raw.startsWith("-") ? "-" : " ",
+    text: raw.slice(1),
+  }));
 
 /**
- * The demo feed, newest event first.
+ * A diff, already unrolled the way the daemon unrolls it: a header row, then
+ * one row per hunk line. The fixture builds the same shape the wire carries so
+ * the demo exercises the real scroll indices rather than a shape only it has.
+ */
+const diff = (
+  path: string,
+  additions: number,
+  deletions: number,
+  line: string | null = null,
+  lines: readonly string[] = [],
+): readonly TranscriptRow[] => [
+  { kind: "diff", path, additions, deletions, line },
+  ...diffLines(lines).map((entry): TranscriptRow => ({ kind: "diff_line", sign: entry.sign, text: entry.text })),
+];
+
+/**
+ * The demo feed, **oldest event first** — the order the surface reads in.
  *
- * Each event carries the chat it published, so the fixture exercises the
- * behaviour the logs surface exists for: pressing an event key scrolls the
- * strip to that event's header and the messages that followed it. A flat list
- * of pre-rendered lines cannot show that, because there are no headers to jump
- * to. The first four events are deliberately dense, so the jump lands somewhere
- * visibly different each time.
+ * The first entry is the origin anchor every projection synthesises, so the
+ * fixture exercises the real left edge rather than starting mid-history. Each
+ * event carries the transcript that followed it, so pressing an event key jumps
+ * somewhere visibly different, and the whole set covers every direction badge,
+ * every transcript role the renderer styles differently, and a real multi-line
+ * diff.
  */
 const EVENTS: readonly DemoEvent[] = [
   {
-    badge: "EMIT",
-    text: "Dependency cleared for #401",
-    minutesAgo: 0,
+    badge: "INFO",
+    label: "Ticket opened",
+    body: "Ticket opened",
+    minutesAgo: 96,
+    entries: [message("system", "Workspace prepared at ~/.aiur/workspaces/401.")],
+  },
+  {
+    badge: "CONSUME",
+    label: "Comment",
+    body: "Please rotate sessions on privilege change too",
+    minutesAgo: 83,
     entries: [
-      message("assistant", "Dependency on #388 is merged; unblocking the auth refactor."),
-      message("tool", "gh pr view 388 --json state -> MERGED"),
-      diff("src/lib/aiur/agent/dependencies.ex", 18, 4, "+  defp cleared?(ticket), do: ticket.blockers == []"),
+      message("user", "Please rotate sessions on privilege change too, not just on login."),
+      message("assistant", "Understood — I will widen the rotation trigger to any privilege transition."),
     ],
   },
   {
     badge: "AGENT",
-    text: "Rebased onto origin/main",
-    minutesAgo: 3,
+    label: "Phase change",
+    body: "brainstorm -> plan",
+    minutesAgo: 70,
     entries: [
-      message("assistant", "Rebasing before the test run so CI builds the merge ref."),
-      diff("src/lib/aiur/orchestrator.ex", 6, 6, "-    Process.send_after(self(), :wake, 5_000)"),
-      message("ci", "12 files changed, 340 insertions, 96 deletions"),
+      message("reasoning", "Two rotation points share a guard clause; the plan should collapse them first."),
+      message("assistant", "Plan written to docs/plans/2026-08-15-001-auth-rotation-plan.md."),
+    ],
+  },
+  {
+    badge: "AGENT",
+    label: "Progress check-in",
+    body: "34% — session store rewritten",
+    minutesAgo: 52,
+    entries: [
+      message("command", "mix test test/aiur/auth/session_test.exs"),
+      message("system", "18 tests, 0 failures"),
+    ],
+  },
+  {
+    badge: "EMIT",
+    label: "Branch pushed",
+    body: "feat/session-rotation",
+    minutesAgo: 44,
+    entries: [
+      message("tool", "src/lib/aiur/auth/session.ex", "edit"),
+      ...diff("src/lib/aiur/auth/session.ex", 18, 4, "+  defp rotate?(change), do: change.privilege != :unchanged", [
+        "   def rotate(session, change) do",
+        "-    if change.kind == :login do",
+        "+    if rotate?(change) do",
+        "       %{session | token: mint(), rotated_at: DateTime.utc_now()}",
+      ]),
+      message("tool", "pattern=\"rotate?\" path=src/lib (7 matches)", "grep"),
     ],
   },
   {
     badge: "SYSTEM",
-    text: "Daemon reloaded workflow fixtures",
-    minutesAgo: 9,
+    label: "Decision requested",
+    body: "Rotate refresh tokens as well?",
+    minutesAgo: 36,
+    entries: [message("alert", "Rotating refresh tokens logs every device out; needs an operator call.")],
+  },
+  {
+    badge: "CONSUME",
+    label: "Decision resolved",
+    body: "Access tokens only",
+    minutesAgo: 28,
+    entries: [message("user", "Access tokens only for now. Leave refresh alone.")],
+  },
+  {
+    badge: "EMIT",
+    label: "PR opened",
+    body: "PR #1904 — Rotate sessions on privilege change",
+    minutesAgo: 21,
     entries: [
-      message("system", "Workflow fixtures changed on disk; reloading the agent registry."),
-      diff("src/examples/workflows/github-claude.aiurconfig", 3, 1),
+      message("command", "gh pr create --fill"),
+      message("assistant", "Opened PR #1904 and requested review."),
     ],
   },
   {
     badge: "CONSUME",
-    text: "Merge gate approved #412",
+    label: "CI failed",
+    body: "credo --strict",
     minutesAgo: 14,
     entries: [
-      message("assistant", "Human merge gate satisfied; queueing the merge."),
-      message("ci", "All checks passed on the head SHA."),
+      message("ci", "Credo: 1 refactoring opportunity in session.ex:41"),
+      message("command", "mix credo --strict"),
     ],
   },
-  { badge: "INFO", text: "Retry budget exhausted on #333", minutesAgo: 21, entries: [message("system", "Retry budget exhausted after 5 attempts; the agent is stuck.")] },
-  { badge: "EMIT", text: "Opened PR #1904 for review", minutesAgo: 28, entries: [message("assistant", "Opened PR #1904 and requested review.")] },
-  { badge: "AGENT", text: "Worker claimed ticket #530", minutesAgo: 36, entries: [message("assistant", "Claimed #530 and started the state management rewrite.")] },
-  { badge: "SYSTEM", text: "Provider meter refreshed", minutesAgo: 44, entries: [message("system", "Claude session window is at 86%.")] },
-  { badge: "INFO", text: "Workspace lock released", minutesAgo: 52, entries: [message("system", "Workspace lock for #810 released after 4m of contention.")] },
-  { badge: "CONSUME", text: "Nightly run scheduled", minutesAgo: 61, entries: [message("system", "Nightly integration run scheduled for 02:00.")] },
-  { badge: "SYSTEM", text: "Ticket #718 needs operator input", minutesAgo: 70, entries: [message("alert", "Merge gate audit needs a decision before it can continue.")] },
-  { badge: "EMIT", text: "Branch pushed for #520", minutesAgo: 83, entries: [message("assistant", "Pushed feat/navigation-shell.")] },
+  {
+    badge: "AGENT",
+    label: "Progress check-in",
+    body: "72% — credo clean, awaiting review",
+    minutesAgo: 9,
+    entries: [
+      ...diff("src/lib/aiur/auth/session.ex", 3, 3, "-    |> Enum.map(fn s -> rotate(s, change) end)", [
+        "-    |> Enum.map(fn s -> rotate(s, change) end)",
+        "+    |> Enum.map(&rotate(&1, change))",
+      ]),
+      message("tool", "path=src/lib/aiur/auth/session.ex offset=30 limit=20", "read"),
+    ],
+  },
+  {
+    badge: "CONSUME",
+    label: "CI passed",
+    body: "All checks green on the head SHA",
+    minutesAgo: 3,
+    entries: [message("ci", "format, credo, test — all green on 1f4c9ab.")],
+  },
+  {
+    badge: "AGENT",
+    label: "Review comment",
+    body: "Requested a test for the privilege-downgrade path",
+    minutesAgo: 0,
+    entries: [
+      message("command", "mix test test/aiur/auth/session_test.exs --only downgrade"),
+      // Deliberately last, and deliberately assistant prose: this is the row the
+      // demo types out, and typing is only honest for the agent's own words.
+      message("assistant", "Adding a downgrade case so the guard is covered in both directions, then re-running credo and the focused test file."),
+    ],
+  },
 ];
 
 /**
@@ -191,32 +294,44 @@ export const demoUsage = (now: number): Readonly<Record<string, unknown>> => {
  * drift apart in the fixture.
  */
 export const demoLogs = (now: number = Date.now()): StreamDeckLogs => {
-  const transcript = EVENTS.flatMap((event) => [
-    {
+  const transcript: Record<string, unknown>[] = [];
+  const starts: number[] = [];
+
+  for (const event of EVENTS) {
+    starts.push(transcript.length);
+    transcript.push({
       kind: "event_header",
       badge: event.badge,
-      body: event.text,
+      body: event.body,
+      label: event.label,
       timestamp: new Date(now - event.minutesAgo * 60_000).toISOString(),
-    },
-    ...event.entries,
-  ]);
+    });
+    transcript.push(...(event.entries as unknown as Record<string, unknown>[]));
+  }
+
   return {
+    // LIVE is last, not first: the surface reads oldest-left to newest-right,
+    // and live is the right-hand end of a chat. Every key carries its own
+    // `start`, exactly as the daemon sends it, so the fixture exercises the
+    // real jump path rather than a client-side reconstruction of it.
     event_keys: [
-      { kind: "live", id: "live", index: 0, label: "LIVE" },
       ...EVENTS.map((event, index) => ({
         kind: "event",
         id: `demo-${index}`,
-        index: index + 1,
+        index,
         badge: event.badge,
-        text: event.text,
+        text: event.label,
+        body: event.body,
         time: event.minutesAgo === 0 ? "now" : `${event.minutesAgo}m`,
+        start: starts[index],
       })),
+      { kind: "live", id: "live", index: EVENTS.length, label: "LIVE", start: Math.max(0, transcript.length - 1) },
     ],
-    events_offset: 0,
+    events_offset: Math.max(0, EVENTS.length + 1 - 8),
     events_max_offset: Math.max(0, EVENTS.length + 1 - 8),
     transcript,
-    transcript_offset: 0,
-    transcript_max_offset: Math.max(0, transcript.length - 2),
+    transcript_offset: Math.max(0, transcript.length - 1),
+    transcript_max_offset: Math.max(0, transcript.length - 1),
   };
 };
 
@@ -227,8 +342,37 @@ export const demoLogs = (now: number = Date.now()): StreamDeckLogs => {
 export const advanceDemoGrid = (grid: StreamDeckGrid, step: number): StreamDeckGrid => ({
   ...grid,
   agents: grid.agents.map((agent) =>
-    agent.bucket === "running"
-      ? { ...agent, progress_percent: (((agent.progress_percent as number) + step) % 101) }
+    // Only a fresh, known reading advances. A stale or unknown one holds still,
+    // because the point of those two fixtures is that they are *not* moving —
+    // and wrapping them through zero would reproduce on purpose the exact
+    // flicker this change exists to remove.
+    agent.bucket === "running" && typeof agent.progress_percent === "number" && agent.progress_freshness === "fresh"
+      ? { ...agent, progress_percent: Math.min(100, (agent.progress_percent as number) + step) }
       : agent,
   ),
 });
+
+/**
+ * The sentence the demo types out, one flush at a time.
+ *
+ * Live typing is the one behaviour a static fixture cannot show, and it is also
+ * the one the operator is most likely to think is broken if it silently does
+ * nothing. Each call appends a further clause to the newest message, which is
+ * exactly the shape a real provider flush has, so the typewriter's
+ * resume-on-extension path is exercised rather than only its restart path.
+ */
+const TYPING_CLAUSES: readonly string[] = [
+  "Adding a downgrade case",
+  "Adding a downgrade case so the guard is covered in both directions,",
+  "Adding a downgrade case so the guard is covered in both directions, then re-running credo",
+  "Adding a downgrade case so the guard is covered in both directions, then re-running credo and the focused test file.",
+];
+
+export const advanceDemoLogs = (logs: StreamDeckLogs, tick: number): StreamDeckLogs => {
+  const transcript = logs.transcript ?? [];
+  if (transcript.length === 0) return logs;
+  const last = transcript[transcript.length - 1];
+  if (last.kind !== "message") return logs;
+  const body = TYPING_CLAUSES[tick % TYPING_CLAUSES.length];
+  return { ...logs, transcript: [...transcript.slice(0, -1), { ...last, body }] };
+};

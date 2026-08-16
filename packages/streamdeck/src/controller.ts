@@ -1,8 +1,9 @@
 import { cycleEventPage, cycleWindow, maxColumnOffset } from "./dial.js";
 import { decodeInputReport, risingEdges, type DeckInput } from "./input.js";
-import type { StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
+import type { DiffLine, StreamDeckChannel, StreamDeckGrid, StreamDeckLogs, TranscriptRow } from "./channel.js";
 import { agentIndexForKey } from "./keys.js";
-import { CHAT_WINDOW_ROWS, ensureEventVisible, eventKeyAtOffset } from "./touchStrip/chatLog.js";
+import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "./touchStrip/chatLog.js";
+import { createTypewriter } from "./touchStrip/typewriter.js";
 import { maxProviderOffset, PROVIDER_SCROLL_ENCODER } from "./touchStrip/providerPanel.js";
 
 export type ControllerMode = "grid" | "cmd" | "logs";
@@ -16,13 +17,21 @@ export type ControllerMode = "grid" | "cmd" | "logs";
  * and no time at all.
  */
 export interface EventKey {
-  /** `live` is the feed's sentinel first row, not an event. */
+  /** `live` is the feed's sentinel *last* row — the right-hand end of the chat. */
   readonly kind: "live" | "event";
   /** Direction badge: EMIT, CONSUME, INFO, AGENT or SYSTEM. */
   readonly badge: string;
   readonly text: string;
   /** Relative timestamp such as "3m"; empty when the feed omits one. */
   readonly time: string;
+  /**
+   * Offset of this key's header in the flattened transcript — where pressing it
+   * scrolls to. Carried per key rather than derived from a parallel array of
+   * header positions: the client no longer has to reproduce the server's
+   * anchoring rules to address a key, so the two cannot disagree about which
+   * row a key means.
+   */
+  readonly start: number;
 }
 
 const asString = (value: unknown, fallback = ""): string => (typeof value === "string" ? value : fallback);
@@ -31,12 +40,26 @@ const asNumber = (value: unknown): number => (typeof value === "number" && Numbe
 const asText = (value: unknown): string | null => (typeof value === "string" && value !== "" ? value : null);
 
 /** Normalises one server transcript row into a {@link TranscriptRow}. */
+/**
+ * Anything that is not a unified-diff marker is context. Passing an arbitrary
+ * string through as a sign would let the feed pick the row's colour, and the
+ * added/removed tint is the one thing a diff row's colour has to mean.
+ */
+const toDiffSign = (value: unknown): DiffLine["sign"] => {
+  const sign = asString(value, " ");
+  return sign === "+" || sign === "-" ? sign : " ";
+};
+
 const toTranscriptRow = (entry: Readonly<Record<string, unknown>>): TranscriptRow => {
+  if (entry.kind === "diff_line") {
+    return { kind: "diff_line", sign: toDiffSign(entry.sign), text: asString(entry.text) };
+  }
   if (entry.kind === "event_header") {
     return {
       kind: "event_header",
       badge: asString(entry.badge, "INFO"),
       body: asString(entry.body),
+      label: asString(entry.label, asString(entry.body)),
       timestamp: asText(entry.timestamp),
     };
   }
@@ -55,19 +78,22 @@ const toTranscriptRow = (entry: Readonly<Record<string, unknown>>): TranscriptRo
   // `system` rather than `agent`: it is the daemon's own default for an entry
   // with no role, and painting an unattributed row in the agent's colour claims
   // the agent said something it did not.
-  return { kind: "message", role: asString(entry.role, "system"), body: asString(entry.body, asString(entry.line)) };
+  return {
+    kind: "message",
+    role: asString(entry.role, "system"),
+    body: asString(entry.body, asString(entry.line)),
+    tool: asText(entry.tool),
+  };
 };
 
 /** Normalises one server event-key payload into an {@link EventKey}. */
-const toEventKey = (event: Readonly<Record<string, unknown>>): EventKey =>
-  event.kind === "live"
-    ? { kind: "live", badge: "LIVE", text: asString(event.label, "LIVE"), time: "" }
-    : {
-        kind: "event",
-        badge: asString(event.badge, "INFO"),
-        text: asString(event.text, asString(event.label, "EVENT")),
-        time: asString(event.time),
-      };
+const toEventKey = (event: Readonly<Record<string, unknown>>): EventKey => ({
+  kind: event.kind === "live" ? "live" : "event",
+  badge: event.kind === "live" ? "AGENT" : asString(event.badge, "INFO"),
+  text: asString(event.text, asString(event.label, event.kind === "live" ? "LIVE" : "EVENT")),
+  time: asString(event.time),
+  start: asNumber(event.start),
+});
 
 export interface ControllerState {
   readonly mode: ControllerMode;
@@ -152,18 +178,45 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   let chordActive = false;
   let transcriptHistory: readonly TranscriptRow[] = [];
   /**
-   * Index in the flattened transcript where each event's entries begin.
-   *
-   * The daemon flattens the transcript as an `event_header` followed by that
-   * event's chat entries, newest event first, so the header positions are the
-   * jump targets for the log keys — no extra wire message is needed to find
-   * them. Position `n` here belongs to event key `n + 1`, because key 0 is the
-   * LIVE row rather than an event.
+   * Jump target for each key, in key order, taken from the feed's own `start`
+   * field. The last entry is LIVE's, which is the newest row.
    */
   let eventStarts: readonly number[] = [];
   let eventHistory: readonly EventKey[] = [];
   let eventMaxOffset = 0;
   let chatMaxOffset = 0;
+  /** True once a logs payload has been applied, so the first one can open at the end. */
+  let logsSeen = false;
+  const typewriter = createTypewriter();
+
+  /**
+   * The five rows painted for a reading position.
+   *
+   * The position and the window are deliberately different things. Every row
+   * has to be addressable as a position, because an event whose header lands in
+   * the last few rows — one published after the agent's last word, which is
+   * most of them — must still be somewhere a key press can go. But a window
+   * that literally started at the last row would paint one line above four
+   * blank ones, which is not what "scroll fully right" looks like in any chat
+   * client. So the window stops at the end while the position keeps going,
+   * exactly as a scroll view does.
+   */
+  const visibleRows = (offset: number): readonly TranscriptRow[] => {
+    const rows = typewriter.render(transcriptHistory);
+    const start = Math.max(0, Math.min(offset, rows.length - CHAT_WINDOW_ROWS));
+    return rows.slice(start, start + CHAT_WINDOW_ROWS);
+  };
+
+  /** Drops every position that is an index into one agent's transcript. */
+  const forgetLogs = (): void => {
+    transcriptHistory = [];
+    eventHistory = [];
+    eventStarts = [];
+    eventMaxOffset = 0;
+    chatMaxOffset = 0;
+    logsSeen = false;
+    typewriter.forget();
+  };
 
   const publish = (next: ControllerState): void => {
     if (JSON.stringify(next) === JSON.stringify(state)) return;
@@ -195,18 +248,31 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
    * scroll and the event-key jumps, where a highlight on a key the operator
    * cannot see would look like the highlight is broken.
    */
-  const setLogsOffsets = (eventOffset: number, chatOffset: number, follow = true): void => {
+  const setLogsOffsets = (eventOffset: number, chatOffset: number, follow = true, pressed?: number): void => {
     const maxChat = chatMaxOffset;
     const boundedChat = Math.max(0, Math.min(chatOffset, maxChat));
-    const selectedEvent = eventKeyAtOffset(eventStarts, boundedChat);
+    // A press says which key it was; only a scroll has to infer it.
+    //
+    // Inference alone could not tell the two apart at one particular offset: an
+    // event published after the agent's last word — `ci.passed`, `pr.merged`, a
+    // resolved decision, all of which arrive with no transcript under them —
+    // has its header as the final row, so its jump target and LIVE's are the
+    // same number. Whichever way that tie broke, one of the two keys became
+    // permanently unselectable.
+    const selectedEvent = pressed ?? selectedKeyAtOffset(eventStarts, boundedChat, maxChat);
     const requested = Math.max(0, Math.min(eventOffset, eventMaxOffset));
     const boundedEvent = follow && selectedEvent !== null ? ensureEventVisible(requested, selectedEvent, eventMaxOffset) : requested;
+    // Typing only reads as typing at the live end of the log, on the surface
+    // that shows it. `setLogs` also runs in grid and cmd mode, and arming the
+    // reveal there left it primed: the operator opened logs to a blank newest
+    // row that then typed out a message minutes old.
+    typewriter.observe(transcriptHistory, state.mode === "logs" && boundedChat >= maxChat);
     publish({
       ...state,
       eventOffset: boundedEvent,
       chatOffset: boundedChat,
       eventLines: eventHistory,
-      transcriptRows: transcriptHistory.slice(boundedChat, boundedChat + CHAT_WINDOW_ROWS),
+      transcriptRows: visibleRows(boundedChat),
       eventHasPrevious: boundedEvent > 0,
       eventHasNext: boundedEvent < eventMaxOffset,
       chatHasPrevious: boundedChat > 0,
@@ -222,9 +288,18 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
    * window from the retained history; without it the strip stayed blank until
    * the daemon happened to push again.
    */
+  /**
+   * Opens the logs surface at the live end.
+   *
+   * Entering logs used to land on offset 0, which under the old newest-first
+   * flattening was the newest entry and under the current oldest-first
+   * flattening would be the ticket's very first line. Either way the operator
+   * opened logs to see what the agent is doing *now*, so the surface opens
+   * scrolled fully right — the same place the LIVE key jumps to.
+   */
   const enterLogs = (): void => {
     publish({ ...state, mode: "logs", micHeld: false });
-    setLogsOffsets(state.eventOffset, state.chatOffset);
+    setLogsOffsets(eventMaxOffset, chatMaxOffset);
   };
 
   const back = (): void => {
@@ -235,31 +310,28 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
   const pressKey = (index: number): void => {
     const grid = options.grid();
     if (state.mode === "logs") {
-      // Pressing an event key scrolls the transcript to where that event
-      // begins; the LIVE row jumps to the newest entry. Dial A still scrolls
-      // freely from wherever the jump landed.
+      // Pressing a key scrolls the transcript to that key's own start. LIVE is
+      // not a special case: its start is the newest row, so the same line of
+      // code serves both, and the selection that follows is derived from where
+      // the scroll landed — which is what makes exactly one of {LIVE, an event}
+      // active at a time.
       const position = state.eventOffset + index;
       const entry = eventHistory[position];
       if (entry === undefined) return;
-      if (entry.kind === "live") {
-        // LIVE is a jump to the newest entry, not an event. The highlight that
-        // follows lands on the newest *event* key, because that is the event
-        // the transcript is now showing — LIVE itself is never "the event the
-        // strip is reading".
-        setLogsOffsets(state.eventOffset, 0);
-        return;
-      }
-      // An event with no header in the transcript has nowhere to scroll to, so
-      // the press is inert rather than silently jumping to the newest entry —
-      // which is the LIVE key's job and would look like the wrong key fired.
-      const target = eventStarts[position - 1];
-      if (target === undefined) return;
-      setLogsOffsets(state.eventOffset, target);
+      setLogsOffsets(state.eventOffset, entry.start, true, position);
       return;
     }
     if (state.mode === "grid") {
       const identifier = identifierOf(agentAt(grid, state.columnOffset, index));
       if (identifier !== null) {
+        // Switching to a *different* agent invalidates every logs position:
+        // offsets and the typing reveal are indices into that agent's
+        // transcript, and carrying them over would open the new agent's log at
+        // an offset computed from the old one's. The first focus of a session
+        // is not a switch — the daemon commonly pushes logs before the operator
+        // presses anything, and discarding that payload would blank the surface
+        // until the next flush.
+        if (state.focusedIdentifier !== null && identifier !== state.focusedIdentifier) forgetLogs();
         options.channel()?.focus(identifier);
         publish({ ...state, mode: "cmd", focusedIdentifier: identifier });
       }
@@ -389,10 +461,7 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       eventHistory = (logs.event_keys ?? []).map(toEventKey);
       const transcript = logs.transcript ?? [];
       transcriptHistory = transcript.map(toTranscriptRow);
-      eventStarts = transcript.reduce<number[]>((starts, entry, index) => {
-        if (entry.kind === "event_header") starts.push(index);
-        return starts;
-      }, []);
+      eventStarts = eventHistory.map((event) => event.start);
       eventMaxOffset = typeof logs.events_max_offset === "number" ? logs.events_max_offset : Math.max(0, eventHistory.length - 8);
       // Every row must be reachable as a window *start*, not just visible in
       // some window. The daemon flattens newest event first, so the oldest
@@ -405,17 +474,62 @@ export const createPhysicalController = (options: PhysicalControllerOptions) => 
       //
       // Never taken from the server's `transcript_max_offset`: how many rows
       // fit is a client render decision the server cannot know.
+      const previousMax = chatMaxOffset;
+      const previousStarts = eventStarts;
+      const previousSelection = state.selectedEvent;
+      const previousChat = state.chatOffset;
+      // Every row stays addressable as a reading position, because an event
+      // header in the last few rows must still be somewhere a key can jump to.
+      // What is clamped is the *painted* window, not the position — see
+      // `visibleRows`.
       chatMaxOffset = Math.max(0, transcriptHistory.length - 1);
       // A live logs push is a refresh, not a navigation command. Preserve the
-      // operator's two independent positions while the logs surface is open;
-      // the server offsets are only the initial position when entering logs.
-      const eventOffset = state.mode === "logs" ? state.eventOffset : logs.events_offset ?? 0;
-      // Entering logs opens on the newest entry, which is offset 0: the daemon
-      // flattens newest event first. Defaulting to the end of the list is the
-      // mock's convention, where the flat list runs oldest-first, and it opened
-      // the surface on the agent's oldest event instead of what it just said.
-      const transcriptOffset = state.mode === "logs" ? state.chatOffset : logs.transcript_offset ?? 0;
-      setLogsOffsets(eventOffset, transcriptOffset);
+      // operator's position while the logs surface is open — with one
+      // exception: while LIVE is the active key the view follows the feed,
+      // because that is the entire meaning of LIVE. Without this, the first new
+      // message after opening logs would push the newest row out of the window
+      // and the surface would silently stop being live.
+      //
+      // A first payload always follows live, even if the operator opened logs
+      // before it arrived: there was no reading position to preserve.
+      const following = !logsSeen || state.mode !== "logs" || previousChat >= previousMax;
+      logsSeen = true;
+      if (following) {
+        setLogsOffsets(eventMaxOffset, chatMaxOffset);
+        return;
+      }
+      // Carrying the *absolute* offset drifts. The daemon sends a sliding
+      // window of the newest transcript entries, so once a ticket passes that
+      // limit every new message shifts every row down one and a reader who has
+      // not touched a knob scrolls forward one row per flush. Carry how far
+      // into the selected event the operator was instead, and re-derive the
+      // absolute offset from that event's new header — which is exactly what
+      // the server does across its own refreshes.
+      const anchor = previousSelection === null ? undefined : previousStarts[previousSelection];
+      const into = anchor === undefined ? 0 : previousChat - anchor;
+      const rebased = previousSelection === null ? previousChat : (eventStarts[previousSelection] ?? previousChat) + into;
+      // `follow: false` — this branch is by definition "the operator is not
+      // following the feed", so a flush must not drag the key window back onto
+      // the selection. The server takes the same care in `restore_events_offset`
+      // and it would be undone here.
+      setLogsOffsets(state.eventOffset, rebased, false, previousSelection ?? undefined);
+    },
+    /**
+     * Advances the live-typing reveal by one frame.
+     *
+     * Returns true when the surface owes the device another repaint. The host
+     * owns the timer: the controller has no clock, which is what keeps every
+     * transition in this module testable without waiting on one.
+     */
+    tickTyping: (): boolean => {
+      if (state.mode !== "logs" || !typewriter.animating()) return false;
+      const more = typewriter.tick();
+      // `follow: false` — a frame of the reveal changes rendered text, nothing
+      // positional. Letting it re-run the chase dragged the event-key window
+      // back onto the selection every 40ms, so dial D was inert for the whole
+      // time the agent appeared to be typing.
+      setLogsOffsets(state.eventOffset, state.chatOffset, false, state.selectedEvent ?? undefined);
+      return more;
     },
     cancel: (): void => {
       pressed = new Set();

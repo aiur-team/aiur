@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { CHAT_WINDOW_ROWS, ensureEventVisible, eventKeyAtOffset } from "../../src/touchStrip/chatLog.js";
+import { CHAT_WINDOW_ROWS, ensureEventVisible, selectedKeyAtOffset } from "../../src/touchStrip/chatLog.js";
 
 describe("CHAT_WINDOW_ROWS", () => {
   it("shows more than the two rows the strip used to", () => {
@@ -8,28 +8,45 @@ describe("CHAT_WINDOW_ROWS", () => {
   });
 });
 
-describe("eventKeyAtOffset", () => {
-  // Headers at 0, 4 and 9; key n + 1 owns start n, because key 0 is LIVE.
-  const starts = [0, 4, 9];
+describe("selectedKeyAtOffset", () => {
+  // Three event headers at 0, 4 and 9, then LIVE — which is the last key, not
+  // the first, because the surface reads oldest-left to newest-right.
+  const starts = [0, 4, 9, 12];
+  const chatMax = 12;
 
   it("maps an offset to the event key that contains it", () => {
-    expect(eventKeyAtOffset(starts, 0)).toBe(1);
-    expect(eventKeyAtOffset(starts, 3)).toBe(1);
-    expect(eventKeyAtOffset(starts, 4)).toBe(2);
-    expect(eventKeyAtOffset(starts, 8)).toBe(2);
-    expect(eventKeyAtOffset(starts, 9)).toBe(3);
-    expect(eventKeyAtOffset(starts, 40)).toBe(3);
+    expect(selectedKeyAtOffset(starts, 0, chatMax)).toBe(0);
+    expect(selectedKeyAtOffset(starts, 3, chatMax)).toBe(0);
+    expect(selectedKeyAtOffset(starts, 4, chatMax)).toBe(1);
+    expect(selectedKeyAtOffset(starts, 8, chatMax)).toBe(1);
+    expect(selectedKeyAtOffset(starts, 9, chatMax)).toBe(2);
+    expect(selectedKeyAtOffset(starts, 11, chatMax)).toBe(2);
   });
 
   /**
-   * Entries can arrive ahead of the header they belong to. Highlighting nothing
-   * is honest there; snapping to the first key would claim the operator is
-   * reading an event they are not.
+   * Sitting on the newest row is what "live" means. This is the half of the
+   * selection contract that makes LIVE and an event mutually exclusive without
+   * either needing a rule of its own.
    */
-  it("selects nothing above the first header", () => {
-    expect(eventKeyAtOffset([2, 6], 0)).toBeNull();
-    expect(eventKeyAtOffset([2, 6], 1)).toBeNull();
-    expect(eventKeyAtOffset([], 0)).toBeNull();
+  it("selects LIVE at the end of the transcript, and only there", () => {
+    expect(selectedKeyAtOffset(starts, chatMax, chatMax)).toBe(3);
+    expect(selectedKeyAtOffset(starts, chatMax + 5, chatMax)).toBe(3);
+    expect(selectedKeyAtOffset(starts, chatMax - 1, chatMax)).not.toBe(3);
+  });
+
+  /**
+   * The origin anchor guarantees a key at offset 0, so "above every header"
+   * cannot happen. If a feed ever omits it, fall back to the first key rather
+   * than leaving the surface with nothing active — every offset belongs to
+   * something now.
+   */
+  it("falls back to the first key when the feed omits the origin anchor", () => {
+    expect(selectedKeyAtOffset([2, 6, 9], 0, 9)).toBe(0);
+    expect(selectedKeyAtOffset([2, 6, 9], 1, 9)).toBe(0);
+  });
+
+  it("has no selection when there are no keys at all", () => {
+    expect(selectedKeyAtOffset([], 0, 0)).toBeNull();
   });
 });
 
