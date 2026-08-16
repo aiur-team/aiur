@@ -27,7 +27,7 @@ defmodule Aiur.DogfoodHooksTest do
   test "dogfood config, hooks, and contributor guidance agree on the canonical branch" do
     assert {:ok, config} = YamlElixir.read_from_file(@config_path)
     dogfood_base = get_in(config, ["tracker", "base_branch"])
-    assert dogfood_base == "develop"
+    assert dogfood_base == "main"
 
     hooks = dogfood_hooks!()
     assert hooks["after_create"] =~ ~s(base_branch="${THIS_BASE_BRANCH:?THIS_BASE_BRANCH is required}")
