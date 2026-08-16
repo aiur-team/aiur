@@ -31,6 +31,22 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
   # `@status_timeout_ms` in `Aiur.AgentControlCLI`. A control query that reads
   # already-known state must finish well inside it.
   @cli_budget_ms 5_000
+
+  # A request deadline that has to contain a *successful* admission has to be
+  # larger than one local admission round trip. `Budget.acquire/2` runs the
+  # host-local broker by spawning `python3` and running a SQLite transaction,
+  # and `Transport` charges that to the request deadline before any HTTP work
+  # starts: measured in-VM, one acquire costs 126–308 ms on an idle developer
+  # machine, so the 300 ms this test used to install was smaller than the
+  # acquire it had to hold. On a loaded runner the broker port command is killed
+  # at the deadline, `Budget` reads a killed command as an unavailable broker,
+  # and the caller is handed a synthetic 429 ("GitHub core quota is exhausted
+  # locally", `@broker_failure_backoff_ms` = 5 s) without the endpoint ever
+  # being reached — the request under test never happens. The property below is
+  # about the *release* staying inside the deadline, so the deadline is sized to
+  # hold the admission in front of it with room to spare.
+  @locked_release_deadline_ms 1_500
+
   @crashing_owner_name :orchestrator_blocking_http_crashing_owner
   @stopping_owner_name :orchestrator_blocking_http_stopping_owner
 
@@ -647,13 +663,18 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     Application.put_env(:aiur, :github_budget_enabled?, true)
     Application.put_env(:aiur, :github_budget_dir, budget_dir)
-    Application.put_env(:aiur, :github_request_deadline_ms, 300)
+    Application.put_env(:aiur, :github_request_deadline_ms, @locked_release_deadline_ms)
 
     on_exit(fn ->
       restore_application_env(:github_budget_enabled?, previous_enabled)
       restore_application_env(:github_budget_dir, previous_dir)
       File.rm_rf(budget_dir)
     end)
+
+    # The first broker command against a new state directory also creates the
+    # SQLite schema. That is setup, not the behaviour under test, so it is paid
+    # for here rather than inside the deadline being measured.
+    assert %{inflight: %{}} = Budget.snapshot("locked-release-token")
 
     test_pid = self()
     {url, server} = controlled_json_endpoint(test_pid)
@@ -676,14 +697,23 @@ defmodule Aiur.Regression.OrchestratorBlockingHttpTest do
 
     on_exit(fn -> if Process.alive?(probe), do: Process.exit(probe, :kill) end)
 
-    assert_receive :release_request_started, 2_000
+    # Waits for a bounded event — the admission in front of the request, which
+    # cannot outlive the deadline it is charged to — not slack for a slow path.
+    assert_receive :release_request_started, 2 * @locked_release_deadline_ms
     lock = lock_budget_database(Budget.database_path())
     send(server, :finish_release_request)
 
-    assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 2_000
+    # Deliberately looser than the ceiling below, so a release that is bounded
+    # but bounded too generously is reported by the elapsed assertion with its
+    # real number rather than by a bare receive timeout.
+    assert_receive {:locked_release_result, {:ok, %{status: 200}}}, 5_000
     elapsed_ms = System.monotonic_time(:millisecond) - started_at
     assert elapsed_ms >= 250
-    assert elapsed_ms < 1_000
+
+    # A release that ignored the deadline would sit on the broker's SQLite
+    # `busy_timeout` (5 s), so the ceiling has to stay well below it to still
+    # catch the regression while leaving the deadline itself room to land.
+    assert elapsed_ms < 2 * @locked_release_deadline_ms
     assert answers?(pid)
     close_port(lock)
   end
