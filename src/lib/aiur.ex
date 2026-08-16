@@ -172,6 +172,10 @@ defmodule Aiur.Application do
       Aiur.RepoBase,
       Aiur.GitHub.AppTokenRefresher,
       Aiur.GitHub.Quota,
+      # The ElevenLabs account credit quota, read on its own schedule. Absent an
+      # API key it observes nothing at all, so an unconfigured account costs a
+      # boot-time config read and never a request.
+      Aiur.ElevenLabs.Quota,
       {Aiur.BuildOrder.TicketDetailCache, runtime_config?: true},
       {Aiur.BuildOrder.GraphProjection, runtime_config?: true},
       Aiur.Events.IdGenerator,

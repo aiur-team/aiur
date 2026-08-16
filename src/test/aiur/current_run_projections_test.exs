@@ -11,6 +11,7 @@ defmodule Aiur.CurrentRunProjectionsTest do
 
   alias Aiur.CurrentRunOutcomeSnapshot.MembershipIndex
   alias Aiur.CurrentRunProjections.{Checkpoint, Projector}
+  alias AiurWeb.OperatorControlCenter.RunSummaryPresenter
 
   test "refreshes both projections, publishes changes, and serves read APIs" do
     {source, owner, pubsub} = start_owner()
@@ -92,6 +93,104 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert summary.eta.reason != :unhealthy_weight_facts
   end
 
+  test "missing current weight facts retain a current-facts-only progress figure" do
+    pending = identity(33)
+
+    {source, owner, _pubsub} =
+      start_owner(fn sources ->
+        sources
+        |> update_in([:membership, :members], &(&1 ++ [member(pending, :running, false)]))
+        |> update_in([:status, :running], &(&1 ++ [status_row(pending)]))
+        |> update_in([:activity, :entries], &(&1 ++ [activity_entry(pending, 80)]))
+      end)
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+    summary = CurrentRunSummary.snapshot(server: owner)
+
+    assert summary.health.status == :partial
+    assert summary.progress.exact == nil
+    assert summary.progress.current_facts.status == :settling
+    assert summary.progress.current_facts.value == %{numerator: 2, denominator: 5}
+    assert summary.progress.current_facts.current_member_count == 1
+    assert summary.progress.current_facts.total_member_count == 2
+    assert summary.progress.current_facts.missing_member_count == 1
+
+    view = RunSummaryPresenter.present(summary)
+    assert view.progress.kind == :partial
+    assert view.progress.percent == 40
+    assert view.eta.label == "ETA pending — progress inputs are still settling"
+    refute view.eta.label =~ "weight facts"
+
+    Agent.update(source, &Map.put(&1, :status, :timeout))
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    degraded = CurrentRunSummary.snapshot(server: owner)
+    assert :sys.get_state(owner).weight_health == :unavailable
+    assert degraded.progress.current_facts.status == :degraded
+    assert degraded.progress.current_facts.value == %{numerator: 2, denominator: 5}
+
+    degraded_view = RunSummaryPresenter.present(degraded)
+    assert degraded_view.progress.fact_status_label == "Refresh degraded"
+    assert degraded_view.eta.label == "ETA unavailable — progress refresh degraded"
+    refute degraded_view.eta.label =~ "weight facts"
+  end
+
+  test "retained facts for active members are excluded from current-facts progress" do
+    {source, owner, _pubsub} = start_owner()
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+    assert CurrentRunSummary.snapshot(server: owner).progress.current_facts.current_member_count == 1
+
+    Agent.update(source, &Map.put(&1, :status_facts, []))
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    summary = CurrentRunSummary.snapshot(server: owner)
+
+    assert summary.progress.exact == nil
+    assert summary.progress.current_facts.status == :settling
+    assert summary.progress.current_facts.value == nil
+    assert summary.progress.current_facts.current_member_count == 0
+    assert summary.progress.current_facts.total_member_count == 1
+    assert summary.progress.current_facts.missing_member_count == 1
+
+    settling_view = RunSummaryPresenter.present(summary)
+    assert settling_view.progress.kind == :pending
+    assert settling_view.progress.progress_status_label == "Progress not computed yet"
+    assert settling_view.progress.fact_status_label == "Still settling"
+
+    Agent.update(source, &Map.put(&1, :status, :timeout))
+    assert :ok = CurrentRunProjections.refresh(owner)
+
+    degraded_view =
+      owner
+      |> then(&CurrentRunSummary.snapshot(server: &1))
+      |> RunSummaryPresenter.present()
+
+    assert degraded_view.progress.kind == :pending
+    assert degraded_view.progress.progress_status_label == "Progress unavailable"
+    assert degraded_view.progress.fact_status_label == "Refresh degraded"
+  end
+
+  test "terminal retained facts remain current progress inputs" do
+    {source, owner, _pubsub} = start_owner(fn _sources -> weighted_sources() end)
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+    assert CurrentRunSummary.snapshot(server: owner).progress.current_facts.current_member_count == 3
+
+    Agent.update(source, fn sources ->
+      Map.put(sources, :status_facts, [List.last(sources.status_facts)])
+    end)
+
+    assert :ok = CurrentRunProjections.refresh(owner)
+    summary = CurrentRunSummary.snapshot(server: owner)
+
+    assert summary.health.status == :healthy
+    assert summary.progress.exact == %{numerator: 3, denominator: 5}
+    assert summary.progress.current_facts.value == %{numerator: 3, denominator: 5}
+    assert summary.progress.current_facts.current_member_count == 3
+    assert summary.progress.current_facts.missing_member_count == 0
+  end
+
   test "malformed activity degrades and a later timeout cannot crash the owner" do
     {source, owner, _pubsub} = start_owner()
     :ok = CurrentRunProjections.refresh(owner)
@@ -146,6 +245,14 @@ defmodule Aiur.CurrentRunProjectionsTest do
     assert issue_stale.sources.issue_health == :degraded
     assert issue_stale.sources.weight_health == :unavailable
     assert issue_stale.freshness.status == :stale
+    assert issue_stale.progress.current_facts.status == :degraded
+    assert issue_stale.progress.current_facts.value == nil
+    assert issue_stale.progress.current_facts.current_member_count == 0
+
+    issue_view = RunSummaryPresenter.present(issue_stale)
+    assert issue_view.progress.kind == :pending
+    assert issue_view.progress.progress_status_label == "Progress unavailable"
+    assert issue_view.progress.fact_status_label == "Refresh degraded"
     assert issue_stale.last_known_good.generation == good.generation
     assert Process.alive?(owner)
   end

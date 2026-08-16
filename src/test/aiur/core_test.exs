@@ -18,6 +18,7 @@ defmodule Aiur.CoreTest do
 
     def fetch_issues_by_states(_states), do: {:ok, []}
     def fetch_issues_by_states(_states, _opts), do: {:ok, []}
+    def hydrate_blocked_by(issue), do: {:ok, issue}
   end
 
   defp stop_test_orchestrator(pid) when is_pid(pid) do

@@ -142,6 +142,114 @@ defmodule Aiur.Orchestrator.DispatcherTest do
                    2_000
   end
 
+  describe "dispatch_issue blocked_by dependency gate" do
+    test "skips dispatch when revalidation hydration reveals a non-terminal blocker" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "blocked-ticket",
+        identifier: "repo#blocked-ticket",
+        title: "blocked ticket",
+        state: "todo"
+      }
+
+      hydrated = %{issue | blocked_by: [%{id: "5", identifier: "5", state: "in-progress"}]}
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      log =
+        capture_log(fn ->
+          next_state =
+            Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, issue, nil, nil,
+              issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+              blocked_by_hydrator: fn _issue -> {:ok, hydrated} end,
+              runner: runner
+            )
+
+          refute Map.has_key?(next_state.running, issue.id)
+          refute MapSet.member?(next_state.claimed, issue.id)
+        end)
+
+      refute_receive {:agent_runner_run, _, _, _}, 100
+      assert log =~ "blocked by a non-terminal dependency"
+    end
+
+    test "holds dispatch (fail-closed) with an attention decline when hydration fails" do
+      candidate = issue("hydration-failed")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> {:error, :dependencies_unavailable} end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
+
+      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+      assert_receive {:alert,
+                      %{
+                        name: ^attention_name,
+                        reason: reason,
+                        needs_attention: true
+                      }},
+                     2_000
+
+      assert reason =~ "dependency_hydration_failed"
+      refute Map.has_key?(declined.running, candidate.id)
+    end
+
+    test "holds dispatch when hydration returns an unexpected shape (fail-closed, no crash)" do
+      candidate = issue("hydration-odd-result")
+      :ok = AgentPubSub.subscribe_agent(candidate.identifier)
+
+      declined =
+        Dispatcher.dispatch_issue(%State{effective_concurrent_agents: 4}, candidate, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{candidate | id: id}]} end,
+          blocked_by_hydrator: fn _issue -> :bogus end
+        )
+
+      assert declined.dispatch_declines[candidate.id] == :dependency_hydration_failed
+
+      attention_name = "ticket.#{candidate.id}.agent.attention.dispatch-declined"
+
+      assert_receive {:alert, %{name: ^attention_name, needs_attention: true}}, 2_000
+      refute Map.has_key?(declined.running, candidate.id)
+    end
+
+    test "dispatches normally when hydration finds no blockers" do
+      test_pid = self()
+
+      issue = %Issue{
+        id: "unblocked-ticket",
+        identifier: "repo#unblocked-ticket",
+        title: "unblocked ticket",
+        state: "todo",
+        selected_backend: "codex"
+      }
+
+      runner = fn dispatched, recipient, opts ->
+        send(test_pid, {:agent_runner_run, dispatched, recipient, opts})
+        :ok
+      end
+
+      next_state =
+        Dispatcher.dispatch_issue(%State{max_concurrent_agents: 4, effective_concurrent_agents: 4}, issue, nil, nil,
+          issue_fetcher: fn [id] -> {:ok, [%{issue | id: id}]} end,
+          blocked_by_hydrator: fn refreshed -> {:ok, refreshed} end,
+          runner: runner
+        )
+
+      assert_receive {:agent_runner_run, dispatched, _recipient, _opts}
+      assert dispatched.id == issue.id
+      assert Map.has_key?(next_state.running, issue.id)
+    end
+  end
+
   defp dispatch_recovery(codex_thrash_budget) do
     %{
       workspace_ownership: %{waits: %{}, ready: %{}},
