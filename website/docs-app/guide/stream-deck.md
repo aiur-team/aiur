@@ -71,6 +71,53 @@ Set `AIUR_PHOENIX_URL`, `AIUR_DASHBOARD_USERNAME`, and `AIUR_DASHBOARD_PASSWORD`
 
 The [direct-HID transport runbook](https://github.com/aiur-team/aiur/blob/develop/packages/streamdeck/README.md) covers the archive, device access, pairing, and recovery workflow. [#1358](https://github.com/aiur-team/aiur/issues/1358) remains the terminal end-to-end evidence ticket for the physical surface.
 
+## Voice input
+
+Voice input lets the sidecar capture speech from a microphone attached to the machine it runs on, transcribe it to English text, and deliver that text to an agent through the same AgentChat path the Dashboard composer uses. Nothing about the delivery is new: a spoken message and a typed message arrive at the agent identically.
+
+::: info Deck controls land separately
+This release adds the capture pipeline, the transcription integration and the configuration described below. The microphone and settings keys that drive it from the deck follow in a later change; until then this section is the integration and privacy reference rather than a walkthrough.
+:::
+
+### Configure it
+
+Voice input needs an ElevenLabs API key. Add it with `aiur init`, which offers the question during a fresh setup and backfills it into an existing config, or write the section by hand:
+
+```yaml
+elevenlabs:
+  api_key: $ELEVENLABS_API_KEY
+  language_code: eng
+```
+
+Prefer the `$ELEVENLABS_API_KEY` reference over pasting the key into the file. See [Configuration](/reference/configuration) for the field reference.
+
+A configured key also puts an ElevenLabs meter on the Dashboard Units page. It reads the account **credit quota** and shows credits remaining; ElevenLabs publishes no dollar balance, so no cost figure is shown. Note that it is not a meter of what dictation costs: speech-to-text bills per minute of audio, while the character quota is primarily the text-to-speech credit pool. See [API meters](/guide/executor-control-center#api-meters).
+
+### Without a key
+
+The key is optional and its absence is not an error. Microphone selection and the level meters keep working, because with no key configured there is nowhere for audio to be sent. Only transcription is unavailable, and the deck reports why rather than failing silently.
+
+### Where your voice goes
+
+This is the one part of Aiur that sends operator data to a third party, so it is worth stating plainly:
+
+- When a key **is** configured, microphone audio is streamed to ElevenLabs and the transcribed text is returned. That audio and that text leave your machine.
+- When a key is **not** configured, no audio leaves your machine and no connection to ElevenLabs is opened.
+- Audio is captured only while dictation is explicitly held open. There is no always-on listening and no wake word.
+- Transcripts are held in memory until they are sent or discarded; the sidecar does not write them to disk.
+
+### Key handling
+
+`ELEVENLABS_API_KEY` is a secret and is treated as one. It is covered by the agent-environment scrubbing that strips every `*_API_KEY` variable from the environment of coding agents, so an agent cannot read it, and it is never written to a log line. It is passed to ElevenLabs in a request header, never in a URL, because URLs are what end up in error messages.
+
+### Audio path
+
+Microphones are enumerated with `pw-dump` on a PipeWire host, falling back to `pactl` on a PulseAudio one. Both see ALSA, USB and Bluetooth microphones through a single interface, which the ALSA card list does not — `arecord -l` misses Bluetooth devices entirely. Monitor sources, which are loopbacks of an output rather than microphones, are never offered.
+
+Capture uses `parec` at 16 kHz mono PCM — the format the transcription endpoint accepts without resampling — and streams it over a websocket, so text comes back while you are still speaking rather than after you release the key. Audio is captured in 20 ms chunks to drive the level meters smoothly and re-grouped into roughly 100 ms frames for transcription.
+
+If a microphone stops producing audio, capture reports it rather than appearing to listen: a recorder given a device that has gone away otherwise waits indefinitely without a diagnostic.
+
 ## Shared key-face contract
 
 The browser emulator and the sidecar package share a data-only key-face contract for bucket rank, labels, colours, progress hue, log direction badges, and queued-agent readiness. Parity vectors verify those renderer building blocks, and a missing or non-true queued readiness flag fails closed as **Blocked**, rather than displaying a guessed “Unblocked” state.

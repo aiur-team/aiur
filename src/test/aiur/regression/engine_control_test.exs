@@ -417,12 +417,7 @@ defmodule Aiur.Regression.EngineControlTest do
       state = tmp_state()
       on_exit(fn -> File.rm_rf(state) end)
 
-      shapes = [
-        {"silent nonzero exit", "#!/usr/bin/env bash\nexit 1\n", "1"},
-        {"nonzero marker, no output", "#!/usr/bin/env bash\necho \"__AIUR_CONTROL_EXIT__:1\"\n", "1"},
-        {"no marker at all", "#!/usr/bin/env bash\n", "1"},
-        {"hung rpc", "#!/usr/bin/env bash\nsleep 5\n", "1"}
-      ]
+      shapes = silent_failure_shapes()
 
       for command <- ~w(status agents watch alerts usage commands analytics),
           {shape, body, timeout_seconds} <- shapes do
@@ -439,7 +434,7 @@ defmodule Aiur.Regression.EngineControlTest do
               {"AIUR_BG_STATE_DIR", state},
               {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", timeout_seconds}
             ],
-            ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND=#{command}|
+            ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='#{command}'|
           )
 
         context = "#{command} / #{shape}: #{out}"
@@ -447,6 +442,95 @@ defmodule Aiur.Regression.EngineControlTest do
         refute out =~ "CODE=0", context
         assert out =~ ~r/STDERR_LINES=[1-9]/, context
         assert out =~ "aiur: #{command} ", context
+      end
+    end
+
+    test "every mutating command exits non-zero with stderr on each silent-failure shape (#1736)" do
+      state = tmp_state()
+      on_exit(fn -> File.rm_rf(state) end)
+
+      shapes = silent_failure_shapes()
+
+      commands = [
+        {"set max-agents", "Aiur.AgentControlCLI.set_max_agents(2)"},
+        {"pause", ~s|Aiur.AgentControlCLI.pause(["44"])|},
+        {"resume", ~s|Aiur.AgentControlCLI.resume(["44"])|},
+        {"reset-budget", ~s|Aiur.AgentControlCLI.reset_budget(["44"])|},
+        {"pause", "Aiur.AgentControlCLI.pause_global()"},
+        {"resume", "Aiur.AgentControlCLI.resume_global()"}
+      ]
+
+      for {command, expression} <- commands,
+          {shape, body, timeout_seconds} <- shapes do
+        rel = fake_release()
+        File.write!(Path.join([rel, "bin", "aiur"]), body)
+        File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+        on_exit(fn -> File.rm_rf(rel) end)
+
+        {out, 0} =
+          run_control_rpc_captured(
+            expression,
+            [
+              {"AIUR_RELEASE_DIR", rel},
+              {"AIUR_BG_STATE_DIR", state},
+              {"AIUR_CONTROL_RPC_TIMEOUT_SECONDS", timeout_seconds}
+            ],
+            ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='#{command}'|
+          )
+
+        context = "#{command} / #{shape}: #{out}"
+
+        refute out =~ "CODE=0", context
+        assert out =~ "STDOUT_BYTES=0", context
+        assert out =~ ~r/STDERR_LINES=[1-9]/, context
+        assert out =~ "aiur: #{command} ", context
+      end
+    end
+
+    test "real mutating entrypoint errors cross the launcher marker seam (#1736)" do
+      state = tmp_state()
+      rel = fake_release()
+
+      File.write!(Path.join([rel, "bin", "aiur"]), """
+      #!/usr/bin/env bash
+      set -euo pipefail
+      cd "$AIUR_SOURCE_ROOT"
+      exec mise exec -- mix run --no-start -e "${@: -1}" 2>/dev/null
+      """)
+
+      File.chmod!(Path.join([rel, "bin", "aiur"]), 0o755)
+
+      on_exit(fn ->
+        File.rm_rf(rel)
+        File.rm_rf(state)
+      end)
+
+      commands = [
+        {"set max-agents", "Aiur.AgentControlCLI.set_max_agents(2)"},
+        {"pause", ~s|Aiur.AgentControlCLI.pause(["44"])|},
+        {"resume", ~s|Aiur.AgentControlCLI.resume(["44"])|},
+        {"reset-budget", ~s|Aiur.AgentControlCLI.reset_budget(["44"])|},
+        {"pause", "Aiur.AgentControlCLI.pause_global()"},
+        {"resume", "Aiur.AgentControlCLI.resume_global()"}
+      ]
+
+      for {command, expression} <- commands do
+        {out, 0} =
+          run_control_rpc_captured(
+            expression,
+            [
+              {"AIUR_RELEASE_DIR", rel},
+              {"AIUR_BG_STATE_DIR", state},
+              {"AIUR_SOURCE_ROOT", Path.expand("../../..", __DIR__)},
+              {"MIX_ENV", "test"}
+            ],
+            ~s|probe_node_liveness() { printf up; }\nAIUR_CONTROL_COMMAND='#{command}'|
+          )
+
+        context = "#{command}: #{out}"
+        assert out =~ "CODE=1", context
+        assert out =~ "STDOUT_BYTES=0", context
+        assert out =~ ~r/STDERR_LINES=[1-9]/, context
       end
     end
 
@@ -697,6 +781,15 @@ defmodule Aiur.Regression.EngineControlTest do
 
   defp run_control_rpc_captured(expression, env, prelude \\ "") do
     run_control_captured("run_control_rpc", expression, env, prelude)
+  end
+
+  defp silent_failure_shapes do
+    [
+      {"silent nonzero exit", "#!/usr/bin/env bash\nexit 1\n", "1"},
+      {"nonzero marker, no output", "#!/usr/bin/env bash\necho \"__AIUR_CONTROL_EXIT__:1\"\n", "1"},
+      {"no marker at all", "#!/usr/bin/env bash\n", "1"},
+      {"hung rpc", "#!/usr/bin/env bash\nsleep 5\n", "1"}
+    ]
   end
 
   defp run_control_captured(function, expression, env, prelude \\ "") do

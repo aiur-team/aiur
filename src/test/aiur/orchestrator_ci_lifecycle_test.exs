@@ -19,6 +19,8 @@ defmodule Aiur.OrchestratorCILifecycleTest do
       {:ok, Enum.filter(issues, &(&1.id in issue_ids))}
     end
 
+    def hydrate_blocked_by(issue), do: {:ok, issue}
+
     def update_issue_state(issue_id, state_name) do
       record_update(issue_id, state_name, [])
     end

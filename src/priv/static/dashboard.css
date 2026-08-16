@@ -3741,6 +3741,22 @@ html[data-theme="light"] .toggle-icon .moon {
   gap: 1rem;
 }
 
+/* The APIS pane holds one row per non-model API (GitHub, and ElevenLabs when an
+   account is configured), stacked with the same rhythm the models pane uses so
+   the two panes read as one strip. */
+.rs-apis-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.rs-api {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
 /* One model per row, reusing the head + limits vocabulary the provider cards
    used. Rows are separated by the container's gap, not hairlines, so the pane
    reads as one continuous block. */

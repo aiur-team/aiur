@@ -1,5 +1,9 @@
 defmodule Aiur.AgentEnvironmentTest do
-  use ExUnit.Case, async: true
+  # Not async: every test here mutates process-global `System.put_env` state
+  # (including the ELEVENLABS_API_KEY credential case), which raced concurrent
+  # BuildGate readers and made `AIUR_BUILD_START_STAGGER_SECONDS` observe another
+  # module's value (#1920).
+  use ExUnit.Case, async: false
 
   alias Aiur.AgentEnvironment
   alias Aiur.GitHub.Budget
@@ -347,6 +351,35 @@ defmodule Aiur.AgentEnvironmentTest do
     assert output == "GITHUB_TOKEN=tracker-token\n"
   end
 
+  # ELEVENLABS_API_KEY is the Stream Deck voice-input credential the daemon reads.
+  # It ends in `_API_KEY`, so all three scrub surfaces already cover it; this is
+  # the regression guard that keeps it that way.
+  test "the ElevenLabs voice-input key is scrubbed from an agent workspace env" do
+    previous = System.get_env("ELEVENLABS_API_KEY")
+    System.put_env("ELEVENLABS_API_KEY", "elevenlabs-secret")
+    on_exit(fn -> restore_env("ELEVENLABS_API_KEY", previous) end)
+
+    assert {~c"ELEVENLABS_API_KEY", false} in AgentEnvironment.workspace_env("/work/aiur/1920")
+    assert "ELEVENLABS_API_KEY" in AgentEnvironment.provider_credential_env_names()
+
+    command = AgentEnvironment.scrub_shell_command("env | grep -E '^(ELEVENLABS_API_KEY|GITHUB_TOKEN)=' | sort")
+
+    {output, 0} =
+      System.cmd("bash", ["-lc", command], env: [{"ELEVENLABS_API_KEY", "elevenlabs-secret"}, {"GITHUB_TOKEN", "tracker-token"}])
+
+    assert output == "GITHUB_TOKEN=tracker-token\n"
+
+    # The SSH-launch path inlines the same scrub prefix, so the remote export
+    # block drops it too.
+    prefix = AgentEnvironment.workspace_env_export_prefix("/work/aiur/1920", base_branch: "main")
+
+    {remote_output, 0} =
+      System.cmd("bash", ["-lc", "#{prefix}; printf '[%s]' \"${ELEVENLABS_API_KEY:-}\""], env: [{"ELEVENLABS_API_KEY", "elevenlabs-secret"}, {"HOME", "/remote-home"}])
+
+    assert remote_output =~ "[]"
+    refute remote_output =~ "elevenlabs-secret"
+  end
+
   test "scrub_shell_command preserves caller exec choice" do
     refute AgentEnvironment.scrub_shell_command("codex app-server") =~ "; exec codex"
     assert AgentEnvironment.scrub_shell_command("codex app-server", exec: true) =~ "; exec codex app-server"
@@ -409,6 +442,19 @@ defmodule Aiur.AgentEnvironmentTest do
 
       assert {~c"AIUR_REAL_GH", real_gh} = List.keyfind(env, ~c"AIUR_REAL_GH", 0)
       assert is_list(real_gh) or real_gh == false
+
+      assert {~c"AIUR_GITHUB_LABEL_PREFIX", ~c"agent"} =
+               List.keyfind(env, ~c"AIUR_GITHUB_LABEL_PREFIX", 0)
+
+      custom_env =
+        AgentEnvironment.workspace_env("/work/aiur/440",
+          base_branch: "integration",
+          repo_url: repo_url,
+          label_prefix: "team"
+        )
+
+      assert {~c"AIUR_GITHUB_LABEL_PREFIX", ~c"team"} =
+               List.keyfind(custom_env, ~c"AIUR_GITHUB_LABEL_PREFIX", 0)
 
       assert {~c"AIUR_REAL_GIT", real_git} = List.keyfind(env, ~c"AIUR_REAL_GIT", 0)
       assert is_list(real_git) or real_git == false
@@ -507,6 +553,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "AIUR_REPO_STATE_PATH='~/.aiur/repo/owner/project'"
       assert prefix =~ "AIUR_REPO_STATE_PATH=\"$HOME/${AIUR_REPO_STATE_PATH#\\~/}\""
       assert prefix =~ "AIUR_REAL_GH=\nAIUR_REAL_GIT=\"$(command -v git"
+      assert prefix =~ "AIUR_GITHUB_LABEL_PREFIX='agent'"
       assert prefix =~ "AIUR_GITHUB_BUDGET_CONSUMER='workspace:/work/aiur/440'"
       assert prefix =~ "AIUR_GITHUB_BUDGET_ROOT='~/.aiur/github-budget'"
       assert prefix =~ "AIUR_GITHUB_BUDGET_BROKER='/work/aiur/440/.aiur-runtime/bin/aiur-github-budget'"
@@ -525,6 +572,15 @@ defmodule Aiur.AgentEnvironmentTest do
       assert prefix =~ "*_API_KEY"
       refute prefix =~ Aiur.RepoBase.repo_path(repo_url)
       refute prefix =~ "elixir/mise.toml"
+
+      custom_prefix =
+        AgentEnvironment.workspace_env_export_prefix("/work/aiur/440",
+          base_branch: "integration",
+          repo_url: repo_url,
+          label_prefix: "team"
+        )
+
+      assert custom_prefix =~ "AIUR_GITHUB_LABEL_PREFIX='team'"
 
       {paths, 0} =
         System.cmd("sh", ["-lc", "#{prefix}; printf '%s|%s|%s|%s' \"$HEX_HOME\" \"$MIX_HOME\" \"$npm_config_cache\" \"$AIUR_REPO_STATE_PATH\""], env: [{"HOME", "/remote-home"}])
@@ -630,4 +686,7 @@ defmodule Aiur.AgentEnvironmentTest do
       assert resolved == "/tmp"
     end
   end
+
+  defp restore_env(name, nil), do: System.delete_env(name)
+  defp restore_env(name, value), do: System.put_env(name, value)
 end
