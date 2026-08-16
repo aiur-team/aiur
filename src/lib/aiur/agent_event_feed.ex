@@ -235,10 +235,31 @@ defmodule Aiur.AgentEventFeed do
       topic: Map.get(row, :topic),
       badge: badge_for_kind(kind),
       label: topic_label(Map.get(row, :topic)),
-      body: row |> Map.get(:summary, "") |> to_string() |> String.trim(),
+      body: row |> Map.get(:summary, "") |> to_string() |> scrub() |> String.trim(),
       timestamp: Map.get(row, :ts)
     }
   end
+
+  @doc """
+  Drops any byte that is not valid UTF-8.
+
+  `summarize/1` now slices by graphemes, so nothing new can be written badly —
+  but a log written by an older build is already on disk, and this is the read
+  side. An invalid byte here does not merely render oddly: `Jason` raises
+  `EncodeError` on it, Phoenix's serializer calls `encode_to_iodata!/1` from the
+  **socket transport** process, and the raise therefore tears down the whole
+  Stream Deck socket — grid, usage and logs together. The sidecar reconnects,
+  re-reads the same durable line, and dies again, so a single bad byte is a
+  permanent outage that survives restarting both ends.
+  """
+  @spec scrub(String.t()) :: String.t()
+  def scrub(value) when is_binary(value) do
+    if String.valid?(value), do: value, else: scrub_bytes(value, "")
+  end
+
+  defp scrub_bytes(<<>>, acc), do: acc
+  defp scrub_bytes(<<char::utf8, rest::binary>>, acc), do: scrub_bytes(rest, acc <> <<char::utf8>>)
+  defp scrub_bytes(<<_byte, rest::binary>>, acc), do: scrub_bytes(rest, acc)
 
   @doc """
   Direction badge for a bus marker kind.

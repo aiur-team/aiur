@@ -291,6 +291,26 @@ defmodule Aiur.AgentEventFeedTest do
       assert AgentEventFeed.bus_events(identifier) == []
     end
 
+    # A log written by an older build can hold a byte-sliced summary that is not
+    # valid UTF-8. `Jason` raises on such a byte, and Phoenix serialises from the
+    # socket transport process, so the raise would tear down the whole Stream
+    # Deck socket — then the sidecar reconnects, re-reads the same durable line
+    # and dies again. Scrubbing on read is what stops one bad byte from being a
+    # permanent outage.
+    test "survives a summary that is not valid UTF-8, and stays JSON-encodable", %{identifier: identifier} do
+      corrupt = binary_part("progress: 🚀 shipping", 0, 13)
+      refute String.valid?(corrupt)
+
+      write_bus_log(identifier, [
+        "2026-07-30T00:01:00Z [event:emit] id=1 ticket.#{identifier}.agent.progress: #{corrupt}"
+      ])
+
+      assert [event] = AgentEventFeed.bus_events(identifier)
+      assert String.valid?(event.body)
+      assert event.body == "progress:"
+      assert {:ok, _encoded} = Jason.encode(%{"body" => event.body})
+    end
+
     test "honours the limit so a long-lived ticket cannot flood the wire", %{identifier: identifier} do
       write_bus_log(
         identifier,
