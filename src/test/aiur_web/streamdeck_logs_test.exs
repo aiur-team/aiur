@@ -144,7 +144,7 @@ defmodule AiurWeb.StreamdeckLogsTest do
     assert Enum.map(logs.transcript, & &1.kind) == [:event_header]
     assert logs.transcript_max_offset == 0
     assert length(logs.event_keys_visible) == 8
-    assert Enum.map(logs.event_keys_visible, & &1.kind) == [:event, :live] ++ List.duplicate(:empty, 6)
+    assert Enum.map(logs.event_keys_visible, & &1.kind) == [:event] ++ List.duplicate(:empty, 6) ++ [:live]
     # Selecting past the end of a two-key list must not escape the window.
     assert StreamdeckLogs.select_event(logs, 9).selected_event_index == 1
   end
@@ -160,8 +160,66 @@ defmodule AiurWeb.StreamdeckLogsTest do
     logs = StreamdeckLogs.project(%{events: Enum.map(1..3, &bus(&1, "emit", "ticket.401.pr.opened", "e#{&1}", "2026-08-02T00:0#{&1}:00Z")), transcript: []})
 
     assert length(logs.event_keys_visible) == 8
-    assert Enum.map(logs.event_keys_visible, & &1.kind) == [:event, :event, :event, :event, :live] ++ List.duplicate(:empty, 3)
+    assert Enum.map(logs.event_keys_visible, & &1.kind) == [:event, :event, :event, :event] ++ List.duplicate(:empty, 3) ++ [:live]
     assert logs.events_max_offset == 0
+  end
+
+  # SP-1959: LIVE is a fixed control, not a list member. With several screens of
+  # events it must occupy the rightmost (bottom-right) key at every scroll
+  # position, and the seven event slots must be the contiguous page at that
+  # offset — oldest first, top-left.
+  test "LIVE is pinned to the last key at every scroll position" do
+    logs = StreamdeckLogs.project(%{events: Enum.map(1..20, &bus(&1, "emit", "ticket.401.pr.opened", "e#{&1}", stamp(&1))), transcript: []})
+    max_offset = length(logs.event_keys) - 1 - 7
+
+    assert logs.events_max_offset == max_offset
+    # Opening lands at the newest page, LIVE selected and still rightmost.
+    assert logs.events_offset == max_offset
+    assert logs.selected_event_id == :live
+    assert List.last(logs.event_keys_visible).kind == :live
+
+    for offset <- [0, 5, max_offset] do
+      at = StreamdeckLogs.scroll(logs, :events, offset - logs.events_offset)
+
+      assert length(at.event_keys_visible) == 8
+      assert List.last(at.event_keys_visible).kind == :live, "LIVE must stay pinned at offset #{offset}"
+      assert Enum.map(Enum.take(at.event_keys_visible, 7), & &1.index) == Enum.to_list(offset..(offset + 6))
+    end
+  end
+
+  # SP-1959: pinning removes one key from the window on every page, so the max
+  # offset pages by seven events, and scrolling fully left reaches the origin.
+  test "the event window pages by seven events and scrolling fully left reaches the origin" do
+    logs = StreamdeckLogs.project(%{events: Enum.map(1..10, &bus(&1, "emit", "ticket.401.pr.opened", "e#{&1}", stamp(&1))), transcript: []})
+
+    # 10 events + origin = 11 event keys + pinned LIVE = 12 keys; seven per page.
+    assert logs.events_max_offset == 4
+    assert logs.events_offset == 4
+
+    at_origin = StreamdeckLogs.scroll(logs, :events, -99)
+    assert at_origin.events_offset == 0
+    assert hd(at_origin.event_keys_visible).index == 0
+    assert hd(at_origin.event_keys_visible).kind == :event
+    assert List.last(at_origin.event_keys_visible).kind == :live
+  end
+
+  # Selection semantics from #1934 are unchanged: selecting LIVE returns to the
+  # newest page of events as well as the newest transcript row, matching the
+  # physical deck's chase — the window is not left showing an old page beside a
+  # LIVE key that says "now".
+  test "selecting LIVE moves the event window to the newest page" do
+    logs = StreamdeckLogs.project(%{events: Enum.map(1..12, &bus(&1, "emit", "ticket.401.pr.opened", "e#{&1}", stamp(&1))), transcript: []})
+
+    # 12 events + origin = 13 event keys + LIVE = 14 keys; max offset = 6.
+    assert logs.events_max_offset == 6
+
+    at_origin = StreamdeckLogs.scroll(logs, :events, -99)
+    assert at_origin.events_offset == 0
+
+    back_to_live = StreamdeckLogs.select_event(at_origin, length(at_origin.event_keys) - 1)
+    assert back_to_live.selected_event_id == :live
+    assert back_to_live.events_offset == back_to_live.events_max_offset
+    assert List.last(back_to_live.event_keys_visible).kind == :live
   end
 
   test "selection keeps the selected event in the eight-key window" do
@@ -266,7 +324,9 @@ defmodule AiurWeb.StreamdeckLogsTest do
     refreshed = StreamdeckLogs.refresh(logs, %{events: events, transcript: []})
 
     assert refreshed.events_offset == 3
-    assert Enum.map(refreshed.event_keys_visible, & &1.index) == Enum.to_list(3..10)
+    # The window holds seven events (indices 3..9) with LIVE pinned after them.
+    assert Enum.map(refreshed.event_keys_visible, & &1.index) == Enum.to_list(3..9) ++ [length(refreshed.event_keys) - 1]
+    assert List.last(refreshed.event_keys_visible).kind == :live
   end
 
   test "renders each flattened row as a line" do
